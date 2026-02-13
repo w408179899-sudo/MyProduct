@@ -1,0 +1,3764 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>VmmSharpEx</name>
+    </assembly>
+    <members>
+        <member name="T:VmmSharpEx.Extensions.Input.VmmInputManager">
+            <summary>
+            Extension class that queries user input state via Win32 Kernel Interop (Read-Only).
+            </summary>
+            <remarks>
+            NOTE: Only works on Windows Version 22000 and newer (Windows 11).
+            </remarks>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.Input.VmmInputManager.#ctor(VmmSharpEx.Vmm)">
+            <summary>
+            Extension class that queries user input state via Win32 Kernel Interop (Read-Only).
+            </summary>
+            <remarks>
+            NOTE: Only works on Windows Version 22000 and newer (Windows 11).
+            </remarks>
+            <param name="vmm">Parent VMM Instance (must be already initialized).</param>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.Input.VmmInputManager.UpdateKeys">
+            <summary>
+            Updates the internal key state bitmap. Call this method periodically to refresh key states.
+            </summary>
+            <remarks>
+            Typically you would call this before you make <see cref="M:VmmSharpEx.Extensions.Input.VmmInputManager.IsKeyDown(System.UInt32)"/> calls.
+            </remarks>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.Input.VmmInputManager.IsKeyDown(VmmSharpEx.Extensions.Input.Win32VirtualKey)">
+            <summary>
+            Checks if a given Virtual Key is currently down.
+            See: <see href="https://learn.microsoft.com/windows/win32/inputdev/virtual-key-codes"/>
+            </summary>
+            <remarks>
+            Recommend calling <see cref="M:VmmSharpEx.Extensions.Input.VmmInputManager.UpdateKeys"/> before calling this method to ensure the key states are up-to-date.
+            </remarks>
+            <param name="vkey">Windows virtual key.</param>
+            <returns><see langword="true"/> if key is down, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.Input.VmmInputManager.IsKeyDown(System.UInt32)">
+            <summary>
+            Checks if a given Virtual Key is currently down.
+            See: <see href="https://learn.microsoft.com/windows/win32/inputdev/virtual-key-codes"/>
+            </summary>
+            <remarks>
+            Recommend calling <see cref="M:VmmSharpEx.Extensions.Input.VmmInputManager.UpdateKeys"/> before calling this method to ensure the key states are up-to-date.
+            </remarks>
+            <param name="vkeyCode">Windows virtual key code.</param>
+            <returns><see langword="true"/> if key is down, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="T:VmmSharpEx.Extensions.Input.Win32VirtualKey">
+            <summary>
+            Win32 Virtual Key Codes.
+            </summary>
+            <remarks>
+            See: <see href="https://learn.microsoft.com/windows/win32/inputdev/virtual-key-codes"/>
+            </remarks>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.LBUTTON">
+            <summary>Left mouse button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.RBUTTON">
+            <summary>Right mouse button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.CANCEL">
+            <summary>Control-break processing</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.MBUTTON">
+            <summary>Middle mouse button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.XBUTTON1">
+            <summary>X1 mouse button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.XBUTTON2">
+            <summary>X2 mouse button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.BACK">
+            <summary>Backspace key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.TAB">
+            <summary>Tab key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.CLEAR">
+            <summary>Clear key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.RETURN">
+            <summary>Enter key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.SHIFT">
+            <summary>Shift key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.CONTROL">
+            <summary>Ctrl key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.MENU">
+            <summary>Alt key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.PAUSE">
+            <summary>Pause key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.CAPITAL">
+            <summary>Caps lock key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.KANA">
+            <summary>IME Kana mode</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.IME_ON">
+            <summary>IME On</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.JUNJA">
+            <summary>IME Junja mode</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.HANJA">
+            <summary>IME Hanja mode</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.IME_OFF">
+            <summary>IME Off</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.ESCAPE">
+            <summary>Esc key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.CONVERT">
+            <summary>IME convert</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NONCONVERT">
+            <summary>IME nonconvert</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.ACCEPT">
+            <summary>IME accept</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.MODECHANGE">
+            <summary>IME mode change request</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.SPACE">
+            <summary>Spacebar key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.PRIOR">
+            <summary>Page up key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NEXT">
+            <summary>Page down key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.END">
+            <summary>End key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.HOME">
+            <summary>Home key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.LEFT">
+            <summary>Left arrow key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.UP">
+            <summary>Up arrow key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.RIGHT">
+            <summary>Right arrow key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.DOWN">
+            <summary>Down arrow key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.PRINT">
+            <summary>Select key</summary>
+            <summary>Print key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.EXECUTE">
+            <summary>Execute key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.SNAPSHOT">
+            <summary>Print screen key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.INSERT">
+            <summary>Insert key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.DELETE">
+            <summary>Delete key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.HELP">
+            <summary>Help key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.D0">
+            <summary>0 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.D1">
+            <summary>1 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.D2">
+            <summary>2 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.D3">
+            <summary>3 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.D4">
+            <summary>4 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.D5">
+            <summary>5 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.D6">
+            <summary>6 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.D7">
+            <summary>7 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.D8">
+            <summary>8 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.D9">
+            <summary>9 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.A">
+            <summary>A key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.B">
+            <summary>B key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.C">
+            <summary>C key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.D">
+            <summary>D key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.E">
+            <summary>E key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F">
+            <summary>F key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.G">
+            <summary>G key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.H">
+            <summary>H key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.I">
+            <summary>I key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.J">
+            <summary>J key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.K">
+            <summary>K key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.L">
+            <summary>L key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.M">
+            <summary>M key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.N">
+            <summary>N key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.O">
+            <summary>O key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.P">
+            <summary>P key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.Q">
+            <summary>Q key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.R">
+            <summary>R key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.S">
+            <summary>S key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.T">
+            <summary>T key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.U">
+            <summary>U key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.V">
+            <summary>V key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.W">
+            <summary>W key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.X">
+            <summary>X key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.Y">
+            <summary>Y key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.Z">
+            <summary>Z key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.LWIN">
+            <summary>Left Windows logo key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.RWIN">
+            <summary>Right Windows logo key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.APPS">
+            <summary>Application key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.SLEEP">
+            <summary>Computer Sleep key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NUMPAD0">
+            <summary>Numeric keypad 0 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NUMPAD1">
+            <summary>Numeric keypad 1 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NUMPAD2">
+            <summary>Numeric keypad 2 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NUMPAD3">
+            <summary>Numeric keypad 3 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NUMPAD4">
+            <summary>Numeric keypad 4 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NUMPAD5">
+            <summary>Numeric keypad 5 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NUMPAD6">
+            <summary>Numeric keypad 6 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NUMPAD7">
+            <summary>Numeric keypad 7 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NUMPAD8">
+            <summary>Numeric keypad 8 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NUMPAD9">
+            <summary>Numeric keypad 9 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.MULTIPLY">
+            <summary>Multiply key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.ADD">
+            <summary>Add key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.SEPARATOR">
+            <summary>Separator key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.SUBTRACT">
+            <summary>Subtract key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.DECIMAL">
+            <summary>Decimal key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.DIVIDE">
+            <summary>Divide key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F1">
+            <summary>F1 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F2">
+            <summary>F2 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F3">
+            <summary>F3 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F4">
+            <summary>F4 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F5">
+            <summary>F5 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F6">
+            <summary>F6 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F7">
+            <summary>F7 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F8">
+            <summary>F8 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F9">
+            <summary>F9 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F10">
+            <summary>F10 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F11">
+            <summary>F11 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F12">
+            <summary>F12 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F13">
+            <summary>F13 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F14">
+            <summary>F14 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F15">
+            <summary>F15 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F16">
+            <summary>F16 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F17">
+            <summary>F17 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F18">
+            <summary>F18 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F19">
+            <summary>F19 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F20">
+            <summary>F20 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F21">
+            <summary>F21 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F22">
+            <summary>F22 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F23">
+            <summary>F23 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.F24">
+            <summary>F24 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.NUMLOCK">
+            <summary>Num lock key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.SCROLL">
+            <summary>Scroll lock key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.LSHIFT">
+            <summary>Left Shift key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.RSHIFT">
+            <summary>Right Shift key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.LCONTROL">
+            <summary>Left Ctrl key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.RCONTROL">
+            <summary>Right Ctrl key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.LMENU">
+            <summary>Left Alt key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.RMENU">
+            <summary>Right Alt key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.BROWSER_BACK">
+            <summary>Browser Back key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.BROWSER_FORWARD">
+            <summary>Browser Forward key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.BROWSER_REFRESH">
+            <summary>Browser Refresh key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.BROWSER_STOP">
+            <summary>Browser Stop key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.BROWSER_SEARCH">
+            <summary>Browser Search key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.BROWSER_FAVORITES">
+            <summary>Browser Favorites key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.BROWSER_HOME">
+            <summary>Browser Start and Home key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.VOLUME_MUTE">
+            <summary>Volume Mute key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.VOLUME_DOWN">
+            <summary>Volume Down key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.VOLUME_UP">
+            <summary>Volume Up key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.MEDIA_NEXT_TRACK">
+            <summary>Next Track key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.MEDIA_PREV_TRACK">
+            <summary>Previous Track key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.MEDIA_STOP">
+            <summary>Stop Media key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.MEDIA_PLAY_PAUSE">
+            <summary>Play/Pause Media key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.LAUNCH_MAIL">
+            <summary>Start Mail key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.LAUNCH_MEDIA_SELECT">
+            <summary>Select Media key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.LAUNCH_APP1">
+            <summary>Start Application 1 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.LAUNCH_APP2">
+            <summary>Start Application 2 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_1">
+            <summary>Semiсolon and Colon key (US ANSI)</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_PLUS">
+            <summary>Equals and Plus key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_COMMA">
+            <summary>Comma and Less Than key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_MINUS">
+            <summary>Dash and Underscore key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_PERIOD">
+            <summary>Period and Greater Than key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_2">
+            <summary>Forward Slash and Question Mark key (US ANSI)</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_3">
+            <summary>Grave Accent and Tilde key (US ANSI)</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_A">
+            <summary>Gamepad A button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_B">
+            <summary>Gamepad B button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_X">
+            <summary>Gamepad X button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_Y">
+            <summary>Gamepad Y button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_RIGHT_SHOULDER">
+            <summary>Gamepad Right Shoulder button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_LEFT_SHOULDER">
+            <summary>Gamepad Left Shoulder button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_LEFT_TRIGGER">
+            <summary>Gamepad Left Trigger button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_RIGHT_TRIGGER">
+            <summary>Gamepad Right Trigger button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_DPAD_UP">
+            <summary>Gamepad D-pad Up button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_DPAD_DOWN">
+            <summary>Gamepad D-pad Down button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_DPAD_LEFT">
+            <summary>Gamepad D-pad Left button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_DPAD_RIGHT">
+            <summary>Gamepad D-pad Right button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_MENU">
+            <summary>Gamepad Menu/Start button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_VIEW">
+            <summary>Gamepad View/Back button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_LEFT_THUMBSTICK_BUTTON">
+            <summary>Gamepad Left Thumbstick button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_RIGHT_THUMBSTICK_BUTTON">
+            <summary>Gamepad Right Thumbstick button</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_LEFT_THUMBSTICK_UP">
+            <summary>Gamepad Left Thumbstick up</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_LEFT_THUMBSTICK_DOWN">
+            <summary>Gamepad Left Thumbstick down</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_LEFT_THUMBSTICK_RIGHT">
+            <summary>Gamepad Left Thumbstick right</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_LEFT_THUMBSTICK_LEFT">
+            <summary>Gamepad Left Thumbstick left</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_RIGHT_THUMBSTICK_UP">
+            <summary>Gamepad Right Thumbstick up</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_RIGHT_THUMBSTICK_DOWN">
+            <summary>Gamepad Right Thumbstick down</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_RIGHT_THUMBSTICK_RIGHT">
+            <summary>Gamepad Right Thumbstick right</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.GAMEPAD_RIGHT_THUMBSTICK_LEFT">
+            <summary>Gamepad Right Thumbstick left</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_4">
+            <summary>Left Brace key (US ANSI)</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_5">
+            <summary>Backslash and Pipe key (US ANSI)</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_6">
+            <summary>Right Brace key (US ANSI)</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_7">
+            <summary>Apostrophe and Double Quotation Mark key (US ANSI)</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_8">
+            <summary>Right Ctrl key (Canadian CSA)</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_102">
+            <summary>Backslash and Pipe key (European ISO)</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.PROCESSKEY">
+            <summary>IME PROCESS key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.PACKET">
+            <summary>Used to pass Unicode characters as keystrokes</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.ATTN">
+            <summary>Attn key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.CRSEL">
+            <summary>CrSel key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.EXSEL">
+            <summary>ExSel key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.EREOF">
+            <summary>Erase EOF key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.PLAY">
+            <summary>Play key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.ZOOM">
+            <summary>Zoom key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.PA1">
+            <summary>PA1 key</summary>
+        </member>
+        <member name="F:VmmSharpEx.Extensions.Input.Win32VirtualKey.OEM_CLEAR">
+            <summary>Clear key</summary>
+        </member>
+        <member name="T:VmmSharpEx.Extensions.VmmExtensions">
+            <summary>
+            Contains various extension methods to implement additional functionality with Vmm and/or Memory Operations.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmExtensions.AddRVA(System.UInt64,System.UInt32,System.Int32)">
+            <summary>
+            Calculates a new address by adding the instruction size and a relative virtual address (RVA) to the current address.
+            </summary>
+            <param name="address">Current virtual address.</param>
+            <param name="instructionSize">Assembly instruction length in bytes.</param>
+            <param name="rva">Relative virtual address (RVA).</param>
+            <returns>New address calculated from the RVA.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmExtensions.AddRVA(System.UInt64,System.UInt32,System.UInt32)">
+            <summary>
+            Calculates a new address by adding the instruction size and a relative virtual address (RVA) to the current address.
+            </summary>
+            <param name="address">Current virtual address.</param>
+            <param name="instructionSize">Assembly instruction length in bytes.</param>
+            <param name="rva">Relative virtual address (RVA).</param>
+            <returns>New address calculated from the RVA.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmExtensions.IsValidVA(System.UInt64)">
+            <summary>
+            Checks if the given virtual address is valid within win-x64 architecture.
+            </summary>
+            <param name="va">Virtual address to validate.</param>
+            <returns><see langword="true"/> if valid; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmExtensions.IsValidUserVA(System.UInt64)">
+            <summary>
+            Checks if the given virtual address is a valid usermode address within win-x64 architecture.
+            </summary>
+            <param name="va">Virtual address to validate.</param>
+            <returns><see langword="true"/> if valid; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmExtensions.IsValidKernelVA(System.UInt64)">
+            <summary>
+            Checks if the given virtual address is a valid kernel address within win-x64 architecture.
+            </summary>
+            <param name="va">Virtual address to validate.</param>
+            <returns><see langword="true"/> if valid; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmExtensions.ThrowIfInvalidVA(System.UInt64,System.String)">
+            <summary>
+            Throws a <see cref="T:VmmSharpEx.VmmException"/> if the given virtual address is not valid within win-x64 architecture.
+            </summary>
+            <param name="va">Virtual address to validate.</param>
+            <param name="paramName">Parameter name for the exception message.</param>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmExtensions.ThrowIfInvalidUserVA(System.UInt64,System.String)">
+            <summary>
+            Throws a <see cref="T:VmmSharpEx.VmmException"/> if the given virtual address is not a valid usermode address within win-x64 architecture.
+            </summary>
+            <param name="va">Virtual address to validate.</param>
+            <param name="paramName">Parameter name for the exception message.</param>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmExtensions.ThrowIfInvalidKernelVA(System.UInt64,System.String)">
+            <summary>
+            Throws a <see cref="T:VmmSharpEx.VmmException"/> if the given virtual address is not a valid kernel address within win-x64 architecture.
+            </summary>
+            <param name="va">Virtual address to validate.</param>
+            <param name="paramName">Parameter name for the exception message.</param>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmExtensions.FixCr3(VmmSharpEx.Vmm,System.String,System.UInt32)">
+            <summary>
+            This fixes cr3 database shuffling.
+            It fixes it by iterating over all DTB's that exist within your system and looks for specific ones
+            that nolonger have a PID assigned to them, aka their pid is 0
+            it then puts it in a vector to later try each possible DTB to find the DTB of the process.
+            NOTE: Using FixCR3 requires you to have symsrv.dll, dbghelp.dll and info.db
+            CREDIT: Contributed by Mambo, but based off Metick's DMA Lib https://github.com/Metick/DMALibrary :)
+            </summary>
+            <param name="vmm">Vmm instance.</param>
+            <param name="processName">Process name to fix.</param>
+            <param name="pid">PID of process to fix.</param>
+            <returns>TRUE if successful, otherwise FALSE.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmExtensions.FindSignature(VmmSharpEx.Vmm,System.UInt32,System.String,System.String)">
+            <summary>
+            Find a signature within a process' memory.
+            </summary>
+            <param name="vmm">Vmm instance.</param>
+            <param name="pid">Process to search within.</param>
+            <param name="signature">Signature to search for (max 32 bytes). Hex Characters (separated by space) with optional ?? wildcard mask. Ex: 0F 1F ?? ?? 90 AA</param>
+            <param name="module">Module to search within. The search will be bounded within this module.</param>
+            <returns>Address of first occurrence of signature, otherwise 0 if failed.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmExtensions.FindSignature(VmmSharpEx.Vmm,System.UInt32,System.String,System.UInt64,System.UInt64)">
+            <summary>
+            Find a signature within a process' memory.
+            </summary>
+            <param name="vmm">Vmm instance.</param>
+            <param name="pid">Process to search within.</param>
+            <param name="signature">Signature to search for (max 32 bytes). Hex Characters (separated by space) with optional ?? wildcard mask. Ex: 0F 1F ?? ?? 90 AA</param>
+            <param name="addrMin">(Optional) Minimum Address to begin scanning at. By default will scan whole process.</param>
+            <param name="addrMax">(Optional) Maximum Address to end scanning at. By default will scan whole process.</param>
+            <returns>Address of first occurrence of signature, otherwise 0 if failed.</returns>
+        </member>
+        <member name="T:VmmSharpEx.Extensions.VmmUtilities">
+            <summary>
+            Contains Vmm/memory-related utility methods.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmUtilities.IsValidVA(System.UInt64)">
+            <summary>
+            Checks if a Virtual Address is valid.
+            </summary>
+            <param name="va">Virtual Address to validate.</param>
+            <returns>True if valid, otherwise False.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmUtilities.IsValidUserVA(System.UInt64)">
+            <summary>
+            Checks if a Virtual Address is a valid User-Mode Virtual Address.
+            </summary>
+            <param name="va">Virtual Address to validate.</param>
+            <returns>True if valid, otherwise False.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmUtilities.IsValidKernelVA(System.UInt64)">
+            <summary>
+            Checks if a Virtual Address is a valid Kernel-Mode Virtual Address.
+            </summary>
+            <param name="va">Virtual Address to validate.</param>
+            <returns>True if valid, otherwise False.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmUtilities.PAGE_ALIGN(System.UInt64)">
+            <summary>
+            The PAGE_ALIGN macro returns a page-aligned virtual address for a given virtual address.
+            </summary>
+            <remarks>
+            <see href="https://learn.microsoft.com/windows-hardware/drivers/ddi/wdm/nf-wdm-page_align"/>
+            </remarks>
+            <param name="va">Virtual address.</param>
+            <returns>Page-aligned virtual address.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmUtilities.BYTE_OFFSET(System.UInt64)">
+            <summary>
+            The BYTE_OFFSET macro takes a virtual address and returns the byte offset of that address within the page.
+            </summary>
+            <remarks>
+            <see href="https://learn.microsoft.com/windows-hardware/drivers/ddi/wdm/nf-wdm-byte_offset"/>
+            </remarks>
+            <param name="va">virtual address.</param>
+            <returns>Offset portion of the virtual address within the page.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmUtilities.ADDRESS_AND_SIZE_TO_SPAN_PAGES(System.UInt64,System.UInt64)">
+            <summary>
+            The ADDRESS_AND_SIZE_TO_SPAN_PAGES macro returns the number of pages that a virtual range spans.
+            The virtual range is defined by a virtual address and the size in bytes of a transfer request.
+            </summary>
+            <remarks>
+            <see href="https://learn.microsoft.com/windows-hardware/drivers/ddi/wdm/nf-wdm-address_and_size_to_span_pages"/>
+            </remarks>
+            <param name="va">Virtual address that is the base of the range.</param>
+            <param name="size">Specifies the size in bytes.</param>
+            <returns>Returns the number of pages spanned by the virtual range starting at Va.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmUtilities.AlignLength(System.UInt32,System.UInt32)">
+            <summary>
+            Returns a length aligned to the specified alignment.
+            Always rounds up.
+            </summary>
+            <param name="length">The length to align.</param>
+            <param name="alignment">The alignment boundary (must be a power of 2).</param>
+        </member>
+        <member name="M:VmmSharpEx.Extensions.VmmUtilities.AlignAddress(System.UInt64,System.UInt64)">
+            <summary>
+            Returns an address aligned to the specified alignment.
+            Always the current/next aligned address.
+            </summary>
+            <param name="address">The address to align.</param>
+            <param name="alignment">The alignment boundary (must be a power of 2).</param>
+        </member>
+        <member name="T:VmmSharpEx.LeechCore">
+            <summary>
+            High-level managed wrapper over the native LeechCore API.
+            </summary>
+            <remarks>
+            This class wraps a native <c>LC_CONTEXT</c> handle created by LeechCore and exposes common read/write and control
+            operations against physical memory devices. It is typically acquired from <see cref="T:VmmSharpEx.Vmm"/> via
+            <see cref="P:VmmSharpEx.Vmm.LeechCore"/> when MemProcFS has been initialized with a LeechCore-backed device.
+            Native counterparts are defined in <c>leechcore.h</c> and implemented in <c>leechcore.dll</c>.
+            </remarks>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.#ctor(VmmSharpEx.Vmm)">
+            <summary>
+            Create a new inherited <see cref="T:VmmSharpEx.LeechCore"/> instance from a given <see cref="T:VmmSharpEx.Vmm"/> instance.
+            </summary>
+            <param name="vmm">The owning <see cref="T:VmmSharpEx.Vmm"/> instance the LC context should be bound to.</param>
+            <exception cref="T:VmmSharpEx.VmmException">Thrown if the native LeechCore handle cannot be retrieved or duplicated.</exception>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.Dispose">
+            <summary>
+            Releases native resources.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.op_Implicit(VmmSharpEx.LeechCore)~System.IntPtr">
+            <summary>
+            Implicitly convert a <see cref="T:VmmSharpEx.LeechCore"/> instance to its native LC handle.
+            </summary>
+            <param name="x">Instance to convert.</param>
+            <returns>The native LC handle or <see cref="F:System.IntPtr.Zero"/> if <paramref name="x"/> is <see langword="null"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.ToString">
+            <summary>
+            Returns a string representation of this instance including the native handle value.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.Create(VmmSharpEx.LeechCore.LCConfig@,VmmSharpEx.LeechCore.LCConfigErrorInfo@)">
+            <summary>
+            Factory that creates a new <see cref="T:VmmSharpEx.LeechCore"/> object from a native <see cref="T:VmmSharpEx.LeechCore.LCConfig"/>.
+            </summary>
+            <remarks>
+            This overload provides access to extended create-time error information via
+            <paramref name="configErrorInfo"/>. See native <c>LcCreateEx</c> in <c>leechcore.h</c>.
+            </remarks>
+            <param name="pLcCreateConfig">The LC configuration to use.</param>
+            <param name="configErrorInfo">Receives extended create-time error information, if available.</param>
+            <returns>An initialized <see cref="T:VmmSharpEx.LeechCore"/> instance on success; otherwise <see langword="null"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.Read(System.UInt64,System.UInt32)">
+            <summary>
+            Read memory from a physical address into a byte array.
+            </summary>
+            <remarks>
+            NOTE: This method incurs a heap allocation for the returned byte array. For high-performance use other read methods instead.
+            </remarks>
+            <param name="pa">Physical address to read from.</param>
+            <param name="cb">Count of bytes to read.</param>
+            <returns>A byte array with the read memory, otherwise <see langword="null"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.ReadValue``1(System.UInt64,``0@)">
+            <summary>
+            Read physical memory into a value of type <typeparamref name="T"/>.
+            </summary>
+            <typeparam name="T">An unmanaged value or <see langword="struct"/>.</typeparam>
+            <param name="pa">Physical address to read.</param>
+            <param name="result">Receives the value read from memory on success.</param>
+            <returns><see langword="true"/> if successful; otherwise <see langword="false"/>.</returns>
+            <seealso cref="M:VmmSharpEx.Internal.Lci.LcRead(System.IntPtr,System.UInt64,System.UInt32,System.Byte*)"/>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.ReadArray``1(System.UInt64,System.Int32)">
+            <summary>
+            Read physical memory into an array of <typeparamref name="T"/>.
+            </summary>
+            <remarks>
+            NOTE: This method incurs a heap allocation for the returned byte array. For high-performance use other read methods instead.
+            </remarks>
+            <typeparam name="T">An unmanaged value type.</typeparam>
+            <param name="pa">Physical address to read.</param>
+            <param name="count">Number of elements to read.</param>
+            <returns>An array on success; otherwise <see langword="null"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.ReadPooled``1(System.UInt64,System.Int32)">
+            <summary>
+            Read physical memory into a pooled array of <typeparamref name="T"/>.
+            </summary>
+            <typeparam name="T">An unmanaged value type.</typeparam>
+            <param name="pa">Physical address to read.</param>
+            <param name="count">Number of elements to read.</param>
+            <returns>A <see cref="T:System.Buffers.IMemoryOwner`1"/> lease on success; otherwise <see langword="null"/>. Be sure to call <see cref="M:System.IDisposable.Dispose"/> when done.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.ReadSpan``1(System.UInt64,System.Span{``0})">
+            <summary>
+            Read physical memory into a <see cref="T:System.Span`1"/>.
+            </summary>
+            <typeparam name="T">An unmanaged value type.</typeparam>
+            <param name="pa">Physical address to read.</param>
+            <param name="span">Destination span to receive the data.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.WriteSpan``1(System.UInt64,System.Span{``0})">
+            <summary>
+            Write a <see cref="T:System.Span`1"/> of unmanaged values to physical memory.
+            </summary>
+            <typeparam name="T">An unmanaged value type.</typeparam>
+            <param name="pa">Physical address to write.</param>
+            <param name="span">Source span that will be written.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.Read(System.UInt64,System.IntPtr,System.UInt32)">
+            <summary>
+            Read physical memory into unmanaged memory.
+            </summary>
+            <param name="pa">Physical address to read.</param>
+            <param name="pb">Destination pointer to receive the data.</param>
+            <param name="cb">Number of bytes to read.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.Read(System.UInt64,System.Void*,System.UInt32)">
+            <summary>
+            Read physical memory into unmanaged memory.
+            </summary>
+            <param name="pa">Physical address to read.</param>
+            <param name="pb">Destination pointer to receive the data.</param>
+            <param name="cb">Number of bytes to read.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.ReadScatter(System.ReadOnlySpan{System.UInt64})">
+            <summary>
+            Perform a scatter read of multiple page-sized physical memory ranges.
+            </summary>
+            <param name="pas">Page-aligned physical memory addresses.</param>
+            <returns>Array of <see cref="T:VmmSharpEx.LeechCore.MEM_SCATTER"/> results.</returns>
+            <exception cref="T:VmmSharpEx.VmmException">Thrown if the native scatter allocation fails.</exception>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.WriteValue``1(System.UInt64,``0)">
+            <summary>
+            Write a single value of type <typeparamref name="T"/> to physical memory.
+            </summary>
+            <typeparam name="T">An unmanaged value or <see langword="struct"/>.</typeparam>
+            <param name="pa">Physical address to write.</param>
+            <param name="value">The value to write.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.WriteArray``1(System.UInt64,``0[])">
+            <summary>
+            Write a managed array of <typeparamref name="T"/> to physical memory.
+            </summary>
+            <typeparam name="T">An unmanaged value type.</typeparam>
+            <param name="pa">Physical address to write.</param>
+            <param name="data">The managed array to write.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.Write(System.UInt64,System.IntPtr,System.UInt32)">
+            <summary>
+            Write from unmanaged memory into physical memory.
+            </summary>
+            <param name="pa">Physical address to write.</param>
+            <param name="pb">Source pointer to write from.</param>
+            <param name="cb">Number of bytes to write.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.Write(System.UInt64,System.Void*,System.UInt32)">
+            <summary>
+            Write from unmanaged memory into physical memory.
+            </summary>
+            <param name="pa">Physical address to write.</param>
+            <param name="pb">Source pointer to write from.</param>
+            <param name="cb">Number of bytes to write.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.GetOption(VmmSharpEx.Options.LcOption)">
+            <summary>
+            Retrieve a LeechCore option value via <see cref="M:VmmSharpEx.Internal.Lci.GetOption(System.IntPtr,VmmSharpEx.Options.LcOption,System.UInt64@)"/>.
+            </summary>
+            <param name="fOption">The <see cref="T:VmmSharpEx.Options.LcOption"/> to query.</param>
+            <returns>The option value on success; otherwise <see langword="null"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.SetOption(VmmSharpEx.Options.LcOption,System.UInt64)">
+            <summary>
+            Set a LeechCore option value via <see cref="M:VmmSharpEx.Internal.Lci.SetOption(System.IntPtr,VmmSharpEx.Options.LcOption,System.UInt64)"/>.
+            </summary>
+            <param name="fOption">The <see cref="T:VmmSharpEx.Options.LcOption"/> to set.</param>
+            <param name="qwValue">The value to assign.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.ExecuteCommand(VmmSharpEx.Options.LcCmd,System.ReadOnlySpan{System.Byte},System.Byte[]@)">
+            <summary>
+            Send a command to LeechCore.
+            </summary>
+            <remarks>
+            See native <c>LcCommand</c> in <c>leechcore.h</c>. The output buffer, if any, is owned by the caller and must be
+            freed by the wrapper (handled internally).
+            </remarks>
+            <param name="fOption">The <see cref="T:VmmSharpEx.Options.LcCmd"/> to execute.</param>
+            <param name="dataIn">Optional input data.</param>
+            <param name="dataOut">Receives any output data returned by the command.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LC_CONFIG_VERSION">
+            <summary>
+            Current <see cref="T:VmmSharpEx.LeechCore.LCConfig"/> structure version used by this wrapper.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LC_CONFIG_ERRORINFO_VERSION">
+            <summary>
+            Current <see cref="T:VmmSharpEx.LeechCore.LCConfigErrorInfo"/> structure version used by this wrapper.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.MEM_SCATTER_VERSION">
+            <summary>
+            Current <see cref="T:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE"/> structure version used by this wrapper.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.LeechCore.MEM_SCATTER">
+            <summary>
+            Managed scatter descriptor mirroring <c>MEM_SCATTER</c> in <c>leechcore.h</c>.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE">
+            <summary>
+            Native scatter descriptor mirroring <c>tdMEM_SCATTER</c> in <c>leechcore.h</c>.
+            </summary>
+            <remarks>
+            This type is laid out for blittable interop.
+            </remarks>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE.version">
+            <summary>
+            MEM_SCATTER_VERSION (internal).
+            </summary>
+        </member>
+        <member name="P:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE.f">
+            <summary>
+            Indicates whether the entry contains valid data (<see langword="true"/>) or not.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE.qwA">
+            <summary>
+            Page-aligned address associated with this scatter entry.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE.pb">
+            <summary>
+            Pointer to the native buffer holding the page data.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE.cb">
+            <summary>
+            Size of the read request in bytes.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE.iStack">
+            <summary>
+            Internal stack pointer (reserved).
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE.vStack">
+            <summary>
+            Internal stack storage (reserved).
+            </summary>
+        </member>
+        <member name="P:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE.Data">
+            <summary>
+            A read-only view over the page contents pointed at by <see cref="F:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE.pb"/>.
+            </summary>
+            <remarks>
+            DANGER: Do not access this memory after the memory is freed via <see cref="M:VmmSharpEx.Internal.Lci.LcMemFree(System.IntPtr)"/>.
+            </remarks>
+        </member>
+        <member name="M:VmmSharpEx.LeechCore.MEM_SCATTER_NATIVE.ToManaged">
+            <summary>
+            Transfers the Scatter Result from Native Memory to Managed Memory.
+            </summary>
+            <returns>Managed <see cref="T:VmmSharpEx.LeechCore.MEM_SCATTER"/> struct.</returns>
+        </member>
+        <member name="T:VmmSharpEx.LeechCore.LCConfig">
+            <summary>
+            Managed representation of native <c>LC_CONFIG</c> used when creating a LeechCore context.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfig.dwVersion">
+            <summary>
+            Structure version. Must be set to <see cref="F:VmmSharpEx.LeechCore.LC_CONFIG_VERSION"/>.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfig.dwPrintfVerbosity">
+            <summary>
+            Printf verbosity level.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfig.szDevice">
+            <summary>
+            Device string, e.g. <c>fpga://...</c> or <c>existing://0xHANDLE</c>.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfig.szRemote">
+            <summary>
+            Remote target string, if applicable.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfig.pfn_printf_opt">
+            <summary>
+            Optional printf callback.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfig.paMax">
+            <summary>
+            Maximum physical address to use.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfig.fVolatile">
+            <summary>
+            If <see langword="true"/>, volatile mode is enabled.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfig.fWritable">
+            <summary>
+            If <see langword="true"/>, writes are allowed.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfig.fRemote">
+            <summary>
+            If <see langword="true"/>, operates in remote mode.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfig.fRemoteDisableCompress">
+            <summary>
+            If <see langword="true"/>, disables compression in remote mode.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfig.szDeviceName">
+            <summary>
+            Optional device name.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.LeechCore.LCConfigErrorInfo">
+            <summary>
+            Extended create-time error information corresponding to native <c>LC_CONFIG_ERRORINFO</c>.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfigErrorInfo.fValid">
+            <summary>
+            Indicates whether this structure contains valid data.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfigErrorInfo.fUserInputRequest">
+            <summary>
+            Indicates a user-input request was signalled by the native layer.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.LeechCore.LCConfigErrorInfo.strUserText">
+            <summary>
+            Optional user text provided by the native layer.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Options.LcCmd">
+            <summary>
+            Commands for interacting with LeechCore (LC).  
+            These are used to query, set, or execute actions through the LC API.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_PCIECFGSPACE">
+            <summary>
+            Read PCIe config space. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_CFGREGPCIE">
+            <summary>
+            PCIe config register access. (RW) [lo-dword: register address]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_CFGREGCFG">
+            <summary>
+            CFG config register access. (RW) [lo-dword: register address]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_CFGREGDRP">
+            <summary>
+            DRP config register access. (RW) [lo-dword: register address]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_CFGREGCFG_MARKWR">
+            <summary>
+            Masked write to CFG config register. (W)  
+            [lo-dword: register address]  
+            [bytes: 0-1 data, 2-3 mask]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_CFGREGPCIE_MARKWR">
+            <summary>
+            Masked write to PCIe config register. (W)  
+            [lo-dword: register address]  
+            [bytes: 0-1 data, 2-3 mask]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_CFGREG_DEBUGPRINT">
+            <summary>
+            Debug print FPGA config registers. (N/A)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_PROBE">
+            <summary>
+            Probe FPGA. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_CFGSPACE_SHADOW_RD">
+            <summary>
+            Shadow read of FPGA config space. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_CFGSPACE_SHADOW_WR">
+            <summary>
+            Shadow write of FPGA config space. (W)  
+            [lo-dword: config space write base address]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_TLP_WRITE_SINGLE">
+            <summary>
+            Write single TLP bytes. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_TLP_WRITE_MULTIPLE">
+            <summary>
+            Write multiple LC_TLPs. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_TLP_TOSTRING">
+            <summary>
+            Convert single TLP to LPSTR; *pcbDataOut includes NULL terminator. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_TLP_CONTEXT">
+            <summary>
+            Set/unset TLP user-defined context (pbDataIn == LPVOID). [not remote]. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_TLP_CONTEXT_RD">
+            <summary>
+            Get TLP user-defined context. [not remote]. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_TLP_FUNCTION_CALLBACK">
+            <summary>
+            Set/unset TLP callback function (pbDataIn == PLC_TLP_CALLBACK). [not remote]. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_TLP_FUNCTION_CALLBACK_RD">
+            <summary>
+            Get TLP callback function. [not remote]. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_BAR_CONTEXT">
+            <summary>
+            Set/unset BAR user-defined context (pbDataIn == LPVOID). [not remote]. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_BAR_CONTEXT_RD">
+            <summary>
+            Get BAR user-defined context. [not remote]. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_BAR_FUNCTION_CALLBACK">
+            <summary>
+            Set/unset BAR callback function (pbDataIn == PLC_BAR_CALLBACK). [not remote]. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_BAR_FUNCTION_CALLBACK_RD">
+            <summary>
+            Get BAR callback function. [not remote]. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FPGA_BAR_INFO">
+            <summary>
+            Get BAR info (pbDataOut == LC_BAR_INFO[6]). (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.FILE_DUMPHEADER_GET">
+            <summary>
+            Get dump file header. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.STATISTICS_GET">
+            <summary>
+            Get statistics. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.MEMMAP_GET">
+            <summary>
+            Get memory map as LPSTR. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.MEMMAP_SET">
+            <summary>
+            Set memory map as LPSTR. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.MEMMAP_GET_STRUCT">
+            <summary>
+            Get memory map as LC_MEMMAP_ENTRY[]. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.MEMMAP_SET_STRUCT">
+            <summary>
+            Set memory map as LC_MEMMAP_ENTRY[]. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.AGENT_EXEC_PYTHON">
+            <summary>
+            Execute Python agent. (RW) [lo-dword: optional timeout in ms]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.AGENT_EXIT_PROCESS">
+            <summary>
+            Exit process. (W) [lo-dword: process exit code]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.AGENT_VFS_LIST">
+            <summary>
+            List VFS contents. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.AGENT_VFS_READ">
+            <summary>
+            Read from VFS. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.AGENT_VFS_WRITE">
+            <summary>
+            Write to VFS. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.AGENT_VFS_OPT_GET">
+            <summary>
+            Get VFS options. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.AGENT_VFS_OPT_SET">
+            <summary>
+            Set VFS options. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.AGENT_VFS_INITIALIZE">
+            <summary>
+            Initialize VFS. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcCmd.AGENT_VFS_CONSOLE">
+            <summary>
+            VFS console. (RW)
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Options.LcOption">
+            <summary>
+            Options and commands for configuring and controlling LeechCore (LC).  
+            Values are used for querying, setting, or invoking various LC features.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CONFIG_PRINTF_ENABLED">
+            <summary>
+            Enable printf logging.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CONFIG_PRINTF_V">
+            <summary>
+            Verbose printf logging.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CONFIG_PRINTF_VV">
+            <summary>
+            Extra verbose printf logging.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CONFIG_PRINTF_VVV">
+            <summary>
+            Ultra-verbose printf logging.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_PRINTF_ENABLE">
+            <summary>
+            Enable/disable core printf output. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_VERBOSE">
+            <summary>
+            Enable verbose mode. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_VERBOSE_EXTRA">
+            <summary>
+            Enable extra verbose mode. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_VERBOSE_EXTRA_TLP">
+            <summary>
+            Enable TLP-specific verbose output. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_VERSION_MAJOR">
+            <summary>
+            Core version major. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_VERSION_MINOR">
+            <summary>
+            Core version minor. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_VERSION_REVISION">
+            <summary>
+            Core version revision. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_ADDR_MAX">
+            <summary>
+            Maximum supported physical address. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_STATISTICS_CALL_COUNT">
+            <summary>
+            Call count statistics. (R) [lo-dword: LC_STATISTICS_ID_*]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_STATISTICS_CALL_TIME">
+            <summary>
+            Call time statistics. (R) [lo-dword: LC_STATISTICS_ID_*]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_VOLATILE">
+            <summary>
+            Core is volatile. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.CORE_READONLY">
+            <summary>
+            Core is read-only. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_VALID">
+            <summary>
+            Memory info validity flag. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_FLAG_32BIT">
+            <summary>
+            32-bit memory model flag. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_FLAG_PAE">
+            <summary>
+            PAE memory model flag. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_ARCH">
+            <summary>
+            Memory architecture type (LC_ARCH_TP). (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_VERSION_MINOR">
+            <summary>
+            OS version minor. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_VERSION_MAJOR">
+            <summary>
+            OS version major. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_DTB">
+            <summary>
+            OS Directory Table Base (DTB). (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_PFN">
+            <summary>
+            OS PFN (Page Frame Number). (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_PsLoadedModuleList">
+            <summary>
+            OS PsLoadedModuleList address. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_PsActiveProcessHead">
+            <summary>
+            OS PsActiveProcessHead address. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_MACHINE_IMAGE_TP">
+            <summary>
+            OS machine image type. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_NUM_PROCESSORS">
+            <summary>
+            Number of processors. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_SYSTEMTIME">
+            <summary>
+            System time. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_UPTIME">
+            <summary>
+            System uptime. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_KERNELBASE">
+            <summary>
+            OS kernel base address. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_KERNELHINT">
+            <summary>
+            OS kernel hint. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.MEMORYINFO_OS_KdDebuggerDataBlock">
+            <summary>
+            OS KdDebuggerDataBlock address. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_PROBE_MAXPAGES">
+            <summary>
+            Maximum number of probe pages. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_MAX_SIZE_RX">
+            <summary>
+            Maximum RX size. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_MAX_SIZE_TX">
+            <summary>
+            Maximum TX size. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_DELAY_PROBE_READ">
+            <summary>
+            Probe read delay (µs). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_DELAY_PROBE_WRITE">
+            <summary>
+            Probe write delay (µs). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_DELAY_WRITE">
+            <summary>
+            Write delay (µs). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_DELAY_READ">
+            <summary>
+            Read delay (µs). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_RETRY_ON_ERROR">
+            <summary>
+            Retry on error flag. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_DEVICE_ID">
+            <summary>
+            PCIe device ID (bus:dev:fn). (RW)
+            Example: 04:00.0 = 0x0400
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_FPGA_ID">
+            <summary>
+            FPGA ID. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_VERSION_MAJOR">
+            <summary>
+            FPGA version major. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_VERSION_MINOR">
+            <summary>
+            FPGA version minor. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_ALGO_TINY">
+            <summary>
+            Use tiny 128-byte/TLP read algorithm (1/0). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_ALGO_SYNCHRONOUS">
+            <summary>
+            Use synchronous (legacy) read algorithm (1/0). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_CFGSPACE_XILINX">
+            <summary>
+            FPGA config space (Xilinx).  
+            [lo-dword: register address in bytes]  
+            [bytes: 0-3 data, 4-7 byte_enable; top bit = cfg_mgmt_wr_rw1c_as_rw] (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_TLP_READ_CB_WITHINFO">
+            <summary>
+            Call TLP read callback with additional string info in szInfo (1/0). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.LcOption.FPGA_TLP_READ_CB_FILTERCPL">
+            <summary>
+            Filter memory read completions when invoking TLP read callback (1/0). (RW)
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Options.VmmFlags">
+            <summary>
+            Flags used to control memory read/write behavior in the VMM API.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.NONE">
+            <summary>
+            No Flags Set.
+            This is the default value and indicates no special options are applied.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.NOCACHE">
+            <summary>
+            Do not use the data cache (force reading directly from the memory acquisition device).
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.ZEROPAD_ON_FAIL">
+            <summary>
+            Zero pad failed physical memory reads and report success if the read is within
+            the range of physical memory.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.FORCECACHE_READ">
+            <summary>
+            Force use of cache. Fail on non-cached pages.
+            Only valid for reads. Cannot be combined with <see cref="F:VmmSharpEx.Options.VmmFlags.NOCACHE"/> or <see cref="F:VmmSharpEx.Options.VmmFlags.ZEROPAD_ON_FAIL"/>.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.NOPAGING">
+            <summary>
+            Do not attempt to retrieve memory from paged-out memory sources
+            (pagefile/compressed), even if possible.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.NOPAGING_IO">
+            <summary>
+            Do not attempt to retrieve memory from paged-out memory if it would require
+            additional I/O operations, even if possible.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.NOCACHEPUT">
+            <summary>
+            Do not write back to the data cache after a successful read from the memory acquisition device.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.CACHE_RECENT_ONLY">
+            <summary>
+            Only fetch from the most recent active cache region when reading.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.NO_PREDICTIVE_READ">
+            <summary>
+            Disable predictive read-ahead when reading memory.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.FORCECACHE_READ_DISABLE">
+            <summary>
+            Force cache read disable. Only recommended for local files,
+            improves forensic artifact ordering.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.SCATTER_PREPAREEX_NOMEMZERO">
+            <summary>
+            do not zero out the memory buffer when preparing a scatter read.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.NOMEMCALLBACK">
+            <summary>
+            do not call user-set memory callback functions when reading memory (even if active).
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmFlags.SCATTER_FORCE_PAGEREAD">
+            <summary>
+            force page-sized reads when using scatter functionality.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Options.VmmMemCallbackType">
+            <summary>
+            Callback types for VMM memory callbacks.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmMemCallbackType.READ_PHYSICAL_PRE">
+            <summary>
+            Before physical read.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmMemCallbackType.READ_PHYSICAL_POST">
+            <summary>
+            After physical read.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmMemCallbackType.WRITE_PHYSICAL_PRE">
+            <summary>
+            Before physical write.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmMemCallbackType.READ_VIRTUAL_PRE">
+            <summary>
+            Before virtual read.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmMemCallbackType.READ_VIRTUAL_POST">
+            <summary>
+            After virtual read.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmMemCallbackType.WRITE_VIRTUAL_PRE">
+            <summary>
+            Before virtual write.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Options.VmmOption">
+            <summary>
+            Configuration options for VMM.  
+            Values are used to query or set various runtime and system parameters.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CORE_PRINTF_ENABLE">
+            <summary>
+            Enable or disable core printf output. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CORE_VERBOSE">
+            <summary>
+            Enable verbose output. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CORE_VERBOSE_EXTRA">
+            <summary>
+            Enable extra verbose output. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CORE_VERBOSE_EXTRA_TLP">
+            <summary>
+            Enable verbose output for TLP (extra trace-level). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CORE_MAX_NATIVE_ADDRESS">
+            <summary>
+            Maximum supported native address. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CORE_LEECHCORE_HANDLE">
+            <summary>
+            Underlying LeechCore handle (do not close). (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CORE_ID">
+            <summary>
+            Thread-safe duplicate VMM instance handle,
+            used with startup option "-create-from-vmmid". (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CORE_SYSTEM">
+            <summary>
+            System identifier. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CORE_MEMORYMODEL">
+            <summary>
+            Memory model in use. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_IS_REFRESH_ENABLED">
+            <summary>
+            Whether refresh is enabled (1/0). (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_TICK_PERIOD">
+            <summary>
+            Base tick period in milliseconds. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_READCACHE_TICKS">
+            <summary>
+            Memory cache validity period (in ticks). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_TLBCACHE_TICKS">
+            <summary>
+            Page table (TLB) cache validity period (in ticks). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_PROCCACHE_TICKS_PARTIAL">
+            <summary>
+            Process refresh (partial) period (in ticks). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_PROCCACHE_TICKS_TOTAL">
+            <summary>
+            Process refresh (full) period (in ticks). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_VERSION_MAJOR">
+            <summary>
+            Version major. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_VERSION_MINOR">
+            <summary>
+            Version minor. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_VERSION_REVISION">
+            <summary>
+            Version revision. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_STATISTICS_FUNCTIONCALL">
+            <summary>
+            Enable function call statistics (.status/statistics_fncall file). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_IS_PAGING_ENABLED">
+            <summary>
+            Whether paging is enabled (1/0). (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_DEBUG">
+            <summary>
+            Debug mode. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.CONFIG_YARA_RULES">
+            <summary>
+            YARA rules configuration. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.WIN_VERSION_MAJOR">
+            <summary>
+            Windows version major. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.WIN_VERSION_MINOR">
+            <summary>
+            Windows version minor. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.WIN_VERSION_BUILD">
+            <summary>
+            Windows version build number. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.WIN_SYSTEM_UNIQUE_ID">
+            <summary>
+            Windows system unique identifier. (R)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.FORENSIC_MODE">
+            <summary>
+            Forensic mode type [0-4]. (RW)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_ALL">
+            <summary>
+            Refresh all caches. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_FREQ_MEM">
+            <summary>
+            Refresh memory cache (excluding TLB) fully. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_FREQ_MEM_PARTIAL">
+            <summary>
+            Refresh memory cache (excluding TLB) partially (33% per call). (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_FREQ_TLB">
+            <summary>
+            Refresh page table (TLB) cache fully. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_FREQ_TLB_PARTIAL">
+            <summary>
+            Refresh page table (TLB) cache partially (33% per call). (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_FREQ_FAST">
+            <summary>
+            Refresh at fast frequency, includes partial process refresh. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_FREQ_MEDIUM">
+            <summary>
+            Refresh at medium frequency, includes full process refresh. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_FREQ_SLOW">
+            <summary>
+            Refresh at slow frequency. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_HEAP_ALLOC">
+            <summary>
+            Refresh only heap allocations. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_KOBJECT">
+            <summary>
+            Refresh only kernel objects. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_NET">
+            <summary>
+            Refresh only network connections. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_PFN">
+            <summary>
+            Refresh only PFN database. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_PHYSMEMMAP">
+            <summary>
+            Refresh only physical memory map. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_POOL">
+            <summary>
+            Refresh only kernel pool. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_REGISTRY">
+            <summary>
+            Refresh only registry. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_SERVICES">
+            <summary>
+            Refresh only services. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_THREADCS">
+            <summary>
+            Refresh only thread callstacks. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_USER">
+            <summary>
+            Refresh only users. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_VM">
+            <summary>
+            Refresh only virtual machines. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.REFRESH_SPECIFIC_PROCESS">
+            <summary>
+            Refresh only the specified process. (W)
+            The low DWORD contains the process ID (PID).
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.PROCESS_DTB">
+            <summary>
+            Force set process Directory Table Base (DTB). (W)  
+            [LO-DWORD contains process PID]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmOption.PROCESS_DTB_FAST_LOWINTEGRITY">
+            <summary>
+            Force set process DTB in fast, low-integrity mode (fewer checks).  
+            Use at your own risk. (W)  
+            [LO-DWORD contains process PID]
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Options.VmmPoolMapFlags">
+            <summary>
+            Pool map flags returned by VMMDLL.  
+            Used to filter pool allocations.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmPoolMapFlags.ALL">
+            <summary>
+            Include all pools.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Options.VmmPoolMapFlags.BIG">
+            <summary>
+            Include only big pool allocations.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Refresh.RefreshManager">
+            <summary>
+            Controls the registration and management of refreshers for Vmm instances.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Refresh.RefreshManager.Register(VmmSharpEx.Vmm,VmmSharpEx.Refresh.RefreshOption,System.TimeSpan)">
+            <summary>
+            Register a refresher for the given Vmm instance and refresh option.
+            </summary>
+            <param name="instance"></param>
+            <param name="option"></param>
+            <param name="interval"></param>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="M:VmmSharpEx.Refresh.RefreshManager.Unregister(VmmSharpEx.Vmm,VmmSharpEx.Refresh.RefreshOption)">
+            <summary>
+            Unregister a refresher for the given Vmm instance and refresh option.
+            </summary>
+            <param name="instance"></param>
+            <param name="option"></param>
+        </member>
+        <member name="M:VmmSharpEx.Refresh.RefreshManager.UnregisterAll(VmmSharpEx.Vmm)">
+            <summary>
+            Unregister all refreshers for the given Vmm instance.
+            Usually called when the parent Vmm instance is disposed or no longer needed.
+            </summary>
+            <param name="instance"></param>
+        </member>
+        <member name="T:VmmSharpEx.Refresh.RefreshOption">
+            <summary>
+            VMM Refresh Options.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.All">
+            <summary>
+            refresh all caches
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.Memory">
+            <summary>
+            refresh memory cache (excl. TLB) [fully]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.MemoryPartial">
+            <summary>
+            refresh memory cache (excl. TLB) [partial 33%/call]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.Tlb">
+            <summary>
+            refresh page table (TLB) cache [fully]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.TlbPartial">
+            <summary>
+            refresh page table (TLB) cache [partial 33%/call]
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.Fast">
+            <summary>
+            refresh fast frequency - incl. partial process refresh
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.Medium">
+            <summary>
+            refresh medium frequency - incl. full process refresh
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.Slow">
+            <summary>
+            refresh slow frequency.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_HEAP_ALLOC">
+            <summary>
+            Refresh only heap allocations. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_KOBJECT">
+            <summary>
+            Refresh only kernel objects. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_NET">
+            <summary>
+            Refresh only network connections. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_PFN">
+            <summary>
+            Refresh only PFN database. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_PHYSMEMMAP">
+            <summary>
+            Refresh only physical memory map. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_POOL">
+            <summary>
+            Refresh only kernel pool. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_REGISTRY">
+            <summary>
+            Refresh only registry. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_SERVICES">
+            <summary>
+            Refresh only services. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_THREADCS">
+            <summary>
+            Refresh only thread callstacks. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_USER">
+            <summary>
+            Refresh only users. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_VM">
+            <summary>
+            Refresh only virtual machines. (W)
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Refresh.RefreshOption.SPECIFIC_PROCESS">
+            <summary>
+            Refresh only the specified process. (W)
+            The low DWORD contains the process ID (PID).
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Scatter.IScatter">
+            <summary>
+            Interface defining common Scatter Operations APIs.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.IScatter.Execute">
+            <summary>
+            Execute any prepared read, and/or write operations.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Scatter.IScatter`1">
+            <summary>
+            Interface defining discrete Scatter Operations APIs with a strongly-typed 'Create' factory method.
+            </summary>
+            <typeparam name="TSelf"><see cref="T:VmmSharpEx.Scatter.IScatter"/> type.</typeparam>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.IScatter`1.Create(VmmSharpEx.Vmm,System.UInt32,VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Creates a new instance of the scatter object.
+            </summary>
+            <param name="vmm">Vmm instance to own this scatter object.</param>
+            <param name="pid">Process ID (PID) to perform scatter operations within.</param>
+            <param name="flags">Vmm flags for scatter operations.</param>
+            <returns>Fully initialized scatter object.</returns>
+        </member>
+        <member name="T:VmmSharpEx.Scatter.VmmScatter">
+            <summary>
+            The <see cref="T:VmmSharpEx.Scatter.VmmScatter"/> class is used to ease the reading and writing of memory in bulk using this thin wrapper around the Vmm Scatter API.
+            All operations incur native calls to vmm.dll (using <see cref="M:VmmSharpEx.Internal.Vmmi.VMMDLL_Scatter_Initialize(System.IntPtr,System.UInt32,VmmSharpEx.Options.VmmFlags)"/>).
+            </summary>
+        </member>
+        <member name="E:VmmSharpEx.Scatter.VmmScatter.Completed">
+            <summary>
+            Event is fired upon completion of <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>. Exceptions are handled/ignored.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.ToString">
+            <summary>
+            <see cref="M:System.Object.ToString"/> override.
+            </summary>
+            <remarks>
+            Prints the state of the <see cref="T:VmmSharpEx.Scatter.VmmScatter"/> object.
+            </remarks>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.PrepareRead(System.UInt64,System.UInt32)">
+            <summary>
+            Prepare to read memory of a certain size.
+            </summary>
+            <remarks>
+            Can be used with any Read* method as long as the size matches.
+            For example this would be used with <see cref="M:VmmSharpEx.Scatter.VmmScatter.ReadString(System.UInt64,System.Int32,System.Text.Encoding)"/>, after calling <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            </remarks>
+            <param name="address">Address of the memory to be read.</param>
+            <param name="cb">Count of bytes to be read.</param>
+            <returns><see langword="true"/> if the operation is successful, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.PrepareReadArray``1(System.UInt64,System.Int32)">
+            <summary>
+            Prepare to read memory from an array of a certain struct.
+            </summary>
+            <remarks>
+            Corresponds with the <see cref="M:VmmSharpEx.Scatter.VmmScatter.ReadArray``1(System.UInt64,System.Int32)"/>, <see cref="M:VmmSharpEx.Scatter.VmmScatter.ReadPooled``1(System.UInt64,System.Int32)"/>, or <see cref="M:VmmSharpEx.Scatter.VmmScatter.ReadSpan``1(System.UInt64,System.Span{``0})"/> methods, that should be called after <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            </remarks>
+            <typeparam name="T">The <see langword="unmanaged"/> struct type for this operation.</typeparam>
+            <param name="address">Address of the array to be read.</param>
+            <param name="count">Number of array elements to be read.</param>
+            <returns><see langword="true"/> if the operation is successful, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.PrepareReadValue``1(System.UInt64)">
+            <summary>
+            Prepare to read memory of a certain struct.
+            </summary>
+            <remarks>
+            Corresponds with the <see cref="M:VmmSharpEx.Scatter.VmmScatter.ReadValue``1(System.UInt64,``0@)"/> method, that should be called after <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            </remarks>
+            <typeparam name="T">The <see langword="unmanaged"/> struct type for this operation.</typeparam>
+            <param name="address">Address of the memory to be read.</param>
+            <returns><see langword="true"/> if the operation is successful, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.PrepareReadPtr(System.UInt64)">
+            <summary>
+            Prepare to read memory of a Windows x64 pointer type.
+            </summary>
+            <remarks>
+            Corresponds with the <see cref="M:VmmSharpEx.Scatter.VmmScatter.ReadPtr(System.UInt64,VmmSharpEx.VmmPointer@)"/> method, that should be called after <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            </remarks>
+            <param name="address">Address of the memory to be read.</param>
+            <returns><see langword="true"/> if the operation is successful, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.PrepareWriteSpan``1(System.UInt64,System.Span{``0})">
+            <summary>
+            Prepare to write a span of <see langword="unmanaged"/> struct type <typeparamref name="T"/> to memory.
+            </summary>
+            <remarks>
+            Must call <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/> for this write to be committed.
+            </remarks>
+            <typeparam name="T">The <see langword="unmanaged"/> struct type for this operation.</typeparam>
+            <param name="address">The address that will be written to.</param>
+            <param name="data">The data that will be written.</param>
+            <returns><see langword="true"/> if the operation is successful, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.PrepareWriteValue``1(System.UInt64,``0)">
+            <summary>
+            Prepare to write an <see langword="unmanaged"/> struct of type <typeparamref name="T"/> to memory.
+            </summary>
+            <remarks>
+            Must call <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/> for this write to be committed.
+            </remarks>
+            <typeparam name="T">The <see langword="unmanaged"/> struct type for this operation.</typeparam>
+            <param name="address">The address that will be written to.</param>
+            <param name="value">The value that will be written.</param>
+            <returns><see langword="true"/> if the operation is successful, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.Execute">
+            <summary>
+            Execute any prepared read, and/or write operations.
+            </summary>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.Read(System.UInt64,System.UInt32)">
+            <summary>
+            Read memory from an address into a byte array.
+            </summary>
+            <remarks>
+            This should be called after <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            NOTE: This method incurs a heap allocation for the returned byte array. For high-performance use other read methods instead.
+            </remarks>
+            <param name="address">Address to read from.</param>
+            <param name="cb">Count of bytes to be read.</param>
+            <returns>A byte array with the read memory, otherwise <see langword="null"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.Read(System.UInt64,System.UInt32,System.UInt32@)">
+            <summary>
+            Read memory from an address into a byte array.
+            </summary>
+            <remarks>
+            This should be called after <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            NOTE: This method incurs a heap allocation for the returned byte array. For high-performance use other read methods instead.
+            </remarks>
+            <param name="address">Address to read from.</param>
+            <param name="cb">Count of bytes to be read.</param>
+            <param name="cbRead">Count of bytes actually read.</param>
+            <returns>A byte array with the read memory, otherwise <see langword="null"/>. Be sure to also check <paramref name="cbRead"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.Read(System.UInt64,System.UInt32,System.Void*,System.UInt32@)">
+            <summary>
+            Read memory from an address to a pointer of a buffer that can accept <paramref name="cb"/> bytes.
+            </summary>
+            <param name="address">Address to read from.</param>
+            <param name="cb">Count of bytes to be read.</param>
+            <param name="pb">Pointer to buffer to receive read. You must make sure the buffer is pinned/fixed.</param>
+            <param name="cbRead">Count of bytes actually read.</param>
+            <returns>TRUE if successful, otherwise FALSE. Be sure to also check <paramref name="cbRead"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.Read(System.UInt64,System.UInt32,System.IntPtr,System.UInt32@)">
+            <summary>
+            Read memory from an address to a pointer of a buffer that can accept <paramref name="cb"/> bytes.
+            </summary>
+            <param name="address">Address to read from.</param>
+            <param name="cb">Count of bytes to be read.</param>
+            <param name="pb">Pointer to buffer to receive read. You must make sure the buffer is pinned/fixed.</param>
+            <param name="cbRead">Count of bytes actually read.</param>
+            <returns>TRUE if successful, otherwise FALSE. Be sure to also check <paramref name="cbRead"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.ReadValue``1(System.UInt64,``0@)">
+            <summary>
+            Read memory from an address into a struct type.
+            </summary>
+            <remarks>
+            This should be called after <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            </remarks>
+            <typeparam name="T">The <see langword="unmanaged"/> struct type for this operation.</typeparam>
+            <param name="address">Address to read from.</param>
+            <param name="result">Field in which the result <typeparamref name="T"/> is populated. If the read fails this will be <see langword="default"/>.</param>
+            <returns><see langword="true"/> if the operation is successful, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.ReadPtr(System.UInt64,VmmSharpEx.VmmPointer@)">
+            <summary>
+            Read memory from an address into a Windows x64 pointer type.
+            </summary>
+            <remarks>
+            This should be called after <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            </remarks>
+            <param name="address">Address to read from.</param>
+            <param name="result">Field in which the result <see cref="T:VmmSharpEx.VmmPointer"/> is populated. If the read fails this will be <see langword="default"/>.</param>
+            <returns><see langword="true"/> if the operation is successful, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.ReadArray``1(System.UInt64,System.Int32)">
+            <summary>
+            Read memory from an address into an array of a certain type.
+            </summary>
+            <remarks>
+            NOTE: This method incurs a heap allocation for the returned byte array. For high-performance use other read methods instead. This should be called after <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            </remarks>
+            <typeparam name="T">The <see langword="unmanaged"/> struct type for this operation.</typeparam>
+            <param name="address">Address to read from.</param>
+            <param name="count">The number of array elements to read.</param>
+            <returns>An array on success; otherwise <see langword="null"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.ReadPooled``1(System.UInt64,System.Int32)">
+            <summary>
+            Read memory from an address into a pooled array of a certain type.
+            </summary>
+            <remarks>
+            This should be called after <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            </remarks>
+            <typeparam name="T">The <see langword="unmanaged"/> struct type for this operation.</typeparam>
+            <param name="address">Address to read from.</param>
+            <param name="count">The number of array elements to read.</param>
+            <returns><see cref="T:System.Buffers.IMemoryOwner`1"/> lease, or <see langword="null"/> if failed. Be sure to call <see cref="M:System.IDisposable.Dispose"/> when done.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.ReadSpan``1(System.UInt64,System.Span{``0})">
+            <summary>
+            Read memory from an address into a Span of a certain type.
+            </summary>
+            <remarks>
+            This should be called after <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            </remarks>
+            <typeparam name="T">The <see langword="unmanaged"/> struct type for this operation.</typeparam>
+            <param name="address">Address to read from.</param>
+            <param name="span">The span to read into.</param>
+            <returns><see langword="true"/> if the operation is successful, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.ReadString(System.UInt64,System.Int32,System.Text.Encoding)">
+            <summary>
+            Read memory from an address into a managed string.
+            </summary>
+            <remarks>
+            This should be called after <see cref="M:VmmSharpEx.Scatter.VmmScatter.Execute"/>.
+            </remarks>
+            <param name="address">Address to read from.</param>
+            <param name="cb">Count of bytes to read. Keep in mind some string encodings are 2-4 bytes per character.</param>
+            <param name="encoding">String Encoding for this read.</param>
+            <returns>C# Managed <see cref="T:System.String"/>. Otherwise, <see langword="null"/> if failed.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatter.Clear(System.Nullable{VmmSharpEx.Options.VmmFlags},System.Nullable{System.UInt32})">
+            <summary>
+            Clear the <see cref="T:VmmSharpEx.Scatter.VmmScatter"/> object to allow for new operations.
+            Also clears any previously set <see cref="E:VmmSharpEx.Scatter.VmmScatter.Completed"/> event handlers.
+            </summary>
+            <remarks>
+            IMPORTANT: Using <see cref="M:VmmSharpEx.Scatter.VmmScatter.Clear(System.Nullable{VmmSharpEx.Options.VmmFlags},System.Nullable{System.UInt32})"/> and reusing a handle does not offer much (if any) performance benefit over creating a new handle.
+            Be sure to profile and compare performance before using this in performance critical code.
+            </remarks>
+            <param name="flags">[Optional] Flags to be set for new operations, otherwise uses existing flags.</param>
+            <param name="pid">[Optional] PID to be set for new operations, otherwise uses existing PID.</param>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="T:VmmSharpEx.Scatter.VmmScatterMap">
+            <summary>
+            Convenience mapping API that allows for multiple 'rounds' of <see cref="T:VmmSharpEx.Scatter.VmmScatter"/> operations to be executed in sequence.
+            </summary>
+        </member>
+        <member name="E:VmmSharpEx.Scatter.VmmScatterMap.Completed">
+            <summary>
+            Event is fired upon completion of <see cref="M:VmmSharpEx.Scatter.VmmScatterMap.Execute"/>.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatterMap.AddRound(VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Add a new scatter round to this map. Rounds will be executed in the order they are added when <see cref="M:VmmSharpEx.Scatter.VmmScatterMap.Execute"/> is called.
+            </summary>
+            <param name="flags">Vmm Flag Options for this operation.</param>
+            <returns>Object reference to the added <see cref="T:VmmSharpEx.Scatter.VmmScatter"/> instance.</returns>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="M:VmmSharpEx.Scatter.VmmScatterMap.Execute">
+            <summary>
+            Executes all of the contained Scatter Read 'Rounds' that have been added via <see cref="M:VmmSharpEx.Scatter.VmmScatterMap.AddRound(VmmSharpEx.Options.VmmFlags)"/>.
+            </summary>
+            <remarks>
+            If no rounds have been added, this method is a no-op.
+            </remarks>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="T:VmmSharpEx.Vmm">
+            <summary>
+            Public managed API for interacting with MemProcFS and LeechCore.
+            </summary>
+            <remarks>
+            This class wraps a native VMM handle and exposes higher-level helpers around memory read/write, VFS, and process
+            enumeration facilities. Instances are <see cref="T:System.IDisposable"/> and must be disposed to release the native handle.
+            </remarks>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.op_Implicit(VmmSharpEx.Vmm)~System.IntPtr">
+            <summary>
+            Implicitly converts a <see cref="T:VmmSharpEx.Vmm"/> instance to its underlying native handle.
+            </summary>
+            <param name="x">The <see cref="T:VmmSharpEx.Vmm"/> instance to convert.</param>
+            <returns>The native VMM handle, or <see cref="F:System.IntPtr.Zero"/> if <paramref name="x"/> is <see langword="null"/>.</returns>
+        </member>
+        <member name="P:VmmSharpEx.Vmm.LeechCore">
+            <summary>
+            Gets the underlying <see cref="P:VmmSharpEx.Vmm.LeechCore"/> context associated with this <see cref="T:VmmSharpEx.Vmm"/> instance.
+            </summary>
+        </member>
+        <member name="P:VmmSharpEx.Vmm.IsDisposed">
+            <summary>
+            True if this <see cref="T:VmmSharpEx.Vmm"/> instance has been disposed; otherwise false.
+            </summary>
+        </member>
+        <member name="P:VmmSharpEx.Vmm.EnableMemoryWriting">
+            <summary>
+            Gets a value indicating whether memory writing via this high-level API is enabled.
+            </summary>
+            <remarks>
+            Set this to <see langword="false"/> during initialization to disable all memory write operations exposed by this
+            wrapper. Attempts to write memory will throw a <see cref="T:VmmSharpEx.VmmException"/>. This setting is immutable after
+            initialization.
+            </remarks>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.ToString">
+            <inheritdoc />
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Create(VmmSharpEx.LeechCore.LCConfigErrorInfo@,System.String[])">
+            <summary>
+            Creates and initializes the native VMM context.
+            </summary>
+            <param name="configErrorInfo">Receives extended configuration error information, if available.</param>
+            <param name="args">MemProcFS/Vmm command line arguments.</param>
+            <returns>The native VMM handle on success.</returns>
+            <exception cref="T:VmmSharpEx.VmmException">Thrown if initialization fails.</exception>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.#ctor">
+            <summary>
+            Initializes a new instance of the <see cref="T:VmmSharpEx.Vmm"/> class.
+            </summary>
+            <remarks>This private constructor prevents parameterless instantiation.</remarks>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.#ctor(VmmSharpEx.LeechCore.LCConfigErrorInfo@,System.String[])">
+            <summary>
+            Initialize a new <see cref="T:VmmSharpEx.Vmm"/> instance with command line arguments and capture extended error information.
+            </summary>
+            <param name="configErrorInfo">Error information in case of an error.</param>
+            <param name="args">MemProcFS/Vmm command line arguments.</param>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.#ctor(System.String[])">
+            <summary>
+            Initialize a new <see cref="T:VmmSharpEx.Vmm"/> instance with command line arguments.
+            </summary>
+            <param name="args">MemProcFS/Vmm command line arguments.</param>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.InitializePlugins">
+            <summary>
+            Manually initialize plugins.
+            </summary>
+            <remarks>
+            Plugins are not initialized during <see cref="T:VmmSharpEx.Vmm"/> construction by default.
+            </remarks>
+            <returns><see langword="true"/> if plugins are loaded successfully; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Finalize">
+            <summary>
+            Finalizer to ensure the native handle is closed if <see cref="M:VmmSharpEx.Vmm.Dispose"/> was not called.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Dispose">
+            <inheritdoc />
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Dispose(System.Boolean)">
+            <summary>
+            Releases the native handle and any managed resources if requested.
+            </summary>
+            <param name="disposing">
+            <see langword="true"/> to release managed resources as well as unmanaged resources; otherwise,
+            <see langword="false"/> to release only unmanaged resources.
+            </param>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.CloseAll">
+            <summary>
+            Close all <see cref="T:VmmSharpEx.Vmm"/> instances in the native layer.
+            </summary>
+            <remarks>
+            This invokes <see cref="M:VmmSharpEx.Internal.Vmmi.VMMDLL_CloseAll"/> and affects all native VMM contexts in the process.
+            </remarks>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.MemoryModelType">
+            <summary>
+            Memory model types known to MemProcFS.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.MemoryModelType.MEMORYMODEL_NA">
+            <summary>Not applicable/unknown.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.MemoryModelType.MEMORYMODEL_X86">
+            <summary>x86 (32-bit) paging model.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.MemoryModelType.MEMORYMODEL_X86PAE">
+            <summary>x86 PAE (Physical Address Extension) paging model.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.MemoryModelType.MEMORYMODEL_X64">
+            <summary>x64 (64-bit) paging model.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.MemoryModelType.MEMORYMODEL_ARM64">
+            <summary>ARM64 paging model.</summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.SystemType">
+            <summary>
+            Operating system type inferred for the target system.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.SystemType.SYSTEM_UNKNOWN_X64">
+            <summary>Unknown x64 system.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.SystemType.SYSTEM_WINDOWS_X64">
+            <summary>Windows x64.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.SystemType.SYSTEM_UNKNOWN_X86">
+            <summary>Unknown x86 system.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.SystemType.SYSTEM_WINDOWS_X86">
+            <summary>Windows x86.</summary>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.ConfigGet(VmmSharpEx.Options.VmmOption)">
+            <summary>
+            Get a configuration option given by a <see cref="T:VmmSharpEx.Options.VmmOption"/> constant.
+            </summary>
+            <param name="fOption">The <see cref="T:VmmSharpEx.Options.VmmOption"/> option to retrieve.</param>
+            <returns>The config value retrieved on success; otherwise <see langword="null"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.ConfigSet(VmmSharpEx.Options.VmmOption,System.UInt64)">
+            <summary>
+            Set a configuration option given by a <see cref="T:VmmSharpEx.Options.VmmOption"/> constant.
+            </summary>
+            <param name="fOption">The <see cref="T:VmmSharpEx.Options.VmmOption"/> option to set.</param>
+            <param name="qwValue">The value to set.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.GetMemoryMap(System.Boolean,System.String)">
+            <summary>
+            Returns the physical memory map in string format, with additional optional setup parameters.
+            </summary>
+            <param name="applyMap">If <see langword="true"/>, applies the memory map to the current <see cref="T:VmmSharpEx.Vmm"/>/<see cref="P:VmmSharpEx.Vmm.LeechCore"/> instance.</param>
+            <param name="outputFile">If non-<see langword="null"/>, writes the memory map to disk at the specified output location.</param>
+            <returns>Memory map ptr in string format.</returns>
+            <exception cref="T:VmmSharpEx.VmmException">Thrown if the memory map cannot be retrieved or applied.</exception>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.PID_PHYSICALMEMORY">
+            <summary>
+            Special PID that indicates physical memory operations.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.PID_PROCESS_WITH_KERNELMEMORY">
+            <summary>
+            Flag to combine with a PID to enable process kernel memory (use with extreme care).
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemReadScatter(System.UInt32,VmmSharpEx.Options.VmmFlags,System.ReadOnlySpan{System.UInt64})">
+            <summary>
+            Perform a scatter read of multiple page-sized virtual/physical memory ranges.
+            </summary>
+            <param name="pid">Process ID (PID) this operation will take place upon.</param>
+            <param name="flags">VMM read flags.</param>
+            <param name="vas">Page-aligned memory addresses.</param>
+            <returns>Array of <see cref="T:VmmSharpEx.LeechCore.MEM_SCATTER"/> results.</returns>
+            <exception cref="T:VmmSharpEx.VmmException">Thrown if the native scatter allocation fails.</exception>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemRead(System.UInt32,System.UInt64,System.UInt32,System.UInt32@,VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Read memory from a virtual address into a byte array.
+            </summary>
+            <remarks>
+            NOTE: This method incurs a heap allocation for the returned byte array. For high-performance use other read methods instead.
+            </remarks>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to read from.</param>
+            <param name="cb">Count of bytes to read.</param>
+            <param name="cbRead">Count of bytes actually read.</param>
+            <param name="flags">VMM read flags.</param>
+            <returns>A byte array with the read memory, otherwise <see langword="null"/>. Be sure to also check <paramref name="cbRead"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemRead(System.UInt32,System.UInt64,System.IntPtr,System.UInt32,System.UInt32@,VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Read memory from a virtual address into unmanaged memory.
+            </summary>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to read from.</param>
+            <param name="pb">Pointer to buffer to receive the read.</param>
+            <param name="cb">Count of bytes to read.</param>
+            <param name="cbRead">Receives the count of bytes successfully read.</param>
+            <param name="flags">VMM read flags.</param>
+            <returns><see langword="true"/> if successful; otherwise <see langword="false"/>. Be sure to check <paramref name="cbRead"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemRead(System.UInt32,System.UInt64,System.Void*,System.UInt32,System.UInt32@,VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Read memory from a virtual address into unmanaged memory.
+            </summary>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to read from.</param>
+            <param name="pb">Pointer to buffer to receive the read.</param>
+            <param name="cb">Count of bytes to read.</param>
+            <param name="cbRead">Receives the count of bytes successfully read.</param>
+            <param name="flags">VMM read flags.</param>
+            <returns><see langword="true"/> if successful; otherwise <see langword="false"/>. Be sure to check <paramref name="cbRead"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemReadValue``1(System.UInt32,System.UInt64,VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Read memory from a virtual address into a <see langword="struct"/> of type <typeparamref name="T"/>.
+            </summary>
+            <typeparam name="T">Struct/Ref struct type.</typeparam>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to read from.</param>
+            <param name="flags">VMM read flags.</param>
+            <returns><typeparamref name="T"/> value.</returns>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemReadValue``1(System.UInt32,System.UInt64,``0@,VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Read memory from a virtual address into a <see langword="struct"/> of type <typeparamref name="T"/>.
+            </summary>
+            <typeparam name="T">Struct/Ref struct type.</typeparam>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to read from.</param>
+            <param name="result">Receives the value read on success; otherwise <see langword="default"/>.</param>
+            <param name="flags">VMM read flags.</param>
+            <returns><see langword="true"/> if successful; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemReadArray``1(System.UInt32,System.UInt64,System.Int32,VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Read memory from a virtual address into an array of type <typeparamref name="T"/>.
+            </summary>
+            <remarks>
+            NOTE: This method incurs a heap allocation for the returned byte array. For high-performance use other read methods instead.
+            </remarks>
+            <typeparam name="T">Value type.</typeparam>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to read from.</param>
+            <param name="count">Number of elements to read.</param>
+            <param name="flags">VMM read flags.</param>
+            <returns>An array on success; otherwise <see langword="null"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemReadPooled``1(System.UInt32,System.UInt64,System.Int32,VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Read memory from a virtual address into a pooled array of type <typeparamref name="T"/>.
+            </summary>
+            <typeparam name="T">Value type.</typeparam>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to read from.</param>
+            <param name="count">Number of elements to read.</param>
+            <param name="flags">VMM read flags.</param>
+            <returns>A <see cref="T:System.Buffers.IMemoryOwner`1"/> lease, or <see langword="null"/> if failed. Be sure to call <see cref="M:System.IDisposable.Dispose"/> when done.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemReadSpan``1(System.UInt32,System.UInt64,System.Span{``0},VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Read memory into a <see cref="T:System.Span`1"/>.
+            </summary>
+            <typeparam name="T">Value type.</typeparam>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Memory address to read from.</param>
+            <param name="span">Span to receive the memory read.</param>
+            <param name="flags">Read flags.</param>
+            <returns><see langword="true"/> if successful; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemReadString(System.UInt32,System.UInt64,System.Int32,System.Text.Encoding,VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Read memory from a virtual address into a managed <see cref="T:System.String"/>.
+            </summary>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to read from.</param>
+            <param name="cb">Number of bytes to read. Keep in mind some string encodings are 2–4 bytes per character.</param>
+            <param name="encoding">String encoding for this read.</param>
+            <param name="flags">VMM read flags.</param>
+            <returns>A managed <see cref="T:System.String"/> on success; otherwise <see langword="null"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemReadPage(System.UInt32,System.UInt64)">
+            <summary>
+            Read a single 4096-byte page of memory.
+            </summary>
+            <param name="pid">PID of target process, (DWORD)-1 to read physical memory.</param>
+            <param name="qwA">Page address to read from.</param>
+            <returns>Byte array on success; otherwise null.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemReadPagePooled(System.UInt32,System.UInt64)">
+            <summary>
+            Read a single 4096-byte page of memory (Pooled).
+            </summary>
+            <param name="pid">PID of target process, (DWORD)-1 to read physical memory.</param>
+            <param name="qwA">Page address to read from.</param>
+            <returns>Pooled array on success; otherwise null.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemPrefetchPages(System.UInt32,System.Span{System.UInt64})">
+            <summary>
+            Prefetch pages into the MemProcFS internal cache.
+            </summary>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="vas">An array of the virtual addresses to prefetch.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemWrite(System.UInt32,System.UInt64,System.IntPtr,System.UInt32)">
+            <summary>
+            Write memory from unmanaged memory to a given virtual address.
+            </summary>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to write to.</param>
+            <param name="pb">Pointer to buffer to write from.</param>
+            <param name="cb">Count of bytes to write.</param>
+            <returns><see langword="true"/> if the write is successful; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemWrite(System.UInt32,System.UInt64,System.Void*,System.UInt32)">
+            <summary>
+            Write memory from unmanaged memory to a given virtual address.
+            </summary>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to write to.</param>
+            <param name="pb">Pointer to buffer to write from.</param>
+            <param name="cb">Count of bytes to write.</param>
+            <returns><see langword="true"/> if the write is successful; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemWriteValue``1(System.UInt32,System.UInt64,``0)">
+            <summary>
+            Write memory from a struct value <typeparamref name="T"/> to a given virtual address.
+            </summary>
+            <typeparam name="T">Value type.</typeparam>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to write to.</param>
+            <param name="value">The value to write.</param>
+            <returns><see langword="true"/> if the write is successful; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemWriteArray``1(System.UInt32,System.UInt64,``0[])">
+            <summary>
+            Write memory from a managed array of <typeparamref name="T"/> to a given virtual address.
+            </summary>
+            <typeparam name="T">Value type.</typeparam>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to write to.</param>
+            <param name="data">Managed <typeparamref name="T"/> array to write.</param>
+            <returns><see langword="true"/> if the write is successful; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemWriteSpan``1(System.UInt32,System.UInt64,System.Span{``0})">
+            <summary>
+            Write memory from a <see cref="T:System.Span`1"/> of <typeparamref name="T"/> to a specified memory address.
+            </summary>
+            <typeparam name="T">Value type.</typeparam>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Memory address to write to.</param>
+            <param name="span">Span to write from.</param>
+            <returns><see langword="true"/> if successful; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemVirt2Phys(System.UInt32,System.UInt64,System.UInt64@)">
+            <summary>
+            Translate a virtual address to a physical address.
+            </summary>
+            <param name="pid">Process ID (PID) this operation will take place within.</param>
+            <param name="va">Virtual address to translate from.</param>
+            <param name="pa">Translated physical address if successful, otherwise 0.</param>
+            <returns>True if successful, otherwise False.</returns>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.VMMDLL_VFS_FILELIST_EXINFO">
+            <summary>
+            Extended VFS file information provided by VMMDLL when listing files/directories.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_VFS_FILELIST_EXINFO.dwVersion">
+            <summary>Structure version.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_VFS_FILELIST_EXINFO.fCompressed">
+            <summary>Indicates whether the file is compressed.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_VFS_FILELIST_EXINFO.ftCreationTime">
+            <summary>Creation timestamp (FILETIME).</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_VFS_FILELIST_EXINFO.ftLastAccessTime">
+            <summary>Last access timestamp (FILETIME).</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_VFS_FILELIST_EXINFO.ftLastWriteTime">
+            <summary>Last write timestamp (FILETIME).</summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.VfsEntry">
+            <summary>
+            Managed VFS entry describing a file or directory.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VfsEntry.name">
+            <summary>The file or directory name.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VfsEntry.isDirectory">
+            <summary><see langword="true"/> if the entry is a directory; otherwise <see langword="false"/>.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VfsEntry.size">
+            <summary>The size of the entry in bytes (0 for directories).</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VfsEntry.info">
+            <summary>Optional extended file information.</summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.VfsContext">
+            <summary>
+            Managed VFS context structure.
+            Can be extended to hold additional user implementation if needed.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.VfsList(System.String)">
+            <summary>
+            VFS list files and directories in a virtual file system path.
+            </summary>
+            <param name="path">Virtual path to enumerate.</param>
+            <returns>A list with file and directory entries on success; a null list on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.VfsRead(System.String,System.Byte[]@,System.UInt32,System.UInt64)">
+            <summary>
+            VFS read data from a virtual file.
+            </summary>
+            <param name="fileName">The file name/path within the VFS.</param>
+            <param name="data">The data read from the operation on success; otherwise null.</param>
+            <param name="size">The maximum number of bytes to read. 0 = default = 16MB.</param>
+            <param name="offset">Optional offset within the file to start reading at.</param>
+            <returns>The NTSTATUS value of the operation (success = 0).</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.VfsWrite(System.String,System.ReadOnlySpan{System.Byte},System.UInt64)">
+            <summary>
+            VFS write data to a virtual file.
+            </summary>
+            <param name="fileName">The file name/path within the VFS.</param>
+            <param name="data">The data to write.</param>
+            <param name="offset">Optional offset within the file to start writing at.</param>
+            <returns>The NTSTATUS value of the operation (success = 0).</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.PidGetList">
+            <summary>
+            Get all process IDs (PIDs) currently running on the target system.
+            </summary>
+            <returns>Array of PIDs; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.PidGetFromName(System.String,System.UInt32@)">
+            <summary>
+            Get the process ID (PID) for a given process name.
+            </summary>
+            <remarks>
+            This only returns the first PID found for the process name. For multiple PIDs, use <see cref="M:VmmSharpEx.Vmm.PidGetAllFromName(System.String)"/>.
+            </remarks>
+            <param name="sProcName">Name of the process to look up.</param>
+            <param name="pdwPID">Receives the PID ptr.</param>
+            <returns><see langword="true"/> if successful; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.PidGetAllFromName(System.String)">
+            <summary>
+            Get all process IDs (PIDs) for a given process name.
+            </summary>
+            <param name="sProcName">Name of the process to look up.</param>
+            <returns>Array of PIDs that match, or null if failed.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetPTE(System.UInt32,System.Boolean)">
+            <summary>
+            PTE (Page Table Entry) information.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="fIdentifyModules">If <see langword="true"/>, attempt to identify modules for regions.</param>
+            <returns>Array of PTEs on success; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetVad(System.UInt32,System.Boolean)">
+            <summary>
+            VAD (Virtual Address Descriptor) information.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="fIdentifyModules">If <see langword="true"/>, attempt to identify modules for regions.</param>
+            <returns>Array of VAD entries on success; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetVadEx(System.UInt32,System.UInt32,System.UInt32)">
+            <summary>
+            Extended VAD (Virtual Address Descriptor) information.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="oPages">Page offset.</param>
+            <param name="cPages">Number of pages.</param>
+            <returns>Array of extended VAD entries on success; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetModule(System.UInt32,System.Boolean)">
+            <summary>
+            Retrieve module (loaded DLL) information for a process.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="fExtendedInfo">If <see langword="true"/>, attempts to include extended debug/version information.</param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.ModuleEntry"/> on success; an null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetModuleFromName(System.UInt32,System.String,VmmSharpEx.Vmm.ModuleEntry@)">
+            <summary>
+            Get a single module from its name. If more than one module with the same name is loaded, the first one is returned.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="module">Module name to look up.</param>
+            <param name="result">Receives the <see cref="T:VmmSharpEx.Vmm.ModuleEntry"/> if successful.</param>
+            <returns><see langword="true"/> if successful; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetUnloadedModule(System.UInt32)">
+            <summary>
+            Retrieve information about unloaded modules.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.UnloadedModuleEntry"/> on success; an null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetEAT(System.UInt32,System.String,VmmSharpEx.Vmm.EATInfo@)">
+            <summary>
+            Retrieve EAT (Export Address Table) information for a module.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="module">Module name to query.</param>
+            <param name="info">Receives high-level <see cref="T:VmmSharpEx.Vmm.EATInfo"/> for the module.</param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.EATEntry"/> on success; an null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetIAT(System.UInt32,System.String)">
+            <summary>
+            Retrieve IAT (Import Address Table) information for a module.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="module">Module name to query.</param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.IATEntry"/> on success; an null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetHeap(System.UInt32,VmmSharpEx.Vmm.HeapMap@)">
+            <summary>
+            Retrieve heap information for a process.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="result">Receives the <see cref="T:VmmSharpEx.Vmm.HeapMap"/> ptr on success.</param>
+            <returns><see langword="true"/> if successful; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetHeapAlloc(System.UInt32,System.UInt64)">
+            <summary>
+            Retrieve heap allocation entries for a specific heap by base address or heap number.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="vaHeapOrHeapNum">Heap base address or heap index.</param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.HeapAllocEntry"/> on success; an null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetThread(System.UInt32)">
+            <summary>
+            Retrieve thread information for a process.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.ThreadEntry"/> on success; an null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetThread_Callstack(System.UInt32,System.UInt32,VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Retrieve thread call stack information.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="tid">Thread ID to retrieve the call stack for.</param>
+            <param name="flags">Supported <see cref="T:VmmSharpEx.Options.VmmFlags"/> values include <see cref="F:VmmSharpEx.Options.VmmFlags.NONE"/>, <see cref="F:VmmSharpEx.Options.VmmFlags.NOCACHE"/>, and <see cref="F:VmmSharpEx.Options.VmmFlags.FORCECACHE_READ"/>.</param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.ThreadCallstackEntry"/> on success; an null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetHandle(System.UInt32)">
+            <summary>
+            Retrieve handle information for a process.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.HandleEntry"/> on success; an null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.GetProcessPathUser(System.UInt32)">
+            <summary>
+            Get the user-mode path of the process image.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <returns>A string path on success; otherwise a null string.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.GetProcessPathKernel(System.UInt32)">
+            <summary>
+            Get the kernel-mode path of the process image.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <returns>A string path on success; otherwise a null string.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.GetProcessCmdline(System.UInt32)">
+            <summary>
+            Get the process command line.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <returns>The command line string on success; otherwise a null string.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.GetProcessInformationString(System.UInt32,System.UInt32)">
+            <summary>
+            Get the string representation of a process info option.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="fOptionString">A VMMDLL_PROCESS_INFORMATION_OPT_* flag indicating which string to fetch.</param>
+            <returns>The string value on success; otherwise a null string.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.ProcessGetDirectories(System.UInt32,System.String)">
+            <summary>
+            Retrieve IMAGE_DATA_DIRECTORY information for the specified module.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="sModule">Module name.</param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.IMAGE_DATA_DIRECTORY"/>; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.ProcessGetSections(System.UInt32,System.String)">
+            <summary>
+            Retrieve IMAGE_SECTION_HEADER information for the specified module.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="sModule">Module name.</param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.IMAGE_SECTION_HEADER"/>; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.ProcessGetProcAddress(System.UInt32,System.String,System.String)">
+            <summary>
+            Get the function address of a function in a loaded module.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="wszModuleName">Module name.</param>
+            <param name="szFunctionName">Function name.</param>
+            <returns>The function virtual address on success; 0 on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.ProcessGetModuleBase(System.UInt32,System.String)">
+            <summary>
+            Get the base address of a loaded module.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="wszModuleName">Module name.</param>
+            <returns>The module base address on success; 0 on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.ProcessGetInformation(System.UInt32,VmmSharpEx.Vmm.ProcessInfo@)">
+            <summary>
+            Get process information for a specific process.
+            </summary>
+            <param name="pid">Process ID (PID) for this operation.</param>
+            <param name="result">Receives the <see cref="T:VmmSharpEx.Vmm.ProcessInfo"/> if successful.</param>
+            <returns><see langword="true"/> if successful; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.ProcessGetInformationAll">
+            <summary>
+            Get process information for all processes.
+            </summary>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.ProcessInfo"/>; null array on failure.</returns>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.ProcessInfo">
+            <summary>
+            Process metadata as returned by MemProcFS/VMMDLL.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.fValid">
+            <summary>Indicates the entry contains valid data.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.tpMemoryModel">
+            <summary>Memory model type (see underlying VMMDLL).</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.tpSystem">
+            <summary>System type (see underlying VMMDLL).</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.fUserOnly">
+            <summary>True if user-mode only.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.dwPID">
+            <summary>Process identifier.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.dwPPID">
+            <summary>Parent process identifier.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.dwState">
+            <summary>Process state flags.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.sName">
+            <summary>Short process name.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.sNameLong">
+            <summary>Long process name.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.paDTB">
+            <summary>Directory table base (kernel).</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.paDTB_UserOpt">
+            <summary>User-mode DTB (optional).</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.vaEPROCESS">
+            <summary>EPROCESS address.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.vaPEB">
+            <summary>PEB address.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.fWow64">
+            <summary>True if the process is WoW64.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.vaPEB32">
+            <summary>PEB32 address for WoW64 processes.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.dwSessionId">
+            <summary>Windows session id.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.qwLUID">
+            <summary>Process LUID.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.sSID">
+            <summary>Process SID string.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.ProcessInfo.IntegrityLevel">
+            <summary>Integrity level value.</summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.PteEntry">
+            <summary>
+            Page Table Entry (PTE) mapping entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.VadEntry">
+            <summary>
+            Virtual Address Descriptor (VAD) mapping entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.VadExEntryPrototype">
+            <summary>
+            Prototype information for a VAD EX entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.VadExEntry">
+            <summary>
+            Extended VAD entry with page table details.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.MAP_MODULEENTRY_TP_NORMAL">
+            <summary>
+            Module type constants.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_MODULE_TP_DATA">
+            <summary>Module is data only.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_MODULE_TP_NOTLINKED">
+            <summary>Module not linked.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_MODULE_TP_INJECTED">
+            <summary>Module injected.</summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.ModuleEntryDebugInfo">
+            <summary>
+            Extended debug information associated with a module entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.ModuleEntryVersionInfo">
+            <summary>
+            Version information associated with a module entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.ModuleEntry">
+            <summary>
+            Module entry describing a loaded module/DLL.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.UnloadedModuleEntry">
+            <summary>
+            Entry describing an unloaded module.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.UnloadedModuleEntry.dwCheckSum">
+            <summary>User-mode only.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.UnloadedModuleEntry.dwTimeDateStamp">
+            <summary>User-mode only.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.UnloadedModuleEntry.ftUnload">
+            <summary>Kernel-mode only.</summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.EATInfo">
+            <summary>
+            High-level EAT metadata for a module.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.EATEntry">
+            <summary>
+            Export Address Table entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.IATEntry">
+            <summary>
+            Import Address Table entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.HeapEntry">
+            <summary>
+            Heap descriptor entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.HeapSegmentEntry">
+            <summary>
+            Heap segment descriptor entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.HeapMap">
+            <summary>
+            Heap map ptr containing heaps and segments.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.HeapAllocEntry">
+            <summary>
+            Heap allocation entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.ThreadEntry">
+            <summary>
+            Thread descriptor entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.ThreadCallstackEntry">
+            <summary>
+            A single thread call stack frame entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.HandleEntry">
+            <summary>
+            Kernel handle table entry.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.vaObject">
+            <summary>Kernel object address.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.dwHandle">
+            <summary>Raw handle value.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.dwGrantedAccess">
+            <summary>Granted access mask (low 24 bits of native field).</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.iType">
+            <summary>Object type index (high 8 bits of native field).</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.qwHandleCount">
+            <summary>Handle reference count.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.qwPointerCount">
+            <summary>Pointer reference count.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.vaObjectCreateInfo">
+            <summary>Pointer to OBJECT_CREATE_INFORMATION.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.vaSecurityDescriptor">
+            <summary>Pointer to security descriptor.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.sText">
+            <summary>Descriptive text, if available.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.dwPID">
+            <summary>Owning process ID.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.dwPoolTag">
+            <summary>Pool tag.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.HandleEntry.sType">
+            <summary>Object type name.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_PROCESS_INFORMATION_OPT_STRING_PATH_KERNEL">
+            <summary>Process information string option: kernel path.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_PROCESS_INFORMATION_OPT_STRING_PATH_USER_IMAGE">
+            <summary>Process information string option: user image path.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_PROCESS_INFORMATION_OPT_STRING_CMDLINE">
+            <summary>Process information string option: command line.</summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.IMAGE_SECTION_HEADER">
+            <summary>
+            Struct corresponding to the native PE IMAGE_SECTION_HEADER.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.IMAGE_DATA_DIRECTORY">
+            <summary>
+            Struct corresponding to the native PE IMAGE_DATA_DIRECTORY.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.RegHiveEntry">
+            <summary>
+            Registry hive descriptor.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.RegEnumKeyEntry">
+            <summary>
+            Registry subkey descriptor.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.RegEnumValueEntry">
+            <summary>
+            Registry value descriptor.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.RegEnumEntry">
+            <summary>
+            Registry enumeration ptr containing keys and values.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.WinReg_HiveList">
+            <summary>
+            List the registry hives.
+            </summary>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.RegHiveEntry"/> on success; an null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.WinReg_HiveReadEx(System.UInt64,System.UInt32,System.UInt32,VmmSharpEx.Options.VmmFlags)">
+            <summary>
+            Read a region from a registry hive.
+            </summary>
+            <param name="vaCMHIVE">Virtual address of the registry hive.</param>
+            <param name="ra">Hive registry address (ra).</param>
+            <param name="cb">Number of bytes to read.</param>
+            <param name="flags">Optional <see cref="T:VmmSharpEx.Options.VmmFlags"/> to control the read.</param>
+            <returns>Data read on success (length may differ from requested read size); null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.WinReg_HiveWrite(System.UInt64,System.UInt32,System.ReadOnlySpan{System.Byte})">
+            <summary>
+            Write to a registry hive.
+            </summary>
+            <remarks>
+            NB! This is a very dangerous operation and is not recommended. Only proceed if you know what you're doing.
+            </remarks>
+            <param name="vaCMHIVE">The virtual address of the registry hive.</param>
+            <param name="ra">Hive registry address (ra).</param>
+            <param name="data">Data to write.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.WinReg_Enum(System.String)">
+            <summary>
+            Enumerate a registry key for subkeys and values.
+            </summary>
+            <param name="sKeyFullPath">Full registry path to enumerate.</param>
+            <returns>A <see cref="T:VmmSharpEx.Vmm.RegEnumEntry"/> containing subkeys and values on success.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.WinReg_QueryValue(System.String,System.UInt32@)">
+            <summary>
+            Read a registry value.
+            </summary>
+            <param name="sValueFullPath">Full registry value path.</param>
+            <param name="tp">Receives the registry value type.</param>
+            <returns>Value data on success; otherwise <see langword="null"/>.</returns>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.MEMMAP_FLAG_PAGE_W">
+            <summary>Page is writable.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.MEMMAP_FLAG_PAGE_NS">
+            <summary>Page is not shareable.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.MEMMAP_FLAG_PAGE_NX">
+            <summary>Page is non-executable.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.MEMMAP_FLAG_PAGE_MASK">
+            <summary>Mask of supported page flags.</summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.NetEntryAddress">
+            <summary>
+            Network endpoint address entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.NetEntry">
+            <summary>
+            Network connection entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.MemoryEntry">
+            <summary>
+            Physical memory range entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.KDeviceEntry">
+            <summary>
+            Kernel device entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.KDriverEntry">
+            <summary>
+            Kernel driver entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.KObjectEntry">
+            <summary>
+            Kernel named object entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.PoolEntry">
+            <summary>
+            Kernel pool allocation entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.UserEntry">
+            <summary>
+            User information entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.VirtualMachineEntry">
+            <summary>
+            Virtual machine entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.ServiceEntry">
+            <summary>
+            Windows service entry.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.PfnType">
+            <summary>
+            PFN state types.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.PfnTypeExtended">
+            <summary>
+            Extended PFN types.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.PfnEntry">
+            <summary>
+            PFN entry details.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetNet">
+            <summary>
+            Retrieve active network connections.
+            </summary>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.NetEntry"/>; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetPhysMem">
+            <summary>
+            Retrieve the physical memory map.
+            </summary>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.MemoryEntry"/> elements; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetKDevice">
+            <summary>
+            Retrieve the kernel devices on the system.
+            </summary>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.KDeviceEntry"/> elements; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetKDriver">
+            <summary>
+            Retrieve the kernel drivers on the system.
+            </summary>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.KDriverEntry"/> elements; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetKObject">
+            <summary>
+            Retrieve the kernel named objects on the system.
+            </summary>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.KObjectEntry"/> elements; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetPool(System.Boolean)">
+            <summary>
+            Retrieve entries from the kernel pool.
+            </summary>
+            <param name="isBigPoolOnly">
+            Set to <see langword="true"/> to only retrieve big pool allocations (faster). Default is to retrieve all allocations.
+            </param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.PoolEntry"/> elements; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetUsers">
+            <summary>
+            Retrieve the detected users on the system.
+            </summary>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.UserEntry"/> elements; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetVM">
+            <summary>
+            Retrieve the detected virtual machines on the system. This includes Hyper-V, WSL and other virtual machines running on top of the Windows Hypervisor Platform.
+            </summary>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.VirtualMachineEntry"/> elements; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetServices">
+            <summary>
+            Retrieve the services on the system.
+            </summary>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.ServiceEntry"/> elements; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Map_GetPfn(System.Span{System.UInt32})">
+            <summary>
+            Retrieve the PFN entries for the specified PFN numbers.
+            </summary>
+            <param name="pfns">The PFN numbers to retrieve information for.</param>
+            <returns>An array of <see cref="T:VmmSharpEx.Vmm.PfnEntry"/>; null array on failure.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.PdbLoad(System.UInt32,System.UInt64,System.String@)">
+            <summary>
+            Load a .pdb symbol file and return its associated module name upon success.
+            </summary>
+            <param name="pid">Process ID (PID) whose module the symbols belong to.</param>
+            <param name="vaModuleBase">Module base address.</param>
+            <param name="szModuleName">Receives the module name if successful, otherwise null.</param>
+            <returns><see langword="true"/> if the PDB was loaded successfully; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.PdbSymbolName(System.String,System.UInt64,System.String@,System.UInt32@)">
+            <summary>
+            Get the symbol name given an address or offset.
+            </summary>
+            <param name="szModule">Module name.</param>
+            <param name="cbSymbolAddressOrOffset">Symbol address or module-relative offset.</param>
+            <param name="szSymbolName">Receives the symbol name if succesful, otherwise null.</param>
+            <param name="pdwSymbolDisplacement">Receives the displacement from the symbol.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.PdbSymbolAddress(System.String,System.String,System.UInt64@)">
+            <summary>
+            Get the symbol address given a symbol name.
+            </summary>
+            <param name="szModule">Module name.</param>
+            <param name="szSymbolName">Symbol name.</param>
+            <param name="pvaSymbolAddress">Receives the symbol address on success.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.PdbTypeSize(System.String,System.String,System.UInt32@)">
+            <summary>
+            Get the size of a type.
+            </summary>
+            <param name="szModule">Module name.</param>
+            <param name="szTypeName">Type name.</param>
+            <param name="pcbTypeSize">Receives the type size.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.PdbTypeChildOffset(System.String,System.String,System.String,System.UInt32@)">
+            <summary>
+            Get the child offset of a type.
+            </summary>
+            <param name="szModule">Module name.</param>
+            <param name="szTypeName">Type name.</param>
+            <param name="wszTypeChildName">Child member name.</param>
+            <param name="pcbTypeChildOffset">Receives the child offset within the type.</param>
+            <returns><see langword="true"/> on success; otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="T:VmmSharpEx.Vmm.LogLevel">
+            <summary>
+            Enum used to specify the log level.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.LogLevel.Critical">
+            <summary>Critical stopping error.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.LogLevel.Warning">
+            <summary>Severe warning error.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.LogLevel.Info">
+            <summary>Normal/info message.</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.LogLevel.Verbose">
+            <summary>Verbose message (visible with -v).</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.LogLevel.Debug">
+            <summary>Debug message (visible with -vv).</summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.LogLevel.Trace">
+            <summary>Trace message.</summary>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.Log(System.String,VmmSharpEx.Vmm.LogLevel,System.UInt32)">
+            <summary>
+            Log a string to the VMM log.
+            </summary>
+            <param name="message">The message to log.</param>
+            <param name="logLevel">The log level (default INFO).</param>
+            <param name="MID">Module ID (default = API).</param>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.MemCallback(VmmSharpEx.Options.VmmMemCallbackType,System.IntPtr,)">
+            <summary>
+            Register or unregister an optional memory access callback function.
+            It's possible to have one callback function registered for each type.
+            To clear an already registered callback function specify NULL as pfnCB.
+            </summary>
+            <remarks>
+            The callback must be a static method marked with <see cref="T:System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute"/> returning void with signature:
+            <c>(IntPtr ctxUser, uint dwPID, uint cpMEMs, LeechCore.MEM_SCATTER_NATIVE** ppMEMs)</c>
+            </remarks>
+            <param name="type">type of callback to register / unregister - VMMDLL_MEM_CALLBACK_*.</param>
+            <param name="context">user context pointer to be passed to the callback function.</param>
+            <param name="pfnCB">callback function pointer to register, or null to unregister.</param>
+            <returns><see langword="true"/> if the callback was successfully registered/unregistered, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.ThrowIfMemWritesDisabled">
+            <summary>
+            Throw an exception if memory writing is disabled.
+            </summary>
+            <exception cref="T:VmmSharpEx.VmmException">Thrown when memory writing is disabled.</exception>
+        </member>
+        <member name="P:VmmSharpEx.Vmm.VMMDLL_WIN_THUNKINFO_IAT.f32">
+            <summary>
+            if TRUE fn is a 32-bit/4-byte entry, otherwise 64-bit/8-byte entry.
+            </summary>
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_WIN_THUNKINFO_IAT.vaThunk">
+            <summary>
+            address of import address table 'thunk'.
+            </summary>        
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_WIN_THUNKINFO_IAT.vaFunction">
+            <summary>
+            value if import address table 'thunk' == address of imported function.
+            </summary>        
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_WIN_THUNKINFO_IAT.vaNameModule">
+            <summary>
+            address of name string for imported module.
+            </summary>        
+        </member>
+        <member name="F:VmmSharpEx.Vmm.VMMDLL_WIN_THUNKINFO_IAT.vaNameFunction">
+            <summary>
+            address of name string for imported function.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.WinGetThunkInfoIAT(System.UInt32,System.String,System.String,System.String,VmmSharpEx.Vmm.VMMDLL_WIN_THUNKINFO_IAT@)">
+            <summary>
+            Retrieve information about the import address table IAT thunk for an imported
+            function.This includes the virtual address of the IAT thunk which is useful
+            for hooking.
+            </summary>
+            <param name="dwPID"></param>
+            <param name="wszModuleName"></param>
+            <param name="szImportModuleName"></param>
+            <param name="szImportFunctionName"></param>
+            <param name="pThunkInfoIAT"></param>
+            <returns><see langword="true"/> if the call was successful, otherwise <see langword="false"/>.</returns>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.ForceFullRefresh">
+            <summary>
+            Force a full VMM refresh (equivalent to <see cref="F:VmmSharpEx.Options.VmmOption.REFRESH_ALL"/>).
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.RegisterAutoRefresh(VmmSharpEx.Refresh.RefreshOption,System.TimeSpan)">
+            <summary>
+            Register an auto-refresher with a specified interval.
+            </summary>
+            <remarks>
+            Useful if initialized with -norefresh and you want to control refreshing more closely. Minimum interval resolution is ~10–15ms.
+            </remarks>
+            <param name="option">VMM refresh <see cref="T:VmmSharpEx.Refresh.RefreshOption"/>.</param>
+            <param name="interval">Interval at which to fire a refresh operation.</param>
+        </member>
+        <member name="M:VmmSharpEx.Vmm.UnregisterAutoRefresh(VmmSharpEx.Refresh.RefreshOption)">
+            <summary>
+            Unregister an auto-refresher.
+            </summary>
+            <param name="option">Option to unregister.</param>
+        </member>
+        <member name="T:VmmSharpEx.VmmException">
+            <summary>
+            Thrown when an exception occurs within Vmmsharp (MemProcFS).
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.VmmPointer">
+            <summary>
+            Represents a pointer in the target x64 Windows System.
+            Can be implicitly casted to/from <see cref="T:System.UInt64"/>.
+            </summary>
+        </member>
+        <member name="P:VmmSharpEx.VmmPointer.IsValidVA">
+            <summary>
+            True if the pointer is a valid virtual address, otherwise False.
+            </summary>
+        </member>
+        <member name="P:VmmSharpEx.VmmPointer.IsValidUserVA">
+            <summary>
+            True if the pointer is a valid usermode virtual address, otherwise False.
+            </summary>
+        </member>
+        <member name="P:VmmSharpEx.VmmPointer.IsValidKernelVA">
+            <summary>
+            True if the pointer is a valid kernel virtual address, otherwise False.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.VmmPointer.ThrowIfInvalidVA">
+            <summary>
+            Throws a <see cref="T:VmmSharpEx.VmmException"/> if the pointer is not a valid virtual address.
+            </summary>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="M:VmmSharpEx.VmmPointer.ThrowIfInvalidUserVA">
+            <summary>
+            Throws a <see cref="T:VmmSharpEx.VmmException"/> if the pointer is not a valid usermode virtual address.
+            </summary>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="M:VmmSharpEx.VmmPointer.ThrowIfInvalidKernelVA">
+            <summary>
+            Throws a <see cref="T:VmmSharpEx.VmmException"/> if the pointer is not a valid kernel virtual address.
+            </summary>
+            <exception cref="T:VmmSharpEx.VmmException"></exception>
+        </member>
+        <member name="T:VmmSharpEx.VmmSearch">
+            <summary>
+            VmmSearch represents a binary search in memory.
+            </summary>
+        </member>
+        <member name="M:VmmSharpEx.VmmSearch.MemSearchAsync(VmmSharpEx.Vmm,System.UInt32,System.Collections.Generic.IEnumerable{VmmSharpEx.VmmSearch.SearchItem},System.UInt64,System.UInt64,System.UInt32,VmmSharpEx.Options.VmmFlags,System.Threading.CancellationToken)">
+            <summary>
+            Asynchronously execute a memory search on the specified process.
+            </summary>
+            <param name="vmm">Vmm instance</param>
+            <param name="pid">Process ID</param>
+            <param name="searchItems">Search items</param>
+            <param name="addr_min">(Optional) Minimum address</param>
+            <param name="addr_max">(Optional) Maximum address</param>
+            <param name="cMaxResult">(Optional) Maximum results</param>
+            <param name="readFlags">(Optional) Vmm Read flags</param>
+            <param name="ct">(Optional) Cancellation token to abort the search.</param>
+            <returns><see cref="T:VmmSharpEx.VmmSearch.SearchResult"/> object containing the search result(s).</returns>
+        </member>
+        <member name="M:VmmSharpEx.VmmSearch.MemSearch(VmmSharpEx.Vmm,System.UInt32,System.Collections.Generic.IEnumerable{VmmSharpEx.VmmSearch.SearchItem},System.UInt64,System.UInt64,System.UInt32,VmmSharpEx.Options.VmmFlags,System.Threading.CancellationToken)">
+            <summary>
+            Execute a memory search on the specified process.
+            </summary>
+            <param name="vmm">Vmm instance</param>
+            <param name="pid">Process ID</param>
+            <param name="searchItems">Search items</param>
+            <param name="addr_min">(Optional) Minimum address</param>
+            <param name="addr_max">(Optional) Maximum address</param>
+            <param name="cMaxResult">(Optional) Maximum results</param>
+            <param name="readFlags">(Optional) Vmm Read flags</param>
+            <param name="ct">(Optional) Cancellation token to abort the search.</param>
+            <returns><see cref="T:VmmSharpEx.VmmSearch.SearchResult"/> object containing the search result(s).</returns>
+        </member>
+        <member name="T:VmmSharpEx.VmmSearch.SearchItem">
+            <summary>
+            Represents a single search item with search bytes, optional skip mask and alignment.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.VmmSearch.SearchResult">
+            <summary>
+            Struct with info about the current search results.
+            </summary>
+        </member>
+        <member name="P:VmmSharpEx.VmmSearch.SearchResult.IsSuccess">
+            <summary>
+            If <see cref="P:VmmSharpEx.VmmSearch.SearchResult.IsSuccess"/> is <see langword="true"/> this indicates that the search was completed successfully without errors. However, it does not guarantee that any results were found.
+            Be sure to check <see cref="P:VmmSharpEx.VmmSearch.SearchResult.Results"/> for the number of results found.
+            </summary>
+        </member>
+        <member name="P:VmmSharpEx.VmmSearch.SearchResult.Results">
+            <summary>
+            The search results.
+            </summary>
+        </member>
+        <member name="T:VmmSharpEx.VmmSearch.SearchResult.Entry">
+            <summary>
+            Struct with info about a single search result. Address, search term id.
+            </summary>
+        </member>
+    </members>
+</doc>
