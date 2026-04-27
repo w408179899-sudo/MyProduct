@@ -678,38 +678,142 @@ function nav.get_task_panel_info(snapshot)
         return text, kind
     end
 
-    local function button_matches_task_item(item)
+    local function task_item_anchor_score(item)
         local haystack = table.concat({
             tostring(item and item.name or ""),
             tostring(item and item.Fullname or item and item.fullname or "")
         }, " "):lower()
-        return haystack:find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil
+        if haystack:find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil
             or haystack:find("widgettree.taskbtn", 1, true) ~= nil
+        then
+            return 0
+        end
+        if haystack:find("taskitem_c.widgettree.uiimage", 1, true) ~= nil then
+            return 12
+        end
+        if haystack:find("taskitem_c.widgettree.fullimg", 1, true) ~= nil then
+            return 18
+        end
+        if haystack:find("taskitem_c.widgettree.padding_dummy", 1, true) ~= nil then
+            return 24
+        end
+        if haystack:find("taskitem_c.widgettree.shuangguang", 1, true) ~= nil then
+            return 28
+        end
+        if haystack:find("taskitem_c.widgettree.", 1, true) ~= nil then
+            return 36
+        end
+        return nil
     end
 
-    local task_buttons = {}
-    for _, item in ipairs(snapshot.buttons or {}) do
+    local task_anchors = {}
+    local function push_task_anchor(kind, item)
         local x = as_number(item.x)
         local y = as_number(item.y)
-        if x ~= nil and y ~= nil and button_matches_task_item(item) then
-            task_buttons[#task_buttons + 1] = {
+        local anchor_score = task_item_anchor_score(item)
+        if x ~= nil and y ~= nil and anchor_score ~= nil then
+            task_anchors[#task_anchors + 1] = {
+                kind = kind,
                 x = x,
                 y = y,
-                item = item
+                item = item,
+                anchor_score = anchor_score
             }
         end
     end
 
-    table.sort(task_buttons, function(a, b)
+    for _, item in ipairs(snapshot.buttons or {}) do
+        push_task_anchor("button", item)
+    end
+    for _, item in ipairs(snapshot.images or {}) do
+        push_task_anchor("image", item)
+    end
+
+    table.sort(task_anchors, function(a, b)
         if a.y ~= b.y then
             return a.y < b.y
+        end
+        if a.anchor_score ~= b.anchor_score then
+            return a.anchor_score < b.anchor_score
         end
         return a.x < b.x
     end)
 
+    local task_buttons = {}
+    for _, anchor in ipairs(task_anchors) do
+        local merged = task_buttons[#task_buttons]
+        if merged ~= nil
+            and math.abs((tonumber(merged.y) or 0) - (tonumber(anchor.y) or 0)) <= 10
+            and math.abs((tonumber(merged.x) or 0) - (tonumber(anchor.x) or 0)) <= 80
+        then
+            local replace = (tonumber(anchor.anchor_score) or math.huge) < (tonumber(merged.anchor_score) or math.huge)
+                or (
+                    (tonumber(anchor.anchor_score) or math.huge) == (tonumber(merged.anchor_score) or math.huge)
+                    and tostring(anchor.kind or "") == "button"
+                    and tostring(merged.kind or "") ~= "button"
+                )
+            if replace then
+                merged.kind = anchor.kind
+                merged.x = anchor.x
+                merged.y = anchor.y
+                merged.item = anchor.item
+                merged.anchor_score = anchor.anchor_score
+            end
+        else
+            task_buttons[#task_buttons + 1] = {
+                kind = anchor.kind,
+                x = anchor.x,
+                y = anchor.y,
+                item = anchor.item,
+                anchor_score = anchor.anchor_score
+            }
+        end
+    end
+
     local tasks = {}
     local debug_candidates = {}
     local seen = {}
+
+    local function prefer_task_entry(candidate, existing)
+        if type(candidate) ~= "table" then
+            return false
+        end
+        if type(existing) ~= "table" then
+            return true
+        end
+
+        local candidate_is_button = tostring(candidate.button_kind or "") == "button"
+        local existing_is_button = tostring(existing.button_kind or "") == "button"
+        if candidate_is_button ~= existing_is_button then
+            return candidate_is_button
+        end
+
+        local candidate_anchor_score = tonumber(candidate.button_anchor_score) or math.huge
+        local existing_anchor_score = tonumber(existing.button_anchor_score) or math.huge
+        if candidate_anchor_score ~= existing_anchor_score then
+            return candidate_anchor_score < existing_anchor_score
+        end
+
+        local candidate_title_score = tonumber(candidate.button_title_score) or -math.huge
+        local existing_title_score = tonumber(existing.button_title_score) or -math.huge
+        if candidate_title_score ~= existing_title_score then
+            return candidate_title_score > existing_title_score
+        end
+
+        local candidate_has_addr = tonumber(candidate.button_addr) ~= nil and tonumber(candidate.button_addr) ~= 0
+        local existing_has_addr = tonumber(existing.button_addr) ~= nil and tonumber(existing.button_addr) ~= 0
+        if candidate_has_addr ~= existing_has_addr then
+            return candidate_has_addr
+        end
+
+        local candidate_button_x = tonumber(candidate.button_x) or 0
+        local existing_button_x = tonumber(existing.button_x) or 0
+        if candidate_button_x ~= existing_button_x then
+            return candidate_button_x > existing_button_x
+        end
+
+        return false
+    end
 
     for button_index, button in ipairs(task_buttons) do
         local best = nil
@@ -745,6 +849,12 @@ function nav.get_task_panel_info(snapshot)
                             kind = kind,
                             x = text_x,
                             y = text_y,
+                            title_addr = as_number(item and item.addr) or (item and item.addr),
+                            title_name = tostring(item and item.name or ""),
+                            title_fullname = tostring(item and (item.Fullname or item.fullname) or ""),
+                            button_kind = tostring(button.kind or ""),
+                            button_anchor_score = tonumber(button.anchor_score) or 0,
+                            button_title_score = score,
                             button_addr = as_number(button.item and button.item.addr) or (button.item and button.item.addr),
                             button_x = button.x,
                             button_y = button.y,
@@ -830,14 +940,20 @@ function nav.get_task_panel_info(snapshot)
             end)
 
             local key = normalize_text(best.raw_text)
-            if key ~= "" and not seen[key] then
-                seen[key] = true
+            if key ~= "" then
                 best.detail_texts = detail_texts
                 best.detail_debug_candidates = detail_debug_candidates
                 if #detail_texts > 0 then
                     best.detail = detail_texts[1].text
                 end
-                tasks[#tasks + 1] = best
+
+                local existing_index = seen[key]
+                if type(existing_index) ~= "number" then
+                    tasks[#tasks + 1] = best
+                    seen[key] = #tasks
+                elseif prefer_task_entry(best, tasks[existing_index]) then
+                    tasks[existing_index] = best
+                end
             end
         end
     end
@@ -881,7 +997,8 @@ function nav.find_task_panel_entry(query, snapshot, opts)
         local haystack = {
             normalize_text(item.raw_text),
             normalize_text(item.title),
-            normalize_text(item.kind)
+            normalize_text(item.kind),
+            normalize_text(item.detail)
         }
         local matched = false
         local score = 0
@@ -1894,9 +2011,13 @@ end
 function nav.find_button_near_point(target_x, target_y, opts)
     opts = opts or {}
 
-    local snapshot, err = nav.enum_ui()
-    if not snapshot then
-        return nil, err
+    local snapshot = opts.snapshot
+    if type(snapshot) ~= "table" then
+        local err = nil
+        snapshot, err = nav.enum_ui()
+        if not snapshot then
+            return nil, err
+        end
     end
 
     local include = opts.include_patterns or {}
@@ -1970,17 +2091,97 @@ function nav.find_button_by_locator(locator, opts)
     local related_dx = as_number(locator.related_dx or locator.rel1_dx)
     local related_dy = as_number(locator.related_dy or locator.rel1_dy)
     local related_tolerance = as_number(opts.related_tolerance or locator.related_tolerance) or 36
+    local distance_anchor_text = normalize_exact_match_text(
+        locator.distance_anchor_exact_text or locator.anchor_exact_text or ""
+    )
+    local distance_button_name = tostring(locator.distance_button_name or "")
+    local distance_min = as_number(locator.distance_min)
+    local distance_max = as_number(locator.distance_max)
+    if distance_min ~= nil and distance_max ~= nil and distance_max < distance_min then
+        distance_min, distance_max = distance_max, distance_min
+    end
+    local distance_target = nil
+    if distance_min ~= nil and distance_max ~= nil then
+        distance_target = (distance_min + distance_max) * 0.5
+    else
+        distance_target = distance_min or distance_max
+    end
 
     local best = nil
     local related_miss = 0
+    local distance_anchor_miss = 0
+    local name_miss = 0
     for _, item in ipairs(snapshot.buttons or {}) do
         local text = item_match_text(item)
         if (#include == 0 or match_any(text, include)) and not match_any(text, opts.exclude_patterns or {}) then
             local x = as_number(item.x)
             local y = as_number(item.y)
             if x ~= nil and y ~= nil and item.addr ~= nil then
+                local item_name = tostring(item.name or "")
+                local item_fullname = tostring(item.Fullname or item.fullname or "")
+                local distance_name_hit = distance_button_name == ""
+                    or item_name == distance_button_name
+                    or item_fullname == distance_button_name
+                    or lower_text(item_fullname):find(lower_text(distance_button_name), 1, true) ~= nil
+                if not distance_name_hit then
+                    name_miss = name_miss + 1
+                    goto continue_locator_button
+                end
+
                 local distance = hint_x ~= nil and hint_y ~= nil and distance_2d(hint_x, hint_y, x, y) or 0
                 if hint_x == nil or hint_y == nil or distance <= max_distance then
+                    local distance_anchor_hit = distance_anchor_text == ""
+                    local distance_anchor_value = ""
+                    local distance_anchor_score = 0
+                    local distance_anchor_distance = nil
+                    if distance_anchor_text ~= "" then
+                        local best_anchor = nil
+                        for _, text_item in ipairs(snapshot.texts or {}) do
+                            local text_value = tostring(text_item.text or "")
+                            if normalize_exact_match_text(text_value) == distance_anchor_text then
+                                local text_x = as_number(text_item.x)
+                                local text_y = as_number(text_item.y)
+                                if text_x ~= nil and text_y ~= nil then
+                                    local anchor_distance = distance_2d(x, y, text_x, text_y)
+                                    local in_range = true
+                                    if distance_min ~= nil and anchor_distance < distance_min then
+                                        in_range = false
+                                    end
+                                    if distance_max ~= nil and anchor_distance > distance_max then
+                                        in_range = false
+                                    end
+                                    if in_range then
+                                        local anchor_score = distance_target ~= nil
+                                            and math.abs(anchor_distance - distance_target)
+                                            or 0
+                                        if best_anchor == nil
+                                            or anchor_score < best_anchor.score
+                                            or (
+                                                anchor_score == best_anchor.score
+                                                and anchor_distance < (best_anchor.distance or math.huge)
+                                            )
+                                        then
+                                            best_anchor = {
+                                                text = text_value,
+                                                score = anchor_score,
+                                                distance = anchor_distance
+                                            }
+                                        end
+                                    end
+                                end
+                            end
+                        end
+
+                        if best_anchor ~= nil then
+                            distance_anchor_hit = true
+                            distance_anchor_value = best_anchor.text
+                            distance_anchor_score = best_anchor.score
+                            distance_anchor_distance = best_anchor.distance
+                        else
+                            distance_anchor_miss = distance_anchor_miss + 1
+                        end
+                    end
+
                     local related_hit = related_text == ""
                     local related_hit_text = ""
                     local related_score = 0
@@ -2011,39 +2212,47 @@ function nav.find_button_by_locator(locator, opts)
                         end
                     end
 
-                    if related_hit then
-                        local score = distance + related_score
+                    if distance_anchor_hit and related_hit then
+                        local score = distance + related_score + distance_anchor_score
                         if not best or score < best.score then
                             best = {
                                 kind = "button",
                                 addr = item.addr,
-                                name = tostring(item.name or ""),
+                                name = item_name,
                                 text = tostring(item.text or ""),
-                                fullname = tostring(item.Fullname or item.fullname or ""),
+                                fullname = item_fullname,
                                 x = x,
                                 y = y,
                                 distance = distance,
                                 score = score,
-                                related_text = related_hit_text
+                                related_text = related_hit_text ~= "" and related_hit_text or distance_anchor_value,
+                                related_distance = distance_anchor_distance
                             }
                         end
-                    else
+                    elseif not related_hit then
                         related_miss = related_miss + 1
                     end
                 end
             end
         end
+        ::continue_locator_button::
     end
 
     if not best then
         return nil, string.format(
-            "locator matched no current button. include=%s hint=(%s,%s) max_distance=%.1f related=%s related_miss=%d",
+            "locator matched no current button. include=%s hint=(%s,%s) max_distance=%.1f related=%s related_miss=%d anchor_text=%s anchor_miss=%d distance_range=(%s,%s) name=%s name_miss=%d",
             #include > 0 and table.concat(include, "|") or "",
             tostring(hint_x),
             tostring(hint_y),
             max_distance,
             related_text,
-            related_miss
+            related_miss,
+            distance_anchor_text,
+            distance_anchor_miss,
+            tostring(distance_min),
+            tostring(distance_max),
+            distance_button_name,
+            name_miss
         )
     end
 
@@ -2519,9 +2728,13 @@ end
 function nav.find_controls_at_point(client_x, client_y, opts)
     opts = opts or {}
 
-    local snapshot, err = nav.enum_ui()
-    if not snapshot then
-        return nil, err
+    local snapshot = opts.snapshot
+    if type(snapshot) ~= "table" then
+        local err = nil
+        snapshot, err = nav.enum_ui()
+        if not snapshot then
+            return nil, err
+        end
     end
 
     if opts.include_texts == nil then
