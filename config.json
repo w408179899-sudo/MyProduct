@@ -1,0 +1,73 @@
+{
+  "activeTabIndex": 0,
+  "authConfigData": "G0x1YVSurlQNChoKBAgIeFYAAAAAAAAAAAAAACh3QAGbfnlg8NU8V3EnQPZvNL1ZjV04UvfJLxFBJk2AgAABApQ2AAAAKQAFAFIAAAAGgAABBoACAwaABAUGgAYHBoAICQaACgsGgAwNBoAODQaADxAGgBESBoATEgaAFBAGgBUQBoAWEAaAFxgyAAIBsgABAZkEhcJhMr0Em1YjSOGaZxBIKkjLeiD/B+QQL0Xrmn0HHWscBIcguUGNVzMEg2IcBIioQaJhPFnoBKFZTzIamW8gqwSwDGZZo5MuWhowT8ltdKtS5AlvDqiQegSSSD1P2HcxvW6zUjBT48k8V0AEhE3PfQSO9M4rUEk2c8drNaFetgSHI6hCtwhjBJFMRDRCy3o0u1SNUzJI+c8sBIRBzjsEiKhUoWE8WegEkVxMYk7LPHatBuQIYg+kliwEhyCsQo1XIQSTNkLJfDi5RY1ONk7wzRdRTD5JAQSUScRtM7BBpmEnXePBJWBbMkDfaxEEkVpDMF7TfjWWQ7dNJ1P/0y0EkUlIIUXMdx66WLVQNkjk0i0EkUlIIUXMdx66ULRbCF/+xC0EkUlIIUXMdx69WL9bCFj4xi4EkztJy3w1q1SzSghV/9QtTVsyQAMgvwIAAAAAAIEBAACAlAEAAAEBAQEBAQEBAQEBAQEBAQMAgIGTAWnrQh6adIBoEm7O4wdxaxprkpSBhfVLD58=",
+  "dataUpdater": {
+    "processName": "",
+    "sigFilePath": "signatures.json",
+    "useDriver": false
+  },
+  "enableConsole": true,
+  "enableLogConsole": true,
+  "enableLogDebugView": true,
+  "enableLogFile": true,
+  "enableWindow": true,
+  "fontSize": 18.0,
+  "gridMapEditor": {
+    "expression": "",
+    "mapFilePath": "map/map-0.txt",
+    "mapName": "world",
+    "processName": "",
+    "useDriver": false,
+    "useInteger": false
+  },
+  "localMode": false,
+  "logLevel": "trace",
+  "mainScript": "AvePointStandalone.lua",
+  "memoryViewer": {
+    "is64bit": true,
+    "processName": "",
+    "splitRatio": 0.550000011920929,
+    "useDriver": false
+  },
+  "openedFiles": [
+    "C:\\Users\\GoldGiven\\Desktop\\cunnei\\AvePointStandalone.lua"
+  ],
+  "recentFiles": [
+    "C:\\Users\\GoldGiven\\Desktop\\cunnei\\AvePointStandalone.lua",
+    "C:\\Users\\GoldGiven\\Desktop\\cunnei\\scripts\\maptest.lua",
+    "C:\\Users\\GoldGiven\\Desktop\\cunnei\\AvePointStandalone_v2.lua",
+    "C:\\Users\\GoldGiven\\Desktop\\cunnei\\scripts\\demo_button.lua",
+    "C:\\Users\\GoldGiven\\Desktop\\cunnei\\scripts\\torch_move_demo.lua",
+    "C:\\Users\\GoldGiven\\Desktop\\cunnei\\scripts\\torch_nav.lua",
+    "C:\\Users\\GoldGiven\\Desktop\\cunnei\\Main.lua",
+    "C:\\Users\\GoldGiven\\Desktop\\cunnei\\scripts\\AvePoint.lua"
+  ],
+  "rememberCard": true,
+  "savedDevCard": "DEV0A72DEE36B51771AA70C61956F0F3477",
+  "savedUserCard": "YYDC19C1B0D28ED93E4561FA04C26F5CA0",
+  "scriptsDir": "./scripts",
+  "waypointMapEditor": {
+    "autoConnect": true,
+    "autoFit": true,
+    "autoFitRange": 0.0,
+    "centerOnPlayer": true,
+    "expression": "",
+    "flipX": false,
+    "flipY": false,
+    "is2D": false,
+    "isUE5": false,
+    "leftPanelWidth": 340.0,
+    "mapFilePath": "map/world.wmap",
+    "maxZoom": 0.009999999776482582,
+    "pid": 0,
+    "processName": "",
+    "recordInterval": 100.0,
+    "useDriver": false,
+    "useInteger": false,
+    "zoomFactor": 0.20000000298023224
+  },
+  "windowHeight": 813.0,
+  "windowPosX": 900.0,
+  "windowPosY": 80.0,
+  "windowWidth": 794.0
+}

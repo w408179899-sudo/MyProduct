@@ -1,0 +1,860 @@
+[2026-04-27 10:18:13.080][16188][INFO] AetherEngine Logger initialized
+[2026-04-27 10:18:13.080][16188][INFO] === AetherEngine Starting ===
+[2026-04-27 10:18:13.080][16188][INFO] Version: 2.9.0 (Release/x64)
+[2026-04-27 10:18:13.080][16188][INFO] Build: Mar 22 2026 08:51:29
+[2026-04-27 10:18:13.080][16188][INFO] Platform: Windows
+[2026-04-27 10:18:13.081][16188][INFO] CrashHandler: Initialized, dump directory: C:\Users\GoldGiven\Desktop\cunnei/crash_dumps
+[2026-04-27 10:18:13.081][16188][INFO] InputManager: Initialized
+[2026-04-27 10:18:13.081][16188][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:18:13.081][16188][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:18:13.081][16188][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:18:13.081][16188][INFO] LuaHost: Initialized with cache dir 'C:\Users\GoldGiven\Desktop\cunnei/cache'
+[2026-04-27 10:18:13.082][16188][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:18:13.082][16188][DEBUG] Registered all Lua API modules
+[2026-04-27 10:18:13.082][16188][INFO] Engine initialized successfully
+[2026-04-27 10:18:13.162][16188][INFO] ImGuiApp: DirectComposition initialized successfully
+[2026-04-27 10:18:13.324][16188][INFO] ImGuiApp: Hotkeys active (CTRL+HOME/F10/F11/F12 via GetAsyncKeyState)
+[2026-04-27 10:18:13.325][16188][INFO] ConfigManager: Loaded config from ./config.json
+[2026-04-27 10:18:13.325][16188][DEBUG] ConfigManager: 1 opened files, rememberCard=true
+[2026-04-27 10:18:13.331][16188][DEBUG] ImGuiApp: Config loaded, 1 tabs, activeTab=0
+[2026-04-27 10:18:13.331][16188][INFO] ImGuiApp: Initialized successfully
+[2026-04-27 10:18:13.333][16188][INFO] ImGuiApp: TryAutoLogin: attempting login with saved card...
+[2026-04-27 10:18:14.173][16188][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:18:14.199][16188][INFO] ImGuiApp: Auth success, heartbeat started, expires: 2026-05-25 10:13:04
+[2026-04-27 10:19:05.669][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:19:57.232][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:20:48.797][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:21:40.323][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:22:15.482][16188][INFO] TaskManager initialized with max 16 concurrent tasks
+[2026-04-27 10:22:15.482][16188][DEBUG] Task 1 (AvePointStandalone.lua) created
+[2026-04-27 10:22:15.482][16188][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:22:15.483][16188][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:22:15.483][16188][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:22:15.483][16188][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:22:15.484][16188][DEBUG] Registered all Lua API modules
+[2026-04-27 10:22:15.484][19840][INFO] Task 1 (AvePointStandalone.lua) started
+[2026-04-27 10:22:15.484][19840][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-27 10:22:15.496][19840][INFO] [Lua] Process guard starting
+[2026-04-27 10:22:15.496][19840][INFO] [Lua] Driver license resolution | profile=development candidates=3 primary=config.json:savedDriverCard[development]
+[2026-04-27 10:22:15.496][19840][INFO] [Lua] Trying driver license source: config.json:savedDriverCard[development]
+[2026-04-27 10:22:15.910][19840][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:22:15.934][19840][INFO] DriverMode: Driver not loaded, attempting to load...
+[2026-04-27 10:22:17.907][19840][DEBUG] DriverMode: Driver loaded successfully
+[2026-04-27 10:22:17.908][19840][INFO] DriverMode: Initialized with license (Driver mode)
+[2026-04-27 10:22:17.908][19840][INFO] Driver loaded successfully
+[2026-04-27 10:22:17.909][19840][INFO] [Lua] Driver loaded. Source: config.json:savedDriverCard[development]
+[2026-04-27 10:22:17.909][19840][DEBUG] DriverMode: Process protected PID=16184
+[2026-04-27 10:22:17.909][19840][INFO] [Lua] Process protection enabled. PID=16184
+[2026-04-27 10:22:17.910][19840][INFO] [Lua] Process guard ready
+[2026-04-27 10:22:17.910][19840][INFO] [Lua] Configured avepointTaskMode=2 (练级) in config.json
+[2026-04-27 10:22:17.911][19840][INFO] [Lua] Press Insert or Ctrl+F9 or [ to start current task mode; Delete or Ctrl+F10 or ] to stop
+[2026-04-27 10:22:17.911][19840][INFO] [Lua] Press F12 to dump raw GetCurrentSelected API output without clicking
+[2026-04-27 10:22:17.912][19840][INFO] [Lua] Press F4 to preview the configured target for 分解所有按钮 without clicking
+[2026-04-27 10:22:17.912][19840][INFO] [Lua] Press F3 to dump mouse-nearby button candidates for 当前鼠标按钮定位分析
+[2026-04-27 10:22:17.913][19840][INFO] [Lua] Press F10 to inspect the same uniquely matched mouse target for 鼠标按钮验证点击 without clicking
+[2026-04-27 10:22:17.913][19840][INFO] [Lua] Press F11 or \ to validate-click a uniquely matched mouse target for 鼠标按钮验证点击
+[2026-04-27 10:22:17.914][19840][INFO] [Lua] Press F6 to print current player coordinates
+[2026-04-27 10:22:17.914][19840][INFO] [Lua] Press F7 to print current player position and nearby portals
+[2026-04-27 10:22:17.915][19840][INFO] [Lua] Press F8 to print current mouse client coordinates
+[2026-04-27 10:22:17.916][19840][INFO] [Lua] Press F9 to run read-only Data API diagnostics
+[2026-04-27 10:22:17.917][19840][INFO] [Lua] Press Ctrl+F12 to exit
+[2026-04-27 10:22:17.917][19840][INFO] [Lua] Waiting for torchlight API/game init...
+[2026-04-27 10:22:17.917][19840][INFO] HotkeyManager: Started with poll interval 10ms
+[2026-04-27 10:22:17.918][19876][DEBUG] HotkeyManager: Listen thread started
+[2026-04-27 10:22:18.235][19840][DEBUG] DriverMode: InitRemoteCallEx PID=9256, Deployee=0x1FD13A50300
+[2026-04-27 10:22:18.235][19840][INFO] Process mode: Driver
+[2026-04-27 10:22:18.236][19840][INFO] [Lua] Torch API initialized
+[2026-04-27 10:22:18.236][19840][INFO] [Lua] Current pos: 1458.57, -2718.89, 3166.18
+[2026-04-27 10:22:21.433][19840][DEBUG] Task 2 (AvePointLevelingNavWorker) created
+[2026-04-27 10:22:21.433][19840][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:22:21.434][19840][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:22:21.434][19840][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:22:21.435][19840][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:22:21.435][19840][DEBUG] Registered all Lua API modules
+[2026-04-27 10:22:21.435][19840][INFO] [Lua] [Leveling] nav worker started | task_id=2 share=avepoint_leveling_nav_1777256541429_1
+[2026-04-27 10:22:21.435][19928][INFO] Task 2 (AvePointLevelingNavWorker) started
+[2026-04-27 10:22:21.436][19840][INFO] [Lua] [Leveling] navigation mode | async nav worker path-route follow | task_move_interval=1200ms task_pos_interval=900ms
+[2026-04-27 10:22:21.436][19840][INFO] [Lua] [Leveling] runner started | mode=2 quest button -> task path -> NPC dialogue
+[2026-04-27 10:22:21.436][19840][INFO] [Lua] [Leveling] logic: click main task button, fetch task path, MoveTo target, confirm nearby NPC, press D, then continue
+[2026-04-27 10:22:21.436][19840][INFO] [Lua] [Leveling] startup boss combat window armed | window=10000ms
+[2026-04-27 10:22:21.437][19840][INFO] [Lua] [Leveling] startup state resolve armed | window=3000ms
+[2026-04-27 10:22:21.437][19840][INFO] [Lua] [Leveling] map runtime detection | enabled=false
+[2026-04-27 10:22:21.437][19840][INFO] [Lua] AvePoint automation started | mode=练级(2)
+[2026-04-27 10:22:21.438][19840][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:22:21.639][19840][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:22:21.639][19840][INFO] [Lua] [Leveling] current task updated | task=主线 圣诫之末 source=nearby_text anchor=(94.04,224.16)
+[2026-04-27 10:22:21.640][19840][INFO] [Lua] [Leveling] main task call begin | stage=bootstrap task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:22:21.828][19840][WARN] [Lua] [Leveling] TaskBtn locator unavailable for main task call: locator matched no current button. include=taskitem_c.widgettree.taskbtn hint=(94.039993,224.160004) max_distance=120.0 related= related_miss=0
+[2026-04-27 10:22:22.024][19840][INFO] [Lua] [Leveling] task panel unresolved for main task click | task_buttons=0 tasks=0 stage=bootstrap
+[2026-04-27 10:22:22.968][19840][DEBUG] DriverMode: ExecRemoteCall func=0x7FF6A86E2150, ret=140697443855040
+[2026-04-27 10:22:23.172][19840][INFO] [Lua] [Leveling] task_pos reject armed after main task click | reason=startup_main_task_reacquire reject_ms=8500
+[2026-04-27 10:22:23.173][19840][INFO] [Lua] [Leveling] main task panel entry clicked | query=主线 圣诫之末 task=圣诫之末 detail= mode=hard_refresh raw=主线 圣诫之末 kind=主线 addr=2189580951616 pos=(86.91,231.18)
+[2026-04-27 10:22:23.173][19840][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-27 10:22:23.174][19840][INFO] [Lua] [Leveling] startup main task called before any objective/follow logic | task=圣诫之末 detail= window_left=2991ms
+[2026-04-27 10:22:23.174][19840][INFO] [Lua] [Leveling] heartbeat | stage=wait_task_path_after_button tick=1 pos=1056.00, -2487.00, 3107.30 target=nil path_points=0
+[2026-04-27 10:22:23.216][19840][INFO] [Lua] [Leveling] nav worker status | paused
+[2026-04-27 10:22:23.217][19840][INFO] [Lua] [Leveling] task path snapshot adopted | points=10 raw_points=10 mode=raw_worker signature=10|2398.0|-1865.0|1079.1|-2273.5
+[2026-04-27 10:22:23.217][19840][INFO] [Lua] [Leveling] task path route selected | signature=10|2398.0|-1865.0|1079.1|-2273.5 player=1056.00, -2487.00 direction=reverse route_index=4 nearest_index=10 nearest_distance=214.72 selected=1999.56, -1571.11, 3092.00 nearest=1079.10, -2273.53, 3099.00 first=2398.00, -1865.00, 3092.00 last=1079.10, -2273.53, 3099.00 points=10
+[2026-04-27 10:22:23.217][19840][INFO] [Lua] [Leveling] task target updated | source=task_path path_index=4 nearest_index=10 nearest_distance=214.72 order=reverse path_points=10 target=1999.56, -1571.11, 3092.00
+[2026-04-27 10:22:23.218][19840][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=wait_task_path_after_button has_target=true startup_resolving=false
+[2026-04-27 10:22:23.219][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1056.00, -2487.00, 3107.30 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=1479.14 objective_mode=
+[2026-04-27 10:22:23.219][19840][INFO] [Lua] [Leveling] nav worker path route armed | source=task_path range=1-10/10 points=10 mode=full_remaining direction=reverse interval_ms=1200 arrive_distance=120.00 stuck_skip_ms=10000 version=1 target_route=4 target_path=4 nearest=10 current_distance=1314.97 target=1999.56, -1571.11 first=2398.00, -1865.00 last=1079.10, -2273.53 signature=10|2398.0|-1865.0|1079.1|-2273.5
+[2026-04-27 10:22:23.219][19840][INFO] [Lua] [Leveling] nearby monsters detected | count=1 total=1 nearest= player_distance=503.07
+[2026-04-27 10:22:23.278][19840][INFO] [Lua] [Leveling] combat pulse issued | reason=nearby_monster mode=driver_click mouse_mode=mouse_post_click hold_ms=120 cooldown_ms=550
+[2026-04-27 10:22:23.339][19840][INFO] [Lua] [Leveling] global task portal suppressed; portal is not near current main task target | reason=target_distance 1314.97 > 1100.00 stage=follow_task task=圣诫之末 detail= target_distance=1314.97 goal_distance=1479.14
+[2026-04-27 10:22:23.340][19840][INFO] [Lua] [Leveling] nav worker path route keep | source=task_path window=1-10/10 direction=reverse target_route=4 target_path=4 nearest=10 current_distance=1314.97 arrive_distance=120.00 target=1999.56, -1571.11 first=2398.00, -1865.00 last=1079.10, -2273.53 worker_status=paused worker_version=1
+[2026-04-27 10:22:23.340][19840][INFO] [Lua] [Leveling] nearby monster pulse deferred | nearest_distance=503.07 count=1 reason=combat cooldown.
+[2026-04-27 10:22:23.572][19928][DEBUG] DriverMode: InitRemoteCallEx PID=9256, Deployee=0x1FDEF190300
+[2026-04-27 10:22:23.602][19928][DEBUG] DriverMode: ExecRemoteCall func=0x7FF6A8ECB710, ret=720010472992
+[2026-04-27 10:22:23.681][19840][INFO] [Lua] [Leveling] nav worker status | path_route
+[2026-04-27 10:22:23.682][19840][INFO] [Lua] [Leveling] MoveTo issued | target=1079.10, -2273.53 source=task_path_route path_index=10 interval_ms=1200 via=nav_worker worker_mode=path_route route_index=10/10 route_dir=-1 route_distance=196.58 route_point=1079.10, -2273.53 original_index=10
+[2026-04-27 10:22:23.683][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1060.59, -2444.31, 3104.25 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=1457.49 objective_mode=
+[2026-04-27 10:22:23.797][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1070.42, -2352.79, 3101.21 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=1414.35 objective_mode=
+[2026-04-27 10:22:23.821][19928][DEBUG] DriverMode: ExecRemoteCall func=0x7FF6A8ECB710, ret=720010472992
+[2026-04-27 10:22:23.916][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1080.83, -2256.21, 3099.03 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=1374.04 objective_mode=
+[2026-04-27 10:22:24.083][19928][DEBUG] DriverMode: ExecRemoteCall func=0x7FF6A8ECB710, ret=720010472992
+[2026-04-27 10:22:24.347][19928][DEBUG] DriverMode: ExecRemoteCall func=0x7FF6A8ECB710, ret=720010472992
+[2026-04-27 10:22:24.446][19840][INFO] [Lua] [Leveling] global task portal button not visible: Nearby button not found.
+[2026-04-27 10:22:24.446][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1090.17, -2169.68, 3097.80 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=1342.85 objective_mode=
+[2026-04-27 10:22:24.488][19840][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:22:24.489][19840][INFO] [Lua] [Leveling] task path route selected | signature=10|2398.0|-1865.0|1079.1|-2273.5 player=1321.86, -1885.01 direction=reverse route_index=4 nearest_index=8 nearest_distance=45.10 selected=1999.56, -1571.11, 3092.00 nearest=1284.40, -1910.12, 3097.00 first=2398.00, -1865.00, 3092.00 last=1079.10, -2273.53, 3099.00 points=10
+[2026-04-27 10:22:24.491][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1321.86, -1885.01, 3097.76 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=1076.32 objective_mode=
+[2026-04-27 10:22:24.491][19840][INFO] [Lua] [Leveling] monster scan found no nearby target: No nearby monster around player. total=1 nearest= nearest_player_distance=984.90 destination=2398.00, -1865.00 source=task_pos
+[2026-04-27 10:22:24.491][19840][INFO] [Lua] [Leveling] heartbeat | stage=follow_task tick=10 pos=1321.86, -1885.01, 3097.76 target=1999.56, -1571.11 path_points=10
+[2026-04-27 10:22:24.596][19840][INFO] [Lua] [Leveling] task path route selected | signature=10|2398.0|-1865.0|1079.1|-2273.5 player=1386.80, -1828.69 direction=reverse route_index=4 nearest_index=7 nearest_distance=105.16 selected=1999.56, -1571.11, 3092.00 nearest=1466.59, -1760.19, 3099.00 first=2398.00, -1865.00, 3092.00 last=1079.10, -2273.53, 3099.00 points=10
+[2026-04-27 10:22:24.597][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1386.80, -1828.69, 3098.84 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=1011.85 objective_mode=
+[2026-04-27 10:22:24.612][19928][DEBUG] DriverMode: ExecRemoteCall func=0x7FF6A8ECB710, ret=720010472992
+[2026-04-27 10:22:24.705][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1459.75, -1780.24, 3099.20 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=942.07 objective_mode=
+[2026-04-27 10:22:24.817][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1537.44, -1735.29, 3097.07 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=870.28 objective_mode=
+[2026-04-27 10:22:24.876][19928][DEBUG] DriverMode: ExecRemoteCall func=0x7FF6A8ECB710, ret=720010472992
+[2026-04-27 10:22:24.924][19840][INFO] [Lua] [Leveling] task path route selected | signature=10|2398.0|-1865.0|1079.1|-2273.5 player=1614.70, -1692.07 direction=reverse route_index=4 nearest_index=6 nearest_distance=21.88 selected=1999.56, -1571.11, 3092.00 nearest=1633.19, -1680.37, 3095.00 first=2398.00, -1865.00, 3092.00 last=1079.10, -2273.53, 3099.00 points=10
+[2026-04-27 10:22:24.924][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1614.70, -1692.07, 3095.94 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=802.16 objective_mode=
+[2026-04-27 10:22:24.925][19840][INFO] [Lua] [Leveling] nav worker path route keep | source=task_path window=1-10/10 direction=reverse target_route=4 target_path=4 nearest=6 current_distance=403.42 arrive_distance=120.00 target=1999.56, -1571.11 first=2398.00, -1865.00 last=1079.10, -2273.53 worker_status=path_route worker_version=1
+[2026-04-27 10:22:25.032][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1692.32, -1653.30, 3095.00 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=736.76 objective_mode=
+[2026-04-27 10:22:25.094][19928][DEBUG] DriverMode: ExecRemoteCall func=0x7FF6A8ECB710, ret=720010472992
+[2026-04-27 10:22:25.157][19840][INFO] [Lua] [Leveling] task path route selected | signature=10|2398.0|-1865.0|1079.1|-2273.5 player=1786.20, -1612.69 direction=reverse route_index=4 nearest_index=5 nearest_distance=18.21 selected=1999.56, -1571.11, 3092.00 nearest=1799.78, -1600.56, 3094.00 first=2398.00, -1865.00, 3092.00 last=1079.10, -2273.53, 3099.00 points=10
+[2026-04-27 10:22:25.159][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1786.20, -1612.69, 3094.00 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=661.79 objective_mode=
+[2026-04-27 10:22:25.266][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1874.15, -1595.44, 3093.43 target_source=task_path target=1999.56, -1571.11, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=589.13 objective_mode=
+[2026-04-27 10:22:25.312][19928][DEBUG] DriverMode: ExecRemoteCall func=0x7FF6A8ECB710, ret=720010472992
+[2026-04-27 10:22:25.391][19840][INFO] [Lua] [Leveling] MoveTo issued | target=2199.33, -1541.67 source=task_path_route path_index=3 interval_ms=1200 via=nav_worker worker_mode=path_route route_index=3/10 route_dir=-1 route_distance=254.67 route_point=2199.33, -1541.67 original_index=3
+[2026-04-27 10:22:25.391][19840][INFO] [Lua] [Leveling] task path route selected | signature=10|2398.0|-1865.0|1079.1|-2273.5 player=1972.85, -1577.72 direction=reverse route_index=4 nearest_index=4 nearest_distance=27.51 selected=1999.56, -1571.11, 3092.00 nearest=1999.56, -1571.11, 3092.00 first=2398.00, -1865.00, 3092.00 last=1079.10, -2273.53, 3099.00 points=10
+[2026-04-27 10:22:25.392][19840][INFO] [Lua] [Leveling] task target updated | source=task_path path_index=3 nearest_index=4 nearest_distance=27.51 order=reverse path_points=10 target=2199.33, -1541.67, 3092.00
+[2026-04-27 10:22:25.392][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=1972.85, -1577.72, 3092.70 target_source=task_path target=2199.33, -1541.67, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=513.11 objective_mode=
+[2026-04-27 10:22:25.501][19840][INFO] [Lua] [Leveling] task path route selected | signature=10|2398.0|-1865.0|1079.1|-2273.5 player=2061.42, -1563.34 direction=reverse route_index=3 nearest_index=4 nearest_distance=62.36 selected=2199.33, -1541.67, 3092.00 nearest=1999.56, -1571.11, 3092.00 first=2398.00, -1865.00, 3092.00 last=1079.10, -2273.53, 3099.00 points=10
+[2026-04-27 10:22:25.502][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=2061.42, -1563.34, 3092.00 target_source=task_path target=2199.33, -1541.67, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=451.98 objective_mode=
+[2026-04-27 10:22:25.578][19928][DEBUG] DriverMode: ExecRemoteCall func=0x7FF6A8ECB710, ret=720010472992
+[2026-04-27 10:22:25.609][19840][INFO] [Lua] [Leveling] task path route selected | signature=10|2398.0|-1865.0|1079.1|-2273.5 player=2142.48, -1554.19 direction=reverse route_index=3 nearest_index=3 nearest_distance=58.22 selected=2199.33, -1541.67, 3092.00 nearest=2199.33, -1541.67, 3092.00 first=2398.00, -1865.00, 3092.00 last=1079.10, -2273.53, 3099.00 points=10
+[2026-04-27 10:22:25.609][19840][INFO] [Lua] [Leveling] task target updated | source=task_path path_index=2 nearest_index=3 nearest_distance=58.22 order=reverse path_points=10 target=2298.67, -1703.33, 3092.00
+[2026-04-27 10:22:25.610][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=2142.48, -1554.19, 3092.00 target_source=task_path target=2298.67, -1703.33, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=402.36 objective_mode=
+[2026-04-27 10:22:25.717][19840][INFO] [Lua] [Leveling] task path route selected | signature=10|2398.0|-1865.0|1079.1|-2273.5 player=2208.36, -1617.22 direction=reverse route_index=2 nearest_index=3 nearest_distance=76.09 selected=2298.67, -1703.33, 3092.00 nearest=2199.33, -1541.67, 3092.00 first=2398.00, -1865.00, 3092.00 last=1079.10, -2273.53, 3099.00 points=10
+[2026-04-27 10:22:25.717][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=2208.36, -1617.22, 3092.00 target_source=task_path target=2298.67, -1703.33, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=312.02 objective_mode=
+[2026-04-27 10:22:25.793][19928][DEBUG] DriverMode: ExecRemoteCall func=0x7FF6A8ECB710, ret=720010472992
+[2026-04-27 10:22:25.825][19840][INFO] [Lua] [Leveling] task path route selected | signature=10|2398.0|-1865.0|1079.1|-2273.5 player=2272.01, -1678.13 direction=reverse route_index=2 nearest_index=2 nearest_distance=36.68 selected=2298.67, -1703.33, 3092.00 nearest=2298.67, -1703.33, 3092.00 first=2398.00, -1865.00, 3092.00 last=1079.10, -2273.53, 3099.00 points=10
+[2026-04-27 10:22:25.826][19840][INFO] [Lua] [Leveling] task target updated | source=task_path path_index=1 nearest_index=2 nearest_distance=36.68 order=reverse path_points=10 target=2398.00, -1865.00, 3092.00
+[2026-04-27 10:22:26.255][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=follow_task_move task=圣诫之末 detail= pos=2272.01, -1678.13, 3092.00 target_source=task_path target=2398.00, -1865.00, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=225.37 objective_mode=
+[2026-04-27 10:22:26.255][19840][INFO] [Lua] [Leveling] nav worker path route armed | source=task_path range=1-10/10 points=10 mode=full_remaining direction=reverse interval_ms=1200 arrive_distance=120.00 stuck_skip_ms=10000 version=2 target_route=1 target_path=1 nearest=2 current_distance=225.37 target=2398.00, -1865.00 first=2398.00, -1865.00 last=1079.10, -2273.53 signature=10|2398.0|-1865.0|1079.1|-2273.5
+[2026-04-27 10:22:26.288][19840][INFO] [Lua] [Leveling] nav worker status | path_done
+[2026-04-27 10:22:26.289][19840][INFO] [Lua] [Leveling] task path route selected | signature=10|2398.0|-1865.0|1079.1|-2273.5 player=2398.00, -1865.00 direction=reverse route_index=1 nearest_index=1 nearest_distance=0.00 selected=2398.00, -1865.00, 3092.00 nearest=2398.00, -1865.00, 3092.00 first=2398.00, -1865.00, 3092.00 last=1079.10, -2273.53, 3099.00 points=10
+[2026-04-27 10:22:26.291][19840][INFO] [Lua] [Leveling] exec trace | stage=follow_task reason=goal_distance_ready_task_reached task=圣诫之末 detail= pos=2398.00, -1865.00, 3092.00 target_source=task_path target=2398.00, -1865.00, 3092.00 destination=2398.00, -1865.00, 3090.00 goal_distance=0.00 objective_mode=
+[2026-04-27 10:22:26.291][19840][INFO] [Lua] [Leveling] task reached evaluate | map= task=主线 圣诫之末 detail= task_cfg_source= source=task_pos goal_distance=0.00 destination_distance=0.00 objective_source=none objective_key= objective_mode= force_boss=false sticky_boss=false skip_direct_interact=false
+[2026-04-27 10:22:26.509][19840][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:22:26.510][19840][INFO] [Lua] [Leveling] task changed, resume next step | old_task=主线 圣诫之末 old_detail= old_objective= new_task=圣诫之末 new_detail= new_objective= stage=task_reached
+[2026-04-27 10:22:26.511][19840][INFO] [Lua] [Leveling] task refresh scheduled | reason=task_changed wait=500ms force_task_call=true
+[2026-04-27 10:22:26.763][19840][INFO] [Lua] [Leveling] dialogue jump button not visible: Nearby button not found.
+[2026-04-27 10:22:26.763][19840][INFO] [Lua] [Leveling] exec trace | stage=wait_task_update reason=waiting_task_update task=圣诫之末 detail= pos=2398.00, -1865.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:22:26.764][19840][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_update
+[2026-04-27 10:22:26.764][19840][INFO] [Lua] [Leveling] waiting task list update after dialogue/prompt settle.
+[2026-04-27 10:22:26.801][19840][INFO] [Lua] [Leveling] nav worker status | paused
+[2026-04-27 10:22:26.805][19840][INFO] [Lua] [Leveling] exec trace | stage=refresh_task_button_after_dialogue reason=require_task_button_refresh task=圣诫之末 detail= pos=2398.00, -1865.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:22:26.805][19840][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath returned no usable points. pos_err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 10:22:26.806][19840][INFO] [Lua] [Leveling] navigation hold | reason=refresh_task_button_after_dialogue
+[2026-04-27 10:22:26.806][19840][INFO] [Lua] [Leveling] main task call begin | stage=refresh_task_button_after_dialogue task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:22:27.022][19840][WARN] [Lua] [Leveling] TaskBtn locator unavailable for main task call: locator matched no current button. include=taskitem_c.widgettree.taskbtn hint=(94.039993,224.160004) max_distance=120.0 related= related_miss=0
+[2026-04-27 10:22:27.239][19840][INFO] [Lua] [Leveling] task panel unresolved for main task click | task_buttons=0 tasks=0 stage=refresh_task_button_after_dialogue
+[2026-04-27 10:22:27.882][19840][INFO] [Lua] [Leveling] main task panel queries missed, fallback to TaskBtn hint lookup | stage=refresh_task_button_after_dialogue task=圣诫之末 detail=
+[2026-04-27 10:22:28.572][19840][INFO] [Lua] [Leveling] main task button nearby-text click fallback hit | mode=task_row_window_click text=主线 圣诫之末 text_pos=(118.23,235.20) detail_y=252.32 next_header_y=295.04 click_pos=(90.15,283.04)
+[2026-04-27 10:22:28.777][19840][INFO] [Lua] [Leveling] main task panel entry clicked | query=nearby_text:window_click task=圣诫之末 detail= mode=hard_refresh raw=主线 圣诫之末 kind=主线 addr= pos=(90.15,283.04)
+[2026-04-27 10:22:28.821][19840][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:22:28.822][19840][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=2398.00, -1865.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:22:28.822][19840][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-27 10:22:28.823][19840][INFO] [Lua] [Leveling] heartbeat | stage=wait_task_path_after_button tick=26 pos=2398.00, -1865.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:22:29.120][19840][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=wait_task_path_after_button has_target=false startup_resolving=false
+[2026-04-27 10:22:29.319][19840][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-27 10:22:29.319][19840][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=2398.00, -1865.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:22:29.320][19840][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-27 10:22:29.833][19840][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath returned no usable points. pos_err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 10:22:30.033][19840][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:22:30.469][19840][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=2398.00, -1865.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:22:31.422][19840][INFO] [Lua] [Leveling] exec trace | stage=click_task_button reason=click_task_button task=圣诫之末 detail= pos=2398.00, -1865.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:22:31.422][19840][INFO] [Lua] [Leveling] main task call begin | stage=click_task_button task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:22:31.620][19840][WARN] [Lua] [Leveling] TaskBtn locator unavailable for main task call: locator matched no current button. include=taskitem_c.widgettree.taskbtn hint=(94.039993,224.160004) max_distance=120.0 related= related_miss=0
+[2026-04-27 10:22:31.774][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:22:31.821][19840][INFO] [Lua] [Leveling] task panel unresolved for main task click | task_buttons=0 tasks=0 stage=click_task_button
+[2026-04-27 10:22:32.421][19840][INFO] [Lua] [Leveling] main task panel queries missed, fallback to TaskBtn hint lookup | stage=click_task_button task=圣诫之末 detail=
+[2026-04-27 10:22:33.080][19840][INFO] [Lua] [Leveling] main task button nearby-text click fallback hit | mode=task_row_window_click text=主线 圣诫之末 text_pos=(118.23,235.20) detail_y=252.32 next_header_y=295.04 click_pos=(90.15,283.04)
+[2026-04-27 10:22:33.277][19840][INFO] [Lua] [Leveling] task name candidates | map= button_text=主线 圣诫之末 related_text=主线 圣诫之末 anchor=(90.15,283.04)
+[2026-04-27 10:22:33.278][19840][INFO] [Lua] [Leveling] task_pos reject armed after main task click | reason=force_task_call_after_transition:task_changed reject_ms=6500
+[2026-04-27 10:22:33.278][19840][INFO] [Lua] [Leveling] main task panel entry clicked | query=nearby_text:window_click task=圣诫之末 detail= mode=hard_refresh raw=主线 圣诫之末 kind=主线 addr= pos=(90.15,283.04)
+[2026-04-27 10:22:33.279][19840][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=2398.00, -1865.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:22:33.279][19840][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-27 10:22:33.315][19840][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:22:33.316][19840][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath returned no usable points. pos_err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 10:22:33.317][19840][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=2398.00, -1865.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:22:33.317][19840][INFO] [Lua] [Leveling] heartbeat | stage=wait_task_path_after_button tick=36 pos=2398.00, -1865.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:22:33.614][19840][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=wait_task_path_after_button has_target=false startup_resolving=false
+[2026-04-27 10:22:33.813][19840][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-27 10:22:33.813][19840][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=2398.00, -1865.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:22:33.818][19840][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-27 10:22:34.748][19928][DEBUG] LuaVM DoFile success: C:\Users\GoldGiven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua
+[2026-04-27 10:22:34.748][19928][INFO] Task 2 (AvePointLevelingNavWorker) cancelled
+[2026-04-27 10:22:34.754][19840][INFO] [Lua] [Leveling] runner stopped
+[2026-04-27 10:22:34.761][19840][INFO] [Lua] [Treasure] resume snapshot cleared | reason=leveling_stop save_ok=true
+[2026-04-27 10:22:34.761][19840][INFO] [Lua] AvePoint automation stopped
+[2026-04-27 10:23:23.332][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:24:14.967][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:25:06.599][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:25:58.199][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:26:49.850][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:27:41.487][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:28:33.036][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:29:24.721][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:30:16.476][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:31:08.044][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:31:59.620][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:32:51.298][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:33:38.732][16188][DEBUG] Task 2 (AvePointLevelingNavWorker) cleaned up
+[2026-04-27 10:33:38.733][16188][DEBUG] LuaVM: State closed
+[2026-04-27 10:33:38.750][19840][ERROR] LuaVM DoString exec failed: scripts/avepoint/hotkey.lua:4566: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4566: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 10:33:38.751][19840][ERROR] Task 1 (AvePointStandalone.lua) failed: scripts/avepoint/hotkey.lua:4566: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4566: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 10:33:38.781][16188][DEBUG] Task 1 (AvePointStandalone.lua) force cleaned up
+[2026-04-27 10:33:38.790][16188][DEBUG] LuaVM: State closed
+[2026-04-27 10:33:39.332][16188][DEBUG] Task 3 (AvePointStandalone.lua) created
+[2026-04-27 10:33:39.332][16188][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:33:39.332][16188][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:33:39.332][16188][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:33:39.333][16188][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:33:39.333][16188][DEBUG] Registered all Lua API modules
+[2026-04-27 10:33:39.333][1512][INFO] Task 3 (AvePointStandalone.lua) started
+[2026-04-27 10:33:39.334][1512][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-27 10:33:39.346][1512][INFO] [Lua] Process guard starting
+[2026-04-27 10:33:39.346][1512][DEBUG] DriverMode: Process protected PID=16184
+[2026-04-27 10:33:39.347][1512][INFO] [Lua] Process protection enabled. PID=16184
+[2026-04-27 10:33:39.347][1512][INFO] [Lua] Process guard ready
+[2026-04-27 10:33:39.347][1512][INFO] [Lua] Configured avepointTaskMode=2 (练级) in config.json
+[2026-04-27 10:33:39.347][1512][INFO] [Lua] Press Insert or Ctrl+F9 or [ to start current task mode; Delete or Ctrl+F10 or ] to stop
+[2026-04-27 10:33:39.347][1512][INFO] [Lua] Press F12 to dump raw GetCurrentSelected API output without clicking
+[2026-04-27 10:33:39.348][1512][INFO] [Lua] Press F4 to preview the configured target for 分解所有按钮 without clicking
+[2026-04-27 10:33:39.348][1512][INFO] [Lua] Press F3 to dump mouse-nearby button candidates for 当前鼠标按钮定位分析
+[2026-04-27 10:33:39.348][1512][INFO] [Lua] Press F10 to inspect the same uniquely matched mouse target for 鼠标按钮验证点击 without clicking
+[2026-04-27 10:33:39.348][1512][INFO] [Lua] Press F11 or \ to validate-click a uniquely matched mouse target for 鼠标按钮验证点击
+[2026-04-27 10:33:39.348][1512][INFO] [Lua] Press F6 to print current player coordinates
+[2026-04-27 10:33:39.349][1512][INFO] [Lua] Press F7 to print current player position and nearby portals
+[2026-04-27 10:33:39.349][1512][INFO] [Lua] Press F8 to print current mouse client coordinates
+[2026-04-27 10:33:39.349][1512][INFO] [Lua] Press F9 to run read-only Data API diagnostics
+[2026-04-27 10:33:39.349][1512][INFO] [Lua] Press Ctrl+F12 to exit
+[2026-04-27 10:33:39.349][1512][INFO] [Lua] Waiting for torchlight API/game init...
+[2026-04-27 10:33:39.669][1512][DEBUG] DriverMode: InitRemoteCallEx PID=9256, Deployee=0x1FDEEF70300
+[2026-04-27 10:33:39.669][1512][INFO] [Lua] Torch API initialized
+[2026-04-27 10:33:39.670][1512][INFO] [Lua] Current pos: 2398.00, -1865.00, 3092.00
+[2026-04-27 10:33:42.964][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:33:44.392][1512][DEBUG] Task 4 (AvePointLevelingNavWorker) created
+[2026-04-27 10:33:44.393][1512][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:33:44.393][1512][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:33:44.393][1512][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:33:44.393][1512][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:33:44.394][1512][DEBUG] Registered all Lua API modules
+[2026-04-27 10:33:44.394][1512][INFO] [Lua] [Leveling] nav worker started | task_id=4 share=avepoint_leveling_nav_1777257224388_3
+[2026-04-27 10:33:44.394][1512][INFO] [Lua] [Leveling] navigation mode | async nav worker path-route follow | task_move_interval=1200ms task_pos_interval=900ms
+[2026-04-27 10:33:44.394][16764][INFO] Task 4 (AvePointLevelingNavWorker) started
+[2026-04-27 10:33:44.394][1512][INFO] [Lua] [Leveling] runner started | mode=2 quest button -> task path -> NPC dialogue
+[2026-04-27 10:33:44.394][1512][INFO] [Lua] [Leveling] logic: click main task button, fetch task path, MoveTo target, confirm nearby NPC, press D, then continue
+[2026-04-27 10:33:44.395][1512][INFO] [Lua] [Leveling] startup boss combat window armed | window=10000ms
+[2026-04-27 10:33:44.395][1512][INFO] [Lua] [Leveling] startup state resolve armed | window=3000ms
+[2026-04-27 10:33:44.395][1512][INFO] [Lua] [Leveling] map runtime detection | enabled=false
+[2026-04-27 10:33:44.395][1512][INFO] [Lua] AvePoint automation started | mode=练级(2)
+[2026-04-27 10:33:44.395][1512][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:33:44.602][1512][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:33:44.602][1512][INFO] [Lua] [Leveling] current task updated | task=主线 圣诫之末 source=nearby_text anchor=(94.04,224.16)
+[2026-04-27 10:33:44.602][1512][INFO] [Lua] [Leveling] main task call begin | stage=bootstrap task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:33:44.799][1512][WARN] [Lua] [Leveling] TaskBtn locator unavailable for main task call: locator matched no current button. include=taskitem_c.widgettree.taskbtn hint=(94.039993,224.160004) max_distance=120.0 related= related_miss=0
+[2026-04-27 10:33:45.006][1512][INFO] [Lua] [Leveling] task panel unresolved for main task click | task_buttons=0 tasks=0 stage=bootstrap
+[2026-04-27 10:33:45.605][1512][INFO] [Lua] [Leveling] main task panel queries missed, fallback to TaskBtn hint lookup | stage=bootstrap task=圣诫之末 detail=
+[2026-04-27 10:33:46.295][1512][INFO] [Lua] [Leveling] main task button nearby-text click fallback hit | mode=task_row_window_click text=主线 圣诫之末 text_pos=(118.23,235.20) detail_y=252.32 next_header_y=295.04 click_pos=(90.15,283.04)
+[2026-04-27 10:33:46.489][1512][INFO] [Lua] [Leveling] task_pos reject armed after main task click | reason=startup_main_task_reacquire reject_ms=8500
+[2026-04-27 10:33:46.489][1512][INFO] [Lua] [Leveling] main task panel entry clicked | query=nearby_text:window_click task=圣诫之末 detail= mode=hard_refresh raw=主线 圣诫之末 kind=主线 addr= pos=(90.15,283.04)
+[2026-04-27 10:33:46.489][1512][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-27 10:33:46.489][1512][INFO] [Lua] [Leveling] startup main task called before any objective/follow logic | task=圣诫之末 detail= window_left=2993ms
+[2026-04-27 10:33:46.489][1512][INFO] [Lua] [Leveling] heartbeat | stage=wait_task_path_after_button tick=1 pos=814.00, -1840.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:33:46.531][1512][INFO] [Lua] [Leveling] nav worker status | paused
+[2026-04-27 10:33:46.532][1512][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath returned no usable points. pos_err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 10:33:46.532][1512][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:33:46.845][1512][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=wait_task_path_after_button has_target=false startup_resolving=false
+[2026-04-27 10:33:47.045][1512][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-27 10:33:47.045][1512][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:33:47.045][1512][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-27 10:33:47.573][1512][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:33:47.780][1512][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:33:47.982][1512][INFO] [Lua] [Leveling] heartbeat | stage=wait_task tick=6 pos=814.00, -1840.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:33:48.226][1512][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:33:48.954][1512][INFO] [Lua] [Leveling] exec trace | stage=click_task_button reason=click_task_button task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:33:48.954][1512][INFO] [Lua] [Leveling] main task call begin | stage=click_task_button task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:33:49.163][1512][WARN] [Lua] [Leveling] TaskBtn locator unavailable for main task call: locator matched no current button. include=taskitem_c.widgettree.taskbtn hint=(94.039993,224.160004) max_distance=120.0 related= related_miss=0
+[2026-04-27 10:33:49.362][1512][INFO] [Lua] [Leveling] task panel unresolved for main task click | task_buttons=0 tasks=0 stage=click_task_button
+[2026-04-27 10:33:49.973][1512][INFO] [Lua] [Leveling] main task panel queries missed, fallback to TaskBtn hint lookup | stage=click_task_button task=圣诫之末 detail=
+[2026-04-27 10:33:50.647][1512][INFO] [Lua] [Leveling] main task button nearby-text click fallback hit | mode=task_row_window_click text=主线 圣诫之末 text_pos=(118.23,235.20) detail_y=252.32 next_header_y=295.04 click_pos=(90.15,283.04)
+[2026-04-27 10:33:50.850][1512][INFO] [Lua] [Leveling] task name candidates | map= button_text=主线 圣诫之末 related_text=主线 圣诫之末 anchor=(90.15,283.04)
+[2026-04-27 10:33:50.850][1512][INFO] [Lua] [Leveling] main task panel entry clicked | query=nearby_text:window_click task=圣诫之末 detail= mode=hard_refresh raw=主线 圣诫之末 kind=主线 addr= pos=(90.15,283.04)
+[2026-04-27 10:33:50.850][1512][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:33:50.850][1512][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-27 10:33:50.895][1512][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:33:50.895][1512][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath returned no usable points. pos_err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 10:33:50.896][1512][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:33:50.896][1512][INFO] [Lua] [Leveling] heartbeat | stage=wait_task_path_after_button tick=11 pos=814.00, -1840.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:33:51.207][1512][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=wait_task_path_after_button has_target=false startup_resolving=false
+[2026-04-27 10:33:51.409][1512][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-27 10:33:51.409][1512][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:33:51.409][1512][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-27 10:33:52.590][1512][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:33:53.349][1512][ERROR] [Lua] AvePoint automation failed | mode=练级(2) err=scripts/AvePointLeveling.lua:14106: Script execution interrupted
+[2026-04-27 10:33:53.349][1512][INFO] [Lua] AvePoint automation stopped by error
+[2026-04-27 10:33:53.349][1512][ERROR] LuaVM DoString exec failed: scripts/avepoint/hotkey.lua:4566: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4566: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 10:33:53.349][1512][ERROR] Task 3 (AvePointStandalone.lua) failed: scripts/avepoint/hotkey.lua:4566: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4566: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 10:33:53.380][16188][DEBUG] Task 3 (AvePointStandalone.lua) force cleaned up
+[2026-04-27 10:33:53.384][16188][DEBUG] LuaVM: State closed
+[2026-04-27 10:33:53.393][16764][ERROR] LuaVM DoFile failed [C:\Users\GoldGiven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua]: ...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:86: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:70: in upvalue 'share_key'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:86: in local 'share_get'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:327: in main chunk
+[2026-04-27 10:33:53.393][16764][ERROR] Task 4 (AvePointLevelingNavWorker) failed: ...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:86: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:70: in upvalue 'share_key'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:86: in local 'share_get'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:327: in main chunk
+[2026-04-27 10:34:34.506][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:35:03.080][16188][DEBUG] Task 5 (AvePointStandalone.lua) created
+[2026-04-27 10:35:03.080][16188][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:35:03.080][16188][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:35:03.080][16188][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:35:03.081][16188][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:35:03.081][16188][DEBUG] Registered all Lua API modules
+[2026-04-27 10:35:03.081][11964][INFO] Task 5 (AvePointStandalone.lua) started
+[2026-04-27 10:35:03.081][11964][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-27 10:35:03.093][11964][INFO] [Lua] Process guard starting
+[2026-04-27 10:35:03.093][11964][DEBUG] DriverMode: Process protected PID=16184
+[2026-04-27 10:35:03.093][11964][INFO] [Lua] Process protection enabled. PID=16184
+[2026-04-27 10:35:03.093][11964][INFO] [Lua] Process guard ready
+[2026-04-27 10:35:03.093][11964][INFO] [Lua] Configured avepointTaskMode=2 (练级) in config.json
+[2026-04-27 10:35:03.093][11964][INFO] [Lua] Press Insert or Ctrl+F9 or [ to start current task mode; Delete or Ctrl+F10 or ] to stop
+[2026-04-27 10:35:03.094][11964][INFO] [Lua] Press F12 to dump raw GetCurrentSelected API output without clicking
+[2026-04-27 10:35:03.094][11964][INFO] [Lua] Press F4 to preview the configured target for 分解所有按钮 without clicking
+[2026-04-27 10:35:03.094][11964][INFO] [Lua] Press F3 to dump mouse-nearby button candidates for 当前鼠标按钮定位分析
+[2026-04-27 10:35:03.094][11964][INFO] [Lua] Press F10 to inspect the same uniquely matched mouse target for 鼠标按钮验证点击 without clicking
+[2026-04-27 10:35:03.094][11964][INFO] [Lua] Press F11 or \ to validate-click a uniquely matched mouse target for 鼠标按钮验证点击
+[2026-04-27 10:35:03.094][11964][INFO] [Lua] Press F6 to print current player coordinates
+[2026-04-27 10:35:03.095][11964][INFO] [Lua] Press F7 to print current player position and nearby portals
+[2026-04-27 10:35:03.095][11964][INFO] [Lua] Press F8 to print current mouse client coordinates
+[2026-04-27 10:35:03.095][11964][INFO] [Lua] Press F9 to run read-only Data API diagnostics
+[2026-04-27 10:35:03.095][11964][INFO] [Lua] Press Ctrl+F12 to exit
+[2026-04-27 10:35:03.095][11964][INFO] [Lua] Waiting for torchlight API/game init...
+[2026-04-27 10:35:03.402][11964][DEBUG] DriverMode: InitRemoteCallEx PID=9256, Deployee=0x1FDEED90300
+[2026-04-27 10:35:03.402][11964][INFO] [Lua] Torch API initialized
+[2026-04-27 10:35:03.403][11964][INFO] [Lua] Current pos: 814.00, -1840.00, 3092.00
+[2026-04-27 10:35:05.101][11964][DEBUG] Task 6 (AvePointLevelingNavWorker) created
+[2026-04-27 10:35:05.102][11964][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:35:05.102][11964][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:35:05.102][11964][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:35:05.103][11964][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:35:05.103][11964][DEBUG] Registered all Lua API modules
+[2026-04-27 10:35:05.103][11964][INFO] [Lua] [Leveling] nav worker started | task_id=6 share=avepoint_leveling_nav_1777257305096_5
+[2026-04-27 10:35:05.103][11964][INFO] [Lua] [Leveling] navigation mode | async nav worker path-route follow | task_move_interval=1200ms task_pos_interval=900ms
+[2026-04-27 10:35:05.103][11196][INFO] Task 6 (AvePointLevelingNavWorker) started
+[2026-04-27 10:35:05.104][11964][INFO] [Lua] [Leveling] runner started | mode=2 quest button -> task path -> NPC dialogue
+[2026-04-27 10:35:05.104][11964][INFO] [Lua] [Leveling] logic: click main task button, fetch task path, MoveTo target, confirm nearby NPC, press D, then continue
+[2026-04-27 10:35:05.104][11964][INFO] [Lua] [Leveling] startup boss combat window armed | window=10000ms
+[2026-04-27 10:35:05.104][11964][INFO] [Lua] [Leveling] startup state resolve armed | window=3000ms
+[2026-04-27 10:35:05.104][11964][INFO] [Lua] [Leveling] map runtime detection | enabled=false
+[2026-04-27 10:35:05.104][11964][INFO] [Lua] AvePoint automation started | mode=练级(2)
+[2026-04-27 10:35:05.105][11964][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:35:05.304][11964][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:35:05.304][11964][INFO] [Lua] [Leveling] current task updated | task=主线 圣诫之末 source=nearby_text anchor=(94.04,224.16)
+[2026-04-27 10:35:05.304][11964][INFO] [Lua] [Leveling] main task call begin | stage=bootstrap task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:35:05.503][11964][WARN] [Lua] [Leveling] TaskBtn locator unavailable for main task call: locator matched no current button. include=taskitem_c.widgettree.taskbtn hint=(94.039993,224.160004) max_distance=120.0 related= related_miss=0
+[2026-04-27 10:35:05.709][11964][INFO] [Lua] [Leveling] task panel unresolved for main task click | task_buttons=0 tasks=0 stage=bootstrap
+[2026-04-27 10:35:06.311][11964][INFO] [Lua] [Leveling] main task panel queries missed, fallback to TaskBtn hint lookup | stage=bootstrap task=圣诫之末 detail=
+[2026-04-27 10:35:06.989][11964][INFO] [Lua] [Leveling] main task button nearby-text click fallback hit | mode=task_row_window_click text=主线 圣诫之末 text_pos=(118.23,235.20) detail_y=252.32 next_header_y=295.04 click_pos=(90.15,283.04)
+[2026-04-27 10:35:07.189][11964][INFO] [Lua] [Leveling] task_pos reject armed after main task click | reason=startup_main_task_reacquire reject_ms=8500
+[2026-04-27 10:35:07.189][11964][INFO] [Lua] [Leveling] main task panel entry clicked | query=nearby_text:window_click task=圣诫之末 detail= mode=hard_refresh raw=主线 圣诫之末 kind=主线 addr= pos=(90.15,283.04)
+[2026-04-27 10:35:07.189][11964][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-27 10:35:07.189][11964][INFO] [Lua] [Leveling] startup main task called before any objective/follow logic | task=圣诫之末 detail= window_left=2991ms
+[2026-04-27 10:35:07.190][11964][INFO] [Lua] [Leveling] heartbeat | stage=wait_task_path_after_button tick=1 pos=814.00, -1840.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:35:07.224][11964][INFO] [Lua] [Leveling] nav worker status | paused
+[2026-04-27 10:35:07.224][11964][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath returned no usable points. pos_err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 10:35:07.225][11964][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:35:07.537][11964][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=wait_task_path_after_button has_target=false startup_resolving=false
+[2026-04-27 10:35:07.736][11964][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-27 10:35:07.737][11964][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:35:07.737][11964][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-27 10:35:08.251][11964][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:35:08.454][11964][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:35:08.654][11964][INFO] [Lua] [Leveling] heartbeat | stage=wait_task tick=6 pos=814.00, -1840.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:35:08.898][11964][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:35:09.626][11964][INFO] [Lua] [Leveling] exec trace | stage=click_task_button reason=click_task_button task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:35:09.626][11964][INFO] [Lua] [Leveling] main task call begin | stage=click_task_button task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:35:09.826][11964][WARN] [Lua] [Leveling] TaskBtn locator unavailable for main task call: locator matched no current button. include=taskitem_c.widgettree.taskbtn hint=(94.039993,224.160004) max_distance=120.0 related= related_miss=0
+[2026-04-27 10:35:10.048][11964][INFO] [Lua] [Leveling] task panel unresolved for main task click | task_buttons=0 tasks=0 stage=click_task_button
+[2026-04-27 10:35:10.697][11964][INFO] [Lua] [Leveling] main task panel queries missed, fallback to TaskBtn hint lookup | stage=click_task_button task=圣诫之末 detail=
+[2026-04-27 10:35:11.413][11964][INFO] [Lua] [Leveling] main task button nearby-text click fallback hit | mode=task_row_window_click text=主线 圣诫之末 text_pos=(118.23,235.20) detail_y=252.32 next_header_y=295.04 click_pos=(90.15,283.04)
+[2026-04-27 10:35:11.628][11964][INFO] [Lua] [Leveling] task name candidates | map= button_text=主线 圣诫之末 related_text=主线 圣诫之末 anchor=(90.15,283.04)
+[2026-04-27 10:35:11.628][11964][INFO] [Lua] [Leveling] main task panel entry clicked | query=nearby_text:window_click task=圣诫之末 detail= mode=hard_refresh raw=主线 圣诫之末 kind=主线 addr= pos=(90.15,283.04)
+[2026-04-27 10:35:11.628][11964][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:35:11.629][11964][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-27 10:35:11.663][11964][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:35:11.664][11964][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath returned no usable points. pos_err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 10:35:11.664][11964][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:35:11.664][11964][INFO] [Lua] [Leveling] heartbeat | stage=wait_task_path_after_button tick=11 pos=814.00, -1840.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:35:12.001][11964][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=wait_task_path_after_button has_target=false startup_resolving=false
+[2026-04-27 10:35:12.212][11964][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-27 10:35:12.212][11964][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=814.00, -1840.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:35:12.212][11964][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-27 10:35:13.379][16188][DEBUG] Task 4 (AvePointLevelingNavWorker) cleaned up
+[2026-04-27 10:35:13.380][11964][ERROR] [Lua] AvePoint automation failed | mode=练级(2) err=scripts/AvePointLeveling.lua:14093: Script execution interrupted
+[2026-04-27 10:35:13.380][16188][DEBUG] LuaVM: State closed
+[2026-04-27 10:35:13.380][11964][INFO] [Lua] AvePoint automation stopped by error
+[2026-04-27 10:35:13.381][11964][ERROR] LuaVM DoString exec failed: scripts/avepoint/hotkey.lua:4566: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4566: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 10:35:13.381][11964][ERROR] Task 5 (AvePointStandalone.lua) failed: scripts/avepoint/hotkey.lua:4566: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4566: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 10:35:13.412][16188][DEBUG] Task 5 (AvePointStandalone.lua) force cleaned up
+[2026-04-27 10:35:13.415][16188][DEBUG] LuaVM: State closed
+[2026-04-27 10:35:13.419][11196][ERROR] LuaVM DoFile failed [C:\Users\GoldGiven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua]: ...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:317: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:86: in local 'share_get'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:317: in main chunk
+[2026-04-27 10:35:13.419][11196][ERROR] Task 6 (AvePointLevelingNavWorker) failed: ...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:317: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:86: in local 'share_get'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:317: in main chunk
+[2026-04-27 10:35:26.140][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:36:17.784][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:37:09.379][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:37:28.093][16188][DEBUG] Task 7 (AvePointStandalone.lua) created
+[2026-04-27 10:37:28.093][16188][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:37:28.094][16188][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:37:28.094][16188][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:37:28.095][16188][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:37:28.095][16188][DEBUG] Registered all Lua API modules
+[2026-04-27 10:37:28.095][15996][INFO] Task 7 (AvePointStandalone.lua) started
+[2026-04-27 10:37:28.095][15996][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-27 10:37:28.107][15996][INFO] [Lua] Process guard starting
+[2026-04-27 10:37:28.107][15996][DEBUG] DriverMode: Process protected PID=16184
+[2026-04-27 10:37:28.108][15996][INFO] [Lua] Process protection enabled. PID=16184
+[2026-04-27 10:37:28.108][15996][INFO] [Lua] Process guard ready
+[2026-04-27 10:37:28.109][15996][INFO] [Lua] Configured avepointTaskMode=2 (练级) in config.json
+[2026-04-27 10:37:28.109][15996][INFO] [Lua] Press Insert or Ctrl+F9 or [ to start current task mode; Delete or Ctrl+F10 or ] to stop
+[2026-04-27 10:37:28.109][15996][INFO] [Lua] Press F12 to dump raw GetCurrentSelected API output without clicking
+[2026-04-27 10:37:28.109][15996][INFO] [Lua] Press F4 to preview the configured target for 分解所有按钮 without clicking
+[2026-04-27 10:37:28.110][15996][INFO] [Lua] Press F3 to dump mouse-nearby button candidates for 当前鼠标按钮定位分析
+[2026-04-27 10:37:28.110][15996][INFO] [Lua] Press F10 to inspect the same uniquely matched mouse target for 鼠标按钮验证点击 without clicking
+[2026-04-27 10:37:28.110][15996][INFO] [Lua] Press F11 or \ to validate-click a uniquely matched mouse target for 鼠标按钮验证点击
+[2026-04-27 10:37:28.111][15996][INFO] [Lua] Press F6 to print current player coordinates
+[2026-04-27 10:37:28.111][15996][INFO] [Lua] Press F7 to print current player position and nearby portals
+[2026-04-27 10:37:28.111][15996][INFO] [Lua] Press F8 to print current mouse client coordinates
+[2026-04-27 10:37:28.111][15996][INFO] [Lua] Press F9 to run read-only Data API diagnostics
+[2026-04-27 10:37:28.112][15996][INFO] [Lua] Press Ctrl+F12 to exit
+[2026-04-27 10:37:28.112][15996][INFO] [Lua] Waiting for torchlight API/game init...
+[2026-04-27 10:37:28.429][15996][DEBUG] DriverMode: InitRemoteCallEx PID=9256, Deployee=0x1FDEF0E0300
+[2026-04-27 10:37:28.429][15996][INFO] [Lua] Torch API initialized
+[2026-04-27 10:37:28.430][15996][INFO] [Lua] Current pos: 647.00, -1977.00, 3092.00
+[2026-04-27 10:37:30.132][15996][DEBUG] Task 8 (AvePointLevelingNavWorker) created
+[2026-04-27 10:37:30.133][15996][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:37:30.133][15996][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:37:30.134][15996][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:37:30.134][15996][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:37:30.134][15996][DEBUG] Registered all Lua API modules
+[2026-04-27 10:37:30.135][15996][INFO] [Lua] [Leveling] nav worker started | task_id=8 share=avepoint_leveling_nav_1777257450126_7
+[2026-04-27 10:37:30.135][19872][INFO] Task 8 (AvePointLevelingNavWorker) started
+[2026-04-27 10:37:30.135][15996][INFO] [Lua] [Leveling] navigation mode | async nav worker path-route follow | task_move_interval=1200ms task_pos_interval=900ms
+[2026-04-27 10:37:30.136][15996][INFO] [Lua] [Leveling] runner started | mode=2 quest button -> task path -> NPC dialogue
+[2026-04-27 10:37:30.136][15996][INFO] [Lua] [Leveling] logic: click main task button, fetch task path, MoveTo target, confirm nearby NPC, press D, then continue
+[2026-04-27 10:37:30.136][15996][INFO] [Lua] [Leveling] startup boss combat window armed | window=10000ms
+[2026-04-27 10:37:30.137][15996][INFO] [Lua] [Leveling] startup state resolve armed | window=3000ms
+[2026-04-27 10:37:30.137][15996][INFO] [Lua] [Leveling] map runtime detection | enabled=false
+[2026-04-27 10:37:30.137][15996][INFO] [Lua] AvePoint automation started | mode=练级(2)
+[2026-04-27 10:37:30.137][15996][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:37:30.353][15996][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:37:30.354][15996][INFO] [Lua] [Leveling] current task updated | task=主线 圣诫之末 source=nearby_text anchor=(94.04,224.16)
+[2026-04-27 10:37:30.354][15996][INFO] [Lua] [Leveling] main task call begin | stage=bootstrap task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:37:30.570][15996][WARN] [Lua] [Leveling] TaskBtn locator unavailable for main task call: locator matched no current button. include=taskitem_c.widgettree.taskbtn hint=(94.039993,224.160004) max_distance=120.0 related= related_miss=0
+[2026-04-27 10:37:30.781][15996][INFO] [Lua] [Leveling] task panel unresolved for main task click | task_buttons=0 tasks=0 stage=bootstrap
+[2026-04-27 10:37:31.420][15996][INFO] [Lua] [Leveling] main task panel queries missed, fallback to TaskBtn hint lookup | stage=bootstrap task=圣诫之末 detail=
+[2026-04-27 10:37:32.124][15996][INFO] [Lua] [Leveling] main task button nearby-text click fallback hit | mode=task_title_offset_window_click text=主线 圣诫之末 text_pos=(118.23,235.20) detail_y=252.32 next_header_y=295.04 click_pos=(90.15,231.60)
+[2026-04-27 10:37:32.332][15996][INFO] [Lua] [Leveling] task_pos reject armed after main task click | reason=startup_main_task_reacquire reject_ms=8500
+[2026-04-27 10:37:32.332][15996][INFO] [Lua] [Leveling] main task panel entry clicked | query=nearby_text:window_click task=圣诫之末 detail= mode=hard_refresh raw=主线 圣诫之末 kind=主线 addr= pos=(90.15,231.60)
+[2026-04-27 10:37:32.333][15996][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-27 10:37:32.333][15996][INFO] [Lua] [Leveling] startup main task called before any objective/follow logic | task=圣诫之末 detail= window_left=2989ms
+[2026-04-27 10:37:32.334][15996][INFO] [Lua] [Leveling] heartbeat | stage=wait_task_path_after_button tick=1 pos=647.00, -1977.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:37:32.372][15996][INFO] [Lua] [Leveling] nav worker status | paused
+[2026-04-27 10:37:32.373][15996][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath returned no usable points. pos_err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 10:37:32.373][15996][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=622.88, -1964.68, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:37:32.710][15996][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=wait_task_path_after_button has_target=false startup_resolving=false
+[2026-04-27 10:37:32.914][15996][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-27 10:37:32.915][15996][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=622.88, -1964.68, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:37:32.916][15996][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-27 10:37:33.194][15996][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:37:33.407][15996][INFO] [Lua] [Leveling] heartbeat | stage=wait_task tick=5 pos=622.88, -1964.68, 3092.00 target=nil path_points=0
+[2026-04-27 10:37:33.651][15996][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:37:34.123][15996][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=622.88, -1964.68, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:37:34.889][15996][INFO] [Lua] [Leveling] exec trace | stage=click_task_button reason=click_task_button task=圣诫之末 detail= pos=622.88, -1964.68, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:37:34.889][15996][INFO] [Lua] [Leveling] main task call begin | stage=click_task_button task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:37:35.105][15996][WARN] [Lua] [Leveling] TaskBtn locator unavailable for main task call: locator matched no current button. include=taskitem_c.widgettree.taskbtn hint=(94.039993,224.160004) max_distance=120.0 related= related_miss=0
+[2026-04-27 10:37:35.326][15996][INFO] [Lua] [Leveling] task panel unresolved for main task click | task_buttons=0 tasks=0 stage=click_task_button
+[2026-04-27 10:37:35.966][15996][INFO] [Lua] [Leveling] main task panel queries missed, fallback to TaskBtn hint lookup | stage=click_task_button task=圣诫之末 detail=
+[2026-04-27 10:37:36.677][15996][INFO] [Lua] [Leveling] main task button nearby-text click fallback hit | mode=task_title_offset_window_click text=主线 圣诫之末 text_pos=(118.23,235.20) detail_y=252.32 next_header_y=295.04 click_pos=(90.15,231.60)
+[2026-04-27 10:37:36.901][15996][INFO] [Lua] [Leveling] task name candidates | map= button_text=主线 圣诫之末 related_text=主线 圣诫之末 anchor=(90.15,231.60)
+[2026-04-27 10:37:36.901][15996][INFO] [Lua] [Leveling] main task panel entry clicked | query=nearby_text:window_click task=圣诫之末 detail= mode=hard_refresh raw=主线 圣诫之末 kind=主线 addr= pos=(90.15,231.60)
+[2026-04-27 10:37:36.902][15996][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=622.88, -1964.68, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:37:36.902][15996][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-27 10:37:36.941][15996][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:37:36.942][15996][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath returned no usable points. pos_err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 10:37:36.942][15996][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=529.00, -1917.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:37:36.942][15996][INFO] [Lua] [Leveling] heartbeat | stage=wait_task_path_after_button tick=11 pos=529.00, -1917.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:37:37.256][15996][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=wait_task_path_after_button has_target=false startup_resolving=false
+[2026-04-27 10:37:37.469][15996][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-27 10:37:37.469][15996][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=529.00, -1917.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:37:37.470][15996][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-27 10:37:38.676][16188][DEBUG] Task 6 (AvePointLevelingNavWorker) cleaned up
+[2026-04-27 10:37:38.676][15996][ERROR] [Lua] AvePoint automation failed | mode=练级(2) err=C:\Users\GoldGiven\Desktop\cunnei\scripts/torch_nav.lua:1909: Script execution interrupted
+[2026-04-27 10:37:38.677][16188][DEBUG] LuaVM: State closed
+[2026-04-27 10:37:38.677][15996][INFO] [Lua] AvePoint automation stopped by error
+[2026-04-27 10:37:38.677][15996][ERROR] LuaVM DoString exec failed: scripts/avepoint/hotkey.lua:4566: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4566: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 10:37:38.678][15996][ERROR] Task 7 (AvePointStandalone.lua) failed: scripts/avepoint/hotkey.lua:4566: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4566: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 10:37:38.708][16188][DEBUG] Task 7 (AvePointStandalone.lua) force cleaned up
+[2026-04-27 10:37:38.713][16188][DEBUG] LuaVM: State closed
+[2026-04-27 10:37:38.713][19872][DEBUG] LuaVM DoFile success: C:\Users\GoldGiven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua
+[2026-04-27 10:37:38.714][19872][INFO] Task 8 (AvePointLevelingNavWorker) cancelled
+[2026-04-27 10:38:00.992][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:38:52.690][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:39:44.274][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:40:35.862][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:40:54.088][16188][DEBUG] Task 9 (AvePointStandalone.lua) created
+[2026-04-27 10:40:54.088][16188][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:40:54.088][16188][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:40:54.088][16188][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:40:54.089][16188][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:40:54.089][16188][DEBUG] Registered all Lua API modules
+[2026-04-27 10:40:54.089][9012][INFO] Task 9 (AvePointStandalone.lua) started
+[2026-04-27 10:40:54.089][9012][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-27 10:40:54.101][9012][INFO] [Lua] Process guard starting
+[2026-04-27 10:40:54.101][9012][DEBUG] DriverMode: Process protected PID=16184
+[2026-04-27 10:40:54.101][9012][INFO] [Lua] Process protection enabled. PID=16184
+[2026-04-27 10:40:54.101][9012][INFO] [Lua] Process guard ready
+[2026-04-27 10:40:54.102][9012][INFO] [Lua] Configured avepointTaskMode=2 (练级) in config.json
+[2026-04-27 10:40:54.102][9012][INFO] [Lua] Press Insert or Ctrl+F9 or [ to start current task mode; Delete or Ctrl+F10 or ] to stop
+[2026-04-27 10:40:54.102][9012][INFO] [Lua] Press F12 to dump raw GetCurrentSelected API output without clicking
+[2026-04-27 10:40:54.102][9012][INFO] [Lua] Press F4 to preview the configured target for 分解所有按钮 without clicking
+[2026-04-27 10:40:54.102][9012][INFO] [Lua] Press F3 to dump mouse-nearby button candidates for 当前鼠标按钮定位分析
+[2026-04-27 10:40:54.102][9012][INFO] [Lua] Press F10 to inspect the same uniquely matched mouse target for 鼠标按钮验证点击 without clicking
+[2026-04-27 10:40:54.103][9012][INFO] [Lua] Press F11 or \ to validate-click a uniquely matched mouse target for 鼠标按钮验证点击
+[2026-04-27 10:40:54.103][9012][INFO] [Lua] Press F6 to print current player coordinates
+[2026-04-27 10:40:54.103][9012][INFO] [Lua] Press F7 to print current player position and nearby portals
+[2026-04-27 10:40:54.103][9012][INFO] [Lua] Press F8 to print current mouse client coordinates
+[2026-04-27 10:40:54.103][9012][INFO] [Lua] Press F9 to run read-only Data API diagnostics
+[2026-04-27 10:40:54.104][9012][INFO] [Lua] Press Ctrl+F12 to exit
+[2026-04-27 10:40:54.104][9012][INFO] [Lua] Waiting for torchlight API/game init...
+[2026-04-27 10:40:54.422][9012][DEBUG] DriverMode: InitRemoteCallEx PID=9256, Deployee=0x1FD13AF0300
+[2026-04-27 10:40:54.422][9012][INFO] [Lua] Torch API initialized
+[2026-04-27 10:40:54.424][9012][INFO] [Lua] Current pos: 529.00, -1917.00, 3092.00
+[2026-04-27 10:40:55.487][9012][DEBUG] Task 10 (AvePointLevelingNavWorker) created
+[2026-04-27 10:40:55.488][9012][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:40:55.488][9012][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:40:55.488][9012][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:40:55.488][9012][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:40:55.488][9012][DEBUG] Registered all Lua API modules
+[2026-04-27 10:40:55.488][9012][INFO] [Lua] [Leveling] nav worker started | task_id=10 share=avepoint_leveling_nav_1777257655483_9
+[2026-04-27 10:40:55.489][9012][INFO] [Lua] [Leveling] navigation mode | async nav worker path-route follow | task_move_interval=1200ms task_pos_interval=900ms
+[2026-04-27 10:40:55.489][7632][INFO] Task 10 (AvePointLevelingNavWorker) started
+[2026-04-27 10:40:55.489][9012][INFO] [Lua] [Leveling] runner started | mode=2 quest button -> task path -> NPC dialogue
+[2026-04-27 10:40:55.489][9012][INFO] [Lua] [Leveling] logic: click main task button, fetch task path, MoveTo target, confirm nearby NPC, press D, then continue
+[2026-04-27 10:40:55.489][9012][INFO] [Lua] [Leveling] startup boss combat window armed | window=10000ms
+[2026-04-27 10:40:55.489][9012][INFO] [Lua] [Leveling] startup state resolve armed | window=3000ms
+[2026-04-27 10:40:55.489][9012][INFO] [Lua] [Leveling] map runtime detection | enabled=false
+[2026-04-27 10:40:55.489][9012][INFO] [Lua] AvePoint automation started | mode=练级(2)
+[2026-04-27 10:40:55.490][9012][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:40:55.706][9012][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:40:55.706][9012][INFO] [Lua] [Leveling] current task updated | task=主线 圣诫之末 source=task_panel_confirmed anchor=(94.04,224.16)
+[2026-04-27 10:40:55.706][9012][INFO] [Lua] [Leveling] current task detail updated | task=主线 圣诫之末 detail=与莫琳娜交谈 source=task_panel_confirmed
+[2026-04-27 10:40:55.707][9012][INFO] [Lua] [Leveling] main task call begin | stage=bootstrap task=圣诫之末 detail=与莫琳娜交谈 mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 与莫琳娜交谈 -> 主线
+[2026-04-27 10:40:55.924][9012][WARN] [Lua] [Leveling] TaskBtn locator unavailable for main task call: locator matched no current button. include=taskitem_c.widgettree.taskbtn hint=(94.039993,224.160004) max_distance=120.0 related= related_miss=0
+[2026-04-27 10:40:56.135][9012][INFO] [Lua] [Leveling] task panel unresolved for main task click | task_buttons=0 tasks=0 stage=bootstrap
+[2026-04-27 10:40:56.994][9012][INFO] [Lua] [Leveling] main task panel queries missed, fallback to TaskBtn hint lookup | stage=bootstrap task=圣诫之末 detail=与莫琳娜交谈
+[2026-04-27 10:40:57.420][9012][WARN] [Lua] [Leveling] main task button fetch failed: Nearby button not found. nearby=text text=主线 圣诫之末 pos=(118.2,235.2) d=26.6 | text text=与莫琳娜交谈 pos=(131.5,255.3) d=48.7 | text text=支线 藏宝地：银沙边城 pos=(118.2,295.0) d=74.9 | text text=在雄狮之心找到下一个藏宝地（推荐等级44~54级） pos=(131.5,315.2) d=98.4
+[2026-04-27 10:40:57.420][9012][INFO] [Lua] [Leveling] startup waiting main task call before movement: Nearby button not found.
+[2026-04-27 10:40:57.420][9012][INFO] [Lua] [Leveling] navigation hold | reason=startup_task_reacquire
+[2026-04-27 10:40:57.420][9012][INFO] [Lua] [Leveling] heartbeat | stage=startup_task_reacquire tick=1 pos=529.00, -1917.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:40:57.452][9012][INFO] [Lua] [Leveling] nav worker status | paused
+[2026-04-27 10:40:57.663][9012][INFO] [Lua] [Leveling] current task detail updated | task=主线 圣诫之末 detail= source=nearby_text
+[2026-04-27 10:40:57.663][9012][INFO] [Lua] [Leveling] main task call begin | stage=startup_task_reacquire task=圣诫之末 detail=与莫琳娜交谈 mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 与莫琳娜交谈 -> 主线
+[2026-04-27 10:40:58.951][9012][INFO] [Lua] [Leveling] main task panel queries missed, fallback to TaskBtn hint lookup | stage=startup_task_reacquire task=圣诫之末 detail=与莫琳娜交谈
+[2026-04-27 10:40:59.416][9012][DEBUG] Task 8 (AvePointLevelingNavWorker) cleaned up
+[2026-04-27 10:40:59.417][9012][DEBUG] LuaVM: State closed
+[2026-04-27 10:40:59.425][9012][INFO] [Lua] [Leveling] runner stopped
+[2026-04-27 10:40:59.432][9012][INFO] [Lua] [Treasure] resume snapshot cleared | reason=leveling_stop save_ok=true
+[2026-04-27 10:40:59.432][9012][INFO] [Lua] AvePoint automation stopped
+[2026-04-27 10:40:59.462][7632][ERROR] LuaVM DoFile failed [C:\Users\GoldGiven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua]: ...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:328: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:87: in local 'share_get'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:328: in main chunk
+[2026-04-27 10:40:59.462][7632][ERROR] Task 10 (AvePointLevelingNavWorker) failed: ...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:328: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:87: in local 'share_get'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:328: in main chunk
+[2026-04-27 10:41:27.449][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:42:18.944][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:43:10.489][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:44:02.111][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:44:53.704][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:45:45.327][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:46:36.924][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:47:28.541][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:48:20.171][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:49:11.779][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:50:03.381][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:50:54.979][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:51:46.570][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:52:38.171][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:53:29.778][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:54:21.375][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:55:12.909][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:56:04.534][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:56:23.531][16188][DEBUG] Task 10 (AvePointLevelingNavWorker) cleaned up
+[2026-04-27 10:56:23.532][16188][DEBUG] LuaVM: State closed
+[2026-04-27 10:56:23.562][9012][ERROR] LuaVM DoString exec failed: C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: Script execution interrupted
+stack traceback:
+	scripts/avepoint/hotkey.lua:4511: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 10:56:23.562][9012][ERROR] Task 9 (AvePointStandalone.lua) failed: C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: Script execution interrupted
+stack traceback:
+	scripts/avepoint/hotkey.lua:4511: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 10:56:23.580][16188][DEBUG] Task 9 (AvePointStandalone.lua) force cleaned up
+[2026-04-27 10:56:23.584][16188][DEBUG] LuaVM: State closed
+[2026-04-27 10:56:23.931][16188][DEBUG] Task 11 (AvePointStandalone.lua) created
+[2026-04-27 10:56:23.931][16188][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:56:23.932][16188][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:56:23.932][16188][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:56:23.932][16188][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:56:23.932][16188][DEBUG] Registered all Lua API modules
+[2026-04-27 10:56:23.933][16132][INFO] Task 11 (AvePointStandalone.lua) started
+[2026-04-27 10:56:23.933][16132][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-27 10:56:23.944][16132][INFO] [Lua] Process guard starting
+[2026-04-27 10:56:23.944][16132][DEBUG] DriverMode: Process protected PID=16184
+[2026-04-27 10:56:23.944][16132][INFO] [Lua] Process protection enabled. PID=16184
+[2026-04-27 10:56:23.944][16132][INFO] [Lua] Process guard ready
+[2026-04-27 10:56:23.945][16132][INFO] [Lua] Configured avepointTaskMode=2 (练级) in config.json
+[2026-04-27 10:56:23.945][16132][INFO] [Lua] Press Insert or Ctrl+F9 or [ to start current task mode; Delete or Ctrl+F10 or ] to stop
+[2026-04-27 10:56:23.945][16132][INFO] [Lua] Press F12 to dump raw GetCurrentSelected API output without clicking
+[2026-04-27 10:56:23.945][16132][INFO] [Lua] Press F4 to preview the configured target for 分解所有按钮 without clicking
+[2026-04-27 10:56:23.945][16132][INFO] [Lua] Press F3 to dump mouse-nearby button candidates for 当前鼠标按钮定位分析
+[2026-04-27 10:56:23.945][16132][INFO] [Lua] Press F10 to inspect the same uniquely matched mouse target for 鼠标按钮验证点击 without clicking
+[2026-04-27 10:56:23.945][16132][INFO] [Lua] Press F11 or \ to validate-click a uniquely matched mouse target for 鼠标按钮验证点击
+[2026-04-27 10:56:23.946][16132][INFO] [Lua] Press F6 to print current player coordinates
+[2026-04-27 10:56:23.946][16132][INFO] [Lua] Press F7 to print current player position and nearby portals
+[2026-04-27 10:56:23.946][16132][INFO] [Lua] Press F8 to print current mouse client coordinates
+[2026-04-27 10:56:23.946][16132][INFO] [Lua] Press F9 to run read-only Data API diagnostics
+[2026-04-27 10:56:23.946][16132][INFO] [Lua] Press Ctrl+F12 to exit
+[2026-04-27 10:56:23.946][16132][INFO] [Lua] Waiting for torchlight API/game init...
+[2026-04-27 10:56:24.262][16132][DEBUG] DriverMode: InitRemoteCallEx PID=9256, Deployee=0x1FE14F10300
+[2026-04-27 10:56:24.263][16132][INFO] [Lua] Torch API initialized
+[2026-04-27 10:56:24.263][16132][INFO] [Lua] Current pos: 529.00, -1917.00, 3092.00
+[2026-04-27 10:56:25.339][16132][DEBUG] Task 12 (AvePointLevelingNavWorker) created
+[2026-04-27 10:56:25.339][16132][DEBUG] LuaVM: cffi module registered
+[2026-04-27 10:56:25.339][16132][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-27 10:56:25.339][16132][DEBUG] LuaVM: State created successfully
+[2026-04-27 10:56:25.339][16132][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-27 10:56:25.340][16132][DEBUG] Registered all Lua API modules
+[2026-04-27 10:56:25.340][16132][INFO] [Lua] [Leveling] nav worker started | task_id=12 share=avepoint_leveling_nav_1777258585335_11
+[2026-04-27 10:56:25.340][16132][INFO] [Lua] [Leveling] navigation mode | async nav worker path-route follow | task_move_interval=1200ms task_pos_interval=900ms
+[2026-04-27 10:56:25.340][17888][INFO] Task 12 (AvePointLevelingNavWorker) started
+[2026-04-27 10:56:25.340][16132][INFO] [Lua] [Leveling] runner started | mode=2 quest button -> task path -> NPC dialogue
+[2026-04-27 10:56:25.340][16132][INFO] [Lua] [Leveling] logic: click main task button, fetch task path, MoveTo target, confirm nearby NPC, press D, then continue
+[2026-04-27 10:56:25.341][16132][INFO] [Lua] [Leveling] startup boss combat window armed | window=10000ms
+[2026-04-27 10:56:25.341][16132][INFO] [Lua] [Leveling] startup state resolve armed | window=3000ms
+[2026-04-27 10:56:25.341][16132][INFO] [Lua] [Leveling] map runtime detection | enabled=false
+[2026-04-27 10:56:25.341][16132][INFO] [Lua] AvePoint automation started | mode=练级(2)
+[2026-04-27 10:56:25.341][16132][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:56:25.553][16132][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:56:25.553][16132][INFO] [Lua] [Leveling] current task updated | task=主线 圣诫之末 source=nearby_text anchor=(94.04,224.16)
+[2026-04-27 10:56:25.554][16132][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath returned no usable points. pos_err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 10:56:25.555][16132][INFO] [Lua] [Leveling] main task call begin | stage=bootstrap task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:56:26.192][16132][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=bootstrap task=圣诫之末 detail=
+[2026-04-27 10:56:26.612][16132][WARN] [Lua] [Leveling] main task button fetch failed: Nearby button not found. nearby=text text=主线 圣诫之末 pos=(118.2,235.2) d=26.6 | text text=与莫琳娜交谈 pos=(131.5,255.3) d=48.7 | text text=支线 藏宝地：银沙边城 pos=(118.2,295.0) d=74.9 | text text=在雄狮之心找到下一个藏宝地（推荐等级44~54级） pos=(131.5,315.2) d=98.4
+[2026-04-27 10:56:26.612][16132][INFO] [Lua] [Leveling] startup state probing | task=主线 圣诫之末 detail= has_task_pos=false has_target=false target_source= goal_distance=nil objective_mode= window_left=2994ms
+[2026-04-27 10:56:26.612][16132][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=bootstrap has_target=false startup_resolving=true
+[2026-04-27 10:56:26.836][16132][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-27 10:56:26.836][16132][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=529.00, -1917.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:56:26.836][16132][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-27 10:56:26.837][16132][INFO] [Lua] [Leveling] heartbeat | stage=wait_task tick=1 pos=529.00, -1917.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:56:26.871][16132][INFO] [Lua] [Leveling] nav worker status | paused
+[2026-04-27 10:56:27.087][16132][INFO] [Lua] [Leveling] main task call begin | stage=wait_task task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:56:27.725][16132][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=wait_task task=圣诫之末 detail=
+[2026-04-27 10:56:28.366][16132][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=529.00, -1917.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:56:28.405][16132][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-27 10:56:28.405][16132][INFO] [Lua] [Leveling] startup state resolve expired, fallback to normal task flow.
+[2026-04-27 10:56:28.406][16132][INFO] [Lua] [Leveling] exec trace | stage=click_task_button reason=click_task_button task=圣诫之末 detail= pos=529.00, -1917.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:56:28.406][16132][INFO] [Lua] [Leveling] main task call begin | stage=click_task_button task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-27 10:56:29.045][16132][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=click_task_button task=圣诫之末 detail=
+[2026-04-27 10:56:29.469][16132][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath returned no usable points. pos_err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 10:56:29.681][16132][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(94.04,224.16)
+[2026-04-27 10:56:29.683][16132][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=click_task_button has_target=false startup_resolving=false
+[2026-04-27 10:56:29.894][16132][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-27 10:56:29.894][16132][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=529.00, -1917.00, 3092.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-27 10:56:29.894][16132][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-27 10:56:29.894][16132][INFO] [Lua] [Leveling] heartbeat | stage=wait_task tick=3 pos=529.00, -1917.00, 3092.00 target=nil path_points=0
+[2026-04-27 10:56:29.931][16132][INFO] [Lua] [Leveling] runner stopped
+[2026-04-27 10:56:29.941][16132][INFO] [Lua] [Treasure] resume snapshot cleared | reason=leveling_stop save_ok=true
+[2026-04-27 10:56:29.941][16132][INFO] [Lua] AvePoint automation stopped
+[2026-04-27 10:56:29.958][17888][ERROR] LuaVM DoFile failed [C:\Users\GoldGiven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua]: ...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:317: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:86: in local 'share_get'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:317: in main chunk
+[2026-04-27 10:56:29.958][17888][ERROR] Task 12 (AvePointLevelingNavWorker) failed: ...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:317: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:86: in local 'share_get'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:317: in main chunk
+[2026-04-27 10:56:56.137][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:57:47.719][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:57:53.765][16132][ERROR] [Lua] F12 GetCurrentSelected raw dump failed: Current selected button not found.
+[2026-04-27 10:58:01.034][16132][INFO] [Lua] F12 GetCurrentSelected raw dump | buttons=23 texts=38 images=1263
+[2026-04-27 10:58:01.034][16132][INFO] [Lua] [Selected][1] kind="button" addr=2189580951616 text="" name="" fullname="UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn" x=86.907119750977 y=231.18161010742 source="GetCurrentSelected" rel1_kind="text" rel1_text="主线 圣诫之末" rel1_name="UITextBlock Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.UITextBlock" rel1_fullname="" rel1_x=118.23387145996 rel1_y=235.19786071777 rel1_dx="31.33" rel1_dy="4.02" rel1_dist="31.58" rel2_kind="text" rel2_text="与莫琳娜交谈" rel2_name="UITextBlock Transient.GameEngine.CoreGameInstance.UISubTaskItem_C.WidgetTree.UITextBlock" rel2_fullname="" rel2_x=131.48748779297 rel2_y=255.31736755371 rel2_dx="44.58" rel2_dy="24.14" rel2_dist="50.69"
+[2026-04-27 10:58:01.035][16132][INFO] [Lua] [SelectedItem][1] item={Fullname="UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn" addr=2189580951616 text="" x=86.907119750977 y=231.18161010742}
+[2026-04-27 10:58:01.035][16132][INFO] [Lua] F12 cached main task TaskBtn locator | fullname=UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn x=86.91 y=231.18 related=主线 圣诫之末 dx=31.326751708984 dy=4.0162506103516 captured_addr=2189580951616
+[2026-04-27 10:58:01.035][16132][INFO] [Lua] F12 GetCurrentSelected raw dump complete | addr=2189580951616 name= x=86.91 y=231.18 text=
+[2026-04-27 10:58:39.307][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 10:59:30.898][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:00:22.470][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:01:14.052][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:02:05.684][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:02:57.284][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:03:48.906][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:04:40.527][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:04:40.674][16132][INFO] [Lua] F9 Data API test begin
+[2026-04-27 11:04:40.674][16132][INFO] [Lua] F9 Data API context | pid=9256 mode=driver initialized=true
+[2026-04-27 11:04:40.675][16132][INFO] [Lua] addr[[[[[[0x7FF6AFEEF368]+0x210]+0x38]]+0x30]+0x2A0]
+[2026-04-27 11:04:40.675][16132][INFO] [Lua] F9 Data API GetPlayerAddr: OK type=number value=2188028158400
+[2026-04-27 11:04:40.675][16132][INFO] [Lua] addr[[[[[[0x7FF6AFEEF368]+0x210]+0x38]]+0x30]+0x2A0]
+[2026-04-27 11:04:40.675][16132][INFO] [Lua] F9 Data API GetPlayerinfo: OK type=table count=0 pos=529.00, -1917.00, 3092.00 fields={Hpseal=0 Mpseal=13 angle=-41.189128875732 curHp=1268 curMp=212 curShield=13 eRole=2187756909568 entityId=8 maxHp=1268 maxMp=265 maxShield=13 x=529.0 y=-1917.0 z=3092.0}
+[2026-04-27 11:04:40.676][16132][INFO] [Lua] F9 Data API IsMainInterface: OK type=boolean value=false
+[2026-04-27 11:04:40.676][16132][INFO] [Lua] F9 Data API Isloading: OK type=boolean value=false
+[2026-04-27 11:04:40.676][16132][INFO] [Lua] F9 Data API GetMainTaskPos: OK type=table count=0 pos=0.00, 0.00, 0.00 fields={x=0.0 y=0.0 z=0.0}
+[2026-04-27 11:04:40.676][16132][INFO] [Lua] F9 Data API GetMainTaskPath: OK type=table count=0 fields={}
+[2026-04-27 11:04:40.677][16132][INFO] [Lua] F9 Data API EnumMonster: OK type=table count=1 fields={} first={addr=2190530437184 classname="EMonster" curHp=0 entityId=4 maxHp=0 x=553.12127685547 y=-2500.6945800781 z=3093.3583984375} pos=553.12, -2500.69, 3093.36
+[2026-04-27 11:04:40.678][16132][INFO] [Lua] F9 Data API EnumGroundItem: OK type=table count=0 fields={}
+[2026-04-27 11:04:40.679][16132][INFO] [Lua] F9 Data API EnumPortal: OK type=table count=1 fields={} first={addr=2187294503200 classname="EPortal" entityId=4 x=3296.2641601562 y=3385.62109375 z=3092.0} pos=3296.26, 3385.62, 3092.00
+[2026-04-27 11:04:40.681][16132][INFO] [Lua] F9 Data API EnumNPC: OK type=table count=23 fields={} first={addr=2189580945520 classname="EFightNPC" entityId=4 x=5191.7797851562 y=1183.2078857422 z=3092.0} pos=5191.78, 1183.21, 3092.00
+[2026-04-27 11:04:40.682][16132][INFO] [Lua] F9 Data API EnumInteractiveItem: OK type=table count=2 fields={} first={addr=2190974441552 classname="EInteractiveItem" entityId=4 x=4582.7055664062 y=1856.3167724609 z=3075.0} pos=4582.71, 1856.32, 3075.00
+[2026-04-27 11:04:40.703][16132][INFO] [Lua] F9 Data API EnumCButton: OK type=table count=21 fields={} first={addr=2189267587424 name="UIButton Transient.GameEngine.CoreGameInstance.TipNewCostItem_C.WidgetTree.GoodBaseIcon.WidgetTree.Button_Click" text="" x=693.21520996094 y=334.54711914062} pos=693.22, 334.55, 0.00
+[2026-04-27 11:04:40.739][16132][INFO] [Lua] F9 Data API EnumCText: OK type=table count=36 fields={} first={addr=2189428134400 name="UITextBlock Transient.GameEngine.CoreGameInstance.UISubTaskItem_C.WidgetTree.TargetText" text="新" x=255.24136352539 y=252.31736755371} pos=255.24, 252.32, 0.00
+[2026-04-27 11:04:40.903][16132][INFO] [Lua] F9 Data API EnumCImage: OK type=table count=1263 fields={} first={Fullname="UIImage Transient.GameEngine.CoreGameInstance.UISubTaskItem_C.WidgetTree.UIImage_glow" IsAsyncLoad=1 addr=2189651513856 x=183.42037963867 y=244.87622070312} pos=183.42, 244.88, 0.00
+[2026-04-27 11:04:40.904][16132][INFO] [Lua] F9 Data API GetCurrentSelected: OK type=table count=0 pos=86.91, 231.18, 0.00 fields={Fullname="UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn" addr=2189580951616 text="" x=86.907119750977 y=231.18161010742}
+[2026-04-27 11:04:40.904][16132][INFO] [Lua] F9 Data API MoveTo: SKIP available=true reason=side_effect_not_called
+[2026-04-27 11:04:40.904][16132][INFO] [Lua] F9 Data API control_click: SKIP available=true reason=side_effect_not_called
+[2026-04-27 11:04:40.904][16132][INFO] [Lua] F9 Data API nav.player_info: OK type=table count=0 pos=529.00, -1917.00, 3092.00 fields={Hpseal=0 Mpseal=13 angle=-41.189128875732 curHp=1268 curMp=212 curShield=13 eRole=2187756909568 entityId=8 maxHp=1268 maxMp=265 maxShield=13 x=529.0 y=-1917.0 z=3092.0}
+[2026-04-27 11:04:40.904][16132][INFO] [Lua] F9 Data API nav.player_pos: OK type=table count=0 pos=529.00, -1917.00, 3092.00 fields={x=529.0 y=-1917.0 z=3092.0}
+[2026-04-27 11:04:40.905][16132][INFO] [Lua] F9 Data API nav.is_main_interface: OK type=boolean value=false
+[2026-04-27 11:04:40.905][16132][INFO] [Lua] F9 Data API nav.is_loading: OK type=boolean value=false
+[2026-04-27 11:04:40.905][16132][WARN] [Lua] F9 Data API nav.get_main_task_pos: FAIL nil err=GetMainTaskPos returned zero coordinates.
+[2026-04-27 11:04:40.905][16132][WARN] [Lua] F9 Data API nav.get_main_task_path: FAIL nil err=GetMainTaskPath returned no usable points.
+[2026-04-27 11:04:40.906][16132][INFO] [Lua] F9 Data API nav.enum_ground_items: OK type=table count=0 fields={}
+[2026-04-27 11:04:40.907][16132][INFO] [Lua] F9 Data API nav.enum_portals: OK type=table count=1 fields={} first={addr=2187294503200 classname="EPortal" entityId=4 x=3296.2641601562 y=3385.62109375 z=3092.0} pos=3296.26, 3385.62, 3092.00
+[2026-04-27 11:04:40.909][16132][INFO] [Lua] F9 Data API nav.enum_npcs: OK type=table count=23 fields={} first={addr=2189580945520 classname="EFightNPC" entityId=4 x=5191.7797851562 y=1183.2078857422 z=3092.0} pos=5191.78, 1183.21, 3092.00
+[2026-04-27 11:04:40.910][16132][INFO] [Lua] F9 Data API nav.enum_monsters: OK type=table count=1 fields={} first={addr=2190530437184 classname="EMonster" curHp=0 entityId=4 maxHp=0 x=553.12127685547 y=-2500.6945800781 z=3093.3583984375} pos=553.12, -2500.69, 3093.36
+[2026-04-27 11:04:40.910][16132][INFO] [Lua] F9 Data API nav.get_current_selected_button: OK type=table count=0 pos=86.91, 231.18, 0.00 fields={Fullname="UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn" addr=2189580951616 text="" x=86.907119750977 y=231.18161010742}
+[2026-04-27 11:04:40.910][16132][INFO] [Lua] F9 Data API test end | ok=24 fail=2 elapsed=236ms
+[2026-04-27 11:04:40.910][16132][WARN] [Lua] F9 Data API diagnostics finished with failures: see F9 Data API lines above
+[2026-04-27 11:05:32.111][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:06:23.752][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:07:15.316][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:08:06.948][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:08:58.593][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:09:50.194][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:10:41.824][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:11:33.435][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:12:25.003][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:13:16.620][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:14:08.236][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:14:55.754][16188][DEBUG] Task 12 (AvePointLevelingNavWorker) cleaned up
+[2026-04-27 11:14:55.755][16188][DEBUG] LuaVM: State closed
+[2026-04-27 11:14:55.781][16132][ERROR] LuaVM DoString exec failed: C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: Script execution interrupted
+stack traceback:
+	scripts/avepoint/hotkey.lua:4452: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 11:14:55.781][16132][ERROR] Task 11 (AvePointStandalone.lua) failed: C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: Script execution interrupted
+stack traceback:
+	scripts/avepoint/hotkey.lua:4452: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-27 11:14:55.803][16188][DEBUG] Task 11 (AvePointStandalone.lua) force cleaned up
+[2026-04-27 11:14:55.806][16188][DEBUG] LuaVM: State closed
+[2026-04-27 11:14:59.844][15364][DEBUG] HttpClient: Response 200 OK
+[2026-04-27 11:15:11.125][16188][DEBUG] ConfigManager: Saved config to C:\Users\GoldGiven\Desktop\cunnei/config.json
+[2026-04-27 11:15:11.125][16188][DEBUG] ImGuiApp: Config saved
+[2026-04-27 11:15:11.148][16188][INFO] ImGuiApp: Shutdown complete
+[2026-04-27 11:15:11.148][16188][INFO] Engine shutting down...
+[2026-04-27 11:15:11.149][16188][DEBUG] LuaVM: State closed
+[2026-04-27 11:15:11.149][16188][INFO] LuaHost: Shutdown complete
+[2026-04-27 11:15:11.149][16188][INFO] CrashHandler: Shutdown
+[2026-04-27 11:15:11.149][16188][INFO] AetherEngine Logger shutting down

@@ -1,0 +1,891 @@
+[2026-04-26 15:20:49.148][5544][INFO] AetherEngine Logger initialized
+[2026-04-26 15:20:49.149][5544][INFO] === AetherEngine Starting ===
+[2026-04-26 15:20:49.149][5544][INFO] Version: 2.9.0 (Release/x64)
+[2026-04-26 15:20:49.149][5544][INFO] Build: Mar 22 2026 08:51:29
+[2026-04-26 15:20:49.149][5544][INFO] Platform: Windows
+[2026-04-26 15:20:49.149][5544][INFO] CrashHandler: Initialized, dump directory: C:\Users\GoldGiven\Desktop\cunnei/crash_dumps
+[2026-04-26 15:20:49.149][5544][INFO] InputManager: Initialized
+[2026-04-26 15:20:49.150][5544][DEBUG] LuaVM: cffi module registered
+[2026-04-26 15:20:49.150][5544][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-26 15:20:49.150][5544][DEBUG] LuaVM: State created successfully
+[2026-04-26 15:20:49.150][5544][INFO] LuaHost: Initialized with cache dir 'C:\Users\GoldGiven\Desktop\cunnei/cache'
+[2026-04-26 15:20:49.150][5544][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-26 15:20:49.150][5544][DEBUG] Registered all Lua API modules
+[2026-04-26 15:20:49.150][5544][INFO] Engine initialized successfully
+[2026-04-26 15:20:49.257][5544][INFO] ImGuiApp: DirectComposition initialized successfully
+[2026-04-26 15:20:49.298][5544][INFO] ImGuiApp: Hotkeys active (CTRL+HOME/F10/F11/F12 via GetAsyncKeyState)
+[2026-04-26 15:20:49.298][5544][INFO] ConfigManager: Loaded config from ./config.json
+[2026-04-26 15:20:49.299][5544][DEBUG] ConfigManager: 1 opened files, rememberCard=true
+[2026-04-26 15:20:49.308][5544][DEBUG] ImGuiApp: Config loaded, 1 tabs, activeTab=0
+[2026-04-26 15:20:49.308][5544][INFO] ImGuiApp: Initialized successfully
+[2026-04-26 15:20:49.311][5544][INFO] ImGuiApp: TryAutoLogin: attempting login with saved card...
+[2026-04-26 15:20:49.735][5544][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:20:49.765][5544][INFO] ImGuiApp: Auth success, heartbeat started, expires: 2026-05-25 10:13:04
+[2026-04-26 15:21:03.529][5544][INFO] TaskManager initialized with max 16 concurrent tasks
+[2026-04-26 15:21:03.530][5544][DEBUG] Task 1 (AvePointStandalone.lua) created
+[2026-04-26 15:21:03.530][5544][DEBUG] LuaVM: cffi module registered
+[2026-04-26 15:21:03.530][5544][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-26 15:21:03.530][5544][DEBUG] LuaVM: State created successfully
+[2026-04-26 15:21:03.530][5544][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-26 15:21:03.530][5544][DEBUG] Registered all Lua API modules
+[2026-04-26 15:21:03.531][21324][INFO] Task 1 (AvePointStandalone.lua) started
+[2026-04-26 15:21:03.531][21324][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-26 15:21:03.541][21324][INFO] [Lua] Process guard starting
+[2026-04-26 15:21:03.542][21324][INFO] [Lua] Driver license resolution | profile=development candidates=2 primary=config.json:savedDevCard[development]
+[2026-04-26 15:21:03.542][21324][INFO] [Lua] Trying driver license source: config.json:savedDevCard[development]
+[2026-04-26 15:21:03.905][21324][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:21:03.907][21324][ERROR] DriverMode: License verification failed, msg=卡密不存在
+[2026-04-26 15:21:03.907][21324][WARN] [Lua] Driver load failed. Source: config.json:savedDevCard[development] | err=License verification failed or driver load failed
+[2026-04-26 15:21:03.907][21324][INFO] [Lua] Trying driver license source: config.json:savedUserCard[fallback]
+[2026-04-26 15:21:04.293][21324][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:21:04.294][21324][ERROR] DriverMode: License verification failed, msg=卡密不存在
+[2026-04-26 15:21:04.294][21324][WARN] [Lua] Driver load failed. Source: config.json:savedUserCard[fallback] | err=License verification failed or driver load failed
+[2026-04-26 15:21:04.294][21324][ERROR] [Lua] Driver load failed. Process guard cannot start.
+License verification failed or driver load failed
+[2026-04-26 15:21:04.294][21324][INFO] Task 1 (AvePointStandalone.lua) completed
+[2026-04-26 15:21:04.312][5544][DEBUG] Task 1 (AvePointStandalone.lua) force cleaned up
+[2026-04-26 15:21:04.313][5544][DEBUG] LuaVM: State closed
+[2026-04-26 15:21:18.279][5544][DEBUG] Task 2 (AvePointStandalone.lua) created
+[2026-04-26 15:21:18.279][5544][DEBUG] LuaVM: cffi module registered
+[2026-04-26 15:21:18.279][5544][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-26 15:21:18.280][5544][DEBUG] LuaVM: State created successfully
+[2026-04-26 15:21:18.280][5544][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-26 15:21:18.280][5544][DEBUG] Registered all Lua API modules
+[2026-04-26 15:21:18.280][8036][INFO] Task 2 (AvePointStandalone.lua) started
+[2026-04-26 15:21:18.280][8036][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-26 15:21:18.291][8036][INFO] [Lua] Process guard starting
+[2026-04-26 15:21:18.291][8036][INFO] [Lua] Driver license resolution | profile=development candidates=2 primary=config.json:savedDevCard[development]
+[2026-04-26 15:21:18.291][8036][INFO] [Lua] Trying driver license source: config.json:savedDevCard[development]
+[2026-04-26 15:21:18.722][8036][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:21:18.722][8036][ERROR] DriverMode: License verification failed, msg=卡密不存在
+[2026-04-26 15:21:18.723][8036][WARN] [Lua] Driver load failed. Source: config.json:savedDevCard[development] | err=License verification failed or driver load failed
+[2026-04-26 15:21:18.723][8036][INFO] [Lua] Trying driver license source: config.json:savedUserCard[fallback]
+[2026-04-26 15:21:19.149][8036][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:21:19.149][8036][ERROR] DriverMode: License verification failed, msg=卡密不存在
+[2026-04-26 15:21:19.150][8036][WARN] [Lua] Driver load failed. Source: config.json:savedUserCard[fallback] | err=License verification failed or driver load failed
+[2026-04-26 15:21:19.150][8036][ERROR] [Lua] Driver load failed. Process guard cannot start.
+License verification failed or driver load failed
+[2026-04-26 15:21:19.150][8036][INFO] Task 2 (AvePointStandalone.lua) completed
+[2026-04-26 15:21:19.178][5544][DEBUG] Task 2 (AvePointStandalone.lua) force cleaned up
+[2026-04-26 15:21:19.179][5544][DEBUG] LuaVM: State closed
+[2026-04-26 15:21:41.307][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:22:32.837][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:23:24.384][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:24:16.044][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:25:07.702][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:25:59.278][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:26:50.847][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:27:42.479][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:28:34.097][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:29:25.660][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:30:17.309][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:31:08.924][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:32:00.626][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:32:52.196][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:33:43.862][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:34:35.532][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:35:27.148][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:36:18.728][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:37:10.413][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:38:02.014][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:38:53.596][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:39:45.191][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:40:36.834][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:41:28.486][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:42:20.093][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:43:11.694][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:44:03.409][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:44:54.994][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:45:46.700][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:46:38.356][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:47:29.988][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:48:21.604][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:49:13.205][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:50:04.797][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:50:56.415][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:51:48.028][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:52:39.662][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:53:31.282][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:54:22.842][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:55:14.418][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:56:06.032][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:56:57.624][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:57:49.335][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:58:40.898][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 15:59:32.574][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:00:24.226][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:01:15.884][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:02:07.534][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:02:59.129][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:03:50.669][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:04:42.272][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:05:33.847][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:06:25.442][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:07:17.048][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:08:08.681][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:09:00.334][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:09:51.996][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:10:43.632][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:11:35.335][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:12:26.911][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:13:18.525][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:14:10.121][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:15:01.693][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:15:53.266][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:16:44.865][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:17:36.551][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:18:28.174][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:19:19.775][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:20:11.355][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:21:02.936][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:21:54.526][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:22:46.134][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:23:37.746][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:24:29.375][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:25:21.034][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:26:12.699][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:27:04.219][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:27:55.831][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:28:47.416][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:29:38.999][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:30:30.607][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:31:22.234][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:32:13.815][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:33:05.421][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:33:57.044][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:34:48.696][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:35:40.298][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:36:31.925][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:37:23.431][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:38:15.044][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:39:06.661][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:39:58.329][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:40:49.954][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:41:41.596][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:42:33.233][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:43:24.810][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:44:16.447][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:45:08.075][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:45:59.681][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:46:51.322][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:47:42.941][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:48:34.538][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:49:26.122][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:50:17.686][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:51:09.296][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:52:00.988][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:52:52.619][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:53:44.232][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:54:35.871][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:55:27.467][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:56:19.066][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:57:10.686][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:58:02.283][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:58:53.906][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 16:59:45.468][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:00:37.028][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:01:28.665][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:02:20.274][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:03:11.848][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:04:03.471][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:04:55.132][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:05:46.744][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:06:38.370][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:07:30.024][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:08:21.614][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:09:13.194][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:10:04.794][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:10:56.332][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:11:47.969][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:12:39.564][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:13:31.192][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:14:22.806][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:15:14.422][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:16:05.947][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:16:57.580][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:17:49.188][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:18:40.790][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:19:32.494][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:20:24.073][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:21:15.781][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:22:07.370][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:22:58.957][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:23:50.554][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:24:42.182][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:25:33.756][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:26:25.398][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:27:17.040][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:28:08.685][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:29:00.301][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:29:51.910][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:30:43.548][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:31:35.185][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:32:26.796][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:33:18.384][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:34:09.986][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:35:01.558][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:35:53.158][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:36:44.775][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:37:36.341][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:38:27.950][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:39:19.548][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:40:11.175][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:41:02.794][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:41:54.370][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:42:45.945][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:43:37.513][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:44:29.134][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:45:20.712][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:46:12.280][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:47:03.915][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:47:55.453][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:48:47.034][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:49:38.616][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:50:30.166][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:51:21.775][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:52:13.384][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:53:04.993][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:53:56.590][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:54:48.190][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:55:39.785][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:56:31.362][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:57:22.955][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:58:14.519][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:59:06.097][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 17:59:57.694][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:00:49.288][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:01:40.872][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:02:32.510][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:03:24.068][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:04:11.370][5544][DEBUG] Task 3 (AvePointStandalone.lua) created
+[2026-04-26 18:04:11.370][5544][DEBUG] LuaVM: cffi module registered
+[2026-04-26 18:04:11.371][5544][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-26 18:04:11.371][5544][DEBUG] LuaVM: State created successfully
+[2026-04-26 18:04:11.371][5544][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-26 18:04:11.371][5544][DEBUG] Registered all Lua API modules
+[2026-04-26 18:04:11.372][20588][INFO] Task 3 (AvePointStandalone.lua) started
+[2026-04-26 18:04:11.372][20588][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-26 18:04:11.389][20588][INFO] [Lua] Process guard starting
+[2026-04-26 18:04:11.389][20588][INFO] [Lua] Driver license resolution | profile=development candidates=3 primary=config.json:savedDriverCard[development]
+[2026-04-26 18:04:11.389][20588][INFO] [Lua] Trying driver license source: config.json:savedDriverCard[development]
+[2026-04-26 18:04:11.796][20588][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:04:14.110][20588][DEBUG] DriverMode: Driver loaded successfully
+[2026-04-26 18:04:14.111][20588][INFO] DriverMode: Initialized with license (Driver mode)
+[2026-04-26 18:04:14.111][20588][INFO] Driver loaded successfully
+[2026-04-26 18:04:14.112][20588][INFO] [Lua] Driver loaded. Source: config.json:savedDriverCard[development]
+[2026-04-26 18:04:14.112][20588][DEBUG] DriverMode: Process protected PID=11668
+[2026-04-26 18:04:14.112][20588][INFO] [Lua] Process protection enabled. PID=11668
+[2026-04-26 18:04:14.112][20588][INFO] [Lua] Process guard ready
+[2026-04-26 18:04:14.112][20588][INFO] [Lua] Configured avepointTaskMode=2 (练级) in config.json
+[2026-04-26 18:04:14.112][20588][INFO] [Lua] Press Insert or Ctrl+F9 or [ to start current task mode; Delete or Ctrl+F10 or ] to stop
+[2026-04-26 18:04:14.112][20588][INFO] [Lua] Press F12 to click the configured target for 回旋矿场
+[2026-04-26 18:04:14.113][20588][INFO] [Lua] Press F4 to preview the configured target for 分解所有按钮 without clicking
+[2026-04-26 18:04:14.113][20588][INFO] [Lua] Press F3 to dump mouse-nearby button candidates for 当前鼠标按钮定位分析
+[2026-04-26 18:04:14.113][20588][INFO] [Lua] Press F10 to inspect the same uniquely matched mouse target for 鼠标按钮验证点击 without clicking
+[2026-04-26 18:04:14.113][20588][INFO] [Lua] Press F11 or \ to validate-click a uniquely matched mouse target for 鼠标按钮验证点击
+[2026-04-26 18:04:14.113][20588][INFO] [Lua] Press F6 to print current player coordinates
+[2026-04-26 18:04:14.113][20588][INFO] [Lua] Press F7 to print current player position and nearby portals
+[2026-04-26 18:04:14.114][20588][INFO] [Lua] Press F8 to print current mouse client coordinates
+[2026-04-26 18:04:14.114][20588][INFO] [Lua] Press F9 to run read-only Data API diagnostics
+[2026-04-26 18:04:14.114][20588][INFO] [Lua] Press Ctrl+F12 to exit
+[2026-04-26 18:04:14.114][20588][INFO] [Lua] Waiting for torchlight API/game init...
+[2026-04-26 18:04:14.114][20588][INFO] HotkeyManager: Started with poll interval 10ms
+[2026-04-26 18:04:14.114][3756][DEBUG] HotkeyManager: Listen thread started
+[2026-04-26 18:04:14.428][20588][DEBUG] DriverMode: InitRemoteCallEx PID=13824, Deployee=0x1C69C530300
+[2026-04-26 18:04:14.428][20588][INFO] Process mode: Driver
+[2026-04-26 18:04:14.429][20588][INFO] [Lua] Torch API initialized
+[2026-04-26 18:04:14.429][20588][INFO] [Lua] Current pos: 1506.00, -2421.00, 3136.09
+[2026-04-26 18:04:15.632][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:04:16.217][20588][DEBUG] Task 4 (AvePointLevelingNavWorker) created
+[2026-04-26 18:04:16.217][20588][DEBUG] LuaVM: cffi module registered
+[2026-04-26 18:04:16.217][20588][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-26 18:04:16.218][20588][DEBUG] LuaVM: State created successfully
+[2026-04-26 18:04:16.218][20588][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-26 18:04:16.218][20588][DEBUG] Registered all Lua API modules
+[2026-04-26 18:04:16.218][20588][INFO] [Lua] [Leveling] nav worker started | task_id=4 share=avepoint_leveling_nav_1777197856213_3
+[2026-04-26 18:04:16.218][20588][INFO] [Lua] [Leveling] navigation mode | async nav worker path-route follow | task_move_interval=1200ms task_pos_interval=900ms
+[2026-04-26 18:04:16.218][300][INFO] Task 4 (AvePointLevelingNavWorker) started
+[2026-04-26 18:04:16.219][20588][INFO] [Lua] [Leveling] runner started | mode=2 quest button -> task path -> NPC dialogue
+[2026-04-26 18:04:16.219][20588][INFO] [Lua] [Leveling] logic: click main task button, fetch task path, MoveTo target, confirm nearby NPC, press D, then continue
+[2026-04-26 18:04:16.219][20588][INFO] [Lua] [Leveling] startup boss combat window armed | window=10000ms
+[2026-04-26 18:04:16.219][20588][INFO] [Lua] [Leveling] startup state resolve armed | window=3000ms
+[2026-04-26 18:04:16.219][20588][INFO] [Lua] [Leveling] map runtime detection | enabled=false
+[2026-04-26 18:04:16.219][20588][INFO] [Lua] AvePoint automation started | mode=练级(2)
+[2026-04-26 18:04:16.220][20588][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-26 18:04:16.419][20588][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(73.04,224.16)
+[2026-04-26 18:04:16.419][20588][INFO] [Lua] [Leveling] current task updated | task=主线 圣诫之末 source=nearby_text anchor=(73.04,224.16)
+[2026-04-26 18:04:16.419][20588][INFO] [Lua] [Leveling] main task call begin | stage=bootstrap task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-26 18:04:17.205][20588][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=bootstrap task=圣诫之末 detail=
+[2026-04-26 18:04:17.399][20588][WARN] [Lua] [Leveling] main task button fetch failed: Nearby button not found.
+[2026-04-26 18:04:17.399][20588][INFO] [Lua] [Leveling] startup waiting main task call before movement: Nearby button not found.
+[2026-04-26 18:04:17.399][20588][INFO] [Lua] [Leveling] navigation hold | reason=startup_task_reacquire
+[2026-04-26 18:04:17.399][20588][INFO] [Lua] [Leveling] heartbeat | stage=startup_task_reacquire tick=1 pos=1506.00, -2421.00, 3136.09 target=nil path_points=0
+[2026-04-26 18:04:17.439][20588][INFO] [Lua] [Leveling] nav worker status | paused
+[2026-04-26 18:04:17.797][20588][INFO] [Lua] [Leveling] main task call begin | stage=startup_task_reacquire task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-26 18:04:18.588][20588][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=startup_task_reacquire task=圣诫之末 detail=
+[2026-04-26 18:04:19.302][20588][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-26 18:04:19.303][20588][INFO] [Lua] [Leveling] startup state resolve extended until main task is called.
+[2026-04-26 18:04:19.303][20588][INFO] [Lua] [Leveling] main task call begin | stage=startup_task_reacquire task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-26 18:04:20.086][20588][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=startup_task_reacquire task=圣诫之末 detail=
+[2026-04-26 18:04:20.286][20588][INFO] [Lua] [Leveling] heartbeat | stage=startup_task_reacquire tick=8 pos=1506.00, -2421.00, 3136.09 target=nil path_points=0
+[2026-04-26 18:04:20.527][20588][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(73.04,224.16)
+[2026-04-26 18:04:20.528][20588][INFO] [Lua] [Leveling] navigation hold | reason=startup_task_reacquire
+[2026-04-26 18:04:20.810][20588][INFO] [Lua] [Leveling] main task call begin | stage=startup_task_reacquire task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-26 18:04:21.602][20588][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=startup_task_reacquire task=圣诫之末 detail=
+[2026-04-26 18:04:21.799][20588][WARN] [Lua] [Leveling] main task button fetch failed: Nearby button not found.
+[2026-04-26 18:04:21.799][20588][INFO] [Lua] [Leveling] startup waiting main task call before movement: Nearby button not found.
+[2026-04-26 18:04:22.316][20588][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-26 18:04:22.316][20588][INFO] [Lua] [Leveling] main task call begin | stage=startup_task_reacquire task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-26 18:04:23.112][20588][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=startup_task_reacquire task=圣诫之末 detail=
+[2026-04-26 18:04:23.305][20588][INFO] [Lua] [Leveling] heartbeat | stage=startup_task_reacquire tick=16 pos=1506.00, -2421.00, 3136.09 target=nil path_points=0
+[2026-04-26 18:04:23.349][20588][INFO] [Lua] [Leveling] runner stopped
+[2026-04-26 18:04:23.356][20588][INFO] [Lua] [Treasure] resume snapshot cleared | reason=leveling_stop save_ok=true
+[2026-04-26 18:04:23.356][20588][INFO] [Lua] AvePoint automation stopped
+[2026-04-26 18:04:23.357][300][ERROR] LuaVM DoFile failed [C:\Users\GoldGiven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua]: ...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:312: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:103: in local 'share_set'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:312: in main chunk
+[2026-04-26 18:04:23.357][300][ERROR] Task 4 (AvePointLevelingNavWorker) failed: ...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:312: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:103: in local 'share_set'
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:312: in main chunk
+[2026-04-26 18:05:07.212][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:05:58.794][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:06:50.438][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:07:42.104][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:08:33.717][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:09:25.285][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:10:16.961][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:11:08.615][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:12:00.203][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:12:02.426][5544][DEBUG] Task 4 (AvePointLevelingNavWorker) cleaned up
+[2026-04-26 18:12:02.426][5544][DEBUG] LuaVM: State closed
+[2026-04-26 18:12:02.431][20588][ERROR] LuaVM DoString exec failed: scripts/avepoint/hotkey.lua:4338: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4338: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-26 18:12:02.431][20588][ERROR] Task 3 (AvePointStandalone.lua) failed: scripts/avepoint/hotkey.lua:4338: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4338: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-26 18:12:02.458][5544][DEBUG] Task 3 (AvePointStandalone.lua) force cleaned up
+[2026-04-26 18:12:02.461][5544][DEBUG] LuaVM: State closed
+[2026-04-26 18:12:02.926][5544][DEBUG] Task 5 (AvePointStandalone.lua) created
+[2026-04-26 18:12:02.926][5544][DEBUG] LuaVM: cffi module registered
+[2026-04-26 18:12:02.926][5544][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-26 18:12:02.927][5544][DEBUG] LuaVM: State created successfully
+[2026-04-26 18:12:02.927][5544][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-26 18:12:02.927][5544][DEBUG] Registered all Lua API modules
+[2026-04-26 18:12:02.927][18684][INFO] Task 5 (AvePointStandalone.lua) started
+[2026-04-26 18:12:02.928][18684][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-26 18:12:02.939][18684][INFO] [Lua] Process guard starting
+[2026-04-26 18:12:02.939][18684][DEBUG] DriverMode: Process protected PID=11668
+[2026-04-26 18:12:02.939][18684][INFO] [Lua] Process protection enabled. PID=11668
+[2026-04-26 18:12:02.939][18684][INFO] [Lua] Process guard ready
+[2026-04-26 18:12:02.940][18684][INFO] [Lua] Configured avepointTaskMode=2 (练级) in config.json
+[2026-04-26 18:12:02.940][18684][INFO] [Lua] Press Insert or Ctrl+F9 or [ to start current task mode; Delete or Ctrl+F10 or ] to stop
+[2026-04-26 18:12:02.940][18684][INFO] [Lua] Press F12 to click the configured target for 回旋矿场
+[2026-04-26 18:12:02.940][18684][INFO] [Lua] Press F4 to preview the configured target for 分解所有按钮 without clicking
+[2026-04-26 18:12:02.940][18684][INFO] [Lua] Press F3 to dump mouse-nearby button candidates for 当前鼠标按钮定位分析
+[2026-04-26 18:12:02.940][18684][INFO] [Lua] Press F10 to inspect the same uniquely matched mouse target for 鼠标按钮验证点击 without clicking
+[2026-04-26 18:12:02.941][18684][INFO] [Lua] Press F11 or \ to validate-click a uniquely matched mouse target for 鼠标按钮验证点击
+[2026-04-26 18:12:02.941][18684][INFO] [Lua] Press F6 to print current player coordinates
+[2026-04-26 18:12:02.941][18684][INFO] [Lua] Press F7 to print current player position and nearby portals
+[2026-04-26 18:12:02.941][18684][INFO] [Lua] Press F8 to print current mouse client coordinates
+[2026-04-26 18:12:02.942][18684][INFO] [Lua] Press F9 to run read-only Data API diagnostics
+[2026-04-26 18:12:02.942][18684][INFO] [Lua] Press Ctrl+F12 to exit
+[2026-04-26 18:12:02.942][18684][INFO] [Lua] Waiting for torchlight API/game init...
+[2026-04-26 18:12:03.250][18684][DEBUG] DriverMode: InitRemoteCallEx PID=13824, Deployee=0x1C60DBA0300
+[2026-04-26 18:12:03.251][18684][INFO] [Lua] Torch API initialized
+[2026-04-26 18:12:03.251][18684][INFO] [Lua] Current pos: 1506.00, -2421.00, 3136.09
+[2026-04-26 18:12:05.092][18684][DEBUG] Task 6 (AvePointLevelingNavWorker) created
+[2026-04-26 18:12:05.093][18684][DEBUG] LuaVM: cffi module registered
+[2026-04-26 18:12:05.093][18684][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-26 18:12:05.093][18684][DEBUG] LuaVM: State created successfully
+[2026-04-26 18:12:05.093][18684][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-26 18:12:05.093][18684][DEBUG] Registered all Lua API modules
+[2026-04-26 18:12:05.094][18684][INFO] [Lua] [Leveling] nav worker started | task_id=6 share=avepoint_leveling_nav_1777198325086_5
+[2026-04-26 18:12:05.094][18684][INFO] [Lua] [Leveling] navigation mode | async nav worker path-route follow | task_move_interval=1200ms task_pos_interval=900ms
+[2026-04-26 18:12:05.094][19544][INFO] Task 6 (AvePointLevelingNavWorker) started
+[2026-04-26 18:12:05.094][18684][INFO] [Lua] [Leveling] runner started | mode=2 quest button -> task path -> NPC dialogue
+[2026-04-26 18:12:05.094][18684][INFO] [Lua] [Leveling] logic: click main task button, fetch task path, MoveTo target, confirm nearby NPC, press D, then continue
+[2026-04-26 18:12:05.094][18684][INFO] [Lua] [Leveling] startup boss combat window armed | window=10000ms
+[2026-04-26 18:12:05.095][18684][INFO] [Lua] [Leveling] startup state resolve armed | window=3000ms
+[2026-04-26 18:12:05.095][18684][INFO] [Lua] [Leveling] map runtime detection | enabled=false
+[2026-04-26 18:12:05.095][18684][INFO] [Lua] AvePoint automation started | mode=练级(2)
+[2026-04-26 18:12:05.095][18684][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-26 18:12:05.292][18684][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(73.04,224.16)
+[2026-04-26 18:12:05.293][18684][INFO] [Lua] [Leveling] current task updated | task=主线 圣诫之末 source=nearby_text anchor=(73.04,224.16)
+[2026-04-26 18:12:05.293][18684][INFO] [Lua] [Leveling] main task call begin | stage=bootstrap task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-26 18:12:06.110][18684][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=bootstrap task=圣诫之末 detail=
+[2026-04-26 18:12:06.795][18684][INFO] [Lua] [Leveling] current task updated | task=圣诫之末 source=button anchor=(73.04,224.16)
+[2026-04-26 18:12:06.796][18684][INFO] [Lua] [Leveling] task_pos reject armed after main task click | reason=startup_main_task_reacquire reject_ms=8500
+[2026-04-26 18:12:06.796][18684][INFO] [Lua] [Leveling] main task panel entry clicked | query=anchor_click_fallback task=圣诫之末 detail= mode=hard_refresh raw=圣诫之末 kind=主线 addr= pos=(73.04,224.16)
+[2026-04-26 18:12:06.796][18684][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-26 18:12:06.796][18684][INFO] [Lua] [Leveling] startup main task called before any objective/follow logic | task=圣诫之末 detail= window_left=2991ms
+[2026-04-26 18:12:06.796][18684][INFO] [Lua] [Leveling] heartbeat | stage=wait_task_path_after_button tick=1 pos=1506.00, -2421.00, 3136.09 target=nil path_points=0
+[2026-04-26 18:12:06.838][18684][INFO] [Lua] [Leveling] nav worker status | paused
+[2026-04-26 18:12:06.839][18684][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath failed. pos_err=GetMainTaskPos failed.
+[2026-04-26 18:12:06.839][18684][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=1462.73, -2212.44, 3116.05 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:12:07.147][18684][INFO] [Lua] [Leveling] current task updated | task=主线 圣诫之末 source=nearby_text anchor=(73.04,224.16)
+[2026-04-26 18:12:07.149][18684][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=wait_task_path_after_button has_target=false startup_resolving=false
+[2026-04-26 18:12:07.356][18684][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-26 18:12:07.356][18684][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=1445.15, -2127.80, 3108.31 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:12:07.357][18684][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-26 18:12:07.606][18684][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=1370.70, -1769.32, 3098.00 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:12:07.850][18684][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=1348.00, -1660.00, 3096.94 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:12:08.330][18684][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-26 18:12:08.543][18684][INFO] [Lua] [Leveling] heartbeat | stage=wait_task tick=7 pos=1348.00, -1660.00, 3096.94 target=nil path_points=0
+[2026-04-26 18:12:09.030][18684][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(73.04,224.16)
+[2026-04-26 18:12:09.230][18684][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=1348.00, -1660.00, 3096.94 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:12:09.755][18684][INFO] [Lua] [Leveling] exec trace | stage=click_task_button reason=click_task_button task=圣诫之末 detail= pos=1348.00, -1660.00, 3096.94 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:12:09.756][18684][INFO] [Lua] [Leveling] main task call begin | stage=click_task_button task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-26 18:12:10.571][18684][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=click_task_button task=圣诫之末 detail=
+[2026-04-26 18:12:11.243][18684][INFO] [Lua] [Leveling] current task updated | task=圣诫之末 source=button anchor=(73.04,224.16)
+[2026-04-26 18:12:11.243][18684][INFO] [Lua] [Leveling] main task panel entry clicked | query=anchor_click_fallback task=圣诫之末 detail= mode=hard_refresh raw=圣诫之末 kind=主线 addr= pos=(73.04,224.16)
+[2026-04-26 18:12:11.244][18684][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=1348.00, -1660.00, 3096.94 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:12:11.244][18684][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-26 18:12:11.278][18684][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath failed. pos_err=GetMainTaskPos failed.
+[2026-04-26 18:12:11.278][18684][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=1170.98, -1724.42, 3094.54 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:12:11.387][19544][ERROR] LuaVM DoFile failed [C:\Users\GoldGiven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua]: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:336: in main chunk
+[2026-04-26 18:12:11.387][19544][ERROR] Task 6 (AvePointLevelingNavWorker) failed: Script execution interrupted
+stack traceback:
+	...ven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua:336: in main chunk
+[2026-04-26 18:12:11.391][18684][INFO] [Lua] [Leveling] runner stopped
+[2026-04-26 18:12:11.403][18684][INFO] [Lua] [Treasure] resume snapshot cleared | reason=leveling_stop save_ok=true
+[2026-04-26 18:12:11.403][18684][INFO] [Lua] AvePoint automation stopped
+[2026-04-26 18:12:23.132][18684][INFO] [Lua] F7 nearby portals count=1
+[2026-04-26 18:12:23.132][18684][INFO] [Lua] F7 portal[1/1] source_index=1 label= pos=3296.26, 3385.62, 3092.00 distance=5487.32 raw={addr=1950075250736 classname="EPortal" entityId=4 x=3296.2641601562 y=3385.62109375 z=3092.0}
+[2026-04-26 18:12:23.132][18684][INFO] [Lua] F7 current pos: 1170.00, -1673.00, 3094.42 | task=圣诫之末
+[2026-04-26 18:12:23.132][18684][INFO] [Lua] F7 player info shallow: {Hpseal=0 Mpseal=13 angle=-122.46694946289 curHp=1268 curMp=212 curShield=13 eRole=1951330215744 entityId=8 maxHp=1268 maxMp=265 maxShield=13 x=1170.0 y=-1673.0 z=3094.421875}
+[2026-04-26 18:12:23.133][18684][INFO] [Lua] F7 level text candidates: [1]text=等级46(54.9%) level=46 progress= x=481.64001464844 y=913.65991210938 name=UITextBlock Transient.GameEngine.CoreGameInstance.FightBattleInfoView_C.WidgetTree.UITextBlock score=138 | [2]text=在雄狮之心找到下一个藏宝地（推荐等级44~54级） level=44 progress= x=151.0 y=301.11999511719 name=UITextBlock Transient.GameEngine.CoreGameInstance.UISubTaskItem_C.WidgetTree.UITextBlock score=120
+[2026-04-26 18:12:23.133][18684][INFO] [Lua] F7 level text best: text=等级46(54.9%) level=46 progress= x=481.64001464844 y=913.65991210938 name=UITextBlock Transient.GameEngine.CoreGameInstance.FightBattleInfoView_C.WidgetTree.UITextBlock fullname= score=138
+[2026-04-26 18:12:23.133][18684][WARN] [Lua] F7 read current map failed: map ui texts not found. texts=34 candidates: text=避难所-余烬之息 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=100.59999847412 y=83.860000610352 top_right=false plausible_map=false | text=绿洲人事经理 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1072.3800048828 y=-44.0 top_right=true plausible_map=true | text=杰索米娜 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1072.3800048828 y=-28.0 top_right=true plausible_map=true | text=杂货商人 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1480.3798828125 y=382.0 top_right=true plausible_map=true | text=埃德温 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1480.3798828125 y=398.0 top_right=true plausible_map=true
+[2026-04-26 18:12:51.781][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:13:43.400][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:14:35.074][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:15:26.670][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:16:18.275][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:16:22.619][5544][DEBUG] Task 6 (AvePointLevelingNavWorker) cleaned up
+[2026-04-26 18:16:22.620][5544][DEBUG] LuaVM: State closed
+[2026-04-26 18:16:22.621][18684][ERROR] LuaVM DoString exec failed: scripts/avepoint/hotkey.lua:4282: Script execution interrupted
+stack traceback:
+	scripts/avepoint/route.lua:31: in function 'pressed_once'
+	scripts/avepoint/hotkey.lua:4282: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-26 18:16:22.622][18684][ERROR] Task 5 (AvePointStandalone.lua) failed: scripts/avepoint/hotkey.lua:4282: Script execution interrupted
+stack traceback:
+	scripts/avepoint/route.lua:31: in function 'pressed_once'
+	scripts/avepoint/hotkey.lua:4282: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-26 18:16:22.652][5544][DEBUG] Task 5 (AvePointStandalone.lua) force cleaned up
+[2026-04-26 18:16:22.657][5544][DEBUG] LuaVM: State closed
+[2026-04-26 18:17:09.954][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:17:15.902][5544][DEBUG] Task 7 (AvePointStandalone.lua) created
+[2026-04-26 18:17:15.902][5544][DEBUG] LuaVM: cffi module registered
+[2026-04-26 18:17:15.903][5544][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-26 18:17:15.903][5544][DEBUG] LuaVM: State created successfully
+[2026-04-26 18:17:15.904][5544][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-26 18:17:15.904][5544][DEBUG] Registered all Lua API modules
+[2026-04-26 18:17:15.904][20320][INFO] Task 7 (AvePointStandalone.lua) started
+[2026-04-26 18:17:15.905][20320][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-26 18:17:15.918][20320][INFO] [Lua] Process guard starting
+[2026-04-26 18:17:15.918][20320][DEBUG] DriverMode: Process protected PID=11668
+[2026-04-26 18:17:15.919][20320][INFO] [Lua] Process protection enabled. PID=11668
+[2026-04-26 18:17:15.919][20320][INFO] [Lua] Process guard ready
+[2026-04-26 18:17:15.920][20320][INFO] [Lua] Configured avepointTaskMode=2 (练级) in config.json
+[2026-04-26 18:17:15.920][20320][INFO] [Lua] Press Insert or Ctrl+F9 or [ to start current task mode; Delete or Ctrl+F10 or ] to stop
+[2026-04-26 18:17:15.920][20320][INFO] [Lua] Press F12 to click the configured target for 回旋矿场
+[2026-04-26 18:17:15.921][20320][INFO] [Lua] Press F4 to preview the configured target for 分解所有按钮 without clicking
+[2026-04-26 18:17:15.921][20320][INFO] [Lua] Press F3 to dump mouse-nearby button candidates for 当前鼠标按钮定位分析
+[2026-04-26 18:17:15.921][20320][INFO] [Lua] Press F10 to inspect the same uniquely matched mouse target for 鼠标按钮验证点击 without clicking
+[2026-04-26 18:17:15.922][20320][INFO] [Lua] Press F11 or \ to validate-click a uniquely matched mouse target for 鼠标按钮验证点击
+[2026-04-26 18:17:15.922][20320][INFO] [Lua] Press F6 to print current player coordinates
+[2026-04-26 18:17:15.922][20320][INFO] [Lua] Press F7 to print current player position and nearby portals
+[2026-04-26 18:17:15.923][20320][INFO] [Lua] Press F8 to print current mouse client coordinates
+[2026-04-26 18:17:15.923][20320][INFO] [Lua] Press F9 to run read-only Data API diagnostics
+[2026-04-26 18:17:15.923][20320][INFO] [Lua] Press Ctrl+F12 to exit
+[2026-04-26 18:17:15.924][20320][INFO] [Lua] Waiting for torchlight API/game init...
+[2026-04-26 18:17:16.241][20320][DEBUG] DriverMode: InitRemoteCallEx PID=13824, Deployee=0x1C68D7F0300
+[2026-04-26 18:17:16.242][20320][INFO] [Lua] Torch API initialized
+[2026-04-26 18:17:16.243][20320][INFO] [Lua] Current pos: 1170.00, -1673.00, 3094.42
+[2026-04-26 18:17:19.434][20320][DEBUG] Task 8 (AvePointLevelingNavWorker) created
+[2026-04-26 18:17:19.435][20320][DEBUG] LuaVM: cffi module registered
+[2026-04-26 18:17:19.435][20320][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-26 18:17:19.436][20320][DEBUG] LuaVM: State created successfully
+[2026-04-26 18:17:19.436][20320][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-26 18:17:19.436][20320][DEBUG] Registered all Lua API modules
+[2026-04-26 18:17:19.436][20320][INFO] [Lua] [Leveling] nav worker started | task_id=8 share=avepoint_leveling_nav_1777198639430_7
+[2026-04-26 18:17:19.437][5024][INFO] Task 8 (AvePointLevelingNavWorker) started
+[2026-04-26 18:17:19.437][20320][INFO] [Lua] [Leveling] navigation mode | async nav worker path-route follow | task_move_interval=1200ms task_pos_interval=900ms
+[2026-04-26 18:17:19.437][20320][INFO] [Lua] [Leveling] runner started | mode=2 quest button -> task path -> NPC dialogue
+[2026-04-26 18:17:19.437][20320][INFO] [Lua] [Leveling] logic: click main task button, fetch task path, MoveTo target, confirm nearby NPC, press D, then continue
+[2026-04-26 18:17:19.438][20320][INFO] [Lua] [Leveling] startup boss combat window armed | window=10000ms
+[2026-04-26 18:17:19.438][20320][INFO] [Lua] [Leveling] startup state resolve armed | window=3000ms
+[2026-04-26 18:17:19.438][20320][INFO] [Lua] [Leveling] map runtime detection | enabled=false
+[2026-04-26 18:17:19.439][20320][INFO] [Lua] AvePoint automation started | mode=练级(2)
+[2026-04-26 18:17:19.439][20320][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-26 18:17:19.647][20320][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(73.04,224.16)
+[2026-04-26 18:17:19.647][20320][INFO] [Lua] [Leveling] current task updated | task=主线 圣诫之末 source=nearby_text anchor=(73.04,224.16)
+[2026-04-26 18:17:19.648][20320][INFO] [Lua] [Leveling] main task call begin | stage=bootstrap task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-26 18:17:20.462][20320][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=bootstrap task=圣诫之末 detail=
+[2026-04-26 18:17:21.145][20320][INFO] [Lua] [Leveling] current task updated | task=圣诫之末 source=button anchor=(73.04,224.16)
+[2026-04-26 18:17:21.145][20320][INFO] [Lua] [Leveling] task_pos reject armed after main task click | reason=startup_main_task_reacquire reject_ms=8500
+[2026-04-26 18:17:21.145][20320][INFO] [Lua] [Leveling] main task panel entry clicked | query=anchor_click_fallback task=圣诫之末 detail= mode=hard_refresh raw=圣诫之末 kind=主线 addr= pos=(73.04,224.16)
+[2026-04-26 18:17:21.146][20320][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-26 18:17:21.146][20320][INFO] [Lua] [Leveling] startup main task called before any objective/follow logic | task=圣诫之末 detail= window_left=2991ms
+[2026-04-26 18:17:21.146][20320][INFO] [Lua] [Leveling] heartbeat | stage=wait_task_path_after_button tick=1 pos=1134.00, -2296.00, 3101.31 target=nil path_points=0
+[2026-04-26 18:17:21.191][20320][INFO] [Lua] [Leveling] nav worker status | paused
+[2026-04-26 18:17:21.192][20320][WARN] [Lua] [Leveling] main task data unavailable after task button click. path_err=GetMainTaskPath failed. pos_err=GetMainTaskPos failed.
+[2026-04-26 18:17:21.192][20320][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=1157.00, -2483.00, 3114.45 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:17:21.506][20320][INFO] [Lua] [Leveling] current task updated | task=主线 圣诫之末 source=nearby_text anchor=(73.04,224.16)
+[2026-04-26 18:17:21.507][20320][INFO] [Lua] [Leveling] global task portal suppressed during startup/task reacquire | stage=wait_task_path_after_button has_target=false startup_resolving=false
+[2026-04-26 18:17:21.706][20320][INFO] [Lua] [Leveling] guide skip button not visible: Nearby button not found.
+[2026-04-26 18:17:21.706][20320][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=1157.00, -2483.00, 3114.45 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:17:21.707][20320][INFO] [Lua] [Leveling] navigation hold | reason=wait_task
+[2026-04-26 18:17:22.693][20320][INFO] [Lua] [Leveling] IsMainInterface=false but player position is available, continue leveling.
+[2026-04-26 18:17:22.895][20320][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=1157.00, -2483.00, 3114.45 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:17:22.895][20320][INFO] [Lua] [Leveling] heartbeat | stage=wait_task tick=7 pos=1157.00, -2483.00, 3114.45 target=nil path_points=0
+[2026-04-26 18:17:23.385][20320][INFO] [Lua] [Leveling] task name candidates | map= button_text= related_text= anchor=(73.04,224.16)
+[2026-04-26 18:17:24.057][20320][INFO] [Lua] [Leveling] exec trace | stage=wait_task reason=no_task_target_wait task=圣诫之末 detail= pos=1157.00, -2483.00, 3114.45 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:17:24.093][20320][INFO] [Lua] [Leveling] exec trace | stage=click_task_button reason=click_task_button task=圣诫之末 detail= pos=1161.51, -2429.02, 3110.66 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:17:24.094][20320][INFO] [Lua] [Leveling] main task call begin | stage=click_task_button task=圣诫之末 detail= mode=hard_refresh queries=圣诫之末 -> 主线 圣诫之末 -> 主线
+[2026-04-26 18:17:24.930][20320][INFO] [Lua] [Leveling] main task panel queries missed, fallback to anchor button | stage=click_task_button task=圣诫之末 detail=
+[2026-04-26 18:17:25.620][20320][INFO] [Lua] [Leveling] current task updated | task=圣诫之末 source=button anchor=(73.04,224.16)
+[2026-04-26 18:17:25.621][20320][INFO] [Lua] [Leveling] main task panel entry clicked | query=anchor_click_fallback task=圣诫之末 detail= mode=hard_refresh raw=圣诫之末 kind=主线 addr= pos=(73.04,224.16)
+[2026-04-26 18:17:25.622][20320][INFO] [Lua] [Leveling] exec trace | stage=wait_task_path_after_button reason=waiting_task_path_after_button task=圣诫之末 detail= pos=1161.51, -2429.02, 3110.66 target_source= target=nil destination=nil goal_distance=nil objective_mode=
+[2026-04-26 18:17:25.622][20320][INFO] [Lua] [Leveling] navigation hold | reason=wait_task_path_after_button
+[2026-04-26 18:17:25.667][20320][INFO] [Lua] [Leveling] runner stopped
+[2026-04-26 18:17:25.677][20320][INFO] [Lua] [Treasure] resume snapshot cleared | reason=leveling_stop save_ok=true
+[2026-04-26 18:17:25.677][20320][INFO] [Lua] AvePoint automation stopped
+[2026-04-26 18:17:25.693][5024][DEBUG] LuaVM DoFile success: C:\Users\GoldGiven\Desktop\cunnei/scripts/AvePointLevelingNavWorker.lua
+[2026-04-26 18:17:25.694][5024][INFO] Task 8 (AvePointLevelingNavWorker) cancelled
+[2026-04-26 18:18:01.547][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:18:53.120][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:19:44.720][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:20:36.373][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:21:27.965][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:22:19.629][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:23:11.228][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:24:02.806][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:24:54.404][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:25:46.065][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:26:37.737][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:27:29.361][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:28:20.929][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:29:12.567][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:29:41.951][5544][DEBUG] Task 8 (AvePointLevelingNavWorker) cleaned up
+[2026-04-26 18:29:41.952][5544][DEBUG] LuaVM: State closed
+[2026-04-26 18:29:41.967][20320][ERROR] LuaVM DoString exec failed: scripts/avepoint/hotkey.lua:4338: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4338: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-26 18:29:41.967][20320][ERROR] Task 7 (AvePointStandalone.lua) failed: scripts/avepoint/hotkey.lua:4338: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4338: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-26 18:29:42.000][5544][DEBUG] Task 7 (AvePointStandalone.lua) force cleaned up
+[2026-04-26 18:29:42.005][5544][DEBUG] LuaVM: State closed
+[2026-04-26 18:29:42.551][5544][DEBUG] Task 9 (AvePointStandalone.lua) created
+[2026-04-26 18:29:42.552][5544][DEBUG] LuaVM: cffi module registered
+[2026-04-26 18:29:42.553][5544][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-04-26 18:29:42.553][5544][DEBUG] LuaVM: State created successfully
+[2026-04-26 18:29:42.554][5544][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-04-26 18:29:42.554][5544][DEBUG] Registered all Lua API modules
+[2026-04-26 18:29:42.554][21084][INFO] Task 9 (AvePointStandalone.lua) started
+[2026-04-26 18:29:42.555][21084][INFO] [Lua] AvePoint standalone entry starting
+[2026-04-26 18:29:42.568][21084][INFO] [Lua] Process guard starting
+[2026-04-26 18:29:42.568][21084][DEBUG] DriverMode: Process protected PID=11668
+[2026-04-26 18:29:42.569][21084][INFO] [Lua] Process protection enabled. PID=11668
+[2026-04-26 18:29:42.569][21084][INFO] [Lua] Process guard ready
+[2026-04-26 18:29:42.569][21084][INFO] [Lua] Configured avepointTaskMode=2 (练级) in config.json
+[2026-04-26 18:29:42.569][21084][INFO] [Lua] Press Insert or Ctrl+F9 or [ to start current task mode; Delete or Ctrl+F10 or ] to stop
+[2026-04-26 18:29:42.570][21084][INFO] [Lua] Press F12 to click the configured target for 回旋矿场
+[2026-04-26 18:29:42.570][21084][INFO] [Lua] Press F4 to preview the configured target for 分解所有按钮 without clicking
+[2026-04-26 18:29:42.570][21084][INFO] [Lua] Press F3 to dump mouse-nearby button candidates for 当前鼠标按钮定位分析
+[2026-04-26 18:29:42.571][21084][INFO] [Lua] Press F10 to inspect the same uniquely matched mouse target for 鼠标按钮验证点击 without clicking
+[2026-04-26 18:29:42.572][21084][INFO] [Lua] Press F11 or \ to validate-click a uniquely matched mouse target for 鼠标按钮验证点击
+[2026-04-26 18:29:42.572][21084][INFO] [Lua] Press F6 to print current player coordinates
+[2026-04-26 18:29:42.572][21084][INFO] [Lua] Press F7 to print current player position and nearby portals
+[2026-04-26 18:29:42.573][21084][INFO] [Lua] Press F8 to print current mouse client coordinates
+[2026-04-26 18:29:42.573][21084][INFO] [Lua] Press F9 to run read-only Data API diagnostics
+[2026-04-26 18:29:42.573][21084][INFO] [Lua] Press Ctrl+F12 to exit
+[2026-04-26 18:29:42.574][21084][INFO] [Lua] Waiting for torchlight API/game init...
+[2026-04-26 18:29:42.883][21084][DEBUG] DriverMode: InitRemoteCallEx PID=13824, Deployee=0x1C68E4D0300
+[2026-04-26 18:29:42.884][21084][INFO] [Lua] Torch API initialized
+[2026-04-26 18:29:42.885][21084][INFO] [Lua] Current pos: 1100.00, -2150.00, 3097.19
+[2026-04-26 18:29:46.964][21084][INFO] [Lua] F7 nearby portals count=1
+[2026-04-26 18:29:46.964][21084][INFO] [Lua] F7 portal[1/1] source_index=1 label= pos=3296.26, 3385.62, 3092.00 distance=5955.39 raw={addr=1950075250736 classname="EPortal" entityId=4 x=3296.2641601562 y=3385.62109375 z=3092.0}
+[2026-04-26 18:29:46.965][21084][INFO] [Lua] F7 current pos: 1100.00, -2150.00, 3097.19
+[2026-04-26 18:29:46.965][21084][INFO] [Lua] F7 player info shallow: {Hpseal=0 Mpseal=13 angle=78.243064880371 curHp=1268 curMp=212 curShield=13 eRole=1951330215744 entityId=8 maxHp=1268 maxMp=265 maxShield=13 x=1100.0 y=-2150.0 z=3097.1875}
+[2026-04-26 18:29:46.966][21084][INFO] [Lua] F7 level text candidates: [1]text=等级46(54.9%) level=46 progress= x=481.64001464844 y=913.65991210938 name=UITextBlock Transient.GameEngine.CoreGameInstance.FightBattleInfoView_C.WidgetTree.UITextBlock score=138 | [2]text=在雄狮之心找到下一个藏宝地（推荐等级44~54级） level=44 progress= x=151.0 y=301.11999511719 name=UITextBlock Transient.GameEngine.CoreGameInstance.UISubTaskItem_C.WidgetTree.UITextBlock score=120
+[2026-04-26 18:29:46.966][21084][INFO] [Lua] F7 level text best: text=等级46(54.9%) level=46 progress= x=481.64001464844 y=913.65991210938 name=UITextBlock Transient.GameEngine.CoreGameInstance.FightBattleInfoView_C.WidgetTree.UITextBlock fullname= score=138
+[2026-04-26 18:29:46.966][21084][WARN] [Lua] F7 read current map failed: map ui texts not found. texts=33 candidates: text=避难所-余烬之息 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=100.59999847412 y=83.860000610352 top_right=false plausible_map=false | text=绿洲人事经理 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1231.3800048828 y=-55.000015258789 top_right=true plausible_map=true | text=杰索米娜 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1231.3800048828 y=-39.000015258789 top_right=true plausible_map=true | text=技能商人 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=843.38006591797 y=74.0 top_right=true plausible_map=true | text=莫琳娜 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=843.38006591797 y=90.0 top_right=true plausible_map=true | text=阿难不受难 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=924.87994384766 y=103.0 top_right=true plausible_map=true | text=杂货商人 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1661.3800048828 y=369.0 top_right=true plausible_map=true | text=埃德温 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1661.3800048828 y=385.0 top_right=true plausible_map=true
+[2026-04-26 18:30:04.166][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:30:09.036][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=37 buttons=11 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(1363.00, 32.00) screen=(1406.00, 84.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:30:09.036][21084][INFO] [Lua] F11 summary | preferred=0 total=2 skipped_invalid=0 skipped_zero=9
+[2026-04-26 18:30:09.037][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C69C20B0A0 distance=643.776671
+[2026-04-26 18:30:09.038][21084][INFO] [Lua] F11 button[1/2] | button_index=6 addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 cursor_distance=643.776671 nearest_text=阿瑞娅 nearest_text_addr=0x1C6A7FD9700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=762.88000488281 nearest_text_y=446.0 nearest_distance=92.932963 nearest_text_index=29
+[2026-04-26 18:30:09.038][21084][INFO] [Lua] F11 button[2/2] | button_index=1 addr=0x1C5FAC6C870 name=UIButton Transient.GameEngine.CoreGameInstance.FightChatView_C.WidgetTree.ChatSubWindowItem.WidgetTree.SubWindowUpBtn text= fullname= x=47.147197723389 y=902.23364257812 cursor_distance=1577.585240 nearest_text=<none>
+[2026-04-26 18:30:09.038][21084][WARN] [Lua] F11 has 2 query results; using the first candidate.
+[2026-04-26 18:30:09.039][21084][INFO] [Lua] F11 transient target | label=阿瑞娅按钮 cursor_distance=643.776671 same_name_visible=1 nearest_text=阿瑞娅 nearest_distance=92.932962561491
+[2026-04-26 18:30:09.251][21084][WARN] [Lua] Distance-first target miss [阿瑞娅按钮]; fallback to generic match: Distance target not found [阿瑞娅按钮]. nearest=kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 distance=51.723897 delta=41.209066 expected=(90.433, 95.433)
+[2026-04-26 18:30:09.453][21084][INFO] [Lua] Fetched button 阿瑞娅按钮 | candidates=1 kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922 related_text= related_name= related_distance= hint_distance=0.0
+[2026-04-26 18:30:10.838][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:30:10.838][21084][INFO] [Lua] Clicked target 阿瑞娅按钮 | kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922
+[2026-04-26 18:30:10.839][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 related_text= related_name= related_distance= hint_distance=0.0
+[2026-04-26 18:30:10.839][21084][INFO] [Lua] F11 locator step: { label = "阿瑞娅按钮", distance_anchor_exact_text = "阿瑞娅", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered", distance_min = 90.432963, distance_max = 95.432963, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered" }, hint_client_x = 853.539978, hint_client_y = 425.571960, hint_ratio_x = 0.592736, hint_ratio_y = 0.472858, hint_max_distance = 80.000 }
+[2026-04-26 18:30:12.813][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=39 buttons=12 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(1311.00, 30.00) screen=(1354.00, 82.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:30:12.814][21084][INFO] [Lua] F11 summary | preferred=0 total=3 skipped_invalid=0 skipped_zero=9
+[2026-04-26 18:30:12.815][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C6097B31A0 distance=75.466216
+[2026-04-26 18:30:12.815][21084][INFO] [Lua] F11 button[1/3] | button_index=1 addr=0x1C6097B31A0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1320.3154296875 y=104.88906860352 cursor_distance=75.466216 nearest_text=小黑子 nearest_text_addr=0x1C6A93E7B00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=1389.8800048828 nearest_text_y=-78.999984741211 nearest_distance=196.607258 nearest_text_index=35
+[2026-04-26 18:30:12.815][21084][INFO] [Lua] F11 button[2/3] | button_index=2 addr=0x1C6097B29B0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1372.1555175781 y=104.88906860352 cursor_distance=96.686969 nearest_text=小黑子 nearest_text_addr=0x1C6A93E7B00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=1389.8800048828 nearest_text_y=-78.999984741211 nearest_distance=184.741282 nearest_text_index=35
+[2026-04-26 18:30:12.815][21084][INFO] [Lua] F11 button[3/3] | button_index=7 addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 cursor_distance=604.770078 nearest_text=阿瑞娅 nearest_text_addr=0x1C6A7FD9700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=889.88000488281 nearest_text_y=369.00003051758 nearest_distance=67.238239 nearest_text_index=29
+[2026-04-26 18:30:12.816][21084][WARN] [Lua] F11 has 3 query results; using the first candidate.
+[2026-04-26 18:30:12.816][21084][INFO] [Lua] F11 transient target | label=小黑子按钮 cursor_distance=75.466216 same_name_visible=2 nearest_text=小黑子 nearest_distance=196.60725841668
+[2026-04-26 18:30:13.016][21084][WARN] [Lua] Distance-first target miss [小黑子按钮]; fallback to generic match: Distance target not found [小黑子按钮]. anchor_text=小黑子 button_name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton
+[2026-04-26 18:30:13.224][21084][ERROR] [Lua] F11 target click failed: Matched control not found.
+[2026-04-26 18:30:19.586][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=39 buttons=11 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(1255.00, 30.00) screen=(1298.00, 82.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:30:19.586][21084][INFO] [Lua] F11 summary | preferred=0 total=2 skipped_invalid=0 skipped_zero=9
+[2026-04-26 18:30:19.587][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C6097B31A0 distance=99.370408
+[2026-04-26 18:30:19.587][21084][INFO] [Lua] F11 button[1/2] | button_index=1 addr=0x1C6097B31A0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1320.3154296875 y=104.88906860352 cursor_distance=99.370408 nearest_text=小黑子 nearest_text_addr=0x1C6A93E7B00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=1389.8800048828 nearest_text_y=-78.999984741211 nearest_distance=196.607258 nearest_text_index=35
+[2026-04-26 18:30:19.588][21084][INFO] [Lua] F11 button[2/2] | button_index=6 addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 cursor_distance=563.602098 nearest_text=阿瑞娅 nearest_text_addr=0x1C6A7FD9700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=889.88000488281 nearest_text_y=369.00003051758 nearest_distance=67.238239 nearest_text_index=29
+[2026-04-26 18:30:19.588][21084][WARN] [Lua] F11 has 2 query results; using the first candidate.
+[2026-04-26 18:30:19.588][21084][INFO] [Lua] F11 transient target | label=小黑子按钮 cursor_distance=99.370408 same_name_visible=1 nearest_text=小黑子 nearest_distance=196.60725841668
+[2026-04-26 18:30:19.798][21084][WARN] [Lua] Distance-first target miss [小黑子按钮]; fallback to generic match: Distance target not found [小黑子按钮]. anchor_text=小黑子 button_name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton
+[2026-04-26 18:30:20.001][21084][ERROR] [Lua] F11 target click failed: Matched control not found.
+[2026-04-26 18:30:28.614][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=63 buttons=16 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(1294.00, 198.00) screen=(1337.00, 250.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:30:28.614][21084][INFO] [Lua] F11 summary | preferred=0 total=8 skipped_invalid=0 skipped_zero=8
+[2026-04-26 18:30:28.615][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C6097B31A0 distance=96.758190
+[2026-04-26 18:30:28.615][21084][INFO] [Lua] F11 button[1/8] | button_index=1 addr=0x1C6097B31A0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1320.3154296875 y=104.88906860352 cursor_distance=96.758190 nearest_text=骑士谷黑狼伊芙 nearest_text_addr=0x1C65A629700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UITextBlock nearest_text_x=1287.6612548828 nearest_text_y=99.458229064941 nearest_distance=33.102706 nearest_text_index=15
+[2026-04-26 18:30:28.616][21084][INFO] [Lua] F11 button[2/8] | button_index=8 addr=0x1C60905E040 name=UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn text= fullname= x=1393.0 y=181.59999084473 cursor_distance=100.349192 nearest_text=英雄特性 nearest_text_addr=0x1C6A8E83500 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock nearest_text_x=1411.5802001953 nearest_text_y=187.55123901367 nearest_distance=19.510028 nearest_text_index=59
+[2026-04-26 18:30:28.616][21084][INFO] [Lua] F11 button[3/8] | button_index=2 addr=0x1C6097B29B0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1372.1555175781 y=104.88906860352 cursor_distance=121.564512 nearest_text=天赋 nearest_text_addr=0x1C65C48BD80 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock nearest_text_x=1369.7530517578 nearest_text_y=187.55123901367 nearest_distance=82.697075 nearest_text_index=60
+[2026-04-26 18:30:28.616][21084][INFO] [Lua] F11 button dump truncated | shown=3 total=8
+[2026-04-26 18:30:28.617][21084][WARN] [Lua] F11 has 8 query results; using the first candidate.
+[2026-04-26 18:30:28.617][21084][INFO] [Lua] F11 transient target | label=骑士谷黑狼伊芙按钮 cursor_distance=96.758190 same_name_visible=5 nearest_text=骑士谷黑狼伊芙 nearest_distance=33.102706086796
+[2026-04-26 18:30:28.899][21084][INFO] [Lua] Fetched button 骑士谷黑狼伊芙按钮 | anchor_mode=text_distance kind=button addr=1950074220960 text= name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton fullname= x=1320.3154296875 y=104.88906860352 related_text=骑士谷黑狼伊芙 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UITextBlock related_distance=33.102706086796 expected=(32.110, 34.096)
+[2026-04-26 18:30:30.097][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:30:30.097][21084][INFO] [Lua] Clicked target 骑士谷黑狼伊芙按钮 | kind=button addr=1950074220960 text= name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton fullname= x=1320.3154296875 y=104.88906860352
+[2026-04-26 18:30:30.098][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C6097B31A0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1320.3154296875 y=104.88906860352 related_text=骑士谷黑狼伊芙 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UITextBlock related_distance=33.102706086796 hint_distance=
+[2026-04-26 18:30:30.099][21084][INFO] [Lua] F11 locator step: { label = "骑士谷黑狼伊芙按钮", distance_anchor_exact_text = "骑士谷黑狼伊芙", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton", distance_min = 32.109625, distance_max = 34.095787, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton" }, hint_client_x = 1320.315430, hint_client_y = 104.889069, hint_ratio_x = 0.916886, hint_ratio_y = 0.116543, hint_max_distance = 80.000 }
+[2026-04-26 18:30:34.369][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=64 buttons=28 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(1346.00, 205.00) screen=(1389.00, 257.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:30:34.369][21084][INFO] [Lua] F11 summary | preferred=0 total=16 skipped_invalid=0 skipped_zero=12
+[2026-04-26 18:30:34.370][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C60905E040 distance=52.502956
+[2026-04-26 18:30:34.371][21084][INFO] [Lua] F11 button[1/16] | button_index=9 addr=0x1C60905E040 name=UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn text= fullname= x=1393.0 y=181.59999084473 cursor_distance=52.502956 nearest_text=英雄特性 nearest_text_addr=0x1C6A8E83500 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock nearest_text_x=1411.5802001953 nearest_text_y=187.55123901367 nearest_distance=19.510028 nearest_text_index=60
+[2026-04-26 18:30:34.371][21084][INFO] [Lua] F11 button[2/16] | button_index=18 addr=0x1C5D9844180 name=UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn text= fullname= x=1357.453125 y=292.0537109375 cursor_distance=87.803888 nearest_text=掉落过滤 nearest_text_addr=0x1C6A9E88200 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock nearest_text_x=1357.7530517578 nearest_text_y=261.33685302734 nearest_distance=30.718322 nearest_text_index=41
+[2026-04-26 18:30:34.372][21084][INFO] [Lua] F11 button[3/16] | button_index=1 addr=0x1C6097B31A0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1320.3154296875 y=104.88906860352 cursor_distance=103.353257 nearest_text=骑士谷黑狼伊芙 nearest_text_addr=0x1C65A629700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UITextBlock nearest_text_x=1287.6612548828 nearest_text_y=99.458229064941 nearest_distance=33.102706 nearest_text_index=15
+[2026-04-26 18:30:34.372][21084][INFO] [Lua] F11 button dump truncated | shown=3 total=16
+[2026-04-26 18:30:34.372][21084][WARN] [Lua] F11 has 16 query results; using the first candidate.
+[2026-04-26 18:30:34.372][21084][INFO] [Lua] F11 transient target | label=英雄特性按钮 cursor_distance=52.502956 same_name_visible=1 nearest_text=英雄特性 nearest_distance=19.510028038582
+[2026-04-26 18:30:34.673][21084][INFO] [Lua] Fetched button 英雄特性按钮 | anchor_mode=text_distance kind=button addr=1950066532416 text= name=UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn fullname= x=1393.0 y=181.59999084473 related_text=英雄特性 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock related_distance=19.510028038582 expected=(18.925, 20.095)
+[2026-04-26 18:30:36.490][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:30:36.490][21084][INFO] [Lua] Clicked target 英雄特性按钮 | kind=button addr=1950066532416 text= name=UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn fullname= x=1393.0 y=181.59999084473
+[2026-04-26 18:30:36.491][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C60905E040 name=UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn text= fullname= x=1393.0 y=181.59999084473 related_text=英雄特性 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock related_distance=19.510028038582 hint_distance=
+[2026-04-26 18:30:36.491][21084][INFO] [Lua] F11 locator step: { label = "英雄特性按钮", distance_anchor_exact_text = "英雄特性", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn", distance_min = 18.924727, distance_max = 20.095329, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn" }, hint_client_x = 1393.000000, hint_client_y = 181.599991, hint_ratio_x = 0.967361, hint_ratio_y = 0.201778, hint_max_distance = 80.000 }
+[2026-04-26 18:30:40.481][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=62 buttons=17 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(1399.00, 433.00) screen=(1442.00, 485.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:30:40.481][21084][INFO] [Lua] F11 summary | preferred=0 total=9 skipped_invalid=0 skipped_zero=8
+[2026-04-26 18:30:40.482][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C60905E040 distance=251.471598
+[2026-04-26 18:30:40.482][21084][INFO] [Lua] F11 button[1/9] | button_index=9 addr=0x1C60905E040 name=UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn text= fullname= x=1393.0 y=181.59999084473 cursor_distance=251.471598 nearest_text=英雄特性 nearest_text_addr=0x1C6A8E83500 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock nearest_text_x=1411.5802001953 nearest_text_y=187.55123901367 nearest_distance=19.510028 nearest_text_index=59
+[2026-04-26 18:30:40.482][21084][INFO] [Lua] F11 button[2/9] | button_index=3 addr=0x1C6097B09F0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1423.9954833984 y=104.88906860352 cursor_distance=329.061632 nearest_text=英雄特性 nearest_text_addr=0x1C6A8E83500 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock nearest_text_x=1411.5802001953 nearest_text_y=187.55123901367 nearest_distance=83.589316 nearest_text_index=59
+[2026-04-26 18:30:40.483][21084][INFO] [Lua] F11 button[3/9] | button_index=2 addr=0x1C6097B29B0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1372.1555175781 y=104.88906860352 cursor_distance=329.207244 nearest_text=天赋 nearest_text_addr=0x1C65C48BD80 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock nearest_text_x=1369.7530517578 nearest_text_y=187.55123901367 nearest_distance=82.697075 nearest_text_index=60
+[2026-04-26 18:30:40.483][21084][INFO] [Lua] F11 button dump truncated | shown=3 total=9
+[2026-04-26 18:30:40.483][21084][WARN] [Lua] F11 has 9 query results; using the first candidate.
+[2026-04-26 18:30:40.484][21084][INFO] [Lua] F11 transient target | label=英雄特性按钮 cursor_distance=251.471598 same_name_visible=1 nearest_text=英雄特性 nearest_distance=19.510028038582
+[2026-04-26 18:30:40.753][21084][INFO] [Lua] Fetched button 英雄特性按钮 | anchor_mode=text_distance kind=button addr=1950066532416 text= name=UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn fullname= x=1393.0 y=181.59999084473 related_text=英雄特性 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock related_distance=19.510028038582 expected=(18.925, 20.095)
+[2026-04-26 18:30:42.944][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:30:42.944][21084][INFO] [Lua] Clicked target 英雄特性按钮 | kind=button addr=1950066532416 text= name=UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn fullname= x=1393.0 y=181.59999084473
+[2026-04-26 18:30:42.945][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C60905E040 name=UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn text= fullname= x=1393.0 y=181.59999084473 related_text=英雄特性 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock related_distance=19.510028038582 hint_distance=
+[2026-04-26 18:30:42.945][21084][INFO] [Lua] F11 locator step: { label = "英雄特性按钮", distance_anchor_exact_text = "英雄特性", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn", distance_min = 18.924727, distance_max = 20.095329, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.S14HomeBtn_C.WidgetTree.HomeBtn" }, hint_client_x = 1393.000000, hint_client_y = 181.599991, hint_ratio_x = 0.967361, hint_ratio_y = 0.201778, hint_max_distance = 80.000 }
+[2026-04-26 18:30:47.506][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=62 buttons=17 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(124.00, 256.00) screen=(167.00, 308.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:30:47.507][21084][INFO] [Lua] F11 summary | preferred=0 total=9 skipped_invalid=0 skipped_zero=8
+[2026-04-26 18:30:47.507][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C69C20B0A0 distance=748.988137
+[2026-04-26 18:30:47.508][21084][INFO] [Lua] F11 button[1/9] | button_index=12 addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 cursor_distance=748.988137 nearest_text=阿瑞娅 nearest_text_addr=0x1C6A7FD9700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=785.88000488281 nearest_text_y=449.00003051758 nearest_distance=71.601302 nearest_text_index=36
+[2026-04-26 18:30:47.508][21084][INFO] [Lua] F11 button[2/9] | button_index=4 addr=0x1C6097B0200 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1268.1765136719 y=52.633728027344 cursor_distance=1162.109175 nearest_text=怒火 nearest_text_addr=0x1C65B5F5F00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UITextBlock nearest_text_x=1287.6612548828 nearest_text_y=81.744430541992 nearest_distance=35.029818 nearest_text_index=17
+[2026-04-26 18:30:47.508][21084][INFO] [Lua] F11 button[3/9] | button_index=1 addr=0x1C6097B31A0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1320.3154296875 y=104.88906860352 cursor_distance=1205.821347 nearest_text=骑士谷黑狼伊芙 nearest_text_addr=0x1C65A629700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UITextBlock nearest_text_x=1287.6612548828 nearest_text_y=99.458229064941 nearest_distance=33.102706 nearest_text_index=16
+[2026-04-26 18:30:47.509][21084][INFO] [Lua] F11 button dump truncated | shown=3 total=9
+[2026-04-26 18:30:47.509][21084][WARN] [Lua] F11 has 9 query results; using the first candidate.
+[2026-04-26 18:30:47.509][21084][INFO] [Lua] F11 transient target | label=阿瑞娅按钮 cursor_distance=748.988137 same_name_visible=1 nearest_text=阿瑞娅 nearest_distance=71.601301894914
+[2026-04-26 18:30:47.782][21084][WARN] [Lua] Distance-first target miss [阿瑞娅按钮]; fallback to generic match: Distance target not found [阿瑞娅按钮]. nearest=kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 distance=131.386874 delta=59.785572 expected=(69.453, 73.749)
+[2026-04-26 18:30:48.064][21084][INFO] [Lua] Fetched button 阿瑞娅按钮 | candidates=1 kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922 related_text= related_name= related_distance= hint_distance=0.0
+[2026-04-26 18:30:50.376][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:30:50.376][21084][INFO] [Lua] Clicked target 阿瑞娅按钮 | kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922
+[2026-04-26 18:30:50.377][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 related_text= related_name= related_distance= hint_distance=0.0
+[2026-04-26 18:30:50.378][21084][INFO] [Lua] F11 locator step: { label = "阿瑞娅按钮", distance_anchor_exact_text = "阿瑞娅", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered", distance_min = 69.453263, distance_max = 73.749341, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered" }, hint_client_x = 853.539978, hint_client_y = 425.571960, hint_ratio_x = 0.592736, hint_ratio_y = 0.472858, hint_max_distance = 80.000 }
+[2026-04-26 18:30:54.255][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=62 buttons=17 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(120.00, 304.00) screen=(163.00, 356.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:30:54.255][21084][INFO] [Lua] F11 summary | preferred=0 total=9 skipped_invalid=0 skipped_zero=8
+[2026-04-26 18:30:54.256][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C69C20B0A0 distance=743.545991
+[2026-04-26 18:30:54.256][21084][INFO] [Lua] F11 button[1/9] | button_index=12 addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 cursor_distance=743.545991 nearest_text=阿瑞娅 nearest_text_addr=0x1C6A7FD9700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=740.88000488281 nearest_text_y=517.0 nearest_distance=145.090854 nearest_text_index=36
+[2026-04-26 18:30:54.256][21084][INFO] [Lua] F11 button[2/9] | button_index=4 addr=0x1C6097B0200 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1268.1765136719 y=52.633728027344 cursor_distance=1175.369861 nearest_text=怒火 nearest_text_addr=0x1C65B5F5F00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UITextBlock nearest_text_x=1287.6612548828 nearest_text_y=81.744430541992 nearest_distance=35.029818 nearest_text_index=17
+[2026-04-26 18:30:54.257][21084][INFO] [Lua] F11 button[3/9] | button_index=1 addr=0x1C6097B31A0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1320.3154296875 y=104.88906860352 cursor_distance=1216.717837 nearest_text=骑士谷黑狼伊芙 nearest_text_addr=0x1C65A629700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UITextBlock nearest_text_x=1287.6612548828 nearest_text_y=99.458229064941 nearest_distance=33.102706 nearest_text_index=16
+[2026-04-26 18:30:54.257][21084][INFO] [Lua] F11 button dump truncated | shown=3 total=9
+[2026-04-26 18:30:54.257][21084][WARN] [Lua] F11 has 9 query results; using the first candidate.
+[2026-04-26 18:30:54.258][21084][INFO] [Lua] F11 transient target | label=阿瑞娅按钮 cursor_distance=743.545991 same_name_visible=1 nearest_text=阿瑞娅 nearest_distance=145.09085417429
+[2026-04-26 18:30:54.529][21084][INFO] [Lua] Fetched button 阿瑞娅按钮 | anchor_mode=text_distance kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc related_distance=145.09085417429 expected=(142.591, 147.591)
+[2026-04-26 18:30:55.212][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:30:55.212][21084][INFO] [Lua] Clicked target 阿瑞娅按钮 | kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922
+[2026-04-26 18:30:55.215][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc related_distance=145.09085417429 hint_distance=
+[2026-04-26 18:30:55.215][21084][INFO] [Lua] F11 locator step: { label = "阿瑞娅按钮", distance_anchor_exact_text = "阿瑞娅", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered", distance_min = 142.590854, distance_max = 147.590854, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered" }, hint_client_x = 853.539978, hint_client_y = 425.571960, hint_ratio_x = 0.592736, hint_ratio_y = 0.472858, hint_max_distance = 80.000 }
+[2026-04-26 18:30:55.858][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:31:00.328][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=64 buttons=32 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(132.00, 252.00) screen=(175.00, 304.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:31:00.328][21084][INFO] [Lua] F11 summary | preferred=0 total=24 skipped_invalid=0 skipped_zero=8
+[2026-04-26 18:31:00.329][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C69C20B0A0 distance=742.123417
+[2026-04-26 18:31:00.330][21084][INFO] [Lua] F11 button[1/24] | button_index=5 addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 cursor_distance=742.123417 nearest_text=阿瑞娅 nearest_text_addr=0x1C6A7FD9700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=776.88000488281 nearest_text_y=452.0 nearest_distance=81.087562 nearest_text_index=37
+[2026-04-26 18:31:00.330][21084][INFO] [Lua] F11 button[2/24] | button_index=1 addr=0x1C5D9F63990 name=UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UIButton text= fullname= x=1104.1411132812 y=52.0 cursor_distance=992.501055 nearest_text=骑士谷黑狼伊芙 nearest_text_addr=0x1C65A629700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UITextBlock nearest_text_x=1287.6612548828 nearest_text_y=99.458229064941 nearest_distance=189.557184 nearest_text_index=16
+[2026-04-26 18:31:00.330][21084][INFO] [Lua] F11 button[3/24] | button_index=15 addr=0x1C69C31D850 name=UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn text= fullname= x=1249.7987060547 y=218.26812744141 cursor_distance=1118.307555 nearest_text=背包 nearest_text_addr=0x1C649E08C80 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock nearest_text_x=1262.0986328125 nearest_text_y=187.55123901367 nearest_distance=33.087995 nearest_text_index=64
+[2026-04-26 18:31:00.331][21084][INFO] [Lua] F11 button dump truncated | shown=3 total=24
+[2026-04-26 18:31:00.331][21084][WARN] [Lua] F11 has 24 query results; using the first candidate.
+[2026-04-26 18:31:00.331][21084][INFO] [Lua] F11 transient target | label=阿瑞娅按钮 cursor_distance=742.123417 same_name_visible=1 nearest_text=阿瑞娅 nearest_distance=81.087562283114
+[2026-04-26 18:31:00.615][21084][WARN] [Lua] Distance-first target miss [阿瑞娅按钮]; fallback to generic match: Distance target not found [阿瑞娅按钮]. nearest=kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 distance=45.277177 delta=35.810386 expected=(78.655, 83.520)
+[2026-04-26 18:31:00.895][21084][INFO] [Lua] Fetched button 阿瑞娅按钮 | candidates=1 kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922 related_text= related_name= related_distance= hint_distance=0.0
+[2026-04-26 18:31:01.814][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:31:01.815][21084][INFO] [Lua] Clicked target 阿瑞娅按钮 | kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922
+[2026-04-26 18:31:01.816][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 related_text= related_name= related_distance= hint_distance=0.0
+[2026-04-26 18:31:01.816][21084][INFO] [Lua] F11 locator step: { label = "阿瑞娅按钮", distance_anchor_exact_text = "阿瑞娅", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered", distance_min = 78.654935, distance_max = 83.520189, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered" }, hint_client_x = 853.539978, hint_client_y = 425.571960, hint_ratio_x = 0.592736, hint_ratio_y = 0.472858, hint_max_distance = 80.000 }
+[2026-04-26 18:31:03.487][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=64 buttons=32 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(128.00, 291.00) screen=(171.00, 343.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:31:03.488][21084][INFO] [Lua] F11 summary | preferred=0 total=24 skipped_invalid=0 skipped_zero=8
+[2026-04-26 18:31:03.489][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C69C20B0A0 distance=737.914543
+[2026-04-26 18:31:03.489][21084][INFO] [Lua] F11 button[1/24] | button_index=5 addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 cursor_distance=737.914543 nearest_text=阿瑞娅 nearest_text_addr=0x1C6A7FD9700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=863.88006591797 nearest_text_y=335.0 nearest_distance=91.160284 nearest_text_index=37
+[2026-04-26 18:31:03.489][21084][INFO] [Lua] F11 button[2/24] | button_index=1 addr=0x1C5D9F63990 name=UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UIButton text= fullname= x=1104.1411132812 y=52.0 cursor_distance=1004.973867 nearest_text=骑士谷黑狼伊芙 nearest_text_addr=0x1C65A629700 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.UITextBlock nearest_text_x=1287.6612548828 nearest_text_y=99.458229064941 nearest_distance=189.557184 nearest_text_index=16
+[2026-04-26 18:31:03.489][21084][INFO] [Lua] F11 button[3/24] | button_index=19 addr=0x1C698E76140 name=UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn text= fullname= x=1249.7987060547 y=292.0537109375 cursor_distance=1121.799201 nearest_text=契约 nearest_text_addr=0x1C68CD07E80 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.UITextBlock nearest_text_x=1262.0986328125 nearest_text_y=261.33685302734 nearest_distance=33.087967 nearest_text_index=60
+[2026-04-26 18:31:03.490][21084][INFO] [Lua] F11 button dump truncated | shown=3 total=24
+[2026-04-26 18:31:03.490][21084][WARN] [Lua] F11 has 24 query results; using the first candidate.
+[2026-04-26 18:31:03.491][21084][INFO] [Lua] F11 transient target | label=阿瑞娅按钮 cursor_distance=737.914543 same_name_visible=1 nearest_text=阿瑞娅 nearest_distance=91.160284319438
+[2026-04-26 18:31:03.767][21084][INFO] [Lua] Fetched button 阿瑞娅按钮 | anchor_mode=text_distance kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc related_distance=91.160284319438 expected=(88.660, 93.660)
+[2026-04-26 18:31:05.963][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:31:05.963][21084][INFO] [Lua] Clicked target 阿瑞娅按钮 | kind=button addr=1952534540448 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922
+[2026-04-26 18:31:05.964][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C69C20B0A0 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc related_distance=91.160284319438 hint_distance=
+[2026-04-26 18:31:05.965][21084][INFO] [Lua] F11 locator step: { label = "阿瑞娅按钮", distance_anchor_exact_text = "阿瑞娅", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered", distance_min = 88.660284, distance_max = 93.660284, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered" }, hint_client_x = 853.539978, hint_client_y = 425.571960, hint_ratio_x = 0.592736, hint_ratio_y = 0.472858, hint_max_distance = 80.000 }
+[2026-04-26 18:31:42.958][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=24 buttons=20 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(330.00, 483.00) screen=(373.00, 535.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:31:42.958][21084][INFO] [Lua] F11 summary | preferred=0 total=15 skipped_invalid=0 skipped_zero=5
+[2026-04-26 18:31:42.959][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C60985E830 distance=323.974947
+[2026-04-26 18:31:42.959][21084][INFO] [Lua] F11 button[1/15] | button_index=13 addr=0x1C60985E830 name=UIButton Transient.GameEngine.CoreGameInstance.FightTaskListView_C.WidgetTree.BtnTeam text= fullname= x=55.779998779297 y=310.47998046875 cursor_distance=323.974947 nearest_text=527FPS nearest_text_addr=0x1C6A2274680 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.FightTextInfoView_C.WidgetTree.UITextBlock nearest_text_x=74.680000305176 nearest_text_y=63.569770812988 nearest_distance=247.632513 nearest_text_index=8
+[2026-04-26 18:31:42.960][21084][INFO] [Lua] F11 button[2/15] | button_index=12 addr=0x1C60985D850 name=UIButton Transient.GameEngine.CoreGameInstance.FightTaskListView_C.WidgetTree.FlodBtn text= fullname= x=70.0 y=281.67999267578 cursor_distance=328.830877 nearest_text=527FPS nearest_text_addr=0x1C6A2274680 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.FightTextInfoView_C.WidgetTree.UITextBlock nearest_text_x=74.680000305176 nearest_text_y=63.569770812988 nearest_distance=218.160426 nearest_text_index=8
+[2026-04-26 18:31:42.960][21084][INFO] [Lua] F11 button[3/15] | button_index=11 addr=0x1C60985C870 name=UIButton Transient.GameEngine.CoreGameInstance.FightTaskListView_C.WidgetTree.BtnTask text= fullname= x=55.779998779297 y=225.16000366211 cursor_distance=376.401478 nearest_text=527FPS nearest_text_addr=0x1C6A2274680 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.FightTextInfoView_C.WidgetTree.UITextBlock nearest_text_x=74.680000305176 nearest_text_y=63.569770812988 nearest_distance=162.691774 nearest_text_index=8
+[2026-04-26 18:31:42.960][21084][INFO] [Lua] F11 button dump truncated | shown=3 total=15
+[2026-04-26 18:31:42.961][21084][WARN] [Lua] F11 has 15 query results; using the first candidate.
+[2026-04-26 18:31:42.961][21084][INFO] [Lua] F11 transient target | label=527FPS按钮 cursor_distance=323.974947 same_name_visible=1 nearest_text=527FPS nearest_distance=247.6325133942
+[2026-04-26 18:31:43.197][21084][WARN] [Lua] Distance-first target miss [527FPS按钮]; fallback to generic match: Distance target not found [527FPS按钮]. anchor_text=527FPS button_name=UIButton Transient.GameEngine.CoreGameInstance.FightTaskListView_C.WidgetTree.BtnTeam
+[2026-04-26 18:31:43.441][21084][INFO] [Lua] Fetched button 527FPS按钮 | candidates=1 kind=button addr=1950074923056 text= name=UIButton Transient.GameEngine.CoreGameInstance.FightTaskListView_C.WidgetTree.BtnTeam fullname= x=55.779998779297 y=310.47998046875 related_text= related_name= related_distance= hint_distance=7.105427357601e-15
+[2026-04-26 18:31:44.096][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:31:44.096][21084][INFO] [Lua] Clicked target 527FPS按钮 | kind=button addr=1950074923056 text= name=UIButton Transient.GameEngine.CoreGameInstance.FightTaskListView_C.WidgetTree.BtnTeam fullname= x=55.779998779297 y=310.47998046875
+[2026-04-26 18:31:44.097][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C60985E830 name=UIButton Transient.GameEngine.CoreGameInstance.FightTaskListView_C.WidgetTree.BtnTeam text= fullname= x=55.779998779297 y=310.47998046875 related_text= related_name= related_distance= hint_distance=7.105427357601e-15
+[2026-04-26 18:31:44.097][21084][INFO] [Lua] F11 locator step: { label = "527FPS按钮", distance_anchor_exact_text = "527FPS", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightTaskListView_C.WidgetTree.BtnTeam", distance_min = 245.132513, distance_max = 250.132513, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.FightTaskListView_C.WidgetTree.BtnTeam" }, hint_client_x = 55.779999, hint_client_y = 310.479980, hint_ratio_x = 0.038736, hint_ratio_y = 0.344978, hint_max_distance = 80.000 }
+[2026-04-26 18:31:47.462][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:31:51.086][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=40 buttons=46 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(694.00, 476.00) screen=(737.00, 528.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:31:51.086][21084][INFO] [Lua] F11 summary | preferred=0 total=33 skipped_invalid=0 skipped_zero=13
+[2026-04-26 18:31:51.087][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C6094EF810 distance=4.155193
+[2026-04-26 18:31:51.088][21084][INFO] [Lua] F11 button[1/33] | button_index=42 addr=0x1C6094EF810 name=UIButton Transient.GameEngine.CoreGameInstance.UIMysticMapItem_C.WidgetTree.MysteryCardView.WidgetTree.ClickBtn text= fullname= x=692.15197753906 y=472.27838134766 cursor_distance=4.155193 nearest_text=万界之主 nearest_text_addr=0x1C65B48FC80 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.UIMysticAreaItem_C.WidgetTree.UITextBlock nearest_text_x=735.0 nearest_text_y=549.84613037109 nearest_distance=88.615511 nearest_text_index=16
+[2026-04-26 18:31:51.088][21084][INFO] [Lua] F11 button[2/33] | button_index=28 addr=0x1C68E5F5160 name=UIButton Transient.GameEngine.CoreGameInstance.UIMysticAreaItem_C.WidgetTree.ClickButton text= fullname= x=670.37921142578 y=409.3791809082 cursor_distance=70.684335 nearest_text=1/4 nearest_text_addr=0x1C6A8E89000 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.UIMysticMapItem_C.WidgetTree.CurProgress nearest_text_x=580.01599121094 nearest_text_y=496.67831420898 nearest_distance=125.644937 nearest_text_index=39
+[2026-04-26 18:31:51.088][21084][INFO] [Lua] F11 button[3/33] | button_index=43 addr=0x1C69EB8A0C0 name=UIButton Transient.GameEngine.CoreGameInstance.UIMysticMapItem_C.WidgetTree.MysteryCardView.WidgetTree.ClickBtn text= fullname= x=739.15356445312 y=618.81280517578 cursor_distance=149.780979 nearest_text=Lv. 59 nearest_text_addr=0x1C68CE9EE80 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.UIMysticMapItem_C.WidgetTree.UITextBlock nearest_text_x=713.29357910156 nearest_text_y=579.67834472656 nearest_distance=46.906767 nearest_text_index=31
+[2026-04-26 18:31:51.088][21084][INFO] [Lua] F11 button dump truncated | shown=3 total=33
+[2026-04-26 18:31:51.089][21084][WARN] [Lua] F11 has 33 query results; using the first candidate.
+[2026-04-26 18:31:51.089][21084][INFO] [Lua] F11 transient target | label=万界之主按钮 cursor_distance=4.155193 same_name_visible=7 nearest_text=万界之主 nearest_distance=88.615510591408
+[2026-04-26 18:31:51.440][21084][INFO] [Lua] Fetched button 万界之主按钮 | anchor_mode=text_distance kind=button addr=1950071322640 text= name=UIButton Transient.GameEngine.CoreGameInstance.UIMysticMapItem_C.WidgetTree.MysteryCardView.WidgetTree.ClickBtn fullname= x=692.15197753906 y=472.27838134766 related_text=万界之主 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.UIMysticAreaItem_C.WidgetTree.UITextBlock related_distance=88.615510591408 expected=(86.116, 91.116)
+[2026-04-26 18:31:53.585][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:31:53.586][21084][INFO] [Lua] Clicked target 万界之主按钮 | kind=button addr=1950071322640 text= name=UIButton Transient.GameEngine.CoreGameInstance.UIMysticMapItem_C.WidgetTree.MysteryCardView.WidgetTree.ClickBtn fullname= x=692.15197753906 y=472.27838134766
+[2026-04-26 18:31:53.587][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C6094EF810 name=UIButton Transient.GameEngine.CoreGameInstance.UIMysticMapItem_C.WidgetTree.MysteryCardView.WidgetTree.ClickBtn text= fullname= x=692.15197753906 y=472.27838134766 related_text=万界之主 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.UIMysticAreaItem_C.WidgetTree.UITextBlock related_distance=88.615510591408 hint_distance=
+[2026-04-26 18:31:53.587][21084][INFO] [Lua] F11 locator step: { label = "万界之主按钮", distance_anchor_exact_text = "万界之主", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.UIMysticMapItem_C.WidgetTree.MysteryCardView.WidgetTree.ClickBtn", distance_min = 86.115511, distance_max = 91.115511, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.UIMysticMapItem_C.WidgetTree.MysteryCardView.WidgetTree.ClickBtn" }, hint_client_x = 692.151978, hint_client_y = 472.278381, hint_ratio_x = 0.480661, hint_ratio_y = 0.524754, hint_max_distance = 80.000 }
+[2026-04-26 18:32:39.048][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:33:04.156][21084][INFO] [Lua] F7 nearby portals count=1
+[2026-04-26 18:33:04.156][21084][INFO] [Lua] F7 portal[1/1] source_index=1 label= pos=3296.26, 3385.62, 3092.00 distance=5820.60 raw={addr=1951549759936 classname="EPortal" entityId=4 x=3296.2641601562 y=3385.62109375 z=3092.0}
+[2026-04-26 18:33:04.157][21084][INFO] [Lua] F7 current pos: 527.00, -1734.00, 3092.00
+[2026-04-26 18:33:04.158][21084][INFO] [Lua] F7 player info shallow: {Hpseal=0 Mpseal=13 angle=70.088760375977 curHp=1268 curMp=212 curShield=13 eRole=1951977953728 entityId=8 maxHp=1268 maxMp=265 maxShield=13 x=527.0 y=-1734.0 z=3092.0}
+[2026-04-26 18:33:04.158][21084][INFO] [Lua] F7 level text candidates: [1]text=等级46(54.9%) level=46 progress= x=481.64001464844 y=913.65991210938 name=UITextBlock Transient.GameEngine.CoreGameInstance.FightBattleInfoView_C.WidgetTree.UITextBlock score=138 | [2]text=在雄狮之心找到下一个藏宝地（推荐等级44~54级） level=44 progress= x=151.0 y=301.11999511719 name=UITextBlock Transient.GameEngine.CoreGameInstance.UISubTaskItem_C.WidgetTree.UITextBlock score=120
+[2026-04-26 18:33:04.158][21084][INFO] [Lua] F7 level text best: text=等级46(54.9%) level=46 progress= x=481.64001464844 y=913.65991210938 name=UITextBlock Transient.GameEngine.CoreGameInstance.FightBattleInfoView_C.WidgetTree.UITextBlock fullname= score=138
+[2026-04-26 18:33:04.158][21084][WARN] [Lua] F7 read current map failed: map ui texts not found. texts=40 candidates: text=避难所-余烬之息 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=100.59999847412 y=83.860000610352 top_right=false plausible_map=false | text=“疯医” name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1661.2641601562 y=163.0 top_right=true plausible_map=true | text=阿司匹林 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1440.8798828125 y=164.00001525879 top_right=true plausible_map=true | text=雪莱 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1661.2641601562 y=179.0 top_right=true plausible_map=true | text=破军 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1517.8800048828 y=180.0 top_right=true plausible_map=true | text=杂货商人 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1427.3798828125 y=204.99998474121 top_right=true plausible_map=true | text=埃德温 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1427.3798828125 y=220.99998474121 top_right=true plausible_map=true | text=异端烛火 name=UITextBlock Transient.GameEngine.CoreGa... fullname= x=1279.3800048828 y=328.0 top_right=true plausible_map=true
+[2026-04-26 18:33:30.648][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:33:30.901][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=40 buttons=12 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(116.00, 251.00) screen=(159.00, 303.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:33:30.902][21084][INFO] [Lua] F11 summary | preferred=0 total=3 skipped_invalid=0 skipped_zero=9
+[2026-04-26 18:33:30.903][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C64A296930 distance=757.918590
+[2026-04-26 18:33:30.903][21084][INFO] [Lua] F11 button[1/3] | button_index=5 addr=0x1C64A296930 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 cursor_distance=757.918590 nearest_text=阿瑞娅 nearest_text_addr=0x1C694F12E00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=858.88006591797 nearest_text_y=331.00003051758 nearest_distance=94.722576 nearest_text_index=25
+[2026-04-26 18:33:30.903][21084][INFO] [Lua] F11 button[2/3] | button_index=2 addr=0x1C6097B0200 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1268.1765136719 y=52.633728027344 cursor_distance=1169.127836 nearest_text=杂货商人 nearest_text_addr=0x1C649AC5F00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc_title nearest_text_x=1427.3798828125 nearest_text_y=204.99998474121 nearest_distance=220.366034 nearest_text_index=21
+[2026-04-26 18:33:30.904][21084][INFO] [Lua] F11 button[3/3] | button_index=1 addr=0x1C6097B09F0 name=UIButton Transient.GameEngine.CoreGameInstance.HomeFreeBtnItem_C.WidgetTree.EntryButton text= fullname= x=1423.9954833984 y=104.88906860352 cursor_distance=1316.130916 nearest_text=杂货商人 nearest_text_addr=0x1C649AC5F00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc_title nearest_text_x=1427.3798828125 nearest_text_y=204.99998474121 nearest_distance=100.168107 nearest_text_index=21
+[2026-04-26 18:33:30.904][21084][WARN] [Lua] F11 has 3 query results; using the first candidate.
+[2026-04-26 18:33:30.904][21084][INFO] [Lua] F11 transient target | label=阿瑞娅按钮 cursor_distance=757.918590 same_name_visible=1 nearest_text=阿瑞娅 nearest_distance=94.722576346269
+[2026-04-26 18:33:31.119][21084][INFO] [Lua] Fetched button 阿瑞娅按钮 | anchor_mode=text_distance kind=button addr=1951159380272 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc related_distance=94.722576346269 expected=(92.223, 97.223)
+[2026-04-26 18:33:31.727][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:33:31.727][21084][INFO] [Lua] Clicked target 阿瑞娅按钮 | kind=button addr=1951159380272 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922
+[2026-04-26 18:33:31.728][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C64A296930 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc related_distance=94.722576346269 hint_distance=
+[2026-04-26 18:33:31.730][21084][INFO] [Lua] F11 locator step: { label = "阿瑞娅按钮", distance_anchor_exact_text = "阿瑞娅", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered", distance_min = 92.222576, distance_max = 97.222576, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered" }, hint_client_x = 853.539978, hint_client_y = 425.571960, hint_ratio_x = 0.592736, hint_ratio_y = 0.472858, hint_max_distance = 80.000 }
+[2026-04-26 18:33:36.599][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=38 buttons=10 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(121.00, 256.00) screen=(164.00, 308.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:33:36.600][21084][INFO] [Lua] F11 summary | preferred=0 total=1 skipped_invalid=0 skipped_zero=9
+[2026-04-26 18:33:36.600][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C64A296930 distance=751.910546
+[2026-04-26 18:33:36.601][21084][INFO] [Lua] F11 button[1/1] | button_index=3 addr=0x1C64A296930 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 cursor_distance=751.910546 nearest_text=阿瑞娅 nearest_text_addr=0x1C694F12E00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=679.88000488281 nearest_text_y=303.0 nearest_distance=212.559807 nearest_text_index=25
+[2026-04-26 18:33:36.601][21084][INFO] [Lua] F11 transient target | label=阿瑞娅按钮 cursor_distance=751.910546 same_name_visible=1 nearest_text=阿瑞娅 nearest_distance=212.55980749174
+[2026-04-26 18:33:36.815][21084][INFO] [Lua] Fetched button 阿瑞娅按钮 | anchor_mode=text_distance kind=button addr=1951159380272 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc related_distance=212.55980749174 expected=(210.060, 215.060)
+[2026-04-26 18:33:37.791][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:33:37.791][21084][INFO] [Lua] Clicked target 阿瑞娅按钮 | kind=button addr=1951159380272 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922
+[2026-04-26 18:33:37.792][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C64A296930 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc related_distance=212.55980749174 hint_distance=
+[2026-04-26 18:33:37.793][21084][INFO] [Lua] F11 locator step: { label = "阿瑞娅按钮", distance_anchor_exact_text = "阿瑞娅", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered", distance_min = 210.059807, distance_max = 215.059807, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered" }, hint_client_x = 853.539978, hint_client_y = 425.571960, hint_ratio_x = 0.592736, hint_ratio_y = 0.472858, hint_max_distance = 80.000 }
+[2026-04-26 18:34:22.231][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:35:13.849][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:36:05.459][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:36:57.081][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:37:48.650][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:38:17.345][21084][INFO] [Lua] F11 start | label=鼠标按钮验证点击 texts=38 buttons=12 button_name=<all visible buttons> include_zero_position=false nearest_text_max_distance=260.000 cursor=(636.00, 830.00) screen=(679.00, 882.00) cursor_prefer_distance=2.000 limit=3
+[2026-04-26 18:38:17.345][21084][INFO] [Lua] F11 summary | preferred=0 total=3 skipped_invalid=0 skipped_zero=9
+[2026-04-26 18:38:17.346][21084][WARN] [Lua] F11 no button inside preferred cursor distance 2.000; nearest candidate addr=0x1C64A296930 distance=459.222910
+[2026-04-26 18:38:17.346][21084][INFO] [Lua] F11 button[1/3] | button_index=3 addr=0x1C64A296930 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 cursor_distance=459.222910 nearest_text=阿瑞娅 nearest_text_addr=0x1C694F12E00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc nearest_text_x=757.88000488281 nearest_text_y=293.0 nearest_distance=163.481360 nearest_text_index=25
+[2026-04-26 18:38:17.347][21084][INFO] [Lua] F11 button[2/3] | button_index=10 addr=0x1C5A63AC870 name=UIButton Transient.GameEngine.CoreGameInstance.FightTaskListView_C.WidgetTree.FlodBtn text= fullname= x=70.0 y=281.67999267578 cursor_distance=788.042404 nearest_text=支线 藏宝地：银沙边城 nearest_text_addr=0x1C65C96AC00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.UITextBlock nearest_text_x=139.11999511719 nearest_text_y=282.40002441406 nearest_distance=69.123745 nearest_text_index=19
+[2026-04-26 18:38:17.347][21084][INFO] [Lua] F11 button[3/3] | button_index=9 addr=0x1C5A63AD060 name=UIButton Transient.GameEngine.CoreGameInstance.FightTaskListView_C.WidgetTree.BtnTask text= fullname= x=55.779998779297 y=225.16000366211 cursor_distance=838.144779 nearest_text=主线 圣诫之末 nearest_text_addr=0x1C69E424A00 nearest_text_name=UITextBlock Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.UITextBlock nearest_text_x=139.11999511719 nearest_text_y=228.76000976562 nearest_distance=83.417714 nearest_text_index=17
+[2026-04-26 18:38:17.347][21084][WARN] [Lua] F11 has 3 query results; using the first candidate.
+[2026-04-26 18:38:17.348][21084][INFO] [Lua] F11 transient target | label=阿瑞娅按钮 cursor_distance=459.222910 same_name_visible=1 nearest_text=阿瑞娅 nearest_distance=163.48136028111
+[2026-04-26 18:38:17.560][21084][INFO] [Lua] Fetched button 阿瑞娅按钮 | anchor_mode=text_distance kind=button addr=1951159380272 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc related_distance=163.48136028111 expected=(160.981, 165.981)
+[2026-04-26 18:38:18.211][21084][DEBUG] DriverMode: ExecRemoteCall func=0x7FF684302150, ret=140696835812032
+[2026-04-26 18:38:18.212][21084][INFO] [Lua] Clicked target 阿瑞娅按钮 | kind=button addr=1951159380272 text= name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered fullname= x=853.53997802734 y=425.57196044922
+[2026-04-26 18:38:18.213][21084][INFO] [Lua] F11 target clicked: kind=button addr=0x1C64A296930 name=UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered text= fullname= x=853.53997802734 y=425.57196044922 related_text=阿瑞娅 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.TouchableHeadName_C.WidgetTree.UITextBlock_npc related_distance=163.48136028111 hint_distance=
+[2026-04-26 18:38:18.213][21084][INFO] [Lua] F11 locator step: { label = "阿瑞娅按钮", distance_anchor_exact_text = "阿瑞娅", distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered", distance_min = 160.981360, distance_max = 165.981360, include_patterns = { "UIButton Transient.GameEngine.CoreGameInstance.TipNewSkillItem_C.WidgetTree.ButtonHovered" }, hint_client_x = 853.539978, hint_client_y = 425.571960, hint_ratio_x = 0.592736, hint_ratio_y = 0.472858, hint_max_distance = 80.000 }
+[2026-04-26 18:38:40.278][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:39:31.903][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:40:23.512][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:41:15.151][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:42:06.707][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:42:58.260][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:43:49.867][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:44:41.426][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:45:32.996][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:46:24.501][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:47:16.110][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:48:07.690][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:48:59.216][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:49:50.859][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:50:42.479][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:51:34.122][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:52:25.727][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:53:17.276][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:54:08.891][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:55:00.505][19508][DEBUG] HttpClient: Response 200 OK
+[2026-04-26 18:55:34.202][21084][ERROR] LuaVM DoString exec failed: scripts/avepoint/hotkey.lua:4338: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4338: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-26 18:55:34.202][21084][ERROR] Task 9 (AvePointStandalone.lua) failed: scripts/avepoint/hotkey.lua:4338: task stopped
+stack traceback:
+	[C]: in field 'sleep'
+	scripts/avepoint/hotkey.lua:4338: in function 'main'
+	C:\Users\GoldGiven\Desktop\cunnei\scripts\AvePoint.lua:167: in main chunk
+	(...tail calls...)
+	C:\Users\GoldGiven\Desktop\cunnei\AvePointStandalone.lua:128: in main chunk
+[2026-04-26 18:55:34.231][5544][DEBUG] Task 9 (AvePointStandalone.lua) force cleaned up
+[2026-04-26 18:55:34.235][5544][DEBUG] LuaVM: State closed

@@ -1,0 +1,2495 @@
+﻿
+main <data.lua:0,0> (74 instructions at 000002D648E2AA50)
+0+ params, 4 slots, 1 upvalue, 3 locals, 53 constants, 26 functions
+	1	[1]	VARARGPREP	0
+	2	[2]	NEWTABLE 	0 5 0	; 0
+	3	[2]	EXTRAARG 	0
+	4	[3]	SETFIELD 	0 0 1k	; "UWorldBase" 134120232
+	5	[4]	SETFIELD 	0 2 3k	; "ObjectBase" 132769320
+	6	[5]	SETFIELD 	0 4 5k	; "FnameBase" 132666768
+	7	[6]	SETFIELD 	0 6 7k	; "GameMgr" 109044160
+	8	[7]	SETFIELD 	0 8 9k	; "UTutorialManager" 109046440
+	9	[8]	SETFIELD 	0 10 11k	; "UIGamepadEventMgr" 109046472
+	10	[9]	SETFIELD 	0 12 13k	; "loading" 133465060
+	11	[10]	SETFIELD 	0 14 15k	; "Controlsoffset" 132769784
+	12	[11]	SETFIELD 	0 16 17k	; "moveto" 16560368
+	13	[12]	SETFIELD 	0 18 19k	; "click" 8266064
+	14	[13]	SETFIELD 	0 20 21k	; "move_EMoveCtrl" 1240
+	15	[16]	NEWTABLE 	1 0 0	; 0
+	16	[16]	EXTRAARG 	0
+	17	[18]	SETFIELD 	1 22 23k	; "pid" 0
+	18	[19]	SETFIELD 	1 24 23k	; "GameBase" 0
+	19	[20]	SETFIELD 	1 25 23k	; "g_base" 0
+	20	[22]	LOADK    	2 26	; "LUA5D744CAA2A7A601FB14514E3D93B9D5A"
+	21	[36]	CLOSURE  	3 0	; 000002D648E31AF0
+	22	[25]	SETTABUP 	0 27 3	; _ENV "ensure_driver"
+	23	[70]	CLOSURE  	3 1	; 000002D648E31B80
+	24	[38]	SETFIELD 	1 28 3	; "InitGameinfo"
+	25	[105]	CLOSURE  	3 2	; 000002D648E327E0
+	26	[76]	SETTABUP 	0 29 3	; _ENV "readWstring"
+	27	[134]	CLOSURE  	3 3	; 000002D648E2EE70
+	28	[110]	SETFIELD 	1 30 3	; "GetByName"
+	29	[163]	CLOSURE  	3 4	; 000002D648E2F0A0
+	30	[139]	SETFIELD 	1 31 3	; "GetFullName"
+	31	[176]	CLOSURE  	3 5	; 000002D648E33E70
+	32	[165]	SETFIELD 	1 32 3	; "GetObjectPtr"
+	33	[232]	CLOSURE  	3 6	; 000002D648E340A0
+	34	[181]	SETFIELD 	1 33 3	; "EnumCButton"
+	35	[248]	CLOSURE  	3 7	; 000002D648E34970
+	36	[236]	SETFIELD 	1 34 3	; "IsOuterVisible"
+	37	[302]	CLOSURE  	3 8	; 000002D648E35320
+	38	[250]	SETFIELD 	1 35 3	; "EnumCText"
+	39	[321]	CLOSURE  	3 9	; 000002D648E35B90
+	40	[305]	SETFIELD 	1 36 3	; "EnumCTextFiltered"
+	41	[365]	CLOSURE  	3 10	; 000002D648E35EA0
+	42	[324]	SETFIELD 	1 37 3	; "EnumCImage"
+	43	[420]	CLOSURE  	3 11	; 000002D648E36650
+	44	[368]	SETFIELD 	1 38 3	; "EnumMonster"
+	45	[481]	CLOSURE  	3 12	; 000002D648E37E40
+	46	[423]	SETFIELD 	1 39 3	; "EnumGroundItem"
+	47	[531]	CLOSURE  	3 13	; 000002D648E38970
+	48	[484]	SETFIELD 	1 40 3	; "EnumPortal"
+	49	[581]	CLOSURE  	3 14	; 000002D648E38E80
+	50	[534]	SETFIELD 	1 41 3	; "EnumNPC"
+	51	[631]	CLOSURE  	3 15	; 000002D648E38C40
+	52	[584]	SETFIELD 	1 42 3	; "EnumInteractiveItem"
+	53	[645]	CLOSURE  	3 16	; 000002D648E38CD0
+	54	[635]	SETFIELD 	1 43 3	; "GetPlayerAddr"
+	55	[682]	CLOSURE  	3 17	; 000002D648E395D0
+	56	[647]	SETFIELD 	1 44 3	; "GetPlayerinfo"
+	57	[694]	CLOSURE  	3 18	; 000002D648E38D60
+	58	[689]	SETFIELD 	1 45 3	; "control_click"
+	59	[724]	CLOSURE  	3 19	; 000002D648E38F10
+	60	[704]	SETFIELD 	1 46 3	; "MoveTo"
+	61	[739]	CLOSURE  	3 20	; 000002D648E390C0
+	62	[726]	SETFIELD 	1 47 3	; "GetChineseName"
+	63	[746]	CLOSURE  	3 21	; 000002D648E38DF0
+	64	[742]	SETFIELD 	1 48 3	; "IsMainInterface"
+	65	[776]	CLOSURE  	3 22	; 000002D648E38850
+	66	[749]	SETFIELD 	1 49 3	; "GetCurrentSelected"
+	67	[782]	CLOSURE  	3 23	; 000002D648E38B20
+	68	[779]	SETFIELD 	1 50 3	; "Isloading"
+	69	[794]	CLOSURE  	3 24	; 000002D648E38A90
+	70	[785]	SETFIELD 	1 51 3	; "GetMainTaskPos"
+	71	[815]	CLOSURE  	3 25	; 000002D648E38BB0
+	72	[797]	SETFIELD 	1 52 3	; "GetMainTaskPath"
+	73	[817]	RETURN   	1 2 1k	; 1 out
+	74	[817]	RETURN   	3 1 1k	; 0 out
+
+function <data.lua:25,36> (21 instructions at 000002D648E31AF0)
+0 params, 4 slots, 2 upvalues, 2 locals, 4 constants, 0 functions
+	1	[26]	GETTABUP 	0 0 0	; _ENV "driver"
+	2	[26]	GETFIELD 	0 0 1	; "is_loaded"
+	3	[26]	CALL     	0 1 2	; 0 in 1 out
+	4	[26]	TEST     	0 0
+	5	[26]	JMP      	2	; to 8
+	6	[27]	LOADTRUE 	0
+	7	[27]	RETURN1  	0
+	8	[30]	GETTABUP 	0 0 0	; _ENV "driver"
+	9	[30]	GETFIELD 	0 0 2	; "load"
+	10	[30]	GETUPVAL 	1 1	; LICENSE_KEY
+	11	[30]	CALL     	0 2 3	; 1 in 2 out
+	12	[31]	TEST     	0 1
+	13	[31]	JMP      	5	; to 19
+	14	[32]	LOADFALSE	2
+	15	[32]	TESTSET  	3 1 1
+	16	[32]	JMP      	1	; to 18
+	17	[32]	LOADK    	3 3	; "unknown error"
+	18	[32]	RETURN   	2 3 0	; 2 out
+	19	[35]	LOADTRUE 	2
+	20	[35]	RETURN1  	2
+	21	[36]	RETURN0  	
+
+function <data.lua:38,70> (80 instructions at 000002D648E31B80)
+2 params, 10 slots, 2 upvalues, 6 locals, 25 constants, 0 functions
+	1	[39]	SETTABUP 	0 0 0	; M "pid"
+	2	[40]	GETTABUP 	2 0 0	; M "pid"
+	3	[40]	TEST     	2 1
+	4	[40]	JMP      	7	; to 12
+	5	[41]	GETTABUP 	2 1 1	; _ENV "log"
+	6	[41]	GETFIELD 	2 2 2	; "error"
+	7	[41]	LOADK    	3 3	; "\230\151\160\230\149\136\231\154\132PID"
+	8	[41]	CALL     	2 2 1	; 1 in 0 out
+	9	[42]	LOADFALSE	2
+	10	[42]	LOADK    	3 4	; "invalid PID"
+	11	[42]	RETURN   	2 3 0	; 2 out
+	12	[45]	GETTABUP 	2 1 5	; _ENV "ensure_driver"
+	13	[45]	CALL     	2 1 3	; 0 in 2 out
+	14	[46]	TEST     	2 0
+	15	[46]	JMP      	24	; to 40
+	16	[47]	GETTABUP 	4 0 6	; M "g_base"
+	17	[47]	EQK      	4 7 1	; nil
+	18	[47]	JMP      	3	; to 22
+	19	[47]	GETTABUP 	4 0 6	; M "g_base"
+	20	[47]	EQI      	4 0 0
+	21	[47]	JMP      	14	; to 36
+	22	[48]	GETTABUP 	4 1 8	; _ENV "driver"
+	23	[48]	GETFIELD 	4 4 9	; "init_call"
+	24	[48]	MOVE     	5 0
+	25	[48]	CALL     	4 2 2	; 1 in 1 out
+	26	[48]	SETTABUP 	0 6 4	; M "g_base"
+	27	[49]	GETTABUP 	4 1 10	; _ENV "proc"
+	28	[49]	GETFIELD 	4 4 11	; "get_mode"
+	29	[49]	CALL     	4 1 2	; 0 in 1 out
+	30	[49]	EQ       	4 1 1
+	31	[49]	JMP      	4	; to 36
+	32	[50]	GETTABUP 	4 1 10	; _ENV "proc"
+	33	[50]	GETFIELD 	4 4 12	; "set_mode"
+	34	[50]	MOVE     	5 1
+	35	[50]	CALL     	4 2 1	; 1 in 0 out
+	36	[54]	GETTABUP 	4 1 13	; _ENV "print"
+	37	[54]	LOADK    	5 14	; "\233\169\177\229\138\168\229\138\160\232\189\189\230\136\144\229\138\159"
+	38	[54]	CALL     	4 2 1	; 1 in 0 out
+	39	[54]	JMP      	6	; to 46
+	40	[56]	GETTABUP 	4 1 13	; _ENV "print"
+	41	[56]	LOADK    	5 15	; "\233\169\177\229\138\168\229\138\160\232\189\189\229\164\177\232\180\165:"
+	42	[56]	MOVE     	6 3
+	43	[56]	CALL     	4 3 1	; 2 in 0 out
+	44	[57]	LOADFALSE	4
+	45	[57]	RETURN1  	4
+	46	[60]	GETTABUP 	4 0 16	; M "GameBase"
+	47	[60]	EQI      	4 0 0
+	48	[60]	JMP      	31	; to 80
+	49	[61]	GETTABUP 	4 1 10	; _ENV "proc"
+	50	[61]	GETFIELD 	4 4 17	; "module"
+	51	[61]	MOVE     	5 0
+	52	[61]	LOADK    	6 18	; "torchlight_infinite.exe"
+	53	[61]	CALL     	4 3 3	; 2 in 2 out
+	54	[62]	TEST     	4 1
+	55	[62]	JMP      	13	; to 69
+	56	[63]	GETTABUP 	6 1 1	; _ENV "log"
+	57	[63]	GETFIELD 	6 6 2	; "error"
+	58	[63]	LOADK    	7 19	; "\230\151\160\230\179\149\232\142\183\229\143\150\228\184\187\230\168\161\229\157\151\229\159\186\229\157\128: "
+	59	[63]	TESTSET  	8 5 1
+	60	[63]	JMP      	1	; to 62
+	61	[63]	LOADK    	8 20	; "unknown error"
+	62	[63]	CONCAT   	7 2
+	63	[63]	CALL     	6 2 1	; 1 in 0 out
+	64	[64]	LOADFALSE	6
+	65	[64]	TESTSET  	7 5 1
+	66	[64]	JMP      	1	; to 68
+	67	[64]	LOADK    	7 20	; "unknown error"
+	68	[64]	RETURN   	6 3 0	; 2 out
+	69	[66]	SETTABUP 	0 16 4	; M "GameBase"
+	70	[67]	GETTABUP 	6 1 1	; _ENV "log"
+	71	[67]	GETFIELD 	6 6 21	; "info"
+	72	[67]	GETTABUP 	7 1 22	; _ENV "string"
+	73	[67]	GETFIELD 	7 7 23	; "format"
+	74	[67]	LOADK    	8 24	; "\228\184\187\230\168\161\229\157\151\229\159\186\229\157\128: 0x%X"
+	75	[67]	GETTABUP 	9 0 16	; M "GameBase"
+	76	[67]	CALL     	7 3 0	; 2 in all out
+	77	[67]	CALL     	6 0 1	; all in 0 out
+	78	[68]	LOADTRUE 	6
+	79	[68]	RETURN1  	6
+	80	[70]	RETURN0  	
+
+function <data.lua:76,105> (111 instructions at 000002D648E327E0)
+2 params, 17 slots, 2 upvalues, 11 locals, 18 constants, 0 functions
+	1	[77]	GETTABUP 	2 0 0	; M "pid"
+	2	[77]	TEST     	2 0
+	3	[77]	JMP      	2	; to 6
+	4	[77]	TEST     	0 1
+	5	[77]	JMP      	2	; to 8
+	6	[78]	LOADK    	2 1	; ""
+	7	[78]	RETURN1  	2
+	8	[80]	TEST     	1 1
+	9	[80]	JMP      	1	; to 11
+	10	[80]	LOADI    	1 128
+	11	[81]	GETTABUP 	2 1 2	; _ENV "driver"
+	12	[81]	GETFIELD 	2 2 3	; "read_memory"
+	13	[81]	GETTABUP 	3 0 0	; M "pid"
+	14	[81]	MOVE     	4 0
+	15	[81]	MULK     	5 1 4	; 2
+	16	[81]	MMBINK   	1 4 8 0	; __mul 2
+	17	[81]	CALL     	2 4 2	; 3 in 1 out
+	18	[82]	TEST     	2 1
+	19	[82]	JMP      	2	; to 22
+	20	[83]	LOADK    	3 1	; ""
+	21	[83]	RETURN1  	3
+	22	[87]	NEWTABLE 	3 0 0	; 0
+	23	[87]	EXTRAARG 	0
+	24	[88]	LOADI    	4 1
+	25	[88]	LEN      	5 2
+	26	[88]	ADDI     	5 5 -1
+	27	[88]	MMBINI   	5 1 7 0	; __sub
+	28	[88]	LOADI    	6 2
+	29	[88]	FORPREP  	4 75	; exit to 106
+	30	[89]	SELF     	8 2 5k	; "byte"
+	31	[89]	MOVE     	10 7
+	32	[89]	CALL     	8 3 2	; 2 in 1 out
+	33	[90]	SELF     	9 2 5k	; "byte"
+	34	[90]	ADDI     	11 7 1
+	35	[90]	MMBINI   	7 1 6 0	; __add
+	36	[90]	CALL     	9 3 2	; 2 in 1 out
+	37	[91]	EQI      	8 0 0
+	38	[91]	JMP      	2	; to 41
+	39	[91]	EQI      	9 0 1
+	40	[91]	JMP      	65	; to 106
+	41	[94]	MULK     	10 9 6	; 256
+	42	[94]	MMBINK   	9 6 8 0	; __mul 256
+	43	[94]	ADD      	10 8 10
+	44	[94]	MMBIN    	8 10 6	; __add
+	45	[95]	LTI      	10 128 0
+	46	[95]	JMP      	9	; to 56
+	47	[96]	GETTABUP 	11 1 7	; _ENV "table"
+	48	[96]	GETFIELD 	11 11 8	; "insert"
+	49	[96]	MOVE     	12 3
+	50	[96]	GETTABUP 	13 1 9	; _ENV "string"
+	51	[96]	GETFIELD 	13 13 10	; "char"
+	52	[96]	MOVE     	14 10
+	53	[96]	CALL     	13 2 0	; 1 in all out
+	54	[96]	CALL     	11 0 1	; all in 0 out
+	55	[96]	JMP      	49	; to 105
+	56	[97]	LOADI    	11 2048
+	57	[97]	LT       	10 11 0
+	58	[97]	JMP      	19	; to 78
+	59	[98]	GETTABUP 	11 1 7	; _ENV "table"
+	60	[98]	GETFIELD 	11 11 8	; "insert"
+	61	[98]	MOVE     	12 3
+	62	[98]	GETTABUP 	13 1 9	; _ENV "string"
+	63	[98]	GETFIELD 	13 13 10	; "char"
+	64	[98]	GETTABUP 	14 1 11	; _ENV "math"
+	65	[98]	GETFIELD 	14 14 12	; "floor"
+	66	[98]	DIVK     	15 10 13	; 64
+	67	[98]	MMBINK   	10 13 11 0	; __div 64
+	68	[98]	CALL     	14 2 2	; 1 in 1 out
+	69	[98]	ADDK     	14 14 14	; 192
+	70	[98]	MMBINK   	14 14 6 1	; __add 192 flip
+	71	[98]	MODK     	15 10 13	; 64
+	72	[98]	MMBINK   	10 13 9 0	; __mod 64
+	73	[98]	ADDI     	15 15 128
+	74	[98]	MMBINI   	15 128 6 1	; __add flip
+	75	[98]	CALL     	13 3 0	; 2 in all out
+	76	[98]	CALL     	11 0 1	; all in 0 out
+	77	[98]	JMP      	27	; to 105
+	78	[100]	GETTABUP 	11 1 7	; _ENV "table"
+	79	[100]	GETFIELD 	11 11 8	; "insert"
+	80	[100]	MOVE     	12 3
+	81	[101]	GETTABUP 	13 1 9	; _ENV "string"
+	82	[101]	GETFIELD 	13 13 10	; "char"
+	83	[101]	GETTABUP 	14 1 11	; _ENV "math"
+	84	[101]	GETFIELD 	14 14 12	; "floor"
+	85	[101]	DIVK     	15 10 15	; 4096
+	86	[101]	MMBINK   	10 15 11 0	; __div 4096
+	87	[101]	CALL     	14 2 2	; 1 in 1 out
+	88	[101]	ADDK     	14 14 16	; 224
+	89	[101]	MMBINK   	14 16 6 1	; __add 224 flip
+	90	[101]	GETTABUP 	15 1 11	; _ENV "math"
+	91	[101]	GETFIELD 	15 15 12	; "floor"
+	92	[101]	DIVK     	16 10 13	; 64
+	93	[101]	MMBINK   	10 13 11 0	; __div 64
+	94	[101]	CALL     	15 2 2	; 1 in 1 out
+	95	[101]	MODK     	15 15 13	; 64
+	96	[101]	MMBINK   	15 13 9 0	; __mod 64
+	97	[101]	ADDI     	15 15 128
+	98	[101]	MMBINI   	15 128 6 1	; __add flip
+	99	[101]	MODK     	16 10 13	; 64
+	100	[101]	MMBINK   	10 13 9 0	; __mod 64
+	101	[101]	ADDI     	16 16 128
+	102	[101]	MMBINI   	16 128 6 1	; __add flip
+	103	[101]	CALL     	13 4 0	; 3 in all out
+	104	[100]	CALL     	11 0 1	; all in 0 out
+	105	[88]	FORLOOP  	4 76	; to 30
+	106	[104]	GETTABUP 	4 1 7	; _ENV "table"
+	107	[104]	GETFIELD 	4 4 17	; "concat"
+	108	[104]	MOVE     	5 3
+	109	[104]	TAILCALL 	4 2 0	; 1 in
+	110	[104]	RETURN   	4 0 0	; all out
+	111	[105]	RETURN0  	
+
+function <data.lua:110,134> (48 instructions at 000002D648E2EE70)
+1 param, 8 slots, 3 upvalues, 4 locals, 12 constants, 0 functions
+	1	[111]	EQI      	0 0 1
+	2	[111]	JMP      	2	; to 5
+	3	[111]	EQK      	0 0 0	; nil
+	4	[111]	JMP      	2	; to 7
+	5	[112]	LOADK    	1 1	; ""
+	6	[112]	RETURN1  	1
+	7	[116]	GETTABUP 	1 0 2	; M "GameBase"
+	8	[116]	GETTABUP 	2 1 3	; offset "FnameBase"
+	9	[116]	ADD      	1 1 2
+	10	[116]	MMBIN    	1 2 6	; __add
+	11	[119]	GETTABUP 	2 2 4	; _ENV "proc"
+	12	[119]	GETFIELD 	2 2 5	; "read_u64"
+	13	[119]	GETTABUP 	3 0 6	; M "pid"
+	14	[119]	SHRI     	4 0 16
+	15	[119]	MMBINI   	0 16 17 0	; __shr
+	16	[119]	MULK     	4 4 7	; 8
+	17	[119]	MMBINK   	4 7 8 0	; __mul 8
+	18	[119]	ADD      	4 1 4
+	19	[119]	MMBIN    	1 4 6	; __add
+	20	[119]	CALL     	2 3 2	; 2 in 1 out
+	21	[122]	BANDK    	3 0 8	; 65535
+	22	[122]	MMBINK   	0 8 13 0	; __band 65535
+	23	[122]	MULK     	3 3 9	; 2
+	24	[122]	MMBINK   	3 9 8 1	; __mul 2 flip
+	25	[122]	ADD      	2 2 3
+	26	[122]	MMBIN    	2 3 6	; __add
+	27	[125]	GETTABUP 	3 2 4	; _ENV "proc"
+	28	[125]	GETFIELD 	3 3 10	; "read_u16"
+	29	[125]	GETTABUP 	4 0 6	; M "pid"
+	30	[125]	MOVE     	5 2
+	31	[125]	CALL     	3 3 2	; 2 in 1 out
+	32	[126]	EQI      	3 0 1
+	33	[126]	JMP      	2	; to 36
+	34	[126]	EQK      	3 0 0	; nil
+	35	[126]	JMP      	2	; to 38
+	36	[127]	LOADK    	4 1	; ""
+	37	[127]	RETURN1  	4
+	38	[130]	SHRI     	3 3 6
+	39	[130]	MMBINI   	3 6 17 0	; __shr
+	40	[133]	GETTABUP 	4 2 4	; _ENV "proc"
+	41	[133]	GETFIELD 	4 4 11	; "read_string"
+	42	[133]	GETTABUP 	5 0 6	; M "pid"
+	43	[133]	ADDI     	6 2 2
+	44	[133]	MMBINI   	2 2 6 0	; __add
+	45	[133]	MOVE     	7 3
+	46	[133]	TAILCALL 	4 4 0	; 3 in
+	47	[133]	RETURN   	4 0 0	; all out
+	48	[134]	RETURN0  	
+
+function <data.lua:139,163> (74 instructions at 000002D648E2F0A0)
+1 param, 11 slots, 2 upvalues, 7 locals, 12 constants, 0 functions
+	1	[140]	LOADK    	1 0	; ""
+	2	[141]	GETTABUP 	2 0 1	; _ENV "proc"
+	3	[141]	GETFIELD 	2 2 2	; "read_u64"
+	4	[141]	GETTABUP 	3 1 3	; M "pid"
+	5	[141]	ADDI     	4 0 32
+	6	[141]	MMBINI   	0 32 6 0	; __add
+	7	[141]	CALL     	2 3 2	; 2 in 1 out
+	8	[143]	TEST     	2 0
+	9	[143]	JMP      	23	; to 33
+	10	[143]	GTI      	2 0 0
+	11	[143]	JMP      	21	; to 33
+	12	[144]	GETTABUP 	3 0 1	; _ENV "proc"
+	13	[144]	GETFIELD 	3 3 4	; "read_u32"
+	14	[144]	GETTABUP 	4 1 3	; M "pid"
+	15	[144]	ADDI     	5 2 24
+	16	[144]	MMBINI   	2 24 6 0	; __add
+	17	[144]	CALL     	3 3 2	; 2 in 1 out
+	18	[145]	GETTABUP 	4 1 5	; M "GetByName"
+	19	[145]	MOVE     	5 3
+	20	[145]	CALL     	4 2 2	; 1 in 1 out
+	21	[145]	LOADK    	5 6	; "."
+	22	[145]	MOVE     	6 1
+	23	[145]	CONCAT   	4 3
+	24	[145]	MOVE     	1 4
+	25	[146]	GETTABUP 	4 0 1	; _ENV "proc"
+	26	[146]	GETFIELD 	4 4 2	; "read_u64"
+	27	[146]	GETTABUP 	5 1 3	; M "pid"
+	28	[146]	ADDI     	6 2 32
+	29	[146]	MMBINI   	2 32 6 0	; __add
+	30	[146]	CALL     	4 3 2	; 2 in 1 out
+	31	[146]	MOVE     	2 4
+	32	[146]	JMP      	-25	; to 8
+	33	[150]	GETTABUP 	3 0 1	; _ENV "proc"
+	34	[150]	GETFIELD 	3 3 2	; "read_u64"
+	35	[150]	GETTABUP 	4 1 3	; M "pid"
+	36	[150]	ADDI     	5 0 16
+	37	[150]	MMBINI   	0 16 6 0	; __add
+	38	[150]	CALL     	3 3 2	; 2 in 1 out
+	39	[153]	SELF     	4 1 7k	; "gsub"
+	40	[153]	LOADK    	6 8	; ".*()/"
+	41	[153]	LOADK    	7 0	; ""
+	42	[153]	CALL     	4 4 2	; 3 in 1 out
+	43	[153]	MOVE     	1 4
+	44	[155]	LOADK    	4 0	; ""
+	45	[156]	TEST     	3 0
+	46	[156]	JMP      	11	; to 58
+	47	[156]	EQI      	3 0 1
+	48	[156]	JMP      	9	; to 58
+	49	[157]	GETTABUP 	5 1 5	; M "GetByName"
+	50	[157]	GETTABUP 	6 0 1	; _ENV "proc"
+	51	[157]	GETFIELD 	6 6 4	; "read_u32"
+	52	[157]	GETTABUP 	7 1 3	; M "pid"
+	53	[157]	ADDI     	8 3 24
+	54	[157]	MMBINI   	3 24 6 0	; __add
+	55	[157]	CALL     	6 3 0	; 2 in all out
+	56	[157]	CALL     	5 0 2	; all in 1 out
+	57	[157]	MOVE     	4 5
+	58	[160]	GETTABUP 	5 1 5	; M "GetByName"
+	59	[160]	GETTABUP 	6 0 1	; _ENV "proc"
+	60	[160]	GETFIELD 	6 6 4	; "read_u32"
+	61	[160]	GETTABUP 	7 1 3	; M "pid"
+	62	[160]	ADDI     	8 0 24
+	63	[160]	MMBINI   	0 24 6 0	; __add
+	64	[160]	CALL     	6 3 0	; 2 in all out
+	65	[160]	CALL     	5 0 2	; all in 1 out
+	66	[162]	GETTABUP 	6 0 9	; _ENV "string"
+	67	[162]	GETFIELD 	6 6 10	; "format"
+	68	[162]	LOADK    	7 11	; "%s %s%s"
+	69	[162]	MOVE     	8 4
+	70	[162]	MOVE     	9 1
+	71	[162]	MOVE     	10 5
+	72	[162]	TAILCALL 	6 5 0	; 4 in
+	73	[162]	RETURN   	6 0 0	; all out
+	74	[163]	RETURN0  	
+
+function <data.lua:165,176> (31 instructions at 000002D648E33E70)
+1 param, 9 slots, 3 upvalues, 7 locals, 8 constants, 0 functions
+	1	[168]	GETTABUP 	1 0 0	; M "GameBase"
+	2	[168]	GETTABUP 	2 1 1	; offset "ObjectBase"
+	3	[168]	ADD      	1 1 2
+	4	[168]	MMBIN    	1 2 6	; __add
+	5	[169]	SHRI     	2 0 16
+	6	[169]	MMBINI   	0 16 17 0	; __shr
+	7	[170]	BANDK    	3 0 2	; 65535
+	8	[170]	MMBINK   	0 2 13 0	; __band 65535
+	9	[172]	GETTABUP 	4 2 3	; _ENV "proc"
+	10	[172]	GETFIELD 	4 4 4	; "read_u64"
+	11	[172]	GETTABUP 	5 0 5	; M "pid"
+	12	[172]	MOVE     	6 1
+	13	[172]	CALL     	4 3 2	; 2 in 1 out
+	14	[173]	GETTABUP 	5 2 3	; _ENV "proc"
+	15	[173]	GETFIELD 	5 5 4	; "read_u64"
+	16	[173]	GETTABUP 	6 0 5	; M "pid"
+	17	[173]	MULK     	7 2 6	; 8
+	18	[173]	MMBINK   	2 6 8 0	; __mul 8
+	19	[173]	ADD      	7 4 7
+	20	[173]	MMBIN    	4 7 6	; __add
+	21	[173]	CALL     	5 3 2	; 2 in 1 out
+	22	[174]	GETTABUP 	6 2 3	; _ENV "proc"
+	23	[174]	GETFIELD 	6 6 4	; "read_u64"
+	24	[174]	GETTABUP 	7 0 5	; M "pid"
+	25	[174]	MULK     	8 3 7	; 24
+	26	[174]	MMBINK   	3 7 8 0	; __mul 24
+	27	[174]	ADD      	8 5 8
+	28	[174]	MMBIN    	5 8 6	; __add
+	29	[174]	CALL     	6 3 2	; 2 in 1 out
+	30	[175]	RETURN1  	6
+	31	[176]	RETURN0  	
+
+function <data.lua:181,232> (203 instructions at 000002D648E340A0)
+0 params, 33 slots, 3 upvalues, 30 locals, 32 constants, 0 functions
+	1	[182]	GETTABUP 	0 0 0	; M "GameBase"
+	2	[182]	GETTABUP 	1 1 1	; offset "Controlsoffset"
+	3	[182]	ADD      	0 0 1
+	4	[182]	MMBIN    	0 1 6	; __add
+	5	[183]	GETTABUP 	1 2 2	; _ENV "proc"
+	6	[183]	GETFIELD 	1 1 3	; "read_u64"
+	7	[183]	GETTABUP 	2 0 4	; M "pid"
+	8	[183]	ADDK     	3 0 5	; 280
+	9	[183]	MMBINK   	0 5 6 0	; __add 280
+	10	[183]	CALL     	1 3 2	; 2 in 1 out
+	11	[184]	GETTABUP 	2 2 2	; _ENV "proc"
+	12	[184]	GETFIELD 	2 2 6	; "read_u32"
+	13	[184]	GETTABUP 	3 0 4	; M "pid"
+	14	[184]	ADDK     	4 0 7	; 288
+	15	[184]	MMBINK   	0 7 6 0	; __add 288
+	16	[184]	CALL     	2 3 2	; 2 in 1 out
+	17	[185]	NEWTABLE 	3 0 0	; 0
+	18	[185]	EXTRAARG 	0
+	19	[187]	LOADI    	4 0
+	20	[187]	ADDI     	5 2 -1
+	21	[187]	MMBINI   	2 1 7 0	; __sub
+	22	[187]	LOADI    	6 1
+	23	[187]	FORPREP  	4 177	; exit to 202
+	24	[188]	MULK     	8 7 8	; 32
+	25	[188]	MMBINK   	7 8 8 0	; __mul 32
+	26	[188]	ADD      	8 1 8
+	27	[188]	MMBIN    	1 8 6	; __add
+	28	[189]	GETTABUP 	9 2 2	; _ENV "proc"
+	29	[189]	GETFIELD 	9 9 3	; "read_u64"
+	30	[189]	GETTABUP 	10 0 4	; M "pid"
+	31	[189]	ADDI     	11 8 16
+	32	[189]	MMBINI   	8 16 6 0	; __add
+	33	[189]	CALL     	9 3 2	; 2 in 1 out
+	34	[190]	EQI      	9 0 1
+	35	[190]	JMP      	165	; to 201
+	36	[191]	GETTABUP 	10 2 2	; _ENV "proc"
+	37	[191]	GETFIELD 	10 10 3	; "read_u64"
+	38	[191]	GETTABUP 	11 0 4	; M "pid"
+	39	[191]	GETTABUP 	12 2 2	; _ENV "proc"
+	40	[191]	GETFIELD 	12 12 3	; "read_u64"
+	41	[191]	GETTABUP 	13 0 4	; M "pid"
+	42	[191]	MOVE     	14 9
+	43	[191]	CALL     	12 3 0	; 2 in all out
+	44	[191]	CALL     	10 0 2	; all in 1 out
+	45	[192]	GETTABUP 	11 2 2	; _ENV "proc"
+	46	[192]	GETFIELD 	11 11 6	; "read_u32"
+	47	[192]	GETTABUP 	12 0 4	; M "pid"
+	48	[192]	ADDI     	13 10 24
+	49	[192]	MMBINI   	10 24 6 0	; __add
+	50	[192]	CALL     	11 3 2	; 2 in 1 out
+	51	[193]	GETTABUP 	12 0 9	; M "GetByName"
+	52	[193]	MOVE     	13 11
+	53	[193]	CALL     	12 2 2	; 1 in 1 out
+	54	[195]	EQK      	12 10 0	; "Default__UIButton"
+	55	[195]	JMP      	145	; to 201
+	56	[196]	GETTABUP 	13 2 2	; _ENV "proc"
+	57	[196]	GETFIELD 	13 13 3	; "read_u64"
+	58	[196]	GETTABUP 	14 0 4	; M "pid"
+	59	[196]	MOVE     	15 9
+	60	[196]	CALL     	13 3 2	; 2 in 1 out
+	61	[197]	GETTABUP 	14 2 2	; _ENV "proc"
+	62	[197]	GETFIELD 	14 14 6	; "read_u32"
+	63	[197]	GETTABUP 	15 0 4	; M "pid"
+	64	[197]	ADDI     	16 9 8
+	65	[197]	MMBINI   	9 8 6 0	; __add
+	66	[197]	CALL     	14 3 2	; 2 in 1 out
+	67	[198]	LOADI    	15 0
+	68	[198]	ADDI     	16 14 -1
+	69	[198]	MMBINI   	14 1 7 0	; __sub
+	70	[198]	LOADI    	17 1
+	71	[198]	FORPREP  	15 128	; exit to 201
+	72	[199]	GETTABUP 	19 2 2	; _ENV "proc"
+	73	[199]	GETFIELD 	19 19 3	; "read_u64"
+	74	[199]	GETTABUP 	20 0 4	; M "pid"
+	75	[199]	MULK     	21 18 11	; 16
+	76	[199]	MMBINK   	18 11 8 0	; __mul 16
+	77	[199]	ADD      	21 13 21
+	78	[199]	MMBIN    	13 21 6	; __add
+	79	[199]	CALL     	19 3 2	; 2 in 1 out
+	80	[200]	GETTABUP 	20 2 2	; _ENV "proc"
+	81	[200]	GETFIELD 	20 20 3	; "read_u64"
+	82	[200]	GETTABUP 	21 0 4	; M "pid"
+	83	[200]	ADDK     	22 19 12	; 224
+	84	[200]	MMBINK   	19 12 6 0	; __add 224
+	85	[200]	CALL     	20 3 2	; 2 in 1 out
+	86	[201]	EQI      	20 0 1
+	87	[201]	JMP      	112	; to 200
+	88	[201]	EQK      	20 13 1	; nil
+	89	[201]	JMP      	110	; to 200
+	90	[202]	GETTABUP 	21 2 2	; _ENV "proc"
+	91	[202]	GETFIELD 	21 21 14	; "read_u8"
+	92	[202]	GETTABUP 	22 0 4	; M "pid"
+	93	[202]	GETTABUP 	23 2 2	; _ENV "proc"
+	94	[202]	GETFIELD 	23 23 3	; "read_u64"
+	95	[202]	GETTABUP 	24 0 4	; M "pid"
+	96	[202]	ADDK     	25 19 15	; 232
+	97	[202]	MMBINK   	19 15 6 0	; __add 232
+	98	[202]	CALL     	23 3 2	; 2 in 1 out
+	99	[202]	ADDI     	23 23 12
+	100	[202]	MMBINI   	23 12 6 0	; __add
+	101	[202]	CALL     	21 3 2	; 2 in 1 out
+	102	[203]	EQI      	21 1 1
+	103	[203]	JMP      	96	; to 200
+	104	[203]	EQI      	21 3 1
+	105	[203]	JMP      	94	; to 200
+	106	[203]	EQI      	21 6 1
+	107	[203]	JMP      	92	; to 200
+	108	[203]	EQI      	21 9 1
+	109	[203]	JMP      	90	; to 200
+	110	[204]	GETTABUP 	22 2 2	; _ENV "proc"
+	111	[204]	GETFIELD 	22 22 14	; "read_u8"
+	112	[204]	GETTABUP 	23 0 4	; M "pid"
+	113	[204]	ADDK     	24 20 16	; 440
+	114	[204]	MMBINK   	20 16 6 0	; __add 440
+	115	[204]	CALL     	22 3 2	; 2 in 1 out
+	116	[205]	EQI      	22 17 1
+	117	[205]	JMP      	2	; to 120
+	118	[205]	EQI      	22 25 0
+	119	[205]	JMP      	80	; to 200
+	120	[206]	GETTABUP 	23 0 17	; M "GetFullName"
+	121	[206]	MOVE     	24 19
+	122	[206]	CALL     	23 2 2	; 1 in 1 out
+	123	[207]	GETTABUP 	24 2 2	; _ENV "proc"
+	124	[207]	GETFIELD 	24 24 18	; "read_float"
+	125	[207]	GETTABUP 	25 0 4	; M "pid"
+	126	[207]	GETTABUP 	26 2 2	; _ENV "proc"
+	127	[207]	GETFIELD 	26 26 3	; "read_u64"
+	128	[207]	GETTABUP 	27 0 4	; M "pid"
+	129	[207]	ADDK     	28 19 12	; 224
+	130	[207]	MMBINK   	19 12 6 0	; __add 224
+	131	[207]	CALL     	26 3 2	; 2 in 1 out
+	132	[207]	ADDK     	26 26 19	; 212
+	133	[207]	MMBINK   	26 19 6 0	; __add 212
+	134	[207]	CALL     	24 3 2	; 2 in 1 out
+	135	[208]	GETTABUP 	25 2 2	; _ENV "proc"
+	136	[208]	GETFIELD 	25 25 18	; "read_float"
+	137	[208]	GETTABUP 	26 0 4	; M "pid"
+	138	[208]	GETTABUP 	27 2 2	; _ENV "proc"
+	139	[208]	GETFIELD 	27 27 3	; "read_u64"
+	140	[208]	GETTABUP 	28 0 4	; M "pid"
+	141	[208]	ADDK     	29 19 12	; 224
+	142	[208]	MMBINK   	19 12 6 0	; __add 224
+	143	[208]	CALL     	27 3 2	; 2 in 1 out
+	144	[208]	ADDK     	27 27 20	; 216
+	145	[208]	MMBINK   	27 20 6 0	; __add 216
+	146	[208]	CALL     	25 3 2	; 2 in 1 out
+	147	[209]	GETTABUP 	26 2 2	; _ENV "proc"
+	148	[209]	GETFIELD 	26 26 3	; "read_u64"
+	149	[209]	GETTABUP 	27 0 4	; M "pid"
+	150	[209]	ADDK     	28 19 21	; 1832
+	151	[209]	MMBINK   	19 21 6 0	; __add 1832
+	152	[209]	CALL     	26 3 2	; 2 in 1 out
+	153	[210]	GETTABUP 	27 2 2	; _ENV "proc"
+	154	[210]	GETFIELD 	27 27 3	; "read_u64"
+	155	[210]	GETTABUP 	28 0 4	; M "pid"
+	156	[210]	ADDK     	29 26 22	; 392
+	157	[210]	MMBINK   	26 22 6 0	; __add 392
+	158	[210]	CALL     	27 3 2	; 2 in 1 out
+	159	[211]	LOADK    	28 23	; ""
+	160	[212]	EQI      	27 0 1
+	161	[212]	JMP      	12	; to 174
+	162	[212]	EQK      	27 13 1	; nil
+	163	[212]	JMP      	10	; to 174
+	164	[213]	GETTABUP 	29 2 2	; _ENV "proc"
+	165	[213]	GETFIELD 	29 29 3	; "read_u64"
+	166	[213]	GETTABUP 	30 0 4	; M "pid"
+	167	[213]	ADDI     	31 27 56
+	168	[213]	MMBINI   	27 56 6 0	; __add
+	169	[213]	CALL     	29 3 2	; 2 in 1 out
+	170	[214]	GETTABUP 	30 2 24	; _ENV "readWstring"
+	171	[214]	MOVE     	31 29
+	172	[214]	CALL     	30 2 2	; 1 in 1 out
+	173	[214]	MOVE     	28 30
+	174	[217]	GETTABUP 	29 2 25	; _ENV "table"
+	175	[217]	GETFIELD 	29 29 26	; "insert"
+	176	[217]	MOVE     	30 3
+	177	[217]	NEWTABLE 	31 4 0	; 0
+	178	[217]	EXTRAARG 	0
+	179	[218]	TESTSET  	32 19 1
+	180	[218]	JMP      	1	; to 182
+	181	[218]	LOADI    	32 0
+	182	[218]	SETFIELD 	31 27 32	; "addr"
+	183	[219]	TESTSET  	32 23 1
+	184	[219]	JMP      	1	; to 186
+	185	[219]	LOADK    	32 23	; ""
+	186	[219]	SETFIELD 	31 28 32	; "name"
+	187	[220]	TESTSET  	32 28 1
+	188	[220]	JMP      	1	; to 190
+	189	[220]	LOADK    	32 23	; ""
+	190	[220]	SETFIELD 	31 29 32	; "text"
+	191	[221]	TESTSET  	32 24 1
+	192	[221]	JMP      	1	; to 194
+	193	[221]	LOADI    	32 0
+	194	[221]	SETFIELD 	31 30 32	; "x"
+	195	[222]	TESTSET  	32 25 1
+	196	[222]	JMP      	1	; to 198
+	197	[222]	LOADI    	32 0
+	198	[222]	SETFIELD 	31 31 32	; "y"
+	199	[217]	CALL     	29 3 1	; 2 in 0 out
+	200	[198]	FORLOOP  	15 129	; to 72
+	201	[187]	FORLOOP  	4 178	; to 24
+	202	[231]	RETURN1  	3
+	203	[232]	RETURN0  	
+
+function <data.lua:236,248> (39 instructions at 000002D648E34970)
+1 param, 7 slots, 2 upvalues, 4 locals, 5 constants, 0 functions
+	1	[237]	GETTABUP 	1 0 0	; _ENV "proc"
+	2	[237]	GETFIELD 	1 1 1	; "read_u64"
+	3	[237]	GETTABUP 	2 1 2	; M "pid"
+	4	[237]	ADDI     	3 0 32
+	5	[237]	MMBINI   	0 32 6 0	; __add
+	6	[237]	CALL     	1 3 2	; 2 in 1 out
+	7	[238]	LOADI    	2 0
+	8	[239]	TEST     	1 0
+	9	[239]	JMP      	27	; to 37
+	10	[239]	LOADI    	3 65536
+	11	[239]	LT       	3 1 0
+	12	[239]	JMP      	24	; to 37
+	13	[239]	LTI      	2 8 0
+	14	[239]	JMP      	22	; to 37
+	15	[240]	GETTABUP 	3 0 0	; _ENV "proc"
+	16	[240]	GETFIELD 	3 3 3	; "read_u8"
+	17	[240]	GETTABUP 	4 1 2	; M "pid"
+	18	[240]	ADDK     	5 1 4	; 195
+	19	[240]	MMBINK   	1 4 6 0	; __add 195
+	20	[240]	CALL     	3 3 2	; 2 in 1 out
+	21	[241]	EQI      	3 1 1
+	22	[241]	JMP      	2	; to 25
+	23	[241]	EQI      	3 2 0
+	24	[241]	JMP      	2	; to 27
+	25	[242]	LOADFALSE	4
+	26	[242]	RETURN1  	4
+	27	[244]	GETTABUP 	4 0 0	; _ENV "proc"
+	28	[244]	GETFIELD 	4 4 1	; "read_u64"
+	29	[244]	GETTABUP 	5 1 2	; M "pid"
+	30	[244]	ADDI     	6 1 32
+	31	[244]	MMBINI   	1 32 6 0	; __add
+	32	[244]	CALL     	4 3 2	; 2 in 1 out
+	33	[244]	MOVE     	1 4
+	34	[245]	ADDI     	2 2 1
+	35	[245]	MMBINI   	2 1 6 0	; __add
+	36	[245]	JMP      	-29	; to 8
+	37	[247]	LOADTRUE 	3
+	38	[247]	RETURN1  	3
+	39	[248]	RETURN0  	
+
+function <data.lua:250,302> (198 instructions at 000002D648E35320)
+0 params, 31 slots, 3 upvalues, 27 locals, 32 constants, 0 functions
+	1	[251]	GETTABUP 	0 0 0	; M "GameBase"
+	2	[251]	GETTABUP 	1 1 1	; offset "Controlsoffset"
+	3	[251]	ADD      	0 0 1
+	4	[251]	MMBIN    	0 1 6	; __add
+	5	[252]	GETTABUP 	1 2 2	; _ENV "proc"
+	6	[252]	GETFIELD 	1 1 3	; "read_u64"
+	7	[252]	GETTABUP 	2 0 4	; M "pid"
+	8	[252]	ADDK     	3 0 5	; 280
+	9	[252]	MMBINK   	0 5 6 0	; __add 280
+	10	[252]	CALL     	1 3 2	; 2 in 1 out
+	11	[253]	GETTABUP 	2 2 2	; _ENV "proc"
+	12	[253]	GETFIELD 	2 2 6	; "read_u32"
+	13	[253]	GETTABUP 	3 0 4	; M "pid"
+	14	[253]	ADDK     	4 0 7	; 288
+	15	[253]	MMBINK   	0 7 6 0	; __add 288
+	16	[253]	CALL     	2 3 2	; 2 in 1 out
+	17	[254]	NEWTABLE 	3 0 0	; 0
+	18	[254]	EXTRAARG 	0
+	19	[256]	LOADI    	4 0
+	20	[256]	ADDI     	5 2 -1
+	21	[256]	MMBINI   	2 1 7 0	; __sub
+	22	[256]	LOADI    	6 1
+	23	[256]	FORPREP  	4 172	; exit to 197
+	24	[257]	MULK     	8 7 8	; 32
+	25	[257]	MMBINK   	7 8 8 0	; __mul 32
+	26	[257]	ADD      	8 1 8
+	27	[257]	MMBIN    	1 8 6	; __add
+	28	[258]	GETTABUP 	9 2 2	; _ENV "proc"
+	29	[258]	GETFIELD 	9 9 3	; "read_u64"
+	30	[258]	GETTABUP 	10 0 4	; M "pid"
+	31	[258]	ADDI     	11 8 16
+	32	[258]	MMBINI   	8 16 6 0	; __add
+	33	[258]	CALL     	9 3 2	; 2 in 1 out
+	34	[259]	EQI      	9 0 1
+	35	[259]	JMP      	160	; to 196
+	36	[260]	GETTABUP 	10 2 2	; _ENV "proc"
+	37	[260]	GETFIELD 	10 10 3	; "read_u64"
+	38	[260]	GETTABUP 	11 0 4	; M "pid"
+	39	[260]	GETTABUP 	12 2 2	; _ENV "proc"
+	40	[260]	GETFIELD 	12 12 3	; "read_u64"
+	41	[260]	GETTABUP 	13 0 4	; M "pid"
+	42	[260]	MOVE     	14 9
+	43	[260]	CALL     	12 3 0	; 2 in all out
+	44	[260]	CALL     	10 0 2	; all in 1 out
+	45	[261]	GETTABUP 	11 2 2	; _ENV "proc"
+	46	[261]	GETFIELD 	11 11 6	; "read_u32"
+	47	[261]	GETTABUP 	12 0 4	; M "pid"
+	48	[261]	ADDI     	13 10 24
+	49	[261]	MMBINI   	10 24 6 0	; __add
+	50	[261]	CALL     	11 3 2	; 2 in 1 out
+	51	[262]	GETTABUP 	12 0 9	; M "GetByName"
+	52	[262]	MOVE     	13 11
+	53	[262]	CALL     	12 2 2	; 1 in 1 out
+	54	[264]	EQK      	12 10 0	; "Default__UITextBlock"
+	55	[264]	JMP      	140	; to 196
+	56	[265]	GETTABUP 	13 2 2	; _ENV "proc"
+	57	[265]	GETFIELD 	13 13 3	; "read_u64"
+	58	[265]	GETTABUP 	14 0 4	; M "pid"
+	59	[265]	MOVE     	15 9
+	60	[265]	CALL     	13 3 2	; 2 in 1 out
+	61	[266]	GETTABUP 	14 2 2	; _ENV "proc"
+	62	[266]	GETFIELD 	14 14 6	; "read_u32"
+	63	[266]	GETTABUP 	15 0 4	; M "pid"
+	64	[266]	ADDI     	16 9 8
+	65	[266]	MMBINI   	9 8 6 0	; __add
+	66	[266]	CALL     	14 3 2	; 2 in 1 out
+	67	[267]	LOADI    	15 0
+	68	[267]	ADDI     	16 14 -1
+	69	[267]	MMBINI   	14 1 7 0	; __sub
+	70	[267]	LOADI    	17 1
+	71	[267]	FORPREP  	15 123	; exit to 196
+	72	[268]	GETTABUP 	19 2 2	; _ENV "proc"
+	73	[268]	GETFIELD 	19 19 3	; "read_u64"
+	74	[268]	GETTABUP 	20 0 4	; M "pid"
+	75	[268]	MULK     	21 18 11	; 16
+	76	[268]	MMBINK   	18 11 8 0	; __mul 16
+	77	[268]	ADD      	21 13 21
+	78	[268]	MMBIN    	13 21 6	; __add
+	79	[268]	CALL     	19 3 2	; 2 in 1 out
+	80	[269]	GETTABUP 	20 2 2	; _ENV "proc"
+	81	[269]	GETFIELD 	20 20 3	; "read_u64"
+	82	[269]	GETTABUP 	21 0 4	; M "pid"
+	83	[269]	ADDK     	22 19 12	; 224
+	84	[269]	MMBINK   	19 12 6 0	; __add 224
+	85	[269]	CALL     	20 3 2	; 2 in 1 out
+	86	[270]	EQI      	20 0 1
+	87	[270]	JMP      	107	; to 195
+	88	[270]	EQK      	20 13 1	; nil
+	89	[270]	JMP      	105	; to 195
+	90	[271]	GETTABUP 	21 2 2	; _ENV "proc"
+	91	[271]	GETFIELD 	21 21 14	; "read_u8"
+	92	[271]	GETTABUP 	22 0 4	; M "pid"
+	93	[271]	ADDK     	23 20 15	; 440
+	94	[271]	MMBINK   	20 15 6 0	; __add 440
+	95	[271]	CALL     	21 3 2	; 2 in 1 out
+	96	[272]	EQI      	21 17 1
+	97	[272]	JMP      	2	; to 100
+	98	[272]	EQI      	21 25 0
+	99	[272]	JMP      	95	; to 195
+	100	[272]	GETTABUP 	22 0 16	; M "IsOuterVisible"
+	101	[272]	MOVE     	23 19
+	102	[272]	CALL     	22 2 2	; 1 in 1 out
+	103	[272]	TEST     	22 0
+	104	[272]	JMP      	90	; to 195
+	105	[273]	GETTABUP 	22 2 2	; _ENV "proc"
+	106	[273]	GETFIELD 	22 22 14	; "read_u8"
+	107	[273]	GETTABUP 	23 0 4	; M "pid"
+	108	[273]	ADDK     	24 20 17	; 360
+	109	[273]	MMBINK   	20 17 6 0	; __add 360
+	110	[273]	CALL     	22 3 2	; 2 in 1 out
+	111	[273]	EQI      	22 1 0
+	112	[273]	JMP      	82	; to 195
+	113	[274]	GETTABUP 	22 0 18	; M "GetFullName"
+	114	[274]	MOVE     	23 19
+	115	[274]	CALL     	22 2 2	; 1 in 1 out
+	116	[275]	GETTABUP 	23 2 2	; _ENV "proc"
+	117	[275]	GETFIELD 	23 23 19	; "read_float"
+	118	[275]	GETTABUP 	24 0 4	; M "pid"
+	119	[275]	GETTABUP 	25 2 2	; _ENV "proc"
+	120	[275]	GETFIELD 	25 25 3	; "read_u64"
+	121	[275]	GETTABUP 	26 0 4	; M "pid"
+	122	[275]	ADDK     	27 19 12	; 224
+	123	[275]	MMBINK   	19 12 6 0	; __add 224
+	124	[275]	CALL     	25 3 2	; 2 in 1 out
+	125	[275]	ADDK     	25 25 20	; 212
+	126	[275]	MMBINK   	25 20 6 0	; __add 212
+	127	[275]	CALL     	23 3 2	; 2 in 1 out
+	128	[276]	GETTABUP 	24 2 2	; _ENV "proc"
+	129	[276]	GETFIELD 	24 24 19	; "read_float"
+	130	[276]	GETTABUP 	25 0 4	; M "pid"
+	131	[276]	GETTABUP 	26 2 2	; _ENV "proc"
+	132	[276]	GETFIELD 	26 26 3	; "read_u64"
+	133	[276]	GETTABUP 	27 0 4	; M "pid"
+	134	[276]	ADDK     	28 19 12	; 224
+	135	[276]	MMBINK   	19 12 6 0	; __add 224
+	136	[276]	CALL     	26 3 2	; 2 in 1 out
+	137	[276]	ADDK     	26 26 21	; 216
+	138	[276]	MMBINK   	26 21 6 0	; __add 216
+	139	[276]	CALL     	24 3 2	; 2 in 1 out
+	140	[277]	GETTABUP 	25 2 2	; _ENV "proc"
+	141	[277]	GETFIELD 	25 25 3	; "read_u64"
+	142	[277]	GETTABUP 	26 0 4	; M "pid"
+	143	[277]	GETTABUP 	27 2 2	; _ENV "proc"
+	144	[277]	GETFIELD 	27 27 3	; "read_u64"
+	145	[277]	GETTABUP 	28 0 4	; M "pid"
+	146	[277]	ADDK     	29 19 22	; 312
+	147	[277]	MMBINK   	19 22 6 0	; __add 312
+	148	[277]	CALL     	27 3 2	; 2 in 1 out
+	149	[277]	ADDI     	27 27 40
+	150	[277]	MMBINI   	27 40 6 0	; __add
+	151	[277]	CALL     	25 3 2	; 2 in 1 out
+	152	[278]	LOADK    	26 23	; ""
+	153	[279]	TEST     	25 0
+	154	[279]	JMP      	8	; to 163
+	155	[279]	EQI      	25 0 1
+	156	[279]	JMP      	6	; to 163
+	157	[279]	EQK      	25 13 1	; nil
+	158	[279]	JMP      	4	; to 163
+	159	[280]	GETTABUP 	27 2 24	; _ENV "readWstring"
+	160	[280]	MOVE     	28 25
+	161	[280]	CALL     	27 2 2	; 1 in 1 out
+	162	[280]	MOVE     	26 27
+	163	[283]	EQI      	23 0 1
+	164	[283]	JMP      	30	; to 195
+	165	[283]	EQI      	24 0 1
+	166	[283]	JMP      	28	; to 195
+	167	[284]	EQK      	26 23 1	; ""
+	168	[284]	JMP      	26	; to 195
+	169	[285]	GETTABUP 	27 2 25	; _ENV "table"
+	170	[285]	GETFIELD 	27 27 26	; "insert"
+	171	[285]	MOVE     	28 3
+	172	[285]	NEWTABLE 	29 4 0	; 0
+	173	[285]	EXTRAARG 	0
+	174	[286]	TESTSET  	30 19 1
+	175	[286]	JMP      	1	; to 177
+	176	[286]	LOADI    	30 0
+	177	[286]	SETFIELD 	29 27 30	; "addr"
+	178	[287]	TESTSET  	30 22 1
+	179	[287]	JMP      	1	; to 181
+	180	[287]	LOADK    	30 23	; ""
+	181	[287]	SETFIELD 	29 28 30	; "name"
+	182	[288]	TESTSET  	30 26 1
+	183	[288]	JMP      	1	; to 185
+	184	[288]	LOADK    	30 23	; ""
+	185	[288]	SETFIELD 	29 29 30	; "text"
+	186	[289]	TESTSET  	30 23 1
+	187	[289]	JMP      	1	; to 189
+	188	[289]	LOADI    	30 0
+	189	[289]	SETFIELD 	29 30 30	; "x"
+	190	[290]	TESTSET  	30 24 1
+	191	[290]	JMP      	1	; to 193
+	192	[290]	LOADI    	30 0
+	193	[290]	SETFIELD 	29 31 30	; "y"
+	194	[285]	CALL     	27 3 1	; 2 in 0 out
+	195	[267]	FORLOOP  	15 124	; to 72
+	196	[256]	FORLOOP  	4 173	; to 24
+	197	[301]	RETURN1  	3
+	198	[302]	RETURN0  	
+
+function <data.lua:305,321> (53 instructions at 000002D648E35B90)
+2 params, 21 slots, 2 upvalues, 18 locals, 6 constants, 0 functions
+	1	[306]	TEST     	1 1
+	2	[306]	JMP      	1	; to 4
+	3	[306]	LOADI    	1 200
+	4	[307]	GETTABUP 	2 0 0	; M "EnumCText"
+	5	[307]	CALL     	2 1 2	; 0 in 1 out
+	6	[308]	TEST     	0 0
+	7	[308]	JMP      	3	; to 11
+	8	[308]	LEN      	3 0
+	9	[308]	EQI      	3 0 0
+	10	[308]	JMP      	1	; to 12
+	11	[308]	RETURN   	2 2 0k	; 1 out
+	12	[309]	NEWTABLE 	3 0 0	; 0
+	13	[309]	EXTRAARG 	0
+	14	[310]	GETTABUP 	4 1 1	; _ENV "ipairs"
+	15	[310]	MOVE     	5 2
+	16	[310]	CALL     	4 2 5	; 1 in 4 out
+	17	[310]	TFORPREP 	4 31	; to 49
+	18	[311]	GETTABUP 	10 1 1	; _ENV "ipairs"
+	19	[311]	MOVE     	11 0
+	20	[311]	CALL     	10 2 5	; 1 in 4 out
+	21	[311]	TFORPREP 	10 24	; to 46
+	22	[312]	GETFIELD 	16 9 2	; "x"
+	23	[312]	GETFIELD 	17 15 2	; "x"
+	24	[312]	SUB      	16 16 17
+	25	[312]	MMBIN    	16 17 7	; __sub
+	26	[313]	GETFIELD 	17 9 3	; "y"
+	27	[313]	GETFIELD 	18 15 3	; "y"
+	28	[313]	SUB      	17 17 18
+	29	[313]	MMBIN    	17 18 7	; __sub
+	30	[314]	MUL      	18 16 16
+	31	[314]	MMBIN    	16 16 8	; __mul
+	32	[314]	MUL      	19 17 17
+	33	[314]	MMBIN    	17 17 8	; __mul
+	34	[314]	ADD      	18 18 19
+	35	[314]	MMBIN    	18 19 6	; __add
+	36	[314]	MUL      	19 1 1
+	37	[314]	MMBIN    	1 1 8	; __mul
+	38	[314]	LE       	18 19 0
+	39	[314]	JMP      	6	; to 46
+	40	[315]	GETTABUP 	18 1 4	; _ENV "table"
+	41	[315]	GETFIELD 	18 18 5	; "insert"
+	42	[315]	MOVE     	19 3
+	43	[315]	MOVE     	20 9
+	44	[315]	CALL     	18 3 1	; 2 in 0 out
+	45	[316]	JMP      	2	; to 48
+	46	[311]	TFORCALL 	10 2
+	47	[311]	TFORLOOP 	10 26	; to 22
+	48	[318]	CLOSE    	10
+	49	[310]	TFORCALL 	4 2
+	50	[310]	TFORLOOP 	4 33	; to 18
+	51	[319]	CLOSE    	4
+	52	[320]	RETURN   	3 2 0k	; 1 out
+	53	[321]	RETURN   	4 1 0k	; 0 out
+
+function <data.lua:324,365> (166 instructions at 000002D648E35EA0)
+0 params, 30 slots, 3 upvalues, 26 locals, 31 constants, 0 functions
+	1	[325]	GETTABUP 	0 0 0	; M "GameBase"
+	2	[325]	GETTABUP 	1 1 1	; offset "Controlsoffset"
+	3	[325]	ADD      	0 0 1
+	4	[325]	MMBIN    	0 1 6	; __add
+	5	[326]	GETTABUP 	1 2 2	; _ENV "proc"
+	6	[326]	GETFIELD 	1 1 3	; "read_u64"
+	7	[326]	GETTABUP 	2 0 4	; M "pid"
+	8	[326]	ADDK     	3 0 5	; 280
+	9	[326]	MMBINK   	0 5 6 0	; __add 280
+	10	[326]	CALL     	1 3 2	; 2 in 1 out
+	11	[327]	GETTABUP 	2 2 2	; _ENV "proc"
+	12	[327]	GETFIELD 	2 2 6	; "read_u32"
+	13	[327]	GETTABUP 	3 0 4	; M "pid"
+	14	[327]	ADDK     	4 0 7	; 288
+	15	[327]	MMBINK   	0 7 6 0	; __add 288
+	16	[327]	CALL     	2 3 2	; 2 in 1 out
+	17	[328]	NEWTABLE 	3 0 0	; 0
+	18	[328]	EXTRAARG 	0
+	19	[329]	LOADI    	4 0
+	20	[329]	ADDI     	5 2 -1
+	21	[329]	MMBINI   	2 1 7 0	; __sub
+	22	[329]	LOADI    	6 1
+	23	[329]	FORPREP  	4 140	; exit to 165
+	24	[330]	MULK     	8 7 8	; 32
+	25	[330]	MMBINK   	7 8 8 0	; __mul 32
+	26	[330]	ADD      	8 1 8
+	27	[330]	MMBIN    	1 8 6	; __add
+	28	[331]	GETTABUP 	9 2 2	; _ENV "proc"
+	29	[331]	GETFIELD 	9 9 3	; "read_u64"
+	30	[331]	GETTABUP 	10 0 4	; M "pid"
+	31	[331]	ADDI     	11 8 16
+	32	[331]	MMBINI   	8 16 6 0	; __add
+	33	[331]	CALL     	9 3 2	; 2 in 1 out
+	34	[332]	EQI      	9 0 1
+	35	[332]	JMP      	128	; to 164
+	36	[333]	GETTABUP 	10 2 2	; _ENV "proc"
+	37	[333]	GETFIELD 	10 10 3	; "read_u64"
+	38	[333]	GETTABUP 	11 0 4	; M "pid"
+	39	[333]	GETTABUP 	12 2 2	; _ENV "proc"
+	40	[333]	GETFIELD 	12 12 3	; "read_u64"
+	41	[333]	GETTABUP 	13 0 4	; M "pid"
+	42	[333]	MOVE     	14 9
+	43	[333]	CALL     	12 3 0	; 2 in all out
+	44	[333]	CALL     	10 0 2	; all in 1 out
+	45	[334]	GETTABUP 	11 2 2	; _ENV "proc"
+	46	[334]	GETFIELD 	11 11 6	; "read_u32"
+	47	[334]	GETTABUP 	12 0 4	; M "pid"
+	48	[334]	ADDI     	13 10 24
+	49	[334]	MMBINI   	10 24 6 0	; __add
+	50	[334]	CALL     	11 3 2	; 2 in 1 out
+	51	[335]	GETTABUP 	12 2 9	; _ENV "print"
+	52	[335]	LOADK    	13 10	; "\230\142\167\228\187\182\231\177\187\229\136\171id:"
+	53	[335]	MOVE     	14 11
+	54	[335]	CALL     	12 3 1	; 2 in 0 out
+	55	[336]	GETTABUP 	12 0 11	; M "GetByName"
+	56	[336]	MOVE     	13 11
+	57	[336]	CALL     	12 2 2	; 1 in 1 out
+	58	[338]	EQK      	12 12 0	; "Default__UIImage"
+	59	[338]	JMP      	104	; to 164
+	60	[339]	GETTABUP 	13 2 2	; _ENV "proc"
+	61	[339]	GETFIELD 	13 13 3	; "read_u64"
+	62	[339]	GETTABUP 	14 0 4	; M "pid"
+	63	[339]	MOVE     	15 9
+	64	[339]	CALL     	13 3 2	; 2 in 1 out
+	65	[340]	GETTABUP 	14 2 2	; _ENV "proc"
+	66	[340]	GETFIELD 	14 14 6	; "read_u32"
+	67	[340]	GETTABUP 	15 0 4	; M "pid"
+	68	[340]	ADDI     	16 9 8
+	69	[340]	MMBINI   	9 8 6 0	; __add
+	70	[340]	CALL     	14 3 2	; 2 in 1 out
+	71	[341]	LOADI    	15 0
+	72	[341]	ADDI     	16 14 -1
+	73	[341]	MMBINI   	14 1 7 0	; __sub
+	74	[341]	LOADI    	17 1
+	75	[341]	FORPREP  	15 87	; exit to 164
+	76	[342]	GETTABUP 	19 2 2	; _ENV "proc"
+	77	[342]	GETFIELD 	19 19 3	; "read_u64"
+	78	[342]	GETTABUP 	20 0 4	; M "pid"
+	79	[342]	MULK     	21 18 13	; 16
+	80	[342]	MMBINK   	18 13 8 0	; __mul 16
+	81	[342]	ADD      	21 13 21
+	82	[342]	MMBIN    	13 21 6	; __add
+	83	[342]	CALL     	19 3 2	; 2 in 1 out
+	84	[343]	GETTABUP 	20 2 2	; _ENV "proc"
+	85	[343]	GETFIELD 	20 20 3	; "read_u64"
+	86	[343]	GETTABUP 	21 0 4	; M "pid"
+	87	[343]	ADDK     	22 19 14	; 224
+	88	[343]	MMBINK   	19 14 6 0	; __add 224
+	89	[343]	CALL     	20 3 2	; 2 in 1 out
+	90	[344]	EQI      	20 0 1
+	91	[344]	JMP      	71	; to 163
+	92	[344]	EQK      	20 15 1	; nil
+	93	[344]	JMP      	69	; to 163
+	94	[345]	GETTABUP 	21 2 2	; _ENV "proc"
+	95	[345]	GETFIELD 	21 21 16	; "read_u8"
+	96	[345]	GETTABUP 	22 0 4	; M "pid"
+	97	[345]	ADDK     	23 20 17	; 440
+	98	[345]	MMBINK   	20 17 6 0	; __add 440
+	99	[345]	CALL     	21 3 2	; 2 in 1 out
+	100	[346]	EQI      	21 17 1
+	101	[346]	JMP      	2	; to 104
+	102	[346]	EQI      	21 25 0
+	103	[346]	JMP      	59	; to 163
+	104	[347]	GETTABUP 	22 0 18	; M "GetFullName"
+	105	[347]	MOVE     	23 19
+	106	[347]	CALL     	22 2 2	; 1 in 1 out
+	107	[348]	GETTABUP 	23 2 2	; _ENV "proc"
+	108	[348]	GETFIELD 	23 23 16	; "read_u8"
+	109	[348]	GETTABUP 	24 0 4	; M "pid"
+	110	[348]	ADDK     	25 19 19	; 544
+	111	[348]	MMBINK   	19 19 6 0	; __add 544
+	112	[348]	CALL     	23 3 2	; 2 in 1 out
+	113	[349]	GETTABUP 	24 2 2	; _ENV "proc"
+	114	[349]	GETFIELD 	24 24 20	; "read_float"
+	115	[349]	GETTABUP 	25 0 4	; M "pid"
+	116	[349]	GETTABUP 	26 2 2	; _ENV "proc"
+	117	[349]	GETFIELD 	26 26 3	; "read_u64"
+	118	[349]	GETTABUP 	27 0 4	; M "pid"
+	119	[349]	ADDK     	28 19 14	; 224
+	120	[349]	MMBINK   	19 14 6 0	; __add 224
+	121	[349]	CALL     	26 3 2	; 2 in 1 out
+	122	[349]	ADDK     	26 26 21	; 212
+	123	[349]	MMBINK   	26 21 6 0	; __add 212
+	124	[349]	CALL     	24 3 2	; 2 in 1 out
+	125	[350]	GETTABUP 	25 2 2	; _ENV "proc"
+	126	[350]	GETFIELD 	25 25 20	; "read_float"
+	127	[350]	GETTABUP 	26 0 4	; M "pid"
+	128	[350]	GETTABUP 	27 2 2	; _ENV "proc"
+	129	[350]	GETFIELD 	27 27 3	; "read_u64"
+	130	[350]	GETTABUP 	28 0 4	; M "pid"
+	131	[350]	ADDK     	29 19 14	; 224
+	132	[350]	MMBINK   	19 14 6 0	; __add 224
+	133	[350]	CALL     	27 3 2	; 2 in 1 out
+	134	[350]	ADDK     	27 27 22	; 216
+	135	[350]	MMBINK   	27 22 6 0	; __add 216
+	136	[350]	CALL     	25 3 2	; 2 in 1 out
+	137	[351]	GETTABUP 	26 2 23	; _ENV "table"
+	138	[351]	GETFIELD 	26 26 24	; "insert"
+	139	[351]	MOVE     	27 3
+	140	[351]	NEWTABLE 	28 4 0	; 0
+	141	[351]	EXTRAARG 	0
+	142	[352]	TESTSET  	29 19 1
+	143	[352]	JMP      	1	; to 145
+	144	[352]	LOADI    	29 0
+	145	[352]	SETFIELD 	28 25 29	; "addr"
+	146	[353]	TESTSET  	29 22 1
+	147	[353]	JMP      	1	; to 149
+	148	[353]	LOADK    	29 27	; ""
+	149	[353]	SETFIELD 	28 26 29	; "Fullname"
+	150	[354]	TESTSET  	29 23 1
+	151	[354]	JMP      	1	; to 153
+	152	[354]	LOADI    	29 0
+	153	[354]	SETFIELD 	28 28 29	; "IsAsyncLoad"
+	154	[355]	TESTSET  	29 24 1
+	155	[355]	JMP      	1	; to 157
+	156	[355]	LOADI    	29 0
+	157	[355]	SETFIELD 	28 29 29	; "x"
+	158	[356]	TESTSET  	29 25 1
+	159	[356]	JMP      	1	; to 161
+	160	[356]	LOADI    	29 0
+	161	[356]	SETFIELD 	28 30 29	; "y"
+	162	[351]	CALL     	26 3 1	; 2 in 0 out
+	163	[341]	FORLOOP  	15 88	; to 76
+	164	[329]	FORLOOP  	4 141	; to 24
+	165	[364]	RETURN1  	3
+	166	[365]	RETURN0  	
+
+function <data.lua:368,420> (176 instructions at 000002D648E36650)
+0 params, 25 slots, 3 upvalues, 21 locals, 35 constants, 0 functions
+	1	[369]	GETTABUP 	0 0 0	; M "GameBase"
+	2	[369]	GETTABUP 	1 1 1	; offset "UWorldBase"
+	3	[369]	ADD      	0 0 1
+	4	[369]	MMBIN    	0 1 6	; __add
+	5	[372]	GETTABUP 	1 2 2	; _ENV "string"
+	6	[372]	GETFIELD 	1 1 3	; "format"
+	7	[372]	LOADK    	2 4	; "[[[0x%X]+0x30]+0x98]"
+	8	[372]	MOVE     	3 0
+	9	[372]	CALL     	1 3 2	; 2 in 1 out
+	10	[373]	GETTABUP 	2 2 5	; _ENV "proc"
+	11	[373]	GETFIELD 	2 2 6	; "eval_addr"
+	12	[373]	GETTABUP 	3 0 7	; M "pid"
+	13	[373]	MOVE     	4 1
+	14	[373]	CALL     	2 3 2	; 2 in 1 out
+	15	[374]	TEST     	2 0
+	16	[374]	JMP      	2	; to 19
+	17	[374]	EQI      	2 0 0
+	18	[374]	JMP      	3	; to 22
+	19	[375]	LOADNIL  	3 0	; 1 out
+	20	[375]	LOADK    	4 8	; "\229\145\168\229\155\180\230\149\176\231\187\132\232\167\163\230\158\144\229\164\177\232\180\165"
+	21	[375]	RETURN   	3 3 0	; 2 out
+	22	[379]	GETTABUP 	3 2 2	; _ENV "string"
+	23	[379]	GETFIELD 	3 3 3	; "format"
+	24	[379]	LOADK    	4 9	; "[[0x%X]+0x30]+0xA0"
+	25	[379]	MOVE     	5 0
+	26	[379]	CALL     	3 3 2	; 2 in 1 out
+	27	[380]	GETTABUP 	4 2 5	; _ENV "proc"
+	28	[380]	GETFIELD 	4 4 6	; "eval_addr"
+	29	[380]	GETTABUP 	5 0 7	; M "pid"
+	30	[380]	MOVE     	6 3
+	31	[380]	CALL     	4 3 2	; 2 in 1 out
+	32	[382]	TEST     	4 0
+	33	[382]	JMP      	2	; to 36
+	34	[382]	EQI      	4 0 0
+	35	[382]	JMP      	3	; to 39
+	36	[383]	LOADNIL  	5 0	; 1 out
+	37	[383]	LOADK    	6 10	; "\229\145\168\229\155\180\230\149\176\233\135\143\232\167\163\230\158\144\229\164\177\232\180\165"
+	38	[383]	RETURN   	5 3 0	; 2 out
+	39	[386]	GETTABUP 	5 2 5	; _ENV "proc"
+	40	[386]	GETFIELD 	5 5 11	; "read_u32"
+	41	[386]	GETTABUP 	6 0 7	; M "pid"
+	42	[386]	MOVE     	7 4
+	43	[386]	CALL     	5 3 2	; 2 in 1 out
+	44	[388]	NEWTABLE 	6 0 0	; 0
+	45	[388]	EXTRAARG 	0
+	46	[390]	LOADI    	7 1
+	47	[390]	MOVE     	8 5
+	48	[390]	LOADI    	9 1
+	49	[390]	FORPREP  	7 124	; exit to 175
+	50	[392]	GETTABUP 	11 2 5	; _ENV "proc"
+	51	[392]	GETFIELD 	11 11 12	; "read_u64"
+	52	[392]	GETTABUP 	12 0 7	; M "pid"
+	53	[392]	ADDI     	13 10 -1
+	54	[392]	MMBINI   	10 1 7 0	; __sub
+	55	[392]	MULK     	13 13 13	; 8
+	56	[392]	MMBINK   	13 13 8 0	; __mul 8
+	57	[392]	ADD      	13 2 13
+	58	[392]	MMBIN    	2 13 6	; __add
+	59	[392]	CALL     	11 3 2	; 2 in 1 out
+	60	[393]	TEST     	11 0
+	61	[393]	JMP      	112	; to 174
+	62	[393]	EQI      	11 0 1
+	63	[393]	JMP      	110	; to 174
+	64	[395]	GETTABUP 	12 2 5	; _ENV "proc"
+	65	[395]	GETFIELD 	12 12 11	; "read_u32"
+	66	[395]	GETTABUP 	13 0 7	; M "pid"
+	67	[395]	ADDI     	14 11 24
+	68	[395]	MMBINI   	11 24 6 0	; __add
+	69	[395]	CALL     	12 3 2	; 2 in 1 out
+	70	[396]	GETTABUP 	13 0 14	; M "GetByName"
+	71	[396]	MOVE     	14 12
+	72	[396]	CALL     	13 2 2	; 1 in 1 out
+	73	[397]	EQK      	13 15 0	; "EMonster"
+	74	[397]	JMP      	99	; to 174
+	75	[398]	GETTABUP 	14 2 5	; _ENV "proc"
+	76	[398]	GETFIELD 	14 14 11	; "read_u32"
+	77	[398]	GETTABUP 	15 0 7	; M "pid"
+	78	[398]	ADDK     	16 11 16	; 1812
+	79	[398]	MMBINK   	11 16 6 0	; __add 1812
+	80	[398]	CALL     	14 3 2	; 2 in 1 out
+	81	[399]	GETTABUP 	15 2 5	; _ENV "proc"
+	82	[399]	GETFIELD 	15 15 17	; "read_float"
+	83	[399]	GETTABUP 	16 0 7	; M "pid"
+	84	[399]	GETTABUP 	17 2 5	; _ENV "proc"
+	85	[399]	GETFIELD 	17 17 12	; "read_u64"
+	86	[399]	GETTABUP 	18 0 7	; M "pid"
+	87	[399]	ADDK     	19 11 18	; 304
+	88	[399]	MMBINK   	11 18 6 0	; __add 304
+	89	[399]	CALL     	17 3 2	; 2 in 1 out
+	90	[399]	ADDK     	17 17 19	; 264
+	91	[399]	MMBINK   	17 19 6 0	; __add 264
+	92	[399]	CALL     	15 3 2	; 2 in 1 out
+	93	[400]	GETTABUP 	16 2 5	; _ENV "proc"
+	94	[400]	GETFIELD 	16 16 17	; "read_float"
+	95	[400]	GETTABUP 	17 0 7	; M "pid"
+	96	[400]	GETTABUP 	18 2 5	; _ENV "proc"
+	97	[400]	GETFIELD 	18 18 12	; "read_u64"
+	98	[400]	GETTABUP 	19 0 7	; M "pid"
+	99	[400]	ADDK     	20 11 18	; 304
+	100	[400]	MMBINK   	11 18 6 0	; __add 304
+	101	[400]	CALL     	18 3 2	; 2 in 1 out
+	102	[400]	ADDK     	18 18 20	; 268
+	103	[400]	MMBINK   	18 20 6 0	; __add 268
+	104	[400]	CALL     	16 3 2	; 2 in 1 out
+	105	[401]	GETTABUP 	17 2 5	; _ENV "proc"
+	106	[401]	GETFIELD 	17 17 17	; "read_float"
+	107	[401]	GETTABUP 	18 0 7	; M "pid"
+	108	[401]	GETTABUP 	19 2 5	; _ENV "proc"
+	109	[401]	GETFIELD 	19 19 12	; "read_u64"
+	110	[401]	GETTABUP 	20 0 7	; M "pid"
+	111	[401]	ADDK     	21 11 18	; 304
+	112	[401]	MMBINK   	11 18 6 0	; __add 304
+	113	[401]	CALL     	19 3 2	; 2 in 1 out
+	114	[401]	ADDK     	19 19 21	; 272
+	115	[401]	MMBINK   	19 21 6 0	; __add 272
+	116	[401]	CALL     	17 3 2	; 2 in 1 out
+	117	[402]	GETTABUP 	18 2 5	; _ENV "proc"
+	118	[402]	GETFIELD 	18 18 12	; "read_u64"
+	119	[402]	GETTABUP 	19 0 7	; M "pid"
+	120	[402]	ADDK     	20 11 22	; 1368
+	121	[402]	MMBINK   	11 22 6 0	; __add 1368
+	122	[402]	CALL     	18 3 2	; 2 in 1 out
+	123	[403]	GETTABUP 	19 2 5	; _ENV "proc"
+	124	[403]	GETFIELD 	19 19 11	; "read_u32"
+	125	[403]	GETTABUP 	20 0 7	; M "pid"
+	126	[403]	ADDK     	21 18 23	; 1424
+	127	[403]	MMBINK   	18 23 6 0	; __add 1424
+	128	[403]	ADDI     	21 21 0
+	129	[403]	MMBINI   	21 0 6 0	; __add
+	130	[403]	CALL     	19 3 2	; 2 in 1 out
+	131	[404]	GETTABUP 	20 2 5	; _ENV "proc"
+	132	[404]	GETFIELD 	20 20 11	; "read_u32"
+	133	[404]	GETTABUP 	21 0 7	; M "pid"
+	134	[404]	ADDK     	22 18 23	; 1424
+	135	[404]	MMBINK   	18 23 6 0	; __add 1424
+	136	[404]	ADDI     	22 22 24
+	137	[404]	MMBINI   	22 24 6 0	; __add
+	138	[404]	CALL     	20 3 2	; 2 in 1 out
+	139	[406]	GETTABUP 	21 2 24	; _ENV "table"
+	140	[406]	GETFIELD 	21 21 25	; "insert"
+	141	[406]	MOVE     	22 6
+	142	[406]	NEWTABLE 	23 4 0	; 0
+	143	[406]	EXTRAARG 	0
+	144	[407]	SETFIELD 	23 26 11	; "addr"
+	145	[408]	TESTSET  	24 13 1
+	146	[408]	JMP      	1	; to 148
+	147	[408]	LOADK    	24 28	; ""
+	148	[408]	SETFIELD 	23 27 24	; "classname"
+	149	[409]	TESTSET  	24 14 1
+	150	[409]	JMP      	1	; to 152
+	151	[409]	LOADI    	24 0
+	152	[409]	SETFIELD 	23 29 24	; "entityId"
+	153	[410]	TESTSET  	24 19 1
+	154	[410]	JMP      	1	; to 156
+	155	[410]	LOADI    	24 0
+	156	[410]	SETFIELD 	23 30 24	; "curHp"
+	157	[411]	TESTSET  	24 20 1
+	158	[411]	JMP      	1	; to 160
+	159	[411]	LOADI    	24 0
+	160	[411]	SETFIELD 	23 31 24	; "maxHp"
+	161	[412]	TESTSET  	24 15 1
+	162	[412]	JMP      	1	; to 164
+	163	[412]	LOADI    	24 0
+	164	[412]	SETFIELD 	23 32 24	; "x"
+	165	[413]	TESTSET  	24 16 1
+	166	[413]	JMP      	1	; to 168
+	167	[413]	LOADI    	24 0
+	168	[413]	SETFIELD 	23 33 24	; "y"
+	169	[414]	TESTSET  	24 17 1
+	170	[414]	JMP      	1	; to 172
+	171	[414]	LOADI    	24 0
+	172	[414]	SETFIELD 	23 34 24	; "z"
+	173	[406]	CALL     	21 3 1	; 2 in 0 out
+	174	[390]	FORLOOP  	7 125	; to 50
+	175	[419]	RETURN1  	6
+	176	[420]	RETURN0  	
+
+function <data.lua:423,481> (189 instructions at 000002D648E37E40)
+0 params, 28 slots, 3 upvalues, 24 locals, 40 constants, 0 functions
+	1	[424]	GETTABUP 	0 0 0	; M "GameBase"
+	2	[424]	GETTABUP 	1 1 1	; offset "UWorldBase"
+	3	[424]	ADD      	0 0 1
+	4	[424]	MMBIN    	0 1 6	; __add
+	5	[427]	GETTABUP 	1 2 2	; _ENV "string"
+	6	[427]	GETFIELD 	1 1 3	; "format"
+	7	[427]	LOADK    	2 4	; "[[[0x%X]+0x30]+0x98]"
+	8	[427]	MOVE     	3 0
+	9	[427]	CALL     	1 3 2	; 2 in 1 out
+	10	[428]	GETTABUP 	2 2 5	; _ENV "proc"
+	11	[428]	GETFIELD 	2 2 6	; "eval_addr"
+	12	[428]	GETTABUP 	3 0 7	; M "pid"
+	13	[428]	MOVE     	4 1
+	14	[428]	CALL     	2 3 2	; 2 in 1 out
+	15	[429]	TEST     	2 0
+	16	[429]	JMP      	2	; to 19
+	17	[429]	EQI      	2 0 0
+	18	[429]	JMP      	3	; to 22
+	19	[430]	LOADNIL  	3 0	; 1 out
+	20	[430]	LOADK    	4 8	; "\229\145\168\229\155\180\230\149\176\231\187\132\232\167\163\230\158\144\229\164\177\232\180\165"
+	21	[430]	RETURN   	3 3 0	; 2 out
+	22	[434]	GETTABUP 	3 2 2	; _ENV "string"
+	23	[434]	GETFIELD 	3 3 3	; "format"
+	24	[434]	LOADK    	4 9	; "[[0x%X]+0x30]+0xA0"
+	25	[434]	MOVE     	5 0
+	26	[434]	CALL     	3 3 2	; 2 in 1 out
+	27	[435]	GETTABUP 	4 2 5	; _ENV "proc"
+	28	[435]	GETFIELD 	4 4 6	; "eval_addr"
+	29	[435]	GETTABUP 	5 0 7	; M "pid"
+	30	[435]	MOVE     	6 3
+	31	[435]	CALL     	4 3 2	; 2 in 1 out
+	32	[437]	TEST     	4 0
+	33	[437]	JMP      	2	; to 36
+	34	[437]	EQI      	4 0 0
+	35	[437]	JMP      	3	; to 39
+	36	[438]	LOADNIL  	5 0	; 1 out
+	37	[438]	LOADK    	6 10	; "\229\145\168\229\155\180\230\149\176\233\135\143\232\167\163\230\158\144\229\164\177\232\180\165"
+	38	[438]	RETURN   	5 3 0	; 2 out
+	39	[441]	GETTABUP 	5 2 5	; _ENV "proc"
+	40	[441]	GETFIELD 	5 5 11	; "read_u32"
+	41	[441]	GETTABUP 	6 0 7	; M "pid"
+	42	[441]	MOVE     	7 4
+	43	[441]	CALL     	5 3 2	; 2 in 1 out
+	44	[443]	NEWTABLE 	6 0 0	; 0
+	45	[443]	EXTRAARG 	0
+	46	[445]	LOADI    	7 1
+	47	[445]	MOVE     	8 5
+	48	[445]	LOADI    	9 1
+	49	[445]	FORPREP  	7 137	; exit to 188
+	50	[447]	GETTABUP 	11 2 5	; _ENV "proc"
+	51	[447]	GETFIELD 	11 11 12	; "read_u64"
+	52	[447]	GETTABUP 	12 0 7	; M "pid"
+	53	[447]	ADDI     	13 10 -1
+	54	[447]	MMBINI   	10 1 7 0	; __sub
+	55	[447]	MULK     	13 13 13	; 8
+	56	[447]	MMBINK   	13 13 8 0	; __mul 8
+	57	[447]	ADD      	13 2 13
+	58	[447]	MMBIN    	2 13 6	; __add
+	59	[447]	CALL     	11 3 2	; 2 in 1 out
+	60	[448]	TEST     	11 0
+	61	[448]	JMP      	125	; to 187
+	62	[448]	EQI      	11 0 1
+	63	[448]	JMP      	123	; to 187
+	64	[450]	GETTABUP 	12 2 5	; _ENV "proc"
+	65	[450]	GETFIELD 	12 12 11	; "read_u32"
+	66	[450]	GETTABUP 	13 0 7	; M "pid"
+	67	[450]	ADDI     	14 11 24
+	68	[450]	MMBINI   	11 24 6 0	; __add
+	69	[450]	CALL     	12 3 2	; 2 in 1 out
+	70	[451]	GETTABUP 	13 0 14	; M "GetByName"
+	71	[451]	MOVE     	14 12
+	72	[451]	CALL     	13 2 2	; 1 in 1 out
+	73	[452]	EQK      	13 15 0	; "EGroundItem"
+	74	[452]	JMP      	112	; to 187
+	75	[453]	GETTABUP 	14 2 5	; _ENV "proc"
+	76	[453]	GETFIELD 	14 14 12	; "read_u64"
+	77	[453]	GETTABUP 	15 0 7	; M "pid"
+	78	[453]	ADDK     	16 11 16	; 800
+	79	[453]	MMBINK   	11 16 6 0	; __add 800
+	80	[453]	CALL     	14 3 2	; 2 in 1 out
+	81	[454]	GETTABUP 	15 2 5	; _ENV "proc"
+	82	[454]	GETFIELD 	15 15 17	; "read_u8"
+	83	[454]	GETTABUP 	16 0 7	; M "pid"
+	84	[454]	ADDK     	17 14 18	; 147
+	85	[454]	MMBINK   	14 18 6 0	; __add 147
+	86	[454]	CALL     	15 3 2	; 2 in 1 out
+	87	[455]	BANDK    	16 15 19	; 1
+	88	[455]	MMBINK   	15 19 13 0	; __band 1
+	89	[455]	EQI      	16 1 0
+	90	[455]	JMP      	96	; to 187
+	91	[456]	GETTABUP 	16 2 5	; _ENV "proc"
+	92	[456]	GETFIELD 	16 16 12	; "read_u64"
+	93	[456]	GETTABUP 	17 0 7	; M "pid"
+	94	[456]	ADDK     	18 11 20	; 968
+	95	[456]	MMBINK   	11 20 6 0	; __add 968
+	96	[456]	CALL     	16 3 2	; 2 in 1 out
+	97	[458]	GETTABUP 	17 2 5	; _ENV "proc"
+	98	[458]	GETFIELD 	17 17 11	; "read_u32"
+	99	[458]	GETTABUP 	18 0 7	; M "pid"
+	100	[458]	ADDK     	19 16 21	; 360
+	101	[458]	MMBINK   	16 21 6 0	; __add 360
+	102	[458]	CALL     	17 3 2	; 2 in 1 out
+	103	[459]	GETTABUP 	18 2 5	; _ENV "proc"
+	104	[459]	GETFIELD 	18 18 11	; "read_u32"
+	105	[459]	GETTABUP 	19 0 7	; M "pid"
+	106	[459]	ADDK     	20 16 22	; 372
+	107	[459]	MMBINK   	16 22 6 0	; __add 372
+	108	[459]	CALL     	18 3 2	; 2 in 1 out
+	109	[460]	GETTABUP 	19 2 5	; _ENV "proc"
+	110	[460]	GETFIELD 	19 19 11	; "read_u32"
+	111	[460]	GETTABUP 	20 0 7	; M "pid"
+	112	[460]	ADDK     	21 16 23	; 376
+	113	[460]	MMBINK   	16 23 6 0	; __add 376
+	114	[460]	CALL     	19 3 2	; 2 in 1 out
+	115	[461]	GETTABUP 	20 2 5	; _ENV "proc"
+	116	[461]	GETFIELD 	20 20 24	; "read_float"
+	117	[461]	GETTABUP 	21 0 7	; M "pid"
+	118	[461]	GETTABUP 	22 2 5	; _ENV "proc"
+	119	[461]	GETFIELD 	22 22 12	; "read_u64"
+	120	[461]	GETTABUP 	23 0 7	; M "pid"
+	121	[461]	ADDK     	24 11 25	; 304
+	122	[461]	MMBINK   	11 25 6 0	; __add 304
+	123	[461]	CALL     	22 3 2	; 2 in 1 out
+	124	[461]	ADDK     	22 22 26	; 264
+	125	[461]	MMBINK   	22 26 6 0	; __add 264
+	126	[461]	CALL     	20 3 2	; 2 in 1 out
+	127	[462]	GETTABUP 	21 2 5	; _ENV "proc"
+	128	[462]	GETFIELD 	21 21 24	; "read_float"
+	129	[462]	GETTABUP 	22 0 7	; M "pid"
+	130	[462]	GETTABUP 	23 2 5	; _ENV "proc"
+	131	[462]	GETFIELD 	23 23 12	; "read_u64"
+	132	[462]	GETTABUP 	24 0 7	; M "pid"
+	133	[462]	ADDK     	25 11 25	; 304
+	134	[462]	MMBINK   	11 25 6 0	; __add 304
+	135	[462]	CALL     	23 3 2	; 2 in 1 out
+	136	[462]	ADDK     	23 23 27	; 268
+	137	[462]	MMBINK   	23 27 6 0	; __add 268
+	138	[462]	CALL     	21 3 2	; 2 in 1 out
+	139	[463]	GETTABUP 	22 2 5	; _ENV "proc"
+	140	[463]	GETFIELD 	22 22 24	; "read_float"
+	141	[463]	GETTABUP 	23 0 7	; M "pid"
+	142	[463]	GETTABUP 	24 2 5	; _ENV "proc"
+	143	[463]	GETFIELD 	24 24 12	; "read_u64"
+	144	[463]	GETTABUP 	25 0 7	; M "pid"
+	145	[463]	ADDK     	26 11 25	; 304
+	146	[463]	MMBINK   	11 25 6 0	; __add 304
+	147	[463]	CALL     	24 3 2	; 2 in 1 out
+	148	[463]	ADDK     	24 24 28	; 272
+	149	[463]	MMBINK   	24 28 6 0	; __add 272
+	150	[463]	CALL     	22 3 2	; 2 in 1 out
+	151	[464]	GETTABUP 	23 2 2	; _ENV "string"
+	152	[464]	GETFIELD 	23 23 3	; "format"
+	153	[464]	LOADK    	24 29	; "item_base|name|%d"
+	154	[464]	MOVE     	25 17
+	155	[464]	CALL     	23 3 2	; 2 in 1 out
+	156	[466]	GETTABUP 	24 2 30	; _ENV "table"
+	157	[466]	GETFIELD 	24 24 31	; "insert"
+	158	[466]	MOVE     	25 6
+	159	[466]	NEWTABLE 	26 4 0	; 0
+	160	[466]	EXTRAARG 	0
+	161	[467]	SETFIELD 	26 32 11	; "addr"
+	162	[468]	TESTSET  	27 13 1
+	163	[468]	JMP      	1	; to 165
+	164	[468]	LOADK    	27 34	; ""
+	165	[468]	SETFIELD 	26 33 27	; "classname"
+	166	[469]	TESTSET  	27 18 1
+	167	[469]	JMP      	1	; to 169
+	168	[469]	LOADI    	27 0
+	169	[469]	SETFIELD 	26 35 27	; "itemlevel"
+	170	[470]	TESTSET  	27 19 1
+	171	[470]	JMP      	1	; to 173
+	172	[470]	LOADI    	27 0
+	173	[470]	SETFIELD 	26 36 27	; "quality"
+	174	[471]	TESTSET  	27 20 1
+	175	[471]	JMP      	1	; to 177
+	176	[471]	LOADI    	27 0
+	177	[471]	SETFIELD 	26 37 27	; "x"
+	178	[472]	TESTSET  	27 21 1
+	179	[472]	JMP      	1	; to 181
+	180	[472]	LOADI    	27 0
+	181	[472]	SETFIELD 	26 38 27	; "y"
+	182	[473]	TESTSET  	27 22 1
+	183	[473]	JMP      	1	; to 185
+	184	[473]	LOADI    	27 0
+	185	[473]	SETFIELD 	26 39 27	; "z"
+	186	[466]	CALL     	24 3 1	; 2 in 0 out
+	187	[445]	FORLOOP  	7 138	; to 50
+	188	[480]	RETURN1  	6
+	189	[481]	RETURN0  	
+
+function <data.lua:484,531> (146 instructions at 000002D648E38970)
+0 params, 22 slots, 3 upvalues, 18 locals, 31 constants, 0 functions
+	1	[485]	GETTABUP 	0 0 0	; M "GameBase"
+	2	[485]	GETTABUP 	1 1 1	; offset "UWorldBase"
+	3	[485]	ADD      	0 0 1
+	4	[485]	MMBIN    	0 1 6	; __add
+	5	[488]	GETTABUP 	1 2 2	; _ENV "string"
+	6	[488]	GETFIELD 	1 1 3	; "format"
+	7	[488]	LOADK    	2 4	; "[[[0x%X]+0x30]+0x98]"
+	8	[488]	MOVE     	3 0
+	9	[488]	CALL     	1 3 2	; 2 in 1 out
+	10	[489]	GETTABUP 	2 2 5	; _ENV "proc"
+	11	[489]	GETFIELD 	2 2 6	; "eval_addr"
+	12	[489]	GETTABUP 	3 0 7	; M "pid"
+	13	[489]	MOVE     	4 1
+	14	[489]	CALL     	2 3 2	; 2 in 1 out
+	15	[490]	TEST     	2 0
+	16	[490]	JMP      	2	; to 19
+	17	[490]	EQI      	2 0 0
+	18	[490]	JMP      	3	; to 22
+	19	[491]	LOADNIL  	3 0	; 1 out
+	20	[491]	LOADK    	4 8	; "\229\145\168\229\155\180\230\149\176\231\187\132\232\167\163\230\158\144\229\164\177\232\180\165"
+	21	[491]	RETURN   	3 3 0	; 2 out
+	22	[495]	GETTABUP 	3 2 2	; _ENV "string"
+	23	[495]	GETFIELD 	3 3 3	; "format"
+	24	[495]	LOADK    	4 9	; "[[0x%X]+0x30]+0xA0"
+	25	[495]	MOVE     	5 0
+	26	[495]	CALL     	3 3 2	; 2 in 1 out
+	27	[496]	GETTABUP 	4 2 5	; _ENV "proc"
+	28	[496]	GETFIELD 	4 4 6	; "eval_addr"
+	29	[496]	GETTABUP 	5 0 7	; M "pid"
+	30	[496]	MOVE     	6 3
+	31	[496]	CALL     	4 3 2	; 2 in 1 out
+	32	[498]	TEST     	4 0
+	33	[498]	JMP      	2	; to 36
+	34	[498]	EQI      	4 0 0
+	35	[498]	JMP      	3	; to 39
+	36	[499]	LOADNIL  	5 0	; 1 out
+	37	[499]	LOADK    	6 10	; "\229\145\168\229\155\180\230\149\176\233\135\143\232\167\163\230\158\144\229\164\177\232\180\165"
+	38	[499]	RETURN   	5 3 0	; 2 out
+	39	[502]	GETTABUP 	5 2 5	; _ENV "proc"
+	40	[502]	GETFIELD 	5 5 11	; "read_u32"
+	41	[502]	GETTABUP 	6 0 7	; M "pid"
+	42	[502]	MOVE     	7 4
+	43	[502]	CALL     	5 3 2	; 2 in 1 out
+	44	[504]	NEWTABLE 	6 0 0	; 0
+	45	[504]	EXTRAARG 	0
+	46	[506]	LOADI    	7 1
+	47	[506]	MOVE     	8 5
+	48	[506]	LOADI    	9 1
+	49	[506]	FORPREP  	7 94	; exit to 145
+	50	[508]	GETTABUP 	11 2 5	; _ENV "proc"
+	51	[508]	GETFIELD 	11 11 12	; "read_u64"
+	52	[508]	GETTABUP 	12 0 7	; M "pid"
+	53	[508]	ADDI     	13 10 -1
+	54	[508]	MMBINI   	10 1 7 0	; __sub
+	55	[508]	MULK     	13 13 13	; 8
+	56	[508]	MMBINK   	13 13 8 0	; __mul 8
+	57	[508]	ADD      	13 2 13
+	58	[508]	MMBIN    	2 13 6	; __add
+	59	[508]	CALL     	11 3 2	; 2 in 1 out
+	60	[509]	TEST     	11 0
+	61	[509]	JMP      	82	; to 144
+	62	[509]	EQI      	11 0 1
+	63	[509]	JMP      	80	; to 144
+	64	[511]	GETTABUP 	12 2 5	; _ENV "proc"
+	65	[511]	GETFIELD 	12 12 11	; "read_u32"
+	66	[511]	GETTABUP 	13 0 7	; M "pid"
+	67	[511]	ADDI     	14 11 24
+	68	[511]	MMBINI   	11 24 6 0	; __add
+	69	[511]	CALL     	12 3 2	; 2 in 1 out
+	70	[512]	GETTABUP 	13 0 14	; M "GetByName"
+	71	[512]	MOVE     	14 12
+	72	[512]	CALL     	13 2 2	; 1 in 1 out
+	73	[513]	EQK      	13 15 0	; "EPortal"
+	74	[513]	JMP      	69	; to 144
+	75	[514]	GETTABUP 	14 2 5	; _ENV "proc"
+	76	[514]	GETFIELD 	14 14 11	; "read_u32"
+	77	[514]	GETTABUP 	15 0 7	; M "pid"
+	78	[514]	ADDK     	16 11 16	; 1812
+	79	[514]	MMBINK   	11 16 6 0	; __add 1812
+	80	[514]	CALL     	14 3 2	; 2 in 1 out
+	81	[515]	GETTABUP 	15 2 5	; _ENV "proc"
+	82	[515]	GETFIELD 	15 15 17	; "read_float"
+	83	[515]	GETTABUP 	16 0 7	; M "pid"
+	84	[515]	GETTABUP 	17 2 5	; _ENV "proc"
+	85	[515]	GETFIELD 	17 17 12	; "read_u64"
+	86	[515]	GETTABUP 	18 0 7	; M "pid"
+	87	[515]	ADDK     	19 11 18	; 304
+	88	[515]	MMBINK   	11 18 6 0	; __add 304
+	89	[515]	CALL     	17 3 2	; 2 in 1 out
+	90	[515]	ADDK     	17 17 19	; 264
+	91	[515]	MMBINK   	17 19 6 0	; __add 264
+	92	[515]	CALL     	15 3 2	; 2 in 1 out
+	93	[516]	GETTABUP 	16 2 5	; _ENV "proc"
+	94	[516]	GETFIELD 	16 16 17	; "read_float"
+	95	[516]	GETTABUP 	17 0 7	; M "pid"
+	96	[516]	GETTABUP 	18 2 5	; _ENV "proc"
+	97	[516]	GETFIELD 	18 18 12	; "read_u64"
+	98	[516]	GETTABUP 	19 0 7	; M "pid"
+	99	[516]	ADDK     	20 11 18	; 304
+	100	[516]	MMBINK   	11 18 6 0	; __add 304
+	101	[516]	CALL     	18 3 2	; 2 in 1 out
+	102	[516]	ADDK     	18 18 20	; 268
+	103	[516]	MMBINK   	18 20 6 0	; __add 268
+	104	[516]	CALL     	16 3 2	; 2 in 1 out
+	105	[517]	GETTABUP 	17 2 5	; _ENV "proc"
+	106	[517]	GETFIELD 	17 17 17	; "read_float"
+	107	[517]	GETTABUP 	18 0 7	; M "pid"
+	108	[517]	GETTABUP 	19 2 5	; _ENV "proc"
+	109	[517]	GETFIELD 	19 19 12	; "read_u64"
+	110	[517]	GETTABUP 	20 0 7	; M "pid"
+	111	[517]	ADDK     	21 11 18	; 304
+	112	[517]	MMBINK   	11 18 6 0	; __add 304
+	113	[517]	CALL     	19 3 2	; 2 in 1 out
+	114	[517]	ADDK     	19 19 21	; 272
+	115	[517]	MMBINK   	19 21 6 0	; __add 272
+	116	[517]	CALL     	17 3 2	; 2 in 1 out
+	117	[519]	GETTABUP 	18 2 22	; _ENV "table"
+	118	[519]	GETFIELD 	18 18 23	; "insert"
+	119	[519]	MOVE     	19 6
+	120	[519]	NEWTABLE 	20 4 0	; 0
+	121	[519]	EXTRAARG 	0
+	122	[520]	SETFIELD 	20 24 11	; "addr"
+	123	[521]	TESTSET  	21 13 1
+	124	[521]	JMP      	1	; to 126
+	125	[521]	LOADK    	21 26	; ""
+	126	[521]	SETFIELD 	20 25 21	; "classname"
+	127	[522]	TESTSET  	21 14 1
+	128	[522]	JMP      	1	; to 130
+	129	[522]	LOADI    	21 0
+	130	[522]	SETFIELD 	20 27 21	; "entityId"
+	131	[523]	TESTSET  	21 15 1
+	132	[523]	JMP      	1	; to 134
+	133	[523]	LOADI    	21 0
+	134	[523]	SETFIELD 	20 28 21	; "x"
+	135	[524]	TESTSET  	21 16 1
+	136	[524]	JMP      	1	; to 138
+	137	[524]	LOADI    	21 0
+	138	[524]	SETFIELD 	20 29 21	; "y"
+	139	[525]	TESTSET  	21 17 1
+	140	[525]	JMP      	1	; to 142
+	141	[525]	LOADI    	21 0
+	142	[525]	SETFIELD 	20 30 21	; "z"
+	143	[519]	CALL     	18 3 1	; 2 in 0 out
+	144	[506]	FORLOOP  	7 95	; to 50
+	145	[530]	RETURN1  	6
+	146	[531]	RETURN0  	
+
+function <data.lua:534,581> (146 instructions at 000002D648E38E80)
+0 params, 22 slots, 3 upvalues, 18 locals, 31 constants, 0 functions
+	1	[535]	GETTABUP 	0 0 0	; M "GameBase"
+	2	[535]	GETTABUP 	1 1 1	; offset "UWorldBase"
+	3	[535]	ADD      	0 0 1
+	4	[535]	MMBIN    	0 1 6	; __add
+	5	[538]	GETTABUP 	1 2 2	; _ENV "string"
+	6	[538]	GETFIELD 	1 1 3	; "format"
+	7	[538]	LOADK    	2 4	; "[[[0x%X]+0x30]+0x98]"
+	8	[538]	MOVE     	3 0
+	9	[538]	CALL     	1 3 2	; 2 in 1 out
+	10	[539]	GETTABUP 	2 2 5	; _ENV "proc"
+	11	[539]	GETFIELD 	2 2 6	; "eval_addr"
+	12	[539]	GETTABUP 	3 0 7	; M "pid"
+	13	[539]	MOVE     	4 1
+	14	[539]	CALL     	2 3 2	; 2 in 1 out
+	15	[540]	TEST     	2 0
+	16	[540]	JMP      	2	; to 19
+	17	[540]	EQI      	2 0 0
+	18	[540]	JMP      	3	; to 22
+	19	[541]	LOADNIL  	3 0	; 1 out
+	20	[541]	LOADK    	4 8	; "\229\145\168\229\155\180\230\149\176\231\187\132\232\167\163\230\158\144\229\164\177\232\180\165"
+	21	[541]	RETURN   	3 3 0	; 2 out
+	22	[545]	GETTABUP 	3 2 2	; _ENV "string"
+	23	[545]	GETFIELD 	3 3 3	; "format"
+	24	[545]	LOADK    	4 9	; "[[0x%X]+0x30]+0xA0"
+	25	[545]	MOVE     	5 0
+	26	[545]	CALL     	3 3 2	; 2 in 1 out
+	27	[546]	GETTABUP 	4 2 5	; _ENV "proc"
+	28	[546]	GETFIELD 	4 4 6	; "eval_addr"
+	29	[546]	GETTABUP 	5 0 7	; M "pid"
+	30	[546]	MOVE     	6 3
+	31	[546]	CALL     	4 3 2	; 2 in 1 out
+	32	[548]	TEST     	4 0
+	33	[548]	JMP      	2	; to 36
+	34	[548]	EQI      	4 0 0
+	35	[548]	JMP      	3	; to 39
+	36	[549]	LOADNIL  	5 0	; 1 out
+	37	[549]	LOADK    	6 10	; "\229\145\168\229\155\180\230\149\176\233\135\143\232\167\163\230\158\144\229\164\177\232\180\165"
+	38	[549]	RETURN   	5 3 0	; 2 out
+	39	[552]	GETTABUP 	5 2 5	; _ENV "proc"
+	40	[552]	GETFIELD 	5 5 11	; "read_u32"
+	41	[552]	GETTABUP 	6 0 7	; M "pid"
+	42	[552]	MOVE     	7 4
+	43	[552]	CALL     	5 3 2	; 2 in 1 out
+	44	[554]	NEWTABLE 	6 0 0	; 0
+	45	[554]	EXTRAARG 	0
+	46	[556]	LOADI    	7 1
+	47	[556]	MOVE     	8 5
+	48	[556]	LOADI    	9 1
+	49	[556]	FORPREP  	7 94	; exit to 145
+	50	[558]	GETTABUP 	11 2 5	; _ENV "proc"
+	51	[558]	GETFIELD 	11 11 12	; "read_u64"
+	52	[558]	GETTABUP 	12 0 7	; M "pid"
+	53	[558]	ADDI     	13 10 -1
+	54	[558]	MMBINI   	10 1 7 0	; __sub
+	55	[558]	MULK     	13 13 13	; 8
+	56	[558]	MMBINK   	13 13 8 0	; __mul 8
+	57	[558]	ADD      	13 2 13
+	58	[558]	MMBIN    	2 13 6	; __add
+	59	[558]	CALL     	11 3 2	; 2 in 1 out
+	60	[559]	TEST     	11 0
+	61	[559]	JMP      	82	; to 144
+	62	[559]	EQI      	11 0 1
+	63	[559]	JMP      	80	; to 144
+	64	[561]	GETTABUP 	12 2 5	; _ENV "proc"
+	65	[561]	GETFIELD 	12 12 11	; "read_u32"
+	66	[561]	GETTABUP 	13 0 7	; M "pid"
+	67	[561]	ADDI     	14 11 24
+	68	[561]	MMBINI   	11 24 6 0	; __add
+	69	[561]	CALL     	12 3 2	; 2 in 1 out
+	70	[562]	GETTABUP 	13 0 14	; M "GetByName"
+	71	[562]	MOVE     	14 12
+	72	[562]	CALL     	13 2 2	; 1 in 1 out
+	73	[563]	EQK      	13 15 0	; "EFightNPC"
+	74	[563]	JMP      	69	; to 144
+	75	[564]	GETTABUP 	14 2 5	; _ENV "proc"
+	76	[564]	GETFIELD 	14 14 11	; "read_u32"
+	77	[564]	GETTABUP 	15 0 7	; M "pid"
+	78	[564]	ADDK     	16 11 16	; 1812
+	79	[564]	MMBINK   	11 16 6 0	; __add 1812
+	80	[564]	CALL     	14 3 2	; 2 in 1 out
+	81	[565]	GETTABUP 	15 2 5	; _ENV "proc"
+	82	[565]	GETFIELD 	15 15 17	; "read_float"
+	83	[565]	GETTABUP 	16 0 7	; M "pid"
+	84	[565]	GETTABUP 	17 2 5	; _ENV "proc"
+	85	[565]	GETFIELD 	17 17 12	; "read_u64"
+	86	[565]	GETTABUP 	18 0 7	; M "pid"
+	87	[565]	ADDK     	19 11 18	; 304
+	88	[565]	MMBINK   	11 18 6 0	; __add 304
+	89	[565]	CALL     	17 3 2	; 2 in 1 out
+	90	[565]	ADDK     	17 17 19	; 264
+	91	[565]	MMBINK   	17 19 6 0	; __add 264
+	92	[565]	CALL     	15 3 2	; 2 in 1 out
+	93	[566]	GETTABUP 	16 2 5	; _ENV "proc"
+	94	[566]	GETFIELD 	16 16 17	; "read_float"
+	95	[566]	GETTABUP 	17 0 7	; M "pid"
+	96	[566]	GETTABUP 	18 2 5	; _ENV "proc"
+	97	[566]	GETFIELD 	18 18 12	; "read_u64"
+	98	[566]	GETTABUP 	19 0 7	; M "pid"
+	99	[566]	ADDK     	20 11 18	; 304
+	100	[566]	MMBINK   	11 18 6 0	; __add 304
+	101	[566]	CALL     	18 3 2	; 2 in 1 out
+	102	[566]	ADDK     	18 18 20	; 268
+	103	[566]	MMBINK   	18 20 6 0	; __add 268
+	104	[566]	CALL     	16 3 2	; 2 in 1 out
+	105	[567]	GETTABUP 	17 2 5	; _ENV "proc"
+	106	[567]	GETFIELD 	17 17 17	; "read_float"
+	107	[567]	GETTABUP 	18 0 7	; M "pid"
+	108	[567]	GETTABUP 	19 2 5	; _ENV "proc"
+	109	[567]	GETFIELD 	19 19 12	; "read_u64"
+	110	[567]	GETTABUP 	20 0 7	; M "pid"
+	111	[567]	ADDK     	21 11 18	; 304
+	112	[567]	MMBINK   	11 18 6 0	; __add 304
+	113	[567]	CALL     	19 3 2	; 2 in 1 out
+	114	[567]	ADDK     	19 19 21	; 272
+	115	[567]	MMBINK   	19 21 6 0	; __add 272
+	116	[567]	CALL     	17 3 2	; 2 in 1 out
+	117	[569]	GETTABUP 	18 2 22	; _ENV "table"
+	118	[569]	GETFIELD 	18 18 23	; "insert"
+	119	[569]	MOVE     	19 6
+	120	[569]	NEWTABLE 	20 4 0	; 0
+	121	[569]	EXTRAARG 	0
+	122	[570]	SETFIELD 	20 24 11	; "addr"
+	123	[571]	TESTSET  	21 13 1
+	124	[571]	JMP      	1	; to 126
+	125	[571]	LOADK    	21 26	; ""
+	126	[571]	SETFIELD 	20 25 21	; "classname"
+	127	[572]	TESTSET  	21 14 1
+	128	[572]	JMP      	1	; to 130
+	129	[572]	LOADI    	21 0
+	130	[572]	SETFIELD 	20 27 21	; "entityId"
+	131	[573]	TESTSET  	21 15 1
+	132	[573]	JMP      	1	; to 134
+	133	[573]	LOADI    	21 0
+	134	[573]	SETFIELD 	20 28 21	; "x"
+	135	[574]	TESTSET  	21 16 1
+	136	[574]	JMP      	1	; to 138
+	137	[574]	LOADI    	21 0
+	138	[574]	SETFIELD 	20 29 21	; "y"
+	139	[575]	TESTSET  	21 17 1
+	140	[575]	JMP      	1	; to 142
+	141	[575]	LOADI    	21 0
+	142	[575]	SETFIELD 	20 30 21	; "z"
+	143	[569]	CALL     	18 3 1	; 2 in 0 out
+	144	[556]	FORLOOP  	7 95	; to 50
+	145	[580]	RETURN1  	6
+	146	[581]	RETURN0  	
+
+function <data.lua:584,631> (146 instructions at 000002D648E38C40)
+0 params, 22 slots, 3 upvalues, 18 locals, 31 constants, 0 functions
+	1	[585]	GETTABUP 	0 0 0	; M "GameBase"
+	2	[585]	GETTABUP 	1 1 1	; offset "UWorldBase"
+	3	[585]	ADD      	0 0 1
+	4	[585]	MMBIN    	0 1 6	; __add
+	5	[588]	GETTABUP 	1 2 2	; _ENV "string"
+	6	[588]	GETFIELD 	1 1 3	; "format"
+	7	[588]	LOADK    	2 4	; "[[[0x%X]+0x30]+0x98]"
+	8	[588]	MOVE     	3 0
+	9	[588]	CALL     	1 3 2	; 2 in 1 out
+	10	[589]	GETTABUP 	2 2 5	; _ENV "proc"
+	11	[589]	GETFIELD 	2 2 6	; "eval_addr"
+	12	[589]	GETTABUP 	3 0 7	; M "pid"
+	13	[589]	MOVE     	4 1
+	14	[589]	CALL     	2 3 2	; 2 in 1 out
+	15	[590]	TEST     	2 0
+	16	[590]	JMP      	2	; to 19
+	17	[590]	EQI      	2 0 0
+	18	[590]	JMP      	3	; to 22
+	19	[591]	LOADNIL  	3 0	; 1 out
+	20	[591]	LOADK    	4 8	; "\229\145\168\229\155\180\230\149\176\231\187\132\232\167\163\230\158\144\229\164\177\232\180\165"
+	21	[591]	RETURN   	3 3 0	; 2 out
+	22	[595]	GETTABUP 	3 2 2	; _ENV "string"
+	23	[595]	GETFIELD 	3 3 3	; "format"
+	24	[595]	LOADK    	4 9	; "[[0x%X]+0x30]+0xA0"
+	25	[595]	MOVE     	5 0
+	26	[595]	CALL     	3 3 2	; 2 in 1 out
+	27	[596]	GETTABUP 	4 2 5	; _ENV "proc"
+	28	[596]	GETFIELD 	4 4 6	; "eval_addr"
+	29	[596]	GETTABUP 	5 0 7	; M "pid"
+	30	[596]	MOVE     	6 3
+	31	[596]	CALL     	4 3 2	; 2 in 1 out
+	32	[598]	TEST     	4 0
+	33	[598]	JMP      	2	; to 36
+	34	[598]	EQI      	4 0 0
+	35	[598]	JMP      	3	; to 39
+	36	[599]	LOADNIL  	5 0	; 1 out
+	37	[599]	LOADK    	6 10	; "\229\145\168\229\155\180\230\149\176\233\135\143\232\167\163\230\158\144\229\164\177\232\180\165"
+	38	[599]	RETURN   	5 3 0	; 2 out
+	39	[602]	GETTABUP 	5 2 5	; _ENV "proc"
+	40	[602]	GETFIELD 	5 5 11	; "read_u32"
+	41	[602]	GETTABUP 	6 0 7	; M "pid"
+	42	[602]	MOVE     	7 4
+	43	[602]	CALL     	5 3 2	; 2 in 1 out
+	44	[604]	NEWTABLE 	6 0 0	; 0
+	45	[604]	EXTRAARG 	0
+	46	[606]	LOADI    	7 1
+	47	[606]	MOVE     	8 5
+	48	[606]	LOADI    	9 1
+	49	[606]	FORPREP  	7 94	; exit to 145
+	50	[608]	GETTABUP 	11 2 5	; _ENV "proc"
+	51	[608]	GETFIELD 	11 11 12	; "read_u64"
+	52	[608]	GETTABUP 	12 0 7	; M "pid"
+	53	[608]	ADDI     	13 10 -1
+	54	[608]	MMBINI   	10 1 7 0	; __sub
+	55	[608]	MULK     	13 13 13	; 8
+	56	[608]	MMBINK   	13 13 8 0	; __mul 8
+	57	[608]	ADD      	13 2 13
+	58	[608]	MMBIN    	2 13 6	; __add
+	59	[608]	CALL     	11 3 2	; 2 in 1 out
+	60	[609]	TEST     	11 0
+	61	[609]	JMP      	82	; to 144
+	62	[609]	EQI      	11 0 1
+	63	[609]	JMP      	80	; to 144
+	64	[611]	GETTABUP 	12 2 5	; _ENV "proc"
+	65	[611]	GETFIELD 	12 12 11	; "read_u32"
+	66	[611]	GETTABUP 	13 0 7	; M "pid"
+	67	[611]	ADDI     	14 11 24
+	68	[611]	MMBINI   	11 24 6 0	; __add
+	69	[611]	CALL     	12 3 2	; 2 in 1 out
+	70	[612]	GETTABUP 	13 0 14	; M "GetByName"
+	71	[612]	MOVE     	14 12
+	72	[612]	CALL     	13 2 2	; 1 in 1 out
+	73	[613]	EQK      	13 15 0	; "EInteractiveItem"
+	74	[613]	JMP      	69	; to 144
+	75	[614]	GETTABUP 	14 2 5	; _ENV "proc"
+	76	[614]	GETFIELD 	14 14 11	; "read_u32"
+	77	[614]	GETTABUP 	15 0 7	; M "pid"
+	78	[614]	ADDK     	16 11 16	; 1812
+	79	[614]	MMBINK   	11 16 6 0	; __add 1812
+	80	[614]	CALL     	14 3 2	; 2 in 1 out
+	81	[615]	GETTABUP 	15 2 5	; _ENV "proc"
+	82	[615]	GETFIELD 	15 15 17	; "read_float"
+	83	[615]	GETTABUP 	16 0 7	; M "pid"
+	84	[615]	GETTABUP 	17 2 5	; _ENV "proc"
+	85	[615]	GETFIELD 	17 17 12	; "read_u64"
+	86	[615]	GETTABUP 	18 0 7	; M "pid"
+	87	[615]	ADDK     	19 11 18	; 304
+	88	[615]	MMBINK   	11 18 6 0	; __add 304
+	89	[615]	CALL     	17 3 2	; 2 in 1 out
+	90	[615]	ADDK     	17 17 19	; 264
+	91	[615]	MMBINK   	17 19 6 0	; __add 264
+	92	[615]	CALL     	15 3 2	; 2 in 1 out
+	93	[616]	GETTABUP 	16 2 5	; _ENV "proc"
+	94	[616]	GETFIELD 	16 16 17	; "read_float"
+	95	[616]	GETTABUP 	17 0 7	; M "pid"
+	96	[616]	GETTABUP 	18 2 5	; _ENV "proc"
+	97	[616]	GETFIELD 	18 18 12	; "read_u64"
+	98	[616]	GETTABUP 	19 0 7	; M "pid"
+	99	[616]	ADDK     	20 11 18	; 304
+	100	[616]	MMBINK   	11 18 6 0	; __add 304
+	101	[616]	CALL     	18 3 2	; 2 in 1 out
+	102	[616]	ADDK     	18 18 20	; 268
+	103	[616]	MMBINK   	18 20 6 0	; __add 268
+	104	[616]	CALL     	16 3 2	; 2 in 1 out
+	105	[617]	GETTABUP 	17 2 5	; _ENV "proc"
+	106	[617]	GETFIELD 	17 17 17	; "read_float"
+	107	[617]	GETTABUP 	18 0 7	; M "pid"
+	108	[617]	GETTABUP 	19 2 5	; _ENV "proc"
+	109	[617]	GETFIELD 	19 19 12	; "read_u64"
+	110	[617]	GETTABUP 	20 0 7	; M "pid"
+	111	[617]	ADDK     	21 11 18	; 304
+	112	[617]	MMBINK   	11 18 6 0	; __add 304
+	113	[617]	CALL     	19 3 2	; 2 in 1 out
+	114	[617]	ADDK     	19 19 21	; 272
+	115	[617]	MMBINK   	19 21 6 0	; __add 272
+	116	[617]	CALL     	17 3 2	; 2 in 1 out
+	117	[619]	GETTABUP 	18 2 22	; _ENV "table"
+	118	[619]	GETFIELD 	18 18 23	; "insert"
+	119	[619]	MOVE     	19 6
+	120	[619]	NEWTABLE 	20 4 0	; 0
+	121	[619]	EXTRAARG 	0
+	122	[620]	SETFIELD 	20 24 11	; "addr"
+	123	[621]	TESTSET  	21 13 1
+	124	[621]	JMP      	1	; to 126
+	125	[621]	LOADK    	21 26	; ""
+	126	[621]	SETFIELD 	20 25 21	; "classname"
+	127	[622]	TESTSET  	21 14 1
+	128	[622]	JMP      	1	; to 130
+	129	[622]	LOADI    	21 0
+	130	[622]	SETFIELD 	20 27 21	; "entityId"
+	131	[623]	TESTSET  	21 15 1
+	132	[623]	JMP      	1	; to 134
+	133	[623]	LOADI    	21 0
+	134	[623]	SETFIELD 	20 28 21	; "x"
+	135	[624]	TESTSET  	21 16 1
+	136	[624]	JMP      	1	; to 138
+	137	[624]	LOADI    	21 0
+	138	[624]	SETFIELD 	20 29 21	; "y"
+	139	[625]	TESTSET  	21 17 1
+	140	[625]	JMP      	1	; to 142
+	141	[625]	LOADI    	21 0
+	142	[625]	SETFIELD 	20 30 21	; "z"
+	143	[619]	CALL     	18 3 1	; 2 in 0 out
+	144	[606]	FORLOOP  	7 95	; to 50
+	145	[630]	RETURN1  	6
+	146	[631]	RETURN0  	
+
+function <data.lua:635,645> (28 instructions at 000002D648E38CD0)
+0 params, 4 slots, 3 upvalues, 2 locals, 12 constants, 0 functions
+	1	[638]	GETTABUP 	0 0 0	; _ENV "string"
+	2	[638]	GETFIELD 	0 0 1	; "format"
+	3	[638]	LOADK    	1 2	; "[[[[[[0x%X]+0x210]+0x38]]+0x30]+0x2A0]"
+	4	[638]	GETTABUP 	2 1 3	; M "GameBase"
+	5	[638]	GETTABUP 	3 2 4	; offset "UWorldBase"
+	6	[638]	ADD      	2 2 3
+	7	[638]	MMBIN    	2 3 6	; __add
+	8	[638]	CALL     	0 3 2	; 2 in 1 out
+	9	[639]	GETTABUP 	1 0 5	; _ENV "log"
+	10	[639]	GETFIELD 	1 1 6	; "info"
+	11	[639]	LOADK    	2 7	; "\229\156\176\229\157\128"
+	12	[639]	MOVE     	3 0
+	13	[639]	CONCAT   	2 2
+	14	[639]	CALL     	1 2 1	; 1 in 0 out
+	15	[640]	GETTABUP 	1 0 8	; _ENV "proc"
+	16	[640]	GETFIELD 	1 1 9	; "eval_addr"
+	17	[640]	GETTABUP 	2 1 10	; M "pid"
+	18	[640]	MOVE     	3 0
+	19	[640]	CALL     	1 3 2	; 2 in 1 out
+	20	[641]	TEST     	1 0
+	21	[641]	JMP      	2	; to 24
+	22	[641]	EQI      	1 0 0
+	23	[641]	JMP      	3	; to 27
+	24	[642]	LOADNIL  	2 0	; 1 out
+	25	[642]	LOADK    	3 11	; "\229\175\185\232\177\161\230\140\135\233\146\136\232\167\163\230\158\144\229\164\177\232\180\165"
+	26	[642]	RETURN   	2 3 0	; 2 out
+	27	[644]	RETURN1  	1
+	28	[645]	RETURN0  	
+
+function <data.lua:647,682> (145 instructions at 000002D648E395D0)
+0 params, 6 slots, 2 upvalues, 3 locals, 33 constants, 0 functions
+	1	[648]	GETTABUP 	0 0 0	; M "GetPlayerAddr"
+	2	[648]	CALL     	0 1 2	; 0 in 1 out
+	3	[649]	TEST     	0 1
+	4	[649]	JMP      	3	; to 8
+	5	[650]	LOADNIL  	1 0	; 1 out
+	6	[650]	LOADK    	2 1	; "\232\142\183\229\143\150\231\142\169\229\174\182\229\175\185\232\177\161\229\164\177\232\180\165"
+	7	[650]	RETURN   	1 3 0	; 2 out
+	8	[654]	GETTABUP 	1 1 2	; _ENV "proc"
+	9	[654]	GETFIELD 	1 1 3	; "read_u64"
+	10	[654]	GETTABUP 	2 0 4	; M "pid"
+	11	[654]	ADDK     	3 0 5	; 304
+	12	[654]	MMBINK   	0 5 6 0	; __add 304
+	13	[654]	CALL     	1 3 2	; 2 in 1 out
+	14	[657]	NEWTABLE 	2 0 0	; 0
+	15	[657]	EXTRAARG 	0
+	16	[658]	GETTABUP 	3 1 2	; _ENV "proc"
+	17	[658]	GETFIELD 	3 3 7	; "read_u32"
+	18	[658]	GETTABUP 	4 0 4	; M "pid"
+	19	[658]	ADDK     	5 0 8	; 1836
+	20	[658]	MMBINK   	0 8 6 0	; __add 1836
+	21	[658]	CALL     	3 3 2	; 2 in 1 out
+	22	[658]	SETFIELD 	2 6 3	; "entityId"
+	23	[662]	GETTABUP 	3 1 2	; _ENV "proc"
+	24	[662]	GETFIELD 	3 3 3	; "read_u64"
+	25	[662]	GETTABUP 	4 0 4	; M "pid"
+	26	[662]	ADDK     	5 0 10	; 1376
+	27	[662]	MMBINK   	0 10 6 0	; __add 1376
+	28	[662]	CALL     	3 3 2	; 2 in 1 out
+	29	[662]	SETFIELD 	2 9 3	; "eRole"
+	30	[664]	GETFIELD 	3 2 9	; "eRole"
+	31	[664]	TEST     	3 0
+	32	[664]	JMP      	83	; to 116
+	33	[664]	GETFIELD 	3 2 9	; "eRole"
+	34	[664]	EQI      	3 0 1
+	35	[664]	JMP      	80	; to 116
+	36	[665]	GETTABUP 	3 1 2	; _ENV "proc"
+	37	[665]	GETFIELD 	3 3 7	; "read_u32"
+	38	[665]	GETTABUP 	4 0 4	; M "pid"
+	39	[665]	GETFIELD 	5 2 9	; "eRole"
+	40	[665]	ADDK     	5 5 12	; 1424
+	41	[665]	MMBINK   	5 12 6 0	; __add 1424
+	42	[665]	ADDI     	5 5 0
+	43	[665]	MMBINI   	5 0 6 0	; __add
+	44	[665]	CALL     	3 3 2	; 2 in 1 out
+	45	[665]	SETFIELD 	2 11 3	; "curHp"
+	46	[666]	GETTABUP 	3 1 2	; _ENV "proc"
+	47	[666]	GETFIELD 	3 3 7	; "read_u32"
+	48	[666]	GETTABUP 	4 0 4	; M "pid"
+	49	[666]	GETFIELD 	5 2 9	; "eRole"
+	50	[666]	ADDK     	5 5 12	; 1424
+	51	[666]	MMBINK   	5 12 6 0	; __add 1424
+	52	[666]	ADDI     	5 5 24
+	53	[666]	MMBINI   	5 24 6 0	; __add
+	54	[666]	CALL     	3 3 2	; 2 in 1 out
+	55	[666]	SETFIELD 	2 13 3	; "maxHp"
+	56	[667]	GETTABUP 	3 1 2	; _ENV "proc"
+	57	[667]	GETFIELD 	3 3 7	; "read_u32"
+	58	[667]	GETTABUP 	4 0 4	; M "pid"
+	59	[667]	GETFIELD 	5 2 9	; "eRole"
+	60	[667]	ADDK     	5 5 15	; 1480
+	61	[667]	MMBINK   	5 15 6 0	; __add 1480
+	62	[667]	ADDI     	5 5 0
+	63	[667]	MMBINI   	5 0 6 0	; __add
+	64	[667]	CALL     	3 3 2	; 2 in 1 out
+	65	[667]	SETFIELD 	2 14 3	; "Hpseal"
+	66	[668]	GETTABUP 	3 1 2	; _ENV "proc"
+	67	[668]	GETFIELD 	3 3 7	; "read_u32"
+	68	[668]	GETTABUP 	4 0 4	; M "pid"
+	69	[668]	GETFIELD 	5 2 9	; "eRole"
+	70	[668]	ADDK     	5 5 17	; 1504
+	71	[668]	MMBINK   	5 17 6 0	; __add 1504
+	72	[668]	ADDI     	5 5 0
+	73	[668]	MMBINI   	5 0 6 0	; __add
+	74	[668]	CALL     	3 3 2	; 2 in 1 out
+	75	[668]	SETFIELD 	2 16 3	; "curMp"
+	76	[669]	GETTABUP 	3 1 2	; _ENV "proc"
+	77	[669]	GETFIELD 	3 3 7	; "read_u32"
+	78	[669]	GETTABUP 	4 0 4	; M "pid"
+	79	[669]	GETFIELD 	5 2 9	; "eRole"
+	80	[669]	ADDK     	5 5 17	; 1504
+	81	[669]	MMBINK   	5 17 6 0	; __add 1504
+	82	[669]	ADDI     	5 5 24
+	83	[669]	MMBINI   	5 24 6 0	; __add
+	84	[669]	CALL     	3 3 2	; 2 in 1 out
+	85	[669]	SETFIELD 	2 18 3	; "maxMp"
+	86	[670]	GETTABUP 	3 1 2	; _ENV "proc"
+	87	[670]	GETFIELD 	3 3 7	; "read_u32"
+	88	[670]	GETTABUP 	4 0 4	; M "pid"
+	89	[670]	GETFIELD 	5 2 9	; "eRole"
+	90	[670]	ADDK     	5 5 20	; 1552
+	91	[670]	MMBINK   	5 20 6 0	; __add 1552
+	92	[670]	ADDI     	5 5 24
+	93	[670]	MMBINI   	5 24 6 0	; __add
+	94	[670]	CALL     	3 3 2	; 2 in 1 out
+	95	[670]	SETFIELD 	2 19 3	; "Mpseal"
+	96	[671]	GETTABUP 	3 1 2	; _ENV "proc"
+	97	[671]	GETFIELD 	3 3 7	; "read_u32"
+	98	[671]	GETTABUP 	4 0 4	; M "pid"
+	99	[671]	GETFIELD 	5 2 9	; "eRole"
+	100	[671]	ADDK     	5 5 22	; 1576
+	101	[671]	MMBINK   	5 22 6 0	; __add 1576
+	102	[671]	ADDI     	5 5 0
+	103	[671]	MMBINI   	5 0 6 0	; __add
+	104	[671]	CALL     	3 3 2	; 2 in 1 out
+	105	[671]	SETFIELD 	2 21 3	; "curShield"
+	106	[672]	GETTABUP 	3 1 2	; _ENV "proc"
+	107	[672]	GETFIELD 	3 3 7	; "read_u32"
+	108	[672]	GETTABUP 	4 0 4	; M "pid"
+	109	[672]	GETFIELD 	5 2 9	; "eRole"
+	110	[672]	ADDK     	5 5 22	; 1576
+	111	[672]	MMBINK   	5 22 6 0	; __add 1576
+	112	[672]	ADDI     	5 5 24
+	113	[672]	MMBINI   	5 24 6 0	; __add
+	114	[672]	CALL     	3 3 2	; 2 in 1 out
+	115	[672]	SETFIELD 	2 23 3	; "maxShield"
+	116	[676]	GETTABUP 	3 1 2	; _ENV "proc"
+	117	[676]	GETFIELD 	3 3 25	; "read_float"
+	118	[676]	GETTABUP 	4 0 4	; M "pid"
+	119	[676]	ADDK     	5 1 26	; 264
+	120	[676]	MMBINK   	1 26 6 0	; __add 264
+	121	[676]	CALL     	3 3 2	; 2 in 1 out
+	122	[676]	SETFIELD 	2 24 3	; "x"
+	123	[677]	GETTABUP 	3 1 2	; _ENV "proc"
+	124	[677]	GETFIELD 	3 3 25	; "read_float"
+	125	[677]	GETTABUP 	4 0 4	; M "pid"
+	126	[677]	ADDK     	5 1 28	; 268
+	127	[677]	MMBINK   	1 28 6 0	; __add 268
+	128	[677]	CALL     	3 3 2	; 2 in 1 out
+	129	[677]	SETFIELD 	2 27 3	; "y"
+	130	[678]	GETTABUP 	3 1 2	; _ENV "proc"
+	131	[678]	GETFIELD 	3 3 25	; "read_float"
+	132	[678]	GETTABUP 	4 0 4	; M "pid"
+	133	[678]	ADDK     	5 1 30	; 272
+	134	[678]	MMBINK   	1 30 6 0	; __add 272
+	135	[678]	CALL     	3 3 2	; 2 in 1 out
+	136	[678]	SETFIELD 	2 29 3	; "z"
+	137	[679]	GETTABUP 	3 1 2	; _ENV "proc"
+	138	[679]	GETFIELD 	3 3 25	; "read_float"
+	139	[679]	GETTABUP 	4 0 4	; M "pid"
+	140	[679]	ADDK     	5 1 32	; 308
+	141	[679]	MMBINK   	1 32 6 0	; __add 308
+	142	[679]	CALL     	3 3 2	; 2 in 1 out
+	143	[679]	SETFIELD 	2 31 3	; "angle"
+	144	[681]	RETURN1  	2
+	145	[682]	RETURN0  	
+
+function <data.lua:689,694> (15 instructions at 000002D648E38D60)
+1 param, 8 slots, 3 upvalues, 3 locals, 6 constants, 0 functions
+	1	[690]	GETTABUP 	1 0 0	; M "GameBase"
+	2	[690]	GETTABUP 	2 1 1	; offset "click"
+	3	[690]	ADD      	1 1 2
+	4	[690]	MMBIN    	1 2 6	; __add
+	5	[692]	ADDK     	2 0 2	; 1016
+	6	[692]	MMBINK   	0 2 6 0	; __add 1016
+	7	[693]	GETTABUP 	3 2 3	; _ENV "driver"
+	8	[693]	GETFIELD 	3 3 4	; "exec_call"
+	9	[693]	GETTABUP 	4 0 5	; M "pid"
+	10	[693]	MOVE     	5 1
+	11	[693]	MOVE     	6 2
+	12	[693]	LOADI    	7 0
+	13	[693]	TAILCALL 	3 5 0	; 4 in
+	14	[693]	RETURN   	3 0 0	; all out
+	15	[694]	RETURN0  	
+
+function <data.lua:704,724> (45 instructions at 000002D648E38F10)
+2 params, 10 slots, 3 upvalues, 6 locals, 12 constants, 0 functions
+	1	[705]	GETTABUP 	2 0 0	; M "GetPlayerAddr"
+	2	[705]	CALL     	2 1 2	; 0 in 1 out
+	3	[706]	TEST     	2 0
+	4	[706]	JMP      	2	; to 7
+	5	[706]	EQI      	2 0 0
+	6	[706]	JMP      	3	; to 10
+	7	[707]	LOADNIL  	3 0	; 1 out
+	8	[707]	LOADK    	4 1	; "selfPtr \232\167\163\230\158\144\229\164\177\232\180\165"
+	9	[707]	RETURN   	3 3 0	; 2 out
+	10	[711]	GETTABUP 	3 1 2	; _ENV "proc"
+	11	[711]	GETFIELD 	3 3 3	; "read_u64"
+	12	[711]	GETTABUP 	4 0 4	; M "pid"
+	13	[711]	GETTABUP 	5 0 5	; M "move_EMoveCtrl"
+	14	[711]	ADD      	5 2 5
+	15	[711]	MMBIN    	2 5 6	; __add
+	16	[711]	CALL     	3 3 2	; 2 in 1 out
+	17	[714]	GETTABUP 	4 1 2	; _ENV "proc"
+	18	[714]	GETFIELD 	4 4 6	; "write_float"
+	19	[714]	GETTABUP 	5 0 4	; M "pid"
+	20	[714]	GETTABUP 	6 0 7	; M "g_base"
+	21	[714]	ADDI     	6 6 0
+	22	[714]	MMBINI   	6 0 6 0	; __add
+	23	[714]	MOVE     	7 0
+	24	[714]	CALL     	4 4 1	; 3 in 0 out
+	25	[715]	GETTABUP 	4 1 2	; _ENV "proc"
+	26	[715]	GETFIELD 	4 4 6	; "write_float"
+	27	[715]	GETTABUP 	5 0 4	; M "pid"
+	28	[715]	GETTABUP 	6 0 7	; M "g_base"
+	29	[715]	ADDI     	6 6 4
+	30	[715]	MMBINI   	6 4 6 0	; __add
+	31	[715]	MOVE     	7 1
+	32	[715]	CALL     	4 4 1	; 3 in 0 out
+	33	[719]	GETTABUP 	4 0 8	; M "GameBase"
+	34	[719]	GETTABUP 	5 2 9	; offset "moveto"
+	35	[719]	ADD      	4 4 5
+	36	[719]	MMBIN    	4 5 6	; __add
+	37	[722]	GETTABUP 	5 1 10	; _ENV "driver"
+	38	[722]	GETFIELD 	5 5 11	; "exec_call"
+	39	[722]	GETTABUP 	6 0 4	; M "pid"
+	40	[722]	MOVE     	7 4
+	41	[722]	MOVE     	8 3
+	42	[722]	GETTABUP 	9 0 7	; M "g_base"
+	43	[722]	CALL     	5 5 2	; 4 in 1 out
+	44	[723]	RETURN1  	5
+	45	[724]	RETURN0  	
+
+function <data.lua:726,739> (32 instructions at 000002D648E390C0)
+1 param, 8 slots, 3 upvalues, 4 locals, 12 constants, 0 functions
+	1	[727]	LOADK    	1 0	; "item_base|name|"
+	2	[727]	MOVE     	2 0
+	3	[727]	CONCAT   	1 2
+	4	[729]	GETTABUP 	2 0 1	; _ENV "proc"
+	5	[729]	GETFIELD 	2 2 2	; "write_float"
+	6	[729]	GETTABUP 	3 1 3	; M "pid"
+	7	[729]	GETTABUP 	4 1 4	; M "g_base"
+	8	[729]	ADDI     	4 4 0
+	9	[729]	MMBINI   	4 0 6 0	; __add
+	10	[729]	GETTABUP 	5 0 5	; _ENV "x"
+	11	[729]	CALL     	2 4 1	; 3 in 0 out
+	12	[730]	GETTABUP 	2 0 1	; _ENV "proc"
+	13	[730]	GETFIELD 	2 2 2	; "write_float"
+	14	[730]	GETTABUP 	3 1 3	; M "pid"
+	15	[730]	GETTABUP 	4 1 4	; M "g_base"
+	16	[730]	ADDI     	4 4 4
+	17	[730]	MMBINI   	4 4 6 0	; __add
+	18	[730]	GETTABUP 	5 0 6	; _ENV "y"
+	19	[730]	CALL     	2 4 1	; 3 in 0 out
+	20	[734]	GETTABUP 	2 1 7	; M "GameBase"
+	21	[734]	GETTABUP 	3 2 8	; offset "moveto"
+	22	[734]	ADD      	2 2 3
+	23	[734]	MMBIN    	2 3 6	; __add
+	24	[737]	GETTABUP 	3 0 9	; _ENV "driver"
+	25	[737]	GETFIELD 	3 3 10	; "exec_call"
+	26	[737]	GETTABUP 	4 1 3	; M "pid"
+	27	[737]	MOVE     	5 2
+	28	[737]	GETTABUP 	6 0 11	; _ENV "EMoveCtrl"
+	29	[737]	GETTABUP 	7 1 4	; M "g_base"
+	30	[737]	CALL     	3 5 2	; 4 in 1 out
+	31	[738]	RETURN1  	3
+	32	[739]	RETURN0  	
+
+function <data.lua:742,746> (16 instructions at 000002D648E38DF0)
+0 params, 4 slots, 3 upvalues, 2 locals, 5 constants, 0 functions
+	1	[743]	GETTABUP 	0 0 0	; M "GameBase"
+	2	[743]	GETTABUP 	1 1 1	; offset "GameMgr"
+	3	[743]	ADD      	0 0 1
+	4	[743]	MMBIN    	0 1 6	; __add
+	5	[744]	GETTABUP 	1 2 2	; _ENV "proc"
+	6	[744]	GETFIELD 	1 1 3	; "read_u8"
+	7	[744]	GETTABUP 	2 0 4	; M "pid"
+	8	[744]	ADDI     	3 0 84
+	9	[744]	MMBINI   	0 84 6 0	; __add
+	10	[744]	CALL     	1 3 2	; 2 in 1 out
+	11	[745]	EQI      	1 1 1
+	12	[745]	JMP      	1	; to 14
+	13	[745]	LFALSESKIP	2
+	14	[745]	LOADTRUE 	2
+	15	[745]	RETURN1  	2
+	16	[746]	RETURN0  	
+
+function <data.lua:749,776> (98 instructions at 000002D648E38850)
+0 params, 11 slots, 3 upvalues, 8 locals, 21 constants, 0 functions
+	1	[750]	GETTABUP 	0 0 0	; _ENV "proc"
+	2	[750]	GETFIELD 	0 0 1	; "read_u64"
+	3	[750]	GETTABUP 	1 1 2	; M "pid"
+	4	[750]	GETTABUP 	2 1 3	; M "GameBase"
+	5	[750]	GETTABUP 	3 2 4	; offset "UIGamepadEventMgr"
+	6	[750]	ADD      	2 2 3
+	7	[750]	MMBIN    	2 3 6	; __add
+	8	[750]	CALL     	0 3 2	; 2 in 1 out
+	9	[751]	GETTABUP 	1 0 0	; _ENV "proc"
+	10	[751]	GETFIELD 	1 1 1	; "read_u64"
+	11	[751]	GETTABUP 	2 1 2	; M "pid"
+	12	[751]	ADDK     	3 0 5	; 648
+	13	[751]	MMBINK   	0 5 6 0	; __add 648
+	14	[751]	CALL     	1 3 2	; 2 in 1 out
+	15	[752]	EQI      	1 0 1
+	16	[752]	JMP      	79	; to 96
+	17	[752]	EQK      	1 6 1	; nil
+	18	[752]	JMP      	77	; to 96
+	19	[753]	GETTABUP 	2 1 7	; M "GetFullName"
+	20	[753]	MOVE     	3 1
+	21	[753]	CALL     	2 2 2	; 1 in 1 out
+	22	[754]	GETTABUP 	3 0 0	; _ENV "proc"
+	23	[754]	GETFIELD 	3 3 8	; "read_float"
+	24	[754]	GETTABUP 	4 1 2	; M "pid"
+	25	[754]	GETTABUP 	5 0 0	; _ENV "proc"
+	26	[754]	GETFIELD 	5 5 1	; "read_u64"
+	27	[754]	GETTABUP 	6 1 2	; M "pid"
+	28	[754]	ADDK     	7 1 9	; 224
+	29	[754]	MMBINK   	1 9 6 0	; __add 224
+	30	[754]	CALL     	5 3 2	; 2 in 1 out
+	31	[754]	ADDK     	5 5 10	; 212
+	32	[754]	MMBINK   	5 10 6 0	; __add 212
+	33	[754]	CALL     	3 3 2	; 2 in 1 out
+	34	[755]	GETTABUP 	4 0 0	; _ENV "proc"
+	35	[755]	GETFIELD 	4 4 8	; "read_float"
+	36	[755]	GETTABUP 	5 1 2	; M "pid"
+	37	[755]	GETTABUP 	6 0 0	; _ENV "proc"
+	38	[755]	GETFIELD 	6 6 1	; "read_u64"
+	39	[755]	GETTABUP 	7 1 2	; M "pid"
+	40	[755]	ADDK     	8 1 9	; 224
+	41	[755]	MMBINK   	1 9 6 0	; __add 224
+	42	[755]	CALL     	6 3 2	; 2 in 1 out
+	43	[755]	ADDK     	6 6 11	; 216
+	44	[755]	MMBINK   	6 11 6 0	; __add 216
+	45	[755]	CALL     	4 3 2	; 2 in 1 out
+	46	[756]	LOADK    	5 12	; ""
+	47	[757]	GETTABUP 	6 0 0	; _ENV "proc"
+	48	[757]	GETFIELD 	6 6 1	; "read_u64"
+	49	[757]	GETTABUP 	7 1 2	; M "pid"
+	50	[757]	ADDK     	8 1 13	; 1832
+	51	[757]	MMBINK   	1 13 6 0	; __add 1832
+	52	[757]	CALL     	6 3 2	; 2 in 1 out
+	53	[758]	TEST     	6 0
+	54	[758]	JMP      	23	; to 78
+	55	[758]	EQI      	6 0 1
+	56	[758]	JMP      	21	; to 78
+	57	[759]	GETTABUP 	7 0 0	; _ENV "proc"
+	58	[759]	GETFIELD 	7 7 1	; "read_u64"
+	59	[759]	GETTABUP 	8 1 2	; M "pid"
+	60	[759]	ADDK     	9 6 14	; 392
+	61	[759]	MMBINK   	6 14 6 0	; __add 392
+	62	[759]	CALL     	7 3 2	; 2 in 1 out
+	63	[760]	TEST     	7 0
+	64	[760]	JMP      	13	; to 78
+	65	[760]	EQI      	7 0 1
+	66	[760]	JMP      	11	; to 78
+	67	[761]	GETTABUP 	8 0 0	; _ENV "proc"
+	68	[761]	GETFIELD 	8 8 1	; "read_u64"
+	69	[761]	GETTABUP 	9 1 2	; M "pid"
+	70	[761]	ADDI     	10 7 56
+	71	[761]	MMBINI   	7 56 6 0	; __add
+	72	[761]	CALL     	8 3 2	; 2 in 1 out
+	73	[761]	MOVE     	7 8
+	74	[762]	GETTABUP 	8 0 15	; _ENV "readWstring"
+	75	[762]	MOVE     	9 7
+	76	[762]	CALL     	8 2 2	; 1 in 1 out
+	77	[762]	MOVE     	5 8
+	78	[766]	NEWTABLE 	7 4 0	; 0
+	79	[766]	EXTRAARG 	0
+	80	[767]	SETFIELD 	7 16 1	; "addr"
+	81	[768]	TESTSET  	8 2 1
+	82	[768]	JMP      	1	; to 84
+	83	[768]	LOADK    	8 12	; ""
+	84	[768]	SETFIELD 	7 17 8	; "Fullname"
+	85	[769]	TESTSET  	8 3 1
+	86	[769]	JMP      	1	; to 88
+	87	[769]	LOADI    	8 0
+	88	[769]	SETFIELD 	7 18 8	; "x"
+	89	[770]	TESTSET  	8 4 1
+	90	[770]	JMP      	1	; to 92
+	91	[770]	LOADI    	8 0
+	92	[770]	SETFIELD 	7 19 8	; "y"
+	93	[771]	SETFIELD 	7 20 5	; "text"
+	94	[772]	RETURN1  	7
+	95	[772]	JMP      	2	; to 98
+	96	[774]	LOADNIL  	2 0	; 1 out
+	97	[774]	RETURN1  	2
+	98	[776]	RETURN0  	
+
+function <data.lua:779,782> (14 instructions at 000002D648E38B20)
+0 params, 4 slots, 3 upvalues, 1 local, 5 constants, 0 functions
+	1	[780]	GETTABUP 	0 0 0	; _ENV "proc"
+	2	[780]	GETFIELD 	0 0 1	; "read_u8"
+	3	[780]	GETTABUP 	1 1 2	; M "pid"
+	4	[780]	GETTABUP 	2 1 3	; M "GameBase"
+	5	[780]	GETTABUP 	3 2 4	; offset "loading"
+	6	[780]	ADD      	2 2 3
+	7	[780]	MMBIN    	2 3 6	; __add
+	8	[780]	CALL     	0 3 2	; 2 in 1 out
+	9	[781]	EQI      	0 1 1
+	10	[781]	JMP      	1	; to 12
+	11	[781]	LFALSESKIP	1
+	12	[781]	LOADTRUE 	1
+	13	[781]	RETURN1  	1
+	14	[782]	RETURN0  	
+
+function <data.lua:785,794> (43 instructions at 000002D648E38A90)
+0 params, 7 slots, 3 upvalues, 5 locals, 14 constants, 0 functions
+	1	[786]	GETTABUP 	0 0 0	; _ENV "proc"
+	2	[786]	GETFIELD 	0 0 1	; "read_u64"
+	3	[786]	GETTABUP 	1 1 2	; M "pid"
+	4	[786]	GETTABUP 	2 1 3	; M "GameBase"
+	5	[786]	GETTABUP 	3 2 4	; offset "UTutorialManager"
+	6	[786]	ADD      	2 2 3
+	7	[786]	MMBIN    	2 3 6	; __add
+	8	[786]	CALL     	0 3 2	; 2 in 1 out
+	9	[787]	GETTABUP 	1 0 0	; _ENV "proc"
+	10	[787]	GETFIELD 	1 1 1	; "read_u64"
+	11	[787]	GETTABUP 	2 1 2	; M "pid"
+	12	[787]	ADDK     	3 0 5	; 216
+	13	[787]	MMBINK   	0 5 6 0	; __add 216
+	14	[787]	CALL     	1 3 2	; 2 in 1 out
+	15	[788]	EQI      	1 0 1
+	16	[788]	JMP      	26	; to 43
+	17	[788]	EQK      	1 6 1	; nil
+	18	[788]	JMP      	24	; to 43
+	19	[789]	GETTABUP 	2 0 0	; _ENV "proc"
+	20	[789]	GETFIELD 	2 2 7	; "read_float"
+	21	[789]	GETTABUP 	3 1 2	; M "pid"
+	22	[789]	ADDK     	4 1 8	; 656
+	23	[789]	MMBINK   	1 8 6 0	; __add 656
+	24	[789]	CALL     	2 3 2	; 2 in 1 out
+	25	[790]	GETTABUP 	3 0 0	; _ENV "proc"
+	26	[790]	GETFIELD 	3 3 7	; "read_float"
+	27	[790]	GETTABUP 	4 1 2	; M "pid"
+	28	[790]	ADDK     	5 1 9	; 660
+	29	[790]	MMBINK   	1 9 6 0	; __add 660
+	30	[790]	CALL     	3 3 2	; 2 in 1 out
+	31	[791]	GETTABUP 	4 0 0	; _ENV "proc"
+	32	[791]	GETFIELD 	4 4 7	; "read_float"
+	33	[791]	GETTABUP 	5 1 2	; M "pid"
+	34	[791]	ADDK     	6 1 10	; 664
+	35	[791]	MMBINK   	1 10 6 0	; __add 664
+	36	[791]	CALL     	4 3 2	; 2 in 1 out
+	37	[792]	NEWTABLE 	5 3 0	; 0
+	38	[792]	EXTRAARG 	0
+	39	[792]	SETFIELD 	5 11 2	; "x"
+	40	[792]	SETFIELD 	5 12 3	; "y"
+	41	[792]	SETFIELD 	5 13 4	; "z"
+	42	[792]	RETURN1  	5
+	43	[794]	RETURN0  	
+
+function <data.lua:797,815> (77 instructions at 000002D648E38BB0)
+0 params, 16 slots, 3 upvalues, 13 locals, 17 constants, 0 functions
+	1	[798]	GETTABUP 	0 0 0	; _ENV "proc"
+	2	[798]	GETFIELD 	0 0 1	; "read_u64"
+	3	[798]	GETTABUP 	1 1 2	; M "pid"
+	4	[798]	GETTABUP 	2 1 3	; M "GameBase"
+	5	[798]	GETTABUP 	3 2 4	; offset "UTutorialManager"
+	6	[798]	ADD      	2 2 3
+	7	[798]	MMBIN    	2 3 6	; __add
+	8	[798]	CALL     	0 3 2	; 2 in 1 out
+	9	[799]	GETTABUP 	1 0 0	; _ENV "proc"
+	10	[799]	GETFIELD 	1 1 1	; "read_u64"
+	11	[799]	GETTABUP 	2 1 2	; M "pid"
+	12	[799]	ADDK     	3 0 5	; 216
+	13	[799]	MMBINK   	0 5 6 0	; __add 216
+	14	[799]	CALL     	1 3 2	; 2 in 1 out
+	15	[800]	EQI      	1 0 1
+	16	[800]	JMP      	58	; to 75
+	17	[800]	EQK      	1 6 1	; nil
+	18	[800]	JMP      	56	; to 75
+	19	[801]	GETTABUP 	2 0 0	; _ENV "proc"
+	20	[801]	GETFIELD 	2 2 1	; "read_u64"
+	21	[801]	GETTABUP 	3 1 2	; M "pid"
+	22	[801]	ADDK     	4 1 7	; 624
+	23	[801]	MMBINK   	1 7 6 0	; __add 624
+	24	[801]	CALL     	2 3 2	; 2 in 1 out
+	25	[802]	GETTABUP 	3 0 0	; _ENV "proc"
+	26	[802]	GETFIELD 	3 3 8	; "read_u32"
+	27	[802]	GETTABUP 	4 1 2	; M "pid"
+	28	[802]	ADDK     	5 1 9	; 632
+	29	[802]	MMBINK   	1 9 6 0	; __add 632
+	30	[802]	CALL     	3 3 2	; 2 in 1 out
+	31	[803]	NEWTABLE 	4 0 0	; 0
+	32	[803]	EXTRAARG 	0
+	33	[804]	LOADI    	5 1
+	34	[804]	MOVE     	6 3
+	35	[804]	LOADI    	7 1
+	36	[804]	FORPREP  	5 35	; exit to 73
+	37	[805]	ADDI     	9 8 -1
+	38	[805]	MMBINI   	8 1 7 0	; __sub
+	39	[805]	MULK     	9 9 10	; 16
+	40	[805]	MMBINK   	9 10 8 0	; __mul 16
+	41	[805]	ADD      	9 2 9
+	42	[805]	MMBIN    	2 9 6	; __add
+	43	[805]	ADDI     	9 9 4
+	44	[805]	MMBINI   	9 4 6 0	; __add
+	45	[806]	GETTABUP 	10 0 0	; _ENV "proc"
+	46	[806]	GETFIELD 	10 10 11	; "read_float"
+	47	[806]	GETTABUP 	11 1 2	; M "pid"
+	48	[806]	ADDI     	12 9 0
+	49	[806]	MMBINI   	9 0 6 0	; __add
+	50	[806]	CALL     	10 3 2	; 2 in 1 out
+	51	[807]	GETTABUP 	11 0 0	; _ENV "proc"
+	52	[807]	GETFIELD 	11 11 11	; "read_float"
+	53	[807]	GETTABUP 	12 1 2	; M "pid"
+	54	[807]	ADDI     	13 9 4
+	55	[807]	MMBINI   	9 4 6 0	; __add
+	56	[807]	CALL     	11 3 2	; 2 in 1 out
+	57	[808]	GETTABUP 	12 0 0	; _ENV "proc"
+	58	[808]	GETFIELD 	12 12 11	; "read_float"
+	59	[808]	GETTABUP 	13 1 2	; M "pid"
+	60	[808]	ADDI     	14 9 8
+	61	[808]	MMBINI   	9 8 6 0	; __add
+	62	[808]	CALL     	12 3 2	; 2 in 1 out
+	63	[809]	GETTABUP 	13 0 12	; _ENV "table"
+	64	[809]	GETFIELD 	13 13 13	; "insert"
+	65	[809]	MOVE     	14 4
+	66	[809]	NEWTABLE 	15 3 0	; 0
+	67	[809]	EXTRAARG 	0
+	68	[809]	SETFIELD 	15 14 10	; "x"
+	69	[809]	SETFIELD 	15 15 11	; "y"
+	70	[809]	SETFIELD 	15 16 12	; "z"
+	71	[809]	CALL     	13 3 1	; 2 in 0 out
+	72	[804]	FORLOOP  	5 36	; to 37
+	73	[811]	RETURN1  	4
+	74	[811]	JMP      	2	; to 77
+	75	[813]	LOADNIL  	2 0	; 1 out
+	76	[813]	RETURN1  	2
+	77	[815]	RETURN0  	

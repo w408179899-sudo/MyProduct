@@ -1,0 +1,104 @@
+[2026-03-31 16:45:33.579][4492][INFO] AetherEngine Logger initialized
+[2026-03-31 16:45:33.579][4492][INFO] === AetherEngine Starting ===
+[2026-03-31 16:45:33.579][4492][INFO] Version: 2.9.0 (Release/x64)
+[2026-03-31 16:45:33.579][4492][INFO] Build: Mar 22 2026 08:51:29
+[2026-03-31 16:45:33.579][4492][INFO] Platform: Windows
+[2026-03-31 16:45:33.579][4492][INFO] CrashHandler: Initialized, dump directory: C:\Users\GoldGiven\Desktop\cunnei\release\cunnei_release_usercard_v3/crash_dumps
+[2026-03-31 16:45:33.579][4492][INFO] InputManager: Initialized
+[2026-03-31 16:45:33.579][4492][DEBUG] LuaVM: cffi module registered
+[2026-03-31 16:45:33.589][4492][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-03-31 16:45:33.589][4492][DEBUG] LuaVM: State created successfully
+[2026-03-31 16:45:33.589][4492][INFO] LuaHost: Initialized with cache dir 'C:\Users\GoldGiven\Desktop\cunnei\release\cunnei_release_usercard_v3/cache'
+[2026-03-31 16:45:33.589][4492][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-03-31 16:45:33.589][4492][DEBUG] Registered all Lua API modules
+[2026-03-31 16:45:33.589][4492][INFO] Engine initialized successfully
+[2026-03-31 16:45:33.673][4492][INFO] ImGuiApp: DirectComposition initialized successfully
+[2026-03-31 16:45:33.759][4492][INFO] ImGuiApp: Hotkeys active (CTRL+HOME/F10/F11/F12 via GetAsyncKeyState)
+[2026-03-31 16:45:33.759][4492][INFO] ConfigManager: Loaded config from ./config.json
+[2026-03-31 16:45:33.760][4492][DEBUG] ConfigManager: 0 opened files, rememberCard=true
+[2026-03-31 16:45:33.760][4492][DEBUG] ImGuiApp: Config loaded, 1 tabs, activeTab=0
+[2026-03-31 16:45:33.760][4492][INFO] ImGuiApp: Initialized successfully
+[2026-03-31 16:45:33.761][4492][INFO] ImGuiApp: TryAutoLogin: no saved card (rememberCard=true, releaseMode=true)
+[2026-03-31 16:45:33.761][4492][INFO] Release mode (window): auth required, mainScript auto-start after login
+[2026-03-31 16:45:43.962][4492][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 16:45:43.986][4492][INFO] ImGuiApp: Auth success, heartbeat started, expires: 2026-04-22 18:24:36
+[2026-03-31 16:45:43.987][4492][DEBUG] ConfigManager: Saved key file to C:\Users\GoldGiven\Desktop\cunnei\release\cunnei_release_usercard_v3\key.txt
+[2026-03-31 16:45:43.987][4492][DEBUG] ConfigManager: Saved config to C:\Users\GoldGiven\Desktop\cunnei\release\cunnei_release_usercard_v3/config.json
+[2026-03-31 16:45:43.989][4492][INFO] TaskManager initialized with max 16 concurrent tasks
+[2026-03-31 16:45:43.989][4492][DEBUG] Task 1 (AvePointStandalone.luac) created
+[2026-03-31 16:45:43.989][4492][DEBUG] LuaVM: cffi module registered
+[2026-03-31 16:45:43.989][4492][DEBUG] LuaVM: LuaSocket modules registered (socket.core, mime.core)
+[2026-03-31 16:45:43.989][4492][DEBUG] LuaVM: State created successfully
+[2026-03-31 16:45:43.989][4492][DEBUG] ImGuiLua: Module registered as 'imgui'
+[2026-03-31 16:45:43.989][4492][DEBUG] Registered all Lua API modules
+[2026-03-31 16:45:43.989][4492][INFO] ImGuiApp: Script task created: C:\Users\GoldGiven\Desktop\cunnei\release\cunnei_release_usercard_v3/AvePointStandalone.luac (id=1)
+[2026-03-31 16:45:43.989][4492][INFO] ImGuiApp: Auto-started mainScript after auth: AvePointStandalone.luac
+[2026-03-31 16:45:43.989][19592][INFO] Task 1 (AvePointStandalone.luac) started
+[2026-03-31 16:45:43.989][19592][INFO] [Lua] AvePoint standalone entry starting
+[2026-03-31 16:45:43.993][19592][INFO] [Lua] Process guard starting
+[2026-03-31 16:45:43.993][19592][INFO] [Lua] Process guard ready
+[2026-03-31 16:45:43.994][19592][INFO] [Lua] Configured avepointTaskMode=1 (刷金) in config.json
+[2026-03-31 16:45:43.994][19592][INFO] [Lua] Press Insert or Ctrl+F9 to start current task mode; Delete or Ctrl+F10 to stop
+[2026-03-31 16:45:43.994][19592][INFO] [Lua] Press F12 to click the configured target for 回旋矿场
+[2026-03-31 16:45:43.994][19592][INFO] [Lua] Press F4 to preview the configured target for 分解所有按钮 without clicking
+[2026-03-31 16:45:43.994][19592][INFO] [Lua] Press F3 to dump mouse-nearby button candidates for 当前鼠标按钮定位分析
+[2026-03-31 16:45:43.994][19592][INFO] [Lua] Press F11 to validate-click a uniquely matched mouse target for 鼠标按钮验证点击
+[2026-03-31 16:45:43.994][19592][INFO] [Lua] Press F7 to print current player position
+[2026-03-31 16:45:43.994][19592][INFO] [Lua] Press Ctrl+F12 to exit
+[2026-03-31 16:45:43.994][19592][INFO] [Lua] Waiting for torchlight API/game init...
+[2026-03-31 16:45:43.994][19592][INFO] HotkeyManager: Started with poll interval 10ms
+[2026-03-31 16:45:43.994][16208][DEBUG] HotkeyManager: Listen thread started
+[2026-03-31 16:45:44.176][19592][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 16:45:46.358][19592][DEBUG] DriverMode: Driver loaded successfully
+[2026-03-31 16:45:46.359][19592][INFO] DriverMode: Initialized with license (Driver mode)
+[2026-03-31 16:45:46.360][19592][INFO] Driver loaded successfully
+[2026-03-31 16:45:46.668][19592][DEBUG] DriverMode: InitRemoteCallEx PID=14584, Deployee=0x25409B00300
+[2026-03-31 16:45:46.706][19592][INFO] [Lua] Torch API initialized
+[2026-03-31 16:45:46.706][19592][INFO] [Lua] Current pos: 5604.00, 4458.00, 3600.09
+[2026-03-31 16:45:48.927][19592][INFO] [Lua] Random map seed initialized | seed=752719606 pool=7
+[2026-03-31 16:45:48.927][19592][INFO] [Lua] Random map selected | cycle=1 key=zawu_jiequ label=杂芜街区 roll=2/7 file=C:\Users\GoldGiven\Desktop\cunnei\release\cunnei_release_usercard_v3\map\zawu_jiequ.txt points=55 reason=start
+[2026-03-31 16:45:48.927][19592][INFO] [Lua] Bag cleanup interval selected | target_runs=10 range=10..20 reason=start
+[2026-03-31 16:45:48.927][19592][INFO] [Lua] Startup area check | pos=5604.00, 4458.00, 3600.09 nearest_outside=5638.00, 4467.00, 3601.58 distance=35.17 z_diff=1.49 outside=true
+[2026-03-31 16:45:48.927][19592][INFO] [Lua] Outer route skipped | already near final point distance=113.32 threshold=220.00 -> 5649.00, 4562.00
+[2026-03-31 16:45:48.927][19592][INFO] [Lua] AvePoint automation started | mode=刷金(1)
+[2026-03-31 16:45:49.020][19592][DEBUG] KeyboardManager: Mode set to 0
+[2026-03-31 16:45:49.131][19592][INFO] [Lua] Pressed key 0x44 | after outer route
+[2026-03-31 16:45:50.120][19592][INFO] [Lua] Fetched button MysticArea ClickButton | candidates=5 kind=button addr=2559484709232 text= name=UIButton Transient.GameEngine.CoreGameInstance.UIMysticAreaItem_C.WidgetTree.ClickButton fullname= x=363.24481201172 y=462.318359375 related_text=冰封寒渊 related_name=UITextBlock Transient.UITextBlock related_distance=83.283257428041 hint_distance=
+[2026-03-31 16:45:51.430][19592][DEBUG] DriverMode: ExecRemoteCall func=0x7FF618F5E450, ret=140695036279520
+[2026-03-31 16:45:51.430][19592][INFO] [Lua] Clicked target MysticArea ClickButton | kind=button addr=2559484709232 text= name=UIButton Transient.GameEngine.CoreGameInstance.UIMysticAreaItem_C.WidgetTree.ClickButton fullname= x=363.24481201172 y=462.318359375
+[2026-03-31 16:45:52.671][19592][INFO] [Lua] Fetched button MysticMap ClickButton | anchor_mode=text_distance kind=button addr=2560224037104 text= name=UIButton Transient.GameEngine.CoreGameInstance.UIMysticMapItem_C.WidgetTree.ClickButton fullname= x=465.24139404297 y=507.47296142578 related_text=杂芜街区 related_name=UITextBlock Transient.UITextBlock related_distance=114.4532173519 expected=(114.350, 114.550)
+[2026-03-31 16:45:54.022][19592][DEBUG] DriverMode: ExecRemoteCall func=0x7FF618F5E450, ret=140695036279520
+[2026-03-31 16:45:54.022][19592][INFO] [Lua] Clicked target MysticMap ClickButton | kind=button addr=2560224037104 text= name=UIButton Transient.GameEngine.CoreGameInstance.UIMysticMapItem_C.WidgetTree.ClickButton fullname= x=465.24139404297 y=507.47296142578
+[2026-03-31 16:45:55.497][19592][INFO] [Lua] Fetched button MysteryMapDetail OpenBtn | candidates=1 kind=button addr=2558624387168 text= name=UIButton Transient.GameEngine.CoreGameInstance.MysteryMapDetail_C.WidgetTree.OpenBtn fullname= x=1272.4547119141 y=870.1865234375 related_text= related_name= related_distance= hint_distance=
+[2026-03-31 16:45:56.635][19592][DEBUG] DriverMode: ExecRemoteCall func=0x7FF618F5E450, ret=140695036279520
+[2026-03-31 16:45:56.635][19592][INFO] [Lua] Clicked target MysteryMapDetail OpenBtn | kind=button addr=2558624387168 text= name=UIButton Transient.GameEngine.CoreGameInstance.MysteryMapDetail_C.WidgetTree.OpenBtn fullname= x=1272.4547119141 y=870.1865234375
+[2026-03-31 16:45:58.019][19592][INFO] [Lua] Fetched button MysteryMapDetail OpenBtn Final | candidates=1 kind=button addr=2558624387168 text= name=UIButton Transient.GameEngine.CoreGameInstance.MysteryMapDetail_C.WidgetTree.OpenBtn fullname= x=1272.4547119141 y=870.1865234375 related_text=1 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.MysteryMapDetail_C.WidgetTree.RequireCostIcon.WidgetTree.UUITextBlock_Num related_distance=28.604168578393 hint_distance=
+[2026-03-31 16:45:59.484][19592][DEBUG] DriverMode: ExecRemoteCall func=0x7FF618F5E450, ret=140695036279520
+[2026-03-31 16:45:59.484][19592][INFO] [Lua] Clicked target MysteryMapDetail OpenBtn Final | kind=button addr=2558624387168 text= name=UIButton Transient.GameEngine.CoreGameInstance.MysteryMapDetail_C.WidgetTree.OpenBtn fullname= x=1272.4547119141 y=870.1865234375
+[2026-03-31 16:46:06.785][19592][INFO] [Lua] Fetched button MysteryMapDetail OpenBtn Final | candidates=1 kind=button addr=2558624387168 text= name=UIButton Transient.GameEngine.CoreGameInstance.MysteryMapDetail_C.WidgetTree.OpenBtn fullname= x=1272.4547119141 y=870.1865234375 related_text=1 related_name=UITextBlock Transient.GameEngine.CoreGameInstance.MysteryMapDetail_C.WidgetTree.RequireCostIcon.WidgetTree.UUITextBlock_Num related_distance=28.604168578393 hint_distance=
+[2026-03-31 16:46:07.461][19592][INFO] [Lua] Fetched button SelectDituConfirm | anchor_mode=text_distance kind=button addr=2560393443600 text=确认 name=UIButton Transient.GameEngine.CoreGameInstance.Confirm_C.WidgetTree.Button3.WidgetTree.ClickBtn fullname= x=722.66888427734 y=563.39196777344 related_text=确认 related_name=UITextBlock Transient.UITextBlock related_distance=9.2669712042775 expected=(8.800, 9.800)
+[2026-03-31 16:46:08.891][19592][DEBUG] DriverMode: ExecRemoteCall func=0x7FF618F5E450, ret=140695036279520
+[2026-03-31 16:46:08.891][19592][INFO] [Lua] Clicked target SelectDituConfirm | kind=button addr=2560393443600 text=确认 name=UIButton Transient.GameEngine.CoreGameInstance.Confirm_C.WidgetTree.Button3.WidgetTree.ClickBtn fullname= x=722.66888427734 y=563.39196777344
+[2026-03-31 16:46:12.469][19592][INFO] [Lua] Resume snapshot saved | map=zawu_jiequ stage=entry_portal_confirm route= mode=map_route pos=-1800.00, 2700.00, 105.00 cycle=1 cleanup=0/10
+[2026-03-31 16:46:12.469][19592][INFO] [Lua] AvePoint automation stopped
+[2026-03-31 16:48:48.346][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 16:51:52.627][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 16:54:56.988][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 16:58:01.350][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:01:06.482][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:04:10.613][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:07:14.805][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:10:19.029][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:13:23.282][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:16:27.651][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:19:31.974][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:22:36.327][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:25:40.680][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:28:44.948][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:31:49.329][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:34:53.676][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:37:58.012][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:41:02.504][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:44:06.725][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:47:11.074][2844][DEBUG] HttpClient: Response 200 OK
+[2026-03-31 17:50:15.471][2844][DEBUG] HttpClient: Response 200 OK
