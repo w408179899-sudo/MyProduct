@@ -1847,11 +1847,28 @@ function M.remember_success_main_task_button(ctx, target_like, current_time, sou
 
     state.last_success_main_task_button = cached
     state.last_success_main_task_button_at = cached.captured_at
+    _G.AVEPOINT_LAST_SUCCESS_MAIN_TASK_BUTTON = {
+        kind = cached.kind,
+        addr = cached.addr,
+        name = cached.name,
+        fullname = cached.fullname,
+        x = cached.x,
+        y = cached.y,
+        related_text = cached.related_text,
+        related_distance = cached.related_distance,
+        captured_at = cached.captured_at,
+        source = cached.source,
+        hint_ratio_x = cached.hint_ratio_x,
+        hint_ratio_y = cached.hint_ratio_y
+    }
     return cached
 end
 
 function M.resolve_recent_success_main_task_button_target(ctx, nav_mod, snapshot, fallback_hint_x, fallback_hint_y, current_time)
     local cached = state.last_success_main_task_button
+    if type(cached) ~= "table" and type(_G.AVEPOINT_LAST_SUCCESS_MAIN_TASK_BUTTON) == "table" then
+        cached = _G.AVEPOINT_LAST_SUCCESS_MAIN_TASK_BUTTON
+    end
     if type(cached) ~= "table" then
         return nil, "recent success pose unavailable."
     end
@@ -1903,6 +1920,8 @@ function M.resolve_recent_success_main_task_button_target(ctx, nav_mod, snapshot
     })
     if type(target) == "table" then
         target.locator_mode = "recent_success_pose"
+        state.last_success_main_task_button = cached
+        state.last_success_main_task_button_at = captured_at
         return target
     end
 
@@ -11536,36 +11555,97 @@ local function click_main_task_button(ctx, current_time, opts)
         push(state.current_task_detail)
         push(_G.AVEPOINT_LAST_TASK_NAME)
         push(_G.AVEPOINT_LAST_TASK_DETAIL)
-        if type(state.last_task_panel_entry) == "table" then
-            push(state.last_task_panel_entry.title)
-            push(state.last_task_panel_entry.raw_text)
-            push(state.last_task_panel_entry.detail)
-        end
+        push("主线")
         return queries
     end
 
     local panel_queries = build_main_task_panel_queries()
-    state.last_main_task_call_started_at = current_time
-    state.last_main_task_call_stage = tostring(state.stage or "")
-    state.last_main_task_call_queries = #panel_queries > 0 and table.concat(panel_queries, " -> ") or ""
-    state.last_main_task_call_phase = "begin"
-    state.last_main_task_call_result = "running"
-    state.last_main_task_call_detail = ""
-    state.last_main_task_call_elapsed_ms = 0
-    state.last_main_task_call_nav = nav_debug_text
-    state.last_main_task_call_ui = ui_snapshot_summary
     logger(ctx).info(string.format(
-        "[Leveling] main task call begin | stage=%s task=%s detail=%s mode=%s queries=%s ui=%s nav=%s",
+        "[Leveling] main task call begin | stage=%s task=%s detail=%s mode=%s queries=%s",
         tostring(state.stage or ""),
         tostring(M.current_task_log_name() or state.current_task_name or ""),
         tostring(M.current_task_log_detail() or state.current_task_detail or ""),
         preserve_target == true and "soft_refresh" or "hard_refresh",
-        state.last_main_task_call_queries,
-        ui_snapshot_summary,
-        nav_debug_text
+        #panel_queries > 0 and table.concat(panel_queries, " -> ") or ""
     ))
 
     local hint_x, hint_y, hint_err = resolve_main_task_button_hint(ctx)
+    if hint_x ~= nil and hint_y ~= nil then
+        local recent_target = select(1, M.resolve_recent_success_main_task_button_target(
+            ctx,
+            nav_mod,
+            nil,
+            hint_x,
+            hint_y,
+            current_time
+        ))
+        if type(recent_target) == "table" then
+            local recent_ok, recent_err = nav_mod.control_click(recent_target.addr)
+            if recent_ok then
+                M.remember_success_main_task_button(ctx, recent_target, current_time, "recent_success_pose")
+                apply_main_task_click_result(recent_target, hint_x, hint_y)
+                logger(ctx).info(string.format(
+                    "[Leveling] main task button clicked | task=%s mode=%s source=%s label=%s addr=%s pos=(%s,%s) hint=(%.2f,%.2f) distance=%.2f",
+                    tostring(M.current_task_log_name() or ""),
+                    preserve_target == true and "soft_refresh" or "hard_refresh",
+                    "recent_success_pose",
+                    tostring(MAIN_TASK_BUTTON_STEP.label),
+                    tostring(recent_target.addr or ""),
+                    tostring(recent_target.x or ""),
+                    tostring(recent_target.y or ""),
+                    tonumber(hint_x) or 0,
+                    tonumber(hint_y) or 0,
+                    tonumber(recent_target.distance) or 0
+                ))
+                return true
+            else
+                log_throttled(ctx, "task_button_recent_success_click_failed", "warn", LOG_THROTTLE_MS,
+                    "[Leveling] recent success main task button click failed: " .. tostring(recent_err))
+            end
+        end
+    end
+
+    if type(nav_mod.click_task_panel_entry) == "function" then
+        for _, query in ipairs(panel_queries) do
+            local panel_ok, panel_item = nav_mod.click_task_panel_entry(query, nil, {
+                exact = false
+            })
+            if panel_ok and type(panel_item) == "table" then
+                M.remember_task_panel_entry(panel_item, current_time)
+                M.remember_success_main_task_button(ctx, panel_item, current_time, "panel_addr")
+                apply_main_task_click_result(
+                    {
+                        x = tonumber(panel_item.button_x) or tonumber(panel_item.x),
+                        y = tonumber(panel_item.button_y) or tonumber(panel_item.y),
+                        text = tostring(panel_item.raw_text or panel_item.title or ""),
+                        related_text = tostring(panel_item.title or "")
+                    },
+                    tonumber(panel_item.button_x) or tonumber(panel_item.x),
+                    tonumber(panel_item.button_y) or tonumber(panel_item.y)
+                )
+                logger(ctx).info(string.format(
+                    "[Leveling] main task panel entry clicked | query=%s task=%s detail=%s mode=%s raw=%s kind=%s addr=%s pos=(%.2f,%.2f)",
+                    tostring(query),
+                    tostring(M.current_task_log_name() or ""),
+                    tostring(M.current_task_log_detail() or ""),
+                    preserve_target == true and "soft_refresh" or "hard_refresh",
+                    tostring(panel_item.raw_text or panel_item.title or ""),
+                    tostring(panel_item.kind or ""),
+                    tostring(panel_item.button_addr or ""),
+                    tonumber(panel_item.button_x) or tonumber(panel_item.x) or 0,
+                    tonumber(panel_item.button_y) or tonumber(panel_item.y) or 0
+                ))
+                return true
+            end
+        end
+        logger(ctx).info(string.format(
+            "[Leveling] main task panel queries missed, fallback to anchor button | stage=%s task=%s detail=%s",
+            tostring(state.stage or ""),
+            tostring(M.current_task_log_name() or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or "")
+        ))
+    end
+
     if hint_x == nil or hint_y == nil then
         state.next_task_button_click_at = current_time + TASK_BUTTON_RETRY_INTERVAL_MS
         log_throttled(ctx, "task_button_hint_failed", "warn", LOG_THROTTLE_MS,
@@ -11573,323 +11653,32 @@ local function click_main_task_button(ctx, current_time, opts)
         return false, hint_err
     end
 
-    local selected_target, selected_err = M.resolve_main_task_selected_target(nav_mod, hint_x, hint_y)
-    if type(selected_target) == "table" then
-        local click_ok, click_err = attempt_main_task_control_click(
-            "current_selected_click",
-            selected_target,
-            "current_selected"
-        )
-        if click_ok then
-            M.remember_success_main_task_button(ctx, selected_target, current_time, "current_selected")
-            apply_main_task_click_result(selected_target, hint_x, hint_y)
-            trace_main_task_call("current_selected", "success", string.format(
-                "addr=%s pos=(%s,%s)",
-                tostring(selected_target.addr or ""),
-                tostring(selected_target.x or ""),
-                tostring(selected_target.y or "")
-            ))
-            logger(ctx).info(string.format(
-                "[Leveling] main task button clicked | task=%s mode=%s source=%s label=%s kind=%s addr=%s pos=(%s,%s) hint=(%.2f,%.2f) distance=%.2f",
-                tostring(M.current_task_log_name() or ""),
-                preserve_target == true and "soft_refresh" or "hard_refresh",
-                "current_selected",
-                tostring(MAIN_TASK_BUTTON_STEP.label),
-                tostring(selected_target.kind or ""),
-                tostring(selected_target.addr or ""),
-                tostring(selected_target.x or ""),
-                tostring(selected_target.y or ""),
-                tonumber(hint_x) or 0,
-                tonumber(hint_y) or 0,
-                tonumber(selected_target.distance) or 0
-            ))
-            return true
-        end
-        selected_err = click_err or "GetCurrentSelected control_click failed."
-        trace_main_task_call("current_selected", "click_failed", selected_err)
-    else
-        trace_main_task_call("current_selected", "miss", selected_err or "Current selected button not found.")
-    end
-
-    local recent_success_target, recent_success_err = M.resolve_recent_success_main_task_button_target(
-        ctx,
-        nav_mod,
-        ui_snapshot,
-        hint_x,
-        hint_y,
-        current_time
-    )
-    if type(recent_success_target) == "table" then
-        local click_ok, resolved_target_or_err = click_anchor_button_target(recent_success_target, "recent_success_pose")
-        if click_ok then
-            local recent_target = resolved_target_or_err
-            M.remember_success_main_task_button(ctx, recent_target, current_time, "recent_success_pose")
-            apply_main_task_click_result(recent_target, hint_x, hint_y)
-            trace_main_task_call("recent_success_pose", "success", string.format(
-                "addr=%s pos=(%s,%s)",
-                tostring(recent_target.addr or ""),
-                tostring(recent_target.x or ""),
-                tostring(recent_target.y or "")
-            ))
-            logger(ctx).info(string.format(
-                "[Leveling] main task button clicked | task=%s mode=%s source=%s label=%s kind=%s addr=%s pos=(%s,%s) hint=(%.2f,%.2f) distance=%.2f",
-                tostring(M.current_task_log_name() or ""),
-                preserve_target == true and "soft_refresh" or "hard_refresh",
-                "recent_success_pose",
-                tostring(MAIN_TASK_BUTTON_STEP.label),
-                tostring(recent_target.kind or ""),
-                tostring(recent_target.addr or ""),
-                tostring(recent_target.x or ""),
-                tostring(recent_target.y or ""),
-                tonumber(hint_x) or 0,
-                tonumber(hint_y) or 0,
-                tonumber(recent_target.distance) or 0
-            ))
-            return true
-        end
-        trace_main_task_call("recent_success_pose", "click_failed", tostring(resolved_target_or_err or "recent success pose click failed."))
-    elseif recent_success_err ~= nil and recent_success_err ~= "" then
-        trace_main_task_call("recent_success_pose", "miss", recent_success_err)
-    end
-
-    local preferred_panel_key = M.current_task_log_name()
-        or state.current_task_name
-        or M.current_task_log_detail()
-        or state.current_task_detail
-
-    local cached_panel_item = M.get_cached_task_panel_entry(current_time, preferred_panel_key)
-    if type(cached_panel_item) == "table" then
-        local cached_ok, cached_item = try_click_main_task_panel_item(cached_panel_item, "panel_cache", hint_x, hint_y)
-        if cached_ok and type(cached_item) == "table" then
-            local refresh_target = {
-                x = tonumber(cached_item.button_x) or tonumber(cached_item.x),
-                y = tonumber(cached_item.button_y) or tonumber(cached_item.y),
-                text = tostring(cached_item.raw_text or cached_item.title or ""),
-                related_text = tostring(cached_item.title or "")
-            }
-            M.remember_success_main_task_button(
-                ctx,
-                cached_item,
-                current_time,
-                tostring(cached_item._main_task_click_source or "panel_cache")
-            )
-            apply_main_task_click_result(
-                refresh_target,
-                tonumber(cached_item.button_x) or tonumber(cached_item.x),
-                tonumber(cached_item.button_y) or tonumber(cached_item.y)
-            )
-            trace_main_task_call(
-                tostring(cached_item._main_task_click_source or "panel_cache"),
-                "success",
-                tostring(cached_item.raw_text or cached_item.title or "")
-            )
-            logger(ctx).info(string.format(
-                "[Leveling] main task panel entry clicked | query=%s task=%s detail=%s mode=%s source=%s raw=%s kind=%s addr=%s pos=(%.2f,%.2f) resolved_kind=%s resolved_addr=%s",
-                tostring(preferred_panel_key or ""),
-                tostring(M.current_task_log_name() or ""),
-                tostring(M.current_task_log_detail() or ""),
-                preserve_target == true and "soft_refresh" or "hard_refresh",
-                tostring(cached_item._main_task_click_source or ""),
-                tostring(cached_item.raw_text or cached_item.title or ""),
-                tostring(cached_item.kind or ""),
-                tostring(cached_item.button_addr or ""),
-                tonumber(refresh_target.x) or 0,
-                tonumber(refresh_target.y) or 0,
-                tostring(type(cached_item._main_task_clicked_target) == "table" and cached_item._main_task_clicked_target.kind or ""),
-                tostring(type(cached_item._main_task_clicked_target) == "table" and cached_item._main_task_clicked_target.addr or "")
-            ))
-            return true
-        end
-        trace_main_task_call("panel_cache", "miss", tostring(cached_item or "cached panel click failed"))
-    end
-
-    if type(nav_mod.find_task_panel_entry) == "function" then
-        local panel_errors = {}
-        for _, query in ipairs(panel_queries) do
-            local panel_item, panel_err = nav_mod.find_task_panel_entry(query, ui_snapshot, {
-                exact = false
-            })
-            if type(panel_item) == "table" then
-                M.remember_task_panel_entry(panel_item, current_time)
-            end
-            local panel_ok, clicked_item, panel_meta = try_click_main_task_panel_item(panel_item, "panel", hint_x, hint_y)
-            if panel_ok and type(clicked_item) == "table" then
-                local refresh_target = {
-                    x = tonumber(clicked_item.button_x) or tonumber(clicked_item.x),
-                    y = tonumber(clicked_item.button_y) or tonumber(clicked_item.y),
-                    text = tostring(clicked_item.raw_text or clicked_item.title or ""),
-                    related_text = tostring(clicked_item.title or "")
-                }
-                M.remember_success_main_task_button(
-                    ctx,
-                    clicked_item,
-                    current_time,
-                    tostring(clicked_item._main_task_click_source or "panel")
-                )
-                apply_main_task_click_result(
-                    refresh_target,
-                    tonumber(clicked_item.button_x) or tonumber(clicked_item.x),
-                    tonumber(clicked_item.button_y) or tonumber(clicked_item.y)
-                )
-                trace_main_task_call(
-                    tostring(clicked_item._main_task_click_source or "panel"),
-                    "success",
-                    string.format("query=%s raw=%s", tostring(query), tostring(clicked_item.raw_text or clicked_item.title or ""))
-                )
-
-                logger(ctx).info(string.format(
-                    "[Leveling] main task panel entry clicked | query=%s task=%s detail=%s mode=%s source=%s raw=%s kind=%s addr=%s pos=(%.2f,%.2f) resolved_kind=%s resolved_addr=%s",
-                    tostring(query),
-                    tostring(M.current_task_log_name() or ""),
-                    tostring(M.current_task_log_detail() or ""),
-                    preserve_target == true and "soft_refresh" or "hard_refresh",
-                    tostring(clicked_item._main_task_click_source or ""),
-                    tostring(clicked_item.raw_text or clicked_item.title or ""),
-                    tostring(clicked_item.kind or ""),
-                    tostring(clicked_item.button_addr or ""),
-                    tonumber(refresh_target.x) or 0,
-                    tonumber(refresh_target.y) or 0,
-                    tostring(type(clicked_item._main_task_clicked_target) == "table" and clicked_item._main_task_clicked_target.kind or ""),
-                    tostring(type(clicked_item._main_task_clicked_target) == "table" and clicked_item._main_task_clicked_target.addr or "")
-                ))
-                return true
-            end
-            local panel_error_text = tostring(panel_err or clicked_item or panel_meta or "")
-            if panel_error_text ~= "" then
-                trace_main_task_call("panel_query", "miss", string.format("%s => %s", tostring(query), panel_error_text))
-                panel_errors[#panel_errors + 1] = string.format("%s => %s", tostring(query), panel_error_text)
-            end
-        end
-        logger(ctx).info(string.format(
-            "[Leveling] main task panel queries missed, fallback to anchor button | stage=%s task=%s detail=%s errors=%s",
-            tostring(state.stage or ""),
-            tostring(M.current_task_log_name() or state.current_task_name or ""),
-            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
-            #panel_errors > 0 and table.concat(panel_errors, " | ") or ""
-        ))
-    end
-
     local target, fetch_err = nav_mod.find_button_near_point(hint_x, hint_y, {
-        snapshot = ui_snapshot,
         include_patterns = MAIN_TASK_BUTTON_STEP.include_patterns,
         max_distance = tonumber(MAIN_TASK_BUTTON_STEP.hint_max_distance) or 80
     })
-    local target_source = "anchor_button"
     if not target then
-        local locator_target, locator_err = find_anchor_locator_target(hint_x, hint_y)
-        if type(locator_target) == "table" then
-            target = locator_target
-            local locator_mode = tostring(locator_target.locator_mode or "")
-            if locator_mode == "cached_f12_locator" then
-                target_source = "anchor_cached_locator"
-            elseif locator_mode == "selected_style_locator" then
-                target_source = "anchor_selected_style"
-            elseif locator_mode:find("text_geometry", 1, true) ~= nil then
-                target_source = "anchor_text_geometry"
-            else
-                target_source = "anchor_locator"
-            end
-            trace_main_task_call(target_source, "matched", string.format(
-                "addr=%s pos=(%s,%s)",
-                tostring(locator_target.addr or ""),
-                tostring(locator_target.x or ""),
-                tostring(locator_target.y or "")
-            ))
-        elseif locator_err ~= nil and locator_err ~= "" then
-            fetch_err = locator_err
-            trace_main_task_call("anchor_locator", "miss", locator_err)
-        end
-    end
-    if not target then
-        trace_main_task_call("anchor_title", "skip", "non-button anchor click disabled for safety")
-    end
-    if not target then
-        local nearby_button, nearby_button_err = find_main_task_button_near_point(
-            hint_x,
-            hint_y,
-            math.max(tonumber(MAIN_TASK_BUTTON_STEP.hint_max_distance) or 80, 28)
-        )
-        if type(nearby_button) == "table" then
-            target = nearby_button
-            target_source = "anchor_button_any"
-            trace_main_task_call("anchor_button_any", "matched", string.format(
-                "addr=%s pos=(%s,%s)",
-                tostring(nearby_button.addr or ""),
-                tostring(nearby_button.x or ""),
-                tostring(nearby_button.y or "")
-            ))
-        elseif nearby_button_err ~= nil and nearby_button_err ~= "" then
-            fetch_err = nearby_button_err
-            trace_main_task_call("anchor_button_any", "miss", nearby_button_err)
-        end
-    end
-    if not target then
-        local nearby_detail = ""
-        if type(nav_mod.find_controls_at_point) == "function" then
-            local controls = select(1, nav_mod.find_controls_at_point(hint_x, hint_y, {
-                snapshot = ui_snapshot,
-                include_buttons = true,
-                include_images = true,
-                include_texts = true,
-                max_distance = 140,
-                limit = 5
-            }))
-            if type(controls) == "table" and #controls > 0 then
-                local parts = {}
-                for _, control in ipairs(controls) do
-                    local label = tostring(control.fullname or control.name or control.kind or "")
-                    if label == "" then
-                        label = tostring(control.kind or "")
-                    end
-                    if #label > 96 then
-                        label = label:sub(1, 93) .. "..."
-                    end
-                    parts[#parts + 1] = string.format(
-                        "%s text=%s pos=(%.1f,%.1f) d=%.1f",
-                        label,
-                        tostring(control.text or ""),
-                        tonumber(control.x) or 0,
-                        tonumber(control.y) or 0,
-                        tonumber(control.distance) or 0
-                    )
-                end
-                nearby_detail = " nearby=" .. table.concat(parts, " | ")
-            end
-        end
         state.next_task_button_click_at = current_time + TASK_BUTTON_RETRY_INTERVAL_MS
-        trace_main_task_call("fetch", "failed", tostring(selected_err or fetch_err or ui_snapshot_err or "main task target unavailable."))
         log_throttled(ctx, "task_button_fetch_failed", "warn", LOG_THROTTLE_MS,
-            "[Leveling] main task button fetch failed: "
-                .. tostring(selected_err or fetch_err or ui_snapshot_err or "main task target unavailable.")
-                .. nearby_detail)
-        return false, selected_err or fetch_err or ui_snapshot_err or "main task target unavailable."
+            "[Leveling] main task button fetch failed: " .. tostring(fetch_err))
+        return false, fetch_err
     end
 
-    local click_ok, resolved_target_or_err = click_anchor_button_target(target, target_source)
+    local click_ok, click_err = nav_mod.control_click(target.addr)
     if not click_ok then
         state.next_task_button_click_at = current_time + TASK_BUTTON_RETRY_INTERVAL_MS
-        trace_main_task_call(tostring(target_source), "click_failed", tostring(resolved_target_or_err))
         log_throttled(ctx, "task_button_click_failed", "warn", LOG_THROTTLE_MS,
-            "[Leveling] main task button click failed: " .. tostring(resolved_target_or_err))
-        return false, resolved_target_or_err
+            "[Leveling] main task button click failed: " .. tostring(click_err))
+        return false, click_err
     end
 
-    target = resolved_target_or_err
-    M.remember_success_main_task_button(ctx, target, current_time, tostring(target_source))
+    M.remember_success_main_task_button(ctx, target, current_time, "anchor_button")
     apply_main_task_click_result(target, hint_x, hint_y)
-    trace_main_task_call(tostring(target_source), "success", string.format(
-        "addr=%s pos=(%s,%s)",
-        tostring(target.addr or ""),
-        tostring(target.x or ""),
-        tostring(target.y or "")
-    ))
     logger(ctx).info(string.format(
-        "[Leveling] main task button clicked | task=%s mode=%s source=%s label=%s kind=%s addr=%s pos=(%s,%s) hint=(%.2f,%.2f) distance=%.2f",
+        "[Leveling] main task button clicked | task=%s mode=%s label=%s addr=%s pos=(%s,%s) hint=(%.2f,%.2f) distance=%.2f",
         tostring(M.current_task_log_name() or ""),
         preserve_target == true and "soft_refresh" or "hard_refresh",
-        tostring(target_source),
         tostring(MAIN_TASK_BUTTON_STEP.label),
-        tostring(target.kind or ""),
         tostring(target.addr or ""),
         tostring(target.x or ""),
         tostring(target.y or ""),

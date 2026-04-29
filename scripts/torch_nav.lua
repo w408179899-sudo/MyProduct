@@ -774,21 +774,6 @@ function nav.get_task_panel_info(snapshot)
         then
             return 0
         end
-        if haystack:find("taskitem_c.widgettree.uiimage", 1, true) ~= nil then
-            return 12
-        end
-        if haystack:find("taskitem_c.widgettree.fullimg", 1, true) ~= nil then
-            return 18
-        end
-        if haystack:find("taskitem_c.widgettree.padding_dummy", 1, true) ~= nil then
-            return 24
-        end
-        if haystack:find("taskitem_c.widgettree.shuangguang", 1, true) ~= nil then
-            return 28
-        end
-        if haystack:find("taskitem_c.widgettree.", 1, true) ~= nil then
-            return 36
-        end
         return nil
     end
 
@@ -811,10 +796,6 @@ function nav.get_task_panel_info(snapshot)
     for _, item in ipairs(snapshot.buttons or {}) do
         push_task_anchor("button", item)
     end
-    for _, item in ipairs(snapshot.images or {}) do
-        push_task_anchor("image", item)
-    end
-
     table.sort(task_anchors, function(a, b)
         if a.y ~= b.y then
             return a.y < b.y
@@ -1135,6 +1116,267 @@ function nav.click_task_panel_entry(query, snapshot, opts)
     end
 
     return true, item
+end
+
+-- Keep the old LaunchGUI task-panel pairing logic as the active override.
+function nav.get_task_panel_info(snapshot)
+    if type(snapshot) ~= "table" then
+        local ui, err = nav.enum_ui()
+        if type(ui) ~= "table" then
+            return nil, err or "enum_ui failed."
+        end
+        snapshot = ui
+    end
+
+    local function trim_text(value)
+        return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    end
+
+    local function normalize_text(value)
+        return trim_text(value):lower()
+    end
+
+    local function classify_task_kind(raw_text)
+        local text = trim_text(raw_text)
+        if text:match("^涓荤嚎%s*") then
+            return "涓荤嚎"
+        end
+        if text:match("^鏀嚎%s*") then
+            return "鏀嚎"
+        end
+        if text:match("^璧涘%s*") then
+            return "璧涘"
+        end
+        return ""
+    end
+
+    local function normalize_task_title(raw_text)
+        local text = trim_text(raw_text)
+        if text == "" then
+            return nil
+        end
+        local kind = classify_task_kind(text)
+        text = trim_text(text:gsub("^涓荤嚎%s*", ""))
+        text = trim_text(text:gsub("^鏀嚎%s*", ""))
+        text = trim_text(text:gsub("^璧涘%s*", ""))
+        text = trim_text(text:gsub("^浠诲姟%s*", ""))
+        text = trim_text(text:gsub("^鐩爣%s*", ""))
+        text = trim_text(text:gsub("^鐩%s*", ""))
+        if text == ""
+            or text == "涓荤嚎"
+            or text == "鏀嚎"
+            or text == "浠诲姟"
+            or text == "鐩爣"
+            or text == "杩借釜"
+        then
+            return nil
+        end
+        if text:match("^[%d%s%/%-%:%+]+$") then
+            return nil
+        end
+        return text, kind
+    end
+
+    local function button_matches_task_item(item)
+        local haystack = table.concat({
+            tostring(item and item.name or ""),
+            tostring(item and item.Fullname or item and item.fullname or "")
+        }, " "):lower()
+        return haystack:find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil
+            or haystack:find("widgettree.taskbtn", 1, true) ~= nil
+    end
+
+    local task_buttons = {}
+    for _, item in ipairs(snapshot.buttons or {}) do
+        local x = as_number(item.x)
+        local y = as_number(item.y)
+        if x ~= nil and y ~= nil and button_matches_task_item(item) then
+            task_buttons[#task_buttons + 1] = {
+                x = x,
+                y = y,
+                item = item
+            }
+        end
+    end
+
+    table.sort(task_buttons, function(a, b)
+        if a.y ~= b.y then
+            return a.y < b.y
+        end
+        return a.x < b.x
+    end)
+
+    local tasks = {}
+    local debug_candidates = {}
+    local seen = {}
+
+    for _, button in ipairs(task_buttons) do
+        local best = nil
+        local best_score = nil
+        for _, item in ipairs(snapshot.texts or {}) do
+            local text_x = as_number(item.x)
+            local text_y = as_number(item.y)
+            if text_x ~= nil and text_y ~= nil then
+                local raw_text = trim_text(item.text)
+                local title, kind = normalize_task_title(raw_text)
+                local dx = text_x - button.x
+                local dy = math.abs(text_y - button.y)
+                local in_band = dx >= -40 and dx <= 460 and dy <= 54
+                if in_band and #debug_candidates < 10 then
+                    debug_candidates[#debug_candidates + 1] = string.format(
+                        "btn_y=%.1f text=%s dx=%.1f dy=%.1f",
+                        tonumber(button.y) or 0,
+                        trim_text(raw_text),
+                        tonumber(dx) or 0,
+                        tonumber(dy) or 0
+                    )
+                end
+                if in_band and title ~= nil then
+                    local score = 600 - dy * 8 - math.abs(dx - 88) * 1.6 - math.abs(#title - 10) * 0.8
+                    if kind ~= "" then
+                        score = score + 25
+                    end
+                    if best_score == nil or score > best_score then
+                        best_score = score
+                        best = {
+                            title = title,
+                            raw_text = raw_text,
+                            kind = kind,
+                            x = text_x,
+                            y = text_y,
+                            button_addr = as_number(button.item and button.item.addr) or (button.item and button.item.addr),
+                            button_x = button.x,
+                            button_y = button.y,
+                            button_name = tostring(button.item and button.item.name or ""),
+                            button_fullname = tostring(button.item and button.item.Fullname or button.item and button.item.fullname or "")
+                        }
+                    end
+                end
+            end
+        end
+
+        if best ~= nil then
+            local detail_texts = {}
+            local detail_seen = {}
+            for _, item in ipairs(snapshot.texts or {}) do
+                local text_x = as_number(item.x)
+                local text_y = as_number(item.y)
+                if text_x ~= nil and text_y ~= nil then
+                    local raw_text = trim_text(item.text)
+                    local dx = text_x - button.x
+                    local dy = text_y - button.y
+                    local normalized_raw = normalize_text(raw_text)
+                    local looks_like_title = normalize_task_title(raw_text) ~= nil
+                    local in_detail_band = dx >= -20 and dx <= 520 and dy >= 16 and dy <= 120
+                    local looks_numeric_only = raw_text:match("^[%d%s%/%-%:%+]+$") ~= nil
+                    if in_detail_band
+                        and raw_text ~= ""
+                        and normalized_raw ~= normalize_text(best.raw_text or "")
+                        and not looks_numeric_only
+                        and not detail_seen[normalized_raw]
+                    then
+                        if not looks_like_title or math.abs(dy) >= 20 then
+                            detail_seen[normalized_raw] = true
+                            detail_texts[#detail_texts + 1] = {
+                                text = raw_text,
+                                x = text_x,
+                                y = text_y
+                            }
+                        end
+                    end
+                end
+            end
+
+            table.sort(detail_texts, function(a, b)
+                if a.y ~= b.y then
+                    return a.y < b.y
+                end
+                return a.x < b.x
+            end)
+
+            local key = normalize_text(best.raw_text)
+            if key ~= "" and not seen[key] then
+                seen[key] = true
+                best.detail_texts = detail_texts
+                if #detail_texts > 0 then
+                    best.detail = detail_texts[1].text
+                end
+                tasks[#tasks + 1] = best
+            end
+        end
+    end
+
+    return {
+        tasks = tasks,
+        button_count = #task_buttons,
+        debug_candidates = debug_candidates
+    }, nil
+end
+
+function nav.find_task_panel_entry(query, snapshot, opts)
+    opts = opts or {}
+    local info, err = nav.get_task_panel_info(snapshot)
+    if type(info) ~= "table" or type(info.tasks) ~= "table" then
+        return nil, err or "task panel unavailable."
+    end
+
+    local function trim_text(value)
+        return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    end
+
+    local function normalize_text(value)
+        local text = trim_text(value)
+        text = text:gsub("^涓荤嚎%s*", "")
+        text = text:gsub("^鏀嚎%s*", "")
+        text = text:gsub("^璧涘%s*", "")
+        return text:lower()
+    end
+
+    local query_text = normalize_text(query)
+    if query_text == "" then
+        return nil, "task panel query is empty."
+    end
+
+    local exact = opts.exact == true
+    local best = nil
+    local best_score = nil
+
+    for index, item in ipairs(info.tasks or {}) do
+        local haystack = {
+            normalize_text(item.raw_text),
+            normalize_text(item.title),
+            normalize_text(item.kind)
+        }
+        local matched = false
+        local score = 0
+        for _, value in ipairs(haystack) do
+            if value ~= "" then
+                if exact then
+                    if value == query_text then
+                        matched = true
+                        score = 1000 - index
+                        break
+                    end
+                else
+                    if value:find(query_text, 1, true) then
+                        matched = true
+                        score = 800 - math.abs(#value - #query_text) - index
+                        break
+                    end
+                end
+            end
+        end
+        if matched and (best_score == nil or score > best_score) then
+            best = item
+            best_score = score
+        end
+    end
+
+    if best == nil then
+        return nil, "task panel entry not found."
+    end
+
+    return best, nil
 end
 
 local MAP_UI_TEXT_TARGETS
