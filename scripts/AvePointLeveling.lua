@@ -217,6 +217,15 @@ local MAIN_TASK_BUTTON_STEP = {
     distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn",
     distance_min = 18.0,
     distance_max = 52.0,
+    success_pose_max_distance = 24.0,
+    success_pose_ttl_ms = 300000,
+    distance_dx_target = 28.0,
+    distance_dx_min = 4.0,
+    distance_dx_max = 96.0,
+    distance_dy_target = 4.0,
+    distance_dy_max = 28.0,
+    predicted_search_radius = 28.0,
+    geometry_refresh_attempts = 1,
     include_patterns = {
         "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn"
     },
@@ -853,6 +862,8 @@ local function reset_state()
     state.last_task_panel_task_detail = nil
     state.last_task_panel_updated_at = 0
     state.last_task_panel_entry = nil
+    state.last_success_main_task_button = nil
+    state.last_success_main_task_button_at = 0
     state.last_main_task_call_started_at = 0
     state.last_main_task_call_stage = nil
     state.last_main_task_call_queries = nil
@@ -1746,6 +1757,156 @@ function M.get_cached_task_panel_entry(current_time, preferred_task_name)
     end
 
     return nil
+end
+
+function M.extract_main_task_button_target(target_like)
+    if type(target_like) ~= "table" then
+        return nil
+    end
+
+    local source = type(target_like._main_task_clicked_target) == "table"
+        and target_like._main_task_clicked_target
+        or target_like
+
+    local kind = tostring(source.kind or source.button_kind or target_like.button_kind or "")
+    local addr = tonumber(source.addr or source.button_addr or target_like.button_addr)
+    local x = tonumber(source.x or source.button_x or target_like.button_x or target_like.x)
+    local y = tonumber(source.y or source.button_y or target_like.button_y or target_like.y)
+    local name = tostring(source.name or source.button_name or target_like.button_name or "")
+    local fullname = tostring(
+        source.fullname
+            or source.Fullname
+            or source.button_fullname
+            or target_like.button_fullname
+            or ""
+    )
+    local identity = (fullname .. " " .. name):lower()
+    local is_button = kind == "button"
+        or identity:find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil
+
+    if not is_button or x == nil or y == nil then
+        return nil
+    end
+
+    return {
+        kind = "button",
+        addr = addr,
+        name = name,
+        text = tostring(source.text or target_like.text or ""),
+        fullname = fullname,
+        x = x,
+        y = y,
+        related_text = tostring(
+            source.related_text
+                or target_like.title
+                or target_like.raw_text
+                or ""
+        ),
+        related_distance = tonumber(source.related_distance),
+        distance = tonumber(source.distance)
+    }
+end
+
+function M.remember_success_main_task_button(ctx, target_like, current_time, source)
+    local target = M.extract_main_task_button_target(target_like)
+    if type(target) ~= "table" then
+        return nil
+    end
+
+    local cached = {
+        kind = "button",
+        addr = tonumber(target.addr),
+        name = tostring(target.name or ""),
+        fullname = tostring(target.fullname or ""),
+        x = tonumber(target.x),
+        y = tonumber(target.y),
+        related_text = tostring(target.related_text or ""),
+        related_distance = tonumber(target.related_distance),
+        captured_at = tonumber(current_time) or 0,
+        source = tostring(source or "")
+    }
+
+    local nav_mod = nav_api(ctx)
+    local wnd_api = type(ctx) == "table" and ctx.wnd or wnd
+    if type(nav_mod) == "table"
+        and type(nav_mod.window_hwnd) == "function"
+        and type(wnd_api) == "table"
+        and type(wnd_api.client_rect) == "function"
+    then
+        local hwnd = select(1, nav_mod.window_hwnd())
+        if hwnd then
+            local _, _, client_w, client_h = wnd_api.client_rect(hwnd)
+            if type(client_w) == "number" and client_w > 0 and cached.x ~= nil then
+                cached.hint_ratio_x = cached.x / client_w
+            end
+            if type(client_h) == "number" and client_h > 0 and cached.y ~= nil then
+                cached.hint_ratio_y = cached.y / client_h
+            end
+        end
+    end
+
+    state.last_success_main_task_button = cached
+    state.last_success_main_task_button_at = cached.captured_at
+    return cached
+end
+
+function M.resolve_recent_success_main_task_button_target(ctx, nav_mod, snapshot, fallback_hint_x, fallback_hint_y, current_time)
+    local cached = state.last_success_main_task_button
+    if type(cached) ~= "table" then
+        return nil, "recent success pose unavailable."
+    end
+    if type(nav_mod) ~= "table" or type(nav_mod.find_button_by_locator) ~= "function" then
+        return nil, "nav.find_button_by_locator is unavailable."
+    end
+
+    local captured_at = tonumber(state.last_success_main_task_button_at) or tonumber(cached.captured_at) or 0
+    local ttl_ms = math.max(0, tonumber(MAIN_TASK_BUTTON_STEP.success_pose_ttl_ms) or 300000)
+    if captured_at <= 0 or (tonumber(current_time) or 0) - captured_at > ttl_ms then
+        return nil, "recent success pose expired."
+    end
+
+    local locator = {
+        label = "Recent successful main task TaskBtn",
+        fullname = cached.fullname ~= "" and cached.fullname or MAIN_TASK_BUTTON_STEP.include_patterns[1],
+        include_patterns = MAIN_TASK_BUTTON_STEP.include_patterns,
+        hint_client_x = tonumber(cached.x) or tonumber(fallback_hint_x),
+        hint_client_y = tonumber(cached.y) or tonumber(fallback_hint_y),
+        hint_ratio_x = tonumber(cached.hint_ratio_x or MAIN_TASK_BUTTON_STEP.hint_ratio_x),
+        hint_ratio_y = tonumber(cached.hint_ratio_y or MAIN_TASK_BUTTON_STEP.hint_ratio_y),
+        hint_max_distance = math.max(0, tonumber(MAIN_TASK_BUTTON_STEP.success_pose_max_distance) or 24),
+        distance_button_name = tostring(
+            cached.fullname ~= "" and cached.fullname
+                or cached.name ~= "" and cached.name
+                or MAIN_TASK_BUTTON_STEP.distance_button_name
+        )
+    }
+
+    if trim(cached.related_text or "") ~= "" and tonumber(cached.related_distance) ~= nil then
+        local raw_distance = math.abs(tonumber(cached.related_distance) or 0)
+        local tolerance = raw_distance * math.max(0, tonumber(MAIN_TASK_BUTTON_STEP.distance_tolerance_ratio) or 0.03)
+        local min_tolerance = math.max(0, tonumber(MAIN_TASK_BUTTON_STEP.distance_tolerance_min) or 0.5)
+        local max_tolerance = math.max(min_tolerance, tonumber(MAIN_TASK_BUTTON_STEP.distance_tolerance_max) or 2.5)
+        if tolerance < min_tolerance then
+            tolerance = min_tolerance
+        end
+        if tolerance > max_tolerance then
+            tolerance = max_tolerance
+        end
+        locator.distance_anchor_exact_text = tostring(cached.related_text or "")
+        locator.distance_min = math.max(0, raw_distance - tolerance)
+        locator.distance_max = raw_distance + tolerance
+    end
+
+    local target, err = nav_mod.find_button_by_locator(locator, {
+        snapshot = snapshot,
+        max_distance = tonumber(locator.hint_max_distance) or 24
+    })
+    if type(target) == "table" then
+        target.locator_mode = "recent_success_pose"
+        return target
+    end
+
+    return nil, err or "recent success pose matched no button."
 end
 
 local function should_use_map_runtime_detection()
@@ -10726,11 +10887,160 @@ local function click_main_task_button(ctx, current_time, opts)
             return trim(value or ""):lower()
         end
 
-        local function find_main_task_button_by_text_geometry()
+        local function main_task_distance_tolerance(distance)
+            local raw_distance = math.abs(tonumber(distance) or 0)
+            local ratio = math.max(0, tonumber(MAIN_TASK_BUTTON_STEP.distance_tolerance_ratio) or 0.03)
+            local min_tolerance = math.max(0, tonumber(MAIN_TASK_BUTTON_STEP.distance_tolerance_min) or 0.5)
+            local max_tolerance = math.max(min_tolerance, tonumber(MAIN_TASK_BUTTON_STEP.distance_tolerance_max) or 2.5)
+            local tolerance = raw_distance * ratio
+            if tolerance < min_tolerance then
+                tolerance = min_tolerance
+            end
+            if tolerance > max_tolerance then
+                tolerance = max_tolerance
+            end
+            return tolerance
+        end
+
+        local function try_dynamic_locator(locator, snapshot, mode_label)
+            if type(locator) ~= "table" or type(nav_mod.find_button_by_locator) ~= "function" then
+                return nil, "nav.find_button_by_locator is unavailable."
+            end
+
+            local target, err = nav_mod.find_button_by_locator(locator, {
+                snapshot = snapshot,
+                max_distance = tonumber(locator.max_distance or locator.hint_max_distance) or tonumber(MAIN_TASK_BUTTON_STEP.hint_max_distance) or 80,
+                related_tolerance = tonumber(locator.related_tolerance)
+            })
+            if type(target) == "table" then
+                target.anchor_text = tostring(locator.distance_anchor_exact_text or locator.related_text or "")
+                target.locator_mode = tostring(mode_label or "dynamic_locator")
+                return target
+            end
+
+            return nil, err
+        end
+
+        local function find_main_task_button_by_selected_style_locator(snapshot)
+            if type(snapshot) ~= "table" or type(snapshot.texts) ~= "table" then
+                return nil, "main task selected-style locator snapshot unavailable."
+            end
+
+            local cached_locator = _G.AVEPOINT_MAIN_TASK_BUTTON_LOCATOR
+            if type(cached_locator) == "table" and type(nav_mod.find_button_by_locator) == "function" then
+                local cached_copy = {}
+                for key, value in pairs(cached_locator) do
+                    cached_copy[key] = value
+                end
+                cached_copy.hint_client_x = tonumber(cached_copy.hint_client_x or cached_copy.x or hint_x)
+                cached_copy.hint_client_y = tonumber(cached_copy.hint_client_y or cached_copy.y or hint_y)
+                cached_copy.hint_ratio_x = tonumber(cached_copy.hint_ratio_x or MAIN_TASK_BUTTON_STEP.hint_ratio_x)
+                cached_copy.hint_ratio_y = tonumber(cached_copy.hint_ratio_y or MAIN_TASK_BUTTON_STEP.hint_ratio_y)
+                cached_copy.hint_max_distance = tonumber(cached_copy.hint_max_distance or cached_copy.max_distance or MAIN_TASK_BUTTON_STEP.hint_max_distance)
+                cached_copy.distance_button_name = tostring(
+                    cached_copy.distance_button_name ~= nil and cached_copy.distance_button_name
+                        or cached_copy.fullname
+                        or MAIN_TASK_BUTTON_STEP.distance_button_name
+                )
+                local cached_target, cached_err = try_dynamic_locator(cached_copy, snapshot, "cached_f12_locator")
+                if type(cached_target) == "table" then
+                    return cached_target
+                end
+                _G.AVEPOINT_MAIN_TASK_BUTTON_LOCATOR = nil
+                if cached_err ~= nil and cached_err ~= "" then
+                    return nil, "cached locator miss => " .. tostring(cached_err)
+                end
+            end
+
+            if hint_x == nil or hint_y == nil then
+                return nil, "main task selected-style locator hint unavailable."
+            end
+
+            local nearest_text_max_distance = math.max(0, tonumber(MAIN_TASK_BUTTON_STEP.nearest_text_max_distance) or 260)
+            local related_tolerance_floor = math.max(0, tonumber(MAIN_TASK_BUTTON_STEP.related_tolerance_min) or 18)
+            local candidates = {}
+            local errors = {}
+
+            for _, anchor_text in ipairs(anchor_texts or {}) do
+                local anchor_key = normalize_anchor_text(anchor_text)
+                if anchor_key ~= "" then
+                    for _, text_item in ipairs(snapshot.texts or {}) do
+                        local text_value = trim(text_item and text_item.text or "")
+                        local text_key = normalize_anchor_text(text_value)
+                        local text_x = tonumber(text_item and text_item.x)
+                        local text_y = tonumber(text_item and text_item.y)
+                        if text_key == anchor_key and text_x ~= nil and text_y ~= nil then
+                            local nearest_distance = distance_2d(hint_x, hint_y, text_x, text_y)
+                            if nearest_distance <= nearest_text_max_distance then
+                                candidates[#candidates + 1] = {
+                                    anchor_text = text_value,
+                                    text_x = text_x,
+                                    text_y = text_y,
+                                    nearest_distance = nearest_distance
+                                }
+                            end
+                        end
+                    end
+                end
+            end
+
+            table.sort(candidates, function(a, b)
+                local ad = tonumber(a and a.nearest_distance) or math.huge
+                local bd = tonumber(b and b.nearest_distance) or math.huge
+                if ad ~= bd then
+                    return ad < bd
+                end
+                return tostring(a and a.anchor_text or "") < tostring(b and b.anchor_text or "")
+            end)
+
+            for _, candidate in ipairs(candidates) do
+                local tolerance = main_task_distance_tolerance(candidate.nearest_distance)
+                local locator = {
+                    label = tostring(candidate.anchor_text or "") .. "按钮",
+                    fullname = MAIN_TASK_BUTTON_STEP.include_patterns[1],
+                    include_patterns = MAIN_TASK_BUTTON_STEP.include_patterns,
+                    hint_client_x = hint_x,
+                    hint_client_y = hint_y,
+                    hint_ratio_x = tonumber(MAIN_TASK_BUTTON_STEP.hint_ratio_x),
+                    hint_ratio_y = tonumber(MAIN_TASK_BUTTON_STEP.hint_ratio_y),
+                    hint_max_distance = tonumber(MAIN_TASK_BUTTON_STEP.hint_max_distance) or 80,
+                    distance_anchor_exact_text = tostring(candidate.anchor_text or ""),
+                    distance_button_name = tostring(MAIN_TASK_BUTTON_STEP.distance_button_name or ""),
+                    distance_min = math.max(0, candidate.nearest_distance - tolerance),
+                    distance_max = candidate.nearest_distance + tolerance,
+                    related_text = tostring(candidate.anchor_text or ""),
+                    related_dx = candidate.text_x - hint_x,
+                    related_dy = candidate.text_y - hint_y,
+                    related_tolerance = math.max(related_tolerance_floor, tolerance * 10)
+                }
+                local target, err = try_dynamic_locator(locator, snapshot, "selected_style_locator")
+                if type(target) == "table" then
+                    target.nearest_text_distance = candidate.nearest_distance
+                    return target
+                end
+                if err ~= nil and err ~= "" then
+                    errors[#errors + 1] = string.format(
+                        "%s d=%.3f => %s",
+                        tostring(candidate.anchor_text or ""),
+                        tonumber(candidate.nearest_distance) or 0,
+                        tostring(err)
+                    )
+                end
+            end
+
+            return nil, #errors > 0
+                and table.concat(errors, " | ")
+                or "main task selected-style locator matched no button."
+        end
+
+        local function find_main_task_button_by_text_geometry(snapshot, mode_label)
             if type(ui_snapshot) ~= "table"
-                or type(ui_snapshot.buttons) ~= "table"
-                or type(ui_snapshot.texts) ~= "table"
+                and type(snapshot) ~= "table"
             then
+                return nil, "main task text geometry snapshot unavailable."
+            end
+            snapshot = type(snapshot) == "table" and snapshot or ui_snapshot
+            if type(snapshot.buttons) ~= "table" or type(snapshot.texts) ~= "table" then
                 return nil, "main task text geometry snapshot unavailable."
             end
 
@@ -10741,12 +11051,46 @@ local function click_main_task_button(ctx, current_time, opts)
                 distance_min, distance_max = distance_max, distance_min
             end
             local target_distance = (distance_min + distance_max) * 0.5
+            local dx_target = tonumber(MAIN_TASK_BUTTON_STEP.distance_dx_target) or 28.0
+            local dx_min = tonumber(MAIN_TASK_BUTTON_STEP.distance_dx_min)
+            if dx_min == nil then
+                dx_min = math.max(0, distance_min - 8)
+            end
+            local dx_max = tonumber(MAIN_TASK_BUTTON_STEP.distance_dx_max)
+            if dx_max == nil then
+                dx_max = math.max(dx_target + 40, distance_max + 36)
+            end
+            if dx_max < dx_min then
+                dx_min, dx_max = dx_max, dx_min
+            end
+            local dy_target = tonumber(MAIN_TASK_BUTTON_STEP.distance_dy_target) or 4.0
+            local dy_max = tonumber(MAIN_TASK_BUTTON_STEP.distance_dy_max) or 28.0
+            local predicted_search_radius = tonumber(MAIN_TASK_BUTTON_STEP.predicted_search_radius) or 28.0
+            local relaxed_hint_distance = math.max(max_hint_distance, dx_max + 28)
             local best = nil
+            local debug_candidates = {}
+
+            local function push_debug(candidate)
+                if type(candidate) ~= "table" or #debug_candidates >= 4 then
+                    return
+                end
+                debug_candidates[#debug_candidates + 1] = string.format(
+                    "mode=%s pos=(%.1f,%.1f) dx=%.1f dy=%.1f pred=%.1f hint=%.1f identity=%s",
+                    tostring(mode_label or "text_geometry"),
+                    tonumber(candidate.x) or 0,
+                    tonumber(candidate.y) or 0,
+                    tonumber(candidate.dx) or 0,
+                    tonumber(candidate.dy_abs) or 0,
+                    tonumber(candidate.predicted_distance) or 0,
+                    tonumber(candidate.hint_distance) or 0,
+                    tostring(candidate.identity or "")
+                )
+            end
 
             for _, anchor_text in ipairs(anchor_texts or {}) do
                 local anchor_key = normalize_anchor_text(anchor_text)
                 if anchor_key ~= "" then
-                    for _, text_item in ipairs(ui_snapshot.texts or {}) do
+                    for _, text_item in ipairs(snapshot.texts or {}) do
                         local text_value = trim(text_item and text_item.text or "")
                         local text_key = normalize_anchor_text(text_value)
                         local text_x = tonumber(text_item and text_item.x)
@@ -10755,7 +11099,9 @@ local function click_main_task_button(ctx, current_time, opts)
                             and text_x ~= nil
                             and text_y ~= nil
                         then
-                            for _, button_item in ipairs(ui_snapshot.buttons or {}) do
+                            local predicted_x = text_x - dx_target
+                            local predicted_y = text_y - dy_target
+                            for _, button_item in ipairs(snapshot.buttons or {}) do
                                 local addr = tonumber(button_item and button_item.addr)
                                 local button_x = tonumber(button_item and button_item.x)
                                 local button_y = tonumber(button_item and button_item.y)
@@ -10767,21 +11113,24 @@ local function click_main_task_button(ctx, current_time, opts)
                                     local hint_distance = hint_x ~= nil and hint_y ~= nil
                                         and distance_2d(hint_x, hint_y, button_x, button_y)
                                         or 0
-                                    if hint_x == nil or hint_y == nil or hint_distance <= max_hint_distance then
+                                    if hint_x == nil or hint_y == nil or hint_distance <= relaxed_hint_distance then
                                         local anchor_distance = distance_2d(button_x, button_y, text_x, text_y)
                                         local dx = text_x - button_x
-                                        local dy = math.abs(text_y - button_y)
+                                        local dy_abs = math.abs(text_y - button_y)
+                                        local predicted_distance = distance_2d(button_x, button_y, predicted_x, predicted_y)
                                         local in_distance_band = anchor_distance >= distance_min and anchor_distance <= distance_max
-                                        local in_row_band = dx >= 8 and dx <= 84 and dy <= 24
-                                        if in_distance_band and in_row_band then
-                                            local fullname = tostring(button_item and (button_item.Fullname or button_item.fullname) or "")
-                                            local name = tostring(button_item and button_item.name or "")
-                                            local identity = (fullname .. " " .. name):lower()
-                                            local identity_bonus = identity:find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil and -16 or 0
-                                            local score = math.abs(anchor_distance - target_distance)
-                                                + dy * 2
-                                                + math.abs(dx - 32) * 0.35
-                                                + hint_distance * 0.08
+                                        local in_row_band = dx >= dx_min and dx <= dx_max and dy_abs <= dy_max
+                                        local in_predicted_band = predicted_distance <= predicted_search_radius
+                                        local fullname = tostring(button_item and (button_item.Fullname or button_item.fullname) or "")
+                                        local name = tostring(button_item and button_item.name or "")
+                                        local identity = trim(fullname ~= "" and fullname or name):lower()
+                                        if (in_distance_band and in_row_band) or in_predicted_band then
+                                            local identity_bonus = identity:find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil and -18 or 0
+                                            local score = predicted_distance * 2.4
+                                                + math.abs(dx - dx_target) * 0.8
+                                                + math.abs(dy_abs - dy_target) * 1.8
+                                                + math.abs(anchor_distance - target_distance) * 0.45
+                                                + hint_distance * 0.05
                                                 + identity_bonus
                                             if best == nil or score < best.score then
                                                 best = {
@@ -10796,9 +11145,25 @@ local function click_main_task_button(ctx, current_time, opts)
                                                     related_text = text_value,
                                                     related_distance = anchor_distance,
                                                     score = score,
-                                                    locator_mode = "text_geometry"
+                                                    locator_mode = tostring(mode_label or "text_geometry"),
+                                                    dx = dx,
+                                                    dy = text_y - button_y,
+                                                    predicted_distance = predicted_distance
                                                 }
                                             end
+                                        elseif dx >= (dx_min - 18)
+                                            and dx <= (dx_max + 18)
+                                            and dy_abs <= (dy_max + 16)
+                                        then
+                                            push_debug({
+                                                x = button_x,
+                                                y = button_y,
+                                                dx = dx,
+                                                dy_abs = dy_abs,
+                                                predicted_distance = predicted_distance,
+                                                hint_distance = hint_distance,
+                                                identity = identity
+                                            })
                                         end
                                     end
                                 end
@@ -10811,17 +11176,25 @@ local function click_main_task_button(ctx, current_time, opts)
             if best ~= nil then
                 return best
             end
-            return nil, "main task text geometry matched no nearby button."
+            return nil, #debug_candidates > 0
+                and ("main task text geometry matched no nearby button. candidates=" .. table.concat(debug_candidates, " | "))
+                or "main task text geometry matched no nearby button."
         end
 
-        local errors = {}
-        if type(nav_mod.find_button_by_locator) == "function" then
+        local function try_identity_locator(snapshot, mode_label)
+            if type(nav_mod.find_button_by_locator) ~= "function" then
+                return nil, "nav.find_button_by_locator is unavailable."
+            end
+
+            local errors = {}
             for _, anchor_text in ipairs(anchor_texts or {}) do
                 local locator = {
                     fullname = MAIN_TASK_BUTTON_STEP.include_patterns[1],
                     include_patterns = MAIN_TASK_BUTTON_STEP.include_patterns,
                     hint_client_x = hint_x,
                     hint_client_y = hint_y,
+                    hint_ratio_x = tonumber(MAIN_TASK_BUTTON_STEP.hint_ratio_x),
+                    hint_ratio_y = tonumber(MAIN_TASK_BUTTON_STEP.hint_ratio_y),
                     hint_max_distance = tonumber(MAIN_TASK_BUTTON_STEP.hint_max_distance) or 80,
                     distance_anchor_exact_text = anchor_text,
                     distance_button_name = tostring(MAIN_TASK_BUTTON_STEP.distance_button_name or ""),
@@ -10829,28 +11202,92 @@ local function click_main_task_button(ctx, current_time, opts)
                     distance_max = tonumber(MAIN_TASK_BUTTON_STEP.distance_max)
                 }
                 local target, err = nav_mod.find_button_by_locator(locator, {
-                    snapshot = ui_snapshot,
+                    snapshot = snapshot,
                     max_distance = tonumber(MAIN_TASK_BUTTON_STEP.hint_max_distance) or 80
                 })
                 if type(target) == "table" then
                     target.anchor_text = anchor_text
-                    target.locator_mode = "identity_locator"
+                    target.locator_mode = tostring(mode_label or "identity_locator")
                     return target
                 end
                 if err ~= nil and err ~= "" then
                     errors[#errors + 1] = string.format("%s => %s", tostring(anchor_text), tostring(err))
                 end
             end
-        else
-            errors[#errors + 1] = "nav.find_button_by_locator is unavailable."
+
+            return nil, #errors > 0 and table.concat(errors, " | ")
+                or "main task identity locator matched no button."
         end
 
-        local geometry_target, geometry_err = find_main_task_button_by_text_geometry()
-        if type(geometry_target) == "table" then
-            return geometry_target
+        local function try_locator_suite(snapshot, refresh_label)
+            local errors = {}
+            local selected_style_target, selected_style_err = find_main_task_button_by_selected_style_locator(snapshot)
+            if type(selected_style_target) == "table" then
+                return selected_style_target
+            end
+            if selected_style_err ~= nil and selected_style_err ~= "" then
+                errors[#errors + 1] = selected_style_err
+            end
+
+            local identity_mode = refresh_label ~= nil and refresh_label ~= ""
+                and ("identity_locator_" .. refresh_label)
+                or "identity_locator"
+            local identity_target, identity_err = try_identity_locator(snapshot, identity_mode)
+            if type(identity_target) == "table" then
+                return identity_target
+            end
+            if identity_err ~= nil and identity_err ~= "" then
+                errors[#errors + 1] = identity_err
+            end
+
+            local geometry_mode = refresh_label ~= nil and refresh_label ~= ""
+                and ("text_geometry_" .. refresh_label)
+                or "text_geometry"
+            local geometry_target, geometry_err = find_main_task_button_by_text_geometry(snapshot, geometry_mode)
+            if type(geometry_target) == "table" then
+                return geometry_target
+            end
+            if geometry_err ~= nil and geometry_err ~= "" then
+                errors[#errors + 1] = geometry_err
+            end
+
+            return nil, #errors > 0 and table.concat(errors, " | ")
+                or "main task text-distance locator matched no button."
         end
-        if geometry_err ~= nil and geometry_err ~= "" then
-            errors[#errors + 1] = geometry_err
+
+        local errors = {}
+        local target, err = try_locator_suite(ui_snapshot, nil)
+        if type(target) == "table" then
+            return target
+        end
+        if err ~= nil and err ~= "" then
+            errors[#errors + 1] = err
+        end
+
+        if type(nav_mod.enum_ui) == "function" then
+            local refresh_attempts = math.max(0, math.floor(tonumber(MAIN_TASK_BUTTON_STEP.geometry_refresh_attempts) or 1))
+            for attempt = 1, refresh_attempts do
+                local refreshed_snapshot, refreshed_err = nav_mod.enum_ui()
+                if type(refreshed_snapshot) == "table" then
+                    local refreshed_target, refreshed_target_err = try_locator_suite(
+                        refreshed_snapshot,
+                        string.format("refresh%d", attempt)
+                    )
+                    if type(refreshed_target) == "table" then
+                        ui_snapshot = refreshed_snapshot
+                        return refreshed_target
+                    end
+                    if refreshed_target_err ~= nil and refreshed_target_err ~= "" then
+                        errors[#errors + 1] = string.format(
+                            "refresh%d => %s",
+                            attempt,
+                            tostring(refreshed_target_err)
+                        )
+                    end
+                elseif refreshed_err ~= nil and refreshed_err ~= "" then
+                    errors[#errors + 1] = string.format("refresh%d => %s", attempt, tostring(refreshed_err))
+                end
+            end
         end
 
         return nil, #errors > 0
@@ -10863,7 +11300,12 @@ local function click_main_task_button(ctx, current_time, opts)
             return panel_item
         end
         panel_item._main_task_click_source = tostring(source_prefix or "panel") .. "_locator"
-        if tostring(locator_button.locator_mode or "") == "text_geometry" then
+        local locator_mode = tostring(locator_button.locator_mode or "")
+        if locator_mode == "cached_f12_locator" then
+            panel_item._main_task_click_source = tostring(source_prefix or "panel") .. "_cached_locator"
+        elseif locator_mode == "selected_style_locator" then
+            panel_item._main_task_click_source = tostring(source_prefix or "panel") .. "_selected_style"
+        elseif locator_mode:find("text_geometry", 1, true) ~= nil then
             panel_item._main_task_click_source = tostring(source_prefix or "panel") .. "_text_geometry"
         end
         panel_item._main_task_clicked_target = locator_button
@@ -10901,115 +11343,6 @@ local function click_main_task_button(ctx, current_time, opts)
             return target
         end
         return nil, err
-    end
-
-    local function find_main_task_text_target(anchor_texts, hint_x, hint_y)
-        if type(ui_snapshot) ~= "table" or type(ui_snapshot.texts) ~= "table" then
-            return nil, "main task text snapshot unavailable."
-        end
-
-        local seen = {}
-        local best = nil
-        for _, anchor_text in ipairs(anchor_texts or {}) do
-            local exact = trim(anchor_text or "")
-            local key = exact:lower()
-            if exact ~= "" and not seen[key] then
-                seen[key] = true
-                for _, item in ipairs(ui_snapshot.texts or {}) do
-                    local raw_text = trim(item and item.text or "")
-                    local addr = tonumber(item and item.addr)
-                    local x = tonumber(item and item.x)
-                    local y = tonumber(item and item.y)
-                    if raw_text == exact and addr ~= nil and addr ~= 0 and x ~= nil and y ~= nil then
-                        local hint_distance = hint_x ~= nil and hint_y ~= nil
-                            and distance_2d(hint_x, hint_y, x, y)
-                            or 0
-                        local dx = hint_x ~= nil and (x - hint_x) or 0
-                        local dy = hint_y ~= nil and math.abs(y - hint_y) or 0
-                        local score = hint_distance + math.abs(dx - 32) * 0.35 + dy * 1.6
-                        if best == nil or score < best.score then
-                            best = {
-                                kind = "text",
-                                addr = addr,
-                                name = tostring(item and item.name or ""),
-                                text = raw_text,
-                                fullname = tostring(item and (item.Fullname or item.fullname) or ""),
-                                x = x,
-                                y = y,
-                                distance = hint_distance,
-                                score = score
-                            }
-                        end
-                    end
-                end
-            end
-        end
-
-        if best ~= nil then
-            return best
-        end
-        return nil, "main task title text target not found."
-    end
-
-    local function promote_panel_click_to_selected_target(panel_item, source_tag, hint_x, hint_y, opts)
-        opts = opts or {}
-        local attempts = math.max(1, math.floor(tonumber(opts.attempts) or 2))
-        local initial_wait_ms = math.max(0, math.floor(tonumber(opts.initial_wait_ms) or 90))
-        local retry_wait_ms = math.max(0, math.floor(tonumber(opts.retry_wait_ms) or 70))
-        logger(ctx).info(string.format(
-            "[Leveling] main task selected promote begin | source=%s hint=(%.2f,%.2f) attempts=%d waits=%d/%d",
-            tostring(source_tag or ""),
-            tonumber(hint_x) or 0,
-            tonumber(hint_y) or 0,
-            attempts,
-            initial_wait_ms,
-            retry_wait_ms
-        ))
-        local selected_target, selected_err = nil, nil
-        for attempt = 1, attempts do
-            local attempt_started_at = now_ms(ctx)
-            if attempt > 1 then
-                sleep_ms(ctx, retry_wait_ms)
-            elseif initial_wait_ms > 0 then
-                sleep_ms(ctx, initial_wait_ms)
-            end
-            selected_target, selected_err = M.resolve_main_task_selected_target(nav_mod, hint_x, hint_y)
-            logger(ctx).info(string.format(
-                "[Leveling] main task selected promote probe | source=%s attempt=%d ok=%s elapsed_ms=%d detail=%s",
-                tostring(source_tag or ""),
-                attempt,
-                type(selected_target) == "table" and "true" or "false",
-                math.max(0, now_ms(ctx) - attempt_started_at),
-                type(selected_target) == "table"
-                    and format_main_task_click_target(selected_target)
-                    or tostring(selected_err or "")
-            ))
-            if type(selected_target) == "table" then
-                break
-            end
-        end
-        if type(selected_target) ~= "table" then
-            return false, selected_err or "GetCurrentSelected TaskBtn not available after panel click."
-        end
-
-        local click_ok, click_err = attempt_main_task_control_click(
-            tostring(source_tag or "panel") .. "_selected_click",
-            selected_target,
-            "selected_promotion"
-        )
-        if not click_ok then
-            return false, click_err or "GetCurrentSelected TaskBtn control_click failed."
-        end
-
-        panel_item._main_task_click_source = tostring(source_tag or "panel") .. "_selected"
-        panel_item._main_task_clicked_target = selected_target
-        panel_item.button_addr = selected_target.addr
-        panel_item.button_kind = "button"
-        panel_item.button_name = tostring(selected_target.name or "")
-        panel_item.button_fullname = tostring(selected_target.fullname or "")
-        panel_item.button_x = tonumber(selected_target.x) or tonumber(panel_item.button_x) or tonumber(panel_item.x)
-        panel_item.button_y = tonumber(selected_target.y) or tonumber(panel_item.button_y) or tonumber(panel_item.y)
-        return true, panel_item
     end
 
     local function click_anchor_button_target(target, phase)
@@ -11131,99 +11464,26 @@ local function click_main_task_button(ctx, current_time, opts)
             end
         end
 
-        local selected_hint_x = tonumber(panel_item.button_x) or button_x or hint_x
-        local selected_hint_y = tonumber(panel_item.button_y) or button_y or hint_y
         local title_addr = tonumber(panel_item.title_addr)
-        if title_addr ~= nil and title_addr ~= 0 and type(nav_mod.control_click) == "function" then
-            local clicked, click_err = attempt_main_task_control_click(
-                tostring(source_prefix or "panel") .. "_title_probe",
-                {
-                    kind = "text",
-                    addr = title_addr,
-                    x = tonumber(panel_item.x),
-                    y = tonumber(panel_item.y),
-                    text = panel_item.title or panel_item.raw_text or "",
-                    name = "",
-                    fullname = ""
-                },
-                "panel_title_probe"
+        if title_addr ~= nil and title_addr ~= 0 then
+            log_main_task_panel_branch(
+                source_prefix,
+                "title_probe",
+                "skip",
+                "non-button panel click disabled for safety"
             )
-            if clicked then
-                local promoted_ok, promoted_item_or_err = promote_panel_click_to_selected_target(
-                    panel_item,
-                    tostring(source_prefix or "panel") .. "_title",
-                    selected_hint_x,
-                    selected_hint_y,
-                    {
-                        attempts = 2,
-                        initial_wait_ms = 90,
-                        retry_wait_ms = 70
-                    }
-                )
-                if promoted_ok then
-                    record_branch_hit("title_selected", format_main_task_click_target(
-                        type(panel_item._main_task_clicked_target) == "table" and panel_item._main_task_clicked_target or {
-                            kind = "text",
-                            addr = title_addr,
-                            x = tonumber(panel_item.x),
-                            y = tonumber(panel_item.y),
-                            text = panel_item.title or panel_item.raw_text or ""
-                        }
-                    ))
-                    return true, panel_item
-                end
-                record_branch_error("title_selected", promoted_item_or_err or "task panel title click did not promote to TaskBtn.")
-            else
-                record_branch_error("title_click", click_err or "task panel title control_click failed.")
-            end
         end
 
         if not prefer_direct_addr
             and addr ~= nil
             and addr ~= 0
-            and type(nav_mod.control_click) == "function"
         then
-            local clicked, click_err = attempt_main_task_control_click(
-                tostring(source_prefix or "panel") .. "_anchor_addr_probe",
-                {
-                    kind = panel_item.button_kind or panel_item.kind,
-                    addr = addr,
-                    x = button_x,
-                    y = button_y,
-                    text = panel_item.raw_text or panel_item.title or "",
-                    name = panel_item.button_name or "",
-                    fullname = panel_item.button_fullname or ""
-                },
-                "panel_anchor_probe"
+            log_main_task_panel_branch(
+                source_prefix,
+                "anchor_addr_probe",
+                "skip",
+                "non-button panel click disabled for safety"
             )
-            if clicked then
-                local promoted_ok, promoted_item_or_err = promote_panel_click_to_selected_target(
-                    panel_item,
-                    tostring(source_prefix or "panel") .. "_anchor_addr",
-                    selected_hint_x,
-                    selected_hint_y,
-                    {
-                        attempts = 2,
-                        initial_wait_ms = 90,
-                        retry_wait_ms = 70
-                    }
-                )
-                if promoted_ok then
-                    record_branch_hit("anchor_addr_selected", format_main_task_click_target(
-                        type(panel_item._main_task_clicked_target) == "table" and panel_item._main_task_clicked_target or {
-                            kind = panel_item.button_kind or panel_item.kind,
-                            addr = addr,
-                            x = button_x,
-                            y = button_y,
-                            text = panel_item.raw_text or panel_item.title or ""
-                        }
-                    ))
-                    return true, panel_item
-                end
-                record_branch_error("anchor_addr_selected", promoted_item_or_err or "task panel anchor did not promote to TaskBtn.")
-            else
-                record_branch_error("anchor_addr_click", click_err or "task panel anchor control_click failed.")
-            end
         end
 
         if button_x ~= nil and button_y ~= nil then
@@ -11321,6 +11581,7 @@ local function click_main_task_button(ctx, current_time, opts)
             "current_selected"
         )
         if click_ok then
+            M.remember_success_main_task_button(ctx, selected_target, current_time, "current_selected")
             apply_main_task_click_result(selected_target, hint_x, hint_y)
             trace_main_task_call("current_selected", "success", string.format(
                 "addr=%s pos=(%s,%s)",
@@ -11350,6 +11611,47 @@ local function click_main_task_button(ctx, current_time, opts)
         trace_main_task_call("current_selected", "miss", selected_err or "Current selected button not found.")
     end
 
+    local recent_success_target, recent_success_err = M.resolve_recent_success_main_task_button_target(
+        ctx,
+        nav_mod,
+        ui_snapshot,
+        hint_x,
+        hint_y,
+        current_time
+    )
+    if type(recent_success_target) == "table" then
+        local click_ok, resolved_target_or_err = click_anchor_button_target(recent_success_target, "recent_success_pose")
+        if click_ok then
+            local recent_target = resolved_target_or_err
+            M.remember_success_main_task_button(ctx, recent_target, current_time, "recent_success_pose")
+            apply_main_task_click_result(recent_target, hint_x, hint_y)
+            trace_main_task_call("recent_success_pose", "success", string.format(
+                "addr=%s pos=(%s,%s)",
+                tostring(recent_target.addr or ""),
+                tostring(recent_target.x or ""),
+                tostring(recent_target.y or "")
+            ))
+            logger(ctx).info(string.format(
+                "[Leveling] main task button clicked | task=%s mode=%s source=%s label=%s kind=%s addr=%s pos=(%s,%s) hint=(%.2f,%.2f) distance=%.2f",
+                tostring(M.current_task_log_name() or ""),
+                preserve_target == true and "soft_refresh" or "hard_refresh",
+                "recent_success_pose",
+                tostring(MAIN_TASK_BUTTON_STEP.label),
+                tostring(recent_target.kind or ""),
+                tostring(recent_target.addr or ""),
+                tostring(recent_target.x or ""),
+                tostring(recent_target.y or ""),
+                tonumber(hint_x) or 0,
+                tonumber(hint_y) or 0,
+                tonumber(recent_target.distance) or 0
+            ))
+            return true
+        end
+        trace_main_task_call("recent_success_pose", "click_failed", tostring(resolved_target_or_err or "recent success pose click failed."))
+    elseif recent_success_err ~= nil and recent_success_err ~= "" then
+        trace_main_task_call("recent_success_pose", "miss", recent_success_err)
+    end
+
     local preferred_panel_key = M.current_task_log_name()
         or state.current_task_name
         or M.current_task_log_detail()
@@ -11365,6 +11667,12 @@ local function click_main_task_button(ctx, current_time, opts)
                 text = tostring(cached_item.raw_text or cached_item.title or ""),
                 related_text = tostring(cached_item.title or "")
             }
+            M.remember_success_main_task_button(
+                ctx,
+                cached_item,
+                current_time,
+                tostring(cached_item._main_task_click_source or "panel_cache")
+            )
             apply_main_task_click_result(
                 refresh_target,
                 tonumber(cached_item.button_x) or tonumber(cached_item.x),
@@ -11412,6 +11720,12 @@ local function click_main_task_button(ctx, current_time, opts)
                     text = tostring(clicked_item.raw_text or clicked_item.title or ""),
                     related_text = tostring(clicked_item.title or "")
                 }
+                M.remember_success_main_task_button(
+                    ctx,
+                    clicked_item,
+                    current_time,
+                    tostring(clicked_item._main_task_click_source or "panel")
+                )
                 apply_main_task_click_result(
                     refresh_target,
                     tonumber(clicked_item.button_x) or tonumber(clicked_item.x),
@@ -11465,9 +11779,16 @@ local function click_main_task_button(ctx, current_time, opts)
         local locator_target, locator_err = find_anchor_locator_target(hint_x, hint_y)
         if type(locator_target) == "table" then
             target = locator_target
-            target_source = tostring(locator_target.locator_mode or "") == "text_geometry"
-                and "anchor_text_geometry"
-                or "anchor_locator"
+            local locator_mode = tostring(locator_target.locator_mode or "")
+            if locator_mode == "cached_f12_locator" then
+                target_source = "anchor_cached_locator"
+            elseif locator_mode == "selected_style_locator" then
+                target_source = "anchor_selected_style"
+            elseif locator_mode:find("text_geometry", 1, true) ~= nil then
+                target_source = "anchor_text_geometry"
+            else
+                target_source = "anchor_locator"
+            end
             trace_main_task_call(target_source, "matched", string.format(
                 "addr=%s pos=(%s,%s)",
                 tostring(locator_target.addr or ""),
@@ -11480,54 +11801,7 @@ local function click_main_task_button(ctx, current_time, opts)
         end
     end
     if not target then
-        local title_target, title_err = find_main_task_text_target(collect_main_task_anchor_texts(nil), hint_x, hint_y)
-        if type(title_target) == "table" then
-            local clicked, click_err = attempt_main_task_control_click(
-                "anchor_title_probe",
-                title_target,
-                "anchor_title_probe"
-            )
-            if clicked then
-                local promoted_item = {
-                    title_addr = title_target.addr,
-                    x = title_target.x,
-                    y = title_target.y,
-                    button_x = hint_x,
-                    button_y = hint_y
-                }
-                local promoted_ok, promoted_item_or_err = promote_panel_click_to_selected_target(
-                    promoted_item,
-                    "anchor_title",
-                    hint_x,
-                    hint_y,
-                    {
-                        attempts = 2,
-                        initial_wait_ms = 90,
-                        retry_wait_ms = 70
-                    }
-                )
-                if promoted_ok then
-                    target = type(promoted_item._main_task_clicked_target) == "table"
-                        and promoted_item._main_task_clicked_target
-                        or target
-                    target_source = "anchor_title_selected"
-                    trace_main_task_call("anchor_title_selected", "matched", string.format(
-                        "title=%s addr=%s",
-                        tostring(title_target.text or ""),
-                        tostring(type(promoted_item._main_task_clicked_target) == "table" and promoted_item._main_task_clicked_target.addr or "")
-                    ))
-                else
-                    fetch_err = promoted_item_or_err or "main task title target did not promote to TaskBtn."
-                    trace_main_task_call("anchor_title_selected", "miss", fetch_err)
-                end
-            else
-                fetch_err = click_err or "main task title target control_click failed."
-                trace_main_task_call("anchor_title_click", "click_failed", fetch_err)
-            end
-        elseif title_err ~= nil and title_err ~= "" then
-            fetch_err = title_err
-            trace_main_task_call("anchor_title", "miss", title_err)
-        end
+        trace_main_task_call("anchor_title", "skip", "non-button anchor click disabled for safety")
     end
     if not target then
         local nearby_button, nearby_button_err = find_main_task_button_near_point(
@@ -11601,6 +11875,7 @@ local function click_main_task_button(ctx, current_time, opts)
     end
 
     target = resolved_target_or_err
+    M.remember_success_main_task_button(ctx, target, current_time, tostring(target_source))
     apply_main_task_click_result(target, hint_x, hint_y)
     trace_main_task_call(tostring(target_source), "success", string.format(
         "addr=%s pos=(%s,%s)",
