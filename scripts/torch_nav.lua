@@ -25,6 +25,36 @@ local nav = {
     }
 }
 
+local function nav_now_ms()
+    return type(sys) == "table" and type(sys.time) == "function" and sys.time() or 0
+end
+
+local function pid_exists(pid)
+    return type(proc) == "table"
+        and type(proc.exists) == "function"
+        and type(pid) == "number"
+        and pid > 0
+        and proc.exists(pid) == true
+end
+
+local function format_target_ref(target)
+    if type(target) == "string" then
+        return target
+    end
+    if type(target) == "number" then
+        return tostring(target)
+    end
+    return tostring(target or "")
+end
+
+local function record_api_event(op, ok, err, extra)
+    nav.last_api_event_op = tostring(op or "")
+    nav.last_api_event_ok = ok == true
+    nav.last_api_event_err = err ~= nil and tostring(err) or nil
+    nav.last_api_event_extra = extra ~= nil and tostring(extra) or nil
+    nav.last_api_event_at = nav_now_ms()
+end
+
 local function loadfile_with_bytecode_fallback(path, label)
     local candidates = { path }
     if type(path) == "string" and path ~= "" then
@@ -340,6 +370,7 @@ function nav.init(target, mode)
     local pid = resolve_pid(target)
     if not pid or pid <= 0 then
         nav.reset()
+        record_api_event("InitGameinfo", false, "Target process not found.", "target=" .. format_target_ref(target))
         return false, "Target process not found."
     end
 
@@ -361,6 +392,7 @@ function nav.init(target, mode)
 
     local ok, err = ensure_api()
     if not ok then
+        record_api_event("InitGameinfo", false, err, "ensure_api")
         return false, err
     end
 
@@ -374,6 +406,7 @@ function nav.init(target, mode)
 
             ok, err = ensure_api()
             if not ok then
+                record_api_event("InitGameinfo", false, err, "ensure_api_reload")
                 return false, err
             end
 
@@ -381,6 +414,12 @@ function nav.init(target, mode)
         end
 
         if not init_ok then
+            record_api_event(
+                "InitGameinfo",
+                false,
+                tostring(init_err or "InitGameinfo failed."),
+                string.format("pid=%d mode=%s", pid, tostring(use_mode))
+            )
             return false, string.format(
                 "InitGameinfo failed | pid=%d mode=%s err=%s",
                 pid,
@@ -394,6 +433,7 @@ function nav.init(target, mode)
     nav.mode = use_mode
     nav.target_ref = target
     normalize_game_api()
+    record_api_event("InitGameinfo", true, nil, string.format("pid=%d mode=%s", pid, tostring(use_mode)))
     return true
 end
 
@@ -417,16 +457,46 @@ function nav.ensure_initialized(target, mode)
     return nav.init(init_target, mode or nav.mode or "driver")
 end
 
+function nav.debug_state()
+    local pid = tonumber(nav.pid)
+    local target_ref = format_target_ref(nav.target_ref)
+    local target_pid = resolve_pid(nav.target_ref)
+    local last_age_ms = nil
+    if type(nav.last_api_event_at) == "number" and nav.last_api_event_at > 0 then
+        last_age_ms = math.max(0, nav_now_ms() - nav.last_api_event_at)
+    end
+
+    return string.format(
+        "pid=%s pid_exists=%s target=%s target_pid=%s mode=%s init_api=%s game_api=%s last_api=%s last_ok=%s last_err=%s last_extra=%s last_age_ms=%s",
+        tostring(pid or ""),
+        pid_exists(pid) and "true" or "false",
+        target_ref,
+        tostring(target_pid or ""),
+        tostring(nav.mode or ""),
+        type(nav.init_api) == "table" and "true" or "false",
+        type(nav.game_api) == "table" and "true" or "false",
+        tostring(nav.last_api_event_op or ""),
+        nav.last_api_event_ok == true and "true" or "false",
+        tostring(nav.last_api_event_err or ""),
+        tostring(nav.last_api_event_extra or ""),
+        tostring(last_age_ms or "")
+    )
+end
+
 function nav.player_info()
     local ok, err = ensure_api()
     if not ok then
+        record_api_event("GetPlayerinfo", false, err, "ensure_api")
         return nil, err
     end
 
     local info, info_err = quiet_call(nav.game_api.GetPlayerinfo)
     if not info then
+        record_api_event("GetPlayerinfo", false, info_err or "GetPlayerinfo failed.", "quiet_call")
         return nil, info_err or "GetPlayerinfo failed."
     end
+
+    record_api_event("GetPlayerinfo", true, nil, nil)
 
     return info
 end
@@ -480,28 +550,36 @@ end
 function nav.get_main_task_pos()
     local ok, err = ensure_api()
     if not ok then
+        record_api_event("GetMainTaskPos", false, err, "ensure_api")
         return nil, err
     end
 
     if type(nav.game_api.GetMainTaskPos) ~= "function" then
+        record_api_event("GetMainTaskPos", false, "GetMainTaskPos is not available.", "missing_function")
         return nil, "GetMainTaskPos is not available."
     end
 
     local point, point_err = quiet_call(nav.game_api.GetMainTaskPos)
     if point == nil then
+        record_api_event("GetMainTaskPos", false, point_err or "GetMainTaskPos failed.", "quiet_call")
         return nil, point_err or "GetMainTaskPos failed."
     end
     if type(point) ~= "table" then
+        record_api_event("GetMainTaskPos", false, "GetMainTaskPos returned invalid data.", type(point))
         return nil, "GetMainTaskPos returned invalid data."
     end
 
     local x, y, z = extract_position(point)
     if x == nil or y == nil then
+        record_api_event("GetMainTaskPos", false, "GetMainTaskPos returned invalid coordinates.", nil)
         return nil, "GetMainTaskPos returned invalid coordinates."
     end
     if math.abs(x) < 0.001 and math.abs(y) < 0.001 then
+        record_api_event("GetMainTaskPos", false, "GetMainTaskPos returned zero coordinates.", nil)
         return nil, "GetMainTaskPos returned zero coordinates."
     end
+
+    record_api_event("GetMainTaskPos", true, nil, string.format("%.2f,%.2f,%.2f", x, y, z or 0))
 
     return {
         x = x,
@@ -514,23 +592,28 @@ end
 function nav.get_main_task_path()
     local ok, err = ensure_api()
     if not ok then
+        record_api_event("GetMainTaskPath", false, err, "ensure_api")
         return nil, err
     end
 
     if type(nav.game_api.GetMainTaskPath) ~= "function" then
+        record_api_event("GetMainTaskPath", false, "GetMainTaskPath is not available.", "missing_function")
         return nil, "GetMainTaskPath is not available."
     end
 
     local raw_path, path_err = quiet_call(nav.game_api.GetMainTaskPath)
     if raw_path == nil then
+        record_api_event("GetMainTaskPath", false, path_err or "GetMainTaskPath failed.", "quiet_call")
         return nil, path_err or "GetMainTaskPath failed."
     end
     if type(raw_path) ~= "table" then
+        record_api_event("GetMainTaskPath", false, "GetMainTaskPath returned invalid data.", type(raw_path))
         return nil, "GetMainTaskPath returned invalid data."
     end
 
     local direct_x, direct_y, direct_z = extract_position(raw_path)
     if direct_x ~= nil and direct_y ~= nil then
+        record_api_event("GetMainTaskPath", true, nil, "direct_point")
         return {
             {
                 x = direct_x,
@@ -569,8 +652,11 @@ function nav.get_main_task_path()
     end
 
     if #points == 0 then
+        record_api_event("GetMainTaskPath", false, "GetMainTaskPath returned no usable points.", nil)
         return nil, "GetMainTaskPath returned no usable points."
     end
+
+    record_api_event("GetMainTaskPath", true, nil, string.format("points=%d", #points))
 
     return points
 end
@@ -1607,25 +1693,50 @@ end
 function nav.control_click(addr)
     local ok, err = ensure_api()
     if not ok then
+        record_api_event("control_click", false, err, "ensure_api")
         return false, err
     end
 
     if type(addr) ~= "number" or addr == 0 then
+        record_api_event("control_click", false, "Invalid control address.", tostring(addr))
         return false, "Invalid control address."
     end
 
     if type(nav.game_api.control_click) ~= "function" then
+        record_api_event("control_click", false, "control_click is not available.", "missing_function")
         return false, "control_click is not available."
     end
 
+    local sleep_delay_ms = nil
     if type(human_mouse) == "table" and type(human_mouse.sleep_random) == "function" then
-        human_mouse.sleep_random(400, 2000)
+        record_api_event("control_click", true, nil, string.format("phase=sleep addr=0x%X range=400-2000", addr))
+        sleep_delay_ms = human_mouse.sleep_random(400, 2000)
     end
 
+    record_api_event("control_click", true, nil, string.format(
+        "phase=dispatch addr=0x%X sleep_ms=%s",
+        addr,
+        tostring(sleep_delay_ms or "")
+    ))
+    local click_started_at = nav_now_ms()
     local click_ok, click_err = quiet_call(nav.game_api.control_click, addr)
+    local click_elapsed_ms = math.max(0, nav_now_ms() - click_started_at)
     if click_ok == nil or click_ok == false then
+        record_api_event("control_click", false, click_err or "control_click failed.", string.format(
+            "phase=remote_fail addr=0x%X sleep_ms=%s remote_ms=%d",
+            addr,
+            tostring(sleep_delay_ms or ""),
+            click_elapsed_ms
+        ))
         return false, click_err or "control_click failed."
     end
+
+    record_api_event("control_click", true, nil, string.format(
+        "phase=remote_ok addr=0x%X sleep_ms=%s remote_ms=%d",
+        addr,
+        tostring(sleep_delay_ms or ""),
+        click_elapsed_ms
+    ))
 
     return true
 end
@@ -3940,20 +4051,31 @@ end
 function nav.get_current_selected_button()
     local ok, err = ensure_api()
     if not ok then
+        record_api_event("GetCurrentSelected", false, err, "ensure_api")
         return nil, err
     end
 
     if type(nav.game_api.GetCurrentSelected) ~= "function" then
+        record_api_event("GetCurrentSelected", false, "GetCurrentSelected is not available.", "missing_function")
         return nil, "GetCurrentSelected is not available."
     end
 
     local item, item_err = quiet_call(nav.game_api.GetCurrentSelected)
     if not item then
+        record_api_event("GetCurrentSelected", false, item_err or "Current selected button not found.", "quiet_call")
         return nil, item_err or "Current selected button not found."
     end
     if type(item) ~= "table" then
+        record_api_event("GetCurrentSelected", false, "GetCurrentSelected returned invalid button data.", type(item))
         return nil, "GetCurrentSelected returned invalid button data."
     end
+
+    record_api_event("GetCurrentSelected", true, nil, string.format(
+        "addr=%s x=%s y=%s",
+        tostring(item.addr or ""),
+        tostring(item.x or ""),
+        tostring(item.y or "")
+    ))
 
     return item
 end

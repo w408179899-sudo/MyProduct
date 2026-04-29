@@ -853,6 +853,15 @@ local function reset_state()
     state.last_task_panel_task_detail = nil
     state.last_task_panel_updated_at = 0
     state.last_task_panel_entry = nil
+    state.last_main_task_call_started_at = 0
+    state.last_main_task_call_stage = nil
+    state.last_main_task_call_queries = nil
+    state.last_main_task_call_phase = nil
+    state.last_main_task_call_result = nil
+    state.last_main_task_call_detail = nil
+    state.last_main_task_call_elapsed_ms = 0
+    state.last_main_task_call_nav = nil
+    state.last_main_task_call_ui = nil
     M.publish_current_task_name()
     state.terminal_task_locked_name = nil
     state.terminal_task_locked_detail = nil
@@ -1263,6 +1272,32 @@ local function nav_api(ctx)
     return nav
 end
 
+function M.nav_debug_state_text(ctx)
+    local nav_mod = nav_api(ctx)
+    if type(nav_mod) == "table" and type(nav_mod.debug_state) == "function" then
+        return tostring(nav_mod.debug_state() or "")
+    end
+    return ""
+end
+
+function M.format_last_main_task_call_debug(current_time)
+    current_time = tonumber(current_time) or 0
+    local started_at = tonumber(state.last_main_task_call_started_at) or 0
+    local age_ms = started_at > 0 and math.max(0, current_time - started_at) or -1
+    return string.format(
+        "stage=%s phase=%s result=%s age_ms=%s elapsed_ms=%s queries=%s detail=%s nav=%s ui=%s",
+        tostring(state.last_main_task_call_stage or ""),
+        tostring(state.last_main_task_call_phase or ""),
+        tostring(state.last_main_task_call_result or ""),
+        age_ms >= 0 and tostring(age_ms) or "",
+        tostring(tonumber(state.last_main_task_call_elapsed_ms) or 0),
+        tostring(state.last_main_task_call_queries or ""),
+        tostring(state.last_main_task_call_detail or ""),
+        tostring(state.last_main_task_call_nav or ""),
+        tostring(state.last_main_task_call_ui or "")
+    )
+end
+
 local function ensure_nav_ready(ctx, current_time)
     local nav_mod = nav_api(ctx)
     if type(nav_mod) ~= "table" then
@@ -1301,7 +1336,11 @@ local function ensure_nav_ready(ctx, current_time)
         return true
     end
 
+    local nav_detail = M.nav_debug_state_text(ctx)
     state.last_nav_error = tostring(init_err or "nav init failed.")
+    if nav_detail ~= "" then
+        state.last_nav_error = state.last_nav_error .. " | nav=" .. nav_detail
+    end
     return false, state.last_nav_error
 end
 
@@ -10424,6 +10463,102 @@ local function click_main_task_button(ctx, current_time, opts)
             ui_snapshot = nil
         end
     end
+    local ui_snapshot_summary = type(ui_snapshot) == "table"
+        and string.format(
+            "buttons=%d texts=%d images=%d",
+            #(ui_snapshot.buttons or {}),
+            #(ui_snapshot.texts or {}),
+            #(ui_snapshot.images or {})
+        )
+        or tostring(ui_snapshot_err or "ui_snapshot_unavailable")
+    local nav_debug_text = M.nav_debug_state_text(ctx)
+
+    local function trace_main_task_call(phase, result, detail)
+        local elapsed_ms = math.max(0, now_ms(ctx) - current_time)
+        state.last_main_task_call_phase = tostring(phase or "")
+        state.last_main_task_call_result = tostring(result or "")
+        state.last_main_task_call_detail = tostring(detail or "")
+        state.last_main_task_call_elapsed_ms = elapsed_ms
+        state.last_main_task_call_nav = M.nav_debug_state_text(ctx)
+        logger(ctx).info(string.format(
+            "[Leveling] main task call trace | stage=%s phase=%s result=%s elapsed_ms=%d detail=%s",
+            tostring(state.stage or ""),
+            tostring(phase or ""),
+            tostring(result or ""),
+            elapsed_ms,
+            tostring(detail or "")
+        ))
+    end
+
+    local function format_main_task_click_target(target)
+        if type(target) ~= "table" then
+            return tostring(target or "")
+        end
+
+        local label = trim(target.text or target.related_text or target.anchor_text or "")
+        if #label > 64 then
+            label = label:sub(1, 61) .. "..."
+        end
+        local fullname = tostring(target.fullname or target.Fullname or "")
+        if #fullname > 72 then
+            fullname = fullname:sub(1, 69) .. "..."
+        end
+
+        return string.format(
+            "kind=%s addr=%s pos=(%s,%s) text=%s name=%s fullname=%s distance=%s",
+            tostring(target.kind or ""),
+            tostring(target.addr or ""),
+            tostring(target.x or ""),
+            tostring(target.y or ""),
+            label,
+            tostring(target.name or ""),
+            fullname,
+            tostring(target.distance or "")
+        )
+    end
+
+    local function log_main_task_panel_branch(source_prefix, branch, status, detail)
+        logger(ctx).info(string.format(
+            "[Leveling] main task panel branch | source=%s branch=%s status=%s detail=%s",
+            tostring(source_prefix or ""),
+            tostring(branch or ""),
+            tostring(status or ""),
+            tostring(detail or "")
+        ))
+    end
+
+    local function attempt_main_task_control_click(phase, target, extra)
+        if type(nav_mod.control_click) ~= "function" then
+            return false, "nav.control_click is unavailable."
+        end
+
+        local click_target = type(target) == "table" and target or { addr = target }
+        local addr = tonumber(click_target.addr)
+        if addr == nil or addr == 0 then
+            return false, "Invalid control address."
+        end
+
+        local click_started_at = now_ms(ctx)
+        logger(ctx).info(string.format(
+            "[Leveling] main task click dispatch | stage=%s phase=%s target=%s extra=%s",
+            tostring(state.stage or ""),
+            tostring(phase or ""),
+            format_main_task_click_target(click_target),
+            tostring(extra or "")
+        ))
+        local click_ok, click_err = nav_mod.control_click(addr)
+        logger(ctx).info(string.format(
+            "[Leveling] main task click result | stage=%s phase=%s ok=%s elapsed_ms=%d err=%s target=%s nav=%s",
+            tostring(state.stage or ""),
+            tostring(phase or ""),
+            click_ok == true and "true" or "false",
+            math.max(0, now_ms(ctx) - click_started_at),
+            tostring(click_err or ""),
+            format_main_task_click_target(click_target),
+            M.nav_debug_state_text(ctx)
+        ))
+        return click_ok, click_err
+    end
 
     local function apply_main_task_click_result(refresh_target, hint_x, hint_y)
         state.last_task_button_click_at = current_time
@@ -10745,7 +10880,11 @@ local function click_main_task_button(ctx, current_time, opts)
         if type(locator_button) ~= "table" or type(nav_mod.control_click) ~= "function" then
             return false, "main task locator button is invalid."
         end
-        local clicked, click_err = nav_mod.control_click(locator_button.addr)
+        local clicked, click_err = attempt_main_task_control_click(
+            tostring(source_prefix or "panel") .. "_locator",
+            locator_button,
+            "locator_mode=" .. tostring(locator_button.locator_mode or "")
+        )
         if not clicked then
             return false, click_err or "main task locator control_click failed."
         end
@@ -10817,14 +10956,34 @@ local function click_main_task_button(ctx, current_time, opts)
         local attempts = math.max(1, math.floor(tonumber(opts.attempts) or 2))
         local initial_wait_ms = math.max(0, math.floor(tonumber(opts.initial_wait_ms) or 90))
         local retry_wait_ms = math.max(0, math.floor(tonumber(opts.retry_wait_ms) or 70))
+        logger(ctx).info(string.format(
+            "[Leveling] main task selected promote begin | source=%s hint=(%.2f,%.2f) attempts=%d waits=%d/%d",
+            tostring(source_tag or ""),
+            tonumber(hint_x) or 0,
+            tonumber(hint_y) or 0,
+            attempts,
+            initial_wait_ms,
+            retry_wait_ms
+        ))
         local selected_target, selected_err = nil, nil
         for attempt = 1, attempts do
+            local attempt_started_at = now_ms(ctx)
             if attempt > 1 then
                 sleep_ms(ctx, retry_wait_ms)
             elseif initial_wait_ms > 0 then
                 sleep_ms(ctx, initial_wait_ms)
             end
             selected_target, selected_err = M.resolve_main_task_selected_target(nav_mod, hint_x, hint_y)
+            logger(ctx).info(string.format(
+                "[Leveling] main task selected promote probe | source=%s attempt=%d ok=%s elapsed_ms=%d detail=%s",
+                tostring(source_tag or ""),
+                attempt,
+                type(selected_target) == "table" and "true" or "false",
+                math.max(0, now_ms(ctx) - attempt_started_at),
+                type(selected_target) == "table"
+                    and format_main_task_click_target(selected_target)
+                    or tostring(selected_err or "")
+            ))
             if type(selected_target) == "table" then
                 break
             end
@@ -10833,7 +10992,11 @@ local function click_main_task_button(ctx, current_time, opts)
             return false, selected_err or "GetCurrentSelected TaskBtn not available after panel click."
         end
 
-        local click_ok, click_err = nav_mod.control_click(selected_target.addr)
+        local click_ok, click_err = attempt_main_task_control_click(
+            tostring(source_tag or "panel") .. "_selected_click",
+            selected_target,
+            "selected_promotion"
+        )
         if not click_ok then
             return false, click_err or "GetCurrentSelected TaskBtn control_click failed."
         end
@@ -10849,7 +11012,7 @@ local function click_main_task_button(ctx, current_time, opts)
         return true, panel_item
     end
 
-    local function click_anchor_button_target(target)
+    local function click_anchor_button_target(target, phase)
         if type(target) ~= "table" then
             return false, "main task target is invalid."
         end
@@ -10865,7 +11028,11 @@ local function click_main_task_button(ctx, current_time, opts)
             return false, "main task target is not a real button."
         end
 
-        local click_ok, click_err = nav_mod.control_click(target.addr)
+        local click_ok, click_err = attempt_main_task_control_click(
+            phase or "anchor_button",
+            target,
+            "final_anchor_target"
+        )
         if not click_ok then
             return false, click_err
         end
@@ -10885,18 +11052,68 @@ local function click_main_task_button(ctx, current_time, opts)
         local prefer_direct_addr = button_kind == "button"
             or button_fullname:find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil
         local last_err = nil
+        local branch_errors = {}
+
+        local function record_branch_error(branch, err)
+            local detail = tostring(err or "")
+            if detail == "" then
+                return
+            end
+            last_err = detail
+            branch_errors[#branch_errors + 1] = string.format("%s=%s", tostring(branch or ""), detail)
+            log_main_task_panel_branch(source_prefix, branch, "miss", detail)
+        end
+
+        local function record_branch_hit(branch, detail)
+            log_main_task_panel_branch(source_prefix, branch, "hit", detail)
+        end
+
+        log_main_task_panel_branch(source_prefix, "entry", "begin", string.format(
+            "raw=%s kind=%s button_kind=%s button_addr=%s title_addr=%s button_pos=(%s,%s) hint=(%s,%s) prefer_direct=%s",
+            tostring(panel_item.raw_text or panel_item.title or ""),
+            tostring(panel_item.kind or ""),
+            button_kind,
+            tostring(addr or ""),
+            tostring(panel_item.title_addr or ""),
+            tostring(button_x or ""),
+            tostring(button_y or ""),
+            tostring(hint_x or ""),
+            tostring(hint_y or ""),
+            prefer_direct_addr == true and "true" or "false"
+        ))
 
         if prefer_direct_addr and addr ~= nil and addr ~= 0 and type(nav_mod.control_click) == "function" then
-            local clicked, click_err = nav_mod.control_click(addr)
+            local clicked, click_err = attempt_main_task_control_click(
+                tostring(source_prefix or "panel") .. "_addr",
+                {
+                    kind = panel_item.button_kind or panel_item.kind,
+                    addr = addr,
+                    x = button_x,
+                    y = button_y,
+                    text = panel_item.raw_text or panel_item.title or "",
+                    name = panel_item.button_name or "",
+                    fullname = panel_item.button_fullname or ""
+                },
+                "panel_direct_addr"
+            )
             if clicked then
                 panel_item._main_task_click_source = tostring(source_prefix or "panel") .. "_addr"
+                record_branch_hit("direct_addr", format_main_task_click_target({
+                    kind = panel_item.button_kind or panel_item.kind,
+                    addr = addr,
+                    x = button_x,
+                    y = button_y,
+                    text = panel_item.raw_text or panel_item.title or "",
+                    name = panel_item.button_name or "",
+                    fullname = panel_item.button_fullname or ""
+                }))
                 return true, panel_item
             end
-            last_err = click_err or "task panel control_click failed."
+            record_branch_error("direct_addr", click_err or "task panel control_click failed.")
         elseif addr == nil or addr == 0 then
-            last_err = "task panel entry button address unavailable."
+            record_branch_error("direct_addr", "task panel entry button address unavailable.")
         else
-            last_err = "task panel entry anchor is not a direct button."
+            record_branch_error("direct_addr", "task panel entry anchor is not a direct button.")
         end
 
         local anchor_texts = collect_main_task_anchor_texts(panel_item)
@@ -10905,11 +11122,12 @@ local function click_main_task_button(ctx, current_time, opts)
             if type(locator_button) == "table" then
                 local clicked, clicked_target_or_err = try_click_locator_button(panel_item, locator_button, source_prefix)
                 if clicked then
+                    record_branch_hit("locator", format_main_task_click_target(locator_button))
                     return true, clicked_target_or_err
                 end
-                last_err = clicked_target_or_err or "task panel text-distance button control_click failed."
+                record_branch_error("locator", clicked_target_or_err or "task panel text-distance button control_click failed.")
             elseif locator_err ~= nil and locator_err ~= "" then
-                last_err = locator_err
+                record_branch_error("locator", locator_err)
             end
         end
 
@@ -10917,7 +11135,19 @@ local function click_main_task_button(ctx, current_time, opts)
         local selected_hint_y = tonumber(panel_item.button_y) or button_y or hint_y
         local title_addr = tonumber(panel_item.title_addr)
         if title_addr ~= nil and title_addr ~= 0 and type(nav_mod.control_click) == "function" then
-            local clicked, click_err = nav_mod.control_click(title_addr)
+            local clicked, click_err = attempt_main_task_control_click(
+                tostring(source_prefix or "panel") .. "_title_probe",
+                {
+                    kind = "text",
+                    addr = title_addr,
+                    x = tonumber(panel_item.x),
+                    y = tonumber(panel_item.y),
+                    text = panel_item.title or panel_item.raw_text or "",
+                    name = "",
+                    fullname = ""
+                },
+                "panel_title_probe"
+            )
             if clicked then
                 local promoted_ok, promoted_item_or_err = promote_panel_click_to_selected_target(
                     panel_item,
@@ -10931,11 +11161,20 @@ local function click_main_task_button(ctx, current_time, opts)
                     }
                 )
                 if promoted_ok then
+                    record_branch_hit("title_selected", format_main_task_click_target(
+                        type(panel_item._main_task_clicked_target) == "table" and panel_item._main_task_clicked_target or {
+                            kind = "text",
+                            addr = title_addr,
+                            x = tonumber(panel_item.x),
+                            y = tonumber(panel_item.y),
+                            text = panel_item.title or panel_item.raw_text or ""
+                        }
+                    ))
                     return true, panel_item
                 end
-                last_err = promoted_item_or_err or "task panel title click did not promote to TaskBtn."
+                record_branch_error("title_selected", promoted_item_or_err or "task panel title click did not promote to TaskBtn.")
             else
-                last_err = click_err or "task panel title control_click failed."
+                record_branch_error("title_click", click_err or "task panel title control_click failed.")
             end
         end
 
@@ -10944,7 +11183,19 @@ local function click_main_task_button(ctx, current_time, opts)
             and addr ~= 0
             and type(nav_mod.control_click) == "function"
         then
-            local clicked, click_err = nav_mod.control_click(addr)
+            local clicked, click_err = attempt_main_task_control_click(
+                tostring(source_prefix or "panel") .. "_anchor_addr_probe",
+                {
+                    kind = panel_item.button_kind or panel_item.kind,
+                    addr = addr,
+                    x = button_x,
+                    y = button_y,
+                    text = panel_item.raw_text or panel_item.title or "",
+                    name = panel_item.button_name or "",
+                    fullname = panel_item.button_fullname or ""
+                },
+                "panel_anchor_probe"
+            )
             if clicked then
                 local promoted_ok, promoted_item_or_err = promote_panel_click_to_selected_target(
                     panel_item,
@@ -10958,11 +11209,20 @@ local function click_main_task_button(ctx, current_time, opts)
                     }
                 )
                 if promoted_ok then
+                    record_branch_hit("anchor_addr_selected", format_main_task_click_target(
+                        type(panel_item._main_task_clicked_target) == "table" and panel_item._main_task_clicked_target or {
+                            kind = panel_item.button_kind or panel_item.kind,
+                            addr = addr,
+                            x = button_x,
+                            y = button_y,
+                            text = panel_item.raw_text or panel_item.title or ""
+                        }
+                    ))
                     return true, panel_item
                 end
-                last_err = promoted_item_or_err or "task panel anchor did not promote to TaskBtn."
+                record_branch_error("anchor_addr_selected", promoted_item_or_err or "task panel anchor did not promote to TaskBtn.")
             else
-                last_err = click_err or "task panel anchor control_click failed."
+                record_branch_error("anchor_addr_click", click_err or "task panel anchor control_click failed.")
             end
         end
 
@@ -10973,7 +11233,11 @@ local function click_main_task_button(ctx, current_time, opts)
                 math.max(tonumber(MAIN_TASK_BUTTON_STEP.hint_max_distance) or 80, 28)
             )
             if type(nearby_button) == "table" and type(nav_mod.control_click) == "function" then
-                local clicked, click_err = nav_mod.control_click(nearby_button.addr)
+                local clicked, click_err = attempt_main_task_control_click(
+                    tostring(source_prefix or "panel") .. "_nearby_button",
+                    nearby_button,
+                    "panel_nearby_button"
+                )
                 if clicked then
                     panel_item._main_task_click_source = tostring(source_prefix or "panel") .. "_nearby_button"
                     panel_item._main_task_clicked_target = nearby_button
@@ -10983,15 +11247,16 @@ local function click_main_task_button(ctx, current_time, opts)
                     panel_item.button_fullname = tostring(nearby_button.fullname or "")
                     panel_item.button_x = tonumber(nearby_button.x) or button_x
                     panel_item.button_y = tonumber(nearby_button.y) or button_y
+                    record_branch_hit("nearby_button", format_main_task_click_target(nearby_button))
                     return true, panel_item
                 end
-                last_err = click_err or "task panel nearby button control_click failed."
+                record_branch_error("nearby_button", click_err or "task panel nearby button control_click failed.")
             elseif nearby_button_err ~= nil and nearby_button_err ~= "" then
-                last_err = nearby_button_err
+                record_branch_error("nearby_button", nearby_button_err)
             end
         end
 
-        return false, last_err or "task panel entry click failed.", panel_item
+        return false, (#branch_errors > 0 and table.concat(branch_errors, " | ")) or last_err or "task panel entry click failed.", panel_item
     end
 
     local function build_main_task_panel_queries()
@@ -11020,13 +11285,24 @@ local function click_main_task_button(ctx, current_time, opts)
     end
 
     local panel_queries = build_main_task_panel_queries()
+    state.last_main_task_call_started_at = current_time
+    state.last_main_task_call_stage = tostring(state.stage or "")
+    state.last_main_task_call_queries = #panel_queries > 0 and table.concat(panel_queries, " -> ") or ""
+    state.last_main_task_call_phase = "begin"
+    state.last_main_task_call_result = "running"
+    state.last_main_task_call_detail = ""
+    state.last_main_task_call_elapsed_ms = 0
+    state.last_main_task_call_nav = nav_debug_text
+    state.last_main_task_call_ui = ui_snapshot_summary
     logger(ctx).info(string.format(
-        "[Leveling] main task call begin | stage=%s task=%s detail=%s mode=%s queries=%s",
+        "[Leveling] main task call begin | stage=%s task=%s detail=%s mode=%s queries=%s ui=%s nav=%s",
         tostring(state.stage or ""),
         tostring(M.current_task_log_name() or state.current_task_name or ""),
         tostring(M.current_task_log_detail() or state.current_task_detail or ""),
         preserve_target == true and "soft_refresh" or "hard_refresh",
-        #panel_queries > 0 and table.concat(panel_queries, " -> ") or ""
+        state.last_main_task_call_queries,
+        ui_snapshot_summary,
+        nav_debug_text
     ))
 
     local hint_x, hint_y, hint_err = resolve_main_task_button_hint(ctx)
@@ -11039,9 +11315,19 @@ local function click_main_task_button(ctx, current_time, opts)
 
     local selected_target, selected_err = M.resolve_main_task_selected_target(nav_mod, hint_x, hint_y)
     if type(selected_target) == "table" then
-        local click_ok, click_err = nav_mod.control_click(selected_target.addr)
+        local click_ok, click_err = attempt_main_task_control_click(
+            "current_selected_click",
+            selected_target,
+            "current_selected"
+        )
         if click_ok then
             apply_main_task_click_result(selected_target, hint_x, hint_y)
+            trace_main_task_call("current_selected", "success", string.format(
+                "addr=%s pos=(%s,%s)",
+                tostring(selected_target.addr or ""),
+                tostring(selected_target.x or ""),
+                tostring(selected_target.y or "")
+            ))
             logger(ctx).info(string.format(
                 "[Leveling] main task button clicked | task=%s mode=%s source=%s label=%s kind=%s addr=%s pos=(%s,%s) hint=(%.2f,%.2f) distance=%.2f",
                 tostring(M.current_task_log_name() or ""),
@@ -11059,6 +11345,9 @@ local function click_main_task_button(ctx, current_time, opts)
             return true
         end
         selected_err = click_err or "GetCurrentSelected control_click failed."
+        trace_main_task_call("current_selected", "click_failed", selected_err)
+    else
+        trace_main_task_call("current_selected", "miss", selected_err or "Current selected button not found.")
     end
 
     local preferred_panel_key = M.current_task_log_name()
@@ -11081,6 +11370,11 @@ local function click_main_task_button(ctx, current_time, opts)
                 tonumber(cached_item.button_x) or tonumber(cached_item.x),
                 tonumber(cached_item.button_y) or tonumber(cached_item.y)
             )
+            trace_main_task_call(
+                tostring(cached_item._main_task_click_source or "panel_cache"),
+                "success",
+                tostring(cached_item.raw_text or cached_item.title or "")
+            )
             logger(ctx).info(string.format(
                 "[Leveling] main task panel entry clicked | query=%s task=%s detail=%s mode=%s source=%s raw=%s kind=%s addr=%s pos=(%.2f,%.2f) resolved_kind=%s resolved_addr=%s",
                 tostring(preferred_panel_key or ""),
@@ -11098,6 +11392,7 @@ local function click_main_task_button(ctx, current_time, opts)
             ))
             return true
         end
+        trace_main_task_call("panel_cache", "miss", tostring(cached_item or "cached panel click failed"))
     end
 
     if type(nav_mod.find_task_panel_entry) == "function" then
@@ -11122,6 +11417,11 @@ local function click_main_task_button(ctx, current_time, opts)
                     tonumber(clicked_item.button_x) or tonumber(clicked_item.x),
                     tonumber(clicked_item.button_y) or tonumber(clicked_item.y)
                 )
+                trace_main_task_call(
+                    tostring(clicked_item._main_task_click_source or "panel"),
+                    "success",
+                    string.format("query=%s raw=%s", tostring(query), tostring(clicked_item.raw_text or clicked_item.title or ""))
+                )
 
                 logger(ctx).info(string.format(
                     "[Leveling] main task panel entry clicked | query=%s task=%s detail=%s mode=%s source=%s raw=%s kind=%s addr=%s pos=(%.2f,%.2f) resolved_kind=%s resolved_addr=%s",
@@ -11142,6 +11442,7 @@ local function click_main_task_button(ctx, current_time, opts)
             end
             local panel_error_text = tostring(panel_err or clicked_item or panel_meta or "")
             if panel_error_text ~= "" then
+                trace_main_task_call("panel_query", "miss", string.format("%s => %s", tostring(query), panel_error_text))
                 panel_errors[#panel_errors + 1] = string.format("%s => %s", tostring(query), panel_error_text)
             end
         end
@@ -11167,14 +11468,25 @@ local function click_main_task_button(ctx, current_time, opts)
             target_source = tostring(locator_target.locator_mode or "") == "text_geometry"
                 and "anchor_text_geometry"
                 or "anchor_locator"
+            trace_main_task_call(target_source, "matched", string.format(
+                "addr=%s pos=(%s,%s)",
+                tostring(locator_target.addr or ""),
+                tostring(locator_target.x or ""),
+                tostring(locator_target.y or "")
+            ))
         elseif locator_err ~= nil and locator_err ~= "" then
             fetch_err = locator_err
+            trace_main_task_call("anchor_locator", "miss", locator_err)
         end
     end
     if not target then
         local title_target, title_err = find_main_task_text_target(collect_main_task_anchor_texts(nil), hint_x, hint_y)
         if type(title_target) == "table" then
-            local clicked, click_err = nav_mod.control_click(title_target.addr)
+            local clicked, click_err = attempt_main_task_control_click(
+                "anchor_title_probe",
+                title_target,
+                "anchor_title_probe"
+            )
             if clicked then
                 local promoted_item = {
                     title_addr = title_target.addr,
@@ -11199,14 +11511,22 @@ local function click_main_task_button(ctx, current_time, opts)
                         and promoted_item._main_task_clicked_target
                         or target
                     target_source = "anchor_title_selected"
+                    trace_main_task_call("anchor_title_selected", "matched", string.format(
+                        "title=%s addr=%s",
+                        tostring(title_target.text or ""),
+                        tostring(type(promoted_item._main_task_clicked_target) == "table" and promoted_item._main_task_clicked_target.addr or "")
+                    ))
                 else
                     fetch_err = promoted_item_or_err or "main task title target did not promote to TaskBtn."
+                    trace_main_task_call("anchor_title_selected", "miss", fetch_err)
                 end
             else
                 fetch_err = click_err or "main task title target control_click failed."
+                trace_main_task_call("anchor_title_click", "click_failed", fetch_err)
             end
         elseif title_err ~= nil and title_err ~= "" then
             fetch_err = title_err
+            trace_main_task_call("anchor_title", "miss", title_err)
         end
     end
     if not target then
@@ -11218,8 +11538,15 @@ local function click_main_task_button(ctx, current_time, opts)
         if type(nearby_button) == "table" then
             target = nearby_button
             target_source = "anchor_button_any"
+            trace_main_task_call("anchor_button_any", "matched", string.format(
+                "addr=%s pos=(%s,%s)",
+                tostring(nearby_button.addr or ""),
+                tostring(nearby_button.x or ""),
+                tostring(nearby_button.y or "")
+            ))
         elseif nearby_button_err ~= nil and nearby_button_err ~= "" then
             fetch_err = nearby_button_err
+            trace_main_task_call("anchor_button_any", "miss", nearby_button_err)
         end
     end
     if not target then
@@ -11256,6 +11583,7 @@ local function click_main_task_button(ctx, current_time, opts)
             end
         end
         state.next_task_button_click_at = current_time + TASK_BUTTON_RETRY_INTERVAL_MS
+        trace_main_task_call("fetch", "failed", tostring(selected_err or fetch_err or ui_snapshot_err or "main task target unavailable."))
         log_throttled(ctx, "task_button_fetch_failed", "warn", LOG_THROTTLE_MS,
             "[Leveling] main task button fetch failed: "
                 .. tostring(selected_err or fetch_err or ui_snapshot_err or "main task target unavailable.")
@@ -11263,9 +11591,10 @@ local function click_main_task_button(ctx, current_time, opts)
         return false, selected_err or fetch_err or ui_snapshot_err or "main task target unavailable."
     end
 
-    local click_ok, resolved_target_or_err = click_anchor_button_target(target)
+    local click_ok, resolved_target_or_err = click_anchor_button_target(target, target_source)
     if not click_ok then
         state.next_task_button_click_at = current_time + TASK_BUTTON_RETRY_INTERVAL_MS
+        trace_main_task_call(tostring(target_source), "click_failed", tostring(resolved_target_or_err))
         log_throttled(ctx, "task_button_click_failed", "warn", LOG_THROTTLE_MS,
             "[Leveling] main task button click failed: " .. tostring(resolved_target_or_err))
         return false, resolved_target_or_err
@@ -11273,6 +11602,12 @@ local function click_main_task_button(ctx, current_time, opts)
 
     target = resolved_target_or_err
     apply_main_task_click_result(target, hint_x, hint_y)
+    trace_main_task_call(tostring(target_source), "success", string.format(
+        "addr=%s pos=(%s,%s)",
+        tostring(target.addr or ""),
+        tostring(target.x or ""),
+        tostring(target.y or "")
+    ))
     logger(ctx).info(string.format(
         "[Leveling] main task button clicked | task=%s mode=%s source=%s label=%s kind=%s addr=%s pos=(%s,%s) hint=(%.2f,%.2f) distance=%.2f",
         tostring(M.current_task_log_name() or ""),
@@ -11994,9 +12329,11 @@ local function update_task_target(ctx, current_time, player_x, player_y)
 
     clear_task_target_state()
     log_throttled(ctx, "task_missing", "warn", LOG_THROTTLE_MS, string.format(
-        "[Leveling] main task data unavailable after task button click. path_err=%s pos_err=%s",
+        "[Leveling] main task data unavailable after task button click. path_err=%s pos_err=%s nav=%s last_call=%s",
         tostring(path_err),
-        tostring(pos_err)
+        tostring(pos_err),
+        M.nav_debug_state_text(ctx),
+        M.format_last_main_task_call_debug(current_time)
     ))
     return false, path_err or pos_err or "main task data unavailable."
 end
@@ -13955,7 +14292,8 @@ function M.update(now, ctx)
         release_async_combat_inputs(ctx, current_time, true)
         hold_navigation(ctx, current_time, "wait_nav")
         log_throttled(ctx, "nav_retry", "warn", LOG_THROTTLE_MS,
-            "[Leveling] waiting nav init: " .. tostring(nav_err))
+            "[Leveling] waiting nav init: " .. tostring(nav_err)
+                .. " | last_call=" .. M.format_last_main_task_call_debug(current_time))
         log_heartbeat(ctx, current_time)
         return true
     end
@@ -14000,7 +14338,9 @@ function M.update(now, ctx)
             state.stage = "wait_pos"
             M.log_execution_trace(ctx, current_time, "player_pos_unavailable", nil, nil, nil, nil)
             log_throttled(ctx, "player_pos_failed", "warn", LOG_THROTTLE_MS,
-                "[Leveling] player position unavailable: " .. tostring(pos_err))
+                "[Leveling] player position unavailable: " .. tostring(pos_err)
+                    .. " | nav=" .. M.nav_debug_state_text(ctx)
+                    .. " | last_call=" .. M.format_last_main_task_call_debug(current_time))
         end
         log_heartbeat(ctx, current_time)
         return true
