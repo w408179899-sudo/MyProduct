@@ -426,7 +426,10 @@ M.TASK_OBJECTIVE_BUTTON_STEPS = {
     {
         key = "jump_btn",
         label = "5鎸夐挳",
+        distance_anchor_exact_text = "跳过",
         distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.DialogueTalk_C.WidgetTree.JumpBtn",
+        distance_min = 29.408105,
+        distance_max = 31.227163,
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.DialogueTalk_C.WidgetTree.JumpBtn"
         },
@@ -435,6 +438,38 @@ M.TASK_OBJECTIVE_BUTTON_STEPS = {
         hint_ratio_x = 0.913007,
         hint_ratio_y = 0.074178,
         hint_max_distance = 80.000,
+        hover_capture_retry_ms = 900,
+        hover_capture_restore_cursor_on_failure = true,
+        hover_capture_client_left = 1320.0,
+        hover_capture_client_top = 36.0,
+        hover_capture_client_right = 1363.0,
+        hover_capture_client_bottom = 49.0,
+        hover_capture_sample_attempts = 20,
+        hover_capture_history_limit = 8,
+        hover_capture_zone_cols = 3,
+        hover_capture_zone_rows = 2,
+        hover_capture_min_point_gap = 8.0,
+        hover_capture_move_min_floor_ms = 35,
+        hover_capture_move_min_ceil_ms = 90,
+        hover_capture_move_span_min_ms = 35,
+        hover_capture_move_span_max_ms = 95,
+        hover_capture_hover_min_ms = 55,
+        hover_capture_hover_max_ms = 145,
+        hover_return_safe_x_ratio_min = 0.34,
+        hover_return_safe_x_ratio_max = 0.68,
+        hover_return_safe_y_ratio_min = 0.30,
+        hover_return_safe_y_ratio_max = 0.62,
+        hover_return_sample_attempts = 18,
+        hover_return_history_limit = 8,
+        hover_return_zone_cols = 4,
+        hover_return_zone_rows = 3,
+        hover_return_min_point_gap = 52.0,
+        hover_return_move_min_floor_ms = 45,
+        hover_return_move_min_ceil_ms = 110,
+        hover_return_move_span_min_ms = 45,
+        hover_return_move_span_max_ms = 120,
+        hover_return_hover_min_ms = 20,
+        hover_return_hover_max_ms = 80,
         settle_ms = TASK_BUTTON_SETTLE_MS
     }
 }
@@ -978,6 +1013,11 @@ local function reset_state()
     state.treasure_task_hover_return_history = nil
     state.last_treasure_task_hover_capture_meta = nil
     state.last_treasure_task_hover_return_meta = nil
+    state.next_dialogue_jump_hover_capture_at = 0
+    state.dialogue_jump_hover_capture_history = nil
+    state.dialogue_jump_hover_return_history = nil
+    state.last_dialogue_jump_hover_capture_meta = nil
+    state.last_dialogue_jump_hover_return_meta = nil
     M.publish_current_task_name()
     state.terminal_task_locked_name = nil
     state.terminal_task_locked_detail = nil
@@ -2050,6 +2090,501 @@ function M.resolve_cached_main_task_button_target(nav_mod, current_time)
         source = tostring(cached.source or ""),
         pid = cached_pid > 0 and cached_pid or nil
     }
+end
+
+function M.extract_dialogue_jump_button_target(target_like)
+    if type(target_like) ~= "table" then
+        return nil
+    end
+
+    local source = type(target_like._dialogue_jump_clicked_target) == "table"
+        and target_like._dialogue_jump_clicked_target
+        or target_like
+
+    local kind = tostring(source.kind or source.button_kind or target_like.button_kind or "")
+    local addr = tonumber(source.addr or source.button_addr or target_like.button_addr)
+    local x = tonumber(source.x or source.button_x or target_like.button_x or target_like.x)
+    local y = tonumber(source.y or source.button_y or target_like.button_y or target_like.y)
+    local name = tostring(source.name or source.button_name or target_like.button_name or "")
+    local fullname = tostring(
+        source.fullname
+            or source.Fullname
+            or source.button_fullname
+            or target_like.button_fullname
+            or ""
+    )
+    local identity = (fullname .. " " .. name):lower()
+    local is_button = kind == "button"
+        or identity:find("dialoguetalk_c.widgettree.jumpbtn", 1, true) ~= nil
+
+    if not is_button or addr == nil or addr == 0 or x == nil or y == nil then
+        return nil
+    end
+
+    return {
+        kind = "button",
+        addr = addr,
+        name = name,
+        text = tostring(source.text or target_like.text or ""),
+        fullname = fullname,
+        x = x,
+        y = y,
+        related_text = tostring(source.related_text or source.rel1_text or target_like.related_text or ""),
+        related_distance = tonumber(source.related_distance),
+        distance = tonumber(source.distance)
+    }
+end
+
+function M.resolve_dialogue_jump_selected_target(nav_mod, step)
+    if type(nav_mod) ~= "table" or type(nav_mod.get_current_selected_button) ~= "function" then
+        return nil, "nav.get_current_selected_button is unavailable."
+    end
+
+    local selected, selected_err = nav_mod.get_current_selected_button()
+    if type(selected) ~= "table" then
+        return nil, selected_err or "Current selected button not found."
+    end
+
+    local addr = tonumber(selected.addr)
+    local x = tonumber(selected.x)
+    local y = tonumber(selected.y)
+    local fullname = tostring(selected.Fullname or selected.fullname or "")
+    local name = tostring(selected.name or "")
+    local selected_text = tostring(selected.text or "")
+    local related_text = tostring(selected.rel1_text or "")
+    if addr == nil or addr == 0 or x == nil or y == nil then
+        return nil, string.format(
+            "GetCurrentSelected returned invalid JumpBtn data. addr=%s pos=(%s,%s) name=%s fullname=%s text=%s related=%s",
+            tostring(selected.addr or ""),
+            tostring(selected.x or ""),
+            tostring(selected.y or ""),
+            name,
+            fullname,
+            selected_text,
+            related_text
+        )
+    end
+
+    local identity = (fullname .. " " .. name):lower()
+    if identity:find("dialoguetalk_c.widgettree.jumpbtn", 1, true) == nil then
+        return nil, string.format(
+            "GetCurrentSelected is not JumpBtn. addr=%s pos=(%s,%s) name=%s fullname=%s text=%s related=%s",
+            tostring(addr or ""),
+            tostring(x or ""),
+            tostring(y or ""),
+            name,
+            fullname,
+            selected_text,
+            related_text
+        )
+    end
+
+    local hint_x = tonumber(type(step) == "table" and step.hint_client_x or nil)
+    local hint_y = tonumber(type(step) == "table" and step.hint_client_y or nil)
+    local distance = 0
+    if hint_x ~= nil and hint_y ~= nil then
+        distance = distance_2d(hint_x, hint_y, x, y)
+        if distance > math.max(tonumber(type(step) == "table" and step.hint_max_distance or 80) or 80, 96) then
+            return nil, string.format(
+                "GetCurrentSelected JumpBtn too far from hint: %.2f selected=(%.2f,%.2f) hint=(%.2f,%.2f)",
+                tonumber(distance) or 0,
+                x,
+                y,
+                tonumber(hint_x) or 0,
+                tonumber(hint_y) or 0
+            )
+        end
+    end
+
+    local anchor_text = trim(type(step) == "table" and step.distance_anchor_exact_text or "")
+    local related_line = trim(related_text)
+    local selected_line = trim(selected_text)
+    local anchor_relaxed = false
+    if anchor_text ~= "" then
+        local matches_anchor = related_line == anchor_text
+            or selected_line == anchor_text
+            or related_line:find(anchor_text, 1, true) ~= nil
+            or selected_line:find(anchor_text, 1, true) ~= nil
+        if not matches_anchor then
+            if related_line == "" and selected_line == "" then
+                anchor_relaxed = true
+            else
+                return nil, string.format(
+                    "GetCurrentSelected JumpBtn anchor mismatch. anchor=%s related=%s text=%s",
+                    anchor_text,
+                    related_line,
+                    selected_line
+                )
+            end
+        end
+    end
+
+    local related_dx = tonumber(selected.rel1_dx)
+    local related_dy = tonumber(selected.rel1_dy)
+    local related_distance = nil
+    if related_dx ~= nil and related_dy ~= nil then
+        related_distance = math.sqrt(related_dx * related_dx + related_dy * related_dy)
+    end
+
+    return {
+        kind = "button",
+        addr = addr,
+        name = name,
+        text = selected_text,
+        fullname = fullname,
+        x = x,
+        y = y,
+        related_text = related_text,
+        related_distance = related_distance,
+        distance = distance,
+        anchor_relaxed = anchor_relaxed
+    }
+end
+
+function M.clear_cached_dialogue_jump_button_target()
+    state.cached_dialogue_jump_button_target = nil
+    state.cached_dialogue_jump_button_target_at = 0
+    _G.AVEPOINT_CACHED_DIALOGUE_JUMP_BUTTON_TARGET = nil
+end
+
+function M.cache_dialogue_jump_button_target(ctx, target_like, current_time, source, step)
+    local target = M.extract_dialogue_jump_button_target(target_like)
+    if type(target) ~= "table" then
+        return nil
+    end
+
+    local cached = {
+        kind = "button",
+        addr = tonumber(target.addr),
+        name = tostring(target.name or ""),
+        fullname = tostring(target.fullname or ""),
+        x = tonumber(target.x),
+        y = tonumber(target.y),
+        text = tostring(target.text or ""),
+        related_text = tostring(target.related_text or ""),
+        related_distance = tonumber(target.related_distance),
+        captured_at = tonumber(current_time) or 0,
+        source = tostring(source or "")
+    }
+
+    local nav_mod = nav_api(ctx)
+    local wnd_api = type(ctx) == "table" and ctx.wnd or wnd
+    if type(nav_mod) == "table"
+        and type(nav_mod.window_hwnd) == "function"
+        and type(wnd_api) == "table"
+        and type(wnd_api.client_rect) == "function"
+    then
+        local hwnd = select(1, nav_mod.window_hwnd())
+        if hwnd then
+            local _, _, client_w, client_h = wnd_api.client_rect(hwnd)
+            if type(client_w) == "number" and client_w > 0 and cached.x ~= nil then
+                cached.hint_ratio_x = cached.x / client_w
+            elseif type(step) == "table" then
+                cached.hint_ratio_x = tonumber(step.hint_ratio_x)
+            end
+            if type(client_h) == "number" and client_h > 0 and cached.y ~= nil then
+                cached.hint_ratio_y = cached.y / client_h
+            elseif type(step) == "table" then
+                cached.hint_ratio_y = tonumber(step.hint_ratio_y)
+            end
+        end
+    end
+
+    local current_pid = tonumber(type(nav_mod) == "table" and nav_mod.pid or 0)
+    if current_pid ~= nil and current_pid > 0 then
+        cached.pid = current_pid
+    end
+
+    state.cached_dialogue_jump_button_target = cached
+    state.cached_dialogue_jump_button_target_at = cached.captured_at
+    _G.AVEPOINT_CACHED_DIALOGUE_JUMP_BUTTON_TARGET = M.copy_main_task_button_cache_fields(cached)
+    return cached
+end
+
+function M.resolve_cached_dialogue_jump_button_target(nav_mod, current_time)
+    local cached = state.cached_dialogue_jump_button_target
+    if type(cached) ~= "table" and type(_G.AVEPOINT_CACHED_DIALOGUE_JUMP_BUTTON_TARGET) == "table" then
+        cached = _G.AVEPOINT_CACHED_DIALOGUE_JUMP_BUTTON_TARGET
+    end
+    if type(cached) ~= "table" then
+        return nil, "cached dialogue jump button target unavailable."
+    end
+
+    local addr = tonumber(cached.addr)
+    local x = tonumber(cached.x)
+    local y = tonumber(cached.y)
+    if addr == nil or addr == 0 or x == nil or y == nil then
+        M.clear_cached_dialogue_jump_button_target()
+        return nil, "cached dialogue jump button target is invalid."
+    end
+
+    local cached_pid = tonumber(cached.pid or 0)
+    local current_pid = tonumber(type(nav_mod) == "table" and nav_mod.pid or 0)
+    if cached_pid > 0 and current_pid > 0 and cached_pid ~= current_pid then
+        M.clear_cached_dialogue_jump_button_target()
+        return nil, string.format(
+            "cached dialogue jump button target pid changed. cached=%d current=%d",
+            cached_pid,
+            current_pid
+        )
+    end
+
+    local captured_at = tonumber(state.cached_dialogue_jump_button_target_at) or tonumber(cached.captured_at) or 0
+    if captured_at > 0 and tonumber(current_time) ~= nil then
+        state.cached_dialogue_jump_button_target_at = captured_at
+    end
+
+    return {
+        kind = "button",
+        addr = addr,
+        name = tostring(cached.name or ""),
+        text = tostring(cached.text or ""),
+        fullname = tostring(cached.fullname or ""),
+        x = x,
+        y = y,
+        related_text = tostring(cached.related_text or ""),
+        related_distance = tonumber(cached.related_distance),
+        distance = 0,
+        source = tostring(cached.source or ""),
+        pid = cached_pid > 0 and cached_pid or nil
+    }
+end
+
+function M.clear_cached_dialogue_jump_addr_with_log(ctx, reason)
+    M.clear_cached_dialogue_jump_button_target()
+    logger(ctx).info(string.format(
+        "[Leveling] cleared cached dialogue jump addr | reason=%s",
+        tostring(reason or "")
+    ))
+end
+
+function M.try_cached_dialogue_jump_button_click(ctx, nav_mod, current_time, step, reason)
+    if type(nav_mod) ~= "table" or type(nav_mod.control_click) ~= "function" then
+        return false, "nav.control_click is unavailable."
+    end
+
+    local cached_target, cached_err = M.resolve_cached_dialogue_jump_button_target(nav_mod, current_time)
+    if type(cached_target) ~= "table" then
+        return false, cached_err
+    end
+
+    local click_ok, click_err = nav_mod.control_click(cached_target.addr)
+    if not click_ok then
+        M.clear_cached_dialogue_jump_addr_with_log(ctx, click_err or "cached dialogue jump addr click failed")
+        return false, click_err
+    end
+
+    logger(ctx).info(string.format(
+        "[Leveling] dialogue jump button clicked | source=cached_addr addr=%s pos=(%s,%s) anchor=%s cache_source=%s reason=%s",
+        tostring(cached_target.addr or ""),
+        tostring(cached_target.x or ""),
+        tostring(cached_target.y or ""),
+        tostring(type(step) == "table" and step.distance_anchor_exact_text or ""),
+        tostring(cached_target.source or ""),
+        tostring(reason or "")
+    ))
+    return true, cached_target
+end
+
+function M.try_capture_dialogue_jump_button_via_hover(ctx, nav_mod, current_time, step, reason)
+    if type(step) ~= "table" then
+        return nil, "dialogue jump step unavailable."
+    end
+
+    local retry_gate = tonumber(state.next_dialogue_jump_hover_capture_at) or 0
+    if retry_gate > current_time then
+        return nil, string.format(
+            "dialogue jump hover capture cooldown until=%d now=%d",
+            retry_gate,
+            current_time
+        )
+    end
+    if type(nav_mod) ~= "table" or type(nav_mod.move_mouse_to_client) ~= "function" then
+        return nil, "nav.move_mouse_to_client is unavailable."
+    end
+
+    local capture_bounds, bounds_summary = M.resolve_main_task_hover_capture_bounds(step)
+    if type(capture_bounds) ~= "table" then
+        state.next_dialogue_jump_hover_capture_at = current_time
+            + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+        return nil, bounds_summary
+    end
+
+    local original_cursor = nil
+    if type(nav_mod.cursor_client_pos) == "function" then
+        original_cursor = select(1, nav_mod.cursor_client_pos({
+            allow_outside = true
+        }))
+    end
+
+    local capture_candidate, capture_summary = M.choose_main_task_hover_candidate(
+        "capture",
+        original_cursor,
+        capture_bounds,
+        step,
+        "jump"
+    )
+    if type(capture_candidate) ~= "table" then
+        state.next_dialogue_jump_hover_capture_at = current_time
+            + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+        return nil, capture_summary
+    end
+
+    local moved, move_result = nav_mod.move_mouse_to_client(capture_candidate.x, capture_candidate.y, {
+        mouse_mode = "api",
+        min_duration_ms = capture_candidate.move_min_ms,
+        max_duration_ms = capture_candidate.move_max_ms,
+        hover_ms = capture_candidate.hover_ms,
+        set_foreground = true
+    })
+    if moved then
+        local capture_entry = {
+            x = capture_candidate.x,
+            y = capture_candidate.y,
+            zone = capture_candidate.zone,
+            angle_deg = capture_candidate.angle_deg,
+            move_min_ms = capture_candidate.move_min_ms,
+            move_max_ms = capture_candidate.move_max_ms,
+            hover_ms = capture_candidate.hover_ms,
+            move_duration_ms = tonumber(type(move_result) == "table" and move_result.duration_ms),
+            move_style = tostring(type(move_result) == "table" and move_result.move_style or ""),
+            sample_attempt = capture_candidate.sample_attempt,
+            score = capture_candidate.score,
+            outcome = "hover_probe"
+        }
+        M.push_main_task_hover_history("capture", capture_entry, capture_candidate.history_limit, "jump")
+        state.last_dialogue_jump_hover_capture_meta = capture_entry
+
+        local selected_target, selected_err = M.resolve_dialogue_jump_selected_target(nav_mod, step)
+        if type(selected_target) == "table" then
+            local cached = M.cache_dialogue_jump_button_target(
+                ctx,
+                selected_target,
+                current_time,
+                "hover_capture:randomized",
+                step
+            )
+            if type(cached) == "table" then
+                state.next_dialogue_jump_hover_capture_at = 0
+                local return_note = "return=skipped"
+                local return_bounds, return_bounds_err = M.resolve_main_task_hover_return_bounds(nav_mod, step)
+                if type(return_bounds) == "table" then
+                    local return_origin = {
+                        client_x = capture_candidate.x,
+                        client_y = capture_candidate.y
+                    }
+                    local return_candidate, return_summary = M.choose_main_task_hover_candidate(
+                        "return",
+                        return_origin,
+                        return_bounds,
+                        step,
+                        "jump"
+                    )
+                    if type(return_candidate) == "table" then
+                        local returned, return_result = nav_mod.move_mouse_to_client(return_candidate.x, return_candidate.y, {
+                            mouse_mode = "api",
+                            min_duration_ms = return_candidate.move_min_ms,
+                            max_duration_ms = return_candidate.move_max_ms,
+                            hover_ms = return_candidate.hover_ms
+                        })
+                        if returned then
+                            local return_entry = {
+                                x = return_candidate.x,
+                                y = return_candidate.y,
+                                zone = return_candidate.zone,
+                                angle_deg = return_candidate.angle_deg,
+                                move_min_ms = return_candidate.move_min_ms,
+                                move_max_ms = return_candidate.move_max_ms,
+                                hover_ms = return_candidate.hover_ms,
+                                move_duration_ms = tonumber(type(return_result) == "table" and return_result.duration_ms),
+                                move_style = tostring(type(return_result) == "table" and return_result.move_style or ""),
+                                sample_attempt = return_candidate.sample_attempt,
+                                score = return_candidate.score,
+                                outcome = "safe_return"
+                            }
+                            M.push_main_task_hover_history("return", return_entry, return_candidate.history_limit, "jump")
+                            state.last_dialogue_jump_hover_return_meta = return_entry
+                            return_note = string.format(
+                                "return=%s move_style=%s move_duration=%s summary=%s",
+                                M.format_main_task_hover_candidate_brief(return_candidate),
+                                tostring(return_entry.move_style or ""),
+                                tostring(return_entry.move_duration_ms or ""),
+                                tostring(return_summary or "")
+                            )
+                        else
+                            return_note = string.format(
+                                "return_move_failed=%s candidate=%s summary=%s",
+                                tostring(return_result or ""),
+                                M.format_main_task_hover_candidate_brief(return_candidate),
+                                tostring(return_summary or "")
+                            )
+                        end
+                    else
+                        return_note = "return_candidate_failed=" .. tostring(return_summary or "")
+                    end
+                else
+                    return_note = "return_bounds_failed=" .. tostring(return_bounds_err or "")
+                end
+
+                logger(ctx).info(string.format(
+                    "[Leveling] cached dialogue jump addr via hover | hover=%s move_style=%s move_duration=%s target=%s bounds=%s capture_summary=%s %s anchor_relaxed=%s reason=%s",
+                    M.format_main_task_hover_candidate_brief(capture_candidate),
+                    tostring(type(move_result) == "table" and move_result.move_style or ""),
+                    tostring(type(move_result) == "table" and move_result.duration_ms or ""),
+                    M.format_main_task_click_target_brief(selected_target),
+                    tostring(bounds_summary or ""),
+                    tostring(capture_summary or ""),
+                    tostring(return_note or ""),
+                    tostring(selected_target.anchor_relaxed == true),
+                    tostring(reason or "")
+                ))
+                return selected_target
+            end
+            selected_err = "cache_failed"
+        end
+
+        if step.hover_capture_restore_cursor_on_failure ~= false and type(original_cursor) == "table" then
+            local restore_timing = M.randomize_main_task_hover_timing("return", step)
+            nav_mod.move_mouse_to_client(original_cursor.client_x, original_cursor.client_y, {
+                mouse_mode = "api",
+                min_duration_ms = restore_timing.move_min_ms,
+                max_duration_ms = restore_timing.move_max_ms,
+                hover_ms = math.min(24, math.max(0, math.floor((tonumber(restore_timing.hover_ms) or 0) * 0.35)))
+            })
+        end
+
+        state.next_dialogue_jump_hover_capture_at = current_time
+            + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+        return nil, string.format(
+            "dialogue_jump_hover_selected_failed=%s hover=%s move_style=%s move_duration=%s bounds=%s capture_summary=%s",
+            tostring(selected_err or ""),
+            M.format_main_task_hover_candidate_brief(capture_candidate),
+            tostring(type(move_result) == "table" and move_result.move_style or ""),
+            tostring(type(move_result) == "table" and move_result.duration_ms or ""),
+            tostring(bounds_summary or ""),
+            tostring(capture_summary or "")
+        )
+    end
+
+    if step.hover_capture_restore_cursor_on_failure ~= false and type(original_cursor) == "table" then
+        local restore_timing = M.randomize_main_task_hover_timing("return", step)
+        nav_mod.move_mouse_to_client(original_cursor.client_x, original_cursor.client_y, {
+            mouse_mode = "api",
+            min_duration_ms = restore_timing.move_min_ms,
+            max_duration_ms = restore_timing.move_max_ms,
+            hover_ms = math.min(24, math.max(0, math.floor((tonumber(restore_timing.hover_ms) or 0) * 0.35)))
+        })
+    end
+
+    state.next_dialogue_jump_hover_capture_at = current_time
+        + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+    return nil, string.format(
+        "dialogue_jump_hover_move_failed=%s hover=%s bounds=%s capture_summary=%s",
+        tostring(move_result or ""),
+        M.format_main_task_hover_candidate_brief(capture_candidate),
+        tostring(bounds_summary or ""),
+        tostring(capture_summary or "")
+    )
 end
 
 function M.normalize_treasure_task_query_key(value)
@@ -5904,20 +6439,137 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
     end
     state.next_dialogue_jump_scan_at = current_time + 250
 
-    local target, fetch_err = M.fetch_hint_button_target(ctx, step)
+    local nav_mod = nav_api(ctx)
+    local interaction_origin = tostring(state.pending_interaction_origin or "")
+    local function apply_dialogue_jump_click_state()
+        state.next_dialogue_jump_click_at = current_time + 900
+        state.dialogue_escape_due_at = 0
+        state.dialogue_confirm_deadline_at = 0
+        state.next_dialogue_probe_at = 0
+        state.next_dialogue_jump_scan_at = 0
+        state.next_dialogue_jump_click_at = 0
+        state.dialogue_ui_confirmed = false
+        state.dialogue_ui_match = nil
+        local post_flow, post_task_name = M.current_task_post_dialogue_flow_config()
+        local armed_post_dialogue_flow = false
+        if type(post_flow) == "table" and post_flow.arm_after_objective_button ~= true then
+            armed_post_dialogue_flow = M.arm_post_dialogue_flow(ctx, current_time, post_flow, post_task_name, interaction_origin) == true
+        end
+        clear_pending_interaction()
+        state.task_update_wait_until = math.max(
+            tonumber(state.task_update_wait_until) or 0,
+            current_time + math.max(tonumber(step.settle_ms) or TASK_BUTTON_SETTLE_MS, TASK_BUTTON_SETTLE_MS)
+        )
+        if armed_post_dialogue_flow then
+            state.require_task_button_refresh = false
+            state.require_task_button_refresh_reason = nil
+            state.next_task_button_click_at = math.max(
+                tonumber(state.next_task_button_click_at) or 0,
+                tonumber(state.task_update_wait_until) or current_time
+            )
+            state.next_task_refresh_at = math.max(
+                tonumber(state.next_task_refresh_at) or 0,
+                tonumber(state.task_update_wait_until) or current_time
+            )
+            logger(ctx).info(string.format(
+                "[Leveling] dialogue jump refresh deferred by post dialogue flow | task=%s key=%s",
+                tostring(post_task_name or state.current_task_name or ""),
+                tostring(post_flow.key or "")
+            ))
+        else
+            state.require_task_button_refresh = true
+            state.next_task_button_click_at = math.max(
+                tonumber(state.next_task_button_click_at) or 0,
+                tonumber(state.task_update_wait_until) or current_time
+            )
+            state.next_task_refresh_at = math.max(
+                tonumber(state.next_task_refresh_at) or 0,
+                tonumber(state.task_update_wait_until) or current_time
+            )
+        end
+        state.pause_combat_until = math.max(
+            tonumber(state.pause_combat_until) or 0,
+            current_time + POST_UI_PAUSE_MS
+        )
+    end
+
+    local click_allowed = current_time >= (tonumber(state.next_dialogue_jump_click_at) or 0)
+    if click_allowed and type(nav_mod) == "table" then
+        local cached_clicked, cached_target_or_err = M.try_cached_dialogue_jump_button_click(
+            ctx,
+            nav_mod,
+            current_time,
+            step,
+            "pre_locator"
+        )
+        if cached_clicked then
+            apply_dialogue_jump_click_state()
+            return true
+        end
+        if trim(cached_target_or_err or "") ~= "" then
+            log_throttled(ctx, "dialogue_jump_cached_addr_failed", "info", LOG_THROTTLE_MS,
+                "[Leveling] cached dialogue jump addr click miss: " .. tostring(cached_target_or_err))
+        end
+    end
+
+    local has_cached_target = type(state.cached_dialogue_jump_button_target) == "table"
+        or type(_G.AVEPOINT_CACHED_DIALOGUE_JUMP_BUTTON_TARGET) == "table"
+    local target, fetch_err = fetch_locator_button_target(ctx, step)
+    if type(target) == "table" then
+        M.cache_dialogue_jump_button_target(ctx, target, current_time, "locator_fetch", step)
+    end
+    local missing_detail = trim(fetch_err or "")
+    if type(target) ~= "table" and not has_cached_target and type(nav_mod) == "table" then
+        local captured_target, capture_err = M.try_capture_dialogue_jump_button_via_hover(
+            ctx,
+            nav_mod,
+            current_time,
+            step,
+            "post_locator_miss"
+        )
+        if type(captured_target) == "table" then
+            if click_allowed then
+                local hover_clicked, hover_target_or_err = M.try_cached_dialogue_jump_button_click(
+                    ctx,
+                    nav_mod,
+                    current_time,
+                    step,
+                    "post_hover_capture"
+                )
+                if hover_clicked then
+                    apply_dialogue_jump_click_state()
+                    return true
+                end
+                if trim(hover_target_or_err or "") ~= "" then
+                    log_throttled(ctx, "dialogue_jump_hover_cached_click_failed", "warn", LOG_THROTTLE_MS,
+                        "[Leveling] hover-captured dialogue jump addr click failed: " .. tostring(hover_target_or_err))
+                end
+            else
+                target = captured_target
+            end
+        elseif trim(capture_err or "") ~= "" then
+            if missing_detail ~= "" then
+                missing_detail = missing_detail .. " | hover_capture=" .. tostring(capture_err)
+            else
+                missing_detail = tostring(capture_err)
+            end
+            log_throttled(ctx, "dialogue_jump_hover_capture_failed", "info", LOG_THROTTLE_MS,
+                "[Leveling] hover capture for dialogue jump missed: " .. tostring(capture_err))
+        end
+    end
+
     if type(target) ~= "table" then
-        if fetch_err then
+        if missing_detail ~= "" then
             log_throttled(ctx, "dialogue_jump_missing", "info", LOG_THROTTLE_MS,
-                "[Leveling] dialogue jump button not visible: " .. tostring(fetch_err))
+                "[Leveling] dialogue jump button not visible: " .. tostring(missing_detail))
         end
         return false
     end
 
-    if current_time < (tonumber(state.next_dialogue_jump_click_at) or 0) then
+    if not click_allowed then
         return false
     end
 
-    local interaction_origin = tostring(state.pending_interaction_origin or "")
     release_async_combat_inputs(ctx, current_time, true)
     local clicked = false
     local click_err = nil
@@ -5933,7 +6585,6 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
             click_err = result_clicked
         end
     else
-        local nav_mod = nav_api(ctx)
         if type(nav_mod) ~= "table" or type(nav_mod.control_click) ~= "function" then
             click_err = "nav.control_click is unavailable."
         elseif type(target) ~= "table" or tonumber(target.addr) == nil then
@@ -5956,62 +6607,16 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
         return false
     end
 
-    state.next_dialogue_jump_click_at = current_time + 900
-    state.dialogue_escape_due_at = 0
-    state.dialogue_confirm_deadline_at = 0
-    state.next_dialogue_probe_at = 0
-    state.next_dialogue_jump_scan_at = 0
-    state.next_dialogue_jump_click_at = 0
-    state.dialogue_ui_confirmed = false
-    state.dialogue_ui_match = nil
-    local post_flow, post_task_name = M.current_task_post_dialogue_flow_config()
-    local armed_post_dialogue_flow = false
-    if type(post_flow) == "table" and post_flow.arm_after_objective_button ~= true then
-        armed_post_dialogue_flow = M.arm_post_dialogue_flow(ctx, current_time, post_flow, post_task_name, interaction_origin) == true
-    end
-    clear_pending_interaction()
-    state.task_update_wait_until = math.max(
-        tonumber(state.task_update_wait_until) or 0,
-        current_time + math.max(tonumber(step.settle_ms) or TASK_BUTTON_SETTLE_MS, TASK_BUTTON_SETTLE_MS)
-    )
-    if armed_post_dialogue_flow then
-        state.require_task_button_refresh = false
-        state.require_task_button_refresh_reason = nil
-        state.next_task_button_click_at = math.max(
-            tonumber(state.next_task_button_click_at) or 0,
-            tonumber(state.task_update_wait_until) or current_time
-        )
-        state.next_task_refresh_at = math.max(
-            tonumber(state.next_task_refresh_at) or 0,
-            tonumber(state.task_update_wait_until) or current_time
-        )
-        logger(ctx).info(string.format(
-            "[Leveling] dialogue jump refresh deferred by post dialogue flow | task=%s key=%s",
-            tostring(post_task_name or state.current_task_name or ""),
-            tostring(post_flow.key or "")
-        ))
-    else
-        state.require_task_button_refresh = true
-        state.next_task_button_click_at = math.max(
-            tonumber(state.next_task_button_click_at) or 0,
-            tonumber(state.task_update_wait_until) or current_time
-        )
-        state.next_task_refresh_at = math.max(
-            tonumber(state.next_task_refresh_at) or 0,
-            tonumber(state.task_update_wait_until) or current_time
-        )
-    end
-    state.pause_combat_until = math.max(
-        tonumber(state.pause_combat_until) or 0,
-        current_time + POST_UI_PAUSE_MS
-    )
+    M.cache_dialogue_jump_button_target(ctx, target, current_time, "locator_click", step)
+    apply_dialogue_jump_click_state()
     logger(ctx).info(string.format(
-        "[Leveling] dialogue jump button clicked | label=%s addr=%s pos=(%s,%s) origin=%s",
+        "[Leveling] dialogue jump button clicked | label=%s addr=%s pos=(%s,%s) origin=%s source=%s",
         tostring(step.label or ""),
         tostring(target.addr or ""),
         tostring(target.x or ""),
         tostring(target.y or ""),
-        interaction_origin
+        interaction_origin,
+        tostring(target.source or "locator")
     ))
     return true
 end
@@ -11271,6 +11876,12 @@ function M.resolve_main_task_hover_history_key(kind, namespace)
             return "treasure_task_hover_return_history"
         end
         return "treasure_task_hover_capture_history"
+    end
+    if namespace == "jump" or namespace == "dialogue_jump" then
+        if kind == "return" then
+            return "dialogue_jump_hover_return_history"
+        end
+        return "dialogue_jump_hover_capture_history"
     end
     if kind == "return" then
         return "main_task_hover_return_history"
