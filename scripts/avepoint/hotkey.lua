@@ -2782,6 +2782,293 @@ function avepoint_hotkey_log_button_candidates(prefix, collected)
     return true
 end
 
+local function avepoint_hotkey_collect_snapshot_button_entries(snapshot)
+    if type(snapshot) ~= "table" then
+        return {
+            buttons = {},
+            texts = {},
+            entries = {},
+            task_entries = {},
+            invalid_position_count = 0
+        }
+    end
+
+    local buttons = snapshot.buttons or {}
+    local texts = snapshot.texts or {}
+    local entries = {}
+    local task_entries = {}
+    local invalid_position_count = 0
+
+    for button_index, button_item in ipairs(buttons) do
+        local button_x = tonumber(button_item.x)
+        local button_y = tonumber(button_item.y)
+        if button_x == nil or button_y == nil then
+            invalid_position_count = invalid_position_count + 1
+        else
+            local nearest_text_item = nil
+            local nearest_text_index = nil
+            local nearest_distance = nil
+            for text_index, text_item in ipairs(texts) do
+                local text_x = tonumber(text_item.x)
+                local text_y = tonumber(text_item.y)
+                if text_x ~= nil and text_y ~= nil then
+                    local distance = distance_2d(button_x, button_y, text_x, text_y)
+                    if nearest_distance == nil or distance < nearest_distance then
+                        nearest_distance = distance
+                        nearest_text_item = text_item
+                        nearest_text_index = text_index
+                    end
+                end
+            end
+
+            local identity = tostring(button_item.Fullname or button_item.fullname or button_item.name or "")
+            local identity_key = trim(identity):lower()
+            local nearest_text_value = trim(nearest_text_item and nearest_text_item.text or "")
+            local nearest_text_key = nearest_text_value:lower()
+            local is_task_related = identity_key:find("taskitem_c.widgettree", 1, true) ~= nil
+                or identity_key:find("fighttasklistview_c.widgettree.btntask", 1, true) ~= nil
+                or nearest_text_key:find("主线", 1, true) ~= nil
+                or nearest_text_key:find("支线", 1, true) ~= nil
+                or nearest_text_key:find("藏宝地", 1, true) ~= nil
+                or nearest_text_key:find("涓荤嚎", 1, true) ~= nil
+                or nearest_text_key:find("鏀嚎", 1, true) ~= nil
+
+            local entry = {
+                button = button_item,
+                button_index = button_index,
+                nearest_text_item = nearest_text_item,
+                nearest_text_index = nearest_text_index,
+                nearest_distance = nearest_distance,
+                identity = identity,
+                is_task_related = is_task_related
+            }
+            entries[#entries + 1] = entry
+            if is_task_related then
+                task_entries[#task_entries + 1] = entry
+            end
+        end
+    end
+
+    local function entry_less(a, b)
+        local ay = tonumber(a and a.button and a.button.y) or math.huge
+        local by = tonumber(b and b.button and b.button.y) or math.huge
+        if ay ~= by then
+            return ay < by
+        end
+
+        local ax = tonumber(a and a.button and a.button.x) or math.huge
+        local bx = tonumber(b and b.button and b.button.x) or math.huge
+        if ax ~= bx then
+            return ax < bx
+        end
+
+        return tostring(a and a.button and a.button.addr or "") < tostring(b and b.button and b.button.addr or "")
+    end
+
+    table.sort(entries, entry_less)
+    table.sort(task_entries, entry_less)
+
+    return {
+        buttons = buttons,
+        texts = texts,
+        entries = entries,
+        task_entries = task_entries,
+        invalid_position_count = invalid_position_count
+    }
+end
+
+local function avepoint_hotkey_log_snapshot_buttons(prefix, snapshot)
+    local collected = avepoint_hotkey_collect_snapshot_button_entries(snapshot)
+    local task_limit = 24
+    local all_limit = 40
+
+    log.info(string.format(
+        "%s snapshot summary | texts=%d buttons=%d task_related=%d invalid_pos=%d",
+        tostring(prefix or "F3"),
+        #(collected.texts or {}),
+        #(collected.buttons or {}),
+        #(collected.task_entries or {}),
+        tonumber(collected.invalid_position_count) or 0
+    ))
+
+    local function log_entry(label, index, total, entry)
+        local button = entry and entry.button or {}
+        local nearest_text_item = entry and entry.nearest_text_item or nil
+        log.info(string.format(
+            "%s[%d/%d] | button_index=%d addr=%s name=%s text=%s fullname=%s x=%s y=%s nearest_text=%s nearest_text_addr=%s nearest_distance=%s nearest_text_index=%s",
+            tostring(label or ""),
+            tonumber(index) or 0,
+            tonumber(total) or 0,
+            tonumber(entry and entry.button_index) or 0,
+            avepoint_format_addr_hex(button.addr),
+            tostring(button.name or ""),
+            tostring(button.text or ""),
+            tostring(button.Fullname or button.fullname or ""),
+            tostring(button.x or ""),
+            tostring(button.y or ""),
+            tostring(nearest_text_item and nearest_text_item.text or ""),
+            avepoint_format_addr_hex(nearest_text_item and nearest_text_item.addr),
+            entry and entry.nearest_distance ~= nil and string.format("%.6f", tonumber(entry.nearest_distance) or 0) or "nil",
+            tostring(entry and entry.nearest_text_index or "")
+        ))
+    end
+
+    local task_entries = collected.task_entries or {}
+    if #task_entries == 0 then
+        log.warn(string.format("%s task-related snapshot buttons: none", tostring(prefix or "F3")))
+    else
+        local task_output_count = math.min(task_limit, #task_entries)
+        for index = 1, task_output_count do
+            log_entry(tostring(prefix or "F3") .. " task_button", index, #task_entries, task_entries[index])
+        end
+        if task_output_count < #task_entries then
+            log.info(string.format(
+                "%s task-related snapshot truncated | shown=%d total=%d",
+                tostring(prefix or "F3"),
+                task_output_count,
+                #task_entries
+            ))
+        end
+    end
+
+    local entries = collected.entries or {}
+    if #entries == 0 then
+        log.warn(string.format("%s snapshot buttons: none", tostring(prefix or "F3")))
+        return false
+    end
+
+    local output_count = math.min(all_limit, #entries)
+    for index = 1, output_count do
+        log_entry(tostring(prefix or "F3") .. " all_button", index, #entries, entries[index])
+    end
+    if output_count < #entries then
+        log.info(string.format(
+            "%s all-button snapshot truncated | shown=%d total=%d",
+            tostring(prefix or "F3"),
+            output_count,
+            #entries
+        ))
+    end
+
+    return true
+end
+
+local function avepoint_hotkey_log_controls_near_point(prefix, label, client_x, client_y, snapshot, opts)
+    if type(nav) ~= "table" or type(nav.find_controls_at_point) ~= "function" then
+        log.warn(string.format("%s controls near point skipped | label=%s err=nav.find_controls_at_point unavailable", tostring(prefix or "F3"), tostring(label or "")))
+        return false
+    end
+
+    local max_distance = math.max(1, tonumber(opts and opts.max_distance) or 90)
+    local limit = math.max(1, math.floor(tonumber(opts and opts.limit) or 16))
+    local controls, err = nav.find_controls_at_point(client_x, client_y, {
+        snapshot = snapshot,
+        include_buttons = true,
+        include_images = true,
+        include_texts = true,
+        max_distance = max_distance,
+        limit = limit
+    })
+
+    if type(controls) ~= "table" or #controls == 0 then
+        log.warn(string.format(
+            "%s controls near point miss | label=%s point=(%.2f,%.2f) max_distance=%.2f err=%s",
+            tostring(prefix or "F3"),
+            tostring(label or ""),
+            tonumber(client_x) or 0,
+            tonumber(client_y) or 0,
+            tonumber(max_distance) or 0,
+            tostring(err or "")
+        ))
+        return false
+    end
+
+    log.info(string.format(
+        "%s controls near point | label=%s point=(%.2f,%.2f) max_distance=%.2f count=%d",
+        tostring(prefix or "F3"),
+        tostring(label or ""),
+        tonumber(client_x) or 0,
+        tonumber(client_y) or 0,
+        tonumber(max_distance) or 0,
+        #controls
+    ))
+
+    for index, control in ipairs(controls) do
+        log.info(string.format(
+            "%s control[%d/%d] | label=%s kind=%s addr=%s name=%s text=%s fullname=%s x=%s y=%s distance=%s",
+            tostring(prefix or "F3"),
+            index,
+            #controls,
+            tostring(label or ""),
+            tostring(control.kind or ""),
+            avepoint_format_addr_hex(control.addr),
+            tostring(control.name or ""),
+            tostring(control.text or ""),
+            tostring(control.fullname or ""),
+            tostring(control.x or ""),
+            tostring(control.y or ""),
+            tostring(control.distance or "")
+        ))
+    end
+
+    return true
+end
+
+local function avepoint_hotkey_log_task_control_points(prefix, snapshot)
+    if type(snapshot) ~= "table" then
+        return false
+    end
+
+    local main_task_hint_x = 89.907120
+    local main_task_hint_y = 235.181610
+    local any_logged = false
+
+    if avepoint_hotkey_log_controls_near_point(
+            prefix,
+            "main_task_fixed_hint",
+            main_task_hint_x,
+            main_task_hint_y,
+            snapshot,
+            { max_distance = 90, limit = 20 }
+        ) then
+        any_logged = true
+    end
+
+    local texts = snapshot.texts or {}
+    local mainline_text = nil
+    for _, text_item in ipairs(texts) do
+        local text_value = trim(text_item and text_item.text or "")
+        local text_key = text_value:lower()
+        if text_key:find("主线", 1, true) ~= nil or text_key:find("涓荤嚎", 1, true) ~= nil then
+            mainline_text = text_item
+            break
+        end
+    end
+
+    if type(mainline_text) == "table" then
+        local text_x = tonumber(mainline_text.x)
+        local text_y = tonumber(mainline_text.y)
+        if text_x ~= nil and text_y ~= nil then
+            local inferred_button_x = text_x - 31
+            local inferred_button_y = text_y - 4
+            if avepoint_hotkey_log_controls_near_point(
+                    prefix,
+                    "main_task_text_inferred",
+                    inferred_button_x,
+                    inferred_button_y,
+                    snapshot,
+                    { max_distance = 90, limit = 20 }
+                ) then
+                any_logged = true
+            end
+        end
+    else
+        log.warn(string.format("%s task control point text probe miss | mainline text not found", tostring(prefix or "F3")))
+    end
+
+    return any_logged
+end
+
 function avepoint_hotkey_build_cursor_probe_step(entry, cursor, buttons, preset)
     if type(entry) ~= "table" or type(entry.button) ~= "table" then
         return nil, "Invalid cursor probe entry."
@@ -2911,16 +3198,26 @@ function avepoint_hotkey_build_selected_probe_step(preset)
     end
 
     local nearest_text_value = trim(nearest_text_item and nearest_text_item.text or "")
-    if trim(selected.name or "") ~= ""
+    if trim(identity) ~= ""
         and nearest_text_value ~= ""
         and nearest_distance ~= nil
         and nearest_distance <= nearest_text_max_distance
     then
         local tolerance = avepoint_hotkey_distance_tolerance(nearest_distance, preset)
+        local nearest_text_x = tonumber(nearest_text_item and nearest_text_item.x)
+        local nearest_text_y = tonumber(nearest_text_item and nearest_text_item.y)
         step.distance_anchor_exact_text = nearest_text_value
-        step.distance_button_name = tostring(selected.name or "")
+        step.distance_button_name = tostring(
+            trim(selected.name or "") ~= "" and selected.name or identity
+        )
         step.distance_min = math.max(0, nearest_distance - tolerance)
         step.distance_max = nearest_distance + tolerance
+        if nearest_text_x ~= nil and nearest_text_y ~= nil then
+            step.related_text = nearest_text_value
+            step.related_dx = nearest_text_x - selected_x
+            step.related_dy = nearest_text_y - selected_y
+            step.related_tolerance = math.max(18, tolerance * 10)
+        end
     end
 
     return step, {
@@ -3168,7 +3465,16 @@ function avepoint_hotkey_dump_visible_buttons()
     if not collected then
         return false, err
     end
-    if not avepoint_hotkey_log_button_candidates("F3", collected) then
+    local nearby_ok = avepoint_hotkey_log_button_candidates("F3", collected)
+    local snapshot_ok = avepoint_hotkey_log_snapshot_buttons("F3", {
+        buttons = collected.buttons,
+        texts = collected.texts
+    })
+    local control_points_ok = avepoint_hotkey_log_task_control_points("F3", {
+        buttons = collected.buttons,
+        texts = collected.texts
+    })
+    if not nearby_ok and not snapshot_ok and not control_points_ok then
         return false, "No visible buttons with valid positions."
     end
     return true
@@ -3182,6 +3488,33 @@ local function avepoint_hotkey_resolve_cursor_probe_target(options)
 
     local selected_step, selected_meta = avepoint_hotkey_build_selected_probe_step(preset)
     if selected_step and type(selected_meta) == "table" and type(selected_meta.selected) == "table" then
+        if tostring(selected_meta.identity or ""):lower():find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil then
+            _G.AVEPOINT_MAIN_TASK_BUTTON_LOCATOR = {
+                fullname = tostring(selected_meta.identity or ""),
+                include_patterns = type(selected_step.include_patterns) == "table"
+                    and selected_step.include_patterns
+                    or { "taskitem_c.widgettree.taskbtn" },
+                hint_client_x = tonumber(selected_step.hint_client_x),
+                hint_client_y = tonumber(selected_step.hint_client_y),
+                hint_ratio_x = tonumber(selected_step.hint_ratio_x),
+                hint_ratio_y = tonumber(selected_step.hint_ratio_y),
+                hint_max_distance = tonumber(selected_step.hint_max_distance),
+                distance_anchor_exact_text = tostring(selected_step.distance_anchor_exact_text or ""),
+                distance_button_name = tostring(selected_step.distance_button_name or ""),
+                distance_min = tonumber(selected_step.distance_min),
+                distance_max = tonumber(selected_step.distance_max),
+                related_text = tostring(selected_step.related_text or selected_meta.nearest_text or ""),
+                related_dx = tonumber(selected_step.related_dx),
+                related_dy = tonumber(selected_step.related_dy),
+                related_tolerance = tonumber(selected_step.related_tolerance),
+                x = tonumber(selected_meta.selected.x),
+                y = tonumber(selected_meta.selected.y),
+                captured_addr = selected_meta.selected.addr,
+                source = hotkey_label .. " GetCurrentSelected locator",
+                cached_at = type(sys) == "table" and type(sys.time) == "function" and sys.time() or nil
+            }
+        end
+
         log.info(string.format(
             "%s GetCurrentSelected target | label=%s addr=%s identity=%s pos=(%.2f,%.2f) cursor_distance=%s nearest_text=%s nearest_distance=%s",
             hotkey_label,
@@ -3693,7 +4026,7 @@ function main()
     ))
     local f3_preset = HOTKEY_BUTTON_ENUM_PRESETS and HOTKEY_BUTTON_ENUM_PRESETS.current or nil
     log.info(string.format(
-        "Press F3 to dump mouse-nearby button candidates for %s",
+        "Press F3 to dump mouse-nearby button candidates plus full button snapshot for %s",
         tostring(f3_preset and f3_preset.label or "current page")
     ))
     local f11_preset = HOTKEY_CURSOR_CLICK_PRESETS and HOTKEY_CURSOR_CLICK_PRESETS.current or nil
@@ -4174,6 +4507,146 @@ function main()
                         end
                         return true
                     end
+                    local function f7_short_text(value, max_len)
+                        local text = tostring(value or "")
+                        text = text:gsub("\r", " "):gsub("\n", " "):gsub("\t", " ")
+                        local limit = math.max(8, tonumber(max_len) or 96)
+                        if #text > limit then
+                            return text:sub(1, limit - 3) .. "..."
+                        end
+                        return text
+                    end
+                    local function f7_button_identity(item)
+                        return table.concat({
+                            tostring(item and item.name or ""),
+                            tostring(item and (item.Fullname or item.fullname) or ""),
+                            tostring(item and item.text or "")
+                        }, " ")
+                    end
+                    local function f7_is_task_button(item)
+                        local identity = f7_button_identity(item):lower()
+                        return identity:find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil
+                            or identity:find("widgettree.taskbtn", 1, true) ~= nil
+                    end
+                    local function log_f7_task_panel_debug()
+                        local snapshot_texts = type(snapshot) == "table" and type(snapshot.texts) == "table" and snapshot.texts or {}
+                        local snapshot_buttons = type(snapshot) == "table" and type(snapshot.buttons) == "table" and snapshot.buttons or {}
+                        local parsed_tasks = type(task_panel) == "table" and type(task_panel.tasks) == "table" and #task_panel.tasks or 0
+                        local parsed_buttons = type(task_panel) == "table" and tonumber(task_panel.button_count) or nil
+                        local logged = false
+
+                        log.warn(string.format(
+                            "F7 task panel parser summary | entries=%d task_buttons=%s raw_buttons=%d raw_texts=%d err=%s",
+                            parsed_tasks,
+                            tostring(parsed_buttons or ""),
+                            #snapshot_buttons,
+                            #snapshot_texts,
+                            tostring(task_panel_err or "")
+                        ))
+                        logged = true
+
+                        if type(task_panel) == "table"
+                            and type(task_panel.debug_candidates) == "table"
+                            and #task_panel.debug_candidates > 0
+                        then
+                            log.warn("F7 task panel candidates: " .. table.concat(task_panel.debug_candidates, " | "))
+                        end
+
+                        local task_button_parts = {}
+                        local left_button_parts = {}
+                        for index, item in ipairs(snapshot_buttons) do
+                            local x_pos = tonumber(item and item.x)
+                            local y_pos = tonumber(item and item.y)
+                            local is_task_button = f7_is_task_button(item)
+                            if is_task_button and #task_button_parts < 10 then
+                                task_button_parts[#task_button_parts + 1] = string.format(
+                                    "[%d]addr=%s x=%s y=%s name=%s fullname=%s",
+                                    index,
+                                    tostring(item and item.addr or ""),
+                                    tostring(x_pos or ""),
+                                    tostring(y_pos or ""),
+                                    f7_short_text(item and item.name, 48),
+                                    f7_short_text(item and (item.Fullname or item.fullname), 96)
+                                )
+                            end
+                            if x_pos ~= nil and y_pos ~= nil
+                                and x_pos >= 0 and x_pos <= 260
+                                and y_pos >= 120 and y_pos <= 430
+                                and #left_button_parts < 12
+                            then
+                                left_button_parts[#left_button_parts + 1] = string.format(
+                                    "[%d]addr=%s x=%.1f y=%.1f task=%s name=%s fullname=%s",
+                                    index,
+                                    tostring(item and item.addr or ""),
+                                    x_pos,
+                                    y_pos,
+                                    is_task_button and "true" or "false",
+                                    f7_short_text(item and item.name, 40),
+                                    f7_short_text(item and (item.Fullname or item.fullname), 72)
+                                )
+                            end
+                        end
+
+                        if #task_button_parts > 0 then
+                            log.warn("F7 raw task buttons: " .. table.concat(task_button_parts, " | "))
+                        else
+                            log.warn("F7 raw task buttons: none")
+                        end
+                        if #left_button_parts > 0 then
+                            log.warn("F7 left panel raw buttons: " .. table.concat(left_button_parts, " | "))
+                        else
+                            log.warn("F7 left panel raw buttons: none")
+                        end
+
+                        local left_text_rows = {}
+                        for index, item in ipairs(snapshot_texts) do
+                            local text = trim_text(item and item.text)
+                            local x_pos = tonumber(item and item.x)
+                            local y_pos = tonumber(item and item.y)
+                            if text ~= ""
+                                and x_pos ~= nil and y_pos ~= nil
+                                and x_pos >= 0 and x_pos <= 620
+                                and y_pos >= 120 and y_pos <= 430
+                            then
+                                left_text_rows[#left_text_rows + 1] = {
+                                    index = index,
+                                    text = text,
+                                    x = x_pos,
+                                    y = y_pos,
+                                    name = tostring(item and item.name or ""),
+                                    fullname = tostring(item and (item.Fullname or item.fullname) or "")
+                                }
+                            end
+                        end
+                        table.sort(left_text_rows, function(a, b)
+                            if a.y ~= b.y then
+                                return a.y < b.y
+                            end
+                            return a.x < b.x
+                        end)
+
+                        local text_parts = {}
+                        for index = 1, math.min(14, #left_text_rows) do
+                            local item = left_text_rows[index]
+                            text_parts[#text_parts + 1] = string.format(
+                                "[%d]src=%d text=%s x=%.1f y=%.1f name=%s fullname=%s",
+                                index,
+                                tonumber(item.index) or 0,
+                                f7_short_text(item.text, 72),
+                                tonumber(item.x) or 0,
+                                tonumber(item.y) or 0,
+                                f7_short_text(item.name, 40),
+                                f7_short_text(item.fullname, 72)
+                            )
+                        end
+                        if #text_parts > 0 then
+                            log.warn("F7 left panel texts: " .. table.concat(text_parts, " | "))
+                        else
+                            log.warn("F7 left panel texts: none")
+                        end
+
+                        return logged
+                    end
                     local player_info, player_info_err = nav.player_info()
                     log_f7_nearby_portals(x, y)
                     if type(map_ui) == "table" then
@@ -4237,11 +4710,8 @@ function main()
                         end
                         if log_f7_task_panel_entries() then
                             -- Printed above.
-                        elseif type(task_panel) == "table"
-                            and type(task_panel.debug_candidates) == "table"
-                            and #task_panel.debug_candidates > 0
-                        then
-                            log.warn("F7 task panel candidates: " .. table.concat(task_panel.debug_candidates, " | "))
+                        elseif log_f7_task_panel_debug() then
+                            -- Printed above.
                         elseif snapshot == nil then
                             log.warn("F7 read task panel failed: " .. tostring(task_panel_err or snapshot_err))
                         end
@@ -4288,6 +4758,8 @@ function main()
                         end
                         log.warn("F7 read current map failed: " .. tostring(map_err))
                         if log_f7_task_panel_entries() then
+                            -- Printed above.
+                        elseif log_f7_task_panel_debug() then
                             -- Printed above.
                         elseif snapshot == nil then
                             log.warn("F7 read task panel failed: " .. tostring(task_panel_err or snapshot_err))

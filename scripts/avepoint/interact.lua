@@ -364,7 +364,9 @@ function fetch_button_by_text_distance(step, opts)
             local text_y = tonumber(text_item.y)
             if text_x ~= nil and text_y ~= nil then
                 for _, button_item in ipairs(buttons) do
-                    if tostring(button_item.name or "") == button_name then
+                    local item_name = tostring(button_item.name or "")
+                    local item_fullname = tostring(button_item.Fullname or button_item.fullname or "")
+                    if item_name == button_name or item_fullname == button_name then
                         local button_x = tonumber(button_item.x)
                         local button_y = tonumber(button_item.y)
                         if button_x ~= nil and button_y ~= nil then

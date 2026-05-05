@@ -1138,6 +1138,15 @@ function nav.get_task_panel_info(snapshot)
 
     local function classify_task_kind(raw_text)
         local text = trim_text(raw_text)
+        if text:match("^主线%s*") then
+            return "主线"
+        end
+        if text:match("^支线%s*") then
+            return "支线"
+        end
+        if text:match("^赛季%s*") then
+            return "赛季"
+        end
         if text:match("^涓荤嚎%s*") then
             return "涓荤嚎"
         end
@@ -1156,6 +1165,9 @@ function nav.get_task_panel_info(snapshot)
             return nil
         end
         local kind = classify_task_kind(text)
+        text = trim_text(text:gsub("^主线%s*", ""))
+        text = trim_text(text:gsub("^支线%s*", ""))
+        text = trim_text(text:gsub("^赛季%s*", ""))
         text = trim_text(text:gsub("^涓荤嚎%s*", ""))
         text = trim_text(text:gsub("^鏀嚎%s*", ""))
         text = trim_text(text:gsub("^璧涘%s*", ""))
@@ -1163,6 +1175,9 @@ function nav.get_task_panel_info(snapshot)
         text = trim_text(text:gsub("^鐩爣%s*", ""))
         text = trim_text(text:gsub("^鐩%s*", ""))
         if text == ""
+            or text == "主线"
+            or text == "支线"
+            or text == "赛季"
             or text == "涓荤嚎"
             or text == "鏀嚎"
             or text == "浠诲姟"
@@ -1209,6 +1224,16 @@ function nav.get_task_panel_info(snapshot)
     local tasks = {}
     local debug_candidates = {}
     local seen = {}
+
+    local function looks_like_task_status_text(raw_text)
+        local text = trim_text(raw_text)
+        return text == "新"
+            or text == "NEW"
+            or text == "New"
+            or text == "已完成"
+            or text == "进行中"
+            or text == "可接取"
+    end
 
     for _, button in ipairs(task_buttons) do
         local best = nil
@@ -1306,6 +1331,92 @@ function nav.get_task_panel_info(snapshot)
         end
     end
 
+    if #tasks == 0 then
+        local headers = {}
+        for _, item in ipairs(snapshot.texts or {}) do
+            local text_x = as_number(item.x)
+            local text_y = as_number(item.y)
+            local raw_text = trim_text(item.text)
+            local title, kind = normalize_task_title(raw_text)
+            if text_x ~= nil
+                and text_y ~= nil
+                and title ~= nil
+                and kind ~= ""
+            then
+                headers[#headers + 1] = {
+                    title = title,
+                    raw_text = raw_text,
+                    kind = kind,
+                    x = text_x,
+                    y = text_y,
+                    title_addr = as_number(item and item.addr) or (item and item.addr),
+                    title_name = tostring(item and item.name or ""),
+                    title_fullname = tostring(item and (item.Fullname or item.fullname) or "")
+                }
+            end
+        end
+
+        table.sort(headers, function(a, b)
+            if a.y ~= b.y then
+                return a.y < b.y
+            end
+            return a.x < b.x
+        end)
+
+        for index, header in ipairs(headers) do
+            local next_header = headers[index + 1]
+            local next_y = as_number(next_header and next_header.y)
+            local detail_texts = {}
+            local detail_seen = {}
+            for _, item in ipairs(snapshot.texts or {}) do
+                local text_x = as_number(item.x)
+                local text_y = as_number(item.y)
+                local raw_text = trim_text(item.text)
+                if text_x ~= nil and text_y ~= nil then
+                    local dx = text_x - header.x
+                    local dy = text_y - header.y
+                    local normalized_raw = normalize_text(raw_text)
+                    local in_detail_band = dx >= -40 and dx <= 620 and dy >= 8 and dy <= 150
+                    local before_next_task = next_y == nil or text_y < next_y - 6
+                    local looks_numeric_only = raw_text:match("^[%d%s%/%-%:%+]+$") ~= nil
+                    local accepted = in_detail_band
+                        and before_next_task
+                        and raw_text ~= ""
+                        and normalized_raw ~= normalize_text(header.raw_text or "")
+                        and classify_task_kind(raw_text) == ""
+                        and not looks_numeric_only
+                        and not looks_like_task_status_text(raw_text)
+                        and not detail_seen[normalized_raw]
+                    if accepted then
+                        detail_seen[normalized_raw] = true
+                        detail_texts[#detail_texts + 1] = {
+                            text = raw_text,
+                            x = text_x,
+                            y = text_y
+                        }
+                    end
+                end
+            end
+
+            table.sort(detail_texts, function(a, b)
+                if a.y ~= b.y then
+                    return a.y < b.y
+                end
+                return a.x < b.x
+            end)
+
+            header.detail_texts = detail_texts
+            if #detail_texts > 0 then
+                header.detail = detail_texts[1].text
+            end
+            header.button_kind = "text_only"
+            header.button_x = header.x - 31
+            header.button_y = header.y - 4
+            header.text_only = true
+            tasks[#tasks + 1] = header
+        end
+    end
+
     return {
         tasks = tasks,
         button_count = #task_buttons,
@@ -1326,9 +1437,17 @@ function nav.find_task_panel_entry(query, snapshot, opts)
 
     local function normalize_text(value)
         local text = trim_text(value)
+        local original = text
+        text = text:gsub("^主线%s*", "")
+        text = text:gsub("^支线%s*", "")
+        text = text:gsub("^赛季%s*", "")
         text = text:gsub("^涓荤嚎%s*", "")
         text = text:gsub("^鏀嚎%s*", "")
         text = text:gsub("^璧涘%s*", "")
+        text = trim_text(text)
+        if text == "" then
+            text = original
+        end
         return text:lower()
     end
 
@@ -1345,7 +1464,8 @@ function nav.find_task_panel_entry(query, snapshot, opts)
         local haystack = {
             normalize_text(item.raw_text),
             normalize_text(item.title),
-            normalize_text(item.kind)
+            normalize_text(item.kind),
+            normalize_text(item.detail)
         }
         local matched = false
         local score = 0
@@ -3002,7 +3122,7 @@ function nav.move_mouse_to_client(client_x, client_y, opts)
 
     local screen_x = origin_x + x
     local screen_y = origin_y + y
-    local ok, move_err = human_mouse.move_to(screen_x, screen_y, {
+    local ok, move_plan = human_mouse.move_to(screen_x, screen_y, {
         hwnd = hwnd,
         mouse_mode = opts.mouse_mode or "api",
         min_duration_ms = opts.min_duration_ms or 80,
@@ -3010,7 +3130,7 @@ function nav.move_mouse_to_client(client_x, client_y, opts)
         set_foreground = opts.set_foreground == true
     })
     if not ok then
-        return false, move_err or "human mouse move failed."
+        return false, move_plan or "human mouse move failed."
     end
 
     local hover_ms = math.max(0, tonumber(opts.hover_ms) or 120)
@@ -3027,7 +3147,13 @@ function nav.move_mouse_to_client(client_x, client_y, opts)
         origin_x = origin_x,
         origin_y = origin_y,
         client_w = client_w,
-        client_h = client_h
+        client_h = client_h,
+        move_plan = move_plan,
+        duration_ms = tonumber(type(move_plan) == "table" and move_plan.duration_ms),
+        move_distance = tonumber(type(move_plan) == "table" and move_plan.distance),
+        move_style = tostring(type(move_plan) == "table" and move_plan.style or ""),
+        move_anchors = tonumber(type(move_plan) == "table" and move_plan.anchors),
+        move_steps = type(move_plan) == "table" and type(move_plan.steps) == "table" and #move_plan.steps or nil
     }
 end
 

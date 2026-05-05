@@ -980,10 +980,10 @@ M.TASK_OBJECTIVE_BUTTON_STEPS = {
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.DialogueTalk_C.WidgetTree.JumpBtn"
         },
-        hint_client_x = 1325.158447,
-        hint_client_y = 66.883194,
-        hint_ratio_x = 0.920249,
-        hint_ratio_y = 0.074315,
+        hint_client_x = 1314.729858,
+        hint_client_y = 66.760315,
+        hint_ratio_x = 0.913007,
+        hint_ratio_y = 0.074178,
         hint_max_distance = 80.000,
         settle_ms = 500
     }
