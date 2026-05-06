@@ -1900,15 +1900,15 @@ M.TASK_NAME_CONFIGS = {
             label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
             distance_anchor_exact_text = "\u{4F20}\u{9001}",
             distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn",
-            distance_min = 8.248740,
-            distance_max = 9.248740,
+            distance_min = 9.358734,
+            distance_max = 10.358734,
             include_patterns = {
                 "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn"
             },
-            hint_client_x = 659.188843,
-            hint_client_y = 827.716736,
-            hint_ratio_x = 0.457770,
-            hint_ratio_y = 0.919685,
+            hint_client_x = 651.116943,
+            hint_client_y = 816.849670,
+            hint_ratio_x = 0.452165,
+            hint_ratio_y = 0.907611,
             hint_max_distance = 80.000,
             prefer_hint_fallback = true
         },
@@ -2377,6 +2377,52 @@ M.TASK_NAME_CONFIGS = {
             constraint_mode = "all"
         }
     ),
+    ["\u{524D}\u{5F80}\u{6C89}\u{6CA1}\u{6C99}\u{4E18}"] = make_world_map_send_task_config(
+        "sunken_dunes_world_map_send",
+        {
+            label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
+            distance_anchor_exact_text = "\u{4F20}\u{9001}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn",
+            distance_min = 9.358734,
+            distance_max = 10.358734,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn"
+            },
+            hint_client_x = 651.116943,
+            hint_client_y = 816.849670,
+            hint_ratio_x = 0.452165,
+            hint_ratio_y = 0.907611,
+            hint_max_distance = 80.000,
+            prefer_hint_fallback = true,
+            hover_capture_client_left = 654,
+            hover_capture_client_top = 789,
+            hover_capture_client_right = 790,
+            hover_capture_client_bottom = 810,
+            hover_capture_retry_ms = 900
+        },
+        {
+            map_open_wait_ms = 1900,
+            center_click_ratio_x = 0.456250,
+            center_click_ratio_y = 0.498889,
+            center_use_human_mouse = true,
+            center_mouse_mode = "api",
+            center_hover_delay_ms = 90,
+            center_click_delay_ms = 60,
+            center_settle_ms = 750,
+            center_retry_ms = 1400,
+            transition_wait_ms = 2500,
+            timeout_ms = 16000
+        },
+        {
+            task_patterns = {
+                "\u{6C38}\u{591C}\u{9E23}\u{6C99}"
+            },
+            task_detail_patterns = {
+                "\u{524D}\u{5F80}\u{6C89}\u{6CA1}\u{6C99}\u{4E18}"
+            },
+            constraint_mode = "all"
+        }
+    ),
     ["\u{5BFC}\u{5E08}\u{9988}\u{8D60}"] = make_post_dialogue_flow_task_config(
         "mentor_gift_task_detail_after_antonio",
         {
@@ -2396,7 +2442,9 @@ M.TASK_NAME_CONFIGS = {
             initial_delay_ms = 500,
             timeout_ms = 8000,
             arm_after_objective_button = true,
-            skip_dialogue_jump = true
+            skip_dialogue_jump = true,
+            wait_task_info_refresh_after_jump = true,
+            task_info_refresh_timeout_ms = 6500
         },
         {
             task_patterns = { "\u{5BFC}\u{5E08}\u{9988}\u{8D60}" },
@@ -2465,11 +2513,11 @@ M.TASK_NAME_CONFIGS = {
         {
             make_fixed_client_click_step({
                 key = "long_night_end_task_detail_btn",
-                label = "[\u{4EFB}\u{52A1}] \u{957F}\u{591C}\u{7EC8}\u{5C3D}\u{6309}\u{94AE}",
-                fixed_client_x = 766.000000,
-                fixed_client_y = 281.000000,
-                fixed_ratio_x = 0.531944,
-                fixed_ratio_y = 0.312222,
+                label = "[\u{4EFB}\u{52A1}] \u{5723}\u{8BEC}\u{4E4B}\u{672B}\u{6309}\u{94AE}",
+                fixed_client_x = 723.000000,
+                fixed_client_y = 258.000000,
+                fixed_ratio_x = 0.502083,
+                fixed_ratio_y = 0.286667,
                 settle_ms = 1200,
                 force_task_call_after_transition = false,
                 task_pos_reject_extra_ms = 2500
@@ -2483,7 +2531,8 @@ M.TASK_NAME_CONFIGS = {
         },
         {
             task_patterns = {
-                "\u{957F}\u{591C}\u{7EC8}\u{5C3D}"
+                "\u{957F}\u{591C}\u{7EC8}\u{5C3D}",
+                "\u{5723}\u{8BEC}\u{4E4B}\u{672B}"
             },
             task_detail_patterns = {
                 "\u{4E0E}\u{83AB}\u{7433}\u{5A1C}\u{4EA4}\u{8C08}"
@@ -3651,6 +3700,57 @@ M.ROUTE_POINT_ACTIONS = {
             prefer_hint_fallback = true,
             settle_ms = 2200,
             task_pos_reject_extra_ms = 3500
+        }
+    }),
+    make_route_point_action({
+        key = "guiding_light_edge_land_gather_-3768_4006",
+        label = "指路明灯_探索边陲之地_A到B_GatherBtn",
+        mode = "objective_button_flow_point",
+        task_patterns = {
+            "指路明灯",
+            "永夜鸣沙"
+        },
+        task_detail_patterns = {
+            "探索边陲之地",
+            "沿途打听火种的下落"
+        },
+        trigger = {
+            x = -3768.00,
+            y = 4006.00,
+            z = 32.00,
+            radius = 520,
+            z_tolerance = 220
+        },
+        objective_point = {
+            x = -2687.36,
+            y = 4117.59,
+            z = 32.00,
+            radius = 160,
+            z_tolerance = 220
+        },
+        require_destination_match = true,
+        destination_match_radius = 1200,
+        interact_radius = 160,
+        probe_retry_ms = 700,
+        retry_ms = 2500,
+        settle_ms = 2200,
+        timeout_ms = 18000,
+        force_task_call_after_transition = false,
+        step = {
+            key = "guiding_light_edge_land_gather_btn",
+            label = "边陲之地GatherBtn",
+            distance_anchor_exact_text = "阿瑞娅",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn",
+            distance_min = 137.437046,
+            distance_max = 142.437046,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn"
+            },
+            hint_client_x = 693.528564,
+            hint_client_y = 699.631531,
+            hint_ratio_x = 0.481617,
+            hint_ratio_y = 0.777368,
+            hint_max_distance = 80.000
         }
     }),
     make_route_point_action({

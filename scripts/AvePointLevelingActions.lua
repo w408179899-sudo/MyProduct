@@ -25,6 +25,36 @@ local function merge_into(dst, src)
     return dst
 end
 
+local function apply_world_map_send_step_defaults(step)
+    if type(step) ~= "table" then
+        return step
+    end
+
+    local button_name = tostring(step.distance_button_name or "")
+    local fullname = button_name:lower()
+    if fullname:find("worldmapdetail_c.widgettree.worldmapdetailitem.widgettree.sendbtn", 1, true) == nil then
+        return step
+    end
+
+    if step.hover_capture_client_left == nil then
+        step.hover_capture_client_left = 654
+    end
+    if step.hover_capture_client_top == nil then
+        step.hover_capture_client_top = 789
+    end
+    if step.hover_capture_client_right == nil then
+        step.hover_capture_client_right = 790
+    end
+    if step.hover_capture_client_bottom == nil then
+        step.hover_capture_client_bottom = 810
+    end
+    if step.hover_capture_retry_ms == nil then
+        step.hover_capture_retry_ms = 900
+    end
+
+    return step
+end
+
 -- Action builder: task-level boss handling.
 function M.make_boss_kite_task(key, extra_objective, extra_task)
     local task_cfg = {
@@ -44,6 +74,7 @@ end
 
 -- Action builder: task entry that opens world map and clicks send.
 function M.make_world_map_send_task(key, step, extra_action, extra_task)
+    local normalized_step = apply_world_map_send_step_defaults(clone_table(step))
     local task_cfg = {
         entry_action = {
             key = key,
@@ -55,7 +86,7 @@ function M.make_world_map_send_task(key, step, extra_action, extra_task)
             center_retry_ms = 1200,
             transition_wait_ms = 1800,
             timeout_ms = 12000,
-            step = clone_table(step)
+            step = normalized_step
         }
     }
     merge_into(task_cfg.entry_action, extra_action)

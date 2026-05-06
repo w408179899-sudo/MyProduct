@@ -61,6 +61,8 @@ M._leveling_treasure = M.load_leveling_support_module(
     "AvePointLevelingTreasure"
 )
 
+M.BUTTON_SESSION_STATE_FILE_PATH = "scripts/avepoint_leveling_button_session.lua"
+
 local UPDATE_INTERVAL_MS = 100
 local HEARTBEAT_INTERVAL_MS = 3000
 local ACTION_INTERVAL_MS = 550
@@ -103,6 +105,10 @@ local TASK_PATH_POINT_ARRIVE_TOLERANCE = math.max(80, tonumber(ARRIVE_TOLERANCE)
 local TASK_PATH_REPATH_INTERVAL_MS = math.max(500, tonumber(REPATH_INTERVAL_MS) or 1500)
 local TASK_PATH_PROGRESS_RESET_DISTANCE = math.max(40, tonumber(MAP_ROUTE_STUCK_PROGRESS_RESET_DISTANCE) or 80)
 local TASK_PATH_STUCK_SKIP_MS = math.max(3000, tonumber(MAP_ROUTE_STUCK_SKIP_MS) or 10000)
+M.TASK_PATH_SIDESTEP_DISTANCE = 220
+M.TASK_PATH_SIDESTEP_FORWARD_DISTANCE = 72
+M.TASK_PATH_SIDESTEP_COOLDOWN_MS = 2200
+M.TASK_PATH_SIDESTEP_MIN_SEGMENT_DISTANCE = 80
 local COMBAT_PULSE_NEAR_TARGET_DISTANCE = 220
 local PATH_LOOKAHEAD_POINTS = 6
 local PATH_MIN_ADVANCE_DISTANCE = 1200
@@ -151,6 +157,9 @@ local DIALOGUE_CONFIRM_TIMEOUT_MS = 2500
 local DIALOGUE_UI_PROBE_INTERVAL_MS = 250
 local POST_DIALOGUE_SETTLE_MS = 1200
 local TASK_UPDATE_SETTLE_MS = 2600
+M.TASK_INFO_STABILITY_PROBE_INTERVAL_MS = 600
+M.TASK_INFO_STABILITY_SETTLE_MS = 1200
+M.TASK_INFO_STABILITY_TIMEOUT_MS = 6500
 local POST_UI_PAUSE_MS = 900
 local FOLLOW_MOVE_PULSE_INTERVAL_MS = 550
 local FOLLOW_MOVE_PULSE_MIN_DISTANCE = 260
@@ -169,6 +178,7 @@ M.TASK_COMBAT_KITE_ASYNC_ROUTE_WORKER = not (
 M.VK_A = 0x41
 local VK_Q = 0x51
 local schedule_task_refresh_after_transition
+local normalize_map_name
 local VK_W = 0x57
 local VK_D = 0x44
 local VK_ESCAPE = 0x1B
@@ -370,11 +380,43 @@ local INTERACTION_PROMPT_STEP = {
     include_patterns = {
         "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.FunctionBtn"
     },
-    hint_client_x = 700.204834,
-    hint_client_y = 742.439941,
-    hint_ratio_x = 0.486253,
-    hint_ratio_y = 0.824933,
-    hint_max_distance = 80.000
+    hint_client_x = 693.528564,
+    hint_client_y = 699.631531,
+    hint_ratio_x = 0.481617,
+    hint_ratio_y = 0.777368,
+    hint_max_distance = 96.000,
+    hover_capture_retry_ms = 900,
+    hover_capture_restore_cursor_on_failure = true,
+    hover_capture_client_left = 709.0,
+    hover_capture_client_top = 685.0,
+    hover_capture_client_right = 745.0,
+    hover_capture_client_bottom = 722.0,
+    hover_capture_sample_attempts = 20,
+    hover_capture_history_limit = 8,
+    hover_capture_zone_cols = 3,
+    hover_capture_zone_rows = 3,
+    hover_capture_min_point_gap = 14.0,
+    hover_capture_move_min_floor_ms = 35,
+    hover_capture_move_min_ceil_ms = 95,
+    hover_capture_move_span_min_ms = 35,
+    hover_capture_move_span_max_ms = 95,
+    hover_capture_hover_min_ms = 50,
+    hover_capture_hover_max_ms = 130,
+    hover_return_safe_x_ratio_min = 0.34,
+    hover_return_safe_x_ratio_max = 0.68,
+    hover_return_safe_y_ratio_min = 0.30,
+    hover_return_safe_y_ratio_max = 0.62,
+    hover_return_sample_attempts = 18,
+    hover_return_history_limit = 8,
+    hover_return_zone_cols = 4,
+    hover_return_zone_rows = 3,
+    hover_return_min_point_gap = 52.0,
+    hover_return_move_min_floor_ms = 45,
+    hover_return_move_min_ceil_ms = 110,
+    hover_return_move_span_min_ms = 45,
+    hover_return_move_span_max_ms = 120,
+    hover_return_hover_min_ms = 20,
+    hover_return_hover_max_ms = 80
 }
 
 local EXIT_PORTAL_STEP = {
@@ -764,6 +806,116 @@ function M.clear_post_dialogue_flow_state()
     state.post_dialogue_flow_skip_dialogue_jump = false
 end
 
+function M.clear_task_info_refresh_wait_state()
+    state.wait_task_info_refresh_after_dialogue = false
+    state.wait_task_info_refresh_started_at = 0
+    state.wait_task_info_refresh_deadline_at = 0
+    state.wait_task_info_refresh_task_name = nil
+    state.wait_task_info_refresh_task_detail = nil
+    state.wait_task_info_refresh_flow_key = nil
+    state.task_info_stability_gate_active = false
+    state.task_info_stability_gate_reason = nil
+    state.task_info_stability_gate_started_at = 0
+    state.task_info_stability_gate_deadline_at = 0
+    state.task_info_stability_gate_next_probe_at = 0
+    state.task_info_stability_gate_previous_task_name = nil
+    state.task_info_stability_gate_previous_task_detail = nil
+    state.task_info_stability_gate_changed_at = 0
+    state.task_info_stability_gate_stabilize_until = 0
+    state.task_info_stability_gate_observed_task_name = nil
+    state.task_info_stability_gate_observed_task_detail = nil
+    state.task_info_stability_gate_flow_key = nil
+end
+
+function M.should_arm_task_info_stability_gate(reason_text)
+    reason_text = tostring(reason_text or "")
+    if reason_text == "task_changed"
+        or reason_text == "boss_task_changed"
+        or reason_text == "task_entry_world_map_send"
+        or reason_text == "global_task_portal"
+        or reason_text == "exit_portal"
+    then
+        return true
+    end
+    if reason_text:find("map_transition_", 1, true) ~= nil then
+        return true
+    end
+    if reason_text:find("task_objective_button_", 1, true) ~= nil then
+        return true
+    end
+    return false
+end
+
+function M.task_info_stability_change_already_observed(reason_text)
+    reason_text = tostring(reason_text or "")
+    return reason_text == "task_changed" or reason_text == "boss_task_changed"
+end
+
+function M.arm_task_info_stability_gate(ctx, current_time, opts)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    opts = type(opts) == "table" and opts or {}
+    local reason_text = tostring(opts.reason or "")
+    local timeout_ms = math.max(
+        (tonumber(M.TASK_INFO_STABILITY_SETTLE_MS) or 1200) + TASK_BUTTON_SETTLE_MS,
+        tonumber(opts.timeout_ms) or tonumber(M.TASK_INFO_STABILITY_TIMEOUT_MS) or 6500
+    )
+    local flow_key = tostring(opts.flow_key or "")
+    local previous_task_name = normalize_map_name(opts.previous_task_name)
+    local previous_task_detail = normalize_map_name(opts.previous_task_detail)
+    local change_observed = opts.change_observed == true
+    local current_task_name = normalize_map_name(state.current_task_name)
+    local current_task_detail = normalize_map_name(state.current_task_detail)
+    local wait_until = current_time + timeout_ms
+
+    M.clear_task_info_refresh_wait_state()
+    state.task_info_stability_gate_active = true
+    state.task_info_stability_gate_reason = reason_text
+    state.task_info_stability_gate_started_at = current_time
+    state.task_info_stability_gate_deadline_at = current_time + timeout_ms
+    state.task_info_stability_gate_previous_task_name = previous_task_name
+    state.task_info_stability_gate_previous_task_detail = previous_task_detail
+    state.task_info_stability_gate_flow_key = flow_key
+    state.task_info_stability_gate_next_probe_at = 0
+    state.task_info_stability_gate_changed_at = 0
+    state.task_info_stability_gate_stabilize_until = 0
+    state.task_info_stability_gate_observed_task_name = current_task_name
+    state.task_info_stability_gate_observed_task_detail = current_task_detail
+
+    logger(ctx).info(string.format(
+        "[Leveling] task info stability gate armed | reason=%s old_task=%s old_detail=%s flow_key=%s timeout=%dms",
+        reason_text,
+        tostring(previous_task_name or ""),
+        tostring(previous_task_detail or ""),
+        flow_key,
+        timeout_ms
+    ))
+
+    if change_observed then
+        state.task_info_stability_gate_changed_at = current_time
+        state.task_info_stability_gate_stabilize_until = current_time + (tonumber(M.TASK_INFO_STABILITY_SETTLE_MS) or 1200)
+        wait_until = state.task_info_stability_gate_stabilize_until
+        logger(ctx).info(string.format(
+            "[Leveling] task info changed, stabilizing for %dms | old_task=%s old_detail=%s new_task=%s new_detail=%s reason=%s flow_key=%s",
+            tonumber(M.TASK_INFO_STABILITY_SETTLE_MS) or 1200,
+            tostring(previous_task_name or ""),
+            tostring(previous_task_detail or ""),
+            tostring(current_task_name or ""),
+            tostring(current_task_detail or ""),
+            reason_text,
+            flow_key
+        ))
+    end
+
+    state.next_task_button_click_at = math.max(
+        tonumber(state.next_task_button_click_at) or 0,
+        wait_until
+    )
+    state.next_task_refresh_at = math.max(
+        tonumber(state.next_task_refresh_at) or 0,
+        wait_until
+    )
+end
+
 function M.clear_npc_dialogue_combat_retry_state()
     state.npc_dialogue_combat_retry_active = false
     state.npc_dialogue_combat_retry_source = nil
@@ -871,6 +1023,10 @@ local function clear_task_target_state()
     state.next_task_objective_button_click_at = 0
     state.next_guide_skip_scan_at = 0
     state.next_guide_skip_click_at = 0
+    state.task_path_sidestep_target_signature = nil
+    state.task_path_sidestep_attempt_count = 0
+    state.task_path_sidestep_next_at = 0
+    state.task_path_sidestep_last_side = 0
     -- Global PortalBtn transition guard must survive task-target clears.
     -- It is reset by reset_state(), not by ordinary main-task reacquire.
     state.route_point_action_board_guard_until = 0
@@ -894,6 +1050,35 @@ function M.clear_task_entry_action_state()
     state.task_entry_action_locked_cfg = nil
     state.task_entry_action_locked_task_name = nil
     state.task_entry_action_locked_key = nil
+end
+
+function M.apply_task_entry_send_step_defaults(step)
+    if type(step) ~= "table" then
+        return step
+    end
+
+    local button_name = tostring(step.distance_button_name or ""):lower()
+    if button_name:find("worldmapdetail_c.widgettree.worldmapdetailitem.widgettree.sendbtn", 1, true) == nil then
+        return step
+    end
+
+    if step.hover_capture_client_left == nil then
+        step.hover_capture_client_left = 654
+    end
+    if step.hover_capture_client_top == nil then
+        step.hover_capture_client_top = 789
+    end
+    if step.hover_capture_client_right == nil then
+        step.hover_capture_client_right = 790
+    end
+    if step.hover_capture_client_bottom == nil then
+        step.hover_capture_client_bottom = 810
+    end
+    if step.hover_capture_retry_ms == nil then
+        step.hover_capture_retry_ms = 900
+    end
+
+    return step
 end
 
 local function reset_state()
@@ -937,11 +1122,33 @@ local function reset_state()
     state.next_dialogue_probe_at = 0
     state.next_dialogue_jump_scan_at = 0
     state.next_dialogue_jump_click_at = 0
+    state.dialogue_jump_consumed = false
+    state.dialogue_jump_consumed_at = 0
+    state.dialogue_jump_consumed_source = nil
+    state.dialogue_jump_consumed_addr = 0
     state.dialogue_ui_confirmed = false
     state.dialogue_ui_match = nil
     state.task_update_wait_until = 0
     state.require_task_button_refresh = false
     state.require_task_button_refresh_reason = nil
+    state.wait_task_info_refresh_after_dialogue = false
+    state.wait_task_info_refresh_started_at = 0
+    state.wait_task_info_refresh_deadline_at = 0
+    state.wait_task_info_refresh_task_name = nil
+    state.wait_task_info_refresh_task_detail = nil
+    state.wait_task_info_refresh_flow_key = nil
+    state.task_info_stability_gate_active = false
+    state.task_info_stability_gate_reason = nil
+    state.task_info_stability_gate_started_at = 0
+    state.task_info_stability_gate_deadline_at = 0
+    state.task_info_stability_gate_next_probe_at = 0
+    state.task_info_stability_gate_previous_task_name = nil
+    state.task_info_stability_gate_previous_task_detail = nil
+    state.task_info_stability_gate_changed_at = 0
+    state.task_info_stability_gate_stabilize_until = 0
+    state.task_info_stability_gate_observed_task_name = nil
+    state.task_info_stability_gate_observed_task_detail = nil
+    state.task_info_stability_gate_flow_key = nil
     state.task_pos_reject_until = 0
     state.task_pos_reject_reason = nil
     state.force_task_path_reacquire_until = 0
@@ -1018,6 +1225,16 @@ local function reset_state()
     state.dialogue_jump_hover_return_history = nil
     state.last_dialogue_jump_hover_capture_meta = nil
     state.last_dialogue_jump_hover_return_meta = nil
+    state.next_interaction_prompt_hover_capture_at = 0
+    state.interaction_prompt_hover_capture_history = nil
+    state.interaction_prompt_hover_return_history = nil
+    state.last_interaction_prompt_hover_capture_meta = nil
+    state.last_interaction_prompt_hover_return_meta = nil
+    state.next_task_entry_send_hover_capture_at = 0
+    state.task_entry_send_hover_capture_history = nil
+    state.task_entry_send_hover_return_history = nil
+    state.last_task_entry_send_hover_capture_meta = nil
+    state.last_task_entry_send_hover_return_meta = nil
     M.publish_current_task_name()
     state.terminal_task_locked_name = nil
     state.terminal_task_locked_detail = nil
@@ -1029,7 +1246,11 @@ local function reset_state()
     state.map_transition_triggered = {}
     state.next_interaction_prompt_scan_at = 0
     state.cached_interaction_prompt_target = nil
+    state.cached_interaction_prompt_target_at = 0
     state.cached_interaction_prompt_error = nil
+    state.cached_task_entry_send_target = nil
+    state.cached_task_entry_send_target_at = 0
+    state.cached_task_entry_send_error = nil
     state.next_exit_portal_scan_at = 0
     state.cached_exit_portal_target = nil
     state.cached_exit_portal_error = nil
@@ -1182,6 +1403,10 @@ local function reset_state()
     state.ticks = 0
     state.last_logs = {}
     state.route_point_action_attempted = {}
+    state.task_path_sidestep_target_signature = nil
+    state.task_path_sidestep_attempt_count = 0
+    state.task_path_sidestep_next_at = 0
+    state.task_path_sidestep_last_side = 0
     clear_task_target_state()
     if type(M._leveling_treasure) == "table" and type(M._leveling_treasure.reset_state) == "function" then
         M._leveling_treasure.reset_state(state)
@@ -1792,7 +2017,7 @@ local function refresh_player_status(ctx, current_time, force_refresh)
     return state.cached_player_info, state.cached_player_hp, state.cached_player_max_hp, state.cached_player_hp_ratio
 end
 
-local function normalize_map_name(value)
+normalize_map_name = function(value)
     if type(M._leveling_policy) == "table"
         and type(M._leveling_policy.normalize_map_name) == "function"
     then
@@ -1971,14 +2196,195 @@ function M.copy_main_task_button_cache_fields(cached)
         source = cached.source,
         hint_ratio_x = cached.hint_ratio_x,
         hint_ratio_y = cached.hint_ratio_y,
-        pid = cached.pid
+        pid = cached.pid,
+        session_key = cached.session_key,
+        query = cached.query,
+        query_key = cached.query_key
     }
+end
+
+M._button_session_state = nil
+M._button_session_state_loaded = false
+
+function M.default_button_session_state()
+    return {
+        version = 1,
+        main_task = nil,
+        dialogue_jump = nil,
+        treasure_task = nil,
+        interaction_prompt = nil,
+        task_entry_send = nil
+    }
+end
+
+function M.serialize_button_session_lua_scalar(value)
+    local value_type = type(value)
+    if value_type == "nil" then
+        return "nil"
+    end
+    if value_type == "number" or value_type == "boolean" then
+        return tostring(value)
+    end
+    return string.format("%q", tostring(value))
+end
+
+function M.serialize_button_session_lua_table(value, indent)
+    if type(value) ~= "table" then
+        return M.serialize_button_session_lua_scalar(value)
+    end
+
+    indent = indent or 0
+    local next_indent = indent + 2
+    local lines = { "{" }
+    local keys = {}
+    for key in pairs(value) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(left, right)
+        return tostring(left) < tostring(right)
+    end)
+
+    for _, key in ipairs(keys) do
+        local rendered_key
+        if type(key) == "string" and key:match("^[A-Za-z_][A-Za-z0-9_]*$") then
+            rendered_key = key
+        else
+            rendered_key = "[" .. M.serialize_button_session_lua_scalar(key) .. "]"
+        end
+        lines[#lines + 1] = string.format(
+            "%s%s = %s,",
+            string.rep(" ", next_indent),
+            rendered_key,
+            M.serialize_button_session_lua_table(value[key], next_indent)
+        )
+    end
+
+    lines[#lines + 1] = string.rep(" ", indent) .. "}"
+    return table.concat(lines, "\n")
+end
+
+function M.load_button_session_state()
+    local chunk = loadfile(M.BUTTON_SESSION_STATE_FILE_PATH)
+    if not chunk then
+        return M.default_button_session_state()
+    end
+
+    local ok, data = pcall(chunk)
+    if not ok or type(data) ~= "table" then
+        return M.default_button_session_state()
+    end
+
+    if type(data.main_task) ~= "table" then
+        data.main_task = nil
+    end
+    if type(data.dialogue_jump) ~= "table" then
+        data.dialogue_jump = nil
+    end
+    if type(data.treasure_task) ~= "table" then
+        data.treasure_task = nil
+    end
+    if type(data.interaction_prompt) ~= "table" then
+        data.interaction_prompt = nil
+    end
+    if type(data.task_entry_send) ~= "table" then
+        data.task_entry_send = nil
+    end
+    data.version = tonumber(data.version) or 1
+    return data
+end
+
+function M.ensure_button_session_state()
+    if M._button_session_state_loaded ~= true then
+        M._button_session_state = M.load_button_session_state()
+        M._button_session_state_loaded = true
+    end
+    if type(M._button_session_state) ~= "table" then
+        M._button_session_state = M.default_button_session_state()
+    end
+    return M._button_session_state
+end
+
+function M.save_button_session_state()
+    local data = M.ensure_button_session_state()
+    local file, err = io.open(M.BUTTON_SESSION_STATE_FILE_PATH, "w")
+    if not file then
+        return false, err
+    end
+    file:write("return ")
+    file:write(M.serialize_button_session_lua_table(data, 0))
+    file:write("\n")
+    file:close()
+    return true
+end
+
+function M.get_button_session_process_path(nav_mod)
+    local pid = tonumber(type(nav_mod) == "table" and nav_mod.pid or 0) or 0
+    if pid <= 0 then
+        return ""
+    end
+
+    local proc_api = rawget(_G, "proc") or proc
+    if type(proc_api) ~= "table" or type(proc_api.path) ~= "function" then
+        return ""
+    end
+
+    local ok, process_path = pcall(proc_api.path, pid)
+    if not ok then
+        return ""
+    end
+    return trim(process_path):lower()
+end
+
+function M.build_button_session_key(nav_mod)
+    local pid = tonumber(type(nav_mod) == "table" and nav_mod.pid or 0) or 0
+    local hwnd = nil
+    if type(nav_mod) == "table" and type(nav_mod.window_hwnd) == "function" then
+        hwnd = select(1, nav_mod.window_hwnd())
+    end
+    local process_path = M.get_button_session_process_path(nav_mod)
+    return string.format(
+        "pid=%s|hwnd=%s|path=%s",
+        tostring(pid > 0 and pid or ""),
+        tostring(hwnd or ""),
+        tostring(process_path or "")
+    )
+end
+
+function M.read_button_session_entry(nav_mod, slot)
+    local data = M.ensure_button_session_state()
+    local cached = type(data) == "table" and type(data[slot]) == "table" and data[slot] or nil
+    if type(cached) ~= "table" then
+        return nil, "session cache missing."
+    end
+
+    local current_session_key = M.build_button_session_key(nav_mod)
+    local cached_session_key = trim(cached.session_key or "")
+    if current_session_key == "" or cached_session_key == "" or cached_session_key ~= current_session_key then
+        data[slot] = nil
+        M.save_button_session_state()
+        return nil, "session cache key mismatch."
+    end
+
+    return M.copy_main_task_button_cache_fields(cached)
+end
+
+function M.persist_button_session_entry(slot, cached)
+    local data = M.ensure_button_session_state()
+    data[slot] = M.copy_main_task_button_cache_fields(cached)
+    return M.save_button_session_state()
+end
+
+function M.clear_button_session_entry(slot)
+    local data = M.ensure_button_session_state()
+    data[slot] = nil
+    return M.save_button_session_state()
 end
 
 function M.clear_cached_main_task_button_target()
     state.cached_main_task_button_target = nil
     state.cached_main_task_button_target_at = 0
     _G.AVEPOINT_CACHED_MAIN_TASK_BUTTON_TARGET = nil
+    M.clear_button_session_entry("main_task")
 end
 
 function M.cache_main_task_button_target(ctx, target_like, current_time, source)
@@ -2024,10 +2430,12 @@ function M.cache_main_task_button_target(ctx, target_like, current_time, source)
     if current_pid ~= nil and current_pid > 0 then
         cached.pid = current_pid
     end
+    cached.session_key = M.build_button_session_key(nav_mod)
 
     state.cached_main_task_button_target = cached
     state.cached_main_task_button_target_at = cached.captured_at
     _G.AVEPOINT_CACHED_MAIN_TASK_BUTTON_TARGET = M.copy_main_task_button_cache_fields(cached)
+    M.persist_button_session_entry("main_task", cached)
     return cached
 end
 
@@ -2049,6 +2457,14 @@ function M.resolve_cached_main_task_button_target(nav_mod, current_time)
         cached = _G.AVEPOINT_CACHED_MAIN_TASK_BUTTON_TARGET
     end
     if type(cached) ~= "table" then
+        cached = M.read_button_session_entry(nav_mod, "main_task")
+        if type(cached) == "table" then
+            state.cached_main_task_button_target = cached
+            state.cached_main_task_button_target_at = tonumber(cached.captured_at) or 0
+            _G.AVEPOINT_CACHED_MAIN_TASK_BUTTON_TARGET = M.copy_main_task_button_cache_fields(cached)
+        end
+    end
+    if type(cached) ~= "table" then
         return nil, "cached main task button target unavailable."
     end
 
@@ -2068,6 +2484,17 @@ function M.resolve_cached_main_task_button_target(nav_mod, current_time)
             "cached main task button target pid changed. cached=%d current=%d",
             cached_pid,
             current_pid
+        )
+    end
+
+    local cached_session_key = trim(cached.session_key or "")
+    local current_session_key = M.build_button_session_key(nav_mod)
+    if cached_session_key ~= "" and current_session_key ~= "" and cached_session_key ~= current_session_key then
+        M.clear_cached_main_task_button_target()
+        return nil, string.format(
+            "cached main task button target session changed. cached=%s current=%s",
+            cached_session_key,
+            current_session_key
         )
     end
 
@@ -2245,6 +2672,31 @@ function M.clear_cached_dialogue_jump_button_target()
     state.cached_dialogue_jump_button_target = nil
     state.cached_dialogue_jump_button_target_at = 0
     _G.AVEPOINT_CACHED_DIALOGUE_JUMP_BUTTON_TARGET = nil
+    M.clear_button_session_entry("dialogue_jump")
+end
+
+function M.clear_dialogue_jump_session_state()
+    state.dialogue_jump_consumed = false
+    state.dialogue_jump_consumed_at = 0
+    state.dialogue_jump_consumed_source = nil
+    state.dialogue_jump_consumed_addr = 0
+end
+
+function M.mark_dialogue_jump_consumed(ctx, current_time, target, source, interaction_origin)
+    local consumed_at = tonumber(current_time) or now_ms(ctx)
+    local target_addr = type(target) == "table" and tonumber(target.addr) or nil
+    state.dialogue_jump_consumed = true
+    state.dialogue_jump_consumed_at = consumed_at
+    state.dialogue_jump_consumed_source = tostring(source or "")
+    state.dialogue_jump_consumed_addr = target_addr or 0
+    logger(ctx).info(string.format(
+        "[Leveling] dialogue jump consumed | task=%s origin=%s source=%s addr=%s at=%d",
+        tostring(state.current_task_name or ""),
+        tostring(interaction_origin or state.pending_interaction_origin or ""),
+        tostring(source or ""),
+        tostring(target_addr or ""),
+        consumed_at
+    ))
 end
 
 function M.cache_dialogue_jump_button_target(ctx, target_like, current_time, source, step)
@@ -2294,10 +2746,12 @@ function M.cache_dialogue_jump_button_target(ctx, target_like, current_time, sou
     if current_pid ~= nil and current_pid > 0 then
         cached.pid = current_pid
     end
+    cached.session_key = M.build_button_session_key(nav_mod)
 
     state.cached_dialogue_jump_button_target = cached
     state.cached_dialogue_jump_button_target_at = cached.captured_at
     _G.AVEPOINT_CACHED_DIALOGUE_JUMP_BUTTON_TARGET = M.copy_main_task_button_cache_fields(cached)
+    M.persist_button_session_entry("dialogue_jump", cached)
     return cached
 end
 
@@ -2305,6 +2759,14 @@ function M.resolve_cached_dialogue_jump_button_target(nav_mod, current_time)
     local cached = state.cached_dialogue_jump_button_target
     if type(cached) ~= "table" and type(_G.AVEPOINT_CACHED_DIALOGUE_JUMP_BUTTON_TARGET) == "table" then
         cached = _G.AVEPOINT_CACHED_DIALOGUE_JUMP_BUTTON_TARGET
+    end
+    if type(cached) ~= "table" then
+        cached = M.read_button_session_entry(nav_mod, "dialogue_jump")
+        if type(cached) == "table" then
+            state.cached_dialogue_jump_button_target = cached
+            state.cached_dialogue_jump_button_target_at = tonumber(cached.captured_at) or 0
+            _G.AVEPOINT_CACHED_DIALOGUE_JUMP_BUTTON_TARGET = M.copy_main_task_button_cache_fields(cached)
+        end
     end
     if type(cached) ~= "table" then
         return nil, "cached dialogue jump button target unavailable."
@@ -2326,6 +2788,17 @@ function M.resolve_cached_dialogue_jump_button_target(nav_mod, current_time)
             "cached dialogue jump button target pid changed. cached=%d current=%d",
             cached_pid,
             current_pid
+        )
+    end
+
+    local cached_session_key = trim(cached.session_key or "")
+    local current_session_key = M.build_button_session_key(nav_mod)
+    if cached_session_key ~= "" and current_session_key ~= "" and cached_session_key ~= current_session_key then
+        M.clear_cached_dialogue_jump_button_target()
+        return nil, string.format(
+            "cached dialogue jump button target session changed. cached=%s current=%s",
+            cached_session_key,
+            current_session_key
         )
     end
 
@@ -2587,6 +3060,996 @@ function M.try_capture_dialogue_jump_button_via_hover(ctx, nav_mod, current_time
     )
 end
 
+function M.extract_interaction_prompt_button_target(target_like)
+    if type(target_like) ~= "table" then
+        return nil
+    end
+
+    local source = type(target_like._interaction_prompt_clicked_target) == "table"
+        and target_like._interaction_prompt_clicked_target
+        or target_like
+
+    local kind = tostring(source.kind or source.button_kind or target_like.button_kind or "")
+    local addr = tonumber(source.addr or source.button_addr or target_like.button_addr)
+    local x = tonumber(source.x or source.button_x or target_like.button_x or target_like.x)
+    local y = tonumber(source.y or source.button_y or target_like.button_y or target_like.y)
+    local name = tostring(source.name or source.button_name or target_like.button_name or "")
+    local fullname = tostring(
+        source.fullname
+            or source.Fullname
+            or source.button_fullname
+            or target_like.button_fullname
+            or ""
+    )
+    local identity = (fullname .. " " .. name):lower()
+    local is_button = kind == "button"
+        or identity:find("fightinteractiveview_c.widgettree.functionbtn", 1, true) ~= nil
+
+    if not is_button or addr == nil or addr == 0 or x == nil or y == nil then
+        return nil
+    end
+
+    return {
+        kind = "button",
+        addr = addr,
+        name = name,
+        text = tostring(source.text or target_like.text or ""),
+        fullname = fullname,
+        x = x,
+        y = y,
+        related_text = tostring(source.related_text or source.rel1_text or target_like.related_text or ""),
+        related_distance = tonumber(source.related_distance),
+        distance = tonumber(source.distance)
+    }
+end
+
+function M.resolve_interaction_prompt_selected_target(nav_mod, step)
+    if type(nav_mod) ~= "table" or type(nav_mod.get_current_selected_button) ~= "function" then
+        return nil, "nav.get_current_selected_button is unavailable."
+    end
+
+    local selected, selected_err = nav_mod.get_current_selected_button()
+    if type(selected) ~= "table" then
+        return nil, selected_err or "Current selected button not found."
+    end
+
+    local addr = tonumber(selected.addr)
+    local x = tonumber(selected.x)
+    local y = tonumber(selected.y)
+    local fullname = tostring(selected.Fullname or selected.fullname or "")
+    local name = tostring(selected.name or "")
+    local selected_text = tostring(selected.text or "")
+    local related_text = tostring(selected.rel1_text or "")
+    if addr == nil or addr == 0 or x == nil or y == nil then
+        return nil, string.format(
+            "GetCurrentSelected returned invalid FunctionBtn data. addr=%s pos=(%s,%s) name=%s fullname=%s text=%s related=%s",
+            tostring(selected.addr or ""),
+            tostring(selected.x or ""),
+            tostring(selected.y or ""),
+            name,
+            fullname,
+            selected_text,
+            related_text
+        )
+    end
+
+    local identity = (fullname .. " " .. name):lower()
+    if identity:find("fightinteractiveview_c.widgettree.functionbtn", 1, true) == nil then
+        return nil, string.format(
+            "GetCurrentSelected is not FunctionBtn. addr=%s pos=(%s,%s) name=%s fullname=%s text=%s related=%s",
+            tostring(addr or ""),
+            tostring(x or ""),
+            tostring(y or ""),
+            name,
+            fullname,
+            selected_text,
+            related_text
+        )
+    end
+
+    local hint_x = tonumber(type(step) == "table" and step.hint_client_x or nil)
+    local hint_y = tonumber(type(step) == "table" and step.hint_client_y or nil)
+    local distance = 0
+    if hint_x ~= nil and hint_y ~= nil then
+        distance = distance_2d(hint_x, hint_y, x, y)
+        if distance > math.max(tonumber(type(step) == "table" and step.hint_max_distance or 96) or 96, 120) then
+            return nil, string.format(
+                "GetCurrentSelected FunctionBtn too far from hint: %.2f selected=(%.2f,%.2f) hint=(%.2f,%.2f)",
+                tonumber(distance) or 0,
+                x,
+                y,
+                tonumber(hint_x) or 0,
+                tonumber(hint_y) or 0
+            )
+        end
+    end
+
+    local related_dx = tonumber(selected.rel1_dx)
+    local related_dy = tonumber(selected.rel1_dy)
+    local related_distance = tonumber(selected.rel1_distance)
+    if related_distance == nil and related_dx ~= nil and related_dy ~= nil then
+        related_distance = math.sqrt(related_dx * related_dx + related_dy * related_dy)
+    end
+
+    return {
+        kind = "button",
+        addr = addr,
+        name = name,
+        text = selected_text,
+        fullname = fullname,
+        x = x,
+        y = y,
+        related_text = related_text,
+        related_distance = related_distance,
+        distance = distance
+    }
+end
+
+function M.clear_cached_interaction_prompt_button_target()
+    state.cached_interaction_prompt_target = nil
+    state.cached_interaction_prompt_target_at = 0
+    state.cached_interaction_prompt_error = nil
+    _G.AVEPOINT_CACHED_INTERACTION_PROMPT_TARGET = nil
+    M.clear_button_session_entry("interaction_prompt")
+end
+
+function M.cache_interaction_prompt_button_target(ctx, target_like, current_time, source, step)
+    local target = M.extract_interaction_prompt_button_target(target_like)
+    if type(target) ~= "table" then
+        return nil
+    end
+
+    local cached = {
+        kind = "button",
+        addr = tonumber(target.addr),
+        name = tostring(target.name or ""),
+        fullname = tostring(target.fullname or ""),
+        x = tonumber(target.x),
+        y = tonumber(target.y),
+        text = tostring(target.text or ""),
+        related_text = tostring(target.related_text or ""),
+        related_distance = tonumber(target.related_distance),
+        captured_at = tonumber(current_time) or 0,
+        source = tostring(source or "")
+    }
+
+    local nav_mod = nav_api(ctx)
+    local wnd_api = type(ctx) == "table" and ctx.wnd or wnd
+    if type(nav_mod) == "table"
+        and type(nav_mod.window_hwnd) == "function"
+        and type(wnd_api) == "table"
+        and type(wnd_api.client_rect) == "function"
+    then
+        local hwnd = select(1, nav_mod.window_hwnd())
+        if hwnd then
+            local _, _, client_w, client_h = wnd_api.client_rect(hwnd)
+            if type(client_w) == "number" and client_w > 0 and cached.x ~= nil then
+                cached.hint_ratio_x = cached.x / client_w
+            elseif type(step) == "table" then
+                cached.hint_ratio_x = tonumber(step.hint_ratio_x)
+            end
+            if type(client_h) == "number" and client_h > 0 and cached.y ~= nil then
+                cached.hint_ratio_y = cached.y / client_h
+            elseif type(step) == "table" then
+                cached.hint_ratio_y = tonumber(step.hint_ratio_y)
+            end
+        end
+    end
+
+    local current_pid = tonumber(type(nav_mod) == "table" and nav_mod.pid or 0)
+    if current_pid ~= nil and current_pid > 0 then
+        cached.pid = current_pid
+    end
+    cached.session_key = M.build_button_session_key(nav_mod)
+
+    state.cached_interaction_prompt_target = cached
+    state.cached_interaction_prompt_target_at = cached.captured_at
+    state.cached_interaction_prompt_error = nil
+    _G.AVEPOINT_CACHED_INTERACTION_PROMPT_TARGET = M.copy_main_task_button_cache_fields(cached)
+    M.persist_button_session_entry("interaction_prompt", cached)
+    return cached
+end
+
+function M.resolve_cached_interaction_prompt_button_target(nav_mod, current_time)
+    local cached = state.cached_interaction_prompt_target
+    if type(cached) ~= "table" and type(_G.AVEPOINT_CACHED_INTERACTION_PROMPT_TARGET) == "table" then
+        cached = _G.AVEPOINT_CACHED_INTERACTION_PROMPT_TARGET
+    end
+    if type(cached) ~= "table" then
+        cached = M.read_button_session_entry(nav_mod, "interaction_prompt")
+        if type(cached) == "table" then
+            state.cached_interaction_prompt_target = cached
+            state.cached_interaction_prompt_target_at = tonumber(cached.captured_at) or 0
+            state.cached_interaction_prompt_error = nil
+            _G.AVEPOINT_CACHED_INTERACTION_PROMPT_TARGET = M.copy_main_task_button_cache_fields(cached)
+        end
+    end
+    if type(cached) ~= "table" then
+        return nil, "cached interaction prompt button target unavailable."
+    end
+
+    local addr = tonumber(cached.addr)
+    local x = tonumber(cached.x)
+    local y = tonumber(cached.y)
+    if addr == nil or addr == 0 or x == nil or y == nil then
+        M.clear_cached_interaction_prompt_button_target()
+        return nil, "cached interaction prompt button target is invalid."
+    end
+
+    local cached_pid = tonumber(cached.pid or 0)
+    local current_pid = tonumber(type(nav_mod) == "table" and nav_mod.pid or 0)
+    if cached_pid > 0 and current_pid > 0 and cached_pid ~= current_pid then
+        M.clear_cached_interaction_prompt_button_target()
+        return nil, string.format(
+            "cached interaction prompt button target pid changed. cached=%d current=%d",
+            cached_pid,
+            current_pid
+        )
+    end
+
+    local cached_session_key = trim(cached.session_key or "")
+    local current_session_key = M.build_button_session_key(nav_mod)
+    if cached_session_key ~= "" and current_session_key ~= "" and cached_session_key ~= current_session_key then
+        M.clear_cached_interaction_prompt_button_target()
+        return nil, string.format(
+            "cached interaction prompt button target session changed. cached=%s current=%s",
+            cached_session_key,
+            current_session_key
+        )
+    end
+
+    local captured_at = tonumber(state.cached_interaction_prompt_target_at) or tonumber(cached.captured_at) or 0
+    if captured_at > 0 and tonumber(current_time) ~= nil then
+        state.cached_interaction_prompt_target_at = captured_at
+    end
+
+    return {
+        kind = "button",
+        addr = addr,
+        name = tostring(cached.name or ""),
+        text = tostring(cached.text or ""),
+        fullname = tostring(cached.fullname or ""),
+        x = x,
+        y = y,
+        related_text = tostring(cached.related_text or ""),
+        related_distance = tonumber(cached.related_distance),
+        distance = 0,
+        source = tostring(cached.source or ""),
+        pid = cached_pid > 0 and cached_pid or nil
+    }
+end
+
+function M.clear_cached_interaction_prompt_addr_with_log(ctx, reason)
+    M.clear_cached_interaction_prompt_button_target()
+    logger(ctx).info(string.format(
+        "[Leveling] cleared cached interaction prompt addr | reason=%s",
+        tostring(reason or "")
+    ))
+end
+
+function M.try_cached_interaction_prompt_button_click(ctx, nav_mod, current_time, step, reason)
+    if type(nav_mod) ~= "table" or type(nav_mod.control_click) ~= "function" then
+        return false, "nav.control_click is unavailable."
+    end
+
+    local cached_target, cached_err = M.resolve_cached_interaction_prompt_button_target(nav_mod, current_time)
+    if type(cached_target) ~= "table" then
+        return false, cached_err
+    end
+
+    local click_ok, click_err = nav_mod.control_click(cached_target.addr)
+    if not click_ok then
+        M.clear_cached_interaction_prompt_addr_with_log(ctx, click_err or "cached interaction prompt addr click failed")
+        return false, click_err
+    end
+
+    logger(ctx).info(string.format(
+        "[Leveling] interaction prompt button clicked | source=cached_addr addr=%s pos=(%s,%s) anchor=%s cache_source=%s reason=%s",
+        tostring(cached_target.addr or ""),
+        tostring(cached_target.x or ""),
+        tostring(cached_target.y or ""),
+        tostring(type(step) == "table" and step.distance_anchor_exact_text or ""),
+        tostring(cached_target.source or ""),
+        tostring(reason or "")
+    ))
+    return true, cached_target
+end
+
+function M.try_capture_interaction_prompt_button_via_hover(ctx, nav_mod, current_time, step, reason)
+    if type(step) ~= "table" then
+        return nil, "interaction prompt step unavailable."
+    end
+
+    local retry_gate = tonumber(state.next_interaction_prompt_hover_capture_at) or 0
+    if retry_gate > current_time then
+        return nil, string.format(
+            "interaction prompt hover capture cooldown until=%d now=%d",
+            retry_gate,
+            current_time
+        )
+    end
+    if type(nav_mod) ~= "table" or type(nav_mod.move_mouse_to_client) ~= "function" then
+        return nil, "nav.move_mouse_to_client is unavailable."
+    end
+
+    local capture_bounds, bounds_summary = M.resolve_main_task_hover_capture_bounds(step)
+    if type(capture_bounds) ~= "table" then
+        state.next_interaction_prompt_hover_capture_at = current_time
+            + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+        return nil, bounds_summary
+    end
+
+    local original_cursor = nil
+    if type(nav_mod.cursor_client_pos) == "function" then
+        original_cursor = select(1, nav_mod.cursor_client_pos({
+            allow_outside = true
+        }))
+    end
+
+    local capture_candidate, capture_summary = M.choose_main_task_hover_candidate(
+        "capture",
+        original_cursor,
+        capture_bounds,
+        step,
+        "interaction_prompt"
+    )
+    if type(capture_candidate) ~= "table" then
+        state.next_interaction_prompt_hover_capture_at = current_time
+            + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+        return nil, capture_summary
+    end
+
+    local moved, move_result = nav_mod.move_mouse_to_client(capture_candidate.x, capture_candidate.y, {
+        mouse_mode = "api",
+        min_duration_ms = capture_candidate.move_min_ms,
+        max_duration_ms = capture_candidate.move_max_ms,
+        hover_ms = capture_candidate.hover_ms,
+        set_foreground = true
+    })
+    if moved then
+        local capture_entry = {
+            x = capture_candidate.x,
+            y = capture_candidate.y,
+            zone = capture_candidate.zone,
+            angle_deg = capture_candidate.angle_deg,
+            move_min_ms = capture_candidate.move_min_ms,
+            move_max_ms = capture_candidate.move_max_ms,
+            hover_ms = capture_candidate.hover_ms,
+            move_duration_ms = tonumber(type(move_result) == "table" and move_result.duration_ms),
+            move_style = tostring(type(move_result) == "table" and move_result.move_style or ""),
+            sample_attempt = capture_candidate.sample_attempt,
+            score = capture_candidate.score,
+            outcome = "hover_probe"
+        }
+        M.push_main_task_hover_history("capture", capture_entry, capture_candidate.history_limit, "interaction_prompt")
+        state.last_interaction_prompt_hover_capture_meta = capture_entry
+
+        local selected_target, selected_err = M.resolve_interaction_prompt_selected_target(nav_mod, step)
+        if type(selected_target) == "table" then
+            local cached = M.cache_interaction_prompt_button_target(
+                ctx,
+                selected_target,
+                current_time,
+                "hover_capture:randomized",
+                step
+            )
+            if type(cached) == "table" then
+                state.next_interaction_prompt_hover_capture_at = 0
+                local return_note = "return=skipped"
+                local return_bounds, return_bounds_err = M.resolve_main_task_hover_return_bounds(nav_mod, step)
+                if type(return_bounds) == "table" then
+                    local return_origin = {
+                        client_x = capture_candidate.x,
+                        client_y = capture_candidate.y
+                    }
+                    local return_candidate, return_summary = M.choose_main_task_hover_candidate(
+                        "return",
+                        return_origin,
+                        return_bounds,
+                        step,
+                        "interaction_prompt"
+                    )
+                    if type(return_candidate) == "table" then
+                        local returned, return_result = nav_mod.move_mouse_to_client(return_candidate.x, return_candidate.y, {
+                            mouse_mode = "api",
+                            min_duration_ms = return_candidate.move_min_ms,
+                            max_duration_ms = return_candidate.move_max_ms,
+                            hover_ms = return_candidate.hover_ms
+                        })
+                        if returned then
+                            local return_entry = {
+                                x = return_candidate.x,
+                                y = return_candidate.y,
+                                zone = return_candidate.zone,
+                                angle_deg = return_candidate.angle_deg,
+                                move_min_ms = return_candidate.move_min_ms,
+                                move_max_ms = return_candidate.move_max_ms,
+                                hover_ms = return_candidate.hover_ms,
+                                move_duration_ms = tonumber(type(return_result) == "table" and return_result.duration_ms),
+                                move_style = tostring(type(return_result) == "table" and return_result.move_style or ""),
+                                sample_attempt = return_candidate.sample_attempt,
+                                score = return_candidate.score,
+                                outcome = "safe_return"
+                            }
+                            M.push_main_task_hover_history("return", return_entry, return_candidate.history_limit, "interaction_prompt")
+                            state.last_interaction_prompt_hover_return_meta = return_entry
+                            return_note = string.format(
+                                "return=%s move_style=%s move_duration=%s summary=%s",
+                                M.format_main_task_hover_candidate_brief(return_candidate),
+                                tostring(return_entry.move_style or ""),
+                                tostring(return_entry.move_duration_ms or ""),
+                                tostring(return_summary or "")
+                            )
+                        else
+                            return_note = string.format(
+                                "return_move_failed=%s candidate=%s summary=%s",
+                                tostring(return_result or ""),
+                                M.format_main_task_hover_candidate_brief(return_candidate),
+                                tostring(return_summary or "")
+                            )
+                        end
+                    else
+                        return_note = "return_candidate_failed=" .. tostring(return_summary or "")
+                    end
+                else
+                    return_note = "return_bounds_failed=" .. tostring(return_bounds_err or "")
+                end
+
+                logger(ctx).info(string.format(
+                    "[Leveling] cached interaction prompt addr via hover | hover=%s move_style=%s move_duration=%s target=%s bounds=%s capture_summary=%s %s reason=%s",
+                    M.format_main_task_hover_candidate_brief(capture_candidate),
+                    tostring(type(move_result) == "table" and move_result.move_style or ""),
+                    tostring(type(move_result) == "table" and move_result.duration_ms or ""),
+                    M.format_main_task_click_target_brief(selected_target),
+                    tostring(bounds_summary or ""),
+                    tostring(capture_summary or ""),
+                    tostring(return_note or ""),
+                    tostring(reason or "")
+                ))
+                return selected_target
+            end
+            selected_err = "cache_failed"
+        end
+
+        if step.hover_capture_restore_cursor_on_failure ~= false and type(original_cursor) == "table" then
+            local restore_timing = M.randomize_main_task_hover_timing("return", step)
+            nav_mod.move_mouse_to_client(original_cursor.client_x, original_cursor.client_y, {
+                mouse_mode = "api",
+                min_duration_ms = restore_timing.move_min_ms,
+                max_duration_ms = restore_timing.move_max_ms,
+                hover_ms = math.min(24, math.max(0, math.floor((tonumber(restore_timing.hover_ms) or 0) * 0.35)))
+            })
+        end
+
+        state.next_interaction_prompt_hover_capture_at = current_time
+            + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+        return nil, string.format(
+            "interaction_prompt_hover_selected_failed=%s hover=%s move_style=%s move_duration=%s bounds=%s capture_summary=%s",
+            tostring(selected_err or ""),
+            M.format_main_task_hover_candidate_brief(capture_candidate),
+            tostring(type(move_result) == "table" and move_result.move_style or ""),
+            tostring(type(move_result) == "table" and move_result.duration_ms or ""),
+            tostring(bounds_summary or ""),
+            tostring(capture_summary or "")
+        )
+    end
+
+    if step.hover_capture_restore_cursor_on_failure ~= false and type(original_cursor) == "table" then
+        local restore_timing = M.randomize_main_task_hover_timing("return", step)
+        nav_mod.move_mouse_to_client(original_cursor.client_x, original_cursor.client_y, {
+            mouse_mode = "api",
+            min_duration_ms = restore_timing.move_min_ms,
+            max_duration_ms = restore_timing.move_max_ms,
+            hover_ms = math.min(24, math.max(0, math.floor((tonumber(restore_timing.hover_ms) or 0) * 0.35)))
+        })
+    end
+
+    state.next_interaction_prompt_hover_capture_at = current_time
+        + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+    return nil, string.format(
+        "interaction_prompt_hover_move_failed=%s hover=%s bounds=%s capture_summary=%s",
+        tostring(move_result or ""),
+        M.format_main_task_hover_candidate_brief(capture_candidate),
+        tostring(bounds_summary or ""),
+        tostring(capture_summary or "")
+    )
+end
+
+function M.extract_task_entry_send_button_target(target_like)
+    if type(target_like) ~= "table" then
+        return nil
+    end
+
+    local source = type(target_like._task_entry_send_clicked_target) == "table"
+        and target_like._task_entry_send_clicked_target
+        or target_like
+
+    local kind = tostring(source.kind or source.button_kind or target_like.button_kind or "")
+    local addr = tonumber(source.addr or source.button_addr or target_like.button_addr)
+    local x = tonumber(source.x or source.button_x or target_like.button_x or target_like.x)
+    local y = tonumber(source.y or source.button_y or target_like.button_y or target_like.y)
+    local name = tostring(source.name or source.button_name or target_like.button_name or "")
+    local fullname = tostring(
+        source.fullname
+            or source.Fullname
+            or source.button_fullname
+            or target_like.button_fullname
+            or ""
+    )
+    local identity = (fullname .. " " .. name):lower()
+    local is_button = kind == "button"
+        or identity:find("worldmapdetail_c.widgettree.worldmapdetailitem.widgettree.sendbtn", 1, true) ~= nil
+
+    if not is_button or addr == nil or addr == 0 or x == nil or y == nil then
+        return nil
+    end
+
+    return {
+        kind = "button",
+        addr = addr,
+        name = name,
+        text = tostring(source.text or target_like.text or ""),
+        fullname = fullname,
+        x = x,
+        y = y,
+        related_text = tostring(source.related_text or source.rel1_text or target_like.related_text or ""),
+        related_distance = tonumber(source.related_distance),
+        distance = tonumber(source.distance)
+    }
+end
+
+function M.resolve_task_entry_send_selected_target(nav_mod, step)
+    if type(nav_mod) ~= "table" or type(nav_mod.get_current_selected_button) ~= "function" then
+        return nil, "nav.get_current_selected_button is unavailable."
+    end
+
+    local selected, selected_err = nav_mod.get_current_selected_button()
+    if type(selected) ~= "table" then
+        return nil, selected_err or "Current selected button not found."
+    end
+
+    local addr = tonumber(selected.addr)
+    local x = tonumber(selected.x)
+    local y = tonumber(selected.y)
+    local fullname = tostring(selected.Fullname or selected.fullname or "")
+    local name = tostring(selected.name or "")
+    local selected_text = tostring(selected.text or "")
+    local related_text = tostring(selected.rel1_text or "")
+    if addr == nil or addr == 0 or x == nil or y == nil then
+        return nil, string.format(
+            "GetCurrentSelected returned invalid SendBtn data. addr=%s pos=(%s,%s) name=%s fullname=%s text=%s related=%s",
+            tostring(selected.addr or ""),
+            tostring(selected.x or ""),
+            tostring(selected.y or ""),
+            name,
+            fullname,
+            selected_text,
+            related_text
+        )
+    end
+
+    local identity = (fullname .. " " .. name):lower()
+    if identity:find("worldmapdetail_c.widgettree.worldmapdetailitem.widgettree.sendbtn", 1, true) == nil then
+        return nil, string.format(
+            "GetCurrentSelected is not SendBtn. addr=%s pos=(%s,%s) name=%s fullname=%s text=%s related=%s",
+            tostring(addr or ""),
+            tostring(x or ""),
+            tostring(y or ""),
+            name,
+            fullname,
+            selected_text,
+            related_text
+        )
+    end
+
+    local hint_x = tonumber(type(step) == "table" and step.hint_client_x or nil)
+    local hint_y = tonumber(type(step) == "table" and step.hint_client_y or nil)
+    local distance = 0
+    if hint_x ~= nil and hint_y ~= nil then
+        distance = distance_2d(hint_x, hint_y, x, y)
+        if distance > math.max(tonumber(type(step) == "table" and step.hint_max_distance or 80) or 80, 120) then
+            return nil, string.format(
+                "GetCurrentSelected SendBtn too far from hint: %.2f selected=(%.2f,%.2f) hint=(%.2f,%.2f)",
+                tonumber(distance) or 0,
+                x,
+                y,
+                tonumber(hint_x) or 0,
+                tonumber(hint_y) or 0
+            )
+        end
+    end
+
+    local related_dx = tonumber(selected.rel1_dx)
+    local related_dy = tonumber(selected.rel1_dy)
+    local related_distance = tonumber(selected.rel1_distance)
+    if related_distance == nil and related_dx ~= nil and related_dy ~= nil then
+        related_distance = math.sqrt(related_dx * related_dx + related_dy * related_dy)
+    end
+
+    return {
+        kind = "button",
+        addr = addr,
+        name = name,
+        text = selected_text,
+        fullname = fullname,
+        x = x,
+        y = y,
+        related_text = related_text,
+        related_distance = related_distance,
+        distance = distance
+    }
+end
+
+function M.clear_cached_task_entry_send_button_target()
+    state.cached_task_entry_send_target = nil
+    state.cached_task_entry_send_target_at = 0
+    state.cached_task_entry_send_error = nil
+    _G.AVEPOINT_CACHED_TASK_ENTRY_SEND_TARGET = nil
+    M.clear_button_session_entry("task_entry_send")
+end
+
+function M.cache_task_entry_send_button_target(ctx, target_like, current_time, source, step)
+    local target = M.extract_task_entry_send_button_target(target_like)
+    if type(target) ~= "table" then
+        return nil
+    end
+
+    local cached = {
+        kind = "button",
+        addr = tonumber(target.addr),
+        name = tostring(target.name or ""),
+        fullname = tostring(target.fullname or ""),
+        x = tonumber(target.x),
+        y = tonumber(target.y),
+        text = tostring(target.text or ""),
+        related_text = tostring(target.related_text or ""),
+        related_distance = tonumber(target.related_distance),
+        captured_at = tonumber(current_time) or 0,
+        source = tostring(source or "")
+    }
+
+    local nav_mod = nav_api(ctx)
+    local wnd_api = type(ctx) == "table" and ctx.wnd or wnd
+    if type(nav_mod) == "table"
+        and type(nav_mod.window_hwnd) == "function"
+        and type(wnd_api) == "table"
+        and type(wnd_api.client_rect) == "function"
+    then
+        local hwnd = select(1, nav_mod.window_hwnd())
+        if hwnd then
+            local _, _, client_w, client_h = wnd_api.client_rect(hwnd)
+            if type(client_w) == "number" and client_w > 0 and cached.x ~= nil then
+                cached.hint_ratio_x = cached.x / client_w
+            elseif type(step) == "table" then
+                cached.hint_ratio_x = tonumber(step.hint_ratio_x)
+            end
+            if type(client_h) == "number" and client_h > 0 and cached.y ~= nil then
+                cached.hint_ratio_y = cached.y / client_h
+            elseif type(step) == "table" then
+                cached.hint_ratio_y = tonumber(step.hint_ratio_y)
+            end
+        end
+    end
+
+    local current_pid = tonumber(type(nav_mod) == "table" and nav_mod.pid or 0)
+    if current_pid ~= nil and current_pid > 0 then
+        cached.pid = current_pid
+    end
+    cached.session_key = M.build_button_session_key(nav_mod)
+
+    state.cached_task_entry_send_target = cached
+    state.cached_task_entry_send_target_at = cached.captured_at
+    state.cached_task_entry_send_error = nil
+    _G.AVEPOINT_CACHED_TASK_ENTRY_SEND_TARGET = M.copy_main_task_button_cache_fields(cached)
+    M.persist_button_session_entry("task_entry_send", cached)
+    return cached
+end
+
+function M.resolve_cached_task_entry_send_button_target(nav_mod, current_time)
+    local cached = state.cached_task_entry_send_target
+    if type(cached) ~= "table" and type(_G.AVEPOINT_CACHED_TASK_ENTRY_SEND_TARGET) == "table" then
+        cached = _G.AVEPOINT_CACHED_TASK_ENTRY_SEND_TARGET
+    end
+    if type(cached) ~= "table" then
+        cached = M.read_button_session_entry(nav_mod, "task_entry_send")
+        if type(cached) == "table" then
+            state.cached_task_entry_send_target = cached
+            state.cached_task_entry_send_target_at = tonumber(cached.captured_at) or 0
+            state.cached_task_entry_send_error = nil
+            _G.AVEPOINT_CACHED_TASK_ENTRY_SEND_TARGET = M.copy_main_task_button_cache_fields(cached)
+        end
+    end
+    if type(cached) ~= "table" then
+        return nil, "cached task entry send button target unavailable."
+    end
+
+    local addr = tonumber(cached.addr)
+    local x = tonumber(cached.x)
+    local y = tonumber(cached.y)
+    if addr == nil or addr == 0 or x == nil or y == nil then
+        M.clear_cached_task_entry_send_button_target()
+        return nil, "cached task entry send button target is invalid."
+    end
+
+    local cached_pid = tonumber(cached.pid or 0)
+    local current_pid = tonumber(type(nav_mod) == "table" and nav_mod.pid or 0)
+    if cached_pid > 0 and current_pid > 0 and cached_pid ~= current_pid then
+        M.clear_cached_task_entry_send_button_target()
+        return nil, string.format(
+            "cached task entry send button target pid changed. cached=%d current=%d",
+            cached_pid,
+            current_pid
+        )
+    end
+
+    local cached_session_key = trim(cached.session_key or "")
+    local current_session_key = M.build_button_session_key(nav_mod)
+    if cached_session_key ~= "" and current_session_key ~= "" and cached_session_key ~= current_session_key then
+        M.clear_cached_task_entry_send_button_target()
+        return nil, string.format(
+            "cached task entry send button target session changed. cached=%s current=%s",
+            cached_session_key,
+            current_session_key
+        )
+    end
+
+    local captured_at = tonumber(state.cached_task_entry_send_target_at) or tonumber(cached.captured_at) or 0
+    if captured_at > 0 and tonumber(current_time) ~= nil then
+        state.cached_task_entry_send_target_at = captured_at
+    end
+
+    return {
+        kind = "button",
+        addr = addr,
+        name = tostring(cached.name or ""),
+        text = tostring(cached.text or ""),
+        fullname = tostring(cached.fullname or ""),
+        x = x,
+        y = y,
+        related_text = tostring(cached.related_text or ""),
+        related_distance = tonumber(cached.related_distance),
+        distance = 0,
+        source = tostring(cached.source or ""),
+        pid = cached_pid > 0 and cached_pid or nil
+    }
+end
+
+function M.clear_cached_task_entry_send_addr_with_log(ctx, reason)
+    M.clear_cached_task_entry_send_button_target()
+    logger(ctx).info(string.format(
+        "[Leveling] cleared cached task entry send addr | reason=%s",
+        tostring(reason or "")
+    ))
+end
+
+function M.try_cached_task_entry_send_button_click(ctx, nav_mod, current_time, step, reason)
+    if type(nav_mod) ~= "table" or type(nav_mod.control_click) ~= "function" then
+        return false, "nav.control_click is unavailable."
+    end
+
+    local cached_target, cached_err = M.resolve_cached_task_entry_send_button_target(nav_mod, current_time)
+    if type(cached_target) ~= "table" then
+        return false, cached_err
+    end
+
+    local click_ok, click_err = nav_mod.control_click(cached_target.addr)
+    if not click_ok then
+        M.clear_cached_task_entry_send_addr_with_log(ctx, click_err or "cached task entry send addr click failed")
+        return false, click_err
+    end
+
+    logger(ctx).info(string.format(
+        "[Leveling] task entry send button clicked | source=cached_addr addr=%s pos=(%s,%s) anchor=%s cache_source=%s reason=%s",
+        tostring(cached_target.addr or ""),
+        tostring(cached_target.x or ""),
+        tostring(cached_target.y or ""),
+        tostring(type(step) == "table" and step.distance_anchor_exact_text or ""),
+        tostring(cached_target.source or ""),
+        tostring(reason or "")
+    ))
+    return true, cached_target
+end
+
+function M.try_capture_task_entry_send_button_via_hover(ctx, nav_mod, current_time, step, reason)
+    if type(step) ~= "table" then
+        return nil, "task entry send step unavailable."
+    end
+
+    local retry_gate = tonumber(state.next_task_entry_send_hover_capture_at) or 0
+    if retry_gate > current_time then
+        return nil, string.format(
+            "task entry send hover capture cooldown until=%d now=%d",
+            retry_gate,
+            current_time
+        )
+    end
+    if type(nav_mod) ~= "table" or type(nav_mod.move_mouse_to_client) ~= "function" then
+        return nil, "nav.move_mouse_to_client is unavailable."
+    end
+
+    local capture_bounds, bounds_summary = M.resolve_main_task_hover_capture_bounds(step)
+    if type(capture_bounds) ~= "table" then
+        state.next_task_entry_send_hover_capture_at = current_time
+            + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+        return nil, bounds_summary
+    end
+
+    local original_cursor = nil
+    if type(nav_mod.cursor_client_pos) == "function" then
+        original_cursor = select(1, nav_mod.cursor_client_pos({
+            allow_outside = true
+        }))
+    end
+
+    local capture_candidate, capture_summary = M.choose_main_task_hover_candidate(
+        "capture",
+        original_cursor,
+        capture_bounds,
+        step,
+        "task_entry_send"
+    )
+    if type(capture_candidate) ~= "table" then
+        state.next_task_entry_send_hover_capture_at = current_time
+            + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+        return nil, capture_summary
+    end
+
+    local moved, move_result = nav_mod.move_mouse_to_client(capture_candidate.x, capture_candidate.y, {
+        mouse_mode = "api",
+        min_duration_ms = capture_candidate.move_min_ms,
+        max_duration_ms = capture_candidate.move_max_ms,
+        hover_ms = capture_candidate.hover_ms,
+        set_foreground = true
+    })
+    if moved then
+        local capture_entry = {
+            x = capture_candidate.x,
+            y = capture_candidate.y,
+            zone = capture_candidate.zone,
+            angle_deg = capture_candidate.angle_deg,
+            move_min_ms = capture_candidate.move_min_ms,
+            move_max_ms = capture_candidate.move_max_ms,
+            hover_ms = capture_candidate.hover_ms,
+            move_duration_ms = tonumber(type(move_result) == "table" and move_result.duration_ms),
+            move_style = tostring(type(move_result) == "table" and move_result.move_style or ""),
+            sample_attempt = capture_candidate.sample_attempt,
+            score = capture_candidate.score,
+            outcome = "hover_probe"
+        }
+        M.push_main_task_hover_history("capture", capture_entry, capture_candidate.history_limit, "task_entry_send")
+        state.last_task_entry_send_hover_capture_meta = capture_entry
+
+        local selected_target, selected_err = M.resolve_task_entry_send_selected_target(nav_mod, step)
+        if type(selected_target) == "table" then
+            local cached = M.cache_task_entry_send_button_target(
+                ctx,
+                selected_target,
+                current_time,
+                "hover_capture:randomized",
+                step
+            )
+            if type(cached) == "table" then
+                state.next_task_entry_send_hover_capture_at = 0
+                local return_note = "return=skipped"
+                local return_bounds, return_bounds_err = M.resolve_main_task_hover_return_bounds(nav_mod, step)
+                if type(return_bounds) == "table" then
+                    local return_origin = {
+                        client_x = capture_candidate.x,
+                        client_y = capture_candidate.y
+                    }
+                    local return_candidate, return_summary = M.choose_main_task_hover_candidate(
+                        "return",
+                        return_origin,
+                        return_bounds,
+                        step,
+                        "task_entry_send"
+                    )
+                    if type(return_candidate) == "table" then
+                        local returned, return_result = nav_mod.move_mouse_to_client(return_candidate.x, return_candidate.y, {
+                            mouse_mode = "api",
+                            min_duration_ms = return_candidate.move_min_ms,
+                            max_duration_ms = return_candidate.move_max_ms,
+                            hover_ms = return_candidate.hover_ms
+                        })
+                        if returned then
+                            local return_entry = {
+                                x = return_candidate.x,
+                                y = return_candidate.y,
+                                zone = return_candidate.zone,
+                                angle_deg = return_candidate.angle_deg,
+                                move_min_ms = return_candidate.move_min_ms,
+                                move_max_ms = return_candidate.move_max_ms,
+                                hover_ms = return_candidate.hover_ms,
+                                move_duration_ms = tonumber(type(return_result) == "table" and return_result.duration_ms),
+                                move_style = tostring(type(return_result) == "table" and return_result.move_style or ""),
+                                sample_attempt = return_candidate.sample_attempt,
+                                score = return_candidate.score,
+                                outcome = "safe_return"
+                            }
+                            M.push_main_task_hover_history("return", return_entry, return_candidate.history_limit, "task_entry_send")
+                            state.last_task_entry_send_hover_return_meta = return_entry
+                            return_note = string.format(
+                                "return=%s move_style=%s move_duration=%s summary=%s",
+                                M.format_main_task_hover_candidate_brief(return_candidate),
+                                tostring(return_entry.move_style or ""),
+                                tostring(return_entry.move_duration_ms or ""),
+                                tostring(return_summary or "")
+                            )
+                        else
+                            return_note = string.format(
+                                "return_move_failed=%s candidate=%s summary=%s",
+                                tostring(return_result or ""),
+                                M.format_main_task_hover_candidate_brief(return_candidate),
+                                tostring(return_summary or "")
+                            )
+                        end
+                    else
+                        return_note = "return_candidate_failed=" .. tostring(return_summary or "")
+                    end
+                else
+                    return_note = "return_bounds_failed=" .. tostring(return_bounds_err or "")
+                end
+
+                logger(ctx).info(string.format(
+                    "[Leveling] cached task entry send addr via hover | hover=%s move_style=%s move_duration=%s target=%s bounds=%s capture_summary=%s %s reason=%s",
+                    M.format_main_task_hover_candidate_brief(capture_candidate),
+                    tostring(type(move_result) == "table" and move_result.move_style or ""),
+                    tostring(type(move_result) == "table" and move_result.duration_ms or ""),
+                    M.format_main_task_click_target_brief(selected_target),
+                    tostring(bounds_summary or ""),
+                    tostring(capture_summary or ""),
+                    tostring(return_note or ""),
+                    tostring(reason or "")
+                ))
+                return selected_target
+            end
+            selected_err = "cache_failed"
+        end
+
+        if step.hover_capture_restore_cursor_on_failure ~= false and type(original_cursor) == "table" then
+            local restore_timing = M.randomize_main_task_hover_timing("return", step)
+            nav_mod.move_mouse_to_client(original_cursor.client_x, original_cursor.client_y, {
+                mouse_mode = "api",
+                min_duration_ms = restore_timing.move_min_ms,
+                max_duration_ms = restore_timing.move_max_ms,
+                hover_ms = math.min(24, math.max(0, math.floor((tonumber(restore_timing.hover_ms) or 0) * 0.35)))
+            })
+        end
+
+        state.next_task_entry_send_hover_capture_at = current_time
+            + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+        return nil, string.format(
+            "task_entry_send_hover_selected_failed=%s hover=%s move_style=%s move_duration=%s bounds=%s capture_summary=%s",
+            tostring(selected_err or ""),
+            M.format_main_task_hover_candidate_brief(capture_candidate),
+            tostring(type(move_result) == "table" and move_result.move_style or ""),
+            tostring(type(move_result) == "table" and move_result.duration_ms or ""),
+            tostring(bounds_summary or ""),
+            tostring(capture_summary or "")
+        )
+    end
+
+    if step.hover_capture_restore_cursor_on_failure ~= false and type(original_cursor) == "table" then
+        local restore_timing = M.randomize_main_task_hover_timing("return", step)
+        nav_mod.move_mouse_to_client(original_cursor.client_x, original_cursor.client_y, {
+            mouse_mode = "api",
+            min_duration_ms = restore_timing.move_min_ms,
+            max_duration_ms = restore_timing.move_max_ms,
+            hover_ms = math.min(24, math.max(0, math.floor((tonumber(restore_timing.hover_ms) or 0) * 0.35)))
+        })
+    end
+
+    state.next_task_entry_send_hover_capture_at = current_time
+        + math.max(300, tonumber(step.hover_capture_retry_ms) or 900)
+    return nil, string.format(
+        "task_entry_send_hover_move_failed=%s hover=%s bounds=%s capture_summary=%s",
+        tostring(move_result or ""),
+        M.format_main_task_hover_candidate_brief(capture_candidate),
+        tostring(bounds_summary or ""),
+        tostring(capture_summary or "")
+    )
+end
+
 function M.normalize_treasure_task_query_key(value)
     local text = trim(value)
     if text == "" then
@@ -2675,6 +4138,7 @@ function M.clear_cached_treasure_task_button_target()
     state.cached_treasure_task_button_target = nil
     state.cached_treasure_task_button_target_at = 0
     _G.AVEPOINT_CACHED_TREASURE_TASK_BUTTON_TARGET = nil
+    M.clear_button_session_entry("treasure_task")
 end
 
 function M.cache_treasure_task_button_target(ctx, target_like, current_time, query, source)
@@ -2722,6 +4186,7 @@ function M.cache_treasure_task_button_target(ctx, target_like, current_time, que
     if current_pid ~= nil and current_pid > 0 then
         cached.pid = current_pid
     end
+    cached.session_key = M.build_button_session_key(nav_mod)
 
     state.cached_treasure_task_button_target = cached
     state.cached_treasure_task_button_target_at = cached.captured_at
@@ -2730,6 +4195,7 @@ function M.cache_treasure_task_button_target(ctx, target_like, current_time, que
         _G.AVEPOINT_CACHED_TREASURE_TASK_BUTTON_TARGET.query = cached.query
         _G.AVEPOINT_CACHED_TREASURE_TASK_BUTTON_TARGET.query_key = cached.query_key
     end
+    M.persist_button_session_entry("treasure_task", cached)
     return cached
 end
 
@@ -2737,6 +4203,18 @@ function M.resolve_cached_treasure_task_button_target(nav_mod, current_time, que
     local cached = state.cached_treasure_task_button_target
     if type(cached) ~= "table" and type(_G.AVEPOINT_CACHED_TREASURE_TASK_BUTTON_TARGET) == "table" then
         cached = _G.AVEPOINT_CACHED_TREASURE_TASK_BUTTON_TARGET
+    end
+    if type(cached) ~= "table" then
+        cached = M.read_button_session_entry(nav_mod, "treasure_task")
+        if type(cached) == "table" then
+            state.cached_treasure_task_button_target = cached
+            state.cached_treasure_task_button_target_at = tonumber(cached.captured_at) or 0
+            _G.AVEPOINT_CACHED_TREASURE_TASK_BUTTON_TARGET = M.copy_main_task_button_cache_fields(cached)
+            if type(_G.AVEPOINT_CACHED_TREASURE_TASK_BUTTON_TARGET) == "table" then
+                _G.AVEPOINT_CACHED_TREASURE_TASK_BUTTON_TARGET.query = cached.query
+                _G.AVEPOINT_CACHED_TREASURE_TASK_BUTTON_TARGET.query_key = cached.query_key
+            end
+        end
     end
     if type(cached) ~= "table" then
         return nil, "cached treasure task button target unavailable."
@@ -2758,6 +4236,17 @@ function M.resolve_cached_treasure_task_button_target(nav_mod, current_time, que
             "cached treasure task button target pid changed. cached=%d current=%d",
             cached_pid,
             current_pid
+        )
+    end
+
+    local cached_session_key = trim(cached.session_key or "")
+    local current_session_key = M.build_button_session_key(nav_mod)
+    if cached_session_key ~= "" and current_session_key ~= "" and cached_session_key ~= current_session_key then
+        M.clear_cached_treasure_task_button_target()
+        return nil, string.format(
+            "cached treasure task button target session changed. cached=%s current=%s",
+            cached_session_key,
+            current_session_key
         )
     end
 
@@ -3114,17 +4603,60 @@ function M.current_task_dialogue_flow_config()
 end
 
 function M.current_task_post_dialogue_flow_config()
-    local task_cfg, task_name = M.current_task_runtime_config()
-    local flow = type(task_cfg) == "table" and type(task_cfg.post_dialogue_flow) == "table"
-        and task_cfg.post_dialogue_flow
-        or nil
-    if type(flow) ~= "table" or flow.enabled == false then
-        return nil, task_name
+    local task_name = normalize_map_name(state.current_task_name)
+    local task_detail = normalize_map_name(state.current_task_detail)
+    local function valid_post_dialogue_flow(cfg)
+        local flow = type(cfg) == "table" and type(cfg.post_dialogue_flow) == "table"
+            and cfg.post_dialogue_flow
+            or nil
+        if type(flow) ~= "table" or flow.enabled == false then
+            return nil
+        end
+        if type(flow.steps) ~= "table" or #flow.steps <= 0 then
+            return nil
+        end
+        return flow
     end
-    if type(flow.steps) ~= "table" or #flow.steps <= 0 then
-        return nil, task_name
+
+    if task_detail ~= nil and type(M.TASK_NAME_CONFIGS) == "table" then
+        local detail_direct = M.TASK_NAME_CONFIGS[task_detail]
+        local detail_flow = valid_post_dialogue_flow(detail_direct)
+        if type(detail_flow) == "table" then
+            logger(state.log_ctx).info(string.format(
+                "[Leveling] post dialogue flow config matched exact detail | task=%s detail=%s matched_source=task_detail_exact",
+                tostring(M.current_task_log_name() or state.current_task_name or ""),
+                tostring(M.current_task_log_detail() or state.current_task_detail or "")
+            ))
+            return detail_flow, task_detail
+        end
+
+        for cfg_name, cfg in pairs(M.TASK_NAME_CONFIGS) do
+            if normalize_map_name(cfg_name) == task_detail then
+                detail_flow = valid_post_dialogue_flow(cfg)
+                if type(detail_flow) == "table"
+                    and M.matches_task_constraints(cfg, {
+                        task_name = task_name,
+                        task_detail = task_detail
+                    })
+                then
+                    logger(state.log_ctx).info(string.format(
+                        "[Leveling] post dialogue flow config fallback to detail | task=%s detail=%s matched_source=task_detail",
+                        tostring(M.current_task_log_name() or state.current_task_name or ""),
+                        tostring(M.current_task_log_detail() or state.current_task_detail or "")
+                    ))
+                    return detail_flow, task_detail
+                end
+            end
+        end
     end
-    return flow, task_name
+
+    local task_cfg, runtime_task_name = M.current_task_runtime_config()
+    local flow = valid_post_dialogue_flow(task_cfg)
+    if type(flow) ~= "table" then
+        return nil, runtime_task_name
+    end
+
+    return flow, runtime_task_name
 end
 
 function M.is_task_entry_action_active(current_time)
@@ -3531,7 +5063,10 @@ function M.maybe_handle_boss_task_change(ctx, current_time)
         clear_runtime_objective_caches()
         schedule_task_refresh_after_transition(ctx, current_time, "boss_task_changed", POST_DIALOGUE_SETTLE_MS, {
             force_task_call = true,
-            task_pos_reject_extra_ms = 2000
+            task_pos_reject_extra_ms = 2000,
+            previous_task_name = locked_task_name,
+            previous_task_detail = locked_task_detail,
+            task_info_change_observed = true
         })
         return true
     end
@@ -3703,7 +5238,10 @@ function M.maybe_handle_terminal_task_change(ctx, current_time)
     state.terminal_task_locked_objective_key = nil
     schedule_task_refresh_after_transition(ctx, current_time, "task_changed", TASK_BUTTON_SETTLE_MS, {
         force_task_call = true,
-        task_pos_reject_extra_ms = 2000
+        task_pos_reject_extra_ms = 2000,
+        previous_task_name = locked_task_name,
+        previous_task_detail = locked_task_detail,
+        task_info_change_observed = true
     })
     return true
 end
@@ -4459,6 +5997,152 @@ local function build_target_signature(target)
     )
 end
 
+local issue_move
+
+function M.reset_task_path_sidestep_for_signature(signature)
+    state.task_path_sidestep_target_signature = tostring(signature or "")
+    state.task_path_sidestep_attempt_count = 0
+    state.task_path_sidestep_next_at = 0
+    state.task_path_sidestep_last_side = 0
+end
+
+function M.build_task_path_sidestep_target(player_x, player_y, player_z, target)
+    if type(target) ~= "table" then
+        return nil, "sidestep target unavailable."
+    end
+
+    local target_source = tostring(target.source or "")
+    if target_source ~= "task_path" and target_source ~= "treasure_path" then
+        return nil, "sidestep only supports path targets."
+    end
+
+    local route = state.task_path_route
+    local path = state.task_path
+    if type(route) ~= "table" or type(path) ~= "table" or #path <= 0 then
+        return nil, "task path route unavailable."
+    end
+
+    local route_index = math.max(1, math.min(#path, tonumber(route.index) or 1))
+    local direction = tonumber(route.direction) or 1
+    if direction ~= -1 then
+        direction = 1
+    end
+
+    local selected_point = path[route_index]
+    local forward_index = step_path_index(path, route_index, direction)
+    local backward_index = step_path_index(path, route_index, -direction)
+    local forward_point = type(forward_index) == "number" and path[forward_index] or nil
+    local backward_point = type(backward_index) == "number" and path[backward_index] or nil
+
+    local ax, ay, bx, by = nil, nil, nil, nil
+    if type(selected_point) == "table" and type(forward_point) == "table" then
+        ax, ay = tonumber(selected_point.x), tonumber(selected_point.y)
+        bx, by = tonumber(forward_point.x), tonumber(forward_point.y)
+    elseif type(backward_point) == "table" and type(selected_point) == "table" then
+        ax, ay = tonumber(backward_point.x), tonumber(backward_point.y)
+        bx, by = tonumber(selected_point.x), tonumber(selected_point.y)
+    else
+        ax, ay = tonumber(player_x), tonumber(player_y)
+        bx, by = tonumber(target.x), tonumber(target.y)
+    end
+
+    if type(ax) ~= "number" or type(ay) ~= "number" or type(bx) ~= "number" or type(by) ~= "number" then
+        return nil, "sidestep anchors unavailable."
+    end
+
+    local dir_x = bx - ax
+    local dir_y = by - ay
+    local dir_len = distance_2d(ax, ay, bx, by)
+    if type(dir_len) ~= "number" or dir_len < (tonumber(M.TASK_PATH_SIDESTEP_MIN_SEGMENT_DISTANCE) or 80) then
+        dir_x = (tonumber(target.x) or 0) - (tonumber(player_x) or 0)
+        dir_y = (tonumber(target.y) or 0) - (tonumber(player_y) or 0)
+        dir_len = math.sqrt(dir_x * dir_x + dir_y * dir_y)
+    end
+    if type(dir_len) ~= "number" or dir_len < 1 then
+        return nil, "sidestep direction unavailable."
+    end
+
+    dir_x = dir_x / dir_len
+    dir_y = dir_y / dir_len
+
+    local side_sign = (tonumber(state.task_path_sidestep_last_side) or 0) >= 0 and -1 or 1
+    local lateral_x = -dir_y * side_sign
+    local lateral_y = dir_x * side_sign
+    local sidestep_x = (tonumber(player_x) or 0)
+        + lateral_x * (tonumber(M.TASK_PATH_SIDESTEP_DISTANCE) or 220)
+        + dir_x * (tonumber(M.TASK_PATH_SIDESTEP_FORWARD_DISTANCE) or 72)
+    local sidestep_y = (tonumber(player_y) or 0)
+        + lateral_y * (tonumber(M.TASK_PATH_SIDESTEP_DISTANCE) or 220)
+        + dir_y * (tonumber(M.TASK_PATH_SIDESTEP_FORWARD_DISTANCE) or 72)
+
+    return {
+        x = sidestep_x,
+        y = sidestep_y,
+        z = tonumber(target.z) or tonumber(player_z) or 0,
+        source = target_source .. "_sidestep",
+        path_index = tonumber(target.path_index) or 0,
+        move_interval_ms = math.min(MOVE_INTERVAL_MS, 360),
+        force_move = true,
+        sidestep_side = side_sign,
+        sidestep_anchor_ax = ax,
+        sidestep_anchor_ay = ay,
+        sidestep_anchor_bx = bx,
+        sidestep_anchor_by = by
+    }, nil
+end
+
+function M.maybe_issue_task_path_sidestep(ctx, current_time, player_x, player_y, player_z, target)
+    if type(target) ~= "table" then
+        return false, "sidestep target unavailable."
+    end
+
+    local target_source = tostring(target.source or "")
+    if target_source ~= "task_path" and target_source ~= "treasure_path" then
+        return false, "sidestep only supports path targets."
+    end
+
+    local signature = build_target_signature(target)
+    if signature ~= tostring(state.task_path_sidestep_target_signature or "") then
+        M.reset_task_path_sidestep_for_signature(signature)
+    end
+
+    if current_time < (tonumber(state.task_path_sidestep_next_at) or 0) then
+        return false, "sidestep cooldown."
+    end
+    if (tonumber(state.task_path_sidestep_attempt_count) or 0) >= 1 then
+        return false, "sidestep already attempted for target."
+    end
+
+    local sidestep_target, build_err = M.build_task_path_sidestep_target(player_x, player_y, player_z, target)
+    if type(sidestep_target) ~= "table" then
+        return false, build_err or "sidestep target build failed."
+    end
+
+    local move_ok, move_err = issue_move(ctx, current_time, sidestep_target)
+    if not move_ok then
+        return false, move_err or "sidestep move failed."
+    end
+
+    state.task_path_sidestep_attempt_count = (tonumber(state.task_path_sidestep_attempt_count) or 0) + 1
+    state.task_path_sidestep_last_side = tonumber(sidestep_target.sidestep_side) or 0
+    state.task_path_sidestep_next_at = current_time + (tonumber(M.TASK_PATH_SIDESTEP_COOLDOWN_MS) or 2200)
+    state.last_progress_at = current_time
+
+    logger(ctx).info(string.format(
+        "[Leveling] task path sidestep issued | source=%s target=%.2f, %.2f side=%d anchor_a=%.2f, %.2f anchor_b=%.2f, %.2f cooldown_ms=%d",
+        tostring(target_source),
+        tonumber(sidestep_target.x) or 0,
+        tonumber(sidestep_target.y) or 0,
+        tonumber(sidestep_target.sidestep_side) or 0,
+        tonumber(sidestep_target.sidestep_anchor_ax) or 0,
+        tonumber(sidestep_target.sidestep_anchor_ay) or 0,
+        tonumber(sidestep_target.sidestep_anchor_bx) or 0,
+        tonumber(sidestep_target.sidestep_anchor_by) or 0,
+        tonumber(M.TASK_PATH_SIDESTEP_COOLDOWN_MS) or 2200
+    ))
+    return true
+end
+
 local function assign_task_target(ctx, current_time, target)
     if type(target) ~= "table" then
         return false
@@ -4471,6 +6155,7 @@ local function assign_task_target(ctx, current_time, target)
     if signature ~= state.last_task_signature then
         state.last_task_signature = signature
         state.next_move_at = 0
+        M.reset_task_path_sidestep_for_signature(signature)
         logger(ctx).info(string.format(
             "[Leveling] task target updated | source=%s path_index=%d nearest_index=%d nearest_distance=%.2f order=%s path_points=%d target=%.2f, %.2f, %.2f",
             tostring(target.source or ""),
@@ -5318,7 +7003,7 @@ function M.publish_nav_worker_task_path_route(ctx, current_time, target, move_in
     return true
 end
 
-local function issue_move(ctx, current_time, target)
+issue_move = function(ctx, current_time, target)
     if type(target) ~= "table" then
         return false, "move target is unavailable."
     end
@@ -6017,10 +7702,13 @@ function M.maybe_click_guide_skip(ctx, current_time)
     return true
 end
 
-local function clear_pending_interaction(keep_npc_dialogue_retry_state)
+local function clear_pending_interaction(keep_npc_dialogue_retry_state, preserve_jump_session)
     state.pending_interaction_origin = nil
     state.pending_interaction_label = nil
     state.pending_interaction_refresh_on_timeout = false
+    if preserve_jump_session ~= true then
+        M.clear_dialogue_jump_session_state()
+    end
     M.clear_task_dialogue_flow_state()
     if keep_npc_dialogue_retry_state ~= true then
         M.clear_npc_dialogue_combat_retry_state()
@@ -6434,6 +8122,19 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
         return false
     end
 
+    if state.dialogue_jump_consumed == true then
+        local consumed_at = tonumber(state.dialogue_jump_consumed_at) or 0
+        log_throttled(ctx, "dialogue_jump_consumed_session", "info", LOG_THROTTLE_MS,
+            string.format(
+                "[Leveling] dialogue jump already consumed for current session | origin=%s source=%s addr=%s age=%dms",
+                tostring(state.pending_interaction_origin or ""),
+                tostring(state.dialogue_jump_consumed_source or ""),
+                tostring(state.dialogue_jump_consumed_addr or ""),
+                math.max(0, current_time - consumed_at)
+            ))
+        return false
+    end
+
     if current_time < (tonumber(state.next_dialogue_jump_scan_at) or 0) then
         return false
     end
@@ -6441,55 +8142,74 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
 
     local nav_mod = nav_api(ctx)
     local interaction_origin = tostring(state.pending_interaction_origin or "")
-    local function apply_dialogue_jump_click_state()
-        state.next_dialogue_jump_click_at = current_time + 900
+    local function apply_dialogue_jump_click_state(clicked_target, click_source)
+        local after_click_time = math.max(current_time, now_ms(ctx))
+        local settle_ms = math.max(tonumber(step.settle_ms) or TASK_BUTTON_SETTLE_MS, TASK_BUTTON_SETTLE_MS)
+        state.next_dialogue_jump_click_at = after_click_time + 900
         state.dialogue_escape_due_at = 0
         state.dialogue_confirm_deadline_at = 0
         state.next_dialogue_probe_at = 0
-        state.next_dialogue_jump_scan_at = 0
-        state.next_dialogue_jump_click_at = 0
+        state.next_dialogue_jump_scan_at = after_click_time + 250
         state.dialogue_ui_confirmed = false
         state.dialogue_ui_match = nil
         local post_flow, post_task_name = M.current_task_post_dialogue_flow_config()
         local armed_post_dialogue_flow = false
+        local wait_task_info_refresh_after_jump = type(post_flow) == "table"
+            and post_flow.wait_task_info_refresh_after_jump == true
+        local task_info_refresh_timeout_ms = math.max(
+            2000,
+            tonumber(type(post_flow) == "table" and post_flow.task_info_refresh_timeout_ms) or 6500
+        )
         if type(post_flow) == "table" and post_flow.arm_after_objective_button ~= true then
-            armed_post_dialogue_flow = M.arm_post_dialogue_flow(ctx, current_time, post_flow, post_task_name, interaction_origin) == true
+            armed_post_dialogue_flow = M.arm_post_dialogue_flow(ctx, after_click_time, post_flow, post_task_name, interaction_origin) == true
         end
-        clear_pending_interaction()
+        M.mark_dialogue_jump_consumed(ctx, after_click_time, clicked_target, click_source, interaction_origin)
+        clear_pending_interaction(false, true)
+        M.clear_task_info_refresh_wait_state()
         state.task_update_wait_until = math.max(
             tonumber(state.task_update_wait_until) or 0,
-            current_time + math.max(tonumber(step.settle_ms) or TASK_BUTTON_SETTLE_MS, TASK_BUTTON_SETTLE_MS)
+            after_click_time + settle_ms
         )
         if armed_post_dialogue_flow then
             state.require_task_button_refresh = false
             state.require_task_button_refresh_reason = nil
             state.next_task_button_click_at = math.max(
                 tonumber(state.next_task_button_click_at) or 0,
-                tonumber(state.task_update_wait_until) or current_time
+                tonumber(state.task_update_wait_until) or after_click_time
             )
             state.next_task_refresh_at = math.max(
                 tonumber(state.next_task_refresh_at) or 0,
-                tonumber(state.task_update_wait_until) or current_time
+                tonumber(state.task_update_wait_until) or after_click_time
             )
             logger(ctx).info(string.format(
                 "[Leveling] dialogue jump refresh deferred by post dialogue flow | task=%s key=%s",
                 tostring(post_task_name or state.current_task_name or ""),
                 tostring(post_flow.key or "")
             ))
+        elseif wait_task_info_refresh_after_jump then
+            state.require_task_button_refresh = false
+            state.require_task_button_refresh_reason = nil
+            M.arm_task_info_stability_gate(ctx, after_click_time, {
+                reason = "dialogue_jump_post_flow",
+                previous_task_name = state.current_task_name,
+                previous_task_detail = state.current_task_detail,
+                timeout_ms = task_info_refresh_timeout_ms,
+                flow_key = tostring(type(post_flow) == "table" and post_flow.key or "")
+            })
         else
             state.require_task_button_refresh = true
             state.next_task_button_click_at = math.max(
                 tonumber(state.next_task_button_click_at) or 0,
-                tonumber(state.task_update_wait_until) or current_time
+                tonumber(state.task_update_wait_until) or after_click_time
             )
             state.next_task_refresh_at = math.max(
                 tonumber(state.next_task_refresh_at) or 0,
-                tonumber(state.task_update_wait_until) or current_time
+                tonumber(state.task_update_wait_until) or after_click_time
             )
         end
         state.pause_combat_until = math.max(
             tonumber(state.pause_combat_until) or 0,
-            current_time + POST_UI_PAUSE_MS
+            after_click_time + POST_UI_PAUSE_MS
         )
     end
 
@@ -6503,7 +8223,7 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
             "pre_locator"
         )
         if cached_clicked then
-            apply_dialogue_jump_click_state()
+            apply_dialogue_jump_click_state(cached_target_or_err, "cached_addr")
             return true
         end
         if trim(cached_target_or_err or "") ~= "" then
@@ -6537,7 +8257,7 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
                     "post_hover_capture"
                 )
                 if hover_clicked then
-                    apply_dialogue_jump_click_state()
+                    apply_dialogue_jump_click_state(hover_target_or_err, "cached_addr")
                     return true
                 end
                 if trim(hover_target_or_err or "") ~= "" then
@@ -6608,7 +8328,7 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
     end
 
     M.cache_dialogue_jump_button_target(ctx, target, current_time, "locator_click", step)
-    apply_dialogue_jump_click_state()
+    apply_dialogue_jump_click_state(target, tostring(target.source or "locator"))
     logger(ctx).info(string.format(
         "[Leveling] dialogue jump button clicked | label=%s addr=%s pos=(%s,%s) origin=%s source=%s",
         tostring(step.label or ""),
@@ -7094,49 +8814,103 @@ function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y,
     end
 
     local step = type(entry_action.step) == "table" and entry_action.step or nil
+    step = M.apply_task_entry_send_step_defaults(step)
     if type(step) ~= "table" then
         log_throttled(ctx, "task_entry_action_step_missing", "warn", LOG_THROTTLE_MS,
             "[Leveling] task entry action step is unavailable.")
         return false
     end
 
-    local target, fetch_err = fetch_locator_button_target(ctx, step)
-    if type(target) ~= "table" then
-        if current_time >= (tonumber(state.task_entry_action_next_center_click_at) or 0) then
-            state.task_entry_action_center_clicked_at = 0
+    local nav_mod = nav_api(ctx)
+    local send_wait_err = "task entry send button target unavailable."
+    if type(nav_mod) == "table" then
+        local cached_clicked, cached_target_or_err = M.try_cached_task_entry_send_button_click(
+            ctx,
+            nav_mod,
+            current_time,
+            step,
+            "task_entry_world_map_send"
+        )
+        if cached_clicked then
+            local cached_target = type(cached_target_or_err) == "table" and cached_target_or_err or nil
+            state.task_entry_action_send_clicked_at = current_time
+            logger(ctx).info(string.format(
+                "[Leveling] task entry send clicked | task=%s label=%s addr=%s pos=(%s,%s)",
+                tostring(task_name or state.current_task_name or ""),
+                tostring(step.label or ""),
+                tostring(cached_target and cached_target.addr or ""),
+                tostring(cached_target and cached_target.x or ""),
+                tostring(cached_target and cached_target.y or "")
+            ))
+            schedule_task_refresh_after_transition(ctx, current_time, "task_entry_world_map_send", transition_wait_ms, {
+                force_task_call = true,
+                task_pos_reject_extra_ms = 3500
+            })
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
         end
-        log_throttled(ctx, "task_entry_action_button_missing", "info", LOG_THROTTLE_MS, string.format(
-            "[Leveling] task entry send button not visible yet | task=%s label=%s err=%s",
-            tostring(task_name or state.current_task_name or ""),
-            tostring(step.label or ""),
-            tostring(fetch_err or "")
-        ))
-        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-        return true
+        if trim(cached_target_or_err or "") ~= "" then
+            send_wait_err = tostring(cached_target_or_err)
+            log_throttled(ctx, "task_entry_action_cached_send_addr_failed", "info", LOG_THROTTLE_MS,
+                "[Leveling] cached task entry send addr click miss: " .. tostring(cached_target_or_err))
+        end
+
+        local captured_target, capture_err = M.try_capture_task_entry_send_button_via_hover(
+            ctx,
+            nav_mod,
+            current_time,
+            step,
+            "task_entry_world_map_send"
+        )
+        if type(captured_target) == "table" then
+            local hover_clicked, hover_target_or_err = M.try_cached_task_entry_send_button_click(
+                ctx,
+                nav_mod,
+                current_time,
+                step,
+                "task_entry_world_map_send:hover_capture"
+            )
+            if hover_clicked then
+                local hover_target = type(hover_target_or_err) == "table" and hover_target_or_err or captured_target
+                state.task_entry_action_send_clicked_at = current_time
+                logger(ctx).info(string.format(
+                    "[Leveling] task entry send clicked | task=%s label=%s addr=%s pos=(%s,%s)",
+                    tostring(task_name or state.current_task_name or ""),
+                    tostring(step.label or ""),
+                    tostring(hover_target and hover_target.addr or ""),
+                    tostring(hover_target and hover_target.x or ""),
+                    tostring(hover_target and hover_target.y or "")
+                ))
+                schedule_task_refresh_after_transition(ctx, current_time, "task_entry_world_map_send", transition_wait_ms, {
+                    force_task_call = true,
+                    task_pos_reject_extra_ms = 3500
+                })
+                log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+                return true
+            end
+            if trim(hover_target_or_err or "") ~= "" then
+                send_wait_err = tostring(hover_target_or_err)
+                log_throttled(ctx, "task_entry_action_hover_send_cached_click_failed", "info", LOG_THROTTLE_MS,
+                    "[Leveling] hover-captured task entry send cached click failed: " .. tostring(hover_target_or_err))
+            end
+        elseif trim(capture_err or "") ~= "" then
+            send_wait_err = tostring(capture_err)
+            log_throttled(ctx, "task_entry_action_hover_send_capture_failed", "info", LOG_THROTTLE_MS,
+                "[Leveling] task entry send hover capture missed: " .. tostring(capture_err))
+        end
+    else
+        send_wait_err = "nav api unavailable."
     end
 
-    local clicked, click_err, retryable = click_locator_button_target(ctx, step, target)
-    if not clicked then
-        log_throttled(ctx, retryable and "task_entry_action_click_retry" or "task_entry_action_click_failed",
-            retryable and "info" or "warn", LOG_THROTTLE_MS,
-            "[Leveling] task entry send click failed: " .. tostring(click_err))
-        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-        return true
+    if current_time >= (tonumber(state.task_entry_action_next_center_click_at) or 0) then
+        state.task_entry_action_center_clicked_at = 0
     end
-
-    state.task_entry_action_send_clicked_at = current_time
-    logger(ctx).info(string.format(
-        "[Leveling] task entry send clicked | task=%s label=%s addr=%s pos=(%s,%s)",
+    log_throttled(ctx, "task_entry_action_button_missing", "info", LOG_THROTTLE_MS, string.format(
+        "[Leveling] task entry send button not visible yet | task=%s label=%s err=%s",
         tostring(task_name or state.current_task_name or ""),
         tostring(step.label or ""),
-        tostring(target.addr or ""),
-        tostring(target.x or ""),
-        tostring(target.y or "")
+        tostring(send_wait_err or "")
     ))
-    schedule_task_refresh_after_transition(ctx, current_time, "task_entry_world_map_send", transition_wait_ms, {
-        force_task_call = true,
-        task_pos_reject_extra_ms = 3500
-    })
     log_heartbeat(ctx, current_time, player_x, player_y, player_z)
     return true
 end
@@ -7189,15 +8963,50 @@ local function find_interaction_prompt_button(ctx, current_time)
     end
 
     state.next_interaction_prompt_scan_at = current_time + INTERACTION_PROMPT_SCAN_INTERVAL_MS
+    local nav_mod = nav_api(ctx)
+
+    local cached_target, cached_err = M.resolve_cached_interaction_prompt_button_target(nav_mod, current_time)
+    if type(cached_target) == "table" then
+        state.cached_interaction_prompt_target = cached_target
+        state.cached_interaction_prompt_target_at = tonumber(cached_target.captured_at) or tonumber(current_time) or 0
+        state.cached_interaction_prompt_error = nil
+        return cached_target, nil
+    end
 
     local target, fetch_err = fetch_locator_button_target(ctx, INTERACTION_PROMPT_STEP)
     if target then
+        M.cache_interaction_prompt_button_target(ctx, target, current_time, "locator_fetch", INTERACTION_PROMPT_STEP)
         state.cached_interaction_prompt_target = target
+        state.cached_interaction_prompt_target_at = tonumber(current_time) or 0
         state.cached_interaction_prompt_error = nil
         return target, nil
     end
 
+    if type(nav_mod) == "table" then
+        local captured_target, capture_err = M.try_capture_interaction_prompt_button_via_hover(
+            ctx,
+            nav_mod,
+            current_time,
+            INTERACTION_PROMPT_STEP,
+            "find_interaction_prompt_button"
+        )
+        if type(captured_target) == "table" then
+            state.cached_interaction_prompt_target = captured_target
+            state.cached_interaction_prompt_target_at = tonumber(current_time) or 0
+            state.cached_interaction_prompt_error = nil
+            return captured_target, nil
+        end
+        if trim(capture_err or "") ~= "" then
+            fetch_err = (trim(fetch_err or "") ~= "")
+                and (tostring(fetch_err) .. " | hover_capture=" .. tostring(capture_err))
+                or capture_err
+        elseif trim(cached_err or "") ~= "" and trim(fetch_err or "") == "" then
+            fetch_err = cached_err
+        end
+    end
+
     state.cached_interaction_prompt_target = nil
+    state.cached_interaction_prompt_target_at = 0
     state.cached_interaction_prompt_error = fetch_err or "interaction prompt not found."
     return nil, state.cached_interaction_prompt_error
 end
@@ -7260,27 +9069,47 @@ function M.find_task_objective_button(ctx, current_time, objective_cfg)
         end
     end
 
-    for _, step in ipairs(steps) do
-        local target, fetch_err = fetch_locator_button_target(ctx, step)
-        if target then
-            local result = {
-                step = step,
-                target = target,
-                arm_task_entry_action_after_click = (
-                    (type(objective_cfg) == "table" and objective_cfg.arm_task_entry_action_after_click == true)
-                    or (type(step) == "table" and step.arm_task_entry_action_after_click == true)
-                ),
-                force_task_call_after_transition = type(objective_cfg) == "table"
-                    and objective_cfg.force_task_call_after_transition == true,
-                task_pos_reject_extra_ms = type(objective_cfg) == "table"
-                    and objective_cfg.task_pos_reject_extra_ms
-                    or nil
-            }
-            state.cached_task_objective_button = result
-            state.cached_task_objective_button_error = nil
-            return result, nil
+    local function is_jump_step(step)
+        if type(step) ~= "table" then
+            return false
         end
-        state.cached_task_objective_button_error = fetch_err or state.cached_task_objective_button_error
+        if tostring(step.key or "") == "jump_btn" then
+            return true
+        end
+        local identity = tostring(step.distance_button_name or ""):lower()
+        return identity:find("dialoguetalk_c.widgettree.jumpbtn", 1, true) ~= nil
+    end
+
+    for _, step in ipairs(steps) do
+        if not is_jump_step(step) then
+            local target, fetch_err = fetch_locator_button_target(ctx, step)
+            if target then
+                local target_identity = (
+                    tostring(target.fullname or "")
+                    .. " "
+                    .. tostring(target.name or "")
+                ):lower()
+                if target_identity:find("dialoguetalk_c.widgettree.jumpbtn", 1, true) == nil then
+                    local result = {
+                        step = step,
+                        target = target,
+                        arm_task_entry_action_after_click = (
+                            (type(objective_cfg) == "table" and objective_cfg.arm_task_entry_action_after_click == true)
+                            or (type(step) == "table" and step.arm_task_entry_action_after_click == true)
+                        ),
+                        force_task_call_after_transition = type(objective_cfg) == "table"
+                            and objective_cfg.force_task_call_after_transition == true,
+                        task_pos_reject_extra_ms = type(objective_cfg) == "table"
+                            and objective_cfg.task_pos_reject_extra_ms
+                            or nil
+                    }
+                    state.cached_task_objective_button = result
+                    state.cached_task_objective_button_error = nil
+                    return result, nil
+                end
+            end
+            state.cached_task_objective_button_error = fetch_err or state.cached_task_objective_button_error
+        end
     end
 
     state.cached_task_objective_button = nil
@@ -7297,6 +9126,17 @@ function M.try_click_task_objective_button(ctx, current_time, objective_button, 
 
     if current_time < (tonumber(state.next_task_objective_button_click_at) or 0) then
         return false, "task objective button click cooldown."
+    end
+
+    local target_identity = (
+        tostring(target.fullname or "")
+        .. " "
+        .. tostring(target.name or "")
+    ):lower()
+    if tostring(step.key or "") == "jump_btn"
+        or target_identity:find("dialoguetalk_c.widgettree.jumpbtn", 1, true) ~= nil
+    then
+        return false, "task objective button target is dialogue jump button."
     end
 
     release_async_combat_inputs(ctx, current_time, true)
@@ -9691,6 +11531,14 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
         return false
     end
 
+    local objective_point = type(action.objective_point) == "table" and action.objective_point or nil
+    local objective_x = tonumber(objective_point and objective_point.x) or trigger_x
+    local objective_y = tonumber(objective_point and objective_point.y) or trigger_y
+    local objective_z = tonumber(objective_point and objective_point.z)
+    if objective_z == nil then
+        objective_z = trigger_z
+    end
+
     local destination_match, destination_distance, destination_err, destination = M.route_point_action_destination_matches(
         action,
         player_x,
@@ -9718,8 +11566,19 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
         return false
     end
 
-    local z_tolerance = math.max(0, tonumber(trigger.z_tolerance) or 260)
-    local interact_radius = math.max(40, tonumber(action.interact_radius) or tonumber(step.hint_max_distance) or 120)
+    local z_tolerance = math.max(
+        0,
+        tonumber(objective_point and objective_point.z_tolerance)
+            or tonumber(trigger.z_tolerance)
+            or 260
+    )
+    local interact_radius = math.max(
+        40,
+        tonumber(objective_point and objective_point.radius)
+            or tonumber(action.interact_radius)
+            or tonumber(step.hint_max_distance)
+            or 120
+    )
     local fallback_distance = math.max(interact_radius, tonumber(action.fallback_interact_distance) or interact_radius)
     local deadline_at = tonumber(state.route_point_action_objective_deadline_at) or 0
     if deadline_at > 0 and current_time >= deadline_at then
@@ -9727,26 +11586,26 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
             "[Leveling] route point action objective timeout | task=%s key=%s point=%.2f, %.2f, %.2f",
             tostring(M.current_task_log_name() or state.current_task_name or ""),
             tostring(active_key),
-            tonumber(trigger_x) or 0,
-            tonumber(trigger_y) or 0,
-            tonumber(trigger_z) or 0
+            tonumber(objective_x) or 0,
+            tonumber(objective_y) or 0,
+            tonumber(objective_z) or 0
         ))
         M.clear_route_point_action_objective_state()
         return false
     end
 
-    local trigger_distance = distance_2d(player_x, player_y, trigger_x, trigger_y)
-    local z_gap = trigger_z ~= nil and type(player_z) == "number"
-        and math.abs((tonumber(player_z) or 0) - trigger_z)
+    local objective_distance = distance_2d(player_x, player_y, objective_x, objective_y)
+    local z_gap = objective_z ~= nil and type(player_z) == "number"
+        and math.abs((tonumber(player_z) or 0) - objective_z)
         or 0
 
-    if trigger_distance > interact_radius or z_gap > z_tolerance then
+    if objective_distance > interact_radius or z_gap > z_tolerance then
         state.stage = "route_point_action_objective_move"
         release_async_combat_inputs(ctx, current_time, true)
         issue_move(ctx, current_time, {
-            x = trigger_x,
-            y = trigger_y,
-            z = trigger_z,
+            x = objective_x,
+            y = objective_y,
+            z = objective_z,
             source = "route_point_objective",
             path_index = 0
         })
@@ -9759,12 +11618,12 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
                 "[Leveling] route point action moving to objective point | task=%s key=%s distance=%.2f interact_radius=%.2f z_gap=%.2f point=%.2f, %.2f, %.2f",
                 tostring(M.current_task_log_name() or state.current_task_name or ""),
                 tostring(active_key),
-                tonumber(trigger_distance) or 0,
+                tonumber(objective_distance) or 0,
                 tonumber(interact_radius) or 0,
                 tonumber(z_gap) or 0,
-                tonumber(trigger_x) or 0,
-                tonumber(trigger_y) or 0,
-                tonumber(trigger_z) or 0
+                tonumber(objective_x) or 0,
+                tonumber(objective_y) or 0,
+                tonumber(objective_z) or 0
             )
         )
         return true
@@ -9785,7 +11644,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
                 "[Leveling] route point action objective holding at point | task=%s key=%s distance=%.2f probe_in=%dms",
                 tostring(M.current_task_log_name() or state.current_task_name or ""),
                 tostring(active_key),
-                tonumber(trigger_distance) or 0,
+                tonumber(objective_distance) or 0,
                 math.max(0, math.floor(next_probe_at - current_time))
             )
         )
@@ -9839,7 +11698,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
                 tostring(M.current_task_log_name() or state.current_task_name or ""),
                 tostring(action.key or ""),
                 tostring(step.label or action.label or ""),
-                tonumber(trigger_distance) or 0,
+                tonumber(objective_distance) or 0,
                 tonumber(z_gap) or 0,
                 tonumber(player_x) or 0,
                 tonumber(player_y) or 0,
@@ -9860,7 +11719,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
                 "[Leveling] route point action objective button unavailable | task=%s key=%s distance=%.2f z_gap=%.2f err=%s",
                 tostring(M.current_task_log_name() or state.current_task_name or ""),
                 tostring(active_key),
-                tonumber(trigger_distance) or 0,
+                tonumber(objective_distance) or 0,
                 tonumber(z_gap) or 0,
                 tostring(click_err or "")
             )
@@ -9868,7 +11727,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
         return true
     end
 
-    if action.fallback_interact == true and trigger_distance <= fallback_distance then
+    if action.fallback_interact == true and objective_distance <= fallback_distance then
         local state_key = tostring(state.route_point_action_objective_active_state_key or active_key)
         local attempted_at = tonumber(state.route_point_action_attempted[state_key]) or 0
         local fallback_retry_ms = math.max(1000, tonumber(action.fallback_retry_ms) or 2500)
@@ -9888,7 +11747,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
                     "[Leveling] route point action objective interact fallback | task=%s key=%s distance=%.2f z_gap=%.2f pos=%.2f, %.2f, %.2f next=main_task_refresh",
                     tostring(M.current_task_log_name() or state.current_task_name or ""),
                     tostring(active_key),
-                    tonumber(trigger_distance) or 0,
+                    tonumber(objective_distance) or 0,
                     tonumber(z_gap) or 0,
                     tonumber(player_x) or 0,
                     tonumber(player_y) or 0,
@@ -9916,7 +11775,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
             "[Leveling] route point action objective waiting button | task=%s key=%s distance=%.2f z_gap=%.2f err=%s",
             tostring(M.current_task_log_name() or state.current_task_name or ""),
             tostring(active_key),
-            tonumber(trigger_distance) or 0,
+            tonumber(objective_distance) or 0,
             tonumber(z_gap) or 0,
             tostring(fetch_err or "")
         )
@@ -10684,6 +12543,17 @@ schedule_task_refresh_after_transition = function(ctx, current_time, reason, wai
     clear_pending_interaction()
     clear_task_target_state()
     clear_runtime_objective_caches()
+    if M.should_arm_task_info_stability_gate(reason_text) then
+        M.arm_task_info_stability_gate(ctx, current_time, {
+            reason = reason_text,
+            previous_task_name = opts.previous_task_name ~= nil and opts.previous_task_name or state.current_task_name,
+            previous_task_detail = opts.previous_task_detail ~= nil and opts.previous_task_detail or state.current_task_detail,
+            timeout_ms = tonumber(opts.task_info_stability_timeout_ms) or tonumber(M.TASK_INFO_STABILITY_TIMEOUT_MS) or 6500,
+            flow_key = opts.task_info_stability_flow_key,
+            change_observed = opts.task_info_change_observed == true
+                or M.task_info_stability_change_already_observed(reason_text)
+        })
+    end
     if opts.force_task_call == true then
         local force_reason = "force_task_call_after_transition:" .. reason_text
         local reject_extra_ms = math.max(0, tonumber(opts.task_pos_reject_extra_ms) or 2500)
@@ -11297,6 +13167,30 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         return nil
     end
 
+    local function is_explicit_mainline_panel_entry(entry)
+        if type(entry) ~= "table" then
+            return false
+        end
+        if tostring(entry.kind or ""):find("主线", 1, true) == nil then
+            return false
+        end
+        local title = trim(normalize_panel_title(entry) or "")
+        local detail = trim(entry.detail or "")
+        return title ~= "" and detail ~= ""
+    end
+
+    local function select_explicit_mainline_panel_entry()
+        if type(task_panel) ~= "table" or type(task_panel.tasks) ~= "table" then
+            return nil
+        end
+        for _, entry in ipairs(task_panel.tasks or {}) do
+            if is_explicit_mainline_panel_entry(entry) then
+                return entry
+            end
+        end
+        return nil
+    end
+
     local function sync_task_detail_from_panel(preferred_task_name, source)
         local entry = select_task_panel_entry(preferred_task_name)
         if type(entry) == "table" then
@@ -11436,33 +13330,44 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
     if best_text ~= nil and best_text ~= tostring(state.current_task_name or "") then
         local candidate_panel_entry = select_task_panel_entry(best_text)
         local current_panel_entry = select_task_panel_entry(state.current_task_name)
-        local fallback_mainline_entry = current_panel_entry or select_task_panel_entry("主线")
-        if type(candidate_panel_entry) ~= "table" and type(fallback_mainline_entry) == "table" then
-            if type(current_panel_entry) ~= "table" then
-                local panel_task_name = normalize_panel_title(fallback_mainline_entry)
-                if panel_task_name ~= nil and panel_task_name ~= tostring(state.current_task_name or "") then
-                    state.current_task_name = panel_task_name
-                    state.current_task_name_source = "task_panel_guard"
-                    state.current_task_name_updated_at = current_time
-                    M.publish_current_task_name()
-                    logger(ctx).info(string.format(
-                        "[Leveling] current task updated | task=%s source=task_panel_guard panel_detail=%s",
-                        tostring(panel_task_name),
-                        tostring(fallback_mainline_entry.detail or "")
-                    ))
-                end
+        local explicit_mainline_entry = nil
+        if is_explicit_mainline_panel_entry(current_panel_entry) then
+            explicit_mainline_entry = current_panel_entry
+        else
+            explicit_mainline_entry = select_explicit_mainline_panel_entry()
+        end
+        if type(candidate_panel_entry) ~= "table" and type(explicit_mainline_entry) == "table" then
+            local panel_task_name = normalize_panel_title(explicit_mainline_entry)
+            if panel_task_name ~= nil and panel_task_name ~= tostring(state.current_task_name or "") then
+                state.current_task_name = panel_task_name
+                state.current_task_name_source = "task_panel_guard"
+                state.current_task_name_updated_at = current_time
+                M.publish_current_task_name()
+                logger(ctx).info(string.format(
+                    "[Leveling] current task updated | task=%s source=task_panel_guard panel_detail=%s",
+                    tostring(panel_task_name),
+                    tostring(explicit_mainline_entry.detail or "")
+                ))
             end
             log_throttled(ctx, "task_name_nearby_unconfirmed", "info", LOG_THROTTLE_MS, string.format(
-                "[Leveling] nearby task text not confirmed by task panel, keep panel task | current=%s candidate=%s panel=%s panel_detail=%s",
+                "[Leveling] nearby task text not confirmed by task panel, keep explicit mainline task | current=%s candidate=%s panel=%s panel_detail=%s",
                 tostring(state.current_task_name or ""),
                 tostring(best_text or ""),
-                tostring(fallback_mainline_entry.raw_text or fallback_mainline_entry.title or ""),
-                tostring(fallback_mainline_entry.detail or "")
+                tostring(explicit_mainline_entry.raw_text or explicit_mainline_entry.title or ""),
+                tostring(explicit_mainline_entry.detail or "")
             ))
             sync_task_detail_from_panel(
-                tostring(state.current_task_name or fallback_mainline_entry.raw_text or fallback_mainline_entry.title or ""),
+                tostring(state.current_task_name or explicit_mainline_entry.raw_text or explicit_mainline_entry.title or ""),
                 "task_panel_guard"
             )
+            return state.current_task_name, nil
+        end
+        if type(candidate_panel_entry) ~= "table" then
+            log_throttled(ctx, "task_name_nearby_unconfirmed_no_mainline", "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] nearby task text not confirmed by task panel, explicit mainline text/detail unavailable | current=%s candidate=%s",
+                tostring(state.current_task_name or ""),
+                tostring(best_text or "")
+            ))
             return state.current_task_name, nil
         end
         local preserve_source = type(candidate_panel_entry) == "table" and "task_panel_confirmed" or "nearby_text"
@@ -11871,6 +13776,18 @@ function M.resolve_main_task_hover_return_bounds(nav_mod, step)
 end
 
 function M.resolve_main_task_hover_history_key(kind, namespace)
+    if namespace == "task_entry_send" then
+        if kind == "return" then
+            return "task_entry_send_hover_return_history"
+        end
+        return "task_entry_send_hover_capture_history"
+    end
+    if namespace == "interaction_prompt" then
+        if kind == "return" then
+            return "interaction_prompt_hover_return_history"
+        end
+        return "interaction_prompt_hover_capture_history"
+    end
     if namespace == "treasure" then
         if kind == "return" then
             return "treasure_task_hover_return_history"
@@ -12861,23 +14778,24 @@ local function click_main_task_button(ctx, current_time, opts)
     end
 
     local function apply_main_task_click_result(refresh_target, hint_x, hint_y)
-        state.last_task_button_click_at = current_time
-        state.next_follow_task_button_refresh_at = current_time + TASK_BUTTON_KEEPALIVE_INTERVAL_MS
-        state.next_task_button_soft_refresh_at = current_time + TASK_BUTTON_SOFT_REFRESH_INTERVAL_MS
-        state.next_task_refresh_at = current_time + TASK_BUTTON_SETTLE_MS
-        M.refresh_current_task_name(ctx, current_time, refresh_target, hint_x, hint_y)
+        local after_click_time = math.max(current_time, tonumber(now_ms(ctx)) or current_time)
+        state.last_task_button_click_at = after_click_time
+        state.next_follow_task_button_refresh_at = after_click_time + TASK_BUTTON_KEEPALIVE_INTERVAL_MS
+        state.next_task_button_soft_refresh_at = after_click_time + TASK_BUTTON_SOFT_REFRESH_INTERVAL_MS
+        state.next_task_refresh_at = after_click_time + TASK_BUTTON_SETTLE_MS
+        M.refresh_current_task_name(ctx, after_click_time, refresh_target, hint_x, hint_y)
 
         if not preserve_target then
             clear_task_target_state()
-            state.task_path_wait_until = current_time + TASK_BUTTON_PATH_FETCH_TIMEOUT_MS
+            state.task_path_wait_until = after_click_time + TASK_BUTTON_PATH_FETCH_TIMEOUT_MS
             state.next_task_button_click_at = state.task_path_wait_until
             state.cached_nearest_npc = nil
             state.cached_npc_error = nil
             state.cached_task_monsters = nil
             state.cached_task_monster_error = nil
-            state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, current_time + POST_UI_PAUSE_MS)
+            state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, after_click_time + POST_UI_PAUSE_MS)
         else
-            state.next_task_button_click_at = current_time + TASK_BUTTON_RETRY_INTERVAL_MS
+            state.next_task_button_click_at = after_click_time + TASK_BUTTON_RETRY_INTERVAL_MS
             state.cached_nearest_npc = nil
             state.cached_npc_error = nil
             state.cached_task_monsters = nil
@@ -15507,6 +17425,9 @@ M.find_current_task_npc = function(ctx, current_time, player_x, player_y)
 end
 
 local function arm_dialogue_followup(current_time, origin, label, refresh_on_timeout)
+    local had_consumed_jump = state.dialogue_jump_consumed == true
+    M.clear_dialogue_jump_session_state()
+    M.clear_task_info_refresh_wait_state()
     state.last_dialogue_at = current_time
     state.dialogue_escape_due_at = 0
     state.dialogue_confirm_deadline_at = 0
@@ -15534,6 +17455,14 @@ local function arm_dialogue_followup(current_time, origin, label, refresh_on_tim
     state.cached_interaction_prompt_target = nil
     state.cached_interaction_prompt_error = nil
     state.next_interaction_prompt_scan_at = 0
+    if state.log_ctx ~= nil then
+        logger(state.log_ctx).info(string.format(
+            "[Leveling] dialogue jump session reset | origin=%s label=%s prev_consumed=%s",
+            tostring(origin or ""),
+            tostring(label or ""),
+            had_consumed_jump and "true" or "false"
+        ))
+    end
 end
 
 function M.arm_npc_dialogue_combat_retry(current_time, npc, opts)
@@ -16205,10 +18134,28 @@ M.interact_with_npc = function(ctx, current_time, npc, opts)
         return false, err
     end
 
-    arm_dialogue_followup(current_time, "npc", npc and npc.label or "", false)
-    M.arm_npc_dialogue_combat_retry(current_time, npc, opts)
+    local after_dialogue_time = math.max(tonumber(current_time) or 0, tonumber(now_ms(ctx)) or 0)
+    arm_dialogue_followup(after_dialogue_time, "npc", npc and npc.label or "", false)
+
+    local direct_post_flow, direct_post_task_name = M.current_task_post_dialogue_flow_config()
+    local armed_direct_post_flow = false
+    if type(direct_post_flow) == "table"
+        and direct_post_flow.arm_after_objective_button == true
+        and M.arm_post_dialogue_flow(ctx, after_dialogue_time, direct_post_flow, direct_post_task_name, "npc") == true
+    then
+        armed_direct_post_flow = true
+        logger(ctx).info(string.format(
+            "[Leveling] npc dialogue opened post flow armed | task=%s detail=%s key=%s label=%s",
+            tostring(direct_post_task_name or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            tostring(direct_post_flow.key or ""),
+            tostring(npc and npc.label or "")
+        ))
+    end
+
+    M.arm_npc_dialogue_combat_retry(after_dialogue_time, npc, opts)
     logger(ctx).info(string.format(
-        "[Leveling] npc dialogue triggered | npc=%s player_distance=%.2f task_distance=%.2f target_source=%s pos=%.2f, %.2f, %.2f esc_followup=disabled settle_ms=%d combat_retry_source=%s",
+        "[Leveling] npc dialogue triggered | npc=%s player_distance=%.2f task_distance=%.2f target_source=%s pos=%.2f, %.2f, %.2f esc_followup=disabled settle_ms=%d combat_retry_source=%s post_flow_armed=%s",
         tostring(npc and npc.label or ""),
         tonumber(npc and npc.distance) or 0,
         tonumber(npc and npc.task_distance) or 0,
@@ -16217,7 +18164,8 @@ M.interact_with_npc = function(ctx, current_time, npc, opts)
         tonumber(npc and npc.y) or 0,
         tonumber(npc and npc.z) or 0,
         POST_DIALOGUE_SETTLE_MS,
-        tostring(state.npc_dialogue_combat_retry_source or "")
+        tostring(state.npc_dialogue_combat_retry_source or ""),
+        armed_direct_post_flow and "true" or "false"
     ))
     return true
 end
@@ -16229,6 +18177,67 @@ M.interact_with_prompt = function(ctx, current_time, prompt, goal_distance, targ
 
     release_async_combat_inputs(ctx, current_time, true)
 
+    local prompt_label = prompt and (prompt.related_text or prompt.text or prompt.name) or INTERACTION_PROMPT_STEP.label
+    local escape_enabled = false
+    local nav_mod = nav_api(ctx)
+
+    local function apply_prompt_followup(trigger_time, source_label)
+        state.last_dialogue_at = trigger_time
+        arm_dialogue_followup(
+            trigger_time,
+            "interaction_prompt",
+            prompt_label,
+            refresh_on_timeout ~= false
+        )
+        logger(ctx).info(string.format(
+            "[Leveling] interaction prompt triggered | label=%s goal_distance=%.2f target_source=%s prompt_pos=%.2f, %.2f esc_followup=%s settle_ms=%d source=%s",
+            tostring(prompt_label),
+            tonumber(goal_distance) or 0,
+            tostring(target_source or ""),
+            tonumber(prompt and prompt.x) or 0,
+            tonumber(prompt and prompt.y) or 0,
+            escape_enabled and "enabled" or "disabled",
+            POST_DIALOGUE_SETTLE_MS,
+            tostring(source_label or "")
+        ))
+        return true
+    end
+
+    if type(nav_mod) == "table" then
+        local cached_clicked, cached_target_or_err = M.try_cached_interaction_prompt_button_click(
+            ctx,
+            nav_mod,
+            current_time,
+            INTERACTION_PROMPT_STEP,
+            "pre_key_fallback"
+        )
+        if cached_clicked then
+            return apply_prompt_followup(math.max(current_time, now_ms(ctx)), "cached_addr")
+        end
+        if trim(cached_target_or_err or "") ~= "" then
+            log_throttled(ctx, "interaction_prompt_cached_addr_failed", "info", LOG_THROTTLE_MS,
+                "[Leveling] cached interaction prompt addr click miss: " .. tostring(cached_target_or_err))
+        end
+
+        if type(prompt) == "table" then
+            M.cache_interaction_prompt_button_target(ctx, prompt, current_time, "callsite_target", INTERACTION_PROMPT_STEP)
+            local prompt_clicked, prompt_target_or_err = M.try_cached_interaction_prompt_button_click(
+                ctx,
+                nav_mod,
+                current_time,
+                INTERACTION_PROMPT_STEP,
+                "callsite_target"
+            )
+            if prompt_clicked then
+                return apply_prompt_followup(math.max(current_time, now_ms(ctx)), "callsite_target")
+            end
+            if trim(prompt_target_or_err or "") ~= "" then
+                log_throttled(ctx, "interaction_prompt_callsite_cached_click_failed", "info", LOG_THROTTLE_MS,
+                    "[Leveling] callsite interaction prompt addr click miss: " .. tostring(prompt_target_or_err))
+            end
+        end
+    end
+
     local ok, err = press_keyboard_hotkey(ctx, current_time, VK_D, "leveling interaction prompt")
     if not ok then
         log_throttled(ctx, "interaction_prompt_failed", "warn", LOG_THROTTLE_MS,
@@ -16236,26 +18245,7 @@ M.interact_with_prompt = function(ctx, current_time, prompt, goal_distance, targ
         return false, err
     end
 
-    state.last_dialogue_at = current_time
-    local prompt_label = prompt and (prompt.related_text or prompt.text or prompt.name) or INTERACTION_PROMPT_STEP.label
-    local escape_enabled = false
-    arm_dialogue_followup(
-        current_time,
-        "interaction_prompt",
-        prompt_label,
-        refresh_on_timeout ~= false
-    )
-    logger(ctx).info(string.format(
-        "[Leveling] interaction prompt triggered | label=%s goal_distance=%.2f target_source=%s prompt_pos=%.2f, %.2f esc_followup=%s settle_ms=%d",
-        tostring(prompt_label),
-        tonumber(goal_distance) or 0,
-        tostring(target_source or ""),
-        tonumber(prompt and prompt.x) or 0,
-        tonumber(prompt and prompt.y) or 0,
-        escape_enabled and "enabled" or "disabled",
-        POST_DIALOGUE_SETTLE_MS
-    ))
-    return true
+    return apply_prompt_followup(current_time, "keyboard_d")
 end
 
 local function press_escape_after_dialogue(ctx, current_time)
@@ -17372,6 +19362,148 @@ function M.maybe_handle_task_combat_completion(ctx, current_time, player_x, play
     return true
 end
 
+function M.maybe_handle_task_info_stability_gate(ctx, current_time, player_x, player_y, player_z)
+    if state.task_info_stability_gate_active ~= true then
+        return false
+    end
+
+    local stability_probe_interval_ms = tonumber(M.TASK_INFO_STABILITY_PROBE_INTERVAL_MS) or 600
+    local stability_settle_ms = tonumber(M.TASK_INFO_STABILITY_SETTLE_MS) or 1200
+
+    if current_time >= (tonumber(state.task_info_stability_gate_next_probe_at) or 0) then
+        local hint_x, hint_y = resolve_main_task_button_hint(ctx)
+        if hint_x ~= nil and hint_y ~= nil then
+            M.refresh_current_task_name(ctx, current_time, nil, hint_x, hint_y)
+        end
+        state.task_info_stability_gate_next_probe_at = current_time + stability_probe_interval_ms
+    end
+
+    local previous_task_name = normalize_map_name(state.task_info_stability_gate_previous_task_name)
+    local previous_task_detail = normalize_map_name(state.task_info_stability_gate_previous_task_detail)
+    local observed_task_name = normalize_map_name(state.task_info_stability_gate_observed_task_name)
+    local observed_task_detail = normalize_map_name(state.task_info_stability_gate_observed_task_detail)
+    local current_task_name = normalize_map_name(state.current_task_name)
+    local current_task_detail = normalize_map_name(state.current_task_detail)
+    local gate_reason = tostring(state.task_info_stability_gate_reason or "")
+    local gate_flow_key = tostring(state.task_info_stability_gate_flow_key or "")
+    local gate_deadline_at = tonumber(state.task_info_stability_gate_deadline_at) or 0
+    local gate_changed_at = tonumber(state.task_info_stability_gate_changed_at) or 0
+    local gate_stabilize_until = tonumber(state.task_info_stability_gate_stabilize_until) or 0
+    local task_info_changed = current_task_name ~= previous_task_name
+        or current_task_detail ~= previous_task_detail
+
+    if gate_changed_at <= 0 then
+        if task_info_changed then
+            state.task_info_stability_gate_changed_at = current_time
+            state.task_info_stability_gate_stabilize_until = current_time + stability_settle_ms
+            state.task_info_stability_gate_observed_task_name = current_task_name
+            state.task_info_stability_gate_observed_task_detail = current_task_detail
+            state.next_task_button_click_at = math.max(
+                tonumber(state.next_task_button_click_at) or 0,
+                state.task_info_stability_gate_stabilize_until
+            )
+            state.next_task_refresh_at = math.max(
+                tonumber(state.next_task_refresh_at) or 0,
+                state.task_info_stability_gate_stabilize_until
+            )
+            logger(ctx).info(string.format(
+                "[Leveling] task info changed, stabilizing for %dms | old_task=%s old_detail=%s new_task=%s new_detail=%s reason=%s flow_key=%s",
+                stability_settle_ms,
+                tostring(previous_task_name or ""),
+                tostring(previous_task_detail or ""),
+                tostring(current_task_name or ""),
+                tostring(current_task_detail or ""),
+                gate_reason,
+                gate_flow_key
+            ))
+        elseif gate_deadline_at > 0 and current_time > gate_deadline_at then
+            logger(ctx).warn(string.format(
+                "[Leveling] task info stability gate timed out before change, fallback to task refresh | task=%s detail=%s reason=%s flow_key=%s timeout=%dms",
+                tostring(M.current_task_log_name() or state.current_task_name or ""),
+                tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                gate_reason,
+                gate_flow_key,
+                math.max(0, current_time - (tonumber(state.task_info_stability_gate_started_at) or current_time))
+            ))
+            M.clear_task_info_refresh_wait_state()
+            state.require_task_button_refresh = true
+            state.require_task_button_refresh_reason = "task_info_stability_timeout:" .. gate_reason
+            state.next_task_button_click_at = current_time
+            state.next_task_refresh_at = current_time
+        end
+    else
+        if current_task_name ~= observed_task_name or current_task_detail ~= observed_task_detail then
+            state.task_info_stability_gate_changed_at = current_time
+            state.task_info_stability_gate_stabilize_until = current_time + stability_settle_ms
+            state.task_info_stability_gate_observed_task_name = current_task_name
+            state.task_info_stability_gate_observed_task_detail = current_task_detail
+            gate_stabilize_until = tonumber(state.task_info_stability_gate_stabilize_until) or gate_stabilize_until
+            state.next_task_button_click_at = math.max(
+                tonumber(state.next_task_button_click_at) or 0,
+                gate_stabilize_until
+            )
+            state.next_task_refresh_at = math.max(
+                tonumber(state.next_task_refresh_at) or 0,
+                gate_stabilize_until
+            )
+            logger(ctx).info(string.format(
+                "[Leveling] task info changed again, extend stabilizing for %dms | task=%s detail=%s reason=%s flow_key=%s",
+                stability_settle_ms,
+                tostring(current_task_name or ""),
+                tostring(current_task_detail or ""),
+                gate_reason,
+                gate_flow_key
+            ))
+        end
+
+        if gate_deadline_at > 0 and current_time > gate_deadline_at then
+            logger(ctx).warn(string.format(
+                "[Leveling] task info stability gate timed out during stabilize, resume task flow anyway | task=%s detail=%s reason=%s flow_key=%s timeout=%dms",
+                tostring(M.current_task_log_name() or state.current_task_name or ""),
+                tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                gate_reason,
+                gate_flow_key,
+                math.max(0, current_time - (tonumber(state.task_info_stability_gate_started_at) or current_time))
+            ))
+            M.clear_task_info_refresh_wait_state()
+            state.require_task_button_refresh = true
+            state.require_task_button_refresh_reason = "task_info_stability_timeout:" .. gate_reason
+            state.next_task_button_click_at = current_time
+            state.next_task_refresh_at = current_time
+        elseif current_time >= gate_stabilize_until then
+            logger(ctx).info(string.format(
+                "[Leveling] task info stable, resume task path/button flow | task=%s detail=%s reason=%s flow_key=%s",
+                tostring(current_task_name or ""),
+                tostring(current_task_detail or ""),
+                gate_reason,
+                gate_flow_key
+            ))
+            M.clear_task_info_refresh_wait_state()
+            state.next_task_button_click_at = current_time
+            state.next_task_refresh_at = current_time
+        end
+    end
+
+    if state.task_info_stability_gate_active == true then
+        state.stage = "wait_task_info_stability_gate"
+        M.log_execution_trace(ctx, current_time, "waiting_task_info_stability_gate", nil, nil, nil, nil, player_x, player_y, player_z)
+        release_async_combat_inputs(ctx, current_time, true)
+        hold_navigation(ctx, current_time, "wait_task_info_stability_gate")
+        log_throttled(ctx, "task_info_stability_gate_wait", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] waiting task info stability gate | task=%s detail=%s reason=%s flow_key=%s wait_left=%dms",
+            tostring(M.current_task_log_name() or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            gate_reason,
+            gate_flow_key,
+            math.max(0, (tonumber(state.task_info_stability_gate_deadline_at) or current_time) - current_time)
+        ))
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    return false
+end
+
 function M.update(now, ctx)
     if state.running ~= true then
         return false, "Leveling runner is not started."
@@ -17544,6 +19676,10 @@ function M.update(now, ctx)
         log_throttled(ctx, "task_update_wait", "info", LOG_THROTTLE_MS,
             "[Leveling] waiting task list update after dialogue/prompt settle.")
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    if M.maybe_handle_task_info_stability_gate(ctx, current_time, player_x, player_y, player_z) then
         return true
     end
 
@@ -17834,6 +19970,16 @@ function M.update(now, ctx)
         goal_distance = goal_distance,
         objective_ready_distance = objective_ready_distance
     }) then
+        return true
+    end
+
+    if is_stalled
+        and (tonumber(state.stall_retry_count) or 0) == 1
+        and M.maybe_issue_task_path_sidestep(ctx, current_time, player_x, player_y, player_z, target)
+    then
+        state.stage = "follow_task_sidestep"
+        M.log_execution_trace(ctx, current_time, "follow_task_sidestep", target, destination, goal_distance, objective_cfg and objective_cfg.mode, player_x, player_y, player_z)
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
 
