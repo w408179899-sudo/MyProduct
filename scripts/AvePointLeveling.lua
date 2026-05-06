@@ -177,6 +177,7 @@ M.TASK_COMBAT_KITE_ASYNC_ROUTE_WORKER = not (
 )
 M.VK_A = 0x41
 local VK_Q = 0x51
+local logger
 local schedule_task_refresh_after_transition
 local normalize_map_name
 local VK_W = 0x57
@@ -1415,7 +1416,7 @@ end
 
 reset_state()
 
-local function logger(ctx)
+logger = function(ctx)
     if type(ctx) == "table" and type(ctx.log) == "table" then
         return ctx.log
     end
