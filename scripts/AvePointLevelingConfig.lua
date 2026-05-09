@@ -69,6 +69,19 @@ end
 
 local SUN_FACTION_CHOICE = configured_sun_faction_choice()
 
+M.LEVEL_UP_MAINTENANCE_CONFIG = {
+    enabled = true,
+    execute_ui = false,
+    probe_ms = 1200,
+    safe_no_monster_ms = 1800,
+    monster_guard_distance = 620,
+    min_hp_ratio = 0.72,
+    skill_enabled = true,
+    talent_enabled = true,
+    skill_by_level = {},
+    talent_by_level = {}
+}
+
 local function make_sun_faction_choice_action()
     local is_moon = SUN_FACTION_CHOICE == 2
     local faction_name = is_moon and "皓月" or "繁星"
@@ -2208,9 +2221,9 @@ local function make_fire_treader_romel_boss_task_config()
     )
 end
 
-local function make_overcast_city_guard_fire_seed_device_task_config()
+local function make_overcast_city_awakened_ryan_task_config()
     return make_boss_kite_task_config(
-        "overcast_city_guard_fire_seed_device_kite",
+        "overcast_city_awakened_ryan_kite",
         {
             trigger_distance = 180,
             immediate_kite_on_reached = true,
@@ -2224,10 +2237,9 @@ local function make_overcast_city_guard_fire_seed_device_task_config()
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
             kite_points = {
-                { x = 5036.32, y = -177.00,  z = 3091.39 },
-                { x = 4473.61, y = -1856.99, z = 3091.00 },
-                { x = 5036.32, y = -177.00,  z = 3091.39 },
-                { x = 4473.61, y = -1856.99, z = 3091.00 }
+                { x = 4559.32, y = -929.80,  z = 3091.00 },
+                { x = 4631.75, y = -2215.55, z = 3091.00 },
+                { x = 3601.63, y = -1464.51, z = 3091.00 }
             }
         },
         {
@@ -2235,7 +2247,7 @@ local function make_overcast_city_guard_fire_seed_device_task_config()
                 "\u{9634}\u{4E91}\u{538B}\u{57CE}"
             },
             task_detail_patterns = {
-                "\u{5B88}\u{62A4}\u{706B}\u{79CD}\u{88C5}\u{7F6E}",
+                "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}",
                 "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}",
                 "\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}"
             },
@@ -3110,10 +3122,10 @@ M.TASK_NAME_CONFIGS = {
     ["\u{7279}\u{6B8A}\u{5B9E}\u{9A8C}\u{4F53}\u{57FA}\u{5C14}"] = make_forgotten_temple_special_experiment_keel_task_config(),
     ["\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}"] = make_abyss_below_awakened_temple_deep_route_task_config(),
     ["\u{8FDB}\u{5165}\u{89C9}\u{9192}\u{79D8}\u{6BBF}\u{6DF1}\u{5904}"] = make_abyss_below_awakened_temple_deep_route_task_config(),
-    ["\u{9634}\u{4E91}\u{538B}\u{57CE}"] = make_overcast_city_guard_fire_seed_device_task_config(),
-    ["\u{5B88}\u{62A4}\u{706B}\u{79CD}\u{88C5}\u{7F6E}"] = make_overcast_city_guard_fire_seed_device_task_config(),
-    ["\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}"] = make_overcast_city_guard_fire_seed_device_task_config(),
-    ["\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}"] = make_overcast_city_guard_fire_seed_device_task_config(),
+    ["\u{9634}\u{4E91}\u{538B}\u{57CE}"] = make_overcast_city_awakened_ryan_task_config(),
+    ["\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}"] = make_overcast_city_awakened_ryan_task_config(),
+    ["\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}"] = make_overcast_city_awakened_ryan_task_config(),
+    ["\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}"] = make_overcast_city_awakened_ryan_task_config(),
     ["\u{65C5}\u{9014}\u{4E4B}\u{59CB}"] = make_journey_begin_awakened_leader_task_config(),
     ["\u{7A81}\u{7834}\u{89C9}\u{9192}\u{8005}\u{91CD}\u{56F4}"] = make_journey_begin_awakened_leader_task_config(),
     ["\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{5934}\u{76EE}"] = make_journey_begin_awakened_leader_task_config(),
@@ -7967,11 +7979,11 @@ M.OBJECTIVE_POINT_CONFIGS = {
         }
     }),
     Actions.make_clear_room_point({
-        key = "overcast_city_guard_fire_seed_device_kite",
-        x = 5100.00,
-        y = -600.00,
-        z = 3100.00,
-        radius = 1200,
+        key = "overcast_city_awakened_ryan_kite",
+        x = 5120.92,
+        y = -764.94,
+        z = 3092.00,
+        radius = 800,
         trigger_distance = 180,
         immediate_kite_on_reached = true,
         kite_radius = 1800,
@@ -7981,16 +7993,15 @@ M.OBJECTIVE_POINT_CONFIGS = {
         kite_move_interval_ms = 180,
         boss_clear_settle_ms = 3500,
         kite_points = {
-            { x = 5036.32, y = -177.00,  z = 3091.39 },
-            { x = 4473.61, y = -1856.99, z = 3091.00 },
-            { x = 5036.32, y = -177.00,  z = 3091.39 },
-            { x = 4473.61, y = -1856.99, z = 3091.00 }
+            { x = 4559.32, y = -929.80,  z = 3091.00 },
+            { x = 4631.75, y = -2215.55, z = 3091.00 },
+            { x = 3601.63, y = -1464.51, z = 3091.00 }
         },
         task_patterns = {
             "\u{9634}\u{4E91}\u{538B}\u{57CE}"
         },
         task_detail_patterns = {
-            "\u{5B88}\u{62A4}\u{706B}\u{79CD}\u{88C5}\u{7F6E}",
+            "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}",
             "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}",
             "\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}"
         },

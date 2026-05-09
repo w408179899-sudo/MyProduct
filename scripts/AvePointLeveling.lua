@@ -187,6 +187,13 @@ M.TASK_INFO_STABILITY_RUNTIME_READY_COUNT = 1
 local POST_UI_PAUSE_MS = 900
 local FOLLOW_MOVE_PULSE_INTERVAL_MS = 550
 local FOLLOW_MOVE_PULSE_MIN_DISTANCE = 260
+M.AMBIENT_COMBAT_WAIT_SCAN_INTERVAL_MS = 250
+M.INTERACTION_COMBAT_GUARD_MAX_MS = 1800
+M.INTERACTION_COMBAT_GUARD_DISTANCE = 520
+M.LEVEL_UP_MAINTENANCE_CONFIG = type(M._leveling_config) == "table"
+    and type(M._leveling_config.LEVEL_UP_MAINTENANCE_CONFIG) == "table"
+    and M._leveling_config.LEVEL_UP_MAINTENANCE_CONFIG
+    or {}
 local POTION_THRESHOLD_RATIO = 0.60
 local POTION_COOLDOWN_MS = 2500
 local LOG_THROTTLE_MS = 3000
@@ -718,7 +725,7 @@ local state = {}
 
 function M.is_task_detail_noise(value)
     local text = trim(tostring(value or ""))
-    return text == "新"
+    return text == "新" or text == "完成"
 end
 
 function M.is_task_detail_transition(value)
@@ -1455,6 +1462,11 @@ local function reset_state()
     state.next_task_path_deviation_refresh_at = 0
     state.next_follow_idle_refresh_at = 0
     state.next_follow_move_pulse_at = 0
+    state.next_ambient_combat_scan_at = 0
+    state.interaction_combat_guard_key = nil
+    state.interaction_combat_guard_started_at = 0
+    state.interaction_combat_guard_skip_key = nil
+    state.interaction_combat_guard_skip_until = 0
     state.next_npc_scan_at = 0
     state.next_monster_scan_at = 0
     state.next_player_info_refresh_at = 0
@@ -1753,6 +1765,16 @@ local function reset_state()
     state.cached_route_point_action_player_level_progress = nil
     state.cached_route_point_action_player_level_text = nil
     state.cached_route_point_action_player_level_error = nil
+    state.level_up_maintenance_last_level = nil
+    state.level_up_maintenance_last_level_text = nil
+    state.level_up_maintenance_last_progress = nil
+    state.level_up_maintenance_pending_skill = false
+    state.level_up_maintenance_pending_talent = false
+    state.level_up_maintenance_pending_levels = nil
+    state.level_up_maintenance_pending_since = 0
+    state.level_up_maintenance_safe_since = 0
+    state.level_up_maintenance_last_block_reason = nil
+    state.level_up_maintenance_last_observe_error = nil
     state.next_route_point_action_map_probe_at = 0
     state.cached_route_point_action_map_name = nil
     state.cached_route_point_action_map_error = nil
@@ -6845,13 +6867,13 @@ function M.maybe_handle_boss_task_change(ctx, current_time)
     state.next_task_name_probe_at = current_time + 900
 
     local locked_objective_key = normalize_map_name(state.task_combat_locked_objective_key)
-    local locked_task_name = normalize_map_name(state.task_combat_locked_task_name)
+    local locked_task_name = M.normalize_task_title_key(state.task_combat_locked_task_name)
     local locked_task_detail = normalize_map_name(state.task_combat_locked_task_detail)
     local current_task_cfg, current_task_name = M.current_task_runtime_config()
     local current_objective = type(current_task_cfg) == "table" and type(current_task_cfg.objective) == "table" and current_task_cfg.objective or nil
     local current_objective_key = normalize_map_name(type(current_objective) == "table" and current_objective.key or nil)
     local locked_point_cfg = M.find_objective_point_config_by_key(state.task_combat_locked_objective_key)
-    local current_log_task_name = normalize_map_name(M.current_task_log_name())
+    local current_log_task_name = M.normalize_task_title_key(M.current_task_log_name())
     local current_log_task_detail = normalize_map_name(M.current_task_log_detail())
     local current_task_source = tostring(state.current_task_name_source or "")
     local current_detail_source = tostring(state.current_task_detail_source or "")
@@ -9301,6 +9323,162 @@ local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
         tostring(mouse_mode or ""),
         ACTION_KEY_HOLD_MS,
         cooldown_ms
+    ))
+    return true
+end
+
+function M.clear_interaction_combat_guard(reason)
+    if reason ~= nil
+        and tostring(reason or "") ~= ""
+        and state.interaction_combat_guard_key ~= nil
+        and tostring(state.interaction_combat_guard_key or "") ~= tostring(reason or "")
+    then
+        return
+    end
+    state.interaction_combat_guard_key = nil
+    state.interaction_combat_guard_started_at = 0
+end
+
+function M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, reason, opts)
+    opts = type(opts) == "table" and opts or {}
+    current_time = tonumber(current_time) or now_ms(ctx)
+    if tonumber(player_x) == nil or tonumber(player_y) == nil then
+        return false, "player_pos_unavailable"
+    end
+    if M.is_task_combat_or_post_loot_active and M.is_task_combat_or_post_loot_active() then
+        return false, "task_combat_active"
+    end
+    if opts.in_main_interface == false and opts.allow_when_main_interface_false ~= true then
+        return false, "main_interface_false"
+    end
+    if type(state.task_entry_action_locked_cfg) == "table" and opts.allow_during_entry_action ~= true then
+        return false, "task_entry_action_active"
+    end
+    if current_time < (tonumber(state.pause_combat_until) or 0) then
+        return false, "combat_pause"
+    end
+    if current_time < (tonumber(state.next_ambient_combat_scan_at) or 0) then
+        return false, "ambient_scan_cooldown"
+    end
+    state.next_ambient_combat_scan_at = current_time + (tonumber(M.AMBIENT_COMBAT_WAIT_SCAN_INTERVAL_MS) or 250)
+
+    local nearby_monsters, monster_err = M.find_task_monsters(ctx, current_time, player_x, player_y)
+    if not (nearby_monsters and tonumber(nearby_monsters.count) and nearby_monsters.count > 0) then
+        if monster_err then
+            log_throttled(ctx, "ambient_combat_scan_miss_" .. tostring(reason or ""), "info", MONSTER_SCAN_LOG_INTERVAL_MS,
+                "[Leveling] ambient combat scan found no nearby target | reason=" .. tostring(reason or "")
+                    .. " err=" .. tostring(monster_err))
+        end
+        return false, monster_err or "no_nearby_monster"
+    end
+
+    local nearest_monster = nearby_monsters.nearest or {}
+    local should_pulse, pulse_reason = should_issue_nearby_monster_pulse(current_time)
+    if not should_pulse then
+        log_throttled(ctx, "ambient_combat_pulse_deferred_" .. tostring(reason or ""), "info", MONSTER_SCAN_LOG_INTERVAL_MS, string.format(
+            "[Leveling] ambient combat pulse deferred | reason=%s nearest_distance=%.2f count=%d gate=%s",
+            tostring(reason or ""),
+            tonumber(nearest_monster.distance) or 0,
+            tonumber(nearby_monsters.count) or 0,
+            tostring(pulse_reason or "")
+        ))
+        return false, pulse_reason or "pulse_deferred"
+    end
+
+    local pulse_ok, pulse_err = issue_combat_pulse(ctx, current_time, "ambient_" .. tostring(reason or "wait"), true)
+    if pulse_ok then
+        log_throttled(ctx, "ambient_combat_pulse_issued_" .. tostring(reason or ""), "info", MONSTER_SCAN_LOG_INTERVAL_MS, string.format(
+            "[Leveling] ambient combat pulse issued | reason=%s nearest_distance=%.2f count=%d",
+            tostring(reason or ""),
+            tonumber(nearest_monster.distance) or 0,
+            tonumber(nearby_monsters.count) or 0
+        ))
+        return true, nil
+    end
+
+    log_throttled(ctx, "ambient_combat_pulse_blocked_" .. tostring(reason or ""), "info", MONSTER_SCAN_LOG_INTERVAL_MS, string.format(
+        "[Leveling] ambient combat pulse blocked | reason=%s nearest_distance=%.2f count=%d err=%s",
+        tostring(reason or ""),
+        tonumber(nearest_monster.distance) or 0,
+        tonumber(nearby_monsters.count) or 0,
+        tostring(pulse_err or "")
+    ))
+    return false, pulse_err or "pulse_blocked"
+end
+
+function M.maybe_guard_interaction_with_combat(ctx, current_time, player_x, player_y, reason, opts)
+    opts = type(opts) == "table" and opts or {}
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local guard_key = tostring(reason or "interaction")
+    if tostring(state.interaction_combat_guard_skip_key or "") == guard_key
+        and current_time < (tonumber(state.interaction_combat_guard_skip_until) or 0)
+    then
+        return false
+    end
+    if tonumber(player_x) == nil or tonumber(player_y) == nil then
+        M.clear_interaction_combat_guard(reason)
+        return false
+    end
+    if current_time < (tonumber(state.pause_combat_until) or 0) then
+        return false
+    end
+
+    local nearby_monsters, monster_err = M.find_task_monsters(ctx, current_time, player_x, player_y)
+    if not (nearby_monsters and tonumber(nearby_monsters.count) and nearby_monsters.count > 0) then
+        M.clear_interaction_combat_guard(reason)
+        return false
+    end
+
+    local nearest_monster = nearby_monsters.nearest or {}
+    local nearest_distance = tonumber(nearest_monster.distance)
+    local guard_distance = tonumber(opts.distance) or tonumber(M.INTERACTION_COMBAT_GUARD_DISTANCE) or 520
+    if nearest_distance == nil or nearest_distance > guard_distance then
+        M.clear_interaction_combat_guard(reason)
+        return false
+    end
+
+    if tostring(state.interaction_combat_guard_key or "") ~= guard_key then
+        state.interaction_combat_guard_key = guard_key
+        state.interaction_combat_guard_started_at = current_time
+        logger(ctx).info(string.format(
+            "[Leveling] interaction combat guard armed | reason=%s nearest_distance=%.2f count=%d max_ms=%d",
+            guard_key,
+            nearest_distance,
+            tonumber(nearby_monsters.count) or 0,
+            tonumber(opts.max_ms) or tonumber(M.INTERACTION_COMBAT_GUARD_MAX_MS) or 1800
+        ))
+    end
+
+    local started_at = tonumber(state.interaction_combat_guard_started_at) or current_time
+    local max_ms = math.max(0, tonumber(opts.max_ms) or tonumber(M.INTERACTION_COMBAT_GUARD_MAX_MS) or 1800)
+    local elapsed_ms = math.max(0, current_time - started_at)
+    if elapsed_ms >= max_ms then
+        logger(ctx).info(string.format(
+            "[Leveling] interaction combat guard released by timeout | reason=%s elapsed_ms=%d nearest_distance=%.2f count=%d",
+            guard_key,
+            elapsed_ms,
+            nearest_distance,
+            tonumber(nearby_monsters.count) or 0
+        ))
+        M.clear_interaction_combat_guard(reason)
+        state.interaction_combat_guard_skip_key = guard_key
+        state.interaction_combat_guard_skip_until = current_time + math.max(1000, tonumber(opts.skip_after_timeout_ms) or 3500)
+        return false
+    end
+
+    state.stage = "interaction_combat_guard"
+    hold_navigation(ctx, current_time, "interaction_combat_guard_" .. guard_key)
+    M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, "interaction_guard_" .. guard_key, {
+        allow_when_main_interface_false = opts.allow_when_main_interface_false == true,
+        allow_during_entry_action = opts.allow_during_entry_action == true
+    })
+    log_throttled(ctx, "interaction_combat_guard_wait_" .. guard_key, "info", MONSTER_SCAN_LOG_INTERVAL_MS, string.format(
+        "[Leveling] interaction delayed by nearby monster | reason=%s elapsed_ms=%d/%d nearest_distance=%.2f count=%d",
+        guard_key,
+        elapsed_ms,
+        max_ms,
+        nearest_distance,
+        tonumber(nearby_monsters.count) or 0
     ))
     return true
 end
@@ -13027,6 +13205,9 @@ function M.maybe_handle_task_objective_button(ctx, current_time, goal_distance, 
     if not objective_button then
         return false
     end
+    if M.maybe_guard_interaction_with_combat(ctx, current_time, player_x, player_y, "task_objective_button") then
+        return true
+    end
 
     state.stage = "task_objective_button"
     M.stabilize_navigation_for_interaction(ctx, current_time, "task_objective_button", player_x, player_y)
@@ -13042,6 +13223,9 @@ end
 function M.maybe_handle_task_reached_prompt_or_portal(ctx, current_time, goal_distance, target_source, player_x, player_y)
     local interaction_prompt = find_interaction_prompt_button(ctx, current_time)
     if interaction_prompt then
+        if M.maybe_guard_interaction_with_combat(ctx, current_time, player_x, player_y, "interaction_prompt") then
+            return true
+        end
         state.stage = "interaction_prompt"
         M.stabilize_navigation_for_interaction(ctx, current_time, "interaction_prompt", player_x, player_y)
         M.interact_with_prompt(
@@ -13056,6 +13240,9 @@ function M.maybe_handle_task_reached_prompt_or_portal(ctx, current_time, goal_di
 
     local exit_portal_target = find_exit_portal_button(ctx, current_time)
     if exit_portal_target then
+        if M.maybe_guard_interaction_with_combat(ctx, current_time, player_x, player_y, "exit_portal") then
+            return true
+        end
         state.stage = "exit_portal"
         M.stabilize_navigation_for_interaction(ctx, current_time, "exit_portal", player_x, player_y)
         if try_click_exit_portal(
@@ -13430,6 +13617,10 @@ function M.maybe_handle_task_reached(
         nearest_npc, npc_err = M.find_current_task_npc(ctx, current_time, player_x, player_y)
     end
     if nearest_npc and nearest_npc.distance <= NPC_DIALOGUE_TRIGGER_DISTANCE then
+        if M.maybe_guard_interaction_with_combat(ctx, current_time, player_x, player_y, "npc_dialogue") then
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
+        end
         state.task_reached_unresolved_since = 0
         state.stage = "npc_dialogue"
         M.stabilize_navigation_for_interaction(ctx, current_time, "npc_dialogue", player_x, player_y)
@@ -13445,6 +13636,10 @@ function M.maybe_handle_task_reached(
         and destination_distance <= 115
         and current_time - (tonumber(state.last_dialogue_at) or 0) >= DIALOGUE_COOLDOWN_MS
     then
+        if M.maybe_guard_interaction_with_combat(ctx, current_time, player_x, player_y, "task_objective_direct_interact") then
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
+        end
         state.task_reached_unresolved_since = 0
         state.stage = "interaction_prompt"
         M.stabilize_navigation_for_interaction(ctx, current_time, "task_objective_direct_interact", player_x, player_y)
@@ -14049,7 +14244,10 @@ function M.refresh_route_point_action_player_level(ctx, current_time, force)
             state.cached_route_point_action_player_level_error
     end
 
-    state.next_route_point_action_level_probe_at = current_time + 1200
+    local level_probe_cfg = type(M.LEVEL_UP_MAINTENANCE_CONFIG) == "table"
+        and tonumber(M.LEVEL_UP_MAINTENANCE_CONFIG.probe_ms)
+        or nil
+    state.next_route_point_action_level_probe_at = current_time + math.max(300, level_probe_cfg or 1200)
     local nav_mod = nav_api(ctx)
     if type(nav_mod) ~= "table" or type(nav_mod.enum_ui) ~= "function" then
         state.cached_route_point_action_player_level_error = "nav.enum_ui is unavailable."
@@ -14085,6 +14283,272 @@ function M.refresh_route_point_action_player_level(ctx, current_time, force)
         state.cached_route_point_action_player_level_progress,
         state.cached_route_point_action_player_level_text,
         nil
+end
+
+function M.level_up_maintenance_config()
+    if type(M.LEVEL_UP_MAINTENANCE_CONFIG) == "table" then
+        return M.LEVEL_UP_MAINTENANCE_CONFIG
+    end
+    return {}
+end
+
+function M.level_up_maintenance_enabled()
+    local cfg = M.level_up_maintenance_config()
+    return cfg.enabled ~= false
+end
+
+function M.level_up_maintenance_level_has_plan(cfg, plan_key, level)
+    if type(cfg) ~= "table" or type(plan_key) ~= "string" or plan_key == "" then
+        return false
+    end
+    local plans = cfg[plan_key]
+    if type(plans) ~= "table" then
+        return false
+    end
+    local int_level = math.floor(tonumber(level) or 0)
+    return plans[int_level] ~= nil or plans[tostring(int_level)] ~= nil
+end
+
+function M.level_up_maintenance_pending_summary()
+    local levels = {}
+    if type(state.level_up_maintenance_pending_levels) == "table" then
+        for level_key in pairs(state.level_up_maintenance_pending_levels) do
+            levels[#levels + 1] = tostring(level_key)
+        end
+        table.sort(levels, function(a, b)
+            return (tonumber(a) or math.huge) < (tonumber(b) or math.huge)
+        end)
+    end
+    return string.format(
+        "levels=[%s] skill=%s talent=%s since=%d",
+        table.concat(levels, ","),
+        state.level_up_maintenance_pending_skill == true and "true" or "false",
+        state.level_up_maintenance_pending_talent == true and "true" or "false",
+        tonumber(state.level_up_maintenance_pending_since) or 0
+    )
+end
+
+function M.record_level_up_maintenance_observation(ctx, current_time, level, progress, text)
+    if not M.level_up_maintenance_enabled() then
+        return false
+    end
+
+    local observed_level = math.floor(tonumber(level) or 0)
+    if observed_level <= 0 then
+        return false
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local previous_level = tonumber(state.level_up_maintenance_last_level)
+    if previous_level == nil or previous_level <= 0 then
+        state.level_up_maintenance_last_level = observed_level
+        state.level_up_maintenance_last_progress = progress
+        state.level_up_maintenance_last_level_text = text
+        logger(ctx).info(string.format(
+            "[Leveling] level-up maintenance baseline | level=%d progress=%s text=%s",
+            observed_level,
+            progress ~= nil and tostring(progress) or "",
+            tostring(text or "")
+        ))
+        return false
+    end
+
+    state.level_up_maintenance_last_progress = progress
+    state.level_up_maintenance_last_level_text = text
+
+    if observed_level <= previous_level then
+        state.level_up_maintenance_last_level = observed_level
+        return false
+    end
+
+    local cfg = M.level_up_maintenance_config()
+    local pending_levels = type(state.level_up_maintenance_pending_levels) == "table"
+        and state.level_up_maintenance_pending_levels
+        or {}
+    local level_count = 0
+    local skill_plan_count = 0
+    local talent_plan_count = 0
+    for pending_level = previous_level + 1, observed_level do
+        pending_levels[tostring(pending_level)] = true
+        level_count = level_count + 1
+        if M.level_up_maintenance_level_has_plan(cfg, "skill_by_level", pending_level) then
+            skill_plan_count = skill_plan_count + 1
+        end
+        if M.level_up_maintenance_level_has_plan(cfg, "talent_by_level", pending_level) then
+            talent_plan_count = talent_plan_count + 1
+        end
+        if level_count >= 50 then
+            break
+        end
+    end
+
+    state.level_up_maintenance_pending_levels = pending_levels
+    if cfg.skill_enabled ~= false then
+        state.level_up_maintenance_pending_skill = true
+    end
+    if cfg.talent_enabled ~= false then
+        state.level_up_maintenance_pending_talent = true
+    end
+    if (tonumber(state.level_up_maintenance_pending_since) or 0) <= 0 then
+        state.level_up_maintenance_pending_since = current_time
+    end
+    state.level_up_maintenance_safe_since = 0
+    state.level_up_maintenance_last_level = observed_level
+
+    logger(ctx).info(string.format(
+        "[Leveling] level-up maintenance pending | from=%d to=%d progress=%s text=%s skill_plan_count=%d talent_plan_count=%d %s",
+        previous_level,
+        observed_level,
+        progress ~= nil and tostring(progress) or "",
+        tostring(text or ""),
+        skill_plan_count,
+        talent_plan_count,
+        M.level_up_maintenance_pending_summary()
+    ))
+    return true
+end
+
+function M.maybe_observe_level_up_maintenance(ctx, current_time)
+    if not M.level_up_maintenance_enabled() then
+        return false
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local level, progress, text, err = M.refresh_route_point_action_player_level(ctx, current_time, false)
+    if type(level) == "number" and level > 0 then
+        state.level_up_maintenance_last_observe_error = nil
+        return M.record_level_up_maintenance_observation(ctx, current_time, level, progress, text)
+    end
+
+    if err ~= nil and tostring(err) ~= tostring(state.level_up_maintenance_last_observe_error or "") then
+        state.level_up_maintenance_last_observe_error = tostring(err)
+        log_throttled(ctx, "level_up_maintenance_observe_failed", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] level-up maintenance observe failed | err=%s",
+            tostring(err)
+        ))
+    end
+    return false
+end
+
+function M.level_up_maintenance_has_pending()
+    return state.level_up_maintenance_pending_skill == true
+        or state.level_up_maintenance_pending_talent == true
+end
+
+function M.level_up_maintenance_safe_window(ctx, current_time, player_x, player_y, hp_ratio, in_main_interface)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local cfg = M.level_up_maintenance_config()
+
+    if in_main_interface == false then
+        state.level_up_maintenance_safe_since = 0
+        return false, "not_main_interface"
+    end
+    if type(hp_ratio) == "number" and hp_ratio < (tonumber(cfg.min_hp_ratio) or 0.72) then
+        state.level_up_maintenance_safe_since = 0
+        return false, string.format("low_hp:%.2f", hp_ratio)
+    end
+    if state.task_info_stability_gate_active == true then
+        state.level_up_maintenance_safe_since = 0
+        return false, "task_info_stability_gate"
+    end
+    if current_time < (tonumber(state.task_update_wait_until) or 0) then
+        state.level_up_maintenance_safe_since = 0
+        return false, "task_update_wait"
+    end
+    if state.loading_transition_reacquire_pending == true then
+        state.level_up_maintenance_safe_since = 0
+        return false, "loading_transition_reacquire"
+    end
+    if type(M.is_task_entry_action_active) == "function" and M.is_task_entry_action_active(current_time) then
+        state.level_up_maintenance_safe_since = 0
+        return false, "task_entry_action"
+    end
+    if M.is_task_combat_or_post_loot_active() then
+        state.level_up_maintenance_safe_since = 0
+        return false, "task_combat_or_post_loot"
+    end
+    if type(state.task_target) == "table" then
+        state.level_up_maintenance_safe_since = 0
+        return false, "task_navigation_active"
+    end
+    if state.pending_interaction_origin ~= nil then
+        state.level_up_maintenance_safe_since = 0
+        return false, "pending_interaction"
+    end
+    if state.route_point_action_dialogue_active_key ~= nil
+        or state.route_point_action_objective_active_key ~= nil
+        or state.route_point_action_route_active_key ~= nil
+    then
+        state.level_up_maintenance_safe_since = 0
+        return false, "route_point_action_active"
+    end
+    if state.task_recipe_active_key ~= nil then
+        state.level_up_maintenance_safe_since = 0
+        return false, "task_recipe_active"
+    end
+
+    local nearby_monsters, monster_err = M.find_task_monsters(ctx, current_time, player_x, player_y)
+    if type(nearby_monsters) == "table" and type(nearby_monsters.nearest) == "table" then
+        local nearest_distance = tonumber(nearby_monsters.nearest.distance) or math.huge
+        local guard_distance = math.max(120, tonumber(cfg.monster_guard_distance) or 620)
+        if nearest_distance <= guard_distance then
+            state.level_up_maintenance_safe_since = 0
+            return false, string.format("nearby_monster:%.1f", nearest_distance)
+        end
+    elseif monster_err ~= nil then
+        state.level_up_maintenance_last_block_reason = nil
+    end
+
+    local safe_since = tonumber(state.level_up_maintenance_safe_since) or 0
+    if safe_since <= 0 then
+        state.level_up_maintenance_safe_since = current_time
+        return false, "safe_window_settle"
+    end
+
+    local settle_ms = math.max(0, tonumber(cfg.safe_no_monster_ms) or 1800)
+    if current_time - safe_since < settle_ms then
+        return false, string.format("safe_window_settle:%d", math.max(0, settle_ms - (current_time - safe_since)))
+    end
+
+    return true, "ready"
+end
+
+function M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface)
+    if not M.level_up_maintenance_enabled() or not M.level_up_maintenance_has_pending() then
+        return false
+    end
+
+    local safe, reason = M.level_up_maintenance_safe_window(ctx, current_time, player_x, player_y, hp_ratio, in_main_interface)
+    if not safe then
+        if tostring(reason or "") ~= tostring(state.level_up_maintenance_last_block_reason or "") then
+            state.level_up_maintenance_last_block_reason = tostring(reason or "")
+            log_throttled(ctx, "level_up_maintenance_wait_" .. tostring(reason or ""), "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] level-up maintenance pending, waiting safe window | reason=%s %s",
+                tostring(reason or ""),
+                M.level_up_maintenance_pending_summary()
+            ))
+        end
+        return false
+    end
+
+    state.level_up_maintenance_last_block_reason = nil
+    local cfg = M.level_up_maintenance_config()
+    if cfg.execute_ui ~= true then
+        log_throttled(ctx, "level_up_maintenance_ready_no_executor", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] level-up maintenance safe window ready; UI executor disabled | pos=(%.2f,%.2f,%.2f) %s",
+            tonumber(player_x) or 0,
+            tonumber(player_y) or 0,
+            tonumber(player_z) or 0,
+            M.level_up_maintenance_pending_summary()
+        ))
+        return false
+    end
+
+    log_throttled(ctx, "level_up_maintenance_executor_missing", "warn", LOG_THROTTLE_MS, string.format(
+        "[Leveling] level-up maintenance UI executor requested but not implemented; pending preserved | %s",
+        M.level_up_maintenance_pending_summary()
+    ))
+    return false
 end
 
 function M.route_point_action_skip_reason(ctx, action, current_time)
@@ -17428,6 +17892,51 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         return nil
     end
 
+    local function find_nearby_subtask_detail(preferred_task_name)
+        local preferred_key = M.normalize_task_title_key(preferred_task_name or state.current_task_name)
+        local best_text, best_score, best_dx, best_dy = nil, nil, nil, nil
+        for _, item in ipairs(ui.texts or {}) do
+            local raw_text = trim(item and item.text or "")
+            local text = normalize_task_title(raw_text)
+            local text_x = tonumber(item and item.x)
+            local text_y = tonumber(item and item.y)
+            if text ~= nil and text_x ~= nil and text_y ~= nil then
+                local widget_name = tostring((item and item.name) or "") .. " " .. tostring((item and item.fullname) or "")
+                local is_subtask_text = widget_name:find("UISubTaskItem_C.WidgetTree.UITextBlock", 1, true) ~= nil
+                local text_key = M.normalize_task_title_key(text)
+                local normalized_key = normalize_map_name(text)
+                local looks_numeric_only = text:match("^[%d%s%/%-%:%+%.%%%(%)]+$") ~= nil
+                local looks_like_current_map = normalized_key ~= nil
+                    and current_map_normalized ~= nil
+                    and normalized_key == current_map_normalized
+                local looks_like_known_map = normalized_key ~= nil and M.is_known_map_name(normalized_key)
+                local is_same_as_task_title = preferred_key ~= nil
+                    and text_key ~= nil
+                    and text_key == preferred_key
+                local dx = text_x - anchor_x
+                local dy = text_y - anchor_y
+                local in_subtask_band = dx >= -20 and dx <= 560 and dy >= 8 and dy <= 110
+                if is_subtask_text
+                    and in_subtask_band
+                    and not M.is_task_detail_transition(text)
+                    and not looks_numeric_only
+                    and not looks_like_current_map
+                    and not looks_like_known_map
+                    and not is_same_as_task_title
+                then
+                    local score = 500 - math.abs(dx - 44) * 1.4 - math.abs(dy - 24) * 2.6 - math.abs(#text - 8) * 0.5
+                    if best_score == nil or score > best_score then
+                        best_text = text
+                        best_score = score
+                        best_dx = dx
+                        best_dy = dy
+                    end
+                end
+            end
+        end
+        return best_text, best_score, best_dx, best_dy
+    end
+
     local function sync_task_detail_from_panel(preferred_task_name, source)
         local entry = select_task_panel_entry(preferred_task_name)
         if type(entry) == "table" then
@@ -17435,35 +17944,67 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         end
         local raw_detail = trim(type(entry) == "table" and entry.detail or "")
         local next_detail = raw_detail
+        local detail_source = tostring(source or "task_panel")
         if M.is_task_detail_noise(next_detail) then
-            next_detail = ""
-            _G.AVEPOINT_LAST_TASK_DETAIL = nil
-            log_throttled(ctx, "task_detail_noise_ignored", "info", LOG_THROTTLE_MS, string.format(
-                "[Leveling] task detail noise ignored | task=%s raw_detail=%s source=%s",
-                tostring(state.current_task_name or preferred_task_name or ""),
-                tostring(raw_detail or ""),
-                tostring(source or "task_panel")
-            ))
+            local recovered_detail, recovered_score, recovered_dx, recovered_dy = find_nearby_subtask_detail(preferred_task_name)
+            if recovered_detail ~= nil then
+                next_detail = recovered_detail
+                detail_source = detail_source .. "_nearby_subtask"
+                log_throttled(ctx, "task_detail_recovered_nearby_subtask", "info", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] task detail recovered from nearby subtask text | task=%s raw_detail=%s detail=%s source=%s dx=%.1f dy=%.1f score=%.1f",
+                    tostring(state.current_task_name or preferred_task_name or ""),
+                    tostring(raw_detail or ""),
+                    tostring(recovered_detail or ""),
+                    tostring(source or "task_panel"),
+                    tonumber(recovered_dx) or 0,
+                    tonumber(recovered_dy) or 0,
+                    tonumber(recovered_score) or 0
+                ))
+            else
+                next_detail = ""
+                _G.AVEPOINT_LAST_TASK_DETAIL = nil
+                log_throttled(ctx, "task_detail_noise_ignored", "info", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] task detail noise ignored | task=%s raw_detail=%s source=%s",
+                    tostring(state.current_task_name or preferred_task_name or ""),
+                    tostring(raw_detail or ""),
+                    tostring(source or "task_panel")
+                ))
+            end
+        elseif next_detail == "" then
+            local recovered_detail, recovered_score, recovered_dx, recovered_dy = find_nearby_subtask_detail(preferred_task_name)
+            if recovered_detail ~= nil then
+                next_detail = recovered_detail
+                detail_source = detail_source .. "_nearby_subtask"
+                log_throttled(ctx, "task_detail_recovered_nearby_subtask_blank", "info", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] blank task detail recovered from nearby subtask text | task=%s detail=%s source=%s dx=%.1f dy=%.1f score=%.1f",
+                    tostring(state.current_task_name or preferred_task_name or ""),
+                    tostring(recovered_detail or ""),
+                    tostring(source or "task_panel"),
+                    tonumber(recovered_dx) or 0,
+                    tonumber(recovered_dy) or 0,
+                    tonumber(recovered_score) or 0
+                ))
+            end
         end
         local previous_detail = trim(state.current_task_detail or "")
         if next_detail == previous_detail then
             if next_detail == "" and state.current_task_detail ~= nil then
                 state.current_task_detail = nil
-                state.current_task_detail_source = tostring(source or "task_panel")
+                state.current_task_detail_source = detail_source
                 state.current_task_detail_updated_at = current_time
                 M.publish_current_task_name()
             end
             return
         end
         state.current_task_detail = next_detail ~= "" and next_detail or nil
-        state.current_task_detail_source = tostring(source or "task_panel")
+        state.current_task_detail_source = detail_source
         state.current_task_detail_updated_at = current_time
         M.publish_current_task_name()
         logger(ctx).info(string.format(
             "[Leveling] current task detail updated | task=%s detail=%s source=%s",
             tostring(state.current_task_name or preferred_task_name or ""),
             tostring(state.current_task_detail or ""),
-            tostring(source or "task_panel")
+            tostring(detail_source)
         ))
     end
 
@@ -24828,6 +25369,9 @@ function M.maybe_handle_task_info_stability_gate(ctx, current_time, player_x, pl
         M.log_execution_trace(ctx, current_time, "waiting_task_info_stability_gate", nil, nil, nil, nil, player_x, player_y, player_z)
         release_async_combat_inputs(ctx, current_time, true)
         hold_navigation(ctx, current_time, "wait_task_info_stability_gate")
+        M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, "wait_task_info_stability_gate", {
+            in_main_interface = in_main_interface
+        })
         log_throttled(ctx, "task_info_stability_gate_wait", "info", LOG_THROTTLE_MS, string.format(
             "[Leveling] waiting task info stability gate | task=%s detail=%s reason=%s flow_key=%s wait_left=%dms",
             tostring(M.current_task_log_name() or state.current_task_name or ""),
@@ -24946,6 +25490,7 @@ function M.update(now, ctx)
 
     update_progress_anchor(current_time, player_x, player_y)
     M.maybe_handle_potion_watch(ctx, current_time, hp, max_hp, hp_ratio)
+    M.maybe_observe_level_up_maintenance(ctx, current_time)
 
     if M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, player_z, hp_ratio) then
         return true
@@ -24984,6 +25529,9 @@ function M.update(now, ctx)
         M.log_execution_trace(ctx, current_time, "waiting_task_update", nil, nil, nil, nil, player_x, player_y, player_z)
         release_async_combat_inputs(ctx, current_time, true)
         hold_navigation(ctx, current_time, "wait_task_update")
+        M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, "wait_task_update", {
+            in_main_interface = in_main_interface
+        })
         log_throttled(ctx, "task_update_wait", "info", LOG_THROTTLE_MS,
             "[Leveling] waiting task list update after dialogue/prompt settle.")
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
@@ -24991,6 +25539,10 @@ function M.update(now, ctx)
     end
 
     if M.maybe_handle_task_info_stability_gate(ctx, current_time, player_x, player_y, player_z, in_main_interface) then
+        return true
+    end
+
+    if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
         return true
     end
 
@@ -25005,9 +25557,16 @@ function M.update(now, ctx)
                 state.require_task_button_refresh = false
                 state.require_task_button_refresh_reason = nil
             else
+                M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, "refresh_task_button_after_dialogue", {
+                    in_main_interface = in_main_interface
+                })
                 log_throttled(ctx, "refresh_task_button_wait", "info", LOG_THROTTLE_MS,
                     "[Leveling] waiting to reacquire refreshed main task button after dialogue.")
             end
+        else
+            M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, "refresh_task_button_after_dialogue_cooldown", {
+                in_main_interface = in_main_interface
+            })
         end
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
@@ -25054,6 +25613,9 @@ function M.update(now, ctx)
         M.log_execution_trace(ctx, current_time, "waiting_task_path_after_button", nil, nil, nil, nil, player_x, player_y, player_z)
         release_async_combat_inputs(ctx, current_time, true)
         hold_navigation(ctx, current_time, "wait_task_path_after_button")
+        M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, "wait_task_path_after_button", {
+            in_main_interface = in_main_interface
+        })
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
@@ -25139,6 +25701,9 @@ function M.update(now, ctx)
         M.log_execution_trace(ctx, current_time, "no_task_target_wait", nil, nil, nil, nil, player_x, player_y, player_z)
         release_async_combat_inputs(ctx, current_time, true)
         hold_navigation(ctx, current_time, "wait_task")
+        M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, "wait_task", {
+            in_main_interface = in_main_interface
+        })
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
@@ -25298,6 +25863,9 @@ function M.update(now, ctx)
         state.stage = "refresh_task_button_follow"
         M.log_execution_trace(ctx, current_time, "stall_refresh_follow", target, destination, goal_distance, objective_cfg and objective_cfg.mode, player_x, player_y, player_z)
         hold_navigation(ctx, current_time, "refresh_task_button_follow")
+        M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, "refresh_task_button_follow", {
+            in_main_interface = in_main_interface
+        })
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
@@ -25306,6 +25874,9 @@ function M.update(now, ctx)
         state.stage = "refresh_task_button_route_deviation"
         M.log_execution_trace(ctx, current_time, "route_deviation_refresh", target, destination, goal_distance, objective_cfg and objective_cfg.mode, player_x, player_y, player_z)
         hold_navigation(ctx, current_time, "refresh_task_button_route_deviation")
+        M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, "refresh_task_button_route_deviation", {
+            in_main_interface = in_main_interface
+        })
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
@@ -25314,6 +25885,9 @@ function M.update(now, ctx)
         state.stage = "refresh_task_button_path_loss"
         M.log_execution_trace(ctx, current_time, "path_loss_refresh", target, destination, goal_distance, objective_cfg and objective_cfg.mode, player_x, player_y, player_z)
         hold_navigation(ctx, current_time, "refresh_task_button_path_loss")
+        M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, "refresh_task_button_path_loss", {
+            in_main_interface = in_main_interface
+        })
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
@@ -25322,6 +25896,9 @@ function M.update(now, ctx)
         state.stage = "refresh_task_button_follow_idle"
         M.log_execution_trace(ctx, current_time, "follow_idle_refresh", target, destination, goal_distance, objective_cfg and objective_cfg.mode, player_x, player_y, player_z)
         hold_navigation(ctx, current_time, "refresh_task_button_follow_idle")
+        M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, "refresh_task_button_follow_idle", {
+            in_main_interface = in_main_interface
+        })
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
