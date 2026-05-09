@@ -55,6 +55,56 @@ local function apply_world_map_send_step_defaults(step)
     return step
 end
 
+function M.make_world_map_send_linear_recipe(key, send_step, entry_action)
+    local action = type(entry_action) == "table" and entry_action or {}
+    local step = apply_world_map_send_step_defaults(clone_table(send_step))
+    local send_recipe_step = clone_table(step)
+    send_recipe_step.kind = "call_button_slot"
+    send_recipe_step.slot = "task_entry_send"
+    send_recipe_step.key = tostring(key or "") .. "_send"
+    send_recipe_step.finish_recipe = true
+    send_recipe_step.transition_reason = "task_entry_world_map_send"
+    send_recipe_step.transition_wait_ms = tonumber(action.transition_wait_ms) or 1800
+    send_recipe_step.force_task_call = true
+    send_recipe_step.task_pos_reject_extra_ms = 3500
+
+    return {
+        key = tostring(key or "") .. "_linear_recipe",
+        mode = "task_recipe",
+        recipe_type = "linear",
+        activation = "entry_action_active",
+        entry_action_key = key,
+        timeout_ms = math.max(5000, tonumber(action.timeout_ms) or 12000),
+        steps = {
+            {
+                kind = "wait_entry_action_elapsed",
+                key = tostring(key or "") .. "_wait_map",
+                duration_ms = tonumber(action.map_open_wait_ms) or 900
+            },
+            {
+                kind = "click_fixed_client_point",
+                key = tostring(key or "") .. "_select_point",
+                label = tostring(key or ""),
+                fixed_client_click = true,
+                fixed_ratio_x = tonumber(action.center_click_ratio_x) or 0.5,
+                fixed_ratio_y = tonumber(action.center_click_ratio_y) or 0.5,
+                fixed_prefer_ratio = true,
+                prefer_screen_click = true,
+                mouse_mode = tostring(action.center_mouse_mode or action.mouse_mode or "api"),
+                click_button = tostring(action.center_click_button or action.click_button or "left"),
+                click_delay_ms = tonumber(action.center_click_delay_ms or action.click_delay_ms) or 50,
+                hover_delay_ms = tonumber(action.center_hover_delay_ms or action.hover_delay_ms) or 80,
+                allow_outside = action.center_allow_outside == true,
+                settle_ms = math.max(150, tonumber(action.center_settle_ms) or 450)
+            },
+            send_recipe_step
+        },
+        success = {
+            mode = "none"
+        }
+    }
+end
+
 -- Action builder: task-level boss handling.
 function M.make_boss_kite_task(key, extra_objective, extra_task)
     local task_cfg = {
@@ -75,7 +125,27 @@ end
 -- Action builder: task entry that opens world map and clicks send.
 function M.make_world_map_send_task(key, step, extra_action, extra_task)
     local normalized_step = apply_world_map_send_step_defaults(clone_table(step))
+    local enable_linear_recipe = type(extra_task) == "table" and extra_task.enable_linear_recipe == true
     local task_cfg = {
+        recipe = {
+            key = tostring(key or "") .. "_recipe",
+            mode = "task_recipe",
+            recipe_type = "compat_entry_action",
+            activation = "entry_action_active",
+            entry_action_key = key,
+            steps = {
+                {
+                    kind = "compat_entry_action",
+                    mode = "world_map_send",
+                    action_key = key
+                }
+            },
+            success = {
+                mode = "task_info_changed",
+                vacuum_ms = 5000,
+                settle_ms = 1200
+            }
+        },
         entry_action = {
             key = key,
             mode = "world_map_send",
@@ -90,7 +160,11 @@ function M.make_world_map_send_task(key, step, extra_action, extra_task)
         }
     }
     merge_into(task_cfg.entry_action, extra_action)
+    if enable_linear_recipe and type(extra_task.recipe) ~= "table" then
+        task_cfg.recipe = M.make_world_map_send_linear_recipe(key, normalized_step, task_cfg.entry_action)
+    end
     merge_into(task_cfg, extra_task)
+    task_cfg.enable_linear_recipe = nil
     return task_cfg
 end
 

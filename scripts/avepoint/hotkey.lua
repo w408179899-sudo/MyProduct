@@ -3069,6 +3069,104 @@ local function avepoint_hotkey_log_task_control_points(prefix, snapshot)
     return any_logged
 end
 
+local function avepoint_hotkey_probe_main_task_button_by_coordinate()
+    if type(nav.game_api) ~= "table" then
+        return false, "nav.game_api unavailable"
+    end
+    if type(nav.game_api.EnumCButton) ~= "function" then
+        return false, "EnumCButton unavailable"
+    end
+
+    local raw_ok, raw_buttons, raw_err = pcall(nav.game_api.EnumCButton)
+    if not raw_ok or type(raw_buttons) ~= "table" then
+        return false, raw_ok and "EnumCButton returned non-table" or tostring(raw_buttons or raw_err or "")
+    end
+
+    local client_w = nil
+    local client_h = nil
+    local cursor_client_x = nil
+    local cursor_client_y = nil
+    local hwnd = nil
+
+    if type(nav.cursor_client_pos) == "function" then
+        local cursor = select(1, nav.cursor_client_pos({
+            allow_outside = true
+        }))
+        if type(cursor) == "table" then
+            client_w = tonumber(cursor.client_w)
+            client_h = tonumber(cursor.client_h)
+            cursor_client_x = tonumber(cursor.client_x)
+            cursor_client_y = tonumber(cursor.client_y)
+            hwnd = cursor.hwnd
+        end
+    end
+
+    log.info(string.format(
+        "F1 EnumCButton dump start | total=%d cursor=(%s,%s) client_size=(%s,%s) hwnd=%s source=nav.game_api.EnumCButton",
+        #raw_buttons,
+        tostring(cursor_client_x or ""),
+        tostring(cursor_client_y or ""),
+        tostring(client_w or ""),
+        tostring(client_h or ""),
+        avepoint_format_addr_hex(hwnd)
+    ))
+
+    local function format_extra_fields(button)
+        if type(button) ~= "table" then
+            return "{}"
+        end
+        local primary = {
+            addr = true,
+            name = true,
+            text = true,
+            fullname = true,
+            Fullname = true,
+            x = true,
+            y = true
+        }
+        local keys = {}
+        for key, value in pairs(button) do
+            if primary[key] ~= true and (type(value) ~= "table" and type(value) ~= "function") then
+                keys[#keys + 1] = key
+            end
+        end
+        table.sort(keys, function(a, b)
+            return tostring(a) < tostring(b)
+        end)
+        local parts = {}
+        for index = 1, math.min(#keys, 16) do
+            local key = keys[index]
+            parts[#parts + 1] = tostring(key) .. "=" .. tostring(button[key])
+        end
+        if #keys > 16 then
+            parts[#parts + 1] = "_keys=" .. tostring(#keys)
+        end
+        if #parts == 0 then
+            return "{}"
+        end
+        return "{" .. table.concat(parts, " ") .. "}"
+    end
+
+    for index, button in ipairs(raw_buttons) do
+        log.info(string.format(
+            "F1 EnumCButton button[%d/%d] | addr=%s name=%s text=%s fullname=%s x=%s y=%s raw_extra=%s",
+            index,
+            #raw_buttons,
+            avepoint_format_addr_hex(type(button) == "table" and button.addr or nil),
+            tostring(type(button) == "table" and button.name or ""),
+            tostring(type(button) == "table" and button.text or ""),
+            tostring(type(button) == "table" and (button.Fullname or button.fullname) or ""),
+            tostring(type(button) == "table" and button.x or ""),
+            tostring(type(button) == "table" and button.y or ""),
+            format_extra_fields(button)
+        ))
+    end
+
+    log.info(string.format("F1 EnumCButton dump complete | total=%d", #raw_buttons))
+
+    return true
+end
+
 function avepoint_hotkey_build_cursor_probe_step(entry, cursor, buttons, preset)
     if type(entry) ~= "table" or type(entry.button) ~= "table" then
         return nil, "Invalid cursor probe entry."
@@ -4011,13 +4109,14 @@ function main()
     ))
     if TASK_MODE.configured_id == TASK_MODE.GOLD and (HOTKEY_F5_ENABLED == true or HOTKEY_F6_ENABLED == true) then
         log.info(string.format(
-            "Press F5 to run 5-cycle observe flow; F6 to print current player coordinates; Insert or Ctrl+F9 or [ to start AvePoint automation; Delete or Ctrl+F10 or ] to stop (%d points, %d random maps)",
+            "Press F5 to run 5-cycle observe flow; F6 to print current player coordinates; Insert or Ctrl+F9 or [ to start AvePoint automation; hold Delete or Ctrl+F10 or ] to stop (%d points, %d random maps)",
             #ROUTE_POINTS,
             #RANDOM_MAP_POOL_KEYS
         ))
     else
-        log.info("Press Insert or Ctrl+F9 or [ to start current task mode; Delete or Ctrl+F10 or ] to stop")
+        log.info("Press Insert or Ctrl+F9 or [ to start current task mode; hold Delete or Ctrl+F10 or ] to stop")
     end
+    log.info("Press F1 to dump all buttons returned by EnumCButton")
     log.info("Press F12 to dump raw GetCurrentSelected API output without clicking")
     local f4_preset = HOTKEY_DISTANCE_PREVIEW_PRESETS and HOTKEY_DISTANCE_PREVIEW_PRESETS.current or nil
     log.info(string.format(
@@ -4048,6 +4147,43 @@ function main()
     if not hotkey.is_running() then
         hotkey.start(10)
         started_hotkey = true
+    end
+
+    local STOP_HOTKEY_CONFIRM_HOLD_MS = 180
+    local stop_hotkey_pending_source = nil
+    local stop_hotkey_pending_vk = nil
+    local stop_hotkey_pending_modifier_vk = nil
+    local stop_hotkey_pending_at = 0
+
+    local function stop_hotkey_down(vk, modifier_vk)
+        if vk == nil then
+            return false
+        end
+        if modifier_vk ~= nil and not hotkey.is_pressed(modifier_vk) then
+            return false
+        end
+        return hotkey.is_pressed(vk)
+    end
+
+    local function arm_stop_hotkey_candidate(source, vk, modifier_vk, current_time)
+        stop_hotkey_pending_source = source
+        stop_hotkey_pending_vk = vk
+        stop_hotkey_pending_modifier_vk = modifier_vk
+        stop_hotkey_pending_at = current_time
+        log.info(string.format(
+            "Stop hotkey candidate | source=%s hold_required=%dms running=%s f6_loop=%s",
+            tostring(source),
+            STOP_HOTKEY_CONFIRM_HOLD_MS,
+            tostring(state.running == true),
+            tostring(state.f6_loop_active == true)
+        ))
+    end
+
+    local function clear_stop_hotkey_candidate()
+        stop_hotkey_pending_source = nil
+        stop_hotkey_pending_vk = nil
+        stop_hotkey_pending_modifier_vk = nil
+        stop_hotkey_pending_at = 0
     end
 
     while true do
@@ -4085,12 +4221,64 @@ function main()
             end
         end
 
-        if pressed_once(0x2E) or pressed_once(0x79, HOTKEY_EXIT_CTRL) or pressed_once(HOTKEY_STOP_BRACKET) then
-            if state.running then
-                stop_automation("AvePoint automation stopped")
+        local stop_source = nil
+        local stop_vk = nil
+        local stop_modifier_vk = nil
+        if pressed_once(0x2E) then
+            stop_source = "Delete"
+            stop_vk = 0x2E
+        elseif pressed_once(0x79, HOTKEY_EXIT_CTRL) then
+            stop_source = "Ctrl+F10"
+            stop_vk = 0x79
+            stop_modifier_vk = HOTKEY_EXIT_CTRL
+        elseif pressed_once(HOTKEY_STOP_BRACKET) then
+            stop_source = "]"
+            stop_vk = HOTKEY_STOP_BRACKET
+        end
+
+        if stop_source ~= nil then
+            arm_stop_hotkey_candidate(stop_source, stop_vk, stop_modifier_vk, loop_now)
+        end
+
+        if stop_hotkey_pending_source ~= nil then
+            if not stop_hotkey_down(stop_hotkey_pending_vk, stop_hotkey_pending_modifier_vk) then
+                log.info(string.format(
+                    "Stop hotkey candidate cancelled | source=%s held_ms=%d",
+                    tostring(stop_hotkey_pending_source),
+                    math.max(0, loop_now - (tonumber(stop_hotkey_pending_at) or loop_now))
+                ))
+                clear_stop_hotkey_candidate()
+            elseif loop_now - (tonumber(stop_hotkey_pending_at) or loop_now) >= STOP_HOTKEY_CONFIRM_HOLD_MS then
+                log.info(string.format(
+                    "Stop hotkey confirmed | source=%s held_ms=%d running=%s f6_loop=%s",
+                    tostring(stop_hotkey_pending_source),
+                    math.max(0, loop_now - (tonumber(stop_hotkey_pending_at) or loop_now)),
+                    tostring(state.running == true),
+                    tostring(state.f6_loop_active == true)
+                ))
+                if state.running then
+                    stop_automation("AvePoint automation stopped")
+                end
+                if state.f6_loop_active == true then
+                    stop_f6_loop("F6 3-round loop stopped")
+                end
+                clear_stop_hotkey_candidate()
             end
-            if state.f6_loop_active == true then
-                stop_f6_loop("F6 3-round loop stopped")
+        end
+
+        if pressed_once(HOTKEY_F1) then
+            if not initialized then
+                local attach_target = avepoint_hotkey_attach_target_pid()
+                local init_ok, init_err = avepoint_wait_for_torch_init(3500, attach_target, MODE)
+                if not init_ok then
+                    log.warn("F1 EnumCButton dump unavailable: Torch API init failed: " .. tostring(init_err))
+                end
+            end
+            if initialized then
+                local ok, err = avepoint_hotkey_probe_main_task_button_by_coordinate()
+                if not ok then
+                    log.error("F1 EnumCButton dump failed: " .. tostring(err))
+                end
             end
         end
 

@@ -77,6 +77,58 @@ local function loadfile_with_bytecode_fallback(path, label)
     error(string.format("load %s failed: %s", tostring(label or path), tostring(last_err)))
 end
 
+local function append_api_load_error(errors, label, err)
+    if type(errors) ~= "table" then
+        return
+    end
+
+    errors[#errors + 1] = tostring(label or "unknown") .. ": " .. tostring(err or "unknown error")
+end
+
+local function describe_data_module(mod)
+    if type(mod) ~= "table" then
+        return "type=" .. type(mod)
+    end
+
+    local parts = {
+        "type=table",
+        "InitGameinfo=" .. type(mod.InitGameinfo),
+        "MoveTo=" .. type(mod.MoveTo),
+        "GetPlayerinfo=" .. type(mod.GetPlayerinfo),
+        "init=" .. type(mod.init),
+        "M=" .. type(mod.M)
+    }
+
+    if type(mod.init) == "table" then
+        parts[#parts + 1] = "init.InitGameinfo=" .. type(mod.init.InitGameinfo)
+    end
+
+    if type(mod.M) == "table" then
+        parts[#parts + 1] = "M.MoveTo=" .. type(mod.M.MoveTo)
+        parts[#parts + 1] = "M.GetPlayerinfo=" .. type(mod.M.GetPlayerinfo)
+    end
+
+    return table.concat(parts, ",")
+end
+
+local function describe_global_data_api()
+    return table.concat({
+        "global.init=" .. type(init),
+        "global.M=" .. type(M),
+        "init.InitGameinfo=" .. (type(init) == "table" and type(init.InitGameinfo) or "nil"),
+        "M.MoveTo=" .. (type(M) == "table" and type(M.MoveTo) or "nil"),
+        "M.GetPlayerinfo=" .. (type(M) == "table" and type(M.GetPlayerinfo) or "nil")
+    }, ",")
+end
+
+local function format_api_load_errors(errors)
+    if type(errors) ~= "table" or #errors == 0 then
+        return "Torch API module not found (data.luac load attempted)."
+    end
+
+    return "Torch API module not found. raw_errors=" .. table.concat(errors, " || ")
+end
+
 local function load_human_mouse_module()
     local ok, mod = pcall(require, "human_mouse")
     if ok then
@@ -308,13 +360,51 @@ local function discover_from_globals()
     return nav.init_api ~= nil and nav.game_api ~= nil
 end
 
-local function try_require(name)
+local function try_require(name, errors)
     local ok, mod = pcall(require, name)
     if not ok then
+        append_api_load_error(errors, "require(" .. tostring(name) .. ")", mod)
         return false
     end
 
-    return adopt_module(mod)
+    if adopt_module(mod) then
+        return true
+    end
+
+    append_api_load_error(errors, "require(" .. tostring(name) .. ") adopt_module", describe_data_module(mod))
+    return false
+end
+
+local function try_load_data_bytecode(errors)
+    local candidates = {
+        "scripts/data.lua",
+        "data.lua"
+    }
+
+    for _, path in ipairs(candidates) do
+        local ok_chunk, chunk_or_err = pcall(loadfile_with_bytecode_fallback, path, "data")
+        if not ok_chunk then
+            append_api_load_error(errors, "loadfile_with_bytecode_fallback(" .. tostring(path) .. ")", chunk_or_err)
+        elseif type(chunk_or_err) ~= "function" then
+            append_api_load_error(errors, "loadfile_with_bytecode_fallback(" .. tostring(path) .. ")", "chunk type=" .. type(chunk_or_err))
+        else
+            local ok_mod, mod = pcall(chunk_or_err)
+            if not ok_mod then
+                append_api_load_error(errors, "execute(" .. tostring(path) .. ")", mod)
+            elseif adopt_module(mod) or discover_from_globals() then
+                normalize_game_api()
+                return true
+            else
+                append_api_load_error(
+                    errors,
+                    "execute(" .. tostring(path) .. ") adopt_module",
+                    describe_data_module(mod) .. "; " .. describe_global_data_api()
+                )
+            end
+        end
+    end
+
+    return false
 end
 
 local function ensure_api()
@@ -322,22 +412,36 @@ local function ensure_api()
         return true
     end
 
-    if discover_from_globals() then
-        normalize_game_api()
-        return true
-    end
-
-    if try_require("data") or try_require("scripts.data") then
-        normalize_game_api()
-        return true
-    end
+    local api_load_errors = {}
 
     if discover_from_globals() then
         normalize_game_api()
         return true
     end
 
-    return false, "Torch API module not found (data.luac load attempted)."
+    append_api_load_error(api_load_errors, "discover_from_globals(before require)", describe_global_data_api())
+
+    if try_require("data", api_load_errors) or try_require("scripts.data", api_load_errors) then
+        normalize_game_api()
+        return true
+    end
+
+    if try_load_data_bytecode(api_load_errors) then
+        normalize_game_api()
+        return true
+    end
+
+    if discover_from_globals() then
+        normalize_game_api()
+        return true
+    end
+
+    append_api_load_error(api_load_errors, "discover_from_globals(after bytecode)", describe_global_data_api())
+
+    nav.last_api_load_errors = api_load_errors
+    nav.last_api_load_error = format_api_load_errors(api_load_errors)
+
+    return false, nav.last_api_load_error
 end
 
 function nav.reset(opts)

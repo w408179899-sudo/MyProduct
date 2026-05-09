@@ -662,9 +662,25 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
     local allow_restore = true
     local restore_reason = "allowed"
     local resume_override_mode = nil
+    local near_zero_inside_landing = landing_ready(player_x, player_y, player_z, cfg.inside_landing)
+    local near_zero_restart_landing = landing_ready(player_x, player_y, player_z, cfg.restart_landing)
+    local near_zero_exit_landing = landing_ready(player_x, player_y, player_z, cfg.exit_landing)
     if not has_reliable_world_pos(player_x, player_y) then
-        allow_restore = false
-        restore_reason = "invalid_position"
+        local near_configured_landing = near_zero_inside_landing or near_zero_restart_landing or near_zero_exit_landing
+        local exit_landing_context = mode == "wait_exit"
+            or mode == "return_mainline"
+            or snapshot.pending_return_mainline == true
+        allow_restore = near_configured_landing
+        restore_reason = near_configured_landing and "configured_zero_landing" or "invalid_position"
+        if near_configured_landing then
+            if near_zero_exit_landing and exit_landing_context then
+                resume_override_mode = "return_mainline"
+            elseif type(cached_route) == "table" and #cached_route >= math.max(1, tonumber(cfg.min_path_points) or 3) then
+                resume_override_mode = "grinding"
+            else
+                resume_override_mode = "acquire_path"
+            end
+        end
     elseif mode == "pending_entry" then
         allow_restore = within_trigger(player_x, player_y, player_z, cfg.entry_trigger)
         restore_reason = allow_restore and "entry_trigger" or "outside_entry_trigger"
@@ -914,6 +930,13 @@ local function should_activate(cfg, main_state, hooks, player_x, player_y, playe
     local task_ok = match_text_patterns(cfg.task_patterns, task_name)
         or match_text_patterns(cfg.task_patterns, task_detail)
         or match_text_patterns(cfg.task_detail_patterns, task_detail)
+    if not task_ok
+        and cfg.allow_when_task_unknown == true
+        and task_name == ""
+        and task_detail == ""
+    then
+        task_ok = true
+    end
     local map_ok = map_name == ""
         or cfg.map_patterns == nil
         or match_text_patterns(cfg.map_patterns, map_name)
@@ -1100,8 +1123,11 @@ likely_inside_treasure = function(cfg, hooks, runtime, current_time, player_x, p
     if match_text_patterns(type(cfg) == "table" and cfg.inside_map_patterns or nil, map_name) then
         return true, "inside_map_pattern"
     end
-    if pos_reliable and landing_ready(player_x, player_y, player_z, type(cfg) == "table" and cfg.inside_landing or nil) then
+    if landing_ready(player_x, player_y, player_z, type(cfg) == "table" and cfg.inside_landing or nil) then
         return true, "inside_landing"
+    end
+    if landing_ready(player_x, player_y, player_z, type(cfg) == "table" and cfg.restart_landing or nil) then
+        return true, "restart_landing"
     end
     if type(cfg) ~= "table" or cfg.inside_detect_task_panel_text ~= false then
         for _, query in ipairs(queries) do
@@ -1778,13 +1804,67 @@ local function should_use_restart_portal(record, cfg, runtime)
     return true
 end
 
-local function try_click_portal(ctx, hooks, portal_cfg)
+local function portal_button_slot_from_step(portal_cfg, step)
+    if type(portal_cfg) == "table" and portal_cfg.button_slot ~= nil then
+        local configured = tostring(portal_cfg.button_slot or "")
+        if configured ~= "" then
+            return configured
+        end
+    end
+    if type(step) ~= "table" then
+        return nil
+    end
+    local identity = tostring(step.distance_button_name or ""):lower()
+    if identity == "" and type(step.include_patterns) == "table" then
+        identity = table.concat(step.include_patterns, " "):lower()
+    end
+    if identity:find("fightinteractiveview_c.widgettree.maptrapbtn", 1, true) then
+        return "treasure_restart_portal"
+    end
+    if identity:find("fightinteractiveview_c.widgettree.portalbtn", 1, true) then
+        return "treasure_exit_portal"
+    end
+    return nil
+end
+
+local function try_click_portal(ctx, hooks, portal_cfg, runtime, record)
     if type(portal_cfg) ~= "table" then
         return false, "portal cfg unavailable"
     end
     local last_fetch_err = nil
     local step = type(portal_cfg.step) == "table" and portal_cfg.step or nil
     if step then
+        local slot = portal_button_slot_from_step(portal_cfg, step)
+        if slot ~= nil and type(hooks.call_button_slot) == "function" then
+            local cache_context = table.concat({
+                tostring(portal_cfg.key or ""),
+                tostring(portal_cfg.kind or ""),
+                "run=" .. tostring(type(record) == "table" and (tonumber(record.run_count) or 0) or 0)
+            }, ":")
+            local clicked, slot_meta_or_err, slot_retryable, slot_phase = hooks.call_button_slot(ctx, slot, step, {
+                reason = "treasure_portal:" .. tostring(portal_cfg.key or portal_cfg.kind or ""),
+                try_cached = true,
+                cache_context = cache_context
+            })
+            if clicked == true then
+                return true
+            end
+            last_fetch_err = slot_meta_or_err
+            if type(hooks.log_throttled) == "function" then
+                hooks.log_throttled(ctx, "treasure_portal_button_slot_miss_" .. tostring(portal_cfg.key or slot), "info", 900,
+                    string.format(
+                        "[Treasure] portal button slot unavailable, fallback to legacy locator | key=%s kind=%s slot=%s context=%s phase=%s retryable=%s err=%s",
+                        tostring(portal_cfg.key or ""),
+                        tostring(portal_cfg.kind or ""),
+                        tostring(slot),
+                        tostring(cache_context),
+                        tostring(slot_phase or ""),
+                        tostring(slot_retryable),
+                        tostring(slot_meta_or_err or "")
+                    ))
+            end
+        end
+
         local target, fetch_err = hooks.fetch_locator_button_target(ctx, step)
         last_fetch_err = fetch_err
         if target then
@@ -1994,7 +2074,10 @@ local function move_to_portal(ctx, hooks, current_time, player_x, player_y, port
 end
 
 landing_ready = function(player_x, player_y, player_z, landing)
-    if not is_valid_point(landing) or (tonumber(landing.x) == 0 and tonumber(landing.y) == 0) then
+    if not is_valid_point(landing) then
+        return false
+    end
+    if tonumber(landing.x) == 0 and tonumber(landing.y) == 0 and landing.allow_zero ~= true then
         return false
     end
     return within_trigger(player_x, player_y, player_z, landing)
@@ -2312,7 +2395,9 @@ local function maybe_handle_treasure_boss_loot(ctx, main_state, cfg, runtime, ho
                 or tonumber(cfg.loot_empty_confirm_ms)
                 or 0
         )
-        if empty_confirm_ms > 0 and runtime.boss_loot_seen_items == true then
+        local empty_confirm_without_seen = type(boss_cfg) == "table"
+            and boss_cfg.loot_empty_confirm_without_seen == true
+        if empty_confirm_ms > 0 and (runtime.boss_loot_seen_items == true or empty_confirm_without_seen) then
             local empty_started_at = tonumber(runtime.boss_loot_empty_started_at) or 0
             if empty_started_at <= 0 then
                 empty_started_at = current_time
@@ -2326,10 +2411,11 @@ local function maybe_handle_treasure_boss_loot(ctx, main_state, cfg, runtime, ho
                     runtime.loot_next_at = current_time + math.max(350, tonumber(cfg.loot_press_interval_ms) or 700)
                     if type(hooks.log_info) == "function" then
                         hooks.log_info(ctx, string.format(
-                            "[Treasure] boss room loot empty confirm pulse | key=%s wait_ms=%d confirm_ms=%d press_ok=%s err=%s",
+                            "[Treasure] boss room loot empty confirm pulse | key=%s wait_ms=%d confirm_ms=%d seen_items=%s press_ok=%s err=%s",
                             tostring(cfg.key or ""),
                             empty_wait_ms,
                             empty_confirm_ms,
+                            runtime.boss_loot_seen_items == true and "true" or "false",
                             ok and "true" or "false",
                             tostring(press_err or "")
                         ))
@@ -2341,10 +2427,11 @@ local function maybe_handle_treasure_boss_loot(ctx, main_state, cfg, runtime, ho
                 if type(hooks.log_throttled) == "function" then
                     hooks.log_throttled(ctx, "treasure_boss_loot_empty_confirm_" .. tostring(cfg.key or ""), "info", 900,
                         string.format(
-                            "[Treasure] boss room loot empty confirm waiting | key=%s wait_ms=%d confirm_ms=%d",
+                            "[Treasure] boss room loot empty confirm waiting | key=%s wait_ms=%d confirm_ms=%d seen_items=%s",
                             tostring(cfg.key or ""),
                             empty_wait_ms,
-                            empty_confirm_ms
+                            empty_confirm_ms,
+                            runtime.boss_loot_seen_items == true and "true" or "false"
                         ))
                 end
                 return true
@@ -2682,7 +2769,12 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
     end
 
     if mode == "pending_entry" or mode == "entering" then
-        if not has_reliable_world_pos(player_x, player_y) and type(hooks.log_throttled) == "function" then
+        local at_configured_landing = landing_ready(player_x, player_y, player_z, cfg.inside_landing)
+            or landing_ready(player_x, player_y, player_z, cfg.restart_landing)
+        if not has_reliable_world_pos(player_x, player_y)
+            and not at_configured_landing
+            and type(hooks.log_throttled) == "function"
+        then
             hooks.log_throttled(ctx, "treasure_inside_detect_skip_invalid_pos_" .. tostring(cfg.key or ""), "info", 1500,
                 string.format(
                     "[Treasure] skip inside-treasure inference due to invalid position | key=%s mode=%s pos=%.2f, %.2f, %.2f next_retry_in=%dms",
@@ -3218,8 +3310,16 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             if type(hooks.log_throttled) == "function" then
                 hooks.log_throttled(ctx, "treasure_boss_disabled_" .. tostring(cfg.key or ""), "info", 2500,
                     string.format(
-                        "[Treasure] boss phase skipped until real boss trigger is configured | key=%s",
-                        tostring(cfg.key or "")
+                        "[Treasure] boss phase skipped until real boss trigger is configured | key=%s has_boss=%s enabled=%s trigger_use_route_destination=%s trigger=%.2f, %.2f, %.2f route_loaded=%s route_points=%d",
+                        tostring(cfg.key or ""),
+                        type(boss_cfg) == "table" and "true" or "false",
+                        type(boss_cfg) == "table" and tostring(boss_cfg.enabled ~= false) or "false",
+                        type(boss_cfg) == "table" and type(boss_cfg.trigger) == "table" and tostring(boss_cfg.trigger.use_route_destination == true) or "false",
+                        tonumber(type(boss_cfg) == "table" and type(boss_cfg.trigger) == "table" and boss_cfg.trigger.x or 0) or 0,
+                        tonumber(type(boss_cfg) == "table" and type(boss_cfg.trigger) == "table" and boss_cfg.trigger.y or 0) or 0,
+                        tonumber(type(boss_cfg) == "table" and type(boss_cfg.trigger) == "table" and boss_cfg.trigger.z or 0) or 0,
+                        runtime.route_loaded == true and "true" or "false",
+                        type(runtime.route) == "table" and #runtime.route or 0
                     ))
             end
             return execute_treasure_route_follow(ctx, main_state, cfg, runtime, hooks, current_time, player_x, player_y, player_z)
@@ -3466,7 +3566,7 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             return true
         end
 
-        local clicked, portal_err = try_click_portal(ctx, hooks, portal_cfg)
+        local clicked, portal_err = try_click_portal(ctx, hooks, portal_cfg, runtime, record)
         runtime.next_retry_at = current_time + math.max(1200, tonumber(portal_cfg and portal_cfg.retry_ms) or 1500)
         if clicked then
             record.run_count = (tonumber(record.run_count) or 0) + 1
@@ -3522,9 +3622,12 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         local target_level_reached = target_level ~= nil
             and type(current_level) == "number"
             and current_level >= target_level
+        local restart_exit_share_landing = landing_ready(player_x, player_y, player_z, cfg.restart_landing)
+            and landing_ready(player_x, player_y, player_z, cfg.exit_landing)
         local accidental_exit_landing = runtime.pending_return_mainline ~= true
             and target_level ~= nil
             and target_level_reached ~= true
+            and not restart_exit_share_landing
             and landing_ready(player_x, player_y, player_z, cfg.exit_landing)
         if accidental_exit_landing then
             transition_mode(ctx, hooks, cfg, runtime, "pending_entry", "restart_landed_exit_before_target_level")

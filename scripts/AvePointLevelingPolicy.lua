@@ -110,4 +110,43 @@ function M.should_handle_low_priority_ui(opts)
     return false
 end
 
+function M.resolve_task_intent(opts)
+    opts = type(opts) == "table" and opts or {}
+
+    local ordered = {
+        { bucket = "task_recipe", candidate = opts.task_recipe },
+        { bucket = "entry_action", candidate = opts.entry_action },
+        { bucket = "route_point_active", candidate = opts.route_point_active },
+        { bucket = "route_point_candidate", candidate = opts.route_point_candidate },
+        { bucket = "post_dialogue_flow", candidate = opts.post_dialogue_flow },
+        { bucket = "dialogue_jump", candidate = opts.dialogue_jump },
+        { bucket = "generic_follow_task", candidate = opts.generic_follow_task },
+        { bucket = "generic_task_reached", candidate = opts.generic_task_reached },
+        { bucket = "click_main_task_button", candidate = opts.click_main_task_button }
+    }
+
+    for _, item in ipairs(ordered) do
+        local candidate = type(item) == "table" and item.candidate or nil
+        if type(candidate) == "table" then
+            return {
+                bucket = tostring(item.bucket or ""),
+                kind = tostring(candidate.kind or item.bucket or ""),
+                matched_source = tostring(candidate.matched_source or item.bucket or ""),
+                matched_key = tostring(candidate.matched_key or ""),
+                config = type(candidate.config) == "table" and candidate.config or nil,
+                reason = tostring(candidate.reason or "")
+            }
+        end
+    end
+
+    return {
+        bucket = "none",
+        kind = "none",
+        matched_source = "",
+        matched_key = "",
+        config = nil,
+        reason = tostring(opts.fallback_reason or "no_matching_intent")
+    }
+end
+
 return M
