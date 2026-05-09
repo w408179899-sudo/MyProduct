@@ -34,6 +34,531 @@ local TRIAL_OF_SUN_POWER_SIDE_KEY = "trial_of_sun_power_side_task"
 local TRIAL_OF_SUN_CONQUEST_SIDE_KEY = "trial_of_sun_conquest_side_task"
 local TRIAL_OF_SUN_BEAUTY_SIDE_KEY = "trial_of_sun_beauty_side_task"
 
+local function read_project_config_number(key, default_value)
+    key = tostring(key or "")
+    if key == "" then
+        return default_value
+    end
+
+    local file = io.open("config.json", "rb")
+    if not file then
+        return default_value
+    end
+
+    local text = file:read("*a")
+    file:close()
+    if type(text) ~= "string" or text == "" then
+        return default_value
+    end
+
+    local pattern = '"' .. key:gsub("([^%w])", "%%%1") .. '"%s*:%s*(-?%d+)'
+    local value = tonumber(text:match(pattern) or "")
+    if value == nil then
+        return default_value
+    end
+    return value
+end
+
+local function configured_sun_faction_choice()
+    local choice = math.floor(tonumber(read_project_config_number("avepointSunFaction", 1)) or 1)
+    if choice == 2 then
+        return 2
+    end
+    return 1
+end
+
+local SUN_FACTION_CHOICE = configured_sun_faction_choice()
+
+local function make_sun_faction_choice_action()
+    local is_moon = SUN_FACTION_CHOICE == 2
+    local faction_name = is_moon and "皓月" or "繁星"
+    local point = is_moon
+        and { x = 10357.46, y = 53.56, z = 501.00 }
+        or { x = 10412.35, y = 1060.25, z = 501.00 }
+
+    return make_npc_dialogue_route_action({
+        key = is_moon and "daylight_rivalry_moon_faction_dialogue" or "daylight_rivalry_star_faction_dialogue",
+        label = "与日争辉_选择" .. faction_name .. "阵营",
+        retry_ms = 600000,
+        task_patterns = {
+            "与日争辉"
+        },
+        task_detail_patterns = {
+            "与英灵对话",
+            "选择加入繁星或皓月阵营"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 10535.00,
+            y = 660.00,
+            z = 501.00,
+            radius = 520,
+            z_tolerance = 260
+        },
+        dialogue = {
+            x = point.x,
+            y = point.y,
+            z = point.z,
+            radius = 260,
+            interact_radius = 140,
+            move_interval_ms = 220,
+            z_tolerance = 260,
+            center_settle_ms = 600,
+            interact_retry_ms = 1800,
+            timeout_ms = 20000,
+            npc_search_radius = 520,
+            fallback_interact = true
+        }
+    })
+end
+
+local function make_sun_faction_after_join_route_action()
+    return make_route_point_action({
+        key = "daylight_rivalry_after_faction_join_route_11196_512",
+        label = "与日争辉_加入阵营后短路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "与日争辉"
+        },
+        task_detail_patterns = {
+            "与英灵对话",
+            "选择加入繁星或皓月阵营"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 10412.35,
+            y = 1060.25,
+            z = 501.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 30000,
+        waypoint_reach_radius = 240,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 11195.63, y = 512.00, z = 501.00 },
+            { x = 12422.91, y = 668.20, z = 501.00 }
+        }
+    })
+end
+
+local function make_daylight_rivalry_arena_hero_route_action()
+    return make_route_point_action({
+        key = "daylight_rivalry_arena_hero_route_19913_9021",
+        label = "与日争辉_挑战太阳斗场英灵_录制路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "与日争辉"
+        },
+        task_detail_patterns = {
+            "挑战太阳斗场的英灵"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 19913.10,
+            y = 9020.56,
+            z = 501.00,
+            radius = 900,
+            z_tolerance = 320
+        },
+        retry_ms = 600000,
+        timeout_ms = 240000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 360,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 19441.69, y = 9863.42, z = 501.00 },
+            { x = 18856.69, y = 10518.24, z = 501.00 },
+            { x = 18731.74, y = 11021.06, z = 501.82 },
+            { x = 18810.32, y = 11788.73, z = 506.00 },
+            { x = 18587.39, y = 12318.10, z = 506.00 },
+            { x = 18611.39, y = 12664.63, z = 506.00 },
+            { x = 18941.91, y = 13069.50, z = 506.00 },
+            { x = 19075.58, y = 13522.12, z = 506.61 },
+            { x = 19169.99, y = 14090.89, z = 501.00 },
+            { x = 19435.86, y = 14580.32, z = 501.00 },
+            { x = 19912.13, y = 14371.56, z = 501.00 },
+            { x = 20256.43, y = 14003.76, z = 501.00 },
+            { x = 20439.70, y = 13550.73, z = 508.54 },
+            { x = 20611.35, y = 13144.26, z = 507.76 },
+            { x = 20630.08, y = 12715.44, z = 506.00 },
+            { x = 20609.31, y = 12299.90, z = 506.00 },
+            { x = 20337.54, y = 11845.73, z = 507.82 },
+            { x = 20130.69, y = 11680.80, z = 509.00 },
+            { x = 19901.22, y = 11521.85, z = 510.94 },
+            { x = 19694.71, y = 11377.16, z = 508.54 },
+            { x = 19235.95, y = 11248.80, z = 506.00 },
+            { x = 19016.96, y = 11526.75, z = 510.79 },
+            { x = 18962.31, y = 11906.16, z = 506.54 },
+            { x = 18911.15, y = 12417.37, z = 506.00 },
+            { x = 19038.97, y = 12892.02, z = 506.00 },
+            { x = 19349.40, y = 13164.34, z = 508.00 },
+            { x = 19796.75, y = 13171.99, z = 507.81 },
+            { x = 20105.78, y = 12874.07, z = 506.00 },
+            { x = 20313.70, y = 12477.28, z = 506.00 },
+            { x = 20254.56, y = 12038.74, z = 506.00 },
+            { x = 19846.30, y = 11862.98, z = 507.28 },
+            { x = 19433.73, y = 11956.38, z = 506.36 },
+            { x = 19455.37, y = 12292.04, z = 506.00 },
+            { x = 19788.01, y = 12486.47, z = 506.00 },
+            { x = 20137.05, y = 12655.25, z = 506.00 },
+            { x = 20359.50, y = 12734.85, z = 506.00 },
+            { x = 20563.46, y = 12722.45, z = 506.00 },
+            { x = 20745.02, y = 12573.20, z = 506.00 },
+            { x = 20845.88, y = 12242.09, z = 506.00 },
+            { x = 20746.14, y = 11969.43, z = 506.00 },
+            { x = 20543.54, y = 11805.68, z = 508.00 },
+            { x = 19936.75, y = 11670.83, z = 509.29 },
+            { x = 20046.05, y = 12103.22, z = 506.00 },
+            { x = 20476.26, y = 12165.54, z = 506.00 }
+        }
+    })
+end
+
+local function make_daylight_rivalry_baptism_anchor_route_action()
+    return make_route_point_action({
+        key = "daylight_rivalry_baptism_anchor_route_30389_11366",
+        label = "与日争辉_接受圣洗_锚点路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        task_patterns = {
+            "与日争辉"
+        },
+        task_detail_patterns = {
+            "接受圣洗"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 30389.00,
+            y = 11366.00,
+            z = 505.19,
+            radius = 1800,
+            z_tolerance = 360
+        },
+        retry_ms = 600000,
+        timeout_ms = 45000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 360,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 30389.00, y = 11366.00, z = 505.19 }
+        }
+    })
+end
+
+local function make_daylight_rivalry_grand_arena_loop_route_action()
+    return make_route_point_action({
+        key = "daylight_rivalry_grand_arena_loop_route",
+        label = "与日争辉_挑战大竞技场_循环跑打直到任务刷新",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "daylight_rivalry_grand_arena_loop_route",
+        task_patterns = {
+            "与日争辉"
+        },
+        task_detail_patterns = {
+            "挑战大竞技场"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 43599.45,
+            y = 13004.19,
+            z = 406.00,
+            radius = 1800,
+            z_tolerance = 360
+        },
+        retry_ms = 600000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 360,
+        move_interval_ms = 220,
+        waypoints = {
+            { x = 43599.45, y = 13004.19, z = 406.00 },
+            { x = 44831.65, y = 13856.99, z = 406.00 },
+            { x = 46130.02, y = 13924.12, z = 406.00 },
+            { x = 46947.59, y = 13178.95, z = 406.00 },
+            { x = 47324.91, y = 12071.08, z = 406.00 },
+            { x = 47031.16, y = 11068.55, z = 406.00 },
+            { x = 46206.35, y = 10423.61, z = 406.00 },
+            { x = 45191.07, y = 10206.47, z = 406.00 },
+            { x = 44297.66, y = 10413.69, z = 406.00 },
+            { x = 43781.35, y = 11146.50, z = 406.00 },
+            { x = 43559.68, y = 12133.80, z = 406.00 }
+        }
+    })
+end
+
+local function make_daylight_rivalry_sun_champion_loop_route_action()
+    return make_route_point_action({
+        key = "daylight_rivalry_sun_champion_loop_route",
+        label = "与日争辉_击败太阳冠军杰拉尔德_循环跑打直到任务刷新",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "daylight_rivalry_sun_champion_loop_route",
+        task_patterns = {
+            "与日争辉"
+        },
+        task_detail_patterns = {
+            "击败“太阳冠军”杰拉尔德"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 43599.45,
+            y = 13004.19,
+            z = 406.00,
+            radius = 1800,
+            z_tolerance = 360
+        },
+        retry_ms = 600000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 360,
+        move_interval_ms = 220,
+        waypoints = {
+            { x = 43599.45, y = 13004.19, z = 406.00 },
+            { x = 44831.65, y = 13856.99, z = 406.00 },
+            { x = 46130.02, y = 13924.12, z = 406.00 },
+            { x = 46947.59, y = 13178.95, z = 406.00 },
+            { x = 47324.91, y = 12071.08, z = 406.00 },
+            { x = 47031.16, y = 11068.55, z = 406.00 },
+            { x = 46206.35, y = 10423.61, z = 406.00 },
+            { x = 45191.07, y = 10206.47, z = 406.00 },
+            { x = 44297.66, y = 10413.69, z = 406.00 },
+            { x = 43781.35, y = 11146.50, z = 406.00 },
+            { x = 43559.68, y = 12133.80, z = 406.00 }
+        }
+    })
+end
+
+local function make_daylight_rivalry_audience_queen_anchor_route_action()
+    return make_route_point_action({
+        key = "daylight_rivalry_audience_queen_anchor_route_47491_12143",
+        label = "与日争辉_觐见女王_先回锚点再主线寻路",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        task_patterns = {
+            "与日争辉"
+        },
+        task_detail_patterns = {
+            "觐见女王"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 47491.00,
+            y = 12143.00,
+            z = 406.00,
+            radius = 1800,
+            z_tolerance = 360
+        },
+        retry_ms = 600000,
+        timeout_ms = 45000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 360,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 47491.00, y = 12143.00, z = 406.00 }
+        }
+    })
+end
+
+local function make_daylight_rivalry_talk_to_ariya_route_action()
+    return make_npc_dialogue_route_action({
+        key = "daylight_rivalry_talk_to_ariya_54146_12196",
+        label = "与日争辉_与阿瑞娅交谈_NPC对话",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        task_patterns = {
+            "与日争辉"
+        },
+        task_detail_patterns = {
+            "与阿瑞娅交谈"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 54146.00,
+            y = 12196.00,
+            z = 801.88,
+            radius = 1800,
+            z_tolerance = 360
+        },
+        retry_ms = 600000,
+        dialogue = {
+            x = 54146.00,
+            y = 12196.00,
+            z = 801.88,
+            radius = 320,
+            interact_radius = 160,
+            move_interval_ms = 220,
+            z_tolerance = 360,
+            center_settle_ms = 700,
+            interact_retry_ms = 1800,
+            timeout_ms = 22000,
+            npc_search_radius = 700,
+            fallback_interact = true
+        }
+    })
+end
+
+local function make_evil_sun_chase_queen_detour_route_action()
+    return make_route_point_action({
+        key = "evil_sun_chase_queen_detour_route_4960_7571",
+        label = "邪阳_追击太阳女王_录制路线到Boss",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "邪阳"
+        },
+        task_detail_patterns = {
+            "追击太阳女王，拯救阿瑞娅"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 4960.00,
+            y = 7571.00,
+            z = 1206.00,
+            radius = 1800,
+            z_tolerance = 360
+        },
+        retry_ms = 600000,
+        timeout_ms = 120000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 360,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 3220.24, y = 7305.44, z = 1206.00 },
+            { x = 2515.97, y = 7236.62, z = 1206.00 },
+            { x = 1938.25, y = 7653.28, z = 1206.00 },
+            { x = 1458.72, y = 7917.83, z = 1173.04 },
+            { x = 873.07, y = 7853.87, z = 928.73 },
+            { x = 387.49, y = 7610.83, z = 913.00 },
+            { x = 421.16, y = 6668.07, z = 744.04 },
+            { x = 207.13, y = 5867.46, z = 606.00 },
+            { x = -386.02, y = 5694.50, z = 606.00 },
+            { x = -901.37, y = 5904.29, z = 606.00 },
+            { x = -1145.84, y = 6724.12, z = 596.58 },
+            { x = -898.79, y = 7205.73, z = 606.00 },
+            { x = -1007.26, y = 7877.79, z = 604.48 },
+            { x = -1183.46, y = 8218.01, z = 606.00 },
+            { x = -1326.65, y = 8404.01, z = 606.00 },
+            { x = -1568.83, y = 8946.37, z = 606.00 },
+            { x = -1243.46, y = 9605.11, z = 606.00 },
+            { x = -571.96, y = 9730.78, z = 606.00 },
+            { x = 172.86, y = 9841.78, z = 606.00 },
+            { x = 950.42, y = 9945.04, z = 606.00 },
+            { x = 1818.80, y = 10347.91, z = 606.00 }
+        }
+    })
+end
+
+local function make_shadow_sun_chase_queen_detour_route_action()
+    return make_route_point_action({
+        key = "shadow_sun_chase_queen_detour_route_3263_-628",
+        label = "恶影拜日_追踪太阳女王_录制路线后重call主线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "恶影拜日"
+        },
+        task_detail_patterns = {
+            "追踪太阳女王，解救阿瑞娅"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 3263.00,
+            y = -628.00,
+            z = 606.00,
+            radius = 900,
+            z_tolerance = 360
+        },
+        retry_ms = 600000,
+        timeout_ms = 60000,
+        waypoint_reach_radius = 240,
+        waypoint_z_tolerance = 360,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 2724.04, y = 748.37, z = 611.61 },
+            { x = 2469.00, y = 1434.20, z = 606.00 },
+            { x = 2586.37, y = 2262.41, z = 606.00 },
+            { x = 2317.48, y = 2949.40, z = 606.00 },
+            { x = 1757.68, y = 3403.84, z = 606.00 }
+        }
+    })
+end
+
+local function make_sun_faction_join_dialogue_flow_task()
+    local is_moon = SUN_FACTION_CHOICE == 2
+    local faction_name = is_moon and "皓月" or "繁星"
+    local anchor_text = "加入" .. faction_name .. "英灵"
+
+    return make_dialogue_locator_flow_task_config(
+        is_moon and "daylight_rivalry_join_moon_faction_flow" or "daylight_rivalry_join_star_faction_flow",
+        {
+            {
+                key = is_moon and "daylight_rivalry_join_moon_faction_btn" or "daylight_rivalry_join_star_faction_btn",
+                label = anchor_text .. "按钮",
+                distance_anchor_exact_text = anchor_text,
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button",
+                distance_min = 61.059764,
+                distance_max = 64.836656,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button"
+                },
+                hint_client_x = 609.029968,
+                hint_client_y = 348.017120,
+                hint_ratio_x = 0.422937,
+                hint_ratio_y = 0.386686,
+                hint_max_distance = 80.000,
+                retry_ms = 600,
+                settle_ms = 1200
+            }
+        },
+        {
+            key = is_moon and "daylight_rivalry_join_moon_faction_flow" or "daylight_rivalry_join_star_faction_flow",
+            timeout_ms = 9000,
+            origins = {
+                "npc",
+                "interaction_prompt"
+            },
+            settle_ms = 1200
+        },
+        {
+            task_patterns = {
+                "与日争辉"
+            },
+            task_detail_patterns = {
+                "与英灵对话",
+                "选择加入繁星或皓月阵营"
+            },
+            constraint_mode = "all"
+        }
+    )
+end
+
 local function trial_of_sun_side_key_from_prefix(prefix)
     prefix = tostring(prefix or "")
     if prefix:find("power", 1, true) then
@@ -2204,6 +2729,7 @@ local function make_forgotten_temple_rescue_civilian_route_action(key_suffix, x,
 end
 
 M.TASK_NAME_CONFIGS = {
+    ["与日争辉"] = make_sun_faction_join_dialogue_flow_task(),
     ["\u{524D}\u{5F80}\u{96C4}\u{72EE}\u{4E4B}\u{5FC3}\u{FF0C}\u{53C2}\u{4E0E}\u{665A}\u{661F}\u{7684}\u{53CD}\u{653B}"] = {
         task_patterns = {
             "\u{7FA4}\u{661F}\u{4E4B}\u{8F89}"
@@ -2857,8 +3383,8 @@ M.TASK_NAME_CONFIGS = {
         },
         {
             map_open_wait_ms = 1900,
-            center_click_ratio_x = 0.503472,
-            center_click_ratio_y = 0.498889,
+            center_click_ratio_x = 0.503127,
+            center_click_ratio_y = 0.493333,
             center_use_human_mouse = true,
             center_mouse_mode = "api",
             center_hover_delay_ms = 90,
@@ -2871,7 +3397,8 @@ M.TASK_NAME_CONFIGS = {
         {
             task_patterns = {
                 "\u{957F}\u{591C}\u{7EC8}\u{5C3D}",
-                "\u{5723}\u{8BEC}\u{4E4B}\u{672B}"
+                "\u{5723}\u{8BEC}\u{4E4B}\u{672B}",
+                "导师馈赠"
             },
             task_detail_patterns = { "\u{524D}\u{5F80}\u{4F59}\u{70EC}\u{4E4B}\u{606F}" },
             main_task_call = {
@@ -3196,6 +3723,47 @@ M.TASK_NAME_CONFIGS = {
             enable_linear_recipe = true
         }
     ),
+    ["进入太阳斗场"] = make_world_map_send_task_config(
+        "enter_sun_arena_world_map_send",
+        {
+            label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
+            distance_anchor_exact_text = "\u{4F20}\u{9001}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn",
+            distance_min = 8.248740,
+            distance_max = 9.248740,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn"
+            },
+            hint_client_x = 659.188843,
+            hint_client_y = 827.716736,
+            hint_ratio_x = 0.457770,
+            hint_ratio_y = 0.919685,
+            hint_max_distance = 80.000,
+            prefer_hint_fallback = true
+        },
+        {
+            map_open_wait_ms = 1200,
+            center_click_ratio_x = 0.554167,
+            center_click_ratio_y = 0.502222,
+            center_use_human_mouse = true,
+            center_mouse_mode = "api",
+            center_hover_delay_ms = 90,
+            center_click_delay_ms = 60,
+            center_settle_ms = 750,
+            center_retry_ms = 1400,
+            transition_wait_ms = 2500,
+            timeout_ms = 16000
+        },
+        {
+            task_patterns = {
+                "进入太阳斗场"
+            },
+            main_task_call = {
+                allow_anchor_click_fallback = true
+            },
+            enable_linear_recipe = true
+        }
+    ),
     ["前往永恒广场"] = make_world_map_send_task_config(
         "eternal_gilding_eternal_square_world_map_send",
         {
@@ -3239,6 +3807,420 @@ M.TASK_NAME_CONFIGS = {
             },
             constraint_mode = "all",
             enable_linear_recipe = true
+        }
+    ),
+    ["前往梳洗大厅，阻止神秘人"] = make_world_map_send_task_config(
+        "evil_sun_wash_hall_world_map_send",
+        {
+            label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
+            distance_anchor_exact_text = "\u{4F20}\u{9001}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn",
+            distance_min = 8.248740,
+            distance_max = 9.248740,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn"
+            },
+            hint_client_x = 659.188843,
+            hint_client_y = 827.716736,
+            hint_ratio_x = 0.457770,
+            hint_ratio_y = 0.919685,
+            hint_max_distance = 80.000,
+            prefer_hint_fallback = true
+        },
+        {
+            map_open_wait_ms = 1200,
+            center_click_ratio_x = 0.595833,
+            center_click_ratio_y = 0.497778,
+            center_use_human_mouse = true,
+            center_mouse_mode = "api",
+            center_hover_delay_ms = 90,
+            center_click_delay_ms = 60,
+            center_settle_ms = 750,
+            center_retry_ms = 1400,
+            transition_wait_ms = 2500,
+            timeout_ms = 16000
+        },
+        {
+            task_patterns = {
+                "邪阳"
+            },
+            task_detail_patterns = {
+                "前往梳洗大厅，阻止神秘人"
+            },
+            main_task_call = {
+                allow_anchor_click_fallback = true
+            },
+            constraint_mode = "all",
+            enable_linear_recipe = true
+        }
+    ),
+    ["前往太阳王庭"] = make_world_map_send_task_config(
+        "sun_king_court_world_map_send",
+        {
+            label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
+            distance_anchor_exact_text = "\u{4F20}\u{9001}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn",
+            distance_min = 8.248740,
+            distance_max = 9.248740,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn"
+            },
+            hint_client_x = 659.188843,
+            hint_client_y = 827.716736,
+            hint_ratio_x = 0.457770,
+            hint_ratio_y = 0.919685,
+            hint_max_distance = 80.000,
+            prefer_hint_fallback = true
+        },
+        {
+            map_open_wait_ms = 1200,
+            center_click_ratio_x = 0.724306,
+            center_click_ratio_y = 0.502222,
+            center_use_human_mouse = true,
+            center_mouse_mode = "api",
+            center_hover_delay_ms = 90,
+            center_click_delay_ms = 60,
+            center_settle_ms = 750,
+            center_retry_ms = 1400,
+            transition_wait_ms = 2500,
+            timeout_ms = 16000,
+            defer_revive_during_map_entry = true
+        },
+        {
+            task_patterns = {
+                "太阳王庭"
+            },
+            task_detail_patterns = {
+                "前往太阳王庭"
+            },
+            main_task_call = {
+                allow_anchor_click_fallback = true
+            },
+            constraint_mode = "all",
+            enable_linear_recipe = true
+        }
+    ),
+    ["前往锈蚀深渊"] = make_world_map_send_task_config(
+        "rust_depth_world_map_send",
+        {
+            label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
+            distance_anchor_exact_text = "\u{4F20}\u{9001}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn",
+            distance_min = 8.248740,
+            distance_max = 9.248740,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn"
+            },
+            hint_client_x = 659.188843,
+            hint_client_y = 827.716736,
+            hint_ratio_x = 0.457770,
+            hint_ratio_y = 0.919685,
+            hint_max_distance = 80.000,
+            prefer_hint_fallback = true
+        },
+        {
+            map_open_wait_ms = 1200,
+            center_click_ratio_x = 0.523975,
+            center_click_ratio_y = 0.498889,
+            center_use_human_mouse = true,
+            center_mouse_mode = "api",
+            center_hover_delay_ms = 90,
+            center_click_delay_ms = 60,
+            center_settle_ms = 750,
+            center_retry_ms = 1400,
+            transition_wait_ms = 2500,
+            timeout_ms = 16000
+        },
+        {
+            task_patterns = {
+                "锈蚀深渊",
+                "碎骨巨斧"
+            },
+            task_detail_patterns = {
+                "前往锈蚀深渊"
+            },
+            main_task_call = {
+                allow_anchor_click_fallback = true
+            },
+            constraint_mode = "all",
+            enable_linear_recipe = true
+        }
+    ),
+    ["击败邪龙"] = make_boss_kite_task_config(
+        "rust_depth_defeat_evil_dragon_boss_kite",
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            kite_radius = 1800,
+            kite_switch_ms = 2000,
+            seamless_kite = true,
+            kite_arrive_distance = 480,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 2500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            allow_nearby_text_task_change_exit = true,
+            nearby_text_task_change_confirm_ms = 1200,
+            nearby_text_task_change_confirm_count = 2,
+            kite_points = {
+                { x = -1103.25, y = -1297.09, z = 6.00 },
+                { x = -2336.17, y = -1241.16, z = 6.00 },
+                { x = -2119.15, y = 156.63, z = 6.00 }
+            }
+        },
+        {
+            task_patterns = {
+                "锈蚀深渊",
+                "碎骨巨斧"
+            },
+            task_detail_patterns = {
+                "击败邪龙"
+            },
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
+            },
+            constraint_mode = "all"
+        }
+    ),
+    ["追击太阳女王，拯救阿瑞娅"] = make_boss_kite_task_config(
+        "evil_sun_chase_queen_boss_kite",
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            kite_radius = 2200,
+            kite_switch_ms = 2200,
+            seamless_kite = true,
+            kite_arrive_distance = 520,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 2500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            allow_nearby_text_task_change_exit = true,
+            nearby_text_task_change_confirm_ms = 1200,
+            nearby_text_task_change_confirm_count = 2,
+            kite_points = {
+                { x = -571.96, y = 9730.78, z = 606.00 },
+                { x = 172.86, y = 9841.78, z = 606.00 },
+                { x = 950.42, y = 9945.04, z = 606.00 },
+                { x = 1818.80, y = 10347.91, z = 606.00 }
+            }
+        },
+        {
+            task_patterns = {
+                "邪阳"
+            },
+            task_detail_patterns = {
+                "追击太阳女王，拯救阿瑞娅"
+            },
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
+            },
+            constraint_mode = "all"
+        }
+    ),
+    ["击败被腐化的英灵"] = make_boss_kite_task_config(
+        "evil_sun_corrupted_hero_boss_kite",
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            kite_radius = 2200,
+            kite_switch_ms = 2200,
+            seamless_kite = true,
+            kite_arrive_distance = 520,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 2500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            allow_nearby_text_task_change_exit = true,
+            nearby_text_task_change_confirm_ms = 1200,
+            nearby_text_task_change_confirm_count = 2,
+            kite_points = {
+                { x = -571.96, y = 9730.78, z = 606.00 },
+                { x = 172.86, y = 9841.78, z = 606.00 },
+                { x = 950.42, y = 9945.04, z = 606.00 },
+                { x = 1818.80, y = 10347.91, z = 606.00 }
+            }
+        },
+        {
+            task_patterns = {
+                "邪阳"
+            },
+            task_detail_patterns = {
+                "击败被腐化的英灵"
+            },
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
+            },
+            constraint_mode = "all"
+        }
+    ),
+    ["追踪太阳女王，解救阿瑞娅"] = make_boss_kite_task_config(
+        "shadow_sun_chase_queen_boss_kite",
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = true,
+            kite_radius = 2200,
+            kite_switch_ms = 2200,
+            seamless_kite = true,
+            kite_arrive_distance = 520,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 2500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            allow_nearby_text_task_change_exit = true,
+            nearby_text_task_change_confirm_ms = 1200,
+            nearby_text_task_change_confirm_count = 2,
+            kite_points = {
+                { x = 9138.96, y = 11697.53, z = 2416.00 },
+                { x = 8967.00, y = 10986.00, z = 2416.00 },
+                { x = 8736.51, y = 11502.49, z = 2416.00 },
+                { x = 9100.00, y = 11880.00, z = 2416.00 }
+            }
+        },
+        {
+            task_patterns = {
+                "恶影拜日"
+            },
+            task_detail_patterns = {
+                "追踪太阳女王，解救阿瑞娅"
+            },
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
+            },
+            constraint_mode = "all"
+        }
+    ),
+    ["击败虚影之子"] = make_boss_kite_task_config(
+        "shadow_sun_defeat_shadow_child_boss_kite",
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = true,
+            kite_radius = 2200,
+            kite_switch_ms = 2200,
+            seamless_kite = true,
+            kite_arrive_distance = 520,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 2500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            allow_nearby_text_task_change_exit = true,
+            nearby_text_task_change_confirm_ms = 1200,
+            nearby_text_task_change_confirm_count = 2,
+            kite_points = {
+                { x = 9138.96, y = 11697.53, z = 2416.00 },
+                { x = 8967.00, y = 10986.00, z = 2416.00 },
+                { x = 8736.51, y = 11502.49, z = 2416.00 },
+                { x = 9100.00, y = 11880.00, z = 2416.00 }
+            }
+        },
+        {
+            task_patterns = {
+                "恶影拜日"
+            },
+            task_detail_patterns = {
+                "击败虚影之子"
+            },
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
+            },
+            constraint_mode = "all"
+        }
+    ),
+    ["前往太阳王座，觐见女王"] = make_boss_kite_task_config(
+        "audience_road_sun_throne_boss_kite",
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = true,
+            kite_radius = 1800,
+            kite_switch_ms = 2000,
+            seamless_kite = true,
+            kite_arrive_distance = 480,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 2500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            allow_nearby_text_task_change_exit = true,
+            nearby_text_task_change_confirm_ms = 1200,
+            nearby_text_task_change_confirm_count = 2,
+            kite_points = {
+                { x = 14140.00, y = 820.00, z = 1215.00 },
+                { x = 13125.48, y = 743.95, z = 1215.00 },
+                { x = 12998.45, y = -473.70, z = 1215.00 },
+                { x = 14082.77, y = -669.93, z = 1215.00 }
+            }
+        },
+        {
+            task_patterns = {
+                "谒见之路"
+            },
+            task_detail_patterns = {
+                "前往太阳王座，觐见女王"
+            },
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
+            },
+            constraint_mode = "all"
+        }
+    ),
+    ["击败太阳女王"] = make_boss_kite_task_config(
+        "eternal_rust_defeat_sun_queen_boss_kite",
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = true,
+            kite_radius = 1800,
+            kite_switch_ms = 2000,
+            seamless_kite = true,
+            kite_arrive_distance = 480,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 2500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            allow_nearby_text_task_change_exit = true,
+            nearby_text_task_change_confirm_ms = 1200,
+            nearby_text_task_change_confirm_count = 2,
+            kite_points = {
+                { x = 14140.00, y = 820.00, z = 1215.00 },
+                { x = 13125.48, y = 743.95, z = 1215.00 },
+                { x = 12998.45, y = -473.70, z = 1215.00 },
+                { x = 14082.77, y = -669.93, z = 1215.00 }
+            }
+        },
+        {
+            task_patterns = {
+                "永恒锈蚀"
+            },
+            task_detail_patterns = {
+                "击败太阳女王"
+            },
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
+            },
+            constraint_mode = "all"
         }
     ),
     ["询问打开大门的方法"] = make_dialogue_locator_flow_task_config(
@@ -3568,8 +4550,8 @@ M.TASK_NAME_CONFIGS["\u{5723}\u{8BEC}\u{4E4B}\u{672B}"] = make_world_map_send_ta
     },
     {
         map_open_wait_ms = 1900,
-        center_click_ratio_x = 0.503472,
-        center_click_ratio_y = 0.498889,
+        center_click_ratio_x = 0.503127,
+        center_click_ratio_y = 0.493333,
         center_use_human_mouse = true,
         center_mouse_mode = "api",
         center_hover_delay_ms = 90,
@@ -3616,6 +4598,47 @@ M.GLOBAL_TASK_PORTAL_STEP = {
 }
 
 M.ROUTE_POINT_ACTIONS = {
+    make_sun_faction_choice_action(),
+    make_sun_faction_after_join_route_action(),
+    make_daylight_rivalry_arena_hero_route_action(),
+    make_daylight_rivalry_baptism_anchor_route_action(),
+    make_daylight_rivalry_grand_arena_loop_route_action(),
+    make_daylight_rivalry_sun_champion_loop_route_action(),
+    make_daylight_rivalry_audience_queen_anchor_route_action(),
+    make_daylight_rivalry_talk_to_ariya_route_action(),
+    make_evil_sun_chase_queen_detour_route_action(),
+    make_shadow_sun_chase_queen_detour_route_action(),
+    make_route_point_action({
+        key = "audience_road_sun_throne_detour_-4054_8509",
+        label = "谒见之路_前往太阳王座_补充录制路线",
+        mode = "recorded_route_point",
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "谒见之路"
+        },
+        task_detail_patterns = {
+            "前往太阳王座，觐见女王"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -4054.00,
+            y = 8509.00,
+            z = 5.00,
+            radius = 900,
+            z_tolerance = 220
+        },
+        retry_ms = 600000,
+        timeout_ms = 45000,
+        waypoint_reach_radius = 240,
+        waypoint_z_tolerance = 220,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = -3638.76, y = 7955.01, z = 5.00 },
+            { x = -2787.62, y = 7533.55, z = 5.00 },
+            { x = -2813.32, y = 6432.35, z = 5.00 }
+        }
+    }),
     make_npc_dialogue_route_action({
         key = "trial_of_sun_prophecy_site_dialogue_-342_1891",
         label = "太阳的试炼_通过三处试炼_NPC对话",
@@ -5254,6 +6277,83 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
+        key = "rust_depth_defeat_evil_dragon_move_to_portal_-2348_-4741",
+        label = "锈蚀深渊_击败邪龙_先移动到传送门",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "rust_depth_defeat_evil_dragon_portal_-2348_-4741",
+        task_patterns = {
+            "锈蚀深渊",
+            "碎骨巨斧"
+        },
+        task_detail_patterns = {
+            "击败邪龙"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -2348.04,
+            y = -4741.14,
+            z = 1146.00,
+            radius = 1800,
+            z_tolerance = 320
+        },
+        retry_ms = 600000,
+        timeout_ms = 30000,
+        waypoint_reach_radius = 180,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        waypoints = {
+            { x = -2348.04, y = -4741.14, z = 1146.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "rust_depth_defeat_evil_dragon_portal_-2348_-4741",
+        label = "锈蚀深渊_击败邪龙_传送门",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        task_patterns = {
+            "锈蚀深渊",
+            "碎骨巨斧"
+        },
+        task_detail_patterns = {
+            "击败邪龙"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -2348.04,
+            y = -4741.14,
+            z = 1146.00,
+            radius = 520,
+            z_tolerance = 260
+        },
+        interact_radius = 220,
+        probe_retry_ms = 700,
+        retry_ms = 2500,
+        settle_ms = 4500,
+        timeout_ms = 18000,
+        force_task_call_after_transition = true,
+        task_pos_reject_extra_ms = 3500,
+        fallback_interact = true,
+        fallback_interact_distance = 260,
+        fallback_retry_ms = 2500,
+        step = {
+            key = "rust_depth_defeat_evil_dragon_portal_btn",
+            label = "锈蚀深渊击败邪龙传送门",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn"
+            },
+            hint_client_x = 697.204834,
+            hint_client_y = 724.439941,
+            hint_ratio_x = 0.484170,
+            hint_ratio_y = 0.804933,
+            hint_max_distance = 180.000
+        }
+    }),
+    make_route_point_action({
         key = "counterattack_dawn_rescue_gather_19907_21521",
         label = "反击的黎明_解救被困者_交互按钮",
         mode = "objective_button_point",
@@ -5553,6 +6653,378 @@ M.ROUTE_POINT_ACTIONS = {
             { x = -2651.73, y = -199.78, z = 505.00 },
             { x = -2131.85, y = -867.56, z = 505.00 },
             { x = -1705.11, y = -1413.48, z = 505.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "loser_badge_deep_star_road_detour_-5316_2383",
+        label = "败者之证_深入繁星之路_补充录制路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "败者之证"
+        },
+        task_detail_patterns = {
+            "深入繁星之路"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -5316.00,
+            y = 2383.00,
+            z = 502.00,
+            radius = 800,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 90000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = -5316.00, y = 2383.00, z = 502.00 },
+            { x = -6099.21, y = 2502.90, z = 502.00 },
+            { x = -7140.07, y = 2953.51, z = 502.00 },
+            { x = -7993.93, y = 2913.00, z = 502.00 },
+            { x = -8569.53, y = 2446.38, z = 502.00 },
+            { x = -8557.00, y = 1867.74, z = 502.00 },
+            { x = -8145.38, y = 1545.30, z = 502.00 },
+            { x = -7644.74, y = 1253.12, z = 502.00 },
+            { x = -7576.35, y = 551.80, z = 502.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "loser_badge_star_road_detour_-17521_11360",
+        label = "败者之证_繁星之路_北侧补充录制路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "败者之证",
+            "败者无名"
+        },
+        task_detail_patterns = {
+            "深入繁星之路",
+            "挑战繁星之路的英灵",
+            "击败“不洁之星·杰拉尔德”，获得败者之证"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -17521.00,
+            y = 11360.00,
+            z = 502.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = -17521.00, y = 11360.00, z = 502.00 },
+            { x = -17725.88, y = 12865.19, z = 502.00 },
+            { x = -18409.62, y = 13345.23, z = 502.00 },
+            { x = -18228.74, y = 13886.18, z = 502.00 },
+            { x = -17786.90, y = 14316.75, z = 502.00 },
+            { x = -17299.39, y = 14820.43, z = 502.00 },
+            { x = -16803.92, y = 14864.67, z = 502.00 },
+            { x = -16498.39, y = 14444.06, z = 502.00 },
+            { x = -16568.89, y = 13874.52, z = 502.00 },
+            { x = -16864.98, y = 13424.39, z = 502.00 },
+            { x = -17267.78, y = 13007.97, z = 502.00 },
+            { x = -17785.78, y = 12797.56, z = 502.00 },
+            { x = -18286.64, y = 12882.84, z = 502.00 },
+            { x = -18626.11, y = 13281.17, z = 502.00 },
+            { x = -18165.09, y = 13642.54, z = 502.00 },
+            { x = -17684.65, y = 13778.55, z = 502.00 },
+            { x = -17248.62, y = 13492.26, z = 502.00 },
+            { x = -17144.90, y = 13013.07, z = 502.00 },
+            { x = -17513.30, y = 12750.79, z = 502.00 },
+            { x = -17875.44, y = 13104.98, z = 502.00 },
+            { x = -17731.94, y = 13462.63, z = 502.00 },
+            { x = -17329.50, y = 13618.94, z = 502.00 },
+            { x = -16879.86, y = 13614.19, z = 502.00 },
+            { x = -16368.59, y = 13607.83, z = 502.00 },
+            { x = -15772.62, y = 13556.71, z = 502.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "loser_badge_star_road_detour_181_11951",
+        label = "败者之证_繁星之路_东侧补充录制路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "败者之证"
+        },
+        task_detail_patterns = {
+            "深入繁星之路",
+            "挑战繁星之路的英灵"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 181.00,
+            y = 11951.00,
+            z = 502.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 181.00, y = 11951.00, z = 502.00 },
+            { x = 1382.08, y = 11367.06, z = 502.00 },
+            { x = 2309.44, y = 10991.29, z = 502.00 },
+            { x = 2997.17, y = 11232.97, z = 502.00 },
+            { x = 3342.84, y = 11894.42, z = 502.00 },
+            { x = 3181.56, y = 12458.43, z = 502.00 },
+            { x = 2578.50, y = 12834.74, z = 502.00 },
+            { x = 2018.51, y = 12795.75, z = 502.00 },
+            { x = 1625.00, y = 12236.38, z = 502.00 },
+            { x = 1508.32, y = 11786.81, z = 502.00 },
+            { x = 1510.19, y = 11360.43, z = 502.00 },
+            { x = 1794.94, y = 10985.20, z = 502.00 },
+            { x = 2292.38, y = 10875.37, z = 502.00 },
+            { x = 3057.00, y = 11210.98, z = 502.00 },
+            { x = 3300.46, y = 11643.15, z = 502.00 },
+            { x = 3258.56, y = 12144.73, z = 502.00 },
+            { x = 2985.46, y = 12599.52, z = 502.00 },
+            { x = 2680.13, y = 12784.45, z = 502.00 },
+            { x = 2297.76, y = 12949.63, z = 502.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "loser_badge_star_road_detour_2424_19065",
+        label = "败者之证_繁星之路_东南补充录制路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "败者之证"
+        },
+        task_detail_patterns = {
+            "深入繁星之路",
+            "挑战繁星之路的英灵"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 2424.89,
+            y = 19065.02,
+            z = 502.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 2424.89, y = 19065.02, z = 502.00 },
+            { x = 2258.59, y = 19890.58, z = 502.00 },
+            { x = 1677.48, y = 20490.68, z = 502.00 },
+            { x = 1181.39, y = 21341.69, z = 502.00 },
+            { x = 1484.28, y = 21992.68, z = 502.00 },
+            { x = 2018.83, y = 22181.48, z = 502.00 },
+            { x = 2832.33, y = 22274.91, z = 502.00 },
+            { x = 3392.93, y = 21813.79, z = 502.00 },
+            { x = 3615.55, y = 21108.59, z = 502.00 },
+            { x = 3415.86, y = 20532.76, z = 502.00 },
+            { x = 2719.77, y = 20209.76, z = 502.00 },
+            { x = 2065.84, y = 20560.05, z = 502.00 },
+            { x = 2377.33, y = 21144.92, z = 502.00 },
+            { x = 2566.02, y = 21676.38, z = 502.00 },
+            { x = 2579.09, y = 22000.57, z = 502.00 },
+            { x = 2051.16, y = 22291.46, z = 502.00 },
+            { x = 1434.81, y = 22045.01, z = 502.00 },
+            { x = 1159.10, y = 21390.59, z = 502.00 },
+            { x = 1309.55, y = 20922.50, z = 502.00 },
+            { x = 1955.69, y = 20580.59, z = 502.00 },
+            { x = 2420.89, y = 20903.24, z = 502.00 },
+            { x = 2385.36, y = 21675.72, z = 502.00 },
+            { x = 2522.62, y = 22580.44, z = 502.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "loser_badge_star_road_detour_2349_28144",
+        label = "败者之证_繁星之路_南侧补充录制路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "败者之证"
+        },
+        task_detail_patterns = {
+            "深入繁星之路",
+            "挑战繁星之路的英灵"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 2349.00,
+            y = 28144.00,
+            z = 502.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 2349.00, y = 28144.00, z = 502.00 },
+            { x = 2307.84, y = 29729.40, z = 502.00 },
+            { x = 1544.31, y = 30468.86, z = 502.00 },
+            { x = 1959.72, y = 31320.48, z = 502.00 },
+            { x = 2606.91, y = 31083.42, z = 502.00 },
+            { x = 3402.38, y = 30803.68, z = 502.00 },
+            { x = 3387.09, y = 30278.14, z = 502.00 },
+            { x = 2881.43, y = 29983.68, z = 502.00 },
+            { x = 2346.12, y = 29805.07, z = 502.00 },
+            { x = 1858.27, y = 30085.87, z = 502.00 },
+            { x = 1367.38, y = 30448.44, z = 502.00 },
+            { x = 1376.05, y = 30989.77, z = 502.00 },
+            { x = 1805.27, y = 31482.72, z = 502.00 },
+            { x = 2322.85, y = 31646.68, z = 502.00 },
+            { x = 2826.89, y = 31321.95, z = 502.00 },
+            { x = 3318.71, y = 30903.83, z = 502.00 },
+            { x = 3468.65, y = 30518.65, z = 502.00 },
+            { x = 3151.69, y = 30239.60, z = 502.00 },
+            { x = 2653.31, y = 29979.12, z = 502.00 },
+            { x = 2377.47, y = 29609.56, z = 502.00 },
+            { x = 2326.67, y = 29157.20, z = 502.00 },
+            { x = 2104.05, y = 29296.04, z = 502.00 },
+            { x = 1934.22, y = 29731.56, z = 502.00 },
+            { x = 1803.41, y = 30158.28, z = 502.00 },
+            { x = 1892.74, y = 30701.78, z = 502.00 },
+            { x = 2210.08, y = 31073.93, z = 502.00 },
+            { x = 2596.44, y = 31123.25, z = 502.00 },
+            { x = 3013.97, y = 31047.95, z = 502.00 },
+            { x = 3442.41, y = 30885.58, z = 502.00 },
+            { x = 3830.85, y = 30695.69, z = 502.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "loser_badge_star_road_loop_11071_30674",
+        label = "败者之证_繁星之路_终点循环路线直到任务刷新",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "loser_badge_star_road_loop_11071_30674",
+        task_patterns = {
+            "败者之证"
+        },
+        task_detail_patterns = {
+            "深入繁星之路",
+            "挑战繁星之路的英灵"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 11071.00,
+            y = 30674.00,
+            z = 502.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        waypoints = {
+            { x = 11071.00, y = 30674.00, z = 502.00 },
+            { x = 12407.09, y = 31000.41, z = 502.00 },
+            { x = 13545.10, y = 32124.12, z = 502.00 },
+            { x = 14637.36, y = 32365.36, z = 502.00 },
+            { x = 15669.42, y = 31564.33, z = 502.00 },
+            { x = 16191.52, y = 30552.15, z = 502.00 },
+            { x = 15628.88, y = 29674.58, z = 502.00 },
+            { x = 14810.78, y = 29253.47, z = 502.00 },
+            { x = 13907.42, y = 29261.46, z = 502.00 },
+            { x = 13103.06, y = 29663.16, z = 502.00 },
+            { x = 12537.47, y = 30223.37, z = 502.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "loser_nameless_gerald_route_loop",
+        label = "败者无名_杰拉尔德_循环跑打直到任务刷新",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "loser_nameless_gerald_route_loop",
+        task_patterns = {
+            "败者无名"
+        },
+        task_detail_patterns = {
+            "击败“不洁之星·杰拉尔德”，获得败者之证"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 12407.09,
+            y = 31000.41,
+            z = 502.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        waypoints = {
+            { x = 12407.09, y = 31000.41, z = 502.00 },
+            { x = 13545.10, y = 32124.12, z = 502.00 },
+            { x = 14637.36, y = 32365.36, z = 502.00 },
+            { x = 15669.42, y = 31564.33, z = 502.00 },
+            { x = 16191.52, y = 30552.15, z = 502.00 },
+            { x = 15628.88, y = 29674.58, z = 502.00 },
+            { x = 14810.78, y = 29253.47, z = 502.00 },
+            { x = 13907.42, y = 29261.46, z = 502.00 },
+            { x = 13103.06, y = 29663.16, z = 502.00 },
+            { x = 12537.47, y = 30223.37, z = 502.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "face_sun_golden_gate_detour_-1478_-882",
+        label = "直面太阳_开启黄金大门_补充录制路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "直面太阳"
+        },
+        task_detail_patterns = {
+            "开启黄金大门"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -1478.42,
+            y = -882.43,
+            z = 505.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 45000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = -1478.42, y = -882.43, z = 505.00 },
+            { x = -554.40, y = -340.80, z = 505.00 },
+            { x = -103.84, y = 641.28, z = 505.00 }
         }
     }),
     make_route_point_action({

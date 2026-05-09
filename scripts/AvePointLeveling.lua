@@ -716,6 +716,16 @@ end
 
 local state = {}
 
+function M.is_task_detail_noise(value)
+    local text = trim(tostring(value or ""))
+    return text == "新"
+end
+
+function M.is_task_detail_transition(value)
+    local text = trim(tostring(value or ""))
+    return text == "新" or text == "完成"
+end
+
 function M.should_suspend_treasure_task_refresh()
     return type(M._leveling_treasure) == "table"
         and type(M._leveling_treasure.should_suspend_task_refresh) == "function"
@@ -725,7 +735,10 @@ end
 function M.publish_current_task_name()
     _G.AVEPOINT_CURRENT_TASK_NAME = state.current_task_name
     _G.AVEPOINT_CURRENT_TASK_DETAIL = state.current_task_detail
-    if type(state.current_task_detail) == "string" and trim(state.current_task_detail) ~= "" then
+    if type(state.current_task_detail) == "string"
+        and trim(state.current_task_detail) ~= ""
+        and not M.is_task_detail_transition(state.current_task_detail)
+    then
         _G.AVEPOINT_LAST_TASK_DETAIL = state.current_task_detail
     end
     if type(state.current_task_name) == "string" and state.current_task_name ~= "" then
@@ -764,8 +777,14 @@ end
 
 function M.current_task_log_detail()
     local task_detail = trim(tostring(state.current_task_detail or ""))
+    if M.is_task_detail_noise(task_detail) then
+        task_detail = ""
+    end
     if task_detail == "" then
         task_detail = trim(tostring(_G.AVEPOINT_LAST_TASK_DETAIL or ""))
+    end
+    if M.is_task_detail_noise(task_detail) then
+        task_detail = ""
     end
     return task_detail
 end
@@ -12571,6 +12590,13 @@ function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y,
             force_task_call = true,
             task_pos_reject_extra_ms = 3500
         })
+        local locked_entry_key = tostring(state.task_entry_action_locked_key or entry_action.key or "")
+        M.clear_task_entry_action_state()
+        logger(ctx).info(string.format(
+            "[Leveling] task entry action completed, cleared lock | task=%s key=%s reason=send_clicked",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(locked_entry_key)
+        ))
         log_heartbeat(ctx, after_click_time, player_x, player_y, player_z)
         return true
     end
@@ -17407,7 +17433,18 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         if type(entry) == "table" then
             M.remember_task_panel_entry(entry, current_time)
         end
-        local next_detail = trim(type(entry) == "table" and entry.detail or "")
+        local raw_detail = trim(type(entry) == "table" and entry.detail or "")
+        local next_detail = raw_detail
+        if M.is_task_detail_noise(next_detail) then
+            next_detail = ""
+            _G.AVEPOINT_LAST_TASK_DETAIL = nil
+            log_throttled(ctx, "task_detail_noise_ignored", "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] task detail noise ignored | task=%s raw_detail=%s source=%s",
+                tostring(state.current_task_name or preferred_task_name or ""),
+                tostring(raw_detail or ""),
+                tostring(source or "task_panel")
+            ))
+        end
         local previous_detail = trim(state.current_task_detail or "")
         if next_detail == previous_detail then
             if next_detail == "" and state.current_task_detail ~= nil then
@@ -24550,6 +24587,10 @@ function M.task_info_gate_has_fast_ready_task()
     local task_name = normalize_map_name(state.current_task_name)
     if task_name == nil or M.normalize_task_title_key(task_name) == nil then
         return false, "task_name_not_ready"
+    end
+
+    if M.is_task_detail_transition(state.current_task_detail) then
+        return false, "task_detail_transition:" .. tostring(state.current_task_detail or "")
     end
 
     local task_source = tostring(state.current_task_name_source or "")
