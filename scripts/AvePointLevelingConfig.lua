@@ -71,15 +71,226 @@ local SUN_FACTION_CHOICE = configured_sun_faction_choice()
 
 M.LEVEL_UP_MAINTENANCE_CONFIG = {
     enabled = true,
-    execute_ui = false,
+    execute_ui = true,
+    run_current_level_plan_on_baseline = true,
     probe_ms = 1200,
     safe_no_monster_ms = 1800,
     monster_guard_distance = 620,
     min_hp_ratio = 0.72,
+    allow_position_available_without_main_interface = true,
+    step_wait_ms = 650,
+    retry_ms = 5000,
+    available_point_probe = {
+        min_value = 1,
+        min_x = 1180,
+        max_y = 130,
+        include_plain_number = true
+    },
+    talent_point_probe = {
+        min_value = 1,
+        text_name_include = "Talent_C.WidgetTree.TalentTitle.WidgetTree.TalentNum",
+        min_x = 1080,
+        max_x = 1190,
+        min_y = 30,
+        max_y = 95,
+        include_plain_number = true
+    },
     skill_enabled = true,
     talent_enabled = true,
     skill_by_level = {},
-    talent_by_level = {}
+    talent_by_level = {
+        [2] = {
+            key = "level_2_trickster_god_activate",
+            label = "2级天赋：激活欺诈之神",
+            require_available_points = "defer",
+            close_with_escape = true,
+            steps = {
+                {
+                    key = "open_fast_entrance_menu",
+                    label = "技能天赋菜单按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+                    },
+                    hint_client_x = 1383.688110,
+                    hint_client_y = 52.706509,
+                    hint_ratio_x = 0.961562,
+                    hint_ratio_y = 0.058563,
+                    hint_max_distance = 80,
+                    wait_after_ms = 700
+                },
+                {
+                    key = "open_talent_panel",
+                    label = "天赋按钮",
+                    distance_anchor_exact_text = "天赋",
+                    distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
+                    distance_min = 49.048348,
+                    distance_max = 52.082267,
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+                    },
+                    hint_client_x = 1309.033936,
+                    hint_client_y = 155.104156,
+                    hint_ratio_x = 0.909683,
+                    hint_ratio_y = 0.172338,
+                    hint_max_distance = 80,
+                    wait_after_ms = 1000
+                },
+                {
+                    kind = "check_available_points",
+                    key = "check_talent_points",
+                    label = "检查天赋点",
+                    point_kind = "talent",
+                    min_value = 1,
+                    retry_count = 3,
+                    retry_wait_ms = 500,
+                    wait_after_ms = 250
+                },
+                {
+                    key = "select_trickster_god",
+                    label = "欺诈之神按钮",
+                    distance_anchor_exact_text = "欺诈之神",
+                    distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.UICareerPointItem_C.WidgetTree.SelectBtn",
+                    distance_min = 28.495576,
+                    distance_max = 30.258189,
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.UICareerPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    hint_client_x = 1044.438477,
+                    hint_client_y = 420.786438,
+                    hint_ratio_x = 0.725809,
+                    hint_ratio_y = 0.467540,
+                    hint_max_distance = 80,
+                    wait_after_ms = 500
+                },
+                {
+                    key = "select_first_talent_node",
+                    label = "第一个天赋节点按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    hint_client_x = 292.986755,
+                    hint_client_y = 560.094788,
+                    hint_ratio_x = 0.203604,
+                    hint_ratio_y = 0.622328,
+                    hint_max_distance = 35,
+                    wait_after_ms = 500
+                },
+                {
+                    key = "activate_first_talent_node",
+                    label = "第一个天赋节点激活按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    hint_client_x = 503.438232,
+                    hint_client_y = 685.801453,
+                    hint_ratio_x = 0.349853,
+                    hint_ratio_y = 0.762002,
+                    hint_max_distance = 45,
+                    wait_after_ms = 650
+                },
+                {
+                    key = "back_from_talent_detail",
+                    label = "天赋返回按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+                    },
+                    hint_client_x = 1373.452393,
+                    hint_client_y = 52.000000,
+                    hint_ratio_x = 0.954449,
+                    hint_ratio_y = 0.057778,
+                    hint_max_distance = 45,
+                    wait_after_ms = 500
+                }
+            }
+        },
+        [3] = {
+            key = "level_3_first_talent_node_activate",
+            label = "3级天赋：激活第一个天赋节点",
+            require_available_points = "defer",
+            close_with_escape = true,
+            steps = {
+                {
+                    key = "open_fast_entrance_menu",
+                    label = "技能天赋菜单按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+                    },
+                    hint_client_x = 1383.688110,
+                    hint_client_y = 52.706509,
+                    hint_ratio_x = 0.961562,
+                    hint_ratio_y = 0.058563,
+                    hint_max_distance = 80,
+                    wait_after_ms = 700
+                },
+                {
+                    key = "open_talent_panel",
+                    label = "天赋按钮",
+                    distance_anchor_exact_text = "天赋",
+                    distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
+                    distance_min = 49.048348,
+                    distance_max = 52.082267,
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+                    },
+                    hint_client_x = 1309.033936,
+                    hint_client_y = 155.104156,
+                    hint_ratio_x = 0.909683,
+                    hint_ratio_y = 0.172338,
+                    hint_max_distance = 80,
+                    wait_after_ms = 1000
+                },
+                {
+                    kind = "check_available_points",
+                    key = "check_talent_points",
+                    label = "检查天赋点",
+                    point_kind = "talent",
+                    min_value = 1,
+                    retry_count = 3,
+                    retry_wait_ms = 500,
+                    wait_after_ms = 250
+                },
+                {
+                    key = "select_first_talent_node",
+                    label = "第一个天赋节点按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    hint_client_x = 292.986755,
+                    hint_client_y = 560.094788,
+                    hint_ratio_x = 0.203604,
+                    hint_ratio_y = 0.622328,
+                    hint_max_distance = 35,
+                    wait_after_ms = 500
+                },
+                {
+                    key = "activate_first_talent_node",
+                    label = "第一个天赋节点激活按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    hint_client_x = 503.438232,
+                    hint_client_y = 685.801453,
+                    hint_ratio_x = 0.349853,
+                    hint_ratio_y = 0.762002,
+                    hint_max_distance = 45,
+                    wait_after_ms = 650
+                },
+                {
+                    key = "back_from_talent_detail",
+                    label = "天赋返回按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+                    },
+                    hint_client_x = 1373.452393,
+                    hint_client_y = 52.000000,
+                    hint_ratio_x = 0.954449,
+                    hint_ratio_y = 0.057778,
+                    hint_max_distance = 45,
+                    wait_after_ms = 500
+                }
+            }
+        }
+    }
 }
 
 local function make_sun_faction_choice_action()
@@ -2227,7 +2438,8 @@ local function make_overcast_city_awakened_ryan_task_config()
         {
             trigger_distance = 180,
             immediate_kite_on_reached = true,
-            kite_radius = 1800,
+            kite_radius = 1260,
+            kite_point_count = 3,
             kite_switch_ms = 2400,
             seamless_kite = true,
             kite_arrive_distance = 520,
@@ -2236,17 +2448,16 @@ local function make_overcast_city_awakened_ryan_task_config()
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
-            kite_points = {
-                { x = 4559.32, y = -929.80,  z = 3091.00 },
-                { x = 4631.75, y = -2215.55, z = 3091.00 },
-                { x = 3601.63, y = -1464.51, z = 3091.00 }
-            }
+            ignore_terminal_text_change_when_objective_same = true
         },
         {
             task_patterns = {
                 "\u{9634}\u{4E91}\u{538B}\u{57CE}"
             },
             task_detail_patterns = {
+                "\u{524D}\u{5F80}\u{706B}\u{79CD}\u{88C5}\u{7F6E}",
+                "\u{5B88}\u{62A4}\u{706B}\u{79CD}\u{88C5}\u{7F6E}",
+                "\u{706B}\u{79CD}\u{88C5}\u{7F6E}",
                 "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}",
                 "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}",
                 "\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}"
@@ -2262,7 +2473,8 @@ local function make_journey_begin_awakened_leader_task_config()
         {
             trigger_distance = 180,
             immediate_kite_on_reached = true,
-            kite_radius = 1800,
+            kite_radius = 1260,
+            kite_point_count = 3,
             kite_switch_ms = 1200,
             seamless_kite = true,
             kite_arrive_distance = 420,
@@ -2271,11 +2483,7 @@ local function make_journey_begin_awakened_leader_task_config()
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
-            kite_points = {
-                { x = 90.00,   y = 11585.00, z = 651.73 },
-                { x = 1.00,    y = 10535.18, z = 806.97 },
-                { x = -559.00, y = 11290.00, z = 601.00 }
-            }
+            ignore_terminal_text_change_when_objective_same = true
         },
         {
             task_patterns = {
@@ -2284,6 +2492,7 @@ local function make_journey_begin_awakened_leader_task_config()
                 "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{5934}\u{76EE}"
             },
             task_detail_patterns = {
+                "\u{7A81}\u{7834}\u{89C9}\u{9192}\u{8005}\u{91CD}\u{56F4}",
                 "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{5934}\u{76EE}",
                 "\u{89C9}\u{9192}\u{8005}\u{5934}\u{76EE}"
             },
@@ -7971,73 +8180,6 @@ M.OBJECTIVE_POINT_CONFIGS = {
         task_detail_patterns = {
             "\u{51FB}\u{8D25}\u{88AB}\u{9B54}\u{6CD5}\u{5B66}\u{9662}\u{6539}\u{9020}\u{7684}\u{7F57}\u{6885}\u{5C14}",
             "\u{5B9E}\u{9A8C}\u{4F53}\u{00B7}\u{7F57}\u{6885}\u{5C14}"
-        },
-        constraint_mode = "all",
-        exclude_task_patterns = {
-            "\u{4EA4}\u{8C08}",
-            "\u{5BF9}\u{8BDD}"
-        }
-    }),
-    Actions.make_clear_room_point({
-        key = "overcast_city_awakened_ryan_kite",
-        x = 5120.92,
-        y = -764.94,
-        z = 3092.00,
-        radius = 800,
-        trigger_distance = 180,
-        immediate_kite_on_reached = true,
-        kite_radius = 1800,
-        kite_switch_ms = 2400,
-        seamless_kite = true,
-        kite_arrive_distance = 520,
-        kite_move_interval_ms = 180,
-        boss_clear_settle_ms = 3500,
-        kite_points = {
-            { x = 4559.32, y = -929.80,  z = 3091.00 },
-            { x = 4631.75, y = -2215.55, z = 3091.00 },
-            { x = 3601.63, y = -1464.51, z = 3091.00 }
-        },
-        task_patterns = {
-            "\u{9634}\u{4E91}\u{538B}\u{57CE}"
-        },
-        task_detail_patterns = {
-            "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}",
-            "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}",
-            "\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}"
-        },
-        constraint_mode = "all",
-        exclude_task_patterns = {
-            "\u{4EA4}\u{8C08}",
-            "\u{5BF9}\u{8BDD}"
-        }
-    }),
-    Actions.make_clear_room_point({
-        key = "journey_begin_awakened_leader_kite",
-        x = 90.00,
-        y = 11585.00,
-        z = 651.73,
-        radius = 1200,
-        trigger_distance = 180,
-        immediate_kite_on_reached = true,
-        kite_radius = 1800,
-        kite_switch_ms = 1200,
-        seamless_kite = true,
-        kite_arrive_distance = 420,
-        kite_move_interval_ms = 180,
-        boss_clear_settle_ms = 3500,
-        kite_points = {
-            { x = 90.00,   y = 11585.00, z = 651.73 },
-            { x = 1.00,    y = 10535.18, z = 806.97 },
-            { x = -559.00, y = 11290.00, z = 601.00 }
-        },
-        task_patterns = {
-            "\u{65C5}\u{9014}\u{4E4B}\u{59CB}",
-            "\u{7A81}\u{7834}\u{89C9}\u{9192}\u{8005}\u{91CD}\u{56F4}",
-            "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{5934}\u{76EE}"
-        },
-        task_detail_patterns = {
-            "\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{5934}\u{76EE}",
-            "\u{89C9}\u{9192}\u{8005}\u{5934}\u{76EE}"
         },
         constraint_mode = "all",
         exclude_task_patterns = {
