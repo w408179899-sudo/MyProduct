@@ -606,6 +606,8 @@ local function resolve_step_target_by_image(step, opts, image_preset)
         click_screen_y = click_screen_y,
         click_button = image_preset.click_button or "left",
         click_delay = tonumber(image_preset.click_delay) or 50,
+        click_repeat_count = math.max(1, math.floor(tonumber(image_preset.click_repeat_count) or 1)),
+        click_repeat_interval_ms = math.max(0, tonumber(image_preset.click_repeat_interval_ms) or 120),
         click_mode = tostring(image_preset.click_mode or "api"),
         hover_delay_ms = tonumber(image_preset.hover_delay_ms) or 80,
         match_x = match_x,
@@ -621,7 +623,7 @@ local function resolve_step_target_by_image(step, opts, image_preset)
     }
 
     log.info(string.format(
-        "Fetched image target %s | path=%s mode=%s threshold=%.2f score=%.4f capture_method=%s match=(%d,%d) click_client=(%d,%d) click_screen=(%d,%d)",
+        "Fetched image target %s | path=%s mode=%s threshold=%.2f score=%.4f capture_method=%s match=(%d,%d) click_client=(%d,%d) click_screen=(%d,%d) repeat=%d",
         tostring(step.label or ""),
         tostring(template_path),
         tostring(match_mode),
@@ -633,7 +635,8 @@ local function resolve_step_target_by_image(step, opts, image_preset)
         click_x,
         click_y,
         click_screen_x,
-        click_screen_y
+        click_screen_y,
+        tonumber(target.click_repeat_count) or 1
     ))
 
     return target
@@ -1380,13 +1383,25 @@ function click_fetched_target(step, target, opts)
             and tonumber(target.click_screen_y) ~= nil
         )
     then
-        ok, click_err = click_screen_point(step_label, target.click_screen_x, target.click_screen_y, {
-            hwnd = target.hwnd,
-            click_mode = target.click_mode,
-            hover_delay_ms = target.hover_delay_ms,
-            click_button = target.click_button,
-            click_delay = target.click_delay
-        })
+        local repeat_count = target.kind == "image"
+            and math.max(1, math.floor(tonumber(target.click_repeat_count) or 1))
+            or 1
+        local repeat_interval_ms = math.max(0, tonumber(target.click_repeat_interval_ms) or 120)
+        for click_index = 1, repeat_count do
+            ok, click_err = click_screen_point(step_label, target.click_screen_x, target.click_screen_y, {
+                hwnd = target.hwnd,
+                click_mode = target.click_mode,
+                hover_delay_ms = click_index == 1 and target.hover_delay_ms or 0,
+                click_button = target.click_button,
+                click_delay = target.click_delay
+            })
+            if not ok then
+                break
+            end
+            if click_index < repeat_count then
+                sys.sleep(avepoint_delay_ms("click_repeat", repeat_interval_ms))
+            end
+        end
     else
         ok, click_err = nav.control_click(target.addr)
     end

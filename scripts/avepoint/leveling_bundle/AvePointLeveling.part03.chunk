@@ -70,6 +70,7 @@
 
         return nav_mod.find_button_near_point(client_x, client_y, {
             snapshot = ui_snapshot,
+            include_patterns = MAIN_TASK_BUTTON_STEP.include_patterns,
             max_distance = max_distance
         })
     end
@@ -174,14 +175,22 @@
             return best
         end
 
-        if position_only_best ~= nil then
-            return position_only_best
-        end
-
         local error_parts = {}
         if #samples > 0 then
             error_parts[#error_parts + 1] =
                 "fixed main task TaskBtn candidates out of tolerance: " .. table.concat(samples, " | ")
+        end
+        if position_only_best ~= nil then
+            local identity_sample = trim(position_only_best.fullname or "") ~= ""
+                and tostring(position_only_best.fullname or "")
+                or tostring(position_only_best.name or "")
+            error_parts[#error_parts + 1] = string.format(
+                "fixed main task position-only fallback rejected: addr=%s pos=(%s,%s) identity=%s",
+                tostring(position_only_best.addr or ""),
+                tostring(position_only_best.x or ""),
+                tostring(position_only_best.y or ""),
+                identity_sample
+            )
         end
         if #position_only_samples > 0 then
             error_parts[#error_parts + 1] =
@@ -878,24 +887,36 @@
                 math.max(tonumber(MAIN_TASK_BUTTON_STEP.hint_max_distance) or 80, 28)
             )
             if type(nearby_button) == "table" and type(nav_mod.control_click) == "function" then
-                local clicked, click_err = attempt_main_task_control_click(
-                    tostring(source_prefix or "panel") .. "_nearby_button",
-                    nearby_button,
-                    "panel_nearby_button"
-                )
-                if clicked then
-                    panel_item._main_task_click_source = tostring(source_prefix or "panel") .. "_nearby_button"
-                    panel_item._main_task_clicked_target = nearby_button
-                    panel_item.button_addr = nearby_button.addr
-                    panel_item.button_kind = "button"
-                    panel_item.button_name = tostring(nearby_button.name or "")
-                    panel_item.button_fullname = tostring(nearby_button.fullname or "")
-                    panel_item.button_x = tonumber(nearby_button.x) or button_x
-                    panel_item.button_y = tonumber(nearby_button.y) or button_y
-                    record_branch_hit("nearby_button", M.format_main_task_click_target_brief(nearby_button))
-                    return true, panel_item
+                local nearby_identity = (
+                    tostring(nearby_button.fullname or "")
+                        .. " "
+                        .. tostring(nearby_button.name or "")
+                ):lower()
+                if nearby_identity:find("taskitem_c.widgettree.taskbtn", 1, true) == nil then
+                    record_branch_error(
+                        "nearby_button",
+                        "nearby button rejected: not TaskBtn identity=" .. tostring(nearby_button.fullname or nearby_button.name or "")
+                    )
+                else
+                    local clicked, click_err = attempt_main_task_control_click(
+                        tostring(source_prefix or "panel") .. "_nearby_button",
+                        nearby_button,
+                        "panel_nearby_button"
+                    )
+                    if clicked then
+                        panel_item._main_task_click_source = tostring(source_prefix or "panel") .. "_nearby_button"
+                        panel_item._main_task_clicked_target = nearby_button
+                        panel_item.button_addr = nearby_button.addr
+                        panel_item.button_kind = "button"
+                        panel_item.button_name = tostring(nearby_button.name or "")
+                        panel_item.button_fullname = tostring(nearby_button.fullname or "")
+                        panel_item.button_x = tonumber(nearby_button.x) or button_x
+                        panel_item.button_y = tonumber(nearby_button.y) or button_y
+                        record_branch_hit("nearby_button", M.format_main_task_click_target_brief(nearby_button))
+                        return true, panel_item
+                    end
+                    record_branch_error("nearby_button", click_err or "task panel nearby button control_click failed.")
                 end
-                record_branch_error("nearby_button", click_err or "task panel nearby button control_click failed.")
             elseif nearby_button_err ~= nil and nearby_button_err ~= "" then
                 record_branch_error("nearby_button", nearby_button_err)
             end
@@ -1607,6 +1628,13 @@
         preserve_target == true and "soft_refresh" or "hard_refresh",
         #panel_queries > 0 and table.concat(panel_queries, " -> ") or ""
     ))
+
+    do
+        local ui_blocked, ui_block_reason = maybe_handle_level_sequence_or_unstable_task_ui()
+        if ui_blocked then
+            return false, ui_block_reason
+        end
+    end
 
     local blocking_side_clicked, blocking_side_err = maybe_click_blocking_side_task_panel_entry()
     if blocking_side_clicked == true then

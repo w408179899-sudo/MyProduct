@@ -73,6 +73,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     enabled = true,
     execute_ui = true,
     run_current_level_plan_on_baseline = true,
+    catch_up_missing_plans_on_baseline = true,
     probe_ms = 1200,
     safe_no_monster_ms = 1800,
     monster_guard_distance = 620,
@@ -89,21 +90,77 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     talent_point_probe = {
         min_value = 1,
         text_name_include = "Talent_C.WidgetTree.TalentTitle.WidgetTree.TalentNum",
-        min_x = 1080,
-        max_x = 1190,
-        min_y = 30,
-        max_y = 95,
+        min_x = 1060,
+        max_x = 1230,
+        min_y = 20,
+        max_y = 115,
         include_plain_number = true
     },
     skill_enabled = true,
     talent_enabled = true,
-    skill_by_level = {},
+    plan_order = { "skill", "talent" },
+    skill_by_level = {
+        [3] = {
+            key = "level_3_skill_upgrade_sequence",
+            label = "3级技能：找图升级技能",
+            require_available_points = false,
+            close_with_escape = false,
+            steps = {
+                {
+                    key = "open_skill_add_panel",
+                    label = "技能加点入口按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.HomePointItem.WidgetTree.AddPanelBtn"
+                    },
+                    hint_client_x = 1281.297729,
+                    hint_client_y = 56.706509,
+                    hint_ratio_x = 0.890408,
+                    hint_ratio_y = 0.063007,
+                    hint_max_distance = 90,
+                    wait_after_ms = 900
+                },
+                {
+                    key = "click_skill_upgrade_image",
+                    label = "技能升级找图按钮",
+                    image_preset = {
+                        template_path = "skill_level_up.bmp",
+                        template_threshold = 0.90,
+                        click_button = "left",
+                        click_delay = 50,
+                        click_repeat_count = 5,
+                        click_repeat_interval_ms = 120,
+                        click_mode = "api",
+                        hover_delay_ms = 80,
+                        click_center = false,
+                        click_offset_x = 20,
+                        click_offset_y = 0,
+                        capture_set_foreground = true,
+                        capture_foreground_delay_ms = 80
+                    },
+                    wait_after_ms = 800
+                },
+                {
+                    key = "back_from_skill_panel",
+                    label = "技能返回按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+                    },
+                    hint_client_x = 1384.784546,
+                    hint_client_y = 52.000000,
+                    hint_ratio_x = 0.961656,
+                    hint_ratio_y = 0.057778,
+                    hint_max_distance = 90,
+                    wait_after_ms = 500
+                }
+            }
+        }
+    },
     talent_by_level = {
         [2] = {
             key = "level_2_trickster_god_activate",
             label = "2级天赋：激活欺诈之神",
             require_available_points = "defer",
-            close_with_escape = true,
+            close_with_escape = false,
             steps = {
                 {
                     key = "open_fast_entrance_menu",
@@ -207,7 +264,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
             key = "level_3_first_talent_node_activate",
             label = "3级天赋：激活第一个天赋节点",
             require_available_points = "defer",
-            close_with_escape = true,
+            close_with_escape = false,
             steps = {
                 {
                     key = "open_fast_entrance_menu",
@@ -289,9 +346,582 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                     wait_after_ms = 500
                 }
             }
+        },
+        [4] = {
+            key = "level_4_second_talent_node_activate",
+            label = "4级天赋：激活第二个天赋节点",
+            require_available_points = "defer",
+            close_with_escape = false,
+            steps = {
+                {
+                    key = "open_fast_entrance_menu",
+                    label = "技能天赋菜单按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+                    },
+                    hint_client_x = 1383.688110,
+                    hint_client_y = 52.706509,
+                    hint_ratio_x = 0.961562,
+                    hint_ratio_y = 0.058563,
+                    hint_max_distance = 80,
+                    wait_after_ms = 700
+                },
+                {
+                    key = "open_talent_panel",
+                    label = "天赋按钮",
+                    distance_anchor_exact_text = "天赋",
+                    distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
+                    distance_min = 49.048348,
+                    distance_max = 52.082267,
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+                    },
+                    hint_client_x = 1309.033936,
+                    hint_client_y = 155.104156,
+                    hint_ratio_x = 0.909683,
+                    hint_ratio_y = 0.172338,
+                    hint_max_distance = 80,
+                    wait_after_ms = 1000
+                },
+                {
+                    kind = "check_available_points",
+                    key = "check_talent_points",
+                    label = "检查天赋点",
+                    point_kind = "talent",
+                    min_value = 1,
+                    retry_count = 3,
+                    retry_wait_ms = 500,
+                    wait_after_ms = 250
+                },
+                {
+                    key = "select_second_talent_node",
+                    label = "第二个天赋节点按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    hint_client_x = 448.916748,
+                    hint_client_y = 560.094788,
+                    hint_ratio_x = 0.311964,
+                    hint_ratio_y = 0.622328,
+                    hint_max_distance = 35,
+                    wait_after_ms = 500
+                },
+                {
+                    key = "activate_second_talent_node",
+                    label = "第二个天赋节点激活按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    hint_client_x = 503.438232,
+                    hint_client_y = 685.801453,
+                    hint_ratio_x = 0.349853,
+                    hint_ratio_y = 0.762002,
+                    hint_max_distance = 240,
+                    wait_after_ms = 650
+                },
+                {
+                    key = "back_from_talent_detail",
+                    label = "天赋返回按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+                    },
+                    hint_client_x = 1373.452393,
+                    hint_client_y = 52.000000,
+                    hint_ratio_x = 0.954449,
+                    hint_ratio_y = 0.057778,
+                    hint_max_distance = 45,
+                    wait_after_ms = 500
+                }
+            }
+        },
+        [5] = {
+            key = "level_5_second_talent_node_activate",
+            label = "5级天赋：激活第二个天赋节点",
+            require_available_points = "defer",
+            close_with_escape = false,
+            steps = {
+                {
+                    key = "open_fast_entrance_menu",
+                    label = "技能天赋菜单按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+                    },
+                    hint_client_x = 1383.688110,
+                    hint_client_y = 52.706509,
+                    hint_ratio_x = 0.961562,
+                    hint_ratio_y = 0.058563,
+                    hint_max_distance = 80,
+                    wait_after_ms = 700
+                },
+                {
+                    key = "open_talent_panel",
+                    label = "天赋按钮",
+                    distance_anchor_exact_text = "天赋",
+                    distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
+                    distance_min = 49.048348,
+                    distance_max = 52.082267,
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+                    },
+                    hint_client_x = 1309.033936,
+                    hint_client_y = 155.104156,
+                    hint_ratio_x = 0.909683,
+                    hint_ratio_y = 0.172338,
+                    hint_max_distance = 80,
+                    wait_after_ms = 1000
+                },
+                {
+                    kind = "check_available_points",
+                    key = "check_talent_points",
+                    label = "检查天赋点",
+                    point_kind = "talent",
+                    min_value = 1,
+                    retry_count = 3,
+                    retry_wait_ms = 500,
+                    wait_after_ms = 250
+                },
+                {
+                    key = "select_second_talent_node",
+                    label = "第二个天赋节点按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    hint_client_x = 448.916748,
+                    hint_client_y = 560.094788,
+                    hint_ratio_x = 0.311964,
+                    hint_ratio_y = 0.622328,
+                    hint_max_distance = 35,
+                    wait_after_ms = 500
+                },
+                {
+                    key = "activate_second_talent_node",
+                    label = "第二个天赋节点激活按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    hint_client_x = 503.438232,
+                    hint_client_y = 685.801453,
+                    hint_ratio_x = 0.349853,
+                    hint_ratio_y = 0.762002,
+                    hint_max_distance = 240,
+                    wait_after_ms = 650
+                },
+                {
+                    key = "back_from_talent_detail",
+                    label = "天赋返回按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+                    },
+                    hint_client_x = 1373.452393,
+                    hint_client_y = 52.000000,
+                    hint_ratio_x = 0.954449,
+                    hint_ratio_y = 0.057778,
+                    hint_max_distance = 45,
+                    wait_after_ms = 500
+                }
+            }
+        },
+        [6] = {
+            key = "level_6_second_talent_node_activate",
+            label = "6级天赋：激活第二个天赋节点",
+            require_available_points = "defer",
+            close_with_escape = false,
+            steps = {
+                {
+                    key = "open_fast_entrance_menu",
+                    label = "技能天赋菜单按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+                    },
+                    hint_client_x = 1383.688110,
+                    hint_client_y = 52.706509,
+                    hint_ratio_x = 0.961562,
+                    hint_ratio_y = 0.058563,
+                    hint_max_distance = 80,
+                    wait_after_ms = 700
+                },
+                {
+                    key = "open_talent_panel",
+                    label = "天赋按钮",
+                    distance_anchor_exact_text = "天赋",
+                    distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
+                    distance_min = 49.048348,
+                    distance_max = 52.082267,
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+                    },
+                    hint_client_x = 1309.033936,
+                    hint_client_y = 155.104156,
+                    hint_ratio_x = 0.909683,
+                    hint_ratio_y = 0.172338,
+                    hint_max_distance = 80,
+                    wait_after_ms = 1000
+                },
+                {
+                    kind = "check_available_points",
+                    key = "check_talent_points",
+                    label = "检查天赋点",
+                    point_kind = "talent",
+                    min_value = 1,
+                    retry_count = 3,
+                    retry_wait_ms = 500,
+                    wait_after_ms = 250
+                },
+                {
+                    key = "select_second_talent_node",
+                    label = "第二个天赋节点按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    hint_client_x = 448.916748,
+                    hint_client_y = 560.094788,
+                    hint_ratio_x = 0.311964,
+                    hint_ratio_y = 0.622328,
+                    hint_max_distance = 35,
+                    wait_after_ms = 500
+                },
+                {
+                    key = "activate_second_talent_node",
+                    label = "第二个天赋节点激活按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    hint_client_x = 503.438232,
+                    hint_client_y = 685.801453,
+                    hint_ratio_x = 0.349853,
+                    hint_ratio_y = 0.762002,
+                    hint_max_distance = 240,
+                    wait_after_ms = 650
+                },
+                {
+                    key = "back_from_talent_detail",
+                    label = "天赋返回按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+                    },
+                    hint_client_x = 1373.452393,
+                    hint_client_y = 52.000000,
+                    hint_ratio_x = 0.954449,
+                    hint_ratio_y = 0.057778,
+                    hint_max_distance = 45,
+                    wait_after_ms = 500
+                }
+            }
+        },
+        [7] = {
+            key = "level_7_talent_node_activate",
+            label = "7级天赋：激活天赋节点",
+            require_available_points = "defer",
+            close_with_escape = false,
+            steps = {
+                {
+                    key = "open_fast_entrance_menu",
+                    label = "技能天赋菜单按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+                    },
+                    hint_client_x = 1383.688110,
+                    hint_client_y = 52.706509,
+                    hint_ratio_x = 0.961562,
+                    hint_ratio_y = 0.058563,
+                    hint_max_distance = 80,
+                    wait_after_ms = 700
+                },
+                {
+                    key = "open_talent_panel",
+                    label = "天赋按钮",
+                    distance_anchor_exact_text = "天赋",
+                    distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
+                    distance_min = 49.048348,
+                    distance_max = 52.082267,
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+                    },
+                    hint_client_x = 1309.033936,
+                    hint_client_y = 155.104156,
+                    hint_ratio_x = 0.909683,
+                    hint_ratio_y = 0.172338,
+                    hint_max_distance = 80,
+                    wait_after_ms = 1000
+                },
+                {
+                    kind = "check_available_points",
+                    key = "check_talent_points",
+                    label = "检查天赋点",
+                    point_kind = "talent",
+                    min_value = 1,
+                    retry_count = 3,
+                    retry_wait_ms = 500,
+                    wait_after_ms = 250
+                },
+                {
+                    key = "select_level_7_talent_node",
+                    label = "天赋节点按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    hint_client_x = 462.916748,
+                    hint_client_y = 633.538025,
+                    hint_ratio_x = 0.321693,
+                    hint_ratio_y = 0.703931,
+                    hint_max_distance = 80,
+                    wait_after_ms = 1200
+                },
+                {
+                    key = "activate_level_7_talent_node",
+                    label = "天赋节点激活按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    hint_client_x = 673.368225,
+                    hint_client_y = 689.801453,
+                    hint_ratio_x = 0.467942,
+                    hint_ratio_y = 0.766446,
+                    hint_max_distance = 80,
+                    wait_after_ms = 650
+                },
+                {
+                    key = "back_from_talent_detail",
+                    label = "天赋返回按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+                    },
+                    hint_client_x = 1373.452393,
+                    hint_client_y = 52.000000,
+                    hint_ratio_x = 0.954449,
+                    hint_ratio_y = 0.057778,
+                    hint_max_distance = 45,
+                    wait_after_ms = 500
+                }
+            }
         }
     }
 }
+
+local function clone_plain_table(value)
+    if type(value) ~= "table" then
+        return value
+    end
+
+    local copy = {}
+    for k, v in pairs(value) do
+        copy[k] = clone_plain_table(v)
+    end
+    return copy
+end
+
+do
+    local level_8_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
+    level_8_skill_plan.key = "level_8_skill_upgrade_sequence"
+    level_8_skill_plan.label = "8级技能：找图升级技能"
+    for _, step in ipairs(type(level_8_skill_plan.steps) == "table" and level_8_skill_plan.steps or {}) do
+        if tostring(step.key or "") == "click_skill_upgrade_image" then
+            step.missing_image_means_done = true
+        end
+    end
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[8] = level_8_skill_plan
+
+    local level_8_talent_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[7])
+    level_8_talent_plan.key = "level_8_talent_node_activate"
+    level_8_talent_plan.label = "8级天赋：激活天赋节点并点基石"
+    local level_8_talent_steps = type(level_8_talent_plan.steps) == "table" and level_8_talent_plan.steps or {}
+    local level_8_back_step = nil
+    if #level_8_talent_steps > 0 and tostring(level_8_talent_steps[#level_8_talent_steps].key or "") == "back_from_talent_detail" then
+        level_8_back_step = table.remove(level_8_talent_steps, #level_8_talent_steps)
+    end
+    level_8_talent_steps[#level_8_talent_steps + 1] = {
+        key = "select_level_8_keystone_tab",
+        label = "8级天赋基石页签按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.KeyStoneItem1.WidgetTree.TabBtn"
+        },
+        hint_client_x = 361.077972,
+        hint_client_y = 250.016342,
+        hint_ratio_x = 0.250923,
+        hint_ratio_y = 0.277796,
+        hint_max_distance = 80,
+        wait_after_ms = 650
+    }
+    level_8_talent_steps[#level_8_talent_steps + 1] = {
+        key = "select_level_8_keystone_option",
+        label = "8级天赋基石选择按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.TabKeyStoneItem_C.WidgetTree.SelectBtn2"
+        },
+        hint_client_x = 647.869873,
+        hint_client_y = 633.373291,
+        hint_ratio_x = 0.450222,
+        hint_ratio_y = 0.703748,
+        hint_max_distance = 80,
+        wait_after_ms = 650
+    }
+    if level_8_back_step ~= nil then
+        level_8_talent_steps[#level_8_talent_steps + 1] = level_8_back_step
+    end
+    level_8_talent_plan.steps = level_8_talent_steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[8] = level_8_talent_plan
+
+    local level_9_talent_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[7])
+    level_9_talent_plan.key = "level_9_talent_node_activate"
+    level_9_talent_plan.label = "9级天赋：激活天赋节点"
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[9] = level_9_talent_plan
+end
+
+do
+    local level_5_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
+    level_5_skill_plan.key = "level_5_skill_upgrade_sequence"
+    level_5_skill_plan.label = "5级技能：找图升级并配置痛楚"
+    level_5_skill_plan.close_with_escape = false
+
+    local steps = type(level_5_skill_plan.steps) == "table" and level_5_skill_plan.steps or {}
+    if #steps > 0 and tostring(steps[#steps].key or "") == "back_from_skill_panel" then
+        table.remove(steps, #steps)
+    end
+
+    local function fixed_click_step(key, label, client_x, client_y, ratio_x, ratio_y, wait_after_ms)
+        return make_fixed_client_click_step({
+            key = key,
+            label = label,
+            fixed_client_x = client_x,
+            fixed_client_y = client_y,
+            fixed_ratio_x = ratio_x,
+            fixed_ratio_y = ratio_y,
+            fixed_prefer_ratio = true,
+            click_delay = 60,
+            hover_delay_ms = 90,
+            wait_after_ms = wait_after_ms or 500
+        })
+    end
+
+    steps[#steps + 1] = {
+        key = "open_fast_entrance_menu_after_skill_image",
+        label = "技能天赋菜单按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+        },
+        hint_client_x = 1383.688110,
+        hint_client_y = 52.706509,
+        hint_ratio_x = 0.961562,
+        hint_ratio_y = 0.058563,
+        hint_max_distance = 100,
+        wait_after_ms = 800
+    }
+    steps[#steps + 1] = {
+        key = "open_skill_panel_after_skill_image",
+        label = "技能按钮",
+        distance_anchor_exact_text = "技能",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
+        distance_min = 49.048348,
+        distance_max = 52.082267,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 1249.024658,
+        hint_client_y = 155.104156,
+        hint_ratio_x = 0.867981,
+        hint_ratio_y = 0.172338,
+        hint_max_distance = 90,
+        wait_after_ms = 1000
+    }
+    steps[#steps + 1] = fixed_click_step(
+        "level_5_skill_panel_click_726_304",
+        "5级技能面板固定点击1",
+        726.00,
+        304.00,
+        0.504517,
+        0.337778,
+        500
+    )
+    steps[#steps + 1] = fixed_click_step(
+        "level_5_skill_search_focus",
+        "5级技能搜索输入框",
+        333.00,
+        654.00,
+        0.231411,
+        0.726667,
+        250
+    )
+    steps[#steps + 1] = {
+        kind = "type_text",
+        key = "level_5_skill_search_pain_text",
+        label = "输入痛楚",
+        text = "痛楚",
+        input_method = "clipboard",
+        clear_before = true,
+        key_delay_ms = 30,
+        wait_after_ms = 500
+    }
+    steps[#steps + 1] = fixed_click_step(
+        "level_5_skill_search_confirm",
+        "5级技能搜索确认",
+        593.00,
+        658.00,
+        0.412092,
+        0.731111,
+        700
+    )
+    steps[#steps + 1] = fixed_click_step(
+        "level_5_skill_select_pain_result",
+        "5级技能选择痛楚结果",
+        359.00,
+        338.00,
+        0.249479,
+        0.375556,
+        700
+    )
+    steps[#steps + 1] = fixed_click_step(
+        "level_5_skill_extra_click_824_334",
+        "5级技能额外配置点击1",
+        824.00,
+        334.00,
+        0.572620,
+        0.371111,
+        350
+    )
+    steps[#steps + 1] = fixed_click_step(
+        "level_5_skill_extra_click_715_337",
+        "5级技能额外配置点击2",
+        715.00,
+        337.00,
+        0.496873,
+        0.374444,
+        350
+    )
+    steps[#steps + 1] = fixed_click_step(
+        "level_5_skill_extra_click_532_335",
+        "5级技能额外配置点击3",
+        532.00,
+        335.00,
+        0.369701,
+        0.372222,
+        500
+    )
+    steps[#steps + 1] = fixed_click_step(
+        "level_5_skill_confirm_pain_slot",
+        "5级技能确认痛楚配置",
+        1161.00,
+        252.00,
+        0.806810,
+        0.280000,
+        700
+    )
+    steps[#steps + 1] = {
+        key = "back_from_skill_panel_after_pain_setup",
+        label = "技能返回按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+        },
+        hint_client_x = 1384.784546,
+        hint_client_y = 52.000000,
+        hint_ratio_x = 0.961656,
+        hint_ratio_y = 0.057778,
+        hint_max_distance = 90,
+        wait_after_ms = 500
+    }
+
+    level_5_skill_plan.steps = steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[5] = level_5_skill_plan
+end
 
 local function make_sun_faction_choice_action()
     local is_moon = SUN_FACTION_CHOICE == 2
@@ -2501,6 +3131,51 @@ local function make_journey_begin_awakened_leader_task_config()
     )
 end
 
+local function make_ancient_battlefield_trace_ryan_task_config()
+    return make_boss_kite_task_config(
+        "ancient_battlefield_trace_ryan_kite",
+        {
+            trigger_distance = 1700,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = true,
+            kite_radius = 1260,
+            kite_switch_ms = 2400,
+            seamless_kite = true,
+            kite_arrive_distance = 520,
+            kite_move_interval_ms = 180,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3500,
+            generic_followup_refresh_ms = 3500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            allow_nearby_text_task_change_exit = true,
+            nearby_text_task_change_confirm_ms = 1200,
+            nearby_text_task_change_confirm_count = 2,
+            ignore_terminal_text_change_when_objective_same = true,
+            kite_points = {
+                { x = 1920.00, y = -1616.00, z = 566.00 },
+                { x = 30.00, y = -524.81, z = 566.00 },
+                { x = 30.00, y = -2707.19, z = 566.00 }
+            }
+        },
+        {
+            task_patterns = {
+                "\u{4E0A}\u{53E4}\u{6218}\u{573A}"
+            },
+            task_detail_patterns = {
+                "\u{5E26}\u{4E0A}\u{79D1}\u{91CC}\u{FF0C}\u{7EE7}\u{7EED}\u{8FFD}\u{8E2A}\u{83B1}\u{5B89}",
+                "\u{7B49}\u{5F85}\u{79D1}\u{91CC}\u{5C06}\u{6728}\u{6865}\u{4FEE}\u{597D}",
+                "\u{63A9}\u{62A4}\u{79D1}\u{91CC}\u{4FEE}\u{6865}"
+            },
+            exclude_task_detail_patterns = {
+                "\u{4EA4}\u{8C08}",
+                "\u{5BF9}\u{8BDD}"
+            },
+            constraint_mode = "all"
+        }
+    )
+end
+
 local function make_holy_fire_roadblock_awakened_task_config(fight_detail_name)
     return make_boss_kite_task_config(
         "holy_fire_roadblock_awakened_kite",
@@ -2759,7 +3434,8 @@ local function make_dragonbone_griffin_boss_task_config()
         {
             trigger_distance = 520,
             immediate_kite_on_reached = true,
-            kite_radius = 1800,
+            kite_radius = 1260,
+            kite_point_count = 3,
             kite_switch_ms = 2200,
             seamless_kite = true,
             kite_arrive_distance = 420,
@@ -2768,16 +3444,94 @@ local function make_dragonbone_griffin_boss_task_config()
             generic_followup_refresh_ms = 3000,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
-            kite_points = {
-                { x = 1856.47, y = 4779.48, z = 1192.00 },
-                { x = 2499.61, y = 5695.97, z = 1192.00 },
-                { x = 3304.71, y = 5274.92, z = 1192.00 }
-            }
+            ignore_terminal_text_change_when_objective_same = true,
+            revive_reentry = make_revive_reentry_config({
+                key = "dragonbone_griffin_reentry_1891_6171",
+                label = "\u{9F99}\u{9668}\u{4E4B}\u{91CE}\u{72EE}\u{9E6B}Boss\u{91CD}\u{8FDB}\u{623F}",
+                anchor = {
+                    x = 1891.00,
+                    y = 6171.00,
+                    z = 1192.00,
+                    radius = 560
+                },
+                interact_distance = 300,
+                portal_scan_distance = 900,
+                retry_ms = 900,
+                settle_ms = 1400,
+                timeout_ms = 22000,
+                post_transition_boss_engage_ms = 16000,
+                fallback_interact = true
+            })
         },
         {
             task_patterns = {
-                "\u{9F99}\u{9668}\u{4E4B}\u{91CE}",
-                "\u{6DF1}\u{5165}\u{9F99}\u{9AA8}\u{5C71}\u{810A}\u{8179}\u{5730}"
+                "\u{9F99}\u{9668}\u{4E4B}\u{91CE}"
+            },
+            task_detail_patterns = {
+                "\u{6DF1}\u{5165}\u{9F99}\u{9AA8}\u{5C71}\u{810A}\u{8179}\u{5730}",
+                "\u{51FB}\u{8D25}\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+                "\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+                "\u{9AD8}\u{539F}\u{9F99}\u{9AA8}\u{72EE}\u{9E6B}"
+            },
+            exclude_task_detail_patterns = {
+                "\u{4EA4}\u{8C08}",
+                "\u{5BF9}\u{8BDD}"
+            },
+            constraint_mode = "all",
+            retry_call_task = {
+                enabled = true,
+                interval_ms = 1200,
+                require_no_progress_ms = 1100,
+                require_point_stagnant_ms = 1100,
+                deviation_distance = 220,
+                off_segment_distance = 160,
+                route_endpoint_refresh_ms = 700,
+                move_grace_ms = 900
+            }
+        }
+    )
+end
+
+local function make_dragonbone_griffin_boss_recovery_task_config()
+    return make_boss_kite_task_config(
+        "dragonbone_griffin_boss",
+        {
+            trigger_distance = 520,
+            immediate_kite_on_reached = true,
+            kite_radius = 1260,
+            kite_point_count = 3,
+            kite_switch_ms = 2200,
+            seamless_kite = true,
+            kite_arrive_distance = 420,
+            kite_move_interval_ms = 120,
+            boss_clear_settle_ms = 2500,
+            generic_followup_refresh_ms = 3000,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            ignore_terminal_text_change_when_objective_same = true,
+            revive_reentry = make_revive_reentry_config({
+                key = "dragonbone_griffin_reentry_1891_6171_recovery",
+                label = "\u{9F99}\u{9668}\u{4E4B}\u{91CE}\u{72EE}\u{9E6B}Boss\u{65AD}\u{70B9}\u{91CD}\u{8FDB}\u{623F}",
+                anchor = {
+                    x = 1891.00,
+                    y = 6171.00,
+                    z = 1192.00,
+                    radius = 560
+                },
+                interact_distance = 300,
+                portal_scan_distance = 900,
+                retry_ms = 900,
+                settle_ms = 1400,
+                timeout_ms = 22000,
+                post_transition_boss_engage_ms = 16000,
+                fallback_interact = true
+            })
+        },
+        {
+            task_patterns = {
+                "\u{51FB}\u{8D25}\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+                "\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+                "\u{9AD8}\u{539F}\u{9F99}\u{9AA8}\u{72EE}\u{9E6B}"
             },
             task_detail_patterns = {
                 "\u{51FB}\u{8D25}\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
@@ -2788,7 +3542,7 @@ local function make_dragonbone_griffin_boss_task_config()
                 "\u{4EA4}\u{8C08}",
                 "\u{5BF9}\u{8BDD}"
             },
-            constraint_mode = "all",
+            constraint_mode = "any",
             retry_call_task = {
                 enabled = true,
                 interval_ms = 1200,
@@ -3181,57 +3935,14 @@ M.TASK_NAME_CONFIGS = {
             selection_settle_ms = 700
         }
     ),
-    ["\u{524D}\u{5F80}\u{9F99}\u{9AA8}\u{5E73}\u{539F}"] = make_world_map_send_task_config(
-        "dragonbone_plain_world_map_send",
-        {
-            label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
-            distance_anchor_exact_text = "\u{4F20}\u{9001}",
-            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn",
-            distance_min = 8.248740,
-            distance_max = 9.248740,
-            include_patterns = {
-                "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn"
-            },
-            hint_client_x = 659.188843,
-            hint_client_y = 827.716736,
-            hint_ratio_x = 0.457770,
-            hint_ratio_y = 0.919685,
-            hint_max_distance = 80.000,
-            prefer_hint_fallback = true
-        },
-        {
-            selection_step = {
-                label = "\u{9F99}\u{9AA8}\u{5E73}\u{539F}\u{6309}\u{94AE}",
-                distance_anchor_exact_text = "\u{9F99}\u{9AA8}\u{5E73}\u{539F}",
-                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
-                distance_min = 128.003526,
-                distance_max = 133.003526,
-                include_patterns = {
-                    "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
-                },
-                hint_client_x = 695.675232,
-                hint_client_y = 257.335999,
-                hint_ratio_x = 0.483108,
-                hint_ratio_y = 0.285929,
-                hint_max_distance = 80.000
-            },
-            selection_settle_ms = 700
-        },
-        {
-            task_patterns = {
-                "\u{9F99}\u{9668}\u{4E4B}\u{91CE}"
-            },
-            task_detail_patterns = {
-                "\u{524D}\u{5F80}\u{9F99}\u{9AA8}\u{5E73}\u{539F}"
-            },
-            constraint_mode = "all"
-        }
-    ),
+    ["\u{524D}\u{5F80}\u{9F99}\u{9AA8}\u{5E73}\u{539F}"] = {
+        route_point_action_only = true
+    },
     ["\u{9F99}\u{9668}\u{4E4B}\u{91CE}"] = make_dragonbone_griffin_boss_task_config(),
     ["\u{6DF1}\u{5165}\u{9F99}\u{9AA8}\u{5C71}\u{810A}\u{8179}\u{5730}"] = make_dragonbone_griffin_boss_task_config(),
-    ["\u{51FB}\u{8D25}\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}"] = make_dragonbone_griffin_boss_task_config(),
-    ["\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}"] = make_dragonbone_griffin_boss_task_config(),
-    ["\u{9AD8}\u{539F}\u{9F99}\u{9AA8}\u{72EE}\u{9E6B}"] = make_dragonbone_griffin_boss_task_config(),
+    ["\u{51FB}\u{8D25}\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}"] = make_dragonbone_griffin_boss_recovery_task_config(),
+    ["\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}"] = make_dragonbone_griffin_boss_recovery_task_config(),
+    ["\u{9AD8}\u{539F}\u{9F99}\u{9AA8}\u{72EE}\u{9E6B}"] = make_dragonbone_griffin_boss_recovery_task_config(),
     ["\u{5BFB}\u{627E}\u{77EE}\u{4EBA}\u{56FD}\u{5EA6}\u{5165}\u{53E3}"] = make_boss_kite_task_config(
         "plateau_dragonbone_beast_boss",
         {
@@ -3338,6 +4049,9 @@ M.TASK_NAME_CONFIGS = {
     ["\u{65C5}\u{9014}\u{4E4B}\u{59CB}"] = make_journey_begin_awakened_leader_task_config(),
     ["\u{7A81}\u{7834}\u{89C9}\u{9192}\u{8005}\u{91CD}\u{56F4}"] = make_journey_begin_awakened_leader_task_config(),
     ["\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{5934}\u{76EE}"] = make_journey_begin_awakened_leader_task_config(),
+    ["\u{5E26}\u{4E0A}\u{79D1}\u{91CC}\u{FF0C}\u{7EE7}\u{7EED}\u{8FFD}\u{8E2A}\u{83B1}\u{5B89}"] = make_ancient_battlefield_trace_ryan_task_config(),
+    ["\u{7B49}\u{5F85}\u{79D1}\u{91CC}\u{5C06}\u{6728}\u{6865}\u{4FEE}\u{597D}"] = make_ancient_battlefield_trace_ryan_task_config(),
+    ["\u{63A9}\u{62A4}\u{79D1}\u{91CC}\u{4FEE}\u{6865}"] = make_ancient_battlefield_trace_ryan_task_config(),
     ["\u{51FB}\u{8D25}\u{62E6}\u{8DEF}\u{7684}\u{526F}\u{5B98}"] = make_fanmu_blocking_deputy_task_config(),
     ["\u{51FB}\u{8D25}\u{526F}\u{5B98}\u{54C8}\u{65AF}"] = make_escape_inner_city_hass_task_config(),
     ["\u{51FB}\u{8D25}\u{9A7B}\u{5B88}\u{57CE}\u{5899}\u{7684}\u{5B66}\u{57CE}\u{5B88}\u{536B}"] = make_wall_of_sighs_city_guard_task_config(),
@@ -6455,6 +7169,96 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
+        key = "dragonbone_griffin_exit_move_to_portal_4368_4495",
+        label = "\u{9F99}\u{9668}\u{4E4B}\u{91CE}_\u{72EE}\u{9E6B}\u{540E}_\u{79FB}\u{52A8}\u{5230}\u{8FC7}\u{56FE}\u{70B9}",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        task_patterns = {
+            "\u{9F99}\u{9668}\u{4E4B}\u{91CE}",
+            "\u{51FB}\u{8D25}\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+            "\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+            "\u{9AD8}\u{539F}\u{9F99}\u{9AA8}\u{72EE}\u{9E6B}"
+        },
+        task_detail_patterns = {
+            "\u{51FB}\u{8D25}\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+            "\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+            "\u{9AD8}\u{539F}\u{9F99}\u{9AA8}\u{72EE}\u{9E6B}"
+        },
+        constraint_mode = "any",
+        trigger = {
+            x = 4368.00,
+            y = 4495.00,
+            z = 1192.00,
+            radius = 620,
+            z_tolerance = 300
+        },
+        require_destination_match = true,
+        destination_match_radius = 900,
+        retry_ms = 600000,
+        timeout_ms = 30000,
+        waypoint_reach_radius = 240,
+        waypoint_z_tolerance = 300,
+        move_interval_ms = 180,
+        reacquire_retry_ms = 1000,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "dragonbone_griffin_exit_portal_4368_4495",
+        waypoints = {
+            { x = 4368.00, y = 4495.00, z = 1192.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "dragonbone_griffin_exit_portal_4368_4495",
+        label = "\u{9F99}\u{9668}\u{4E4B}\u{91CE}_\u{72EE}\u{9E6B}\u{540E}_\u{8FC7}\u{56FE}\u{4F20}\u{9001}\u{95E8}",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        task_patterns = {
+            "\u{9F99}\u{9668}\u{4E4B}\u{91CE}",
+            "\u{51FB}\u{8D25}\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+            "\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+            "\u{9AD8}\u{539F}\u{9F99}\u{9AA8}\u{72EE}\u{9E6B}"
+        },
+        task_detail_patterns = {
+            "\u{51FB}\u{8D25}\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+            "\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
+            "\u{9AD8}\u{539F}\u{9F99}\u{9AA8}\u{72EE}\u{9E6B}"
+        },
+        constraint_mode = "any",
+        trigger = {
+            x = 4368.00,
+            y = 4495.00,
+            z = 1192.00,
+            radius = 620,
+            z_tolerance = 300
+        },
+        require_destination_match = true,
+        destination_match_radius = 900,
+        interact_radius = 240,
+        probe_retry_ms = 700,
+        retry_ms = 2500,
+        settle_ms = 4500,
+        timeout_ms = 18000,
+        force_task_call_after_transition = true,
+        task_pos_reject_extra_ms = 3500,
+        fallback_interact = true,
+        fallback_interact_distance = 280,
+        fallback_retry_ms = 2500,
+        step = {
+            key = "dragonbone_griffin_exit_portal_btn_4368_4495",
+            label = "\u{9F99}\u{9668}\u{4E4B}\u{91CE}\u{72EE}\u{9E6B}\u{540E}\u{8FC7}\u{56FE}\u{4F20}\u{9001}\u{95E8}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn"
+            },
+            hint_client_x = 697.204834,
+            hint_client_y = 724.439941,
+            hint_ratio_x = 0.484170,
+            hint_ratio_y = 0.804933,
+            hint_max_distance = 180.000
+        }
+    }),
+    make_route_point_action({
         key = "old_dusk_portal_20986_21998",
         label = "旧日的黄昏_前往溪地虫谷_传送门",
         mode = "objective_button_flow_point",
@@ -7715,18 +8519,14 @@ M.OBJECTIVE_POINT_CONFIGS = {
         radius = 520,
         trigger_distance = 520,
         immediate_kite_on_reached = true,
-        kite_radius = 1200,
+        kite_radius = 1260,
+        kite_point_count = 3,
         kite_switch_ms = 2400,
         seamless_kite = true,
         kite_arrive_distance = 520,
         kite_move_interval_ms = 120,
         defer_followup_until_clear = true,
         boss_clear_settle_ms = 3000,
-        kite_points = {
-            { x = 12803.00, y = -7308.00, z = 608.00 },
-            { x = 11910.25, y = -6507.10, z = 607.00 },
-            { x = 11391.75, y = -7504.81, z = 566.00 }
-        },
         task_patterns = {
             "\u{51FB}\u{8D25}\u{88AB}\u{64CD}\u{7EB5}\u{7684}\u{54E5}\u{5E03}\u{6797}",
             "\u{88AB}\u{64CD}\u{7EB5}\u{7684}\u{54E5}\u{5E03}\u{6797}"
@@ -8003,7 +8803,7 @@ M.OBJECTIVE_POINT_CONFIGS = {
         y = 4595.53,
         z = 1192.00,
         radius = 1300,
-        kite_radius = 1800,
+        kite_radius = 1260,
         trigger_distance = 900,
         immediate_kite_on_reached = true,
         seamless_kite = true,
@@ -8014,20 +8814,31 @@ M.OBJECTIVE_POINT_CONFIGS = {
         generic_followup_refresh_ms = 3000,
         generic_followup_requires_task_pos_only = true,
         generic_followup_require_no_special = true,
-        kite_points = {
-            { x = 1856.47, y = 4779.48, z = 1192.00 },
-            { x = 2499.61, y = 5695.97, z = 1192.00 },
-            { x = 3304.71, y = 5274.92, z = 1192.00 }
-        },
+        kite_point_count = 3,
+        ignore_terminal_text_change_when_objective_same = true,
+        revive_reentry = make_revive_reentry_config({
+            key = "dragonbone_griffin_reentry_1891_6171_objective",
+            label = "\u{9F99}\u{9668}\u{4E4B}\u{91CE}\u{72EE}\u{9E6B}Boss\u{91CD}\u{8FDB}\u{623F}",
+            anchor = {
+                x = 1891.00,
+                y = 6171.00,
+                z = 1192.00,
+                radius = 560
+            },
+            interact_distance = 300,
+            portal_scan_distance = 900,
+            retry_ms = 900,
+            settle_ms = 1400,
+            timeout_ms = 22000,
+            post_transition_boss_engage_ms = 16000,
+            fallback_interact = true
+        }),
         task_patterns = {
             "\u{9F99}\u{9668}\u{4E4B}\u{91CE}",
-            "\u{4E3B}\u{7EBF} \u{9F99}\u{9668}\u{4E4B}\u{91CE}",
-            "\u{6DF1}\u{5165}\u{9F99}\u{9AA8}\u{5C71}\u{810A}\u{8179}\u{5730}",
-            "\u{51FB}\u{8D25}\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
-            "\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
-            "\u{9AD8}\u{539F}\u{9F99}\u{9AA8}\u{72EE}\u{9E6B}"
+            "\u{4E3B}\u{7EBF} \u{9F99}\u{9668}\u{4E4B}\u{91CE}"
         },
         task_detail_patterns = {
+            "\u{6DF1}\u{5165}\u{9F99}\u{9AA8}\u{5C71}\u{810A}\u{8179}\u{5730}",
             "\u{51FB}\u{8D25}\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
             "\u{76D8}\u{8E1E}\u{5728}\u{6B64}\u{7684}\u{72EE}\u{9E6B}",
             "\u{9AD8}\u{539F}\u{9F99}\u{9AA8}\u{72EE}\u{9E6B}"

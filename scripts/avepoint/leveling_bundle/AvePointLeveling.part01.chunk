@@ -9494,6 +9494,10 @@ function M.evaluate_combat_sidecar_intent(ctx, current_time, player_x, player_y,
     opts = type(opts) == "table" and opts or {}
     current_time = tonumber(current_time) or now_ms(ctx)
 
+    if type(M.clear_stale_interaction_combat_guard) == "function" then
+        M.clear_stale_interaction_combat_guard(ctx, current_time, "combat_sidecar:" .. tostring(reason or ""))
+    end
+
     local stage_name = tostring(state.stage or "")
     local intent = {
         allowed = false,
@@ -9773,6 +9777,28 @@ function M.clear_interaction_combat_guard(reason)
     end
     state.interaction_combat_guard_key = nil
     state.interaction_combat_guard_started_at = 0
+end
+
+function M.clear_stale_interaction_combat_guard(ctx, current_time, source)
+    local guard_key = trim(state.interaction_combat_guard_key)
+    if guard_key == "" then
+        return false
+    end
+
+    local stage_name = tostring(state.stage or "")
+    if stage_name == "interaction_combat_guard" then
+        return false
+    end
+
+    logger(ctx).info(string.format(
+        "[Leveling] stale interaction combat guard cleared | source=%s key=%s stage=%s elapsed_ms=%d",
+        tostring(source or ""),
+        guard_key,
+        stage_name,
+        math.max(0, (tonumber(current_time) or now_ms(ctx)) - (tonumber(state.interaction_combat_guard_started_at) or 0))
+    ))
+    M.clear_interaction_combat_guard(guard_key)
+    return true
 end
 
 function M.maybe_issue_ambient_combat_pulse(ctx, current_time, player_x, player_y, reason, opts)

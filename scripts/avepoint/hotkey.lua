@@ -2483,7 +2483,84 @@ function avepoint_hotkey_distance_tolerance(distance, preset)
     return tolerance
 end
 
+local HOTKEY_NOISY_TEXT_ANCHOR_BUTTON_PATTERNS = {
+    "skill_c.widgettree.skillextabitem.widgettree.clickbtn",
+    "skill_c.widgettree.skillexviewitem.widgettree.clickbtn",
+    "tipskillhanditem_c.widgettree.levelupbtn",
+    "talentpointitem_c.widgettree.selectbtn",
+    "tabtalentitem_c.widgettree.tiptalentitem.widgettree.activebtn",
+    "uicareerpointitem_c.widgettree.selectbtn",
+    "tipcareeritem_c.widgettree.activebtn"
+}
+
+function avepoint_hotkey_button_identity_text(button_item)
+    if type(button_item) ~= "table" then
+        return ""
+    end
+
+    local name = trim(button_item.name or "")
+    if name ~= "" then
+        return name:lower()
+    end
+
+    local fullname = trim(button_item.Fullname or button_item.fullname or "")
+    if fullname ~= "" then
+        return fullname:lower()
+    end
+
+    return ""
+end
+
+function avepoint_hotkey_button_uses_noisy_nearest_text(button_item)
+    local identity = avepoint_hotkey_button_identity_text(button_item)
+    if identity == "" then
+        return false
+    end
+
+    for _, pattern in ipairs(HOTKEY_NOISY_TEXT_ANCHOR_BUTTON_PATTERNS) do
+        if identity:find(pattern, 1, true) ~= nil then
+            return true
+        end
+    end
+
+    return false
+end
+
+function avepoint_hotkey_noisy_anchor_button_label(button_item)
+    local identity = avepoint_hotkey_button_identity_text(button_item)
+    if identity:find("skill_c.widgettree.skillextabitem.widgettree.clickbtn", 1, true) ~= nil then
+        return "技能页标签按钮"
+    end
+    if identity:find("skill_c.widgettree.skillexviewitem.widgettree.clickbtn", 1, true) ~= nil then
+        return "技能列表项按钮"
+    end
+    if identity:find("tipskillhanditem_c.widgettree.levelupbtn", 1, true) ~= nil then
+        return "技能升级按钮"
+    end
+    if identity:find("talentpointitem_c.widgettree.selectbtn", 1, true) ~= nil then
+        return "天赋节点按钮"
+    end
+    if identity:find("tabtalentitem_c.widgettree.tiptalentitem.widgettree.activebtn", 1, true) ~= nil then
+        return "天赋节点激活按钮"
+    end
+    if identity:find("uicareerpointitem_c.widgettree.selectbtn", 1, true) ~= nil then
+        return "天赋大类按钮"
+    end
+    if identity:find("tipcareeritem_c.widgettree.activebtn", 1, true) ~= nil then
+        return "天赋大类激活按钮"
+    end
+
+    return ""
+end
+
 function avepoint_hotkey_locator_label(button_item, nearest_text_item)
+    if avepoint_hotkey_button_uses_noisy_nearest_text(button_item) then
+        local neutral_label = avepoint_hotkey_noisy_anchor_button_label(button_item)
+        if neutral_label ~= "" then
+            return neutral_label
+        end
+    end
+
     local nearest_text = trim(nearest_text_item and nearest_text_item.text or "")
     if nearest_text ~= "" then
         return nearest_text .. "按钮"
@@ -3167,6 +3244,32 @@ local function avepoint_hotkey_probe_main_task_button_by_coordinate()
     return true
 end
 
+local function avepoint_hotkey_click_skill_add_panel_button()
+    local step = {
+        label = "技能加点入口按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.HomePointItem.WidgetTree.AddPanelBtn"
+        },
+        hint_client_x = 1267.297729,
+        hint_client_y = 52.706509,
+        hint_ratio_x = 0.880679,
+        hint_ratio_y = 0.058563,
+        hint_max_distance = 120
+    }
+
+    local target, err = fetch_button_for_step(step)
+    if not target then
+        return false, err
+    end
+
+    local ok, click_err = click_fetched_target(step, target)
+    if not ok then
+        return false, click_err
+    end
+
+    return true, target
+end
+
 function avepoint_hotkey_build_cursor_probe_step(entry, cursor, buttons, preset)
     if type(entry) ~= "table" or type(entry.button) ~= "table" then
         return nil, "Invalid cursor probe entry."
@@ -3175,6 +3278,7 @@ function avepoint_hotkey_build_cursor_probe_step(entry, cursor, buttons, preset)
     local button = entry.button
     local nearest_text_item = entry.nearest_text_item
     local nearest_text_value = trim(nearest_text_item and nearest_text_item.text or "")
+    local use_text_anchor = not avepoint_hotkey_button_uses_noisy_nearest_text(button)
     local same_name_count = avepoint_hotkey_count_same_button_name(buttons, button.name)
     local label = avepoint_hotkey_locator_label(button, nearest_text_item)
     local step = {
@@ -3196,7 +3300,8 @@ function avepoint_hotkey_build_cursor_probe_step(entry, cursor, buttons, preset)
         end
     end
 
-    if nearest_text_value ~= ""
+    if use_text_anchor
+        and nearest_text_value ~= ""
         and tonumber(entry.nearest_distance) ~= nil
         and tonumber(entry.nearest_distance) <= math.max(0, tonumber(preset and preset.nearest_text_max_distance) or 260)
     then
@@ -3213,7 +3318,8 @@ function avepoint_hotkey_build_cursor_probe_step(entry, cursor, buttons, preset)
         same_name_count = same_name_count,
         cursor_distance = tonumber(entry.cursor_distance) or 0,
         nearest_text = nearest_text_value,
-        nearest_distance = tonumber(entry.nearest_distance) or nil
+        nearest_distance = tonumber(entry.nearest_distance) or nil,
+        nearest_text_ignored = not use_text_anchor
     }
 end
 
@@ -3271,11 +3377,13 @@ function avepoint_hotkey_build_selected_probe_step(preset)
         end
     end
 
-    local label = avepoint_hotkey_locator_label({
+    local selected_button_for_locator = {
         name = selected.name,
         text = selected.text,
         Fullname = selected.Fullname or selected.fullname
-    }, nearest_text_item)
+    }
+    local use_text_anchor = not avepoint_hotkey_button_uses_noisy_nearest_text(selected_button_for_locator)
+    local label = avepoint_hotkey_locator_label(selected_button_for_locator, nearest_text_item)
     local step = {
         label = label,
         include_patterns = {
@@ -3296,7 +3404,8 @@ function avepoint_hotkey_build_selected_probe_step(preset)
     end
 
     local nearest_text_value = trim(nearest_text_item and nearest_text_item.text or "")
-    if trim(identity) ~= ""
+    if use_text_anchor
+        and trim(identity) ~= ""
         and nearest_text_value ~= ""
         and nearest_distance ~= nil
         and nearest_distance <= nearest_text_max_distance
@@ -3328,6 +3437,7 @@ function avepoint_hotkey_build_selected_probe_step(preset)
         nearest_distance = nearest_distance,
         nearest_text_item = nearest_text_item,
         nearest_text_index = nearest_text_index,
+        nearest_text_ignored = not use_text_anchor,
         cursor_distance = type(cursor) == "table"
             and tonumber(cursor.client_x) ~= nil
             and tonumber(cursor.client_y) ~= nil
@@ -3614,7 +3724,7 @@ local function avepoint_hotkey_resolve_cursor_probe_target(options)
         end
 
         log.info(string.format(
-            "%s GetCurrentSelected target | label=%s addr=%s identity=%s pos=(%.2f,%.2f) cursor_distance=%s nearest_text=%s nearest_distance=%s",
+            "%s GetCurrentSelected target | label=%s addr=%s identity=%s pos=(%.2f,%.2f) cursor_distance=%s nearest_text=%s nearest_distance=%s nearest_text_ignored=%s",
             hotkey_label,
             tostring(selected_meta.label or ""),
             avepoint_format_addr_hex(selected_meta.selected.addr),
@@ -3623,7 +3733,8 @@ local function avepoint_hotkey_resolve_cursor_probe_target(options)
             tonumber(selected_meta.selected.y) or 0,
             selected_meta.cursor_distance ~= nil and string.format("%.6f", tonumber(selected_meta.cursor_distance) or 0) or "nil",
             tostring(selected_meta.nearest_text or ""),
-            selected_meta.nearest_distance ~= nil and string.format("%.6f", tonumber(selected_meta.nearest_distance) or 0) or "nil"
+            selected_meta.nearest_distance ~= nil and string.format("%.6f", tonumber(selected_meta.nearest_distance) or 0) or "nil",
+            selected_meta.nearest_text_ignored == true and "true" or "false"
         ))
 
         local target, fetch_err = fetch_button_for_step(selected_step)
@@ -3724,13 +3835,14 @@ local function avepoint_hotkey_resolve_cursor_probe_target(options)
     end
 
     log.info(string.format(
-        "%s transient target | label=%s cursor_distance=%.6f same_name_visible=%d nearest_text=%s nearest_distance=%s",
+        "%s transient target | label=%s cursor_distance=%.6f same_name_visible=%d nearest_text=%s nearest_distance=%s nearest_text_ignored=%s",
         hotkey_label,
         tostring(meta.label or ""),
         tonumber(meta.cursor_distance) or 0,
         tonumber(meta.same_name_count) or 0,
         tostring(meta.nearest_text or ""),
-        tostring(meta.nearest_distance or "")
+        tostring(meta.nearest_distance or ""),
+        meta.nearest_text_ignored == true and "true" or "false"
     ))
 
     local target, fetch_err = fetch_button_for_step(step)
@@ -4117,6 +4229,7 @@ function main()
         log.info("Press Insert or Ctrl+F9 or [ to start current task mode; hold Delete or Ctrl+F10 or ] to stop")
     end
     log.info("Press F1 to dump all buttons returned by EnumCButton")
+    log.info("Press F2 to direct-call the skill point panel AddPanelBtn")
     log.info("Press F12 to dump raw GetCurrentSelected API output without clicking")
     local f4_preset = HOTKEY_DISTANCE_PREVIEW_PRESETS and HOTKEY_DISTANCE_PREVIEW_PRESETS.current or nil
     log.info(string.format(
@@ -4278,6 +4391,40 @@ function main()
                 local ok, err = avepoint_hotkey_probe_main_task_button_by_coordinate()
                 if not ok then
                     log.error("F1 EnumCButton dump failed: " .. tostring(err))
+                end
+            end
+        end
+
+        if pressed_once(HOTKEY_F2) then
+            if state.running then
+                log.info("F2 skill panel button call ignored while automation is running")
+            elseif state.f6_loop_active == true then
+                log.info("F2 skill panel button call ignored while F6 3-round loop is active")
+            else
+                if not initialized then
+                    local attach_target = avepoint_hotkey_attach_target_pid()
+                    local init_ok, init_err = avepoint_wait_for_torch_init(3500, attach_target, MODE)
+                    if not init_ok then
+                        log.warn("F2 skill panel button call unavailable: Torch API init failed: " .. tostring(init_err))
+                    end
+                end
+                if initialized then
+                    local ok, result = avepoint_hotkey_click_skill_add_panel_button()
+                    if ok then
+                        log.info(string.format(
+                            "F2 skill panel button called | addr=%s name=%s text=%s fullname=%s x=%s y=%s related_text=%s related_distance=%s",
+                            avepoint_format_addr_hex(result.addr),
+                            tostring(result.name or ""),
+                            tostring(result.text or ""),
+                            tostring(result.fullname or ""),
+                            tostring(result.x or ""),
+                            tostring(result.y or ""),
+                            tostring(result.related_text or ""),
+                            tostring(result.related_text_distance or "")
+                        ))
+                    else
+                        log.error("F2 skill panel button call failed: " .. tostring(result))
+                    end
                 end
             end
         end

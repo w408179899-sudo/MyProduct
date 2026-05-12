@@ -832,6 +832,9 @@ function fetch_locator_button_target(ctx, step)
         if ok and target then
             return target
         end
+        if ok and type(step) == "table" and type(step.image_preset) == "table" then
+            return try_hover_capture_if_enabled(fetch_err or "image target not found.")
+        end
         if ok
             and type(step) == "table"
             and step.prefer_hint_fallback == true
@@ -3794,6 +3797,52 @@ function M.level_up_maintenance_has_plan_for_level(cfg, level)
     return false
 end
 
+function M.level_up_maintenance_collect_baseline_pending_levels(cfg, observed_level)
+    cfg = type(cfg) == "table" and cfg or M.level_up_maintenance_config()
+    observed_level = math.floor(tonumber(observed_level) or 0)
+    local pending_levels = type(state.level_up_maintenance_pending_levels) == "table"
+        and state.level_up_maintenance_pending_levels
+        or {}
+    local order = M.level_up_maintenance_plan_order(cfg)
+    local start_level = cfg.catch_up_missing_plans_on_baseline == true and 1 or observed_level
+    local count = 0
+    local has_skill = false
+    local has_talent = false
+    local scanned = 0
+
+    for level = start_level, observed_level do
+        scanned = scanned + 1
+        for _, raw_kind in ipairs(order) do
+            local kind = tostring(raw_kind or "")
+            if not (kind == "skill" and cfg.skill_enabled == false)
+                and not (kind == "talent" and cfg.talent_enabled == false)
+            then
+                local plan = M.level_up_maintenance_get_level_plan(cfg, kind, level)
+                local steps = M.level_up_maintenance_plan_steps(plan)
+                if type(steps) == "table"
+                    and #steps > 0
+                    and not M.level_up_maintenance_plan_done(kind, level, plan)
+                then
+                    if pending_levels[tostring(level)] ~= true then
+                        count = count + 1
+                    end
+                    pending_levels[tostring(level)] = true
+                    if kind == "skill" then
+                        has_skill = true
+                    elseif kind == "talent" then
+                        has_talent = true
+                    end
+                end
+            end
+        end
+        if scanned >= 100 then
+            break
+        end
+    end
+
+    return pending_levels, has_skill, has_talent, count
+end
+
 function M.level_up_maintenance_point_probe(cfg, kind, step)
     cfg = type(cfg) == "table" and cfg or M.level_up_maintenance_config()
     if type(step) == "table" and type(step.point_probe) == "table" then
@@ -3933,7 +3982,7 @@ function M.start_level_up_maintenance_executor(ctx, current_time, plan_info)
     state.level_up_maintenance_executor_steps = plan_info.steps
     state.level_up_maintenance_executor_step_index = 1
     state.level_up_maintenance_executor_next_step_at = current_time
-    state.level_up_maintenance_executor_close_with_escape = plan.close_with_escape ~= false
+    state.level_up_maintenance_executor_close_with_escape = plan.close_with_escape == true
     state.level_up_maintenance_executor_close_pending = false
     state.level_up_maintenance_executor_close_attempts = 0
     state.level_up_maintenance_executor_point_check_miss_count = 0
@@ -3957,10 +4006,65 @@ function M.fail_level_up_maintenance_executor(ctx, current_time, err)
         tostring(state.level_up_maintenance_executor_step_index or ""),
         tostring(err or "")
     ))
-    if type(press_keyboard_hotkey) == "function" and (tonumber(state.level_up_maintenance_executor_step_index) or 1) > 1 then
-        local ok, close_err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "level-up maintenance cleanup")
-        if not ok then
-            logger(ctx).warn("[Leveling] level-up maintenance cleanup ESC failed: " .. tostring(close_err or ""))
+    local cleanup_clicked = false
+    if (tonumber(state.level_up_maintenance_executor_step_index) or 1) > 1 then
+        local steps = type(state.level_up_maintenance_executor_steps) == "table"
+            and state.level_up_maintenance_executor_steps
+            or {}
+        for cleanup_index = #steps, 1, -1 do
+            local cleanup_step = steps[cleanup_index]
+            local cleanup_key = tostring(type(cleanup_step) == "table" and cleanup_step.key or ""):lower()
+            local cleanup_label = tostring(type(cleanup_step) == "table" and cleanup_step.label or ""):lower()
+            local is_back_step = cleanup_key:find("back", 1, true) ~= nil
+                or cleanup_label:find("返回", 1, true) ~= nil
+            if not is_back_step and type(cleanup_step) == "table" and type(cleanup_step.include_patterns) == "table" then
+                for _, pattern in ipairs(cleanup_step.include_patterns) do
+                    if tostring(pattern or ""):lower():find("btnback", 1, true) ~= nil then
+                        is_back_step = true
+                        break
+                    end
+                end
+            end
+            if is_back_step then
+                local cleanup_target, cleanup_fetch_err = fetch_locator_button_target(ctx, cleanup_step)
+                if cleanup_target then
+                    local clicked, cleanup_click_err = click_locator_button_target(ctx, cleanup_step, cleanup_target)
+                    if clicked then
+                        cleanup_clicked = true
+                        logger(ctx).info(string.format(
+                            "[Leveling] level-up maintenance cleanup button clicked | label=%s addr=%s pos=(%s,%s)",
+                            tostring(cleanup_step.label or cleanup_step.key or ""),
+                            tostring(type(cleanup_target) == "table" and cleanup_target.addr or ""),
+                            tostring(type(cleanup_target) == "table" and cleanup_target.x or ""),
+                            tostring(type(cleanup_target) == "table" and cleanup_target.y or "")
+                        ))
+                    else
+                        logger(ctx).warn(
+                            "[Leveling] level-up maintenance cleanup button click failed: "
+                            .. tostring(cleanup_click_err or "")
+                        )
+                    end
+                else
+                    logger(ctx).warn(
+                        "[Leveling] level-up maintenance cleanup button fetch failed: "
+                        .. tostring(cleanup_fetch_err or "")
+                    )
+                end
+                break
+            end
+        end
+    end
+    if state.level_up_maintenance_executor_close_with_escape == true
+        and type(press_keyboard_hotkey) == "function"
+        and (tonumber(state.level_up_maintenance_executor_step_index) or 1) > 1
+    then
+        if not cleanup_clicked then
+            local ok, close_err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "level-up maintenance cleanup")
+            if not ok then
+                logger(ctx).warn("[Leveling] level-up maintenance cleanup ESC failed: " .. tostring(close_err or ""))
+            else
+                logger(ctx).info("[Leveling] level-up maintenance cleanup ESC pressed")
+            end
         end
     end
     M.clear_level_up_maintenance_executor_state()
@@ -3986,7 +4090,12 @@ function M.finish_level_up_maintenance_executor(ctx, current_time)
         tostring(plan.label or plan_key)
     ))
     M.clear_level_up_maintenance_executor_state()
-    state.level_up_maintenance_next_retry_at = current_time + 500
+    local cfg = M.level_up_maintenance_config()
+    if M.level_up_maintenance_find_next_plan(cfg) ~= nil then
+        state.level_up_maintenance_next_retry_at = current_time
+    else
+        state.level_up_maintenance_next_retry_at = current_time + 500
+    end
     M.level_up_maintenance_clear_pending_if_done(ctx)
     return true
 end
@@ -4036,7 +4145,85 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         return M.fail_level_up_maintenance_executor(ctx, current_time, "invalid step table")
     end
 
-    if tostring(step.kind or step.action or "") == "check_available_points" then
+    local step_action = tostring(step.kind or step.action or "")
+    if step_action == "type_text" then
+        local text = tostring(step.text or step.input_text or "")
+        if text == "" then
+            return M.fail_level_up_maintenance_executor(ctx, current_time, "type_text step has empty text")
+        end
+
+        local _, input_err = nil, nil
+        if type(prepare_key_input) == "function" then
+            _, input_err = prepare_key_input({})
+        elseif type(keybd) ~= "table" then
+            input_err = "keybd is unavailable."
+        end
+        if input_err ~= nil then
+            return M.fail_level_up_maintenance_executor(ctx, current_time, "type_text prepare failed: " .. tostring(input_err))
+        end
+
+        local key_delay = math.max(0, tonumber(step.key_delay_ms) or 30)
+        if step.clear_before == true and type(keybd) == "table" then
+            if type(keybd.combo) == "function" then
+                keybd.combo({ 0x11, 0x41 }, key_delay)
+                sys.sleep(tonumber(step.clear_wait_ms) or 60)
+            end
+            if type(keybd.click) == "function" then
+                keybd.click(0x08, key_delay)
+                sys.sleep(tonumber(step.clear_wait_ms) or 60)
+            end
+        end
+
+        local ok, type_err = nil, nil
+        local method = tostring(step.input_method or "clipboard")
+        if method == "clipboard" and type(sys) == "table" and type(sys.set_clipboard) == "function" and type(keybd) == "table" and type(keybd.combo) == "function" then
+            local old_clipboard = type(sys.get_clipboard) == "function" and sys.get_clipboard() or nil
+            local set_ok = sys.set_clipboard(text)
+            if set_ok then
+                sys.sleep(tonumber(step.paste_wait_ms) or 80)
+                ok = keybd.combo({ 0x11, 0x56 }, key_delay)
+                if not ok then
+                    type_err = "keybd.combo(Ctrl+V) failed."
+                end
+                if old_clipboard ~= nil and step.restore_clipboard ~= false then
+                    sys.sleep(tonumber(step.restore_wait_ms) or 80)
+                    sys.set_clipboard(old_clipboard)
+                end
+            else
+                type_err = "sys.set_clipboard failed."
+            end
+        elseif type(keybd) == "table" and type(keybd.type) == "function" then
+            ok = keybd.type(text, key_delay)
+            if not ok then
+                type_err = "keybd.type failed."
+            end
+        else
+            type_err = "no text input method available."
+        end
+
+        if not ok then
+            return M.fail_level_up_maintenance_executor(ctx, current_time, "type_text failed: " .. tostring(type_err or ""))
+        end
+
+        logger(ctx).info(string.format(
+            "[Leveling] level-up maintenance text input | kind=%s level=%s plan=%s step=%d/%d key=%s text=%s method=%s",
+            tostring(state.level_up_maintenance_executor_kind or ""),
+            tostring(state.level_up_maintenance_executor_level or ""),
+            tostring(state.level_up_maintenance_executor_plan_label or ""),
+            index,
+            #steps,
+            tostring(step.key or ""),
+            text,
+            method
+        ))
+        state.level_up_maintenance_executor_step_index = index + 1
+        local cfg = M.level_up_maintenance_config()
+        state.level_up_maintenance_executor_next_step_at = current_time
+            + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+        return true
+    end
+
+    if step_action == "check_available_points" then
         local cfg = M.level_up_maintenance_config()
         local point_kind = tostring(step.point_kind or state.level_up_maintenance_executor_kind or "")
         local points, point_err, point_meta = M.level_up_maintenance_available_points(ctx, cfg, point_kind, step)
@@ -4112,6 +4299,22 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
 
     local target, fetch_err = fetch_locator_button_target(ctx, step)
     if not target then
+        if type(step) == "table"
+            and type(step.image_preset) == "table"
+            and step.missing_image_means_done == true
+        then
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance image target absent; mark plan done | kind=%s level=%s plan=%s step=%d/%d key=%s err=%s",
+                tostring(state.level_up_maintenance_executor_kind or ""),
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                index,
+                #steps,
+                tostring(step.key or ""),
+                tostring(fetch_err or "")
+            ))
+            return M.finish_level_up_maintenance_executor(ctx, current_time)
+        end
         return M.fail_level_up_maintenance_executor(ctx, current_time, "fetch failed: " .. tostring(fetch_err or ""))
     end
     local clicked, click_err = click_locator_button_target(ctx, step, target)
@@ -4155,34 +4358,30 @@ function M.record_level_up_maintenance_observation(ctx, current_time, level, pro
         state.level_up_maintenance_last_progress = progress
         state.level_up_maintenance_last_level_text = text
         local cfg = M.level_up_maintenance_config()
-        if cfg.run_current_level_plan_on_baseline == true
-            and M.level_up_maintenance_has_plan_for_level(cfg, observed_level)
-        then
-            local pending_levels = type(state.level_up_maintenance_pending_levels) == "table"
-                and state.level_up_maintenance_pending_levels
-                or {}
-            pending_levels[tostring(observed_level)] = true
+        if cfg.run_current_level_plan_on_baseline == true then
+            local pending_levels, has_skill, has_talent, pending_count =
+                M.level_up_maintenance_collect_baseline_pending_levels(cfg, observed_level)
+            if pending_count > 0 then
             state.level_up_maintenance_pending_levels = pending_levels
-            if cfg.skill_enabled ~= false
-                and M.level_up_maintenance_level_has_plan(cfg, "skill_by_level", observed_level)
-            then
+            if has_skill then
                 state.level_up_maintenance_pending_skill = true
             end
-            if cfg.talent_enabled ~= false
-                and M.level_up_maintenance_level_has_plan(cfg, "talent_by_level", observed_level)
-            then
+            if has_talent then
                 state.level_up_maintenance_pending_talent = true
             end
             state.level_up_maintenance_pending_since = current_time
             state.level_up_maintenance_safe_since = 0
             logger(ctx).info(string.format(
-                "[Leveling] level-up maintenance baseline current-level pending | level=%d progress=%s text=%s %s",
+                "[Leveling] level-up maintenance baseline pending | level=%d progress=%s text=%s catch_up=%s pending_count=%d %s",
                 observed_level,
                 progress ~= nil and tostring(progress) or "",
                 tostring(text or ""),
+                cfg.catch_up_missing_plans_on_baseline == true and "true" or "false",
+                pending_count,
                 M.level_up_maintenance_pending_summary()
             ))
             return true
+            end
         end
         logger(ctx).info(string.format(
             "[Leveling] level-up maintenance baseline | level=%d progress=%s text=%s",
@@ -7172,6 +7371,19 @@ schedule_task_refresh_after_transition = function(ctx, current_time, reason, wai
         state.global_task_portal_reacquire_reason = reason_text
     end
     clear_pending_interaction()
+    if type(M.clear_interaction_combat_guard) == "function" then
+        local guard_key = trim(state.interaction_combat_guard_key)
+        if guard_key ~= "" then
+            logger(ctx).info(string.format(
+                "[Leveling] interaction combat guard cleared by task refresh | reason=%s key=%s stage=%s elapsed_ms=%d",
+                reason_text,
+                guard_key,
+                tostring(state.stage or ""),
+                math.max(0, current_time - (tonumber(state.interaction_combat_guard_started_at) or 0))
+            ))
+            M.clear_interaction_combat_guard(guard_key)
+        end
+    end
     clear_task_target_state()
     clear_runtime_objective_caches()
     if M.should_arm_task_info_stability_gate(reason_text) then
@@ -9863,6 +10075,132 @@ end
             tostring(status or ""),
             tostring(detail or "")
         ))
+    end
+
+    local function inspect_main_task_ui_stability(snapshot)
+        local result = {
+            total_buttons = 0,
+            visible_buttons = 0,
+            zero_buttons = 0,
+            task_buttons = 0,
+            zero_task_buttons = 0,
+            skip_buttons = 0,
+            skip_visible = 0,
+            skip_name = ""
+        }
+        if type(snapshot) ~= "table" or type(snapshot.buttons) ~= "table" then
+            return result
+        end
+
+        for _, item in ipairs(snapshot.buttons or {}) do
+            result.total_buttons = result.total_buttons + 1
+            local x = tonumber(item and item.x)
+            local y = tonumber(item and item.y)
+            local has_visible_pos = x ~= nil and y ~= nil and not (math.abs(x) < 0.01 and math.abs(y) < 0.01)
+            if has_visible_pos then
+                result.visible_buttons = result.visible_buttons + 1
+            else
+                result.zero_buttons = result.zero_buttons + 1
+            end
+
+            local identity = table.concat({
+                tostring(item and (item.Fullname or item.fullname) or ""),
+                tostring(item and item.name or "")
+            }, " "):lower()
+            if identity:find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil then
+                result.task_buttons = result.task_buttons + 1
+                if not has_visible_pos then
+                    result.zero_task_buttons = result.zero_task_buttons + 1
+                end
+            end
+            if identity:find("skiplevelsequence_c.widgettree.skipbutton", 1, true) ~= nil then
+                result.skip_buttons = result.skip_buttons + 1
+                if has_visible_pos then
+                    result.skip_visible = result.skip_visible + 1
+                end
+                if result.skip_name == "" then
+                    result.skip_name = trim(item and (item.Fullname or item.fullname) or "") ~= ""
+                        and tostring(item.Fullname or item.fullname)
+                        or tostring(item and item.name or "")
+                end
+            end
+        end
+        return result
+    end
+
+    local function maybe_handle_level_sequence_or_unstable_task_ui()
+        local ui_state = inspect_main_task_ui_stability(ui_snapshot)
+        local animation_like = ui_state.skip_buttons > 0
+            and (
+                ui_state.zero_buttons >= 10
+                or ui_state.visible_buttons <= 5
+                or ui_state.zero_buttons >= math.floor(math.max(1, ui_state.total_buttons) * 0.50)
+            )
+        if animation_like then
+            local retry_ms = math.max(800, tonumber(MAIN_TASK_BUTTON_STEP.sequence_skip_retry_ms) or 1200)
+            state.next_task_button_click_at = current_time + retry_ms
+            if type(hold_navigation) == "function" then
+                hold_navigation(ctx, current_time, "skip_level_sequence")
+            end
+
+            local esc_due = tonumber(state.skip_level_sequence_next_escape_at) or 0
+            if current_time >= esc_due then
+                state.skip_level_sequence_next_escape_at = current_time + math.max(1200, retry_ms)
+                local ok, err = true, nil
+                if type(press_keyboard_hotkey) == "function" then
+                    ok, err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "skip level sequence")
+                else
+                    ok, err = false, "press_keyboard_hotkey unavailable"
+                end
+                local log_fn = ok and logger(ctx).info or logger(ctx).warn
+                log_fn(string.format(
+                    "[Leveling] level sequence skip detected; ESC %s | skip_buttons=%d visible=%d zero=%d total=%d task_zero=%d/%d name=%s err=%s",
+                    ok and "sent" or "failed",
+                    ui_state.skip_buttons,
+                    ui_state.visible_buttons,
+                    ui_state.zero_buttons,
+                    ui_state.total_buttons,
+                    ui_state.zero_task_buttons,
+                    ui_state.task_buttons,
+                    tostring(ui_state.skip_name or ""),
+                    tostring(err or "")
+                ))
+            else
+                log_throttled(ctx, "skip_level_sequence_wait", "info", 600, string.format(
+                    "[Leveling] level sequence skip active; waiting UI recovery | skip_buttons=%d visible=%d zero=%d total=%d task_zero=%d/%d retry_in=%dms",
+                    ui_state.skip_buttons,
+                    ui_state.visible_buttons,
+                    ui_state.zero_buttons,
+                    ui_state.total_buttons,
+                    ui_state.zero_task_buttons,
+                    ui_state.task_buttons,
+                    math.max(0, esc_due - current_time)
+                ))
+            end
+            return true, "level sequence skip UI active"
+        end
+
+        if ui_state.task_buttons > 0
+            and ui_state.zero_task_buttons >= ui_state.task_buttons
+            and ui_state.zero_buttons >= math.max(3, math.floor(math.max(1, ui_state.total_buttons) * 0.20))
+        then
+            state.next_task_button_click_at = current_time + math.max(300,
+                tonumber(MAIN_TASK_BUTTON_STEP.zero_taskbtn_retry_ms) or 700)
+            if type(hold_navigation) == "function" then
+                hold_navigation(ctx, current_time, "main_task_taskbtn_zero")
+            end
+            log_throttled(ctx, "main_task_taskbtn_zero_wait", "info", 800, string.format(
+                "[Leveling] main task TaskBtn not visible; wait instead of position fallback | task_zero=%d/%d zero=%d visible=%d total=%d",
+                ui_state.zero_task_buttons,
+                ui_state.task_buttons,
+                ui_state.zero_buttons,
+                ui_state.visible_buttons,
+                ui_state.total_buttons
+            ))
+            return true, "main task TaskBtn coordinates are zero"
+        end
+
+        return false, nil
     end
 
     local pre_click_entry_action = nil
