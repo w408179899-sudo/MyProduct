@@ -3966,6 +3966,13 @@ function M.maybe_handle_forced_kite_monster(ctx, current_time, player_x, player_
     local map_cfg = select(1, current_map_task_config())
     local task_cfg, task_name = M.current_task_runtime_config()
     local point_objective_cfg = M.current_objective_point_config(destination, target)
+    if type(point_objective_cfg) ~= "table" and type(task_cfg) == "table" then
+        local linked_point_key = tostring(task_cfg.boss_objective_point_key or task_cfg.revive_reentry_objective_key or "")
+        local linked_point_cfg = M.find_objective_point_config_by_key(linked_point_key)
+        if type(linked_point_cfg) == "table" and M.matches_task_constraints(linked_point_cfg) then
+            point_objective_cfg = linked_point_cfg
+        end
+    end
     local objective_cfg = type(task_cfg) == "table" and type(task_cfg.objective) == "table" and task_cfg.objective
         or (type(map_cfg) == "table" and type(map_cfg.objective) == "table" and map_cfg.objective or nil)
         or point_objective_cfg
@@ -4037,6 +4044,22 @@ function M.maybe_handle_forced_kite_monster(ctx, current_time, player_x, player_
     then
         no_target_boss_monster = task_monsters.nearest_special or task_monsters.nearest or nil
     end
+    local no_target_boss_room_ready = false
+    local no_target_boss_room_distance = nil
+    if no_target_boss_engage_armed and type(point_objective_cfg) == "table" then
+        local center_x = tonumber(point_objective_cfg.x)
+        local center_y = tonumber(point_objective_cfg.y)
+        if center_x ~= nil and center_y ~= nil and player_x ~= nil and player_y ~= nil then
+            no_target_boss_room_distance = distance_2d(player_x, player_y, center_x, center_y)
+            local room_radius = math.max(
+                tonumber(point_objective_cfg.no_task_target_boss_room_radius) or 0,
+                (tonumber(point_objective_cfg.kite_radius) or 0) + 260,
+                tonumber(point_objective_cfg.radius) or 0,
+                boss_objective_trigger_distance
+            )
+            no_target_boss_room_ready = no_target_boss_room_distance <= room_radius
+        end
+    end
     local sticky_forced_kite = state.task_combat_force_kite == true
         and (tonumber(state.task_combat_last_seen_at) or 0) > 0
         and current_time - (tonumber(state.task_combat_last_seen_at) or 0) <= TASK_COMBAT_CLEAR_SETTLE_MS
@@ -4048,6 +4071,7 @@ function M.maybe_handle_forced_kite_monster(ctx, current_time, player_x, player_
         and type(startup_boss_monster) ~= "table"
         and type(early_boss_monster) ~= "table"
         and type(no_target_boss_monster) ~= "table"
+        and not no_target_boss_room_ready
         and not sticky_forced_kite
     then
         if revive_boss_engage_armed then
@@ -4076,13 +4100,25 @@ function M.maybe_handle_forced_kite_monster(ctx, current_time, player_x, player_
     end
 
     local selected_monster = forced_monster or revive_boss_monster or startup_boss_monster or early_boss_monster or no_target_boss_monster
+    local synthetic_no_target_boss_room = false
+    if type(selected_monster) ~= "table" and no_target_boss_room_ready and type(point_objective_cfg) == "table" then
+        synthetic_no_target_boss_room = true
+        selected_monster = {
+            label = "no_target_boss_room",
+            force_kite_name = "no_target_boss_room",
+            x = tonumber(point_objective_cfg.x),
+            y = tonumber(point_objective_cfg.y),
+            z = tonumber(point_objective_cfg.z),
+            distance = no_target_boss_room_distance
+        }
+    end
 
     if type(selected_monster) == "table" then
         local matched_name = tostring(selected_monster.force_kite_name or selected_monster.label or "")
         local engage_reason = type(forced_monster) == "table" and "forced_name"
             or (type(revive_boss_monster) == "table" and "post_revive_boss_room"
             or (type(startup_boss_monster) == "table" and "startup_boss_room"
-            or (type(no_target_boss_monster) == "table" and "no_task_target_boss_room" or "boss_objective_early")))
+            or ((type(no_target_boss_monster) == "table" or synthetic_no_target_boss_room) and "no_task_target_boss_room" or "boss_objective_early")))
         log_throttled(ctx, "forced_kite_monster_match", "info", LOG_THROTTLE_MS, string.format(
             "[Leveling] forced kite monster matched | task=%s detail=%s reason=%s label=%s player_distance=%s task_distance=%s goal_distance=%s sticky=%s objective_source=%s objective_key=%s objective_mode=%s",
             tostring(task_name or state.current_task_name or ""),
@@ -4545,6 +4581,8 @@ function M.maybe_handle_post_combat_loot(ctx, current_time, player_x, player_y, 
             type(item_count) == "number" and tostring(item_count) or "nil",
             tostring(item_err or "")
         ))
+        state.post_combat_loot_completed_key = tostring(state.post_combat_loot_active_key or objective_key)
+        state.post_combat_loot_completed_at = current_time
         M.clear_post_combat_loot_state()
         return false
     end
@@ -4596,7 +4634,7 @@ function M.maybe_handle_task_combat_completion(ctx, current_time, player_x, play
         end
         post_combat_loot_finished = true
     end
-    if boss_kite_objective and M.maybe_handle_boss_task_change(ctx, current_time) then
+    if boss_kite_objective and M.maybe_handle_boss_task_change(ctx, current_time, objective_cfg, player_x, player_y, player_z) then
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
@@ -4780,7 +4818,32 @@ function M.maybe_handle_task_combat_completion(ctx, current_time, player_x, play
         return true
     end
 
-    if M.maybe_handle_post_combat_loot(ctx, current_time, player_x, player_y, player_z, objective_cfg) then
+    local has_post_combat_loot_cfg = type(M.normalize_post_combat_loot_cfg(objective_cfg)) == "table"
+    if boss_kite_objective and has_post_combat_loot_cfg and not post_combat_loot_finished then
+        local kite_target = M.build_task_combat_kite_target(current_time, player_x, player_y, destination or target)
+        state.stage = "task_combat_kite"
+        state.task_combat_force_kite = true
+        if type(kite_target) == "table" then
+            M.issue_task_combat_kite_move(ctx, current_time, kite_target)
+        end
+        M.run_task_combat_pulse(ctx, current_time, "boss_wait_task_refresh_before_loot", {
+            mode = "task_combat_kite"
+        })
+        log_throttled(ctx, "task_combat_wait_task_refresh_before_loot", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] boss target absent but task unchanged; keep kiting and wait task refresh before loot | idle_ms=%d route_index=%s/%s goal_distance=%s objective=%s task=%s detail=%s",
+            tonumber(idle_ms) or 0,
+            type(kite_target) == "table" and tostring(kite_target.path_index or "") or "",
+            type(kite_target) == "table" and tostring(kite_target.path_points or "") or "",
+            type(goal_distance) == "number" and string.format("%.2f", goal_distance) or "nil",
+            tostring(type(objective_cfg) == "table" and objective_cfg.key or ""),
+            tostring(task_name or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or "")
+        ))
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    if not post_combat_loot_finished and M.maybe_handle_post_combat_loot(ctx, current_time, player_x, player_y, player_z, objective_cfg) then
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
@@ -5317,6 +5380,41 @@ function M.update(now, ctx)
             phase = "main_tick",
             in_main_interface = in_main_interface
         })
+    end
+
+    if (tonumber(state.startup_state_resolve_until) or 0) > current_time
+        and (state.level_up_maintenance_executor_active == true or M.level_up_maintenance_has_pending())
+    then
+        local level_up_cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
+        local startup_plan_info = type(M.level_up_maintenance_find_next_plan) == "function"
+            and M.level_up_maintenance_find_next_plan(level_up_cfg)
+            or nil
+        local startup_plan = type(startup_plan_info) == "table"
+            and type(startup_plan_info.plan) == "table"
+            and startup_plan_info.plan
+            or nil
+        local default_skill_nonblocking = type(startup_plan_info) == "table"
+            and tostring(startup_plan_info.kind or "") == "skill"
+            and type(startup_plan) == "table"
+            and startup_plan.default_skill_plan == true
+            and type(level_up_cfg) == "table"
+            and level_up_cfg.default_skill_block_main_flow == false
+            and state.level_up_maintenance_force_block_default_skill ~= true
+        if state.level_up_maintenance_executor_active == true
+            or (type(startup_plan_info) == "table" and not default_skill_nonblocking)
+        then
+            log_throttled(ctx, "startup_level_up_maintenance_priority", "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] startup defers to level-up maintenance before main task reacquire | kind=%s level=%s plan=%s %s",
+                type(startup_plan_info) == "table" and tostring(startup_plan_info.kind or "") or tostring(state.level_up_maintenance_executor_kind or ""),
+                type(startup_plan_info) == "table" and tostring(startup_plan_info.level or "") or tostring(state.level_up_maintenance_executor_level or ""),
+                type(startup_plan) == "table" and tostring(startup_plan.label or startup_plan.key or "") or tostring(state.level_up_maintenance_executor_plan_label or ""),
+                M.level_up_maintenance_pending_summary()
+            ))
+            if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+                log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+                return true
+            end
+        end
     end
 
     if M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, player_z, hp_ratio) then

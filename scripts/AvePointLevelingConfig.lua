@@ -77,7 +77,12 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     seed_next_missing_level_when_level_text_missing = true,
     probe_ms = 1200,
     safe_no_monster_ms = 1800,
-    monster_guard_distance = 450,
+    monster_guard_distance = 1000,
+    monster_hard_block_distance = 300,
+    nearby_monster_soft_observe_ms = 2000,
+    nearby_monster_soft_resource_drop_epsilon = 1,
+    nearby_monster_hold_timeout_ms = 7000,
+    nearby_monster_defer_retry_ms = 8000,
     min_hp_ratio = 0.72,
     allow_position_available_without_main_interface = true,
     step_wait_ms = 650,
@@ -99,7 +104,8 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     },
     skill_enabled = true,
     talent_enabled = true,
-    plan_order = { "skill", "talent" },
+    contract_enabled = true,
+    plan_order = { "skill", "talent", "contract" },
     default_skill_enabled = true,
     default_skill_min_level = 1,
     default_skill_catch_up_missing = false,
@@ -702,7 +708,8 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                 }
             }
         }
-    }
+    },
+    contract_by_level = {}
 }
 
 local function clone_plain_table(value)
@@ -935,6 +942,40 @@ do
 
     for _, level in ipairs({ 15, 16, 17 }) do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_15_to_17_talent_plan(level)
+    end
+
+    local function make_level_18_to_20_talent_plan(level)
+        local plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[7])
+        plan.key = string.format("level_%d_talent_node_activate", level)
+        plan.label = string.format("%d级天赋：激活天赋节点", level)
+        for _, step in ipairs(type(plan.steps) == "table" and plan.steps or {}) do
+            if tostring(step.key or "") == "select_level_7_talent_node" then
+                step.key = string.format("select_level_%d_talent_node", level)
+                step.hint_client_x = 1083.636841
+                step.hint_client_y = 696.981323
+                step.hint_ratio_x = 0.753049
+                step.hint_ratio_y = 0.774424
+                step.hint_max_distance = 80
+                step.wait_after_ms = 1200
+            elseif tostring(step.key or "") == "activate_level_7_talent_node" then
+                step.key = string.format("activate_level_%d_talent_node", level)
+                step.include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray",
+                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                }
+                step.hint_client_x = 913.439148
+                step.hint_client_y = 683.801453
+                step.hint_ratio_x = 0.634774
+                step.hint_ratio_y = 0.759779
+                step.hint_max_distance = 80
+                step.wait_after_ms = 650
+            end
+        end
+        return plan
+    end
+
+    for _, level in ipairs({ 18, 19, 20 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_18_to_20_talent_plan(level)
     end
 end
 
@@ -1239,6 +1280,93 @@ do
 
     level_14_skill_plan.steps = level_14_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[14] = level_14_skill_plan
+end
+
+do
+    local function fixed_click_step(key, label, client_x, client_y, ratio_x, ratio_y, wait_after_ms)
+        return make_fixed_client_click_step({
+            key = key,
+            label = label,
+            fixed_client_x = client_x,
+            fixed_client_y = client_y,
+            fixed_ratio_x = ratio_x,
+            fixed_ratio_y = ratio_y,
+            fixed_prefer_ratio = true,
+            click_delay = 60,
+            hover_delay_ms = 90,
+            wait_after_ms = wait_after_ms or 500
+        })
+    end
+
+    local function open_menu_step(key)
+        return {
+            key = key,
+            label = "技能天赋菜单按钮",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+            },
+            hint_client_x = 1383.688110,
+            hint_client_y = 52.706509,
+            hint_ratio_x = 0.961562,
+            hint_ratio_y = 0.058563,
+            hint_max_distance = 100,
+            wait_after_ms = 800
+        }
+    end
+
+    local function open_contract_panel_step(key)
+        return {
+            key = key,
+            label = "契灵面板按钮",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+            },
+            hint_client_x = 1200.015381,
+            hint_client_y = 235.364059,
+            hint_ratio_x = 0.833923,
+            hint_ratio_y = 0.261516,
+            hint_max_distance = 80,
+            wait_after_ms = 1000
+        }
+    end
+
+    local function contract_back_step(key)
+        return fixed_click_step(
+            key,
+            "契灵返回固定点击",
+            53.00,
+            35.00,
+            0.036831,
+            0.038889,
+            700
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[18] = {
+        key = "level_18_contract_setup",
+        label = "18级契灵：配置契约面板",
+        require_available_points = false,
+        monster_guard_distance = 160,
+        safe_no_monster_ms = 600,
+        close_with_escape = false,
+        steps = {
+            open_menu_step("level_18_contract_open_menu_first"),
+            open_contract_panel_step("level_18_contract_open_panel_first"),
+            fixed_click_step("level_18_contract_first_click_106_376", "18级契灵固定点击1", 106.00, 376.00, 0.073662, 0.417778, 450),
+            fixed_click_step("level_18_contract_first_click_295_121", "18级契灵固定点击2", 295.00, 121.00, 0.205003, 0.134444, 450),
+            fixed_click_step("level_18_contract_first_click_281_253", "18级契灵固定点击3", 281.00, 253.00, 0.195274, 0.281111, 450),
+            fixed_click_step("level_18_contract_first_click_103_226", "18级契灵固定点击4", 103.00, 226.00, 0.071577, 0.251111, 450),
+            fixed_click_step("level_18_contract_first_click_1340_845", "18级契灵固定点击5", 1340.00, 845.00, 0.931202, 0.938889, 700),
+            contract_back_step("level_18_contract_back_first_1"),
+            contract_back_step("level_18_contract_back_first_2"),
+            open_menu_step("level_18_contract_open_menu_second"),
+            open_contract_panel_step("level_18_contract_open_panel_second"),
+            fixed_click_step("level_18_contract_second_click_329_256", "18级契灵固定点击6", 329.00, 256.00, 0.228631, 0.284444, 500),
+            fixed_click_step("level_18_contract_second_click_1322_812", "18级契灵固定点击7", 1322.00, 812.00, 0.918694, 0.902222, 700),
+            contract_back_step("level_18_contract_back_second_1"),
+            contract_back_step("level_18_contract_back_second_2")
+        }
+    }
 end
 
 local function make_sun_faction_choice_action()
@@ -4019,6 +4147,24 @@ local function make_forgotten_temple_rescue_civilian_route_action(key_suffix, x,
     })
 end
 
+local function make_mountain_heart_dwarf_king_reentry_config()
+    return make_revive_reentry_config({
+        key = "mountain_heart_dwarf_king_endpoint_reentry_4581_13976",
+        label = "群山之心_矮人王Boss重进房",
+        anchor = {
+            x = 4581.00,
+            y = 13976.00,
+            z = 67.31,
+            radius = 560
+        },
+        interact_distance = 280,
+        retry_ms = 1200,
+        settle_ms = 1400,
+        timeout_ms = 20000,
+        post_transition_boss_engage_ms = 16000
+    })
+end
+
 M.TASK_NAME_CONFIGS = {
     ["与日争辉"] = make_sun_faction_join_dialogue_flow_task(),
     ["\u{524D}\u{5F80}\u{96C4}\u{72EE}\u{4E4B}\u{5FC3}\u{FF0C}\u{53C2}\u{4E0E}\u{665A}\u{661F}\u{7684}\u{53CD}\u{653B}"] = {
@@ -4156,6 +4302,18 @@ M.TASK_NAME_CONFIGS = {
             }
         }
     ),
+    ["击败矮人王多加尔"] = {
+        task_patterns = {
+            "群山之心"
+        },
+        task_detail_patterns = {
+            "击败矮人王多加尔"
+        },
+        constraint_mode = "all",
+        boss_objective_point_key = "mountain_heart_dwarf_king_endpoint_kite",
+        revive_reentry_objective_key = "mountain_heart_dwarf_king_endpoint_kite",
+        revive_reentry = make_mountain_heart_dwarf_king_reentry_config()
+    },
     ["\u{6467}\u{6BC1}\u{7B51}\u{5899}\u{70AE}"] = make_boss_kite_task_config(
         "wall_cannon_boss",
         {
@@ -6534,43 +6692,69 @@ M.ROUTE_POINT_ACTIONS = {
         from_point = { x = -1503.00, y = 3065.00, z = 1235.00, radius = 900, z_tolerance = 260 },
         objective_point = { x = -1503.00, y = 3065.00, z = 1235.00 }
     }),
-    Actions.make_lift_route_action({
-        key = "lift_transition_2609_-3074",
-        label = "电梯按钮",
+    make_route_point_action({
+        key = "mountain_heart_dwarf_king_lift_route_-1188_3326",
+        label = "群山之心_阻止矮人王阴谋_电梯前置路径",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "mountain_heart_dwarf_king_lift_button_-1750_4240",
         task_patterns = {
-            "\u{963B}\u{6B62}\u{77EE}\u{4EBA}\u{738B}\u{7684}\u{9634}\u{8C0B}"
+            "群山之心"
         },
+        task_detail_patterns = {
+            "阻止矮人王的阴谋"
+        },
+        constraint_mode = "all",
         trigger = {
-            x = 2609.02,
-            y = -3074.28,
-            z = -1695.90,
-            radius = 260,
-            z_tolerance = 260
+            x = -1188.00,
+            y = 3326.00,
+            z = 1166.00,
+            radius = 780,
+            z_tolerance = 420
         },
-        retry_ms = 3500,
-        settle_ms = 1200,
-        force_task_call_after_transition = true,
-        task_pos_reject_extra_ms = 2500,
-        fallback_interact = true,
-        fallback_interact_distance = 180,
-        fallback_retry_ms = 2500,
-        board = {
-            x = -1471.00,
-            y = 4002.00,
+        retry_ms = 600000,
+        timeout_ms = 18000,
+        waypoint_reach_radius = 180,
+        waypoint_z_tolerance = 420,
+        move_interval_ms = 220,
+        waypoints = {
+            { x = -1750.00, y = 4240.00, z = 1121.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "mountain_heart_dwarf_king_lift_button_-1750_4240",
+        label = "群山之心_阻止矮人王阴谋_电梯按钮",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        task_patterns = {
+            "群山之心"
+        },
+        task_detail_patterns = {
+            "阻止矮人王的阴谋"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -1750.00,
+            y = 4240.00,
             z = 1121.00,
-            radius = 220,
-            interact_radius = 90,
-            move_interval_ms = 200,
-            z_tolerance = 220,
-            allow_direct_entry = true,
-            direct_entry_radius = 760,
-            allow_direct_entry_without_task_match = true,
-            center_settle_ms = 700,
-            interact_retry_ms = 1800,
-            settle_ms = 5000,
-            timeout_ms = 22000
+            radius = 560,
+            z_tolerance = 420
         },
+        interact_radius = 220,
+        probe_retry_ms = 700,
+        retry_ms = 3500,
+        settle_ms = 5000,
+        timeout_ms = 18000,
+        force_task_call_after_transition = true,
+        task_pos_reject_extra_ms = 3500,
+        fallback_interact = true,
+        fallback_interact_distance = 260,
+        fallback_retry_ms = 2500,
         step = {
+            key = "mountain_heart_dwarf_king_lift_btn",
             label = "电梯按钮",
             distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.LiftBtn",
             include_patterns = {
@@ -6580,7 +6764,7 @@ M.ROUTE_POINT_ACTIONS = {
             hint_client_y = 720.439941,
             hint_ratio_x = 0.482087,
             hint_ratio_y = 0.800489,
-            hint_max_distance = 80.000,
+            hint_max_distance = 100.000,
             prefer_hint_fallback = true
         }
     }),
@@ -7895,7 +8079,9 @@ M.ROUTE_POINT_ACTIONS = {
     make_route_point_action({
         key = "counterattack_dawn_rescue_gather_19907_21521",
         label = "反击的黎明_解救被困者_交互按钮",
-        mode = "objective_button_point",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
         task_patterns = {
             "\u{53CD}\u{51FB}\u{7684}\u{9ECE}\u{660E}"
         },
@@ -7904,14 +8090,21 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 19907.18,
-            y = 21521.48,
+            x = 19998.69,
+            y = 21445.52,
             z = 920.00,
-            radius = 780,
-            z_tolerance = 260
+            radius = 920,
+            z_tolerance = 280
         },
+        require_destination_match = true,
+        destination_match_radius = 980,
+        interact_radius = 220,
+        probe_retry_ms = 700,
         retry_ms = 2500,
-        settle_ms = 1500,
+        settle_ms = 2200,
+        timeout_ms = 18000,
+        force_task_call_after_transition = true,
+        task_pos_reject_extra_ms = 3500,
         step = {
             key = "rescue_gather_btn",
             label = "\u{89E3}\u{6551}\u{88AB}\u{56F0}\u{8005}\u{6309}\u{94AE}",
@@ -7919,11 +8112,14 @@ M.ROUTE_POINT_ACTIONS = {
             include_patterns = {
                 "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn"
             },
-            hint_client_x = 699.204834,
-            hint_client_y = 724.439941,
-            hint_ratio_x = 0.485559,
-            hint_ratio_y = 0.804933,
-            hint_max_distance = 80.000
+            hint_client_x = 705.053040,
+            hint_client_y = 710.797729,
+            hint_ratio_x = 0.489960,
+            hint_ratio_y = 0.789775,
+            hint_max_distance = 120.000,
+            prefer_hint_fallback = true,
+            settle_ms = 2200,
+            task_pos_reject_extra_ms = 3500
         }
     }),
     make_route_point_action({
@@ -9115,25 +9311,26 @@ M.OBJECTIVE_POINT_CONFIGS = {
         }
     }),
     Actions.make_clear_room_point({
-        key = "mountain_heart_boss_room_7478_17145",
-        x = 7477.54,
-        y = 17144.58,
-        z = 812.00,
-        radius = 1100,
-        trigger_distance = 820,
-        kite_radius = 2880,
-        kite_switch_ms = 2400,
-        kite_arrive_distance = 520,
-        kite_move_interval_ms = 120,
+        key = "mountain_heart_dwarf_king_endpoint_kite",
+        x = 7451.00,
+        y = 17193.00,
+        z = 1010.00,
+        radius = 900,
+        trigger_distance = 520,
+        immediate_kite_on_reached = true,
+        allow_no_task_target_force_kite = true,
+        kite_radius = 1260,
+        kite_point_count = 3,
+        kite_switch_ms = 2200,
         seamless_kite = true,
+        kite_arrive_distance = 420,
+        kite_move_interval_ms = 120,
         defer_followup_until_clear = true,
         boss_clear_settle_ms = 3000,
-        kite_points = {
-            { x = 5482.34, y = 17353.55, z = 811.00 },
-            { x = 7245.18, y = 18406.44, z = 811.00 },
-            { x = 8614.00, y = 17297.88, z = 811.00 },
-            { x = 7309.67, y = 15983.46, z = 811.00 }
-        },
+        generic_followup_refresh_ms = 3500,
+        generic_followup_requires_task_pos_only = true,
+        generic_followup_require_no_special = true,
+        ignore_terminal_text_change_when_objective_same = true,
         post_combat_loot = {
             enabled = true,
             duration_ms = 3500,
@@ -9141,30 +9338,17 @@ M.OBJECTIVE_POINT_CONFIGS = {
             press_interval_ms = 450,
             empty_settle_ms = 900
         },
-        followup_route_action_key = "listen_keli_dwarf_king_dialogue_8496_17639",
+        revive_reentry = make_mountain_heart_dwarf_king_reentry_config(),
         task_patterns = {
-            "\u{7FA4}\u{5C71}\u{4E4B}\u{5FC3}",
-            "\u{5B8C}\u{6210}"
+            "群山之心"
         },
-        exclude_task_patterns = {
-            "\u{4EA4}\u{8C08}",
-            "\u{5BF9}\u{8BDD}"
+        task_detail_patterns = {
+            "击败矮人王多加尔"
         },
-        revive_reentry = make_revive_reentry_config({
-            key = "mountain_heart_boss_room_reentry_4511_14022",
-            label = "\u{7FA4}\u{5C71}\u{4E4B}\u{5FC3} Boss\u{91CD}\u{8FDB}\u{623F}",
-            anchor = {
-                x = 4511.00,
-                y = 14022.00,
-                z = 59.94,
-                radius = 560
-            },
-            interact_distance = 280,
-            retry_ms = 1200,
-            settle_ms = 1400,
-            timeout_ms = 20000,
-            post_transition_boss_engage_ms = 16000
-        })
+        exclude_task_detail_patterns = {
+            "交谈",
+            "对话"
+        }
     }),
     Actions.make_clear_room_point({
         key = "wasteland_path_longhorn_beast_room_25430_12440",
@@ -9173,7 +9357,13 @@ M.OBJECTIVE_POINT_CONFIGS = {
         z = 5448.75,
         radius = 1200,
         trigger_distance = 900,
-        kite_radius = 3600,
+        kite_radius = 1260,
+        kite_point_count = 3,
+        kite_switch_ms = 2200,
+        seamless_kite = true,
+        kite_arrive_distance = 420,
+        kite_move_interval_ms = 120,
+        defer_followup_until_clear = true,
         boss_clear_settle_ms = 3000,
         task_patterns = {
             "\u{707E}\u{5384}\u{5C06}\u{81F3}",

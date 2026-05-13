@@ -1239,6 +1239,8 @@ local function clear_task_target_state()
     state.task_combat_kite_radius = nil
     state.task_combat_force_kite = false
     M.clear_post_combat_loot_state()
+    state.post_combat_loot_completed_key = nil
+    state.post_combat_loot_completed_at = 0
     state.terminal_task_locked_name = nil
     state.terminal_task_locked_detail = nil
     state.terminal_task_locked_objective_key = nil
@@ -1777,6 +1779,8 @@ local function reset_state()
     state.level_up_maintenance_last_progress = nil
     state.level_up_maintenance_pending_skill = false
     state.level_up_maintenance_pending_talent = false
+    state.level_up_maintenance_pending_contract = false
+    state.level_up_maintenance_pending_kinds = nil
     state.level_up_maintenance_pending_levels = nil
     state.level_up_maintenance_pending_since = 0
     state.level_up_maintenance_safe_since = 0
@@ -2481,6 +2485,23 @@ local function refresh_player_status(ctx, current_time, force_refresh)
     state.cached_player_hp, state.cached_player_max_hp, state.cached_player_hp_ratio, state.cached_player_hp_source =
         extract_player_hp_values(info)
     return state.cached_player_info, state.cached_player_hp, state.cached_player_max_hp, state.cached_player_hp_ratio
+end
+
+function M.level_up_maintenance_player_resource(ctx, current_time, force_refresh)
+    local info, hp = refresh_player_status(ctx, current_time, force_refresh == true)
+    local hp_value = tonumber(hp)
+    local shield_value = nil
+    if type(info) == "table" and type(avepoint_find_named_number) == "function" then
+        shield_value = tonumber((avepoint_find_named_number(info, {
+            "curShield", "CurShield", "currentShield", "CurrentShield",
+            "shield", "Shield", "curBarrier", "CurBarrier",
+            "barrier", "Barrier"
+        }, 4)))
+    end
+    if hp_value == nil and shield_value == nil then
+        return nil, hp_value, shield_value
+    end
+    return (hp_value or 0) + (shield_value or 0), hp_value, shield_value
 end
 
 normalize_map_name = function(value)
@@ -6888,7 +6909,13 @@ function M.resolve_revive_reentry_config()
             tostring(state.task_combat_locked_objective_key or "")
     end
 
-    local task_cfg = select(1, M.current_task_runtime_config())
+    local task_cfg, task_name = M.current_task_runtime_config()
+    if type(task_cfg) == "table" and type(task_cfg.revive_reentry) == "table" then
+        return task_cfg.revive_reentry,
+            "task",
+            tostring(task_cfg.revive_reentry_objective_key or task_cfg.objective_key or task_cfg.key or task_name or "")
+    end
+
     local objective_cfg = type(task_cfg) == "table" and type(task_cfg.objective) == "table" and task_cfg.objective or nil
     if type(objective_cfg) == "table" and type(objective_cfg.revive_reentry) == "table" then
         return objective_cfg.revive_reentry, "task", tostring(objective_cfg.key or "")
@@ -6921,7 +6948,7 @@ function M.resolve_revive_reentry_config()
     return nil, nil, nil
 end
 
-function M.maybe_handle_boss_task_change(ctx, current_time)
+function M.maybe_handle_boss_task_change(ctx, current_time, objective_cfg, player_x, player_y, player_z)
     if state.task_combat_force_kite ~= true
         and tostring(state.stage or "") ~= "task_combat_kite"
         and tostring(state.stage or "") ~= "task_combat"
@@ -6948,6 +6975,23 @@ function M.maybe_handle_boss_task_change(ctx, current_time)
     local current_objective = type(current_task_cfg) == "table" and type(current_task_cfg.objective) == "table" and current_task_cfg.objective or nil
     local current_objective_key = normalize_map_name(type(current_objective) == "table" and current_objective.key or nil)
     local locked_point_cfg = M.find_objective_point_config_by_key(state.task_combat_locked_objective_key)
+    local function post_combat_loot_candidate(candidate)
+        if type(candidate) ~= "table" or type(M.normalize_post_combat_loot_cfg) ~= "function" then
+            return nil
+        end
+        if type(M.normalize_post_combat_loot_cfg(candidate)) == "table" then
+            return candidate
+        end
+        return nil
+    end
+    local loot_objective_cfg = post_combat_loot_candidate(objective_cfg)
+        or post_combat_loot_candidate(locked_point_cfg)
+        or post_combat_loot_candidate(current_objective)
+    local loot_objective_key = tostring(
+        type(loot_objective_cfg) == "table" and loot_objective_cfg.key
+        or locked_objective_key
+        or "objective"
+    )
     local current_log_task_name = M.normalize_task_title_key(M.current_task_log_name())
     local current_log_task_detail = normalize_map_name(M.current_task_log_detail())
     local current_task_source = tostring(state.current_task_name_source or "")
@@ -6955,6 +6999,9 @@ function M.maybe_handle_boss_task_change(ctx, current_time)
     local detail_changed = locked_task_detail ~= nil
         and current_log_task_detail ~= nil
         and current_log_task_detail ~= locked_task_detail
+    local detail_unchanged = locked_task_detail ~= nil
+        and current_log_task_detail ~= nil
+        and current_log_task_detail == locked_task_detail
     local detail_missing_exit_enabled = (
         type(current_objective) == "table"
         and current_objective.exit_kite_on_detail_missing == true
@@ -7031,6 +7078,39 @@ function M.maybe_handle_boss_task_change(ctx, current_time)
                 tostring(state.stage or "")
             ))
             return false
+        end
+        if name_changed and detail_unchanged and not detail_missing_changed then
+            log_throttled(ctx, "boss_task_change_title_drift_ignored", "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] boss task title drift ignored; detail unchanged | old_task=%s old_detail=%s old_objective=%s new_task=%s new_detail=%s new_objective=%s task_source=%s detail_source=%s stage=%s",
+                tostring(locked_task_name or ""),
+                tostring(locked_task_detail or ""),
+                tostring(locked_objective_key or ""),
+                tostring(current_log_task_name or current_task_name or ""),
+                tostring(current_log_task_detail or ""),
+                tostring(current_objective_key or ""),
+                tostring(current_task_source or ""),
+                tostring(current_detail_source or ""),
+                tostring(state.stage or "")
+            ))
+            return false
+        end
+        if type(loot_objective_cfg) == "table"
+            and tostring(state.post_combat_loot_completed_key or "") ~= loot_objective_key
+        then
+            logger(ctx).info(string.format(
+                "[Leveling] boss task changed, start post-combat loot before next task | old_task=%s old_detail=%s old_objective=%s new_task=%s new_detail=%s new_objective=%s loot_objective=%s stage=%s",
+                tostring(locked_task_name or ""),
+                tostring(locked_task_detail or ""),
+                tostring(locked_objective_key or ""),
+                tostring(current_log_task_name or current_task_name or ""),
+                tostring(current_log_task_detail or ""),
+                tostring(current_objective_key or ""),
+                tostring(loot_objective_key or ""),
+                tostring(state.stage or "")
+            ))
+            if M.maybe_handle_post_combat_loot(ctx, current_time, player_x, player_y, player_z, loot_objective_cfg) then
+                return true
+            end
         end
         logger(ctx).info(string.format(
             "[Leveling] boss task changed, exit kite | old_task=%s old_detail=%s old_objective=%s new_task=%s new_detail=%s new_objective=%s stage=%s",
@@ -7678,6 +7758,23 @@ local function confirm_dialogue_ui_visible(ctx, current_time)
 
     state.dialogue_ui_match = "dialogue UI pattern not found."
     return false, state.dialogue_ui_match
+end
+
+function M.level_up_maintenance_dialogue_block_reason(ctx, current_time)
+    local visible, reason = confirm_dialogue_ui_visible(ctx, current_time)
+    if visible == true then
+        return "dialogue_ui_visible"
+    end
+
+    local reason_text = tostring(reason or ""):lower()
+    if reason_text:find("jumpbtn", 1, true)
+        or reason_text:find("skipbutton", 1, true)
+        or reason_text:find("skiplevelsequence", 1, true)
+        or reason_text:find("cinematic", 1, true)
+    then
+        return "dialogue_ui_visible"
+    end
+    return nil
 end
 
 local function build_path_signature(path)
@@ -10200,6 +10297,8 @@ clear_task_combat_state = function()
     state.boss_soft_task_change_confirmed_candidate = nil
     state.boss_soft_task_change_confirmed_at = 0
     M.clear_post_combat_loot_state()
+    state.post_combat_loot_completed_key = nil
+    state.post_combat_loot_completed_at = 0
 end
 
 
