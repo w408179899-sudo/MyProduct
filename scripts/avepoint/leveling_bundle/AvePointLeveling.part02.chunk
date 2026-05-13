@@ -4678,6 +4678,23 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
             ))
             return M.finish_level_up_maintenance_executor(ctx, current_time)
         end
+        if type(step) == "table" and step.missing_target_means_step_done == true then
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance target absent; skip step | kind=%s level=%s plan=%s step=%d/%d key=%s err=%s",
+                tostring(state.level_up_maintenance_executor_kind or ""),
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                index,
+                #steps,
+                tostring(step.key or ""),
+                tostring(fetch_err or "")
+            ))
+            state.level_up_maintenance_executor_step_index = index + 1
+            local cfg = M.level_up_maintenance_config()
+            state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
+                + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+            return true
+        end
         return M.fail_level_up_maintenance_executor(ctx, current_time, "fetch failed: " .. tostring(fetch_err or ""))
     end
     local clicked, click_err = click_locator_button_target(ctx, step, target)
@@ -5162,6 +5179,11 @@ function M.route_point_action_skip_reason(ctx, action, current_time)
         return "recipe_side_completed", recipe_side_task_key
     end
 
+    local min_level = tonumber(action.skip_when_player_level_at_least)
+    local route_level = nil
+    local route_progress = nil
+    local route_level_text = nil
+    local route_level_err = nil
     local treasure_key = trim(action.skip_when_treasure_completed_key or "")
     local treasures = type(state.treasure_persisted) == "table"
         and type(state.treasure_persisted.treasures) == "table"
@@ -5169,12 +5191,20 @@ function M.route_point_action_skip_reason(ctx, action, current_time)
         or nil
     local treasure_record = type(treasures) == "table" and treasures[treasure_key] or nil
     if treasure_key ~= "" and type(treasure_record) == "table" and treasure_record.completed == true then
+        if min_level ~= nil and min_level > 0 then
+            route_level, route_progress, route_level_text, route_level_err = M.refresh_route_point_action_player_level(ctx, current_time, false)
+            if type(route_level) == "number" and route_level < min_level then
+                return nil
+            end
+        end
         return "treasure_completed", treasure_key
     end
 
-    local min_level = tonumber(action.skip_when_player_level_at_least)
     if min_level ~= nil and min_level > 0 then
-        local level, progress, text, err = M.refresh_route_point_action_player_level(ctx, current_time, false)
+        local level, progress, text, err = route_level, route_progress, route_level_text, route_level_err
+        if type(level) ~= "number" and err == nil then
+            level, progress, text, err = M.refresh_route_point_action_player_level(ctx, current_time, false)
+        end
         if type(level) == "number" and level >= min_level then
             return "player_level_reached", string.format(
                 "level=%d progress=%s target=%d text=%s",

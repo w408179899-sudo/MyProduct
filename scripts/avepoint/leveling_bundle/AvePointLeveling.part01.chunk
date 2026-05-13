@@ -1641,6 +1641,8 @@ local function reset_state()
     state.cached_exit_portal_error = nil
     state.pending_interaction_origin = nil
     state.pending_interaction_label = nil
+    state.pending_interaction_task_name = nil
+    state.pending_interaction_task_detail = nil
     state.pending_interaction_refresh_on_timeout = false
     state.npc_dialogue_combat_retry_active = false
     state.npc_dialogue_combat_retry_source = nil
@@ -10393,6 +10395,8 @@ end
 local function clear_pending_interaction(keep_npc_dialogue_retry_state, preserve_jump_session)
     state.pending_interaction_origin = nil
     state.pending_interaction_label = nil
+    state.pending_interaction_task_name = nil
+    state.pending_interaction_task_detail = nil
     state.pending_interaction_refresh_on_timeout = false
     M.clear_dialogue_jump_window_state()
     if preserve_jump_session ~= true then
@@ -10402,6 +10406,17 @@ local function clear_pending_interaction(keep_npc_dialogue_retry_state, preserve
     if keep_npc_dialogue_retry_state ~= true then
         M.clear_npc_dialogue_combat_retry_state()
     end
+end
+
+function M.pending_interaction_task_changed()
+    local pending_task = M.normalize_task_title_key(state.pending_interaction_task_name)
+    local current_task = M.normalize_task_title_key(M.current_task_log_name() or state.current_task_name)
+    local pending_detail = normalize_map_name(state.pending_interaction_task_detail)
+    local current_detail = normalize_map_name(M.current_task_log_detail() or state.current_task_detail)
+
+    local task_changed = pending_task ~= nil and current_task ~= nil and pending_task ~= current_task
+    local detail_changed = pending_detail ~= nil and current_detail ~= nil and pending_detail ~= current_detail
+    return task_changed or detail_changed, pending_task, pending_detail, current_task, current_detail
 end
 
 function M.dialogue_flow_matches_origin(flow, interaction_origin)
@@ -11100,6 +11115,19 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
         if trim(slot_err) ~= "" then
             log_throttled(ctx, "dialogue_jump_missing", "info", LOG_THROTTLE_MS,
                 "[Leveling] dialogue jump button not visible: " .. slot_err)
+        end
+
+        local task_changed, pending_task, pending_detail, current_task, current_detail = M.pending_interaction_task_changed()
+        if task_changed then
+            clear_pending_interaction()
+            logger(ctx).info(string.format(
+                "[Leveling] stale pending dialogue released after task changed and JumpBtn missing | old_task=%s old_detail=%s new_task=%s new_detail=%s err=%s",
+                tostring(pending_task or ""),
+                tostring(pending_detail or ""),
+                tostring(current_task or ""),
+                tostring(current_detail or ""),
+                slot_err
+            ))
         end
         return false
     end

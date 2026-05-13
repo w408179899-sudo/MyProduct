@@ -2893,6 +2893,8 @@ local function arm_dialogue_followup(current_time, origin, label, refresh_on_tim
     state.require_task_button_refresh = false
     state.pending_interaction_origin = tostring(origin or "")
     state.pending_interaction_label = tostring(label or "")
+    state.pending_interaction_task_name = tostring(M.current_task_log_name() or state.current_task_name or "")
+    state.pending_interaction_task_detail = tostring(M.current_task_log_detail() or state.current_task_detail or "")
     state.pending_interaction_refresh_on_timeout = refresh_on_timeout == true
     M.clear_task_dialogue_flow_state()
     M.clear_post_dialogue_flow_state()

@@ -135,6 +135,9 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                     label = "技能升级找图按钮",
                     missing_image_means_done = true,
                     cleanup_back_before_finish = true,
+                    repeat_image_until_missing = true,
+                    repeat_image_until_missing_max_count = 30,
+                    repeat_image_until_missing_interval_ms = 180,
                     image_preset = {
                         template_path = "skill_level_up.bmp",
                         template_threshold = 0.85,
@@ -142,6 +145,9 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                         click_delay = 50,
                         click_repeat_count = 1,
                         click_repeat_interval_ms = 120,
+                        repeat_until_missing = true,
+                        repeat_until_missing_max_count = 30,
+                        repeat_until_missing_interval_ms = 180,
                         click_mode = "api",
                         hover_delay_ms = 80,
                         click_center = false,
@@ -977,6 +983,296 @@ do
     for _, level in ipairs({ 18, 19, 20 }) do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_18_to_20_talent_plan(level)
     end
+
+    local function find_plan_step(steps, key)
+        for _, step in ipairs(type(steps) == "table" and steps or {}) do
+            if tostring(step.key or "") == key then
+                return step
+            end
+        end
+        return nil
+    end
+
+    local function clone_step_with_key(step, key, label)
+        local copy = clone_plain_table(step)
+        if type(copy) ~= "table" then
+            copy = {}
+        end
+        copy.key = key
+        if label ~= nil then
+            copy.label = label
+        end
+        return copy
+    end
+
+    local function level_20_extra_talent_click_step(key, label, client_x, client_y, ratio_x, ratio_y, wait_after_ms)
+        return make_fixed_client_click_step({
+            key = key,
+            label = label,
+            fixed_client_x = client_x,
+            fixed_client_y = client_y,
+            fixed_ratio_x = ratio_x,
+            fixed_ratio_y = ratio_y,
+            fixed_prefer_ratio = true,
+            click_delay = 60,
+            hover_delay_ms = 90,
+            wait_after_ms = wait_after_ms or 650
+        })
+    end
+
+    local function maintenance_locator_step(key, label, include_patterns, hint_client_x, hint_client_y, hint_ratio_x, hint_ratio_y, hint_max_distance, wait_after_ms)
+        return {
+            key = key,
+            label = label,
+            include_patterns = include_patterns,
+            hint_client_x = hint_client_x,
+            hint_client_y = hint_client_y,
+            hint_ratio_x = hint_ratio_x,
+            hint_ratio_y = hint_ratio_y,
+            hint_max_distance = hint_max_distance or 80,
+            wait_after_ms = wait_after_ms or 650
+        }
+    end
+
+    local level_20_plan = make_level_18_to_20_talent_plan(20)
+    local level_20_base_steps = type(level_20_plan.steps) == "table" and level_20_plan.steps or {}
+    local open_menu_step = find_plan_step(level_20_base_steps, "open_fast_entrance_menu")
+    local open_talent_step = find_plan_step(level_20_base_steps, "open_talent_panel")
+    local check_points_step = find_plan_step(level_20_base_steps, "check_talent_points")
+    local back_step = find_plan_step(level_20_base_steps, "back_from_talent_detail")
+    local level_20_steps = {
+        clone_step_with_key(open_menu_step, "level_20_extra_open_fast_entrance_menu", "20级额外天赋：打开菜单"),
+        clone_step_with_key(open_talent_step, "level_20_extra_open_talent_panel", "20级额外天赋：打开天赋面板"),
+        clone_step_with_key(check_points_step, "level_20_extra_check_talent_points", "20级额外天赋：检查天赋点"),
+        level_20_extra_talent_click_step(
+            "level_20_extra_talent_tab_click",
+            "20级额外天赋：点击额外页签",
+            492.00,
+            247.00,
+            0.341904,
+            0.274444,
+            650
+        ),
+        level_20_extra_talent_click_step(
+            "level_20_extra_talent_node_click",
+            "20级额外天赋：点击额外节点",
+            721.00,
+            614.00,
+            0.501042,
+            0.682222,
+            900
+        ),
+        level_20_extra_talent_click_step(
+            "level_20_extra_talent_confirm_click",
+            "20级额外天赋：点击额外确认",
+            1227.00,
+            207.00,
+            0.852675,
+            0.230000,
+            650
+        ),
+        clone_step_with_key(back_step, "level_20_extra_back_from_talent_panel", "20级额外天赋：返回")
+    }
+
+    for _, step in ipairs(level_20_base_steps) do
+        local key = tostring(step.key or "")
+        local cloned = clone_plain_table(step)
+        if key == "open_fast_entrance_menu" then
+            cloned.key = "level_20_main_open_fast_entrance_menu"
+            cloned.label = "20级天赋：重新打开菜单"
+        elseif key == "open_talent_panel" then
+            cloned.key = "level_20_main_open_talent_panel"
+            cloned.label = "20级天赋：重新打开天赋面板"
+        elseif key == "check_talent_points" then
+            cloned.key = "level_20_main_check_talent_points"
+            cloned.label = "20级天赋：重新检查天赋点"
+        end
+        level_20_steps[#level_20_steps + 1] = cloned
+        if key == "activate_level_20_talent_node" then
+            level_20_steps[#level_20_steps + 1] = maintenance_locator_step(
+                "select_level_20_second_talent_node",
+                "20级天赋：选择第二个天赋节点",
+                {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                },
+                1239.566772,
+                696.981323,
+                0.861408,
+                0.774424,
+                80,
+                1200
+            )
+            level_20_steps[#level_20_steps + 1] = maintenance_locator_step(
+                "activate_level_20_second_talent_node",
+                "20级天赋：激活第二个天赋节点",
+                {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+                },
+                1069.369263,
+                683.801453,
+                0.743134,
+                0.759779,
+                80,
+                650
+            )
+        end
+    end
+
+    level_20_plan.key = "level_20_talent_extra_then_node_activate"
+    level_20_plan.label = "20级天赋：额外点击后激活天赋节点"
+    level_20_plan.steps = level_20_steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[20] = level_20_plan
+
+    local level_21_open_menu_step = clone_step_with_key(
+        open_menu_step,
+        "level_21_open_fast_entrance_menu",
+        "21级天赋：打开菜单"
+    )
+    level_21_open_menu_step.missing_target_means_step_done = true
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[21] = {
+        key = "level_21_talent_category_and_node_activate",
+        label = "21级天赋：激活天赋大类并点天赋节点",
+        require_available_points = "defer",
+        close_with_escape = false,
+        steps = {
+            level_21_open_menu_step,
+            clone_step_with_key(open_talent_step, "level_21_open_talent_panel", "21级天赋：打开天赋面板"),
+            clone_step_with_key(check_points_step, "level_21_check_talent_points", "21级天赋：检查天赋点"),
+            maintenance_locator_step(
+                "select_level_21_talent_category",
+                "21级天赋：选择天赋大类",
+                {
+                    "UIButton Transient.GameEngine.CoreGameInstance.UICareerPointItem_C.WidgetTree.SelectBtn"
+                },
+                1055.438477,
+                480.168762,
+                0.733453,
+                0.533521,
+                80,
+                900
+            ),
+            maintenance_locator_step(
+                "activate_level_21_talent_category",
+                "21级天赋：激活天赋大类",
+                {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TipCareerItem_C.WidgetTree.ActiveBtn"
+                },
+                1256.157104,
+                484.037933,
+                0.872938,
+                0.537820,
+                80,
+                900
+            ),
+            maintenance_locator_step(
+                "select_level_21_talent_node",
+                "21级天赋：选择天赋节点",
+                {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                },
+                303.986755,
+                419.208282,
+                0.211249,
+                0.465787,
+                80,
+                1200
+            ),
+            maintenance_locator_step(
+                "activate_level_21_talent_node",
+                "21级天赋：激活天赋节点",
+                {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+                },
+                514.438232,
+                683.801453,
+                0.357497,
+                0.759779,
+                80,
+                650
+            ),
+            clone_step_with_key(back_step, "level_21_back_from_talent_panel", "21级天赋：返回")
+        }
+    }
+
+    local function make_level_22_plus_talent_plan(level, node_x, node_y, node_ratio_x, node_ratio_y, activate_x, activate_y, activate_ratio_x, activate_ratio_y)
+        local level_open_menu_step = clone_step_with_key(
+            open_menu_step,
+            "level_" .. tostring(level) .. "_open_fast_entrance_menu",
+            tostring(level) .. "级天赋：打开菜单"
+        )
+        level_open_menu_step.missing_target_means_step_done = true
+
+        return {
+            key = "level_" .. tostring(level) .. "_talent_node_activate",
+            label = tostring(level) .. "级天赋：激活天赋节点",
+            require_available_points = "defer",
+            close_with_escape = false,
+            steps = {
+                level_open_menu_step,
+                clone_step_with_key(open_talent_step, "level_" .. tostring(level) .. "_open_talent_panel", tostring(level) .. "级天赋：打开天赋面板"),
+                clone_step_with_key(check_points_step, "level_" .. tostring(level) .. "_check_talent_points", tostring(level) .. "级天赋：检查天赋点"),
+                maintenance_locator_step(
+                    "select_level_" .. tostring(level) .. "_talent_node",
+                    tostring(level) .. "级天赋：选择天赋节点",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    node_x,
+                    node_y,
+                    node_ratio_x,
+                    node_ratio_y,
+                    80,
+                    1200
+                ),
+                maintenance_locator_step(
+                    "activate_level_" .. tostring(level) .. "_talent_node",
+                    tostring(level) .. "级天赋：激活天赋节点",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+                    },
+                    activate_x,
+                    activate_y,
+                    activate_ratio_x,
+                    activate_ratio_y,
+                    80,
+                    650
+                ),
+                clone_step_with_key(back_step, "level_" .. tostring(level) .. "_back_from_talent_panel", tostring(level) .. "级天赋：返回")
+            }
+        }
+    end
+
+    for _, level in ipairs({ 22, 23 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_22_plus_talent_plan(
+            level,
+            303.986755,
+            419.208282,
+            0.211249,
+            0.465787,
+            514.438232,
+            683.801453,
+            0.357497,
+            0.759779
+        )
+    end
+
+    for _, level in ipairs({ 24, 25, 26 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_22_plus_talent_plan(
+            level,
+            459.916748,
+            419.208282,
+            0.319609,
+            0.465787,
+            670.368225,
+            683.801453,
+            0.465857,
+            0.759779
+        )
+    end
 end
 
 do
@@ -1153,6 +1449,15 @@ do
             step.label = "14级技能升级找图按钮"
             step.missing_image_means_done = true
             step.cleanup_back_before_finish = true
+            step.repeat_image_until_missing = true
+            step.repeat_image_until_missing_max_count = 30
+            step.repeat_image_until_missing_interval_ms = 180
+            if type(step.image_preset) == "table" then
+                step.image_preset.click_repeat_count = 1
+                step.image_preset.repeat_until_missing = true
+                step.image_preset.repeat_until_missing_max_count = 30
+                step.image_preset.repeat_until_missing_interval_ms = 180
+            end
         end
     end
 
@@ -1280,6 +1585,171 @@ do
 
     level_14_skill_plan.steps = level_14_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[14] = level_14_skill_plan
+
+    local level_21_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
+    level_21_skill_plan.key = "level_21_skill_upgrade_sequence"
+    level_21_skill_plan.label = "21级技能：找图升级并配置钝化"
+    level_21_skill_plan.close_with_escape = false
+
+    local level_21_steps = type(level_21_skill_plan.steps) == "table" and level_21_skill_plan.steps or {}
+    if #level_21_steps > 0 and tostring(level_21_steps[#level_21_steps].key or "") == "back_from_skill_panel" then
+        table.remove(level_21_steps, #level_21_steps)
+    end
+    for _, step in ipairs(level_21_steps) do
+        if tostring(step.key or "") == "open_skill_add_panel" then
+            step.key = "level_21_open_skill_add_panel"
+            step.label = "21级技能加点入口按钮"
+            step.missing_target_means_plan_done = true
+        elseif tostring(step.key or "") == "click_skill_upgrade_image" then
+            step.key = "level_21_click_skill_upgrade_image"
+            step.label = "21级技能升级找图按钮"
+            step.missing_image_means_done = true
+            step.cleanup_back_before_finish = true
+            step.repeat_image_until_missing = true
+            step.repeat_image_until_missing_max_count = 30
+            step.repeat_image_until_missing_interval_ms = 180
+            if type(step.image_preset) == "table" then
+                step.image_preset.click_repeat_count = 1
+                step.image_preset.repeat_until_missing = true
+                step.image_preset.repeat_until_missing_max_count = 30
+                step.image_preset.repeat_until_missing_interval_ms = 180
+            end
+        end
+    end
+
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_open_fast_entrance_menu_after_skill_image",
+        label = "技能天赋菜单按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+        },
+        hint_client_x = 1383.688110,
+        hint_client_y = 52.706509,
+        hint_ratio_x = 0.961562,
+        hint_ratio_y = 0.058563,
+        hint_max_distance = 100,
+        wait_after_ms = 800
+    }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_open_skill_panel_after_skill_image",
+        label = "技能按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 1249.024658,
+        hint_client_y = 155.104156,
+        hint_ratio_x = 0.867981,
+        hint_ratio_y = 0.172338,
+        hint_max_distance = 90,
+        wait_after_ms = 1000
+    }
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_fixed_click_587_538_a",
+        "21级技能固定点击1",
+        587.00,
+        538.00,
+        0.407922,
+        0.597778,
+        350
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_fixed_click_587_538_b",
+        "21级技能固定点击2",
+        587.00,
+        538.00,
+        0.407922,
+        0.597778,
+        350
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_search_focus",
+        "21级技能搜索输入框",
+        355.00,
+        651.00,
+        0.246699,
+        0.723333,
+        250
+    )
+    level_21_steps[#level_21_steps + 1] = {
+        kind = "type_text",
+        key = "level_21_skill_search_blunt_text",
+        label = "输入钝化",
+        text = "钝化",
+        input_method = "clipboard",
+        clear_before = true,
+        key_delay_ms = 30,
+        wait_after_ms = 500
+    }
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_search_confirm",
+        "21级技能搜索确认",
+        597.00,
+        657.00,
+        0.414871,
+        0.730000,
+        700
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_select_blunt_result",
+        "21级技能选择钝化结果",
+        352.00,
+        332.00,
+        0.244614,
+        0.368889,
+        700
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_fixed_click_812_350",
+        "21级技能固定点击3",
+        812.00,
+        350.00,
+        0.564281,
+        0.388889,
+        350
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_fixed_click_716_324",
+        "21级技能固定点击4",
+        716.00,
+        324.00,
+        0.497568,
+        0.360000,
+        350
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_fixed_click_536_337",
+        "21级技能固定点击5",
+        536.00,
+        337.00,
+        0.372481,
+        0.374444,
+        500
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_confirm_blunt_slot",
+        "21级技能确认钝化配置",
+        1156.00,
+        250.00,
+        0.803336,
+        0.277778,
+        700
+    )
+    level_21_steps[#level_21_steps + 1] = {
+        key = "back_from_skill_panel_after_blunt_setup",
+        label = "技能返回按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+        },
+        hint_client_x = 1384.784546,
+        hint_client_y = 52.000000,
+        hint_ratio_x = 0.961656,
+        hint_ratio_y = 0.057778,
+        hint_max_distance = 90,
+        wait_after_ms = 500
+    }
+
+    level_21_skill_plan.steps = level_21_steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[21] = level_21_skill_plan
 end
 
 do
@@ -1365,6 +1835,40 @@ do
             fixed_click_step("level_18_contract_second_click_1322_812", "18级契灵固定点击7", 1322.00, 812.00, 0.918694, 0.902222, 700),
             contract_back_step("level_18_contract_back_second_1"),
             contract_back_step("level_18_contract_back_second_2")
+        }
+    }
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[20] = {
+        key = "level_20_contract_second_setup",
+        label = "20级契灵：第二套契约点击配置",
+        require_available_points = false,
+        monster_guard_distance = 160,
+        safe_no_monster_ms = 600,
+        close_with_escape = false,
+        steps = {
+            open_menu_step("level_20_contract_open_menu"),
+            open_contract_panel_step("level_20_contract_open_panel"),
+            fixed_click_step("level_20_contract_second_click_329_256", "20级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
+            fixed_click_step("level_20_contract_second_click_1322_812", "20级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
+            contract_back_step("level_20_contract_back_1"),
+            contract_back_step("level_20_contract_back_2")
+        }
+    }
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[24] = {
+        key = "level_24_contract_second_setup",
+        label = "24级契灵：第二套契约点击配置",
+        require_available_points = false,
+        monster_guard_distance = 160,
+        safe_no_monster_ms = 600,
+        close_with_escape = false,
+        steps = {
+            open_menu_step("level_24_contract_open_menu"),
+            open_contract_panel_step("level_24_contract_open_panel"),
+            fixed_click_step("level_24_contract_second_click_329_256", "24级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
+            fixed_click_step("level_24_contract_second_click_1322_812", "24级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
+            contract_back_step("level_24_contract_back_1"),
+            contract_back_step("level_24_contract_back_2")
         }
     }
 end
@@ -2185,10 +2689,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
                 step = {
                     key = "treasure_milu_creek_restart_portal_btn",
                     label = "\u{6C42}\u{751F}\u{4E4B}\u{6B32}\u{6309}\u{94AE}",
-                    distance_anchor_exact_text = "\u{6C42}\u{751F}\u{4E4B}\u{6B32}",
                     distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.MapTrapBtn",
-                    distance_min = 243.257477,
-                    distance_max = 248.257477,
                     include_patterns = {
                         "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.MapTrapBtn"
                     },
@@ -4167,6 +4668,46 @@ end
 
 M.TASK_NAME_CONFIGS = {
     ["与日争辉"] = make_sun_faction_join_dialogue_flow_task(),
+    ["尽快找到丽芙"] = {
+        objective = {
+            key = "old_dusk_find_liv_dialogue_endpoint",
+            followup_route_action_key = "old_dusk_liv_dialogue_5980_5640",
+            trigger_distance = 420,
+            ignore_terminal_text_change_when_objective_same = true
+        },
+        task_patterns = {
+            "旧日的黄昏"
+        },
+        task_detail_patterns = {
+            "尽快找到丽芙"
+        },
+        constraint_mode = "all"
+    },
+    ["与丽芙交谈"] = {
+        objective = {
+            key = "old_dusk_find_liv_dialogue_endpoint",
+            followup_route_action_key = "old_dusk_liv_dialogue_5980_5640",
+            trigger_distance = 420,
+            ignore_terminal_text_change_when_objective_same = true
+        },
+        task_patterns = {
+            "旧日的黄昏"
+        },
+        task_detail_patterns = {
+            "与丽芙交谈"
+        },
+        constraint_mode = "all"
+    },
+    ["追击觉醒者莱安"] = {
+        boss_objective_point_key = "old_dusk_lai_an_boss_room_15980_22110",
+        task_patterns = {
+            "旧日的黄昏"
+        },
+        task_detail_patterns = {
+            "追击觉醒者莱安"
+        },
+        constraint_mode = "all"
+    },
     ["\u{524D}\u{5F80}\u{96C4}\u{72EE}\u{4E4B}\u{5FC3}\u{FF0C}\u{53C2}\u{4E0E}\u{665A}\u{661F}\u{7684}\u{53CD}\u{653B}"] = {
         task_patterns = {
             "\u{7FA4}\u{661F}\u{4E4B}\u{8F89}"
@@ -7999,6 +8540,72 @@ M.ROUTE_POINT_ACTIONS = {
             hint_max_distance = 180.000
         }
     }),
+    make_npc_dialogue_route_action({
+        key = "old_dusk_liv_dialogue_5980_5640",
+        label = "旧日的黄昏_与丽芙交谈_NPC对话",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "旧日的黄昏"
+        },
+        task_detail_patterns = {
+            "尽快找到丽芙",
+            "与丽芙交谈"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 5980.00,
+            y = 5640.00,
+            z = 1010.00,
+            radius = 1200,
+            z_tolerance = 320
+        },
+        retry_ms = 6000,
+        dialogue = {
+            x = 5980.00,
+            y = 5640.00,
+            z = 1010.00,
+            radius = 320,
+            interact_radius = 160,
+            move_interval_ms = 180,
+            z_tolerance = 320,
+            center_settle_ms = 700,
+            interact_retry_ms = 1800,
+            timeout_ms = 22000,
+            npc_search_radius = 760,
+            fallback_interact = true
+        }
+    }),
+    make_route_point_action({
+        key = "old_dusk_chase_lai_an_route_9782_5765",
+        label = "旧日的黄昏_追击觉醒者莱安_局部路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "旧日的黄昏"
+        },
+        task_detail_patterns = {
+            "追击觉醒者莱安"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 9782.00,
+            y = 5765.00,
+            z = 1010.00,
+            radius = 1700,
+            z_tolerance = 320
+        },
+        retry_ms = 600000,
+        timeout_ms = 14000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 320,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1000,
+        waypoints = {
+            { x = 11099.00, y = 4909.00, z = 1010.00 }
+        }
+    }),
     make_route_point_action({
         key = "rust_depth_defeat_evil_dragon_move_to_portal_-2348_-4741",
         label = "锈蚀深渊_击败邪龙_先移动到传送门",
@@ -9458,7 +10065,8 @@ M.OBJECTIVE_POINT_CONFIGS = {
         radius = 1600,
         trigger_distance = 520,
         immediate_kite_on_reached = true,
-        kite_radius = 2200,
+        kite_radius = 1260,
+        kite_point_count = 3,
         kite_switch_ms = 2200,
         seamless_kite = true,
         kite_arrive_distance = 520,
@@ -9468,11 +10076,7 @@ M.OBJECTIVE_POINT_CONFIGS = {
         generic_followup_refresh_ms = 3500,
         generic_followup_requires_task_pos_only = true,
         generic_followup_require_no_special = true,
-        kite_points = {
-            { x = 15496.30, y = 22673.15, z = 1010.00 },
-            { x = 16293.65, y = 22514.17, z = 1010.00 },
-            { x = 15827.85, y = 21597.74, z = 1010.00 }
-        },
+        ignore_terminal_text_change_when_objective_same = true,
         task_patterns = {
             "\u{65E7}\u{65E5}\u{7684}\u{9EC4}\u{660F}"
         },
@@ -9484,12 +10088,12 @@ M.OBJECTIVE_POINT_CONFIGS = {
             "\u{5BF9}\u{8BDD}"
         },
         revive_reentry = make_revive_reentry_config({
-            key = "old_dusk_lai_an_boss_room_reentry_14867_23340",
+            key = "old_dusk_lai_an_boss_room_reentry_14877_23327",
             label = "\u{65E7}\u{65E5}\u{7684}\u{9EC4}\u{660F} Boss\u{91CD}\u{8FDB}\u{623F}",
             anchor = {
-                x = 14867.00,
-                y = 23340.00,
-                z = 1011.00,
+                x = 14877.00,
+                y = 23327.00,
+                z = 1010.00,
                 radius = 620
             },
             interact_distance = 280,

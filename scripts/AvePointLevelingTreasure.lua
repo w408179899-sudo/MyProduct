@@ -912,16 +912,8 @@ local function current_cfg(main_state, configs)
     return cfg_by_key(configs, runtime.active_key)
 end
 
-local function should_activate(cfg, main_state, hooks, player_x, player_y, player_z, current_level)
+local function activation_context_matches(cfg, hooks, player_x, player_y, player_z)
     if type(cfg) ~= "table" or cfg.enabled == false then
-        return false
-    end
-    local record = ensure_record(main_state, cfg)
-    if record.completed == true then
-        return false
-    end
-    local target_level = configured_target_level(cfg)
-    if target_level ~= nil and type(current_level) == "number" and current_level >= target_level then
         return false
     end
     local task_name = trim(type(hooks.current_task_name) == "function" and hooks.current_task_name() or "")
@@ -941,6 +933,61 @@ local function should_activate(cfg, main_state, hooks, player_x, player_y, playe
         or cfg.map_patterns == nil
         or match_text_patterns(cfg.map_patterns, map_name)
     return task_ok and map_ok and within_trigger(player_x, player_y, player_z, cfg.entry_trigger)
+end
+
+local function should_activate(cfg, main_state, hooks, player_x, player_y, player_z, current_level)
+    if not activation_context_matches(cfg, hooks, player_x, player_y, player_z) then
+        return false
+    end
+    local record = ensure_record(main_state, cfg)
+    if record.completed == true then
+        return false
+    end
+    local target_level = configured_target_level(cfg)
+    if target_level ~= nil and type(current_level) == "number" and current_level >= target_level then
+        return false
+    end
+    return true
+end
+
+local function refresh_completed_activation_record(ctx, main_state, cfg, runtime, hooks, current_time, player_x, player_y, player_z)
+    if not activation_context_matches(cfg, hooks, player_x, player_y, player_z) then
+        return nil
+    end
+
+    local record = ensure_record(main_state, cfg)
+    if record.completed ~= true then
+        return nil
+    end
+
+    local target_level = configured_target_level(cfg)
+    if target_level == nil then
+        return nil
+    end
+
+    local current_level = refresh_player_level(ctx, cfg, runtime, hooks, current_time, runtime.player_level == nil)
+    if type(current_level) ~= "number" then
+        return nil
+    end
+
+    if current_level < target_level then
+        record.completed = false
+        record.route_acquired = type(record.route) == "table" and #record.route > 0 or record.route_acquired == true
+        local save_ok, save_err = save_record(ctx, main_state, cfg)
+        runtime.last_save_err = save_ok and nil or save_err
+        if type(hooks.log_info) == "function" then
+            hooks.log_info(ctx, string.format(
+                "[Treasure] stale completed record cleared below target level | key=%s level=%d target_level=%d save_ok=%s err=%s",
+                tostring(cfg.key or ""),
+                current_level,
+                target_level,
+                save_ok and "true" or "false",
+                tostring(save_err or "")
+            ))
+        end
+    end
+
+    return current_level
 end
 
 local function choose_panel_queries(cfg)
@@ -2693,7 +2740,18 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
 
     if type(cfg) ~= "table" then
         for _, candidate in ipairs(type(configs) == "table" and configs or {}) do
-            if should_activate(candidate, main_state, hooks, player_x, player_y, player_z, nil) then
+            local candidate_level = refresh_completed_activation_record(
+                ctx,
+                main_state,
+                candidate,
+                runtime,
+                hooks,
+                current_time,
+                player_x,
+                player_y,
+                player_z
+            )
+            if should_activate(candidate, main_state, hooks, player_x, player_y, player_z, candidate_level) then
                 activate_cfg(ctx, main_state, candidate, hooks, player_x, player_y, player_z)
                 cfg = candidate
                 break
@@ -3617,8 +3675,27 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         set_treasure_stage(main_state, "treasure_wait_restart")
         local landing = cfg.restart_landing
         local has_landing = is_valid_point(landing) and (tonumber(landing.x) ~= 0 or tonumber(landing.y) ~= 0)
+        local deadline_expired = has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0)
+        local inside_after_restart = false
+        local inside_after_restart_reason = ""
+        if deadline_expired then
+            local boss_cfg = type(cfg.boss) == "table" and cfg.boss or nil
+            local boss_anchor = resolve_boss_anchor(cfg, runtime)
+            if type(boss_cfg) == "table" and boss_anchor and within_trigger(player_x, player_y, player_z, boss_anchor) then
+                inside_after_restart = true
+                inside_after_restart_reason = "boss_anchor"
+            else
+                local route_gap = nearest_route_distance(runtime.route, player_x, player_y)
+                local route_recover_distance = math.max(1800, tonumber(cfg.resume_route_distance) or 2600)
+                if route_gap <= route_recover_distance then
+                    inside_after_restart = true
+                    inside_after_restart_reason = "route"
+                end
+            end
+        end
         local ready = landing_ready(player_x, player_y, player_z, landing)
             or (not has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0))
+            or inside_after_restart
         local target_level_reached = target_level ~= nil
             and type(current_level) == "number"
             and current_level >= target_level
@@ -3657,7 +3734,8 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             return true
         end
         if ready then
-            transition_mode(ctx, hooks, cfg, runtime, "grinding", "restart_landing_ready")
+            transition_mode(ctx, hooks, cfg, runtime, "grinding",
+                inside_after_restart and ("restart_inside_ready:" .. inside_after_restart_reason) or "restart_landing_ready")
             runtime.next_retry_at = current_time
             runtime.route_cursor = nil
             runtime.route_nearest_index = nil
@@ -3669,11 +3747,33 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             log_refresh_block_clear(ctx, hooks, cfg, runtime, "wait_restart_ready", clear_mainline_refresh_block(main_state))
             if type(hooks.log_info) == "function" then
                 hooks.log_info(ctx, string.format(
-                    "[Treasure] restart landing ready | key=%s pos=%.2f, %.2f, %.2f",
+                    "[Treasure] restart landing ready | key=%s pos=%.2f, %.2f, %.2f reason=%s",
                     tostring(cfg.key or ""),
                     tonumber(player_x) or 0,
                     tonumber(player_y) or 0,
-                    tonumber(player_z) or 0
+                    tonumber(player_z) or 0,
+                    inside_after_restart_reason ~= "" and inside_after_restart_reason or "landing"
+                ))
+            end
+        elseif deadline_expired then
+            local expired_deadline = tonumber(runtime.stage_deadline_at) or 0
+            runtime.pending_return_mainline = false
+            runtime.portal_kind = "restart"
+            runtime.next_retry_at = current_time
+            runtime.stage_deadline_at = 0
+            transition_mode(ctx, hooks, cfg, runtime, "post_boss_portal", "restart_landing_timeout_retry")
+            if type(hooks.clear_task_target_state) == "function" then
+                hooks.clear_task_target_state()
+            end
+            log_refresh_block_clear(ctx, hooks, cfg, runtime, "restart_landing_timeout_retry", clear_mainline_refresh_block(main_state))
+            if type(hooks.log_info) == "function" then
+                hooks.log_info(ctx, string.format(
+                    "[Treasure] restart landing timeout, retry restart portal | key=%s pos=%.2f, %.2f, %.2f deadline=%d",
+                    tostring(cfg.key or ""),
+                    tonumber(player_x) or 0,
+                    tonumber(player_y) or 0,
+                    tonumber(player_z) or 0,
+                    expired_deadline
                 ))
             end
         elseif type(hooks.log_throttled) == "function" then
