@@ -5363,35 +5363,6 @@ M.TASK_NAME_CONFIGS = {
         }
     ),
     ["\u{53D6}\u{56DE}\u{6765}\u{4E4B}\u{4E0D}\u{6613}\u{7684}\u{706B}\u{79CD}"] = {
-        objective = {
-            key = "shadowland_fire_seed_gather",
-            mode = "task_objective_button",
-            trigger_distance = 320,
-            skip_direct_interact = true,
-            force_task_call_after_transition = true,
-            task_pos_reject_extra_ms = 2500,
-            ignore_terminal_text_change_when_objective_same = true,
-            button_steps = {
-                {
-                    key = "shadowland_fire_seed_greatsword_gather",
-                    label = "\u{7CBE}\u{94C1}\u{5DE8}\u{5251}\u{6309}\u{94AE}",
-                    distance_anchor_exact_text = "\u{7CBE}\u{94C1}\u{5DE8}\u{5251}",
-                    distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn",
-                    distance_min = 175.652132,
-                    distance_max = 180.652132,
-                    include_patterns = {
-                        "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn"
-                    },
-                    hint_client_x = 694.204834,
-                    hint_client_y = 720.439941,
-                    hint_ratio_x = 0.482087,
-                    hint_ratio_y = 0.800489,
-                    hint_max_distance = 80.000,
-                    prefer_hint_fallback = true,
-                    settle_ms = 1200
-                }
-            }
-        },
         task_patterns = {
             "\u{71C3}\u{70E7}\u{7684}\u{957F}\u{591C}"
         },
@@ -5575,26 +5546,36 @@ M.TASK_NAME_CONFIGS = {
             }
         }
     ),
-    ["\u{4E0E}\u{83AB}\u{7433}\u{5A1C}\u{4EA4}\u{8C08}"] = make_post_dialogue_flow_task_config(
-        "long_night_end_task_detail_after_molina",
+    ["\u{4E0E}\u{83AB}\u{7433}\u{5A1C}\u{4EA4}\u{8C08}"] = make_dialogue_locator_flow_task_config(
+        "long_night_end_task_detail_before_molina_jump",
         {
-            make_fixed_client_click_step({
+            {
                 key = "long_night_end_task_detail_btn",
-                label = "[\u{4EFB}\u{52A1}] \u{5723}\u{8BEC}\u{4E4B}\u{672B}\u{6309}\u{94AE}",
-                fixed_client_x = 723.000000,
-                fixed_client_y = 258.000000,
-                fixed_ratio_x = 0.502083,
-                fixed_ratio_y = 0.286667,
-                settle_ms = 1200,
-                force_task_call_after_transition = false,
-                task_pos_reject_extra_ms = 2500
-            })
+                label = "[\u{4EFB}\u{52A1}] \u{957F}\u{591C}\u{7EC8}\u{5C3D}\u{6309}\u{94AE}",
+                distance_anchor_exact_text = "[\u{4EFB}\u{52A1}] \u{957F}\u{591C}\u{7EC8}\u{5C3D}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button",
+                distance_min = 61.015769,
+                distance_max = 64.789940,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button"
+                },
+                hint_client_x = 615.611877,
+                hint_client_y = 268.200287,
+                hint_ratio_x = 0.427805,
+                hint_ratio_y = 0.298000,
+                hint_max_distance = 80.000,
+                retry_ms = 600,
+                settle_ms = 1200
+            }
         },
         {
-            initial_delay_ms = 500,
-            timeout_ms = 8000,
-            arm_after_objective_button = true,
-            skip_dialogue_jump = true
+            key = "long_night_end_task_detail_before_molina_jump",
+            timeout_ms = 9000,
+            origins = {
+                "npc",
+                "interaction_prompt"
+            },
+            settle_ms = 1200
         },
         {
             task_patterns = {
@@ -6645,6 +6626,140 @@ M.ROUTE_POINT_ACTIONS = {
     make_daylight_rivalry_talk_to_ariya_route_action(),
     make_evil_sun_chase_queen_detour_route_action(),
     make_shadow_sun_chase_queen_detour_route_action(),
+    make_route_point_action({
+        key = "shadowland_fire_seed_route_8894_8983",
+        label = "燃烧的长夜_火种拾取_固定点路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "shadowland_fire_seed_pickup_a_8894_8983",
+        task_patterns = {
+            "燃烧的长夜"
+        },
+        task_detail_patterns = {
+            "取回来之不易的火种",
+            "寒光巨斧"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 8894.00,
+            y = 8983.00,
+            z = 1231.00,
+            radius = 1600,
+            z_tolerance = 420
+        },
+        retry_ms = 600000,
+        timeout_ms = 18000,
+        waypoint_reach_radius = 180,
+        waypoint_z_tolerance = 420,
+        move_interval_ms = 220,
+        waypoints = {
+            { x = 8894.00, y = 8983.00, z = 1231.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "shadowland_fire_seed_pickup_a_8894_8983",
+        label = "燃烧的长夜_火种拾取_A键两次",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        task_patterns = {
+            "燃烧的长夜"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 8894.00,
+            y = 8983.00,
+            z = 1231.00,
+            radius = 620,
+            z_tolerance = 420
+        },
+        interact_radius = 240,
+        pre_action_combat_guard = false,
+        probe_retry_ms = 700,
+        retry_ms = 2500,
+        settle_ms = 1600,
+        timeout_ms = 14000,
+        hotkey = "A",
+        hotkey_repeat_count = 2,
+        hotkey_interval_ms = 180,
+        hotkey_label = "fire seed pickup",
+        followup_route_action_key = "shadowland_fire_seed_route_10068_9823"
+    }),
+    make_route_point_action({
+        key = "shadowland_fire_seed_route_10068_9823",
+        label = "燃烧的长夜_火种拾取后_移动到Gather点",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "shadowland_fire_seed_gather_10068_9823",
+        task_patterns = {
+            "燃烧的长夜"
+        },
+        task_detail_patterns = {
+            "取回来之不易的火种",
+            "寒光巨斧"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 8894.00,
+            y = 8983.00,
+            z = 1231.00,
+            radius = 760,
+            z_tolerance = 420
+        },
+        retry_ms = 600000,
+        timeout_ms = 18000,
+        waypoint_reach_radius = 180,
+        waypoint_z_tolerance = 420,
+        move_interval_ms = 220,
+        waypoints = {
+            { x = 10068.00, y = 9823.00, z = 1231.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "shadowland_fire_seed_gather_10068_9823",
+        label = "燃烧的长夜_火种拾取后_Gather",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        task_patterns = {
+            "燃烧的长夜"
+        },
+        task_detail_patterns = {
+            "取回来之不易的火种",
+            "寒光巨斧"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 10068.00,
+            y = 9823.00,
+            z = 1231.00,
+            radius = 520,
+            z_tolerance = 420
+        },
+        interact_radius = 260,
+        pre_action_combat_guard = false,
+        probe_retry_ms = 700,
+        retry_ms = 3500,
+        settle_ms = 1600,
+        timeout_ms = 14000,
+        step = {
+            key = "shadowland_fire_seed_gather_button_10068_9823",
+            label = "火种后续Gather按钮",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn"
+            },
+            hint_client_x = 691.053040,
+            hint_client_y = 701.797729,
+            hint_ratio_x = 0.480231,
+            hint_ratio_y = 0.779775,
+            hint_max_distance = 80.000,
+            prefer_hint_fallback = true,
+            settle_ms = 1200
+        }
+    }),
     make_route_point_action({
         key = "audience_road_sun_throne_detour_-4054_8509",
         label = "谒见之路_前往太阳王座_补充录制路线",

@@ -5502,7 +5502,8 @@ end
 function M.arm_route_point_action_objective(ctx, action, state_key, current_time, source)
     local trigger = type(action) == "table" and action.trigger or nil
     local step = type(action) == "table" and action.step or nil
-    if type(trigger) ~= "table" or type(step) ~= "table" then
+    local hotkey_vk = type(M.route_point_action_hotkey_vk) == "function" and M.route_point_action_hotkey_vk(action) or nil
+    if type(trigger) ~= "table" or (type(step) ~= "table" and hotkey_vk == nil) then
         return false
     end
 
@@ -5522,7 +5523,7 @@ function M.arm_route_point_action_objective(ctx, action, state_key, current_time
         tonumber(trigger.y) or 0,
         tonumber(trigger.z) or 0,
         math.max(80, tonumber(trigger.radius) or 220),
-        math.max(40, tonumber(action.interact_radius) or tonumber(step.hint_max_distance) or 120),
+        math.max(40, tonumber(action.interact_radius) or tonumber(step and step.hint_max_distance) or 120),
         math.max(6000, tonumber(action.timeout_ms) or 18000)
     ))
 
@@ -6689,6 +6690,24 @@ function M.maybe_handle_route_point_action_route(ctx, current_time, player_x, pl
     return true
 end
 
+function M.route_point_action_hotkey_vk(action)
+    if type(action) ~= "table" then
+        return nil
+    end
+    local vk = tonumber(action.hotkey_vk or action.key_vk or action.vk)
+    if vk ~= nil then
+        return vk
+    end
+    local key_name = string.upper(trim(action.hotkey or action.hotkey_key or action.press_key or ""))
+    if key_name == "A" then
+        return M.VK_A
+    end
+    if key_name == "D" then
+        return VK_D
+    end
+    return nil
+end
+
 function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x, player_y, player_z)
     local active_key = tostring(state.route_point_action_objective_active_key or "")
     if active_key == "" then
@@ -6716,7 +6735,8 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
 
     local trigger = type(action.trigger) == "table" and action.trigger or nil
     local step = type(action.step) == "table" and action.step or nil
-    if type(trigger) ~= "table" or type(step) ~= "table" then
+    local hotkey_vk = M.route_point_action_hotkey_vk(action)
+    if type(trigger) ~= "table" or (type(step) ~= "table" and hotkey_vk == nil) then
         M.clear_route_point_action_objective_state()
         return false
     end
@@ -6774,7 +6794,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
         40,
         tonumber(objective_point and objective_point.radius)
             or tonumber(action.interact_radius)
-            or tonumber(step.hint_max_distance)
+            or tonumber(step and step.hint_max_distance)
             or 120
     )
     local fallback_distance = math.max(interact_radius, tonumber(action.fallback_interact_distance) or interact_radius)
@@ -6897,6 +6917,112 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
             skip_after_timeout_ms = tonumber(action.pre_action_combat_guard_skip_ms) or tonumber(action.combat_guard_skip_ms)
         })
     then
+        return true
+    end
+
+    if hotkey_vk ~= nil then
+        local state_key = tostring(state.route_point_action_objective_active_state_key or active_key)
+        local repeat_count = math.max(1, tonumber(action.hotkey_repeat_count or action.repeat_count) or 1)
+        local interval_ms = math.max(0, tonumber(action.hotkey_interval_ms or action.repeat_interval_ms) or 120)
+        local label = tostring(action.hotkey_label or action.label or active_key)
+        local last_err = nil
+        for index = 1, repeat_count do
+            local press_time = now_ms(ctx)
+            local ok, err = press_keyboard_hotkey(ctx, press_time, hotkey_vk, label)
+            if not ok then
+                last_err = err
+                break
+            end
+            if index < repeat_count and interval_ms > 0 then
+                sleep_ms(ctx, interval_ms)
+            end
+        end
+        local after_hotkey_time = now_ms(ctx)
+        if last_err == nil then
+            state.map_transition_triggered[state_key] = after_hotkey_time
+            M.mark_recipe_action_completed(ctx, after_hotkey_time, action, "objective_hotkey")
+            M.clear_route_point_action_objective_state()
+            local followup_route_action_key = trim(action.followup_route_action_key or action.next_route_point_action_key or "")
+            local armed_followup_action = false
+            if followup_route_action_key ~= "" then
+                local followup_action, followup_err = M.activate_route_point_action(
+                    ctx,
+                    after_hotkey_time,
+                    followup_route_action_key,
+                    "route_point_objective_hotkey_followup"
+                )
+                if type(followup_action) == "table" then
+                    armed_followup_action = true
+                    logger(ctx).info(string.format(
+                        "[Leveling] route point action objective hotkey follow-up armed | task=%s key=%s next_key=%s mode=%s",
+                        tostring(M.current_task_log_name() or state.current_task_name or ""),
+                        tostring(action.key or ""),
+                        tostring(followup_route_action_key),
+                        tostring(followup_action.mode or "")
+                    ))
+                else
+                    log_throttled(
+                        ctx,
+                        "route_point_action_objective_hotkey_followup_failed_" .. tostring(action.key or ""),
+                        "warn",
+                        LOG_THROTTLE_MS,
+                        string.format(
+                            "[Leveling] route point action objective hotkey follow-up arm failed | task=%s key=%s next_key=%s err=%s",
+                            tostring(M.current_task_log_name() or state.current_task_name or ""),
+                            tostring(action.key or ""),
+                            tostring(followup_route_action_key),
+                            tostring(followup_err or "")
+                        )
+                    )
+                end
+            end
+            if not armed_followup_action then
+                local refresh_opts = nil
+                if action.force_task_call_after_transition == true then
+                    refresh_opts = {
+                        force_task_call = true,
+                        task_pos_reject_extra_ms = tonumber(action.task_pos_reject_extra_ms) or nil
+                    }
+                end
+                schedule_task_refresh_after_transition(
+                    ctx,
+                    after_hotkey_time,
+                    "route_point_action_objective_hotkey_" .. tostring(action.key or ""),
+                    tonumber(action.settle_ms) or POST_DIALOGUE_SETTLE_MS,
+                    refresh_opts
+                )
+            end
+            logger(ctx).info(string.format(
+                "[Leveling] route point action objective hotkey pressed | task=%s key=%s label=%s vk=0x%02X repeat=%d distance=%.2f z_gap=%.2f pos=%.2f, %.2f, %.2f next=%s",
+                tostring(M.current_task_log_name() or state.current_task_name or ""),
+                tostring(action.key or ""),
+                label,
+                tonumber(hotkey_vk) or 0,
+                repeat_count,
+                tonumber(objective_distance) or 0,
+                tonumber(z_gap) or 0,
+                tonumber(player_x) or 0,
+                tonumber(player_y) or 0,
+                tonumber(player_z) or 0,
+                armed_followup_action and ("route_point_followup:" .. tostring(followup_route_action_key)) or "main_task_refresh"
+            ))
+            return true
+        end
+
+        state.route_point_action_objective_next_probe_at = current_time + math.max(400, tonumber(action.probe_retry_ms) or 800)
+        log_throttled(
+            ctx,
+            "route_point_action_objective_hotkey_failed_" .. tostring(active_key),
+            "warn",
+            LOG_THROTTLE_MS,
+            string.format(
+                "[Leveling] route point action objective hotkey failed | task=%s key=%s vk=0x%02X err=%s",
+                tostring(M.current_task_log_name() or state.current_task_name or ""),
+                tostring(active_key),
+                tonumber(hotkey_vk) or 0,
+                tostring(last_err or "")
+            )
+        )
         return true
     end
 
