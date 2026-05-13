@@ -3627,7 +3627,13 @@ function M.level_up_maintenance_level_has_plan(cfg, plan_key, level)
         return false
     end
     local int_level = math.floor(tonumber(level) or 0)
-    return plans[int_level] ~= nil or plans[tostring(int_level)] ~= nil
+    if plans[int_level] ~= nil or plans[tostring(int_level)] ~= nil then
+        return true
+    end
+    if plan_key == "skill_by_level" then
+        return M.level_up_maintenance_get_level_plan(cfg, "skill", int_level) ~= nil
+    end
+    return false
 end
 
 function M.level_up_maintenance_pending_summary()
@@ -3669,11 +3675,24 @@ function M.level_up_maintenance_get_level_plan(cfg, kind, level)
     end
     local plan_key = tostring(kind) .. "_by_level"
     local plans = cfg[plan_key]
-    if type(plans) ~= "table" then
-        return nil
-    end
     local int_level = math.floor(tonumber(level) or 0)
-    return plans[int_level] or plans[tostring(int_level)]
+    if type(plans) ~= "table" then
+        plans = {}
+    end
+    local explicit_plan = plans[int_level] or plans[tostring(int_level)]
+    if explicit_plan ~= nil then
+        return explicit_plan
+    end
+    if kind == "skill"
+        and cfg.default_skill_enabled ~= false
+        and int_level >= math.max(1, math.floor(tonumber(cfg.default_skill_min_level) or 1))
+    then
+        local max_level = tonumber(cfg.default_skill_max_level)
+        if max_level == nil or int_level <= math.floor(max_level) then
+            return cfg.default_skill_plan
+        end
+    end
+    return nil
 end
 
 function M.level_up_maintenance_plan_steps(plan)
@@ -3757,6 +3776,7 @@ function M.level_up_maintenance_find_next_plan(cfg)
     cfg = type(cfg) == "table" and cfg or M.level_up_maintenance_config()
     local levels = M.level_up_maintenance_pending_levels_sorted()
     local order = M.level_up_maintenance_plan_order(cfg)
+    local default_skill_candidate = nil
     for _, level in ipairs(levels) do
         for _, raw_kind in ipairs(order) do
             local kind = tostring(raw_kind or "")
@@ -3764,23 +3784,38 @@ function M.level_up_maintenance_find_next_plan(cfg)
                 and not (kind == "talent" and cfg.talent_enabled == false)
             then
                 local plan = M.level_up_maintenance_get_level_plan(cfg, kind, level)
+                local default_skill_min_level = tonumber(state.level_up_maintenance_default_skill_min_pending_level)
+                if kind == "skill"
+                    and default_skill_min_level ~= nil
+                    and level < default_skill_min_level
+                    and cfg.default_skill_catch_up_missing ~= true
+                    and type(plan) == "table"
+                    and plan.default_skill_plan == true
+                then
+                    plan = nil
+                end
                 local steps = M.level_up_maintenance_plan_steps(plan)
                 if type(steps) == "table"
                     and #steps > 0
                     and not M.level_up_maintenance_plan_done(kind, level, plan)
                 then
-                    return {
+                    local info = {
                         kind = kind,
                         level = level,
                         plan = plan,
                         steps = steps,
                         id = M.level_up_maintenance_plan_id(kind, level, plan)
                     }
+                    if kind == "skill" and type(plan) == "table" and plan.default_skill_plan == true then
+                        default_skill_candidate = default_skill_candidate or info
+                    else
+                        return info
+                    end
                 end
             end
         end
     end
-    return nil
+    return default_skill_candidate
 end
 
 function M.level_up_maintenance_has_plan_for_level(cfg, level)
@@ -3805,6 +3840,11 @@ function M.level_up_maintenance_collect_baseline_pending_levels(cfg, observed_le
         or {}
     local order = M.level_up_maintenance_plan_order(cfg)
     local start_level = cfg.catch_up_missing_plans_on_baseline == true and 1 or observed_level
+    if cfg.default_skill_catch_up_missing == true then
+        state.level_up_maintenance_default_skill_min_pending_level = nil
+    else
+        state.level_up_maintenance_default_skill_min_pending_level = observed_level
+    end
     local count = 0
     local has_skill = false
     local has_talent = false
@@ -3818,6 +3858,14 @@ function M.level_up_maintenance_collect_baseline_pending_levels(cfg, observed_le
                 and not (kind == "talent" and cfg.talent_enabled == false)
             then
                 local plan = M.level_up_maintenance_get_level_plan(cfg, kind, level)
+                if kind == "skill"
+                    and level < observed_level
+                    and cfg.default_skill_catch_up_missing ~= true
+                    and type(plan) == "table"
+                    and plan.default_skill_plan == true
+                then
+                    plan = nil
+                end
                 local steps = M.level_up_maintenance_plan_steps(plan)
                 if type(steps) == "table"
                     and #steps > 0
@@ -3841,6 +3889,78 @@ function M.level_up_maintenance_collect_baseline_pending_levels(cfg, observed_le
     end
 
     return pending_levels, has_skill, has_talent, count
+end
+
+function M.level_up_maintenance_seed_next_missing_level_from_config(ctx, current_time, reason)
+    local cfg = M.level_up_maintenance_config()
+    if cfg.seed_next_missing_level_when_level_text_missing ~= true then
+        return false, "disabled"
+    end
+    if state.level_up_maintenance_executor_active == true or M.level_up_maintenance_has_pending() then
+        return false, "already_pending"
+    end
+
+    local seen = {}
+    local levels = {}
+    local function collect_levels(plans)
+        if type(plans) ~= "table" then
+            return
+        end
+        for level_key in pairs(plans) do
+            local level = math.floor(tonumber(level_key) or 0)
+            if level > 0 and seen[level] ~= true then
+                seen[level] = true
+                levels[#levels + 1] = level
+            end
+        end
+    end
+    collect_levels(cfg.skill_by_level)
+    collect_levels(cfg.talent_by_level)
+    table.sort(levels)
+
+    local order = M.level_up_maintenance_plan_order(cfg)
+    for _, level in ipairs(levels) do
+        local has_skill = false
+        local has_talent = false
+        for _, raw_kind in ipairs(order) do
+            local kind = tostring(raw_kind or "")
+            if not (kind == "skill" and cfg.skill_enabled == false)
+                and not (kind == "talent" and cfg.talent_enabled == false)
+            then
+                local plan = M.level_up_maintenance_get_level_plan(cfg, kind, level)
+                local steps = M.level_up_maintenance_plan_steps(plan)
+                if type(steps) == "table"
+                    and #steps > 0
+                    and not M.level_up_maintenance_plan_done(kind, level, plan)
+                then
+                    if kind == "skill" then
+                        has_skill = true
+                    elseif kind == "talent" then
+                        has_talent = true
+                    end
+                end
+            end
+        end
+
+        if has_skill or has_talent then
+            state.level_up_maintenance_pending_levels = { [tostring(level)] = true }
+            state.level_up_maintenance_pending_skill = has_skill
+            state.level_up_maintenance_pending_talent = has_talent
+            state.level_up_maintenance_pending_since = tonumber(current_time) or now_ms(ctx)
+            state.level_up_maintenance_safe_since = 0
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance seeded missing configured level | level=%d reason=%s skill=%s talent=%s %s",
+                level,
+                tostring(reason or ""),
+                has_skill and "true" or "false",
+                has_talent and "true" or "false",
+                M.level_up_maintenance_pending_summary()
+            ))
+            return true, nil
+        end
+    end
+
+    return false, "no_missing_plan"
 end
 
 function M.level_up_maintenance_point_probe(cfg, kind, step)
@@ -3950,6 +4070,55 @@ function M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_executor_point_check_miss_count = nil
 end
 
+function M.try_click_level_up_maintenance_back_button(ctx, reason)
+    local steps = type(state.level_up_maintenance_executor_steps) == "table"
+        and state.level_up_maintenance_executor_steps
+        or {}
+    for cleanup_index = #steps, 1, -1 do
+        local cleanup_step = steps[cleanup_index]
+        local cleanup_key = tostring(type(cleanup_step) == "table" and cleanup_step.key or ""):lower()
+        local cleanup_label = tostring(type(cleanup_step) == "table" and cleanup_step.label or ""):lower()
+        local is_back_step = cleanup_key:find("back", 1, true) ~= nil
+            or cleanup_label:find("返回", 1, true) ~= nil
+        if not is_back_step and type(cleanup_step) == "table" and type(cleanup_step.include_patterns) == "table" then
+            for _, pattern in ipairs(cleanup_step.include_patterns) do
+                if tostring(pattern or ""):lower():find("btnback", 1, true) ~= nil then
+                    is_back_step = true
+                    break
+                end
+            end
+        end
+        if is_back_step then
+            local cleanup_target, cleanup_fetch_err = fetch_locator_button_target(ctx, cleanup_step)
+            if cleanup_target then
+                local clicked, cleanup_click_err = click_locator_button_target(ctx, cleanup_step, cleanup_target)
+                if clicked then
+                    logger(ctx).info(string.format(
+                        "[Leveling] level-up maintenance cleanup button clicked | reason=%s label=%s addr=%s pos=(%s,%s)",
+                        tostring(reason or ""),
+                        tostring(cleanup_step.label or cleanup_step.key or ""),
+                        tostring(type(cleanup_target) == "table" and cleanup_target.addr or ""),
+                        tostring(type(cleanup_target) == "table" and cleanup_target.x or ""),
+                        tostring(type(cleanup_target) == "table" and cleanup_target.y or "")
+                    ))
+                    return true
+                end
+                logger(ctx).warn(
+                    "[Leveling] level-up maintenance cleanup button click failed: "
+                    .. tostring(cleanup_click_err or "")
+                )
+                return false, cleanup_click_err
+            end
+            logger(ctx).warn(
+                "[Leveling] level-up maintenance cleanup button fetch failed: "
+                .. tostring(cleanup_fetch_err or "")
+            )
+            return false, cleanup_fetch_err
+        end
+    end
+    return false, "cleanup back button step not found."
+end
+
 function M.level_up_maintenance_clear_pending_if_done(ctx)
     local cfg = M.level_up_maintenance_config()
     if M.level_up_maintenance_find_next_plan(cfg) ~= nil then
@@ -3965,6 +4134,7 @@ function M.level_up_maintenance_clear_pending_if_done(ctx)
     state.level_up_maintenance_pending_since = 0
     state.level_up_maintenance_safe_since = 0
     state.level_up_maintenance_completed_plans = nil
+    state.level_up_maintenance_default_skill_min_pending_level = nil
     return true
 end
 
@@ -4008,51 +4178,7 @@ function M.fail_level_up_maintenance_executor(ctx, current_time, err)
     ))
     local cleanup_clicked = false
     if (tonumber(state.level_up_maintenance_executor_step_index) or 1) > 1 then
-        local steps = type(state.level_up_maintenance_executor_steps) == "table"
-            and state.level_up_maintenance_executor_steps
-            or {}
-        for cleanup_index = #steps, 1, -1 do
-            local cleanup_step = steps[cleanup_index]
-            local cleanup_key = tostring(type(cleanup_step) == "table" and cleanup_step.key or ""):lower()
-            local cleanup_label = tostring(type(cleanup_step) == "table" and cleanup_step.label or ""):lower()
-            local is_back_step = cleanup_key:find("back", 1, true) ~= nil
-                or cleanup_label:find("返回", 1, true) ~= nil
-            if not is_back_step and type(cleanup_step) == "table" and type(cleanup_step.include_patterns) == "table" then
-                for _, pattern in ipairs(cleanup_step.include_patterns) do
-                    if tostring(pattern or ""):lower():find("btnback", 1, true) ~= nil then
-                        is_back_step = true
-                        break
-                    end
-                end
-            end
-            if is_back_step then
-                local cleanup_target, cleanup_fetch_err = fetch_locator_button_target(ctx, cleanup_step)
-                if cleanup_target then
-                    local clicked, cleanup_click_err = click_locator_button_target(ctx, cleanup_step, cleanup_target)
-                    if clicked then
-                        cleanup_clicked = true
-                        logger(ctx).info(string.format(
-                            "[Leveling] level-up maintenance cleanup button clicked | label=%s addr=%s pos=(%s,%s)",
-                            tostring(cleanup_step.label or cleanup_step.key or ""),
-                            tostring(type(cleanup_target) == "table" and cleanup_target.addr or ""),
-                            tostring(type(cleanup_target) == "table" and cleanup_target.x or ""),
-                            tostring(type(cleanup_target) == "table" and cleanup_target.y or "")
-                        ))
-                    else
-                        logger(ctx).warn(
-                            "[Leveling] level-up maintenance cleanup button click failed: "
-                            .. tostring(cleanup_click_err or "")
-                        )
-                    end
-                else
-                    logger(ctx).warn(
-                        "[Leveling] level-up maintenance cleanup button fetch failed: "
-                        .. tostring(cleanup_fetch_err or "")
-                    )
-                end
-                break
-            end
-        end
+        cleanup_clicked = M.try_click_level_up_maintenance_back_button(ctx, "executor_failed") == true
     end
     if state.level_up_maintenance_executor_close_with_escape == true
         and type(press_keyboard_hotkey) == "function"
@@ -4297,6 +4423,115 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         return true
     end
 
+    local image_preset = type(step) == "table" and type(step.image_preset) == "table" and step.image_preset or nil
+    local repeat_image_until_missing = image_preset ~= nil
+        and (step.repeat_image_until_missing == true or image_preset.repeat_until_missing == true)
+    if repeat_image_until_missing then
+        local max_count = math.max(
+            1,
+            math.floor(
+                tonumber(step.repeat_image_until_missing_max_count)
+                    or tonumber(image_preset.repeat_until_missing_max_count)
+                    or 20
+            )
+        )
+        local interval_ms = math.max(
+            0,
+            tonumber(step.repeat_image_until_missing_interval_ms)
+                or tonumber(image_preset.repeat_until_missing_interval_ms)
+                or 150
+        )
+        local clicked_count = 0
+        local last_target = nil
+        for attempt = 1, max_count do
+            local loop_target, loop_fetch_err = fetch_locator_button_target(ctx, step)
+            if not loop_target then
+                if step.missing_image_means_done == true then
+                    logger(ctx).info(string.format(
+                        "[Leveling] level-up maintenance image loop completed; mark plan done | kind=%s level=%s plan=%s step=%d/%d key=%s clicks=%d err=%s",
+                        tostring(state.level_up_maintenance_executor_kind or ""),
+                        tostring(state.level_up_maintenance_executor_level or ""),
+                        tostring(state.level_up_maintenance_executor_plan_label or ""),
+                        index,
+                        #steps,
+                        tostring(step.key or ""),
+                        clicked_count,
+                        tostring(loop_fetch_err or "")
+                    ))
+                    if step.cleanup_back_before_finish == true then
+                        M.try_click_level_up_maintenance_back_button(ctx, "image_loop_missing_done")
+                    end
+                    return M.finish_level_up_maintenance_executor(ctx, current_time)
+                end
+                if clicked_count > 0 then
+                    logger(ctx).info(string.format(
+                        "[Leveling] level-up maintenance image loop completed; target absent | kind=%s level=%s plan=%s step=%d/%d key=%s clicks=%d err=%s",
+                        tostring(state.level_up_maintenance_executor_kind or ""),
+                        tostring(state.level_up_maintenance_executor_level or ""),
+                        tostring(state.level_up_maintenance_executor_plan_label or ""),
+                        index,
+                        #steps,
+                        tostring(step.key or ""),
+                        clicked_count,
+                        tostring(loop_fetch_err or "")
+                    ))
+                    state.level_up_maintenance_executor_step_index = index + 1
+                    local cfg = M.level_up_maintenance_config()
+                    state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
+                        + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+                    return true
+                end
+                return M.fail_level_up_maintenance_executor(
+                    ctx,
+                    current_time,
+                    "fetch failed: " .. tostring(loop_fetch_err or "")
+                )
+            end
+
+            local clicked, click_err = click_locator_button_target(ctx, step, loop_target)
+            if not clicked then
+                return M.fail_level_up_maintenance_executor(ctx, current_time, "click failed: " .. tostring(click_err or ""))
+            end
+            clicked_count = clicked_count + 1
+            last_target = loop_target
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance image loop clicked | kind=%s level=%s plan=%s step=%d/%d key=%s loop=%d/%d addr=%s pos=(%s,%s)",
+                tostring(state.level_up_maintenance_executor_kind or ""),
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                index,
+                #steps,
+                tostring(step.key or ""),
+                attempt,
+                max_count,
+                tostring(type(loop_target) == "table" and loop_target.addr or ""),
+                tostring(type(loop_target) == "table" and loop_target.x or ""),
+                tostring(type(loop_target) == "table" and loop_target.y or "")
+            ))
+            if interval_ms > 0 and attempt < max_count and type(sys) == "table" and type(sys.sleep) == "function" then
+                sys.sleep(interval_ms)
+            end
+        end
+
+        logger(ctx).warn(string.format(
+            "[Leveling] level-up maintenance image loop reached max count; continue next step | kind=%s level=%s plan=%s step=%d/%d key=%s clicks=%d last_pos=(%s,%s)",
+            tostring(state.level_up_maintenance_executor_kind or ""),
+            tostring(state.level_up_maintenance_executor_level or ""),
+            tostring(state.level_up_maintenance_executor_plan_label or ""),
+            index,
+            #steps,
+            tostring(step.key or ""),
+            clicked_count,
+            tostring(type(last_target) == "table" and last_target.x or ""),
+            tostring(type(last_target) == "table" and last_target.y or "")
+        ))
+        state.level_up_maintenance_executor_step_index = index + 1
+        local cfg = M.level_up_maintenance_config()
+        state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
+            + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+        return true
+    end
+
     local target, fetch_err = fetch_locator_button_target(ctx, step)
     if not target then
         if type(step) == "table"
@@ -4305,6 +4540,22 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         then
             logger(ctx).info(string.format(
                 "[Leveling] level-up maintenance image target absent; mark plan done | kind=%s level=%s plan=%s step=%d/%d key=%s err=%s",
+                tostring(state.level_up_maintenance_executor_kind or ""),
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                index,
+                #steps,
+                tostring(step.key or ""),
+                tostring(fetch_err or "")
+            ))
+            if step.cleanup_back_before_finish == true then
+                M.try_click_level_up_maintenance_back_button(ctx, "image_missing_done")
+            end
+            return M.finish_level_up_maintenance_executor(ctx, current_time)
+        end
+        if type(step) == "table" and step.missing_target_means_plan_done == true then
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance target absent; mark plan done | kind=%s level=%s plan=%s step=%d/%d key=%s err=%s",
                 tostring(state.level_up_maintenance_executor_kind or ""),
                 tostring(state.level_up_maintenance_executor_level or ""),
                 tostring(state.level_up_maintenance_executor_plan_label or ""),
@@ -4569,6 +4820,20 @@ function M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player
         return false
     end
 
+    local cfg = M.level_up_maintenance_config()
+    local next_plan_info = M.level_up_maintenance_find_next_plan(cfg)
+    if type(next_plan_info) ~= "table" then
+        M.level_up_maintenance_clear_pending_if_done(ctx)
+        return false
+    end
+    local next_plan = type(next_plan_info) == "table" and type(next_plan_info.plan) == "table" and next_plan_info.plan or nil
+    local default_skill_nonblocking = type(next_plan_info) == "table"
+        and tostring(next_plan_info.kind or "") == "skill"
+        and type(next_plan) == "table"
+        and next_plan.default_skill_plan == true
+        and cfg.default_skill_block_main_flow == false
+        and state.level_up_maintenance_force_block_default_skill ~= true
+
     local safe, reason = M.level_up_maintenance_safe_window(ctx, current_time, player_x, player_y, hp_ratio, in_main_interface)
     if not safe then
         if tostring(reason or "") ~= tostring(state.level_up_maintenance_last_block_reason or "") then
@@ -4581,12 +4846,21 @@ function M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player
         end
         local reason_text = tostring(reason or "")
         if reason_text:match("^safe_window_settle") or reason_text:match("^nearby_monster") then
+            if default_skill_nonblocking then
+                log_throttled(ctx, "level_up_maintenance_defer_default_skill_" .. reason_text, "info", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] default skill maintenance deferred without holding navigation | reason=%s %s",
+                    reason_text,
+                    M.level_up_maintenance_pending_summary()
+                ))
+                return false
+            end
             state.stage = "level_up_maintenance_wait_safe"
             release_async_combat_inputs(ctx, current_time, true)
             hold_navigation(ctx, current_time, "level_up_maintenance_wait_safe:" .. reason_text)
             M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
                 phase = "level_up_maintenance_wait_safe",
-                in_main_interface = in_main_interface
+                in_main_interface = in_main_interface,
+                allow_when_main_interface_false = true
             })
             return true
         end
@@ -4594,7 +4868,6 @@ function M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player
     end
 
     state.level_up_maintenance_last_block_reason = nil
-    local cfg = M.level_up_maintenance_config()
     if cfg.execute_ui ~= true then
         log_throttled(ctx, "level_up_maintenance_ready_no_executor", "info", LOG_THROTTLE_MS, string.format(
             "[Leveling] level-up maintenance safe window ready; UI executor disabled | pos=(%.2f,%.2f,%.2f) %s",

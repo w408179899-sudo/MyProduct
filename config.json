@@ -1,11 +1,13 @@
 {
   "activeTabIndex": 0,
   "authConfigData": "G0x1YVSurlQNChoKBAgIeFYAAAAAAAAAAAAAACh3QAGbfnlg8NU8V3EnQPZvNL1ZjV04UvfJLxFBJk2AgAABApQ2AAAAKQAFAFIAAAAGgAABBoACAwaABAUGgAYHBoAICQaACgsGgAwNBoAODQaADxAGgBESBoATEgaAFBAGgBUQBoAWEAaAFxgyAAIBsgABAZkEhcJhMr0Em1YjSOGaZxBIKkjLeiD/B+QQL0Xrmn0HHWscBIcguUGNVzMEg2IcBIioQaJhPFnoBKFZTzIamW8gqwSwDGZZo5MuWhowT8ltdKtS5AlvDqiQegSSSD1P2HcxvW6zUjBT48k8V0AEhE3PfQSO9M4rUEk2c8drNaFetgSHI6hCtwhjBJFMRDRCy3o0u1SNUzJI+c8sBIRBzjsEiKhUoWE8WegEkVxMYk7LPHatBuQIYg+kliwEhyCsQo1XIQSTNkLJfDi5RY1ONk7wzRdRTD5JAQSUScRtM7BBpmEnXePBJWBbMkDfaxEEkVpDMF7TfjWWQ7dNJ1P/0y0EkUlIIUXMdx66WLVQNkjk0i0EkUlIIUXMdx66ULRbCF/+xC0EkUlIIUXMdx69WL9bCFj4xi4EkztJy3w1q1SzSghV/9QtTVsyQAMgvwIAAAAAAIEBAACAlAEAAAEBAQEBAQEBAQEBAQEBAQMAgIGTAWnrQh6adIBoEm7O4wdxaxprkpSBhfVLD58=",
+  "autoLogin": true,
   "dataUpdater": {
     "processName": "",
     "sigFilePath": "signatures.json",
     "useDriver": false
   },
+  "disclaimerAccepted": true,
   "enableConsole": true,
   "enableLogConsole": true,
   "enableLogDebugView": true,
@@ -43,8 +45,11 @@
     "C:\\Users\\GoldGiven\\Desktop\\cunnei\\scripts\\AvePoint.lua"
   ],
   "rememberCard": true,
-  "savedDevCard": "DEV0A72DEE36B51771AA70C61956F0F3477",
+"savedDriverCard": "YYB1DE538338B33EFEB18A6CA6FD1A6DC8",
+"savedDevCard": "DEV0A72DEE36B51771AA70C61956F0F3477",
   "savedUserCard": "YYDC19C1B0D28ED93E4561FA04C26F5CA0",
+  "avepointTaskMode":2,
+
   "scriptsDir": "./scripts",
   "waypointMapEditor": {
     "autoConnect": true,
@@ -66,8 +71,8 @@
     "useInteger": false,
     "zoomFactor": 0.20000000298023224
   },
-  "windowHeight": 813.0,
-  "windowPosX": 900.0,
-  "windowPosY": 80.0,
+  "windowHeight": 51.0,
+  "windowPosX": 956.0,
+  "windowPosY": 164.0,
   "windowWidth": 794.0
 }

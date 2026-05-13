@@ -1,6 +1,6 @@
 # AetherEngine Lua API 文档
 
-> **版本**: 2.9.0 | **更新**: 2026-03-04 | **来源**: 基于 LuaExports.h/cpp + LuaApi_*.cpp 完整导出
+> **版本**: 3.2.0 | **更新**: 2026-05-05 | **来源**: 基于 LuaExports.h/cpp + LuaApi_*.cpp 完整导出
 
 ---
 
@@ -30,7 +30,7 @@
 | `sys.platform()` | string | `"windows"` / `"android"` / `"ios"` |
 | `sys.arch()` | string | `"x64"` / `"x86"` / `"arm64"` / `"arm"` |
 | `sys.info()` | table | `{version, platform, arch, bits}` |
-| `sys.hwid()` | string | 硬件机器码 |
+| `sys.hwid()` | string | 硬件机器码 (32 字符小写 hex, 128-bit) |
 
 ```lua
 -- 获取系统信息
@@ -40,6 +40,18 @@ log.info("架构: " .. sys.arch())
 local info = sys.info()
 log.info("机器码: " .. sys.hwid())
 ```
+
+### 硬件标识 (HWID)
+
+`sys.hwid()` 基于 7 个稳定硬件因子通过 SHA-256 聚合得到, 输出 32 字符小写十六进制。
+因子按固定顺序拼接, 单个因子缺失不会导致整体错位; 有效因子少于 2 个时返回空串。
+
+| 等级 | 因子 | 变化条件 | 典型来源 |
+|------|------|---------|---------|
+| S | BIOS UUID / 系统 SN / 主板 SN | 换主板 | SMBIOS Type 0/1/2 |
+| A | MachineGuid / Machine SID | 重装 Windows | 注册表 / LSA |
+| D | 系统盘 SN | 换系统盘 | `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS` + `IOCTL_STORAGE_QUERY_PROPERTY` |
+| H | TPM 2.0 EK 公钥哈希 | 虚拟机克隆 / 换 TPM | TPM `TPM2_ReadPublic` |
 
 ### 进程与资源
 
@@ -99,6 +111,9 @@ log.info(string.format("耗时: %.2f ms", elapsed / 1000))
 |------|------|------|
 | `sys.dpi()` | table | `{scale, x, y}` |
 | `sys.screen_size()` | w, h | 屏幕尺寸 |
+| `sys.get_code_page()` | int | 系统当前 ANSI 代码页 (如 936=GBK, 949=EUC-KR, 932=Shift-JIS) |
+| `sys.winver()` | string | Windows 版本号 (如 `"10.0.19045.5011"`)，非 Windows 返回 `"unsupported"` |
+| `sys.get_ppid()` | integer | 获取当前进程的父进程 PID (失败返回 0) |
 
 > 鼠标加速度/速度设置已迁移到 [`mouse`](#mouse---鼠标模块) 模块 (`mouse.get_accel/set_accel/get_speed/set_speed`)
 
@@ -108,10 +123,12 @@ log.info(string.format("耗时: %.2f ms", elapsed / 1000))
 |------|------|------|
 | `sys.msgbox(text, title?)` | bool | 弹窗提示 |
 | `sys.exit(code?)` | - | 退出引擎 (code默认0) |
+| `sys.suicide()` | - | 自毁：损毁调用栈后跳转到地址0，进程立即崩溃且无法被调试器捕获有效上下文 |
 | `sys.exec(cmd)` | code, out | 执行命令 |
 | `sys.debug()` | - | 启动 LuaPanda 调试器 (VSCode断点调试) |
 | `sys.get_clipboard()` | string | 获取剪贴板 |
 | `sys.set_clipboard(text)` | bool | 设置剪贴板 |
+| `sys.auth_info()` | table/nil | 获取验证到期信息，返回 `{expire_time, remaining_days}` 或 `nil`（未登录） |
 | `sys.mmap_pe(data, call?)` | table/nil, err | 内存映射加载 PE 文件（不落地加载 DLL） |
 | `sys.free_pe(base)` | bool | 释放内存映射的 PE |
 
@@ -297,7 +314,7 @@ log.info("当前模式: " .. proc.get_mode())
 | `proc.suspend(pid)` | bool | 挂起 |
 | `proc.resume(pid)` | bool | 恢复 |
 | `proc.wait(pid, ms?)` | bool | 等待退出 (ms 默认无限等待) |
-| `proc.call(pid, addr, ...)` | bool, err? | 远程调用：向主线程插入 APC 执行目标函数，最多 8 个参数 |
+| `proc.call(pid, addr, ...)` | int\|nil, err? | 远程调用：向主线程插入 APC 执行目标函数，返回 RAX，最多 8 个参数 |
 
 **`proc.call` 详细说明：**
 
@@ -306,19 +323,24 @@ log.info("当前模式: " .. proc.get_mode())
 - 通过 `NtQueueApcThreadEx2` 特殊用户态 APC（Win11+）在主线程上下文中执行
 - 等待最多 5 秒，完成后自动释放远程内存；超时不释放（call 可能仍在执行）
 - 参数按 x64 调用约定传递：前 4 个 → RCX, RDX, R8, R9，后 4 个 → 栈
+- 成功返回函数返回值 (RAX)，失败返回 nil + 错误信息
 
 ```lua
 -- 无参调用
-proc.call(pid, func_addr)
+local ret = proc.call(pid, func_addr)
 
 -- 带参数调用 (最多 8 个)
-proc.call(pid, func_addr, arg1, arg2)
+local ret = proc.call(pid, func_addr, arg1, arg2)
 
--- 示例: 调用目标进程中的函数
+-- 示例: 调用目标进程中的函数并获取返回值
 local base = proc.module(pid, "game.dll")
 local func = base + 0x12340
-local ok, err = proc.call(pid, func, 0x1, 0x2, 0x3)
-if not ok then log.error("call failed: " .. err) end
+local ret, err = proc.call(pid, func, 0x1, 0x2, 0x3)
+if ret then
+    log.info("return value: " .. string.format("0x%X", ret))
+else
+    log.error("call failed: " .. err)
+end
 ```
 
 > **`proc.call` vs `driver.init_call`/`driver.exec_call` 对比：**
@@ -330,6 +352,7 @@ if not ok then log.error("call failed: " .. err) end
 > | **系统要求** | Win11+（NtQueueApcThreadEx2） | 需要加载内核驱动 |
 > | **权限需求** | OpenProcess + OpenThread | 驱动级权限 |
 > | **反检测** | 标准 API，可能被检测 | 驱动级，更隐蔽 |
+> | **返回值** | RAX (函数返回值) | RAX (函数返回值) |
 > | **适用场景** | 通用远程调用，不需驱动 | 需要绕过保护的场景 |
 
 ### 内存读写
@@ -351,8 +374,9 @@ if not ok then log.error("call failed: " .. err) end
 |------|------|------|
 | `proc.alloc(pid, size, prot?)` | addr \| nil, err | 在目标进程分配内存，prot 默认 `"rw-"` |
 | `proc.free(pid, addr)` | bool, err? | 释放目标进程中的内存 |
+| `proc.protect(pid, addr, size, prot)` | old_prot \| nil, err | 修改内存页保护属性，返回旧保护属性字符串 |
 
-prot 支持的格式：`"rwx"` / `"rw-"` / `"r-x"` / `"r--"`
+prot 支持的格式：`"rwx"` / `"rw-"` / `"r-x"` / `"r--"` / `"--x"` / `"---"`
 
 ```lua
 -- 分配可执行内存
@@ -365,6 +389,11 @@ end
 
 -- 分配数据内存 (默认 rw-)
 local buf = proc.alloc(pid, 256)
+
+-- 修改内存保护属性
+local old = proc.protect(pid, addr, 4096, "rwx")  -- 改为可读写执行
+proc.write_bytes(pid, addr, patch)
+proc.protect(pid, addr, 4096, old)                 -- 恢复原保护属性
 ```
 
 ```lua
@@ -1227,7 +1256,7 @@ end
 
 ## resource - 资源模块
 
-对齐 DistributionServer 客户端 API，支持下载/上传/查询/更新检查。模块只负责传输原始数据，不会自动加解密。
+远程资源管理（下载/上传/查询/更新检查）+ ZIP 压缩/解压（基于 minizip-ng，支持 AES-256 加密）。模块只负责传输原始数据，不会自动加解密。
 
 ### 初始化与配置
 
@@ -1240,39 +1269,36 @@ end
 
 | 函数 | 返回 | 说明 |
 |------|------|------|
-| `resource.download(path)` | data/nil, err | 下载资源，返回原始数据 + 缓存 + 记录 hash |
-| `resource.query(path)` | info/nil, err | 查询资源元数据 `{path, file_name, size, xxhash, upload_time, description}` |
-| `resource.upload(path, data, desc?, pass?)` | bool, err | 上传资源到服务器 |
+| `resource.download(path)` | data\|nil, err | 下载资源，返回原始数据；自动缓存并校验 XXHash64 |
+| `resource.query(path)` | info\|nil, err | 查询资源元数据 `{path, file_name, size, xxhash, upload_time, description}` |
+| `resource.upload(path, data, desc?, pass?)` | bool, err? | 上传资源到服务器 |
 
 ### 更新检查
 
 | 函数 | 返回 | 说明 |
 |------|------|------|
-| `resource.check_update(paths?)` | table | 对比本地缓存 hash 与服务器，返回需更新的路径列表。传 table 检查指定资源，不传检查全部已缓存资源 |
+| `resource.check_update(paths)` | table | 对比本地缓存文件 XXHash64 与服务器，返回需更新的路径列表。**必须**传入路径 table |
 
-### 脚本加载
+### 压缩/解压
 
 | 函数 | 返回 | 说明 |
 |------|------|------|
-| `resource.load_script(path)` | bool, err | 从服务器下载并直接执行 Lua 脚本 |
-| `resource.install_searcher()` | - | 安装自定义 `require` 搜索器，使 `require` 自动从服务器加载模块 |
+| `resource.zip(src, zip_path, password?)` | bool, err? | 压缩文件或目录为 ZIP。支持可选 AES-256 加密 |
+| `resource.unzip(zip_path, dest_dir, password?)` | bool, err? | 解压 ZIP 到目标目录。支持可选密码解密 |
 
 ### 缓存管理
 
 | 函数 | 返回 | 说明 |
 |------|------|------|
-| `resource.clear_cache()` | - | 清空所有本地缓存和 hash 记录 |
+| `resource.clear_cache()` | - | 清空所有本地缓存 |
 
 ```lua
 -- 完整使用示例
 resource.init("./cache")
 resource.set_auth("admin", "my_key")
 
--- 安装搜索器后 require 自动走服务器
-resource.install_searcher()
-
--- 检查更新
-local updates = resource.check_update({"scripts/main.luac"})
+-- 检查更新 (必须显式指定路径列表)
+local updates = resource.check_update({"scripts/main.luac", "scripts/utils.luac"})
 for _, p in ipairs(updates) do
     resource.download(p)
 end
@@ -1292,8 +1318,11 @@ end
 -- 上传
 resource.upload("configs/data.lua", "return {version='1.0'}", "配置文件")
 
--- 直接执行远程脚本
-resource.load_script("scripts/init.lua")
+-- ZIP 压缩/解压
+resource.zip("./data", "./backup.zip")                -- 压缩目录
+resource.zip("./secret.txt", "./enc.zip", "pass123")  -- 加密压缩
+resource.unzip("./backup.zip", "./output")             -- 解压
+resource.unzip("./enc.zip", "./output", "pass123")     -- 解密解压
 ```
 
 ---
@@ -1478,8 +1507,22 @@ log.info("Vec3 大小: " .. ffi.sizeof("Vec3"))  -- 12
 | 函数 | 返回 | 说明 |
 |------|------|------|
 | `imgui.begin_window(name, flags?)` | bool | 开始窗口 (无关闭按钮) |
-| `imgui.begin_window(name, true, flags?)` | visible, open | 有关闭按钮, open=false 表示用户点关闭 |
+| `imgui.begin_window(name, true, flags?)` | visible, open | 有关闭按钮, open=false 表示用户点了关闭 |
 | `imgui.end_window()` | - | 结束窗口 |
+
+> **注意**: `open=false` 时窗口不会自动消失，**脚本必须自行记录状态**并在后续帧停止调用 `begin_window`：
+> ```lua
+> local wnd_open = true
+> -- 在渲染回调中:
+> if wnd_open then
+>     local visible, open = imgui.begin_window("窗口", true)
+>     wnd_open = open  -- 记住关闭状态
+>     if visible then
+>         -- 绘制内容
+>     end
+>     imgui.end_window()
+> end
+> ```
 | `imgui.begin_child(id, w?, h?, border?, flags?)` | bool | 子区域 |
 | `imgui.end_child()` | - | 结束子区域 |
 
@@ -1609,14 +1652,99 @@ log.info("Vec3 大小: " .. ffi.sizeof("Vec3"))  -- 12
 | `imgui.end_tooltip()` | - | 结束提示框 |
 | `imgui.set_tooltip(text)` | - | 快速设置提示 |
 
-### 样式
+### 样式 (临时修改)
 
 | 函数 | 说明 |
 |------|------|
-| `imgui.push_style_color(idx, color)` | 压入颜色 (idx 为 ImGuiCol 常量) |
+| `imgui.push_style_color(idx, color)` | 压入颜色 (idx 为 `Col_*` 常量) |
 | `imgui.pop_style_color(count?)` | 弹出颜色 |
-| `imgui.push_style_var(idx, val [, val2])` | 压入样式变量 |
+| `imgui.push_style_var(idx, val [, val2])` | 压入样式变量 (idx 为 `StyleVar_*` 常量) |
 | `imgui.pop_style_var(count?)` | 弹出样式变量 |
+
+### 主题/皮肤
+
+#### 样式属性 (rounding/padding/spacing 等)
+
+| 函数 | 返回 | 说明 |
+|------|------|------|
+| `imgui.get_style()` | table | 获取当前完整样式属性表 |
+| `imgui.set_style(table)` | - | 从表设置样式 (只更新表中存在的字段) |
+
+**`get_style()` 返回表结构:**
+
+| 字段 (float) | 对应 ImGuiStyle | 字段 (ImVec2 → {x,y}) | 对应 ImGuiStyle |
+|------|------|------|------|
+| `alpha` | Alpha | `window_padding` | WindowPadding |
+| `disabled_alpha` | DisabledAlpha | `window_min_size` | WindowMinSize |
+| `window_rounding` | WindowRounding | `window_title_align` | WindowTitleAlign |
+| `window_border_size` | WindowBorderSize | `frame_padding` | FramePadding |
+| `child_rounding` | ChildRounding | `item_spacing` | ItemSpacing |
+| `child_border_size` | ChildBorderSize | `item_inner_spacing` | ItemInnerSpacing |
+| `popup_rounding` | PopupRounding | `cell_padding` | CellPadding |
+| `popup_border_size` | PopupBorderSize | `button_text_align` | ButtonTextAlign |
+| `frame_rounding` | FrameRounding | `selectable_text_align` | SelectableTextAlign |
+| `frame_border_size` | FrameBorderSize | `separator_text_align` | SeparatorTextAlign |
+| `indent_spacing` | IndentSpacing | `separator_text_padding` | SeparatorTextPadding |
+| `scrollbar_size` | ScrollbarSize | | |
+| `scrollbar_rounding` | ScrollbarRounding | | |
+| `grab_min_size` | GrabMinSize | | |
+| `grab_rounding` | GrabRounding | | |
+| `tab_rounding` | TabRounding | | |
+| `tab_border_size` | TabBorderSize | | |
+| `tab_bar_border_size` | TabBarBorderSize | | |
+| `tab_bar_overline_size` | TabBarOverlineSize | | |
+| `separator_text_border_size` | SeparatorTextBorderSize | | |
+| `docking_separator_size` | DockingSeparatorSize | | |
+
+另有 `window_menu_button_position` (int, `Dir_*` 常量)。
+
+#### 颜色操作
+
+| 函数 | 返回 | 说明 |
+|------|------|------|
+| `imgui.get_style_color(idx)` | r, g, b, a | 获取单个颜色 (0~1 浮点, idx 为 `Col_*` 常量) |
+| `imgui.set_style_color(idx, r, g, b, a?)` | - | 设置单个颜色 (a 默认 1.0) |
+| `imgui.get_style_colors()` | table | 获取全部颜色 `{[idx] = {r,g,b,a}}` |
+| `imgui.set_style_colors(table)` | - | 批量设置颜色 `{[idx] = {r,g,b,a}}` |
+
+#### 预设主题
+
+| 函数 | 说明 |
+|------|------|
+| `imgui.style_colors_dark()` | 应用 ImGui 暗色主题 |
+| `imgui.style_colors_light()` | 应用 ImGui 亮色主题 |
+| `imgui.style_colors_classic()` | 应用 ImGui 经典主题 |
+
+#### 颜色常量 (`Col_*`)
+
+`Col_Text`, `Col_TextDisabled`, `Col_WindowBg`, `Col_ChildBg`, `Col_PopupBg`, `Col_Border`, `Col_BorderShadow`, `Col_FrameBg`, `Col_FrameBgHovered`, `Col_FrameBgActive`, `Col_TitleBg`, `Col_TitleBgActive`, `Col_TitleBgCollapsed`, `Col_MenuBarBg`, `Col_ScrollbarBg`, `Col_ScrollbarGrab`, `Col_ScrollbarGrabHovered`, `Col_ScrollbarGrabActive`, `Col_CheckMark`, `Col_SliderGrab`, `Col_SliderGrabActive`, `Col_Button`, `Col_ButtonHovered`, `Col_ButtonActive`, `Col_Header`, `Col_HeaderHovered`, `Col_HeaderActive`, `Col_Separator`, `Col_SeparatorHovered`, `Col_SeparatorActive`, `Col_ResizeGrip`, `Col_ResizeGripHovered`, `Col_ResizeGripActive`, `Col_Tab`, `Col_TabHovered`, `Col_TabSelected`, `Col_TabSelectedOverline`, `Col_TabDimmed`, `Col_TabDimmedSelected`, `Col_TabDimmedSelectedOverline`, `Col_DockingPreview`, `Col_DockingEmptyBg`, `Col_PlotLines`, `Col_PlotLinesHovered`, `Col_PlotHistogram`, `Col_PlotHistogramHovered`, `Col_TableHeaderBg`, `Col_TableBorderStrong`, `Col_TableBorderLight`, `Col_TableRowBg`, `Col_TableRowBgAlt`, `Col_TextLink`, `Col_TextSelectedBg`, `Col_DragDropTarget`, `Col_NavCursor`, `Col_NavWindowingHighlight`, `Col_NavWindowingDimBg`, `Col_ModalWindowDimBg`, `Col_COUNT`
+
+#### 样式变量常量 (`StyleVar_*`)
+
+`StyleVar_Alpha`, `StyleVar_DisabledAlpha`, `StyleVar_WindowPadding`, `StyleVar_WindowRounding`, `StyleVar_WindowBorderSize`, `StyleVar_WindowMinSize`, `StyleVar_WindowTitleAlign`, `StyleVar_ChildRounding`, `StyleVar_ChildBorderSize`, `StyleVar_PopupRounding`, `StyleVar_PopupBorderSize`, `StyleVar_FramePadding`, `StyleVar_FrameRounding`, `StyleVar_FrameBorderSize`, `StyleVar_ItemSpacing`, `StyleVar_ItemInnerSpacing`, `StyleVar_IndentSpacing`, `StyleVar_CellPadding`, `StyleVar_ScrollbarSize`, `StyleVar_ScrollbarRounding`, `StyleVar_GrabMinSize`, `StyleVar_GrabRounding`, `StyleVar_TabRounding`, `StyleVar_TabBorderSize`, `StyleVar_TabBarBorderSize`, `StyleVar_TabBarOverlineSize`, `StyleVar_ButtonTextAlign`, `StyleVar_SelectableTextAlign`, `StyleVar_SeparatorTextBorderSize`, `StyleVar_SeparatorTextAlign`, `StyleVar_SeparatorTextPadding`, `StyleVar_DockingSeparatorSize`
+
+#### 主题示例
+
+```lua
+-- 1. 应用暗色基础 + 自定义强调色
+imgui.style_colors_dark()
+imgui.set_style_color(imgui.Col_Button, 0.2, 0.5, 0.8, 1.0)
+imgui.set_style_color(imgui.Col_ButtonHovered, 0.3, 0.6, 0.9, 1.0)
+imgui.set_style({ window_rounding = 8, frame_rounding = 4, grab_rounding = 4 })
+
+-- 2. 批量设置颜色表
+imgui.set_style_colors({
+    [imgui.Col_WindowBg] = { r = 0.1, g = 0.1, b = 0.15, a = 1.0 },
+    [imgui.Col_Button]   = { r = 0.2, g = 0.4, b = 0.6, a = 1.0 },
+})
+
+-- 3. 完整主题导出/导入
+local saved_style  = imgui.get_style()
+local saved_colors = imgui.get_style_colors()
+-- ... 切换主题 / 修改后恢复 ...
+imgui.set_style(saved_style)
+imgui.set_style_colors(saved_colors)
+```
 
 ### 输入状态
 
@@ -1696,6 +1824,8 @@ log.info("Vec3 大小: " .. ffi.sizeof("Vec3"))  -- 12
 ---
 
 ## driver - 驱动模块
+
+> **进程白名单**: 所有涉及目标进程 PID 的驱动接口 (读写/注入/远程调用/进程保护) 均受 `auth_config.lua` 中 `process_names` 白名单限制。未配置白名单时不限制。
 
 ### 驱动加载
 
@@ -1918,6 +2048,9 @@ end
 | `encoding.shiftjis_to_utf8(str)` | string \| nil, error | Shift-JIS → UTF-8 |
 | `encoding.utf8_to_ansi(str)` | string \| nil, error | UTF-8 → 系统默认 ANSI |
 | `encoding.ansi_to_utf8(str)` | string \| nil, error | 系统默认 ANSI → UTF-8 |
+| `encoding.utf8_to_local(str)` | string \| nil, error | UTF-8 → 系统本地编码 (同 utf8_to_ansi，命名更明确) |
+| `encoding.local_to_utf8(str)` | string \| nil, error | 系统本地编码 → UTF-8 (同 ansi_to_utf8) |
+| `encoding.adaptive_to_local(str)` | string, type | 自动检测 UTF-8/ANSI 并转本地编码，type=`"utf8"`/`"ansi"`/`"ascii"`/`"empty"` |
 
 ```lua
 -- 通用转换: GBK 简体 → Big5 繁体
@@ -1951,7 +2084,7 @@ local cp = encoding.codepage("gbk")  -- 936
 
 | 模块 | 函数数 | 主要功能 |
 |------|--------|----------|
-| `sys` | 31 | 系统信息、环境、剪贴板、PE加载 |
+| `sys` | 32 | 系统信息、环境、剪贴板、PE加载、代码页 |
 | `log` | 6 | 日志输出 (trace/debug/info/warn/error/print) |
 | `proc` | 37 | 进程管理、内存读写、AOB扫描、地址表达式 |
 | `task` | 17 | 多任务管理、暂停/恢复/停止 |
@@ -1966,10 +2099,10 @@ local cp = encoding.codepage("gbk")  -- 936
 | `hotkey` | 6 | 全局热键监听 (纯轮询) |
 | `driver` | 32 | 驱动级读写、类型化读写、注入、远程调用、鼠标/键盘输入 |
 | `trajectory` | 4 | 拟人鼠标轨迹生成 |
-| `resource` | 9 | 资源下载/上传/查询/更新检查/脚本加载 |
+| `resource` | 9 | 资源下载/上传/查询/更新检查/ZIP压缩解压 |
 | `config` | 10 | JSON配置文件读写 |
 | `disasm` | 2+4 | 反汇编 (Capstone, 2模块函数 + 4对象方法) |
-| `encoding` | 12 | 字符串编码转换 (UTF-8/GBK/Big5/EUC-KR/Shift-JIS) |
+| `encoding` | 15 | 字符串编码转换 (UTF-8/GBK/Big5/EUC-KR/Shift-JIS/Local/Adaptive) |
 | `path` | 2 | 路点地图寻路 (A* + wmap + maxRange) |
 | `asm` | 4 | JIT汇编编译 |
 | `ffi` | ∞ | cffi-lua 外部函数接口 |
@@ -1977,4 +2110,4 @@ local cp = encoding.codepage("gbk")  -- 936
 
 ---
 
-*文档已基于 LuaApi_*.cpp 注册表完整对齐 (2026-03-01)*
+*文档已基于 LuaApi_*.cpp 注册表完整对齐 (2026-03-28)*

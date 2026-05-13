@@ -2173,6 +2173,59 @@ function M.maybe_handle_treasure_dungeon(ctx, current_time, player_x, player_y, 
     )
 end
 
+function M.treasure_allows_level_up_maintenance(player_x, player_y, player_z)
+    local runtime = type(state.treasure_runtime) == "table" and state.treasure_runtime or nil
+    local mode = tostring(type(runtime) == "table" and (runtime.mode or "") or "")
+    if mode == "acquire_path" then
+        return true, "treasure_start_acquire_path"
+    end
+    if mode == "post_boss_portal" then
+        return true, "post_boss_portal"
+    end
+    if mode == "grinding" and type(runtime) == "table" and runtime.route_loaded == true then
+        local active_key = tostring(runtime.active_key or "")
+        local cfg = nil
+        if type(M.TREASURE_DUNGEON_CONFIGS) == "table" then
+            for _, item in ipairs(M.TREASURE_DUNGEON_CONFIGS) do
+                if type(item) == "table"
+                    and (
+                        tostring(item.key or "") == active_key
+                        or tostring(item.route_store_key or "") == active_key
+                    )
+                then
+                    cfg = item
+                    break
+                end
+            end
+        end
+        local route = type(runtime.route) == "table" and runtime.route or nil
+        local route_count = type(route) == "table" and #route or 0
+        local route_cursor = tonumber(runtime.route_cursor)
+        local cursor_slack = math.max(1, math.floor(tonumber(type(cfg) == "table" and cfg.level_up_maintenance_start_cursor_slack) or 6))
+        local route_start = route_count > 0 and route[route_count] or nil
+        local x = tonumber(player_x)
+        local y = tonumber(player_y)
+        local z = tonumber(player_z)
+        local start_x = tonumber(type(route_start) == "table" and route_start.x)
+        local start_y = tonumber(type(route_start) == "table" and route_start.y)
+        local start_z = tonumber(type(route_start) == "table" and route_start.z)
+        local radius = math.max(200, tonumber(type(cfg) == "table" and cfg.level_up_maintenance_start_radius) or 1200)
+        local z_tolerance = math.max(200, tonumber(type(cfg) == "table" and cfg.level_up_maintenance_start_z_tolerance) or 1200)
+        local cursor_near_start = route_cursor == nil or route_cursor >= math.max(1, route_count - cursor_slack)
+        if cursor_near_start
+            and x ~= nil
+            and y ~= nil
+            and start_x ~= nil
+            and start_y ~= nil
+            and math.sqrt((x - start_x) * (x - start_x) + (y - start_y) * (y - start_y)) <= radius
+            and (z == nil or start_z == nil or math.abs(z - start_z) <= z_tolerance)
+        then
+            return true, "treasure_route_start_grinding"
+        end
+    end
+    return false, mode
+end
+
 function M.maybe_override_treasure_task_target(ctx, current_time, player_x, player_y)
     if type(M._leveling_treasure) ~= "table"
         or type(M._leveling_treasure.provide_task_target_override) ~= "function"
@@ -5268,6 +5321,88 @@ function M.update(now, ctx)
 
     if M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, player_z, hp_ratio) then
         return true
+    end
+
+    if state.level_up_maintenance_executor_active ~= true
+        and not M.level_up_maintenance_has_pending()
+        and tostring(state.level_up_maintenance_last_observe_error or ""):find("player level text not found", 1, true) ~= nil
+    then
+        local allow_seed, seed_reason = M.treasure_allows_level_up_maintenance(player_x, player_y, player_z)
+        if allow_seed
+            and tostring(seed_reason or "") == "treasure_route_start_grinding"
+            and type(M.level_up_maintenance_seed_next_missing_level_from_config) == "function"
+        then
+            M.level_up_maintenance_seed_next_missing_level_from_config(
+                ctx,
+                current_time,
+                "level_text_missing:" .. tostring(seed_reason or "")
+            )
+            state.level_up_maintenance_treasure_window_active = true
+        end
+    end
+
+    if state.level_up_maintenance_executor_active == true
+        or M.level_up_maintenance_has_pending()
+    then
+        local allow_treasure_maintenance, treasure_maintenance_reason =
+            M.treasure_allows_level_up_maintenance(player_x, player_y, player_z)
+        if not allow_treasure_maintenance and state.level_up_maintenance_treasure_window_active == true then
+            allow_treasure_maintenance = true
+            treasure_maintenance_reason = "treasure_level_up_window_active"
+        end
+        if state.level_up_maintenance_executor_active == true or allow_treasure_maintenance then
+            if allow_treasure_maintenance then
+                state.level_up_maintenance_treasure_window_active = true
+            end
+            local level_up_cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
+            local next_level_up_plan = type(M.level_up_maintenance_find_next_plan) == "function"
+                and M.level_up_maintenance_find_next_plan(level_up_cfg)
+                or nil
+            local next_level_up_plan_body = type(next_level_up_plan) == "table"
+                and type(next_level_up_plan.plan) == "table"
+                and next_level_up_plan.plan
+                or nil
+            local default_skill_nonblocking = type(next_level_up_plan) == "table"
+                and tostring(next_level_up_plan.kind or "") == "skill"
+                and type(next_level_up_plan_body) == "table"
+                and next_level_up_plan_body.default_skill_plan == true
+                and type(level_up_cfg) == "table"
+                and level_up_cfg.default_skill_block_main_flow == false
+            local treasure_start_window = tostring(treasure_maintenance_reason or "") == "treasure_route_start_grinding"
+                or tostring(treasure_maintenance_reason or "") == "treasure_level_up_window_active"
+            if allow_treasure_maintenance and treasure_start_window and default_skill_nonblocking then
+                state.level_up_maintenance_force_block_default_skill = true
+                default_skill_nonblocking = false
+                log_throttled(ctx, "treasure_force_default_skill_maintenance", "info", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] treasure start forces default skill maintenance before route | reason=%s %s",
+                    tostring(treasure_maintenance_reason or ""),
+                    M.level_up_maintenance_pending_summary()
+                ))
+            end
+            if allow_treasure_maintenance
+                and not default_skill_nonblocking
+                and treasure_start_window
+                and type(state.task_target) == "table"
+                and tostring(state.task_target.source or "") == "treasure_path"
+            then
+                clear_task_target_state()
+                hold_navigation(ctx, current_time, "treasure_route_start_level_up_maintenance")
+                logger(ctx).info("[Leveling] cleared treasure route target for start-window level-up maintenance")
+            end
+            log_throttled(ctx, "treasure_level_up_maintenance_window_" .. tostring(treasure_maintenance_reason or ""), "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] treasure level-up maintenance window | reason=%s executor=%s pending=%s",
+                tostring(treasure_maintenance_reason or ""),
+                state.level_up_maintenance_executor_active == true and "true" or "false",
+                M.level_up_maintenance_pending_summary()
+            ))
+            if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+                log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+                return true
+            end
+        end
+    else
+        state.level_up_maintenance_treasure_window_active = nil
+        state.level_up_maintenance_force_block_default_skill = nil
     end
 
     if M.maybe_handle_treasure_dungeon(ctx, current_time, player_x, player_y, player_z) then

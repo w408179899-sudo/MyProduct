@@ -1,6 +1,6 @@
 # AetherEngine 开发指南
 
-> **版本**: 2.9.0 | **更新**: 2026-02-27
+> **版本**: 3.2.0 | **更新**: 2026-05-05
 >
 > 本文档面向脚本开发者，介绍 AetherEngine 的架构、能力和开发工作流。
 > 完整 API 函数签名请查阅 [LUA_API.md](LUA_API.md)。
@@ -236,7 +236,7 @@ end
 
 ### 网络与远程资源 (`http`, `resource`)
 
-HTTP 请求、文件下载、远程脚本/资源管理、自动更新。
+HTTP 请求、文件下载、远程资源管理、自动更新、ZIP 压缩/解压。
 
 ```lua
 -- HTTP 请求
@@ -246,12 +246,16 @@ if resp.status == 200 then log.info(resp.body) end
 -- 远程资源管理
 resource.init("./cache")
 resource.set_auth("owner", "key")
-resource.install_searcher()          -- require 自动从服务器加载
-local lib = require("libs/mylib")    -- 自动下载
 
--- 检查更新
+-- 检查更新 (需显式指定路径列表)
 local updates = resource.check_update({"scripts/main.luac"})
 for _, path in ipairs(updates) do resource.download(path) end
+
+-- ZIP 压缩/解压 (基于 minizip-ng, 支持 AES-256 加密)
+resource.zip("./data", "./backup.zip")              -- 压缩文件或目录
+resource.zip("./data", "./secure.zip", "password")   -- 加密压缩
+resource.unzip("./backup.zip", "./output")            -- 解压
+resource.unzip("./secure.zip", "./output", "password") -- 解密解压
 ```
 
 ### 界面开发 (`imgui`)
@@ -620,13 +624,11 @@ local hwnd = wait_for(function() return wnd.find_ex(nil, "游戏") end, 10000)
 ```lua
 resource.init("./cache")
 resource.set_auth("owner", "key")
-resource.install_searcher()
 
-local updates = resource.check_update({"scripts/main.luac"})
+local updates = resource.check_update({"scripts/main.luac", "scripts/utils.luac"})
 for _, p in ipairs(updates) do resource.download(p) end
 
-local app = require("app")
-app.start()
+dofile("cache/scripts/main.luac")
 ```
 
 ### 多任务并行
@@ -665,9 +667,10 @@ task.cleanup()
 - 用 `vision.save()` 保存截图检查实际画面
 - 分辨率不同时需重新截取模板
 
-### Q: `require` 远程模块失败？
-- 确保已调用 `resource.init()` + `resource.set_auth()` + `resource.install_searcher()`
-- 用 `resource.query()` 验证路径是否正确
+### Q: 远程资源下载失败？
+- 确保已调用 `resource.init()` + `resource.set_auth()`
+- 用 `resource.query()` 验证服务器上的路径是否正确
+- `check_update` 需要显式传入路径列表，不再自动扫描缓存
 
 ### Q: 如何调试脚本？
 1. **日志**：关键位置添加 `log.info()` 输出变量
@@ -695,7 +698,7 @@ task.cleanup()
 | `ocr` | 中文 OCR | `http` | HTTP 请求/下载 |
 | `hotkey` | 全局热键监听 | `crypto` | 哈希/编码/加解密 |
 | `auth` | 网络卡密验证 | `config` | JSON 配置读写 |
-| `resource` | 远程资源管理 | `path` | A* 寻路 |
+| `resource` | 远程资源管理/ZIP压缩解压 | `path` | A* 寻路 |
 | `trajectory` | 拟人鼠标轨迹 | `driver` | 驱动级操作 |
 | `asm` | JIT 汇编 | `disasm` | 反汇编 |
 | `ffi` | 调用系统 DLL | `encoding` | 编码转换 |
@@ -705,4 +708,4 @@ task.cleanup()
 
 ---
 
-> **文档版本**：2.9.0 | 如有疑问请联系管理员
+> **文档版本**：3.2.0 | 如有疑问请联系管理员
