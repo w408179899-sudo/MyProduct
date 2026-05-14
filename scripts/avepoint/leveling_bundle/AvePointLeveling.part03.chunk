@@ -2896,6 +2896,19 @@ local function arm_dialogue_followup(current_time, origin, label, refresh_on_tim
     state.pending_interaction_task_name = tostring(M.current_task_log_name() or state.current_task_name or "")
     state.pending_interaction_task_detail = tostring(M.current_task_log_detail() or state.current_task_detail or "")
     state.pending_interaction_refresh_on_timeout = refresh_on_timeout == true
+    local reopen_key = type(M.dialogue_interaction_reopen_state_key) == "function"
+        and M.dialogue_interaction_reopen_state_key(origin)
+        or ""
+    if reopen_key ~= "" and tostring(state.dialogue_interaction_reopen_key or "") ~= reopen_key then
+        state.dialogue_interaction_reopen_key = reopen_key
+        state.dialogue_interaction_reopen_count = 0
+    end
+    if type(M.reset_dialogue_jump_missing_probe) == "function" then
+        M.reset_dialogue_jump_missing_probe(false)
+    else
+        state.dialogue_jump_missing_started_at = 0
+        state.dialogue_jump_missing_last_err = nil
+    end
     M.clear_task_dialogue_flow_state()
     M.clear_post_dialogue_flow_state()
     state.pause_combat_until = current_time + POST_DIALOGUE_SETTLE_MS

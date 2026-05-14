@@ -5461,33 +5461,46 @@ M.TASK_NAME_CONFIGS = {
             constraint_mode = "all"
         }
     ),
-    ["\u{5BFC}\u{5E08}\u{9988}\u{8D60}"] = make_post_dialogue_flow_task_config(
-        "mentor_gift_task_detail_after_antonio",
+    ["\u{5BFC}\u{5E08}\u{9988}\u{8D60}"] = make_dialogue_locator_flow_task_config(
+        "mentor_gift_task_detail_before_antonio_jump",
         {
-            make_fixed_client_click_step({
+            {
                 key = "mentor_gift_task_detail_btn",
                 label = "[\u{4EFB}\u{52A1}] \u{5BFC}\u{5E08}\u{9988}\u{8D60}\u{6309}\u{94AE}",
-                fixed_client_x = 722.000000,
-                fixed_client_y = 305.000000,
-                fixed_ratio_x = 0.501389,
-                fixed_ratio_y = 0.338889,
+                distance_anchor_exact_text = "[\u{4EFB}\u{52A1}] \u{5BFC}\u{5E08}\u{9988}\u{8D60}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button",
+                distance_min = 61.015775,
+                distance_max = 64.789946,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button"
+                },
+                hint_client_x = 619.611877,
+                hint_client_y = 299.521484,
+                hint_ratio_x = 0.430585,
+                hint_ratio_y = 0.332802,
+                hint_max_distance = 80.000,
+                retry_ms = 600,
                 settle_ms = 1200,
-                force_task_call_after_transition = false,
-                task_pos_reject_extra_ms = 2500
-            })
+            }
         },
         {
-            initial_delay_ms = 500,
-            timeout_ms = 8000,
-            arm_after_objective_button = true,
-            skip_dialogue_jump = true,
-            wait_task_info_refresh_after_jump = true,
-            task_info_refresh_timeout_ms = 6500
+            key = "mentor_gift_task_detail_before_antonio_jump",
+            timeout_ms = 9000,
+            origins = {
+                "npc",
+                "interaction_prompt"
+            },
+            settle_ms = 1200
         },
         {
             task_patterns = { "\u{5BFC}\u{5E08}\u{9988}\u{8D60}" },
             task_detail_patterns = { "\u{4E0E}\u{5B89}\u{4E1C}\u{5C3C}\u{5965}\u{5B66}\u{8005}\u{5BF9}\u{8BDD}" },
-            constraint_mode = "all"
+            constraint_mode = "all",
+            post_dialogue_flow = {
+                key = "mentor_gift_wait_after_antonio_jump",
+                wait_task_info_refresh_after_jump = true,
+                task_info_refresh_timeout_ms = 6500
+            }
         }
     ),
     ["\u{5723}\u{6D01}\u{4E4B}\u{706B}"] = make_dialogue_locator_flow_task_config(
@@ -6626,6 +6639,37 @@ M.ROUTE_POINT_ACTIONS = {
     make_daylight_rivalry_talk_to_ariya_route_action(),
     make_evil_sun_chase_queen_detour_route_action(),
     make_shadow_sun_chase_queen_detour_route_action(),
+    make_route_point_action({
+        key = "holy_fire_academy_clue_detour_5626_15854",
+        label = "holy_fire_academy_clue_detour_5626_15854",
+        mode = "recorded_route_point",
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "\u{5723}\u{6D01}\u{4E4B}\u{706B}"
+        },
+        task_detail_patterns = {
+            "\u{6DF1}\u{5165}\u{5B66}\u{57CE}\u{FF0C}\u{5BFB}\u{627E}\u{7EBF}\u{7D22}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 5625.65,
+            y = 15853.94,
+            z = 519.00,
+            radius = 700,
+            z_tolerance = 220
+        },
+        retry_ms = 600000,
+        timeout_ms = 45000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 6538.37, y = 15782.33, z = 519.00 },
+            { x = 7564.20, y = 15750.88, z = 519.00 },
+            { x = 9006.98, y = 16825.09, z = 526.47 }
+        }
+    }),
     make_route_point_action({
         key = "shadowland_fire_seed_route_8894_8983",
         label = "燃烧的长夜_火种拾取_固定点路线",
@@ -8942,6 +8986,89 @@ M.ROUTE_POINT_ACTIONS = {
             prefer_hint_fallback = true,
             settle_ms = 2200,
             task_pos_reject_extra_ms = 3500
+        }
+    }),
+    make_route_point_action({
+        key = "fallen_city_holy_tower_floor214_route_-395_941",
+        label = "陷落圣城_开启第一座圣光塔_214层固定路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "\u{9677}\u{843D}\u{5723}\u{57CE}"
+        },
+        task_detail_patterns = {
+            "\u{5F00}\u{542F}\u{7B2C}\u{4E00}\u{5EA7}\u{5723}\u{5149}\u{5854}"
+        },
+        map_patterns = {
+            "\u{8363}\u{8000}\u{5E7F}\u{573A}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -394.99,
+            y = 941.06,
+            z = 214.00,
+            radius = 360,
+            z_tolerance = 180
+        },
+        retry_ms = 600000,
+        timeout_ms = 150000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 240,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 296.36, y = 813.55, z = 214.00 },
+            { x = 930.78, y = 914.50, z = 214.00 },
+            { x = 1634.39, y = 751.47, z = 214.00 },
+            { x = 1928.64, y = 277.91, z = 214.00 },
+            { x = 2003.93, y = -298.18, z = 214.00 },
+            { x = 1770.64, y = -686.89, z = 214.00 },
+            { x = 1223.81, y = -869.04, z = 214.00 },
+            { x = 807.06, y = -884.07, z = 214.00 },
+            { x = 445.48, y = -637.05, z = 214.00 },
+            { x = 269.64, y = -216.91, z = 214.00 },
+            { x = 334.15, y = 253.64, z = 214.00 },
+            { x = 571.09, y = 659.15, z = 214.00 },
+            { x = 944.78, y = 932.55, z = 214.00 },
+            { x = 1351.35, y = 892.19, z = 214.00 },
+            { x = 1568.39, y = 528.75, z = 214.00 },
+            { x = 1710.22, y = 68.66, z = 214.00 },
+            { x = 1670.34, y = -317.36, z = 214.00 },
+            { x = 1436.89, y = -658.50, z = 214.00 },
+            { x = 1051.75, y = -752.95, z = 214.00 },
+            { x = 748.68, y = -511.96, z = 214.00 },
+            { x = 603.35, y = -40.72, z = 214.00 },
+            { x = 740.73, y = 291.73, z = 214.00 },
+            { x = 1117.10, y = 505.58, z = 214.00 },
+            { x = 1538.77, y = 510.94, z = 214.00 },
+            { x = 1799.66, y = 257.02, z = 214.00 },
+            { x = 1868.54, y = -130.99, z = 214.00 },
+            { x = 1621.71, y = -431.77, z = 214.00 },
+            { x = 1267.51, y = -646.31, z = 214.00 },
+            { x = 874.76, y = -617.74, z = 214.00 },
+            { x = 615.80, y = -343.45, z = 214.00 },
+            { x = 607.60, y = 135.36, z = 214.00 },
+            { x = 793.95, y = 465.15, z = 214.00 },
+            { x = 1201.58, y = 621.32, z = 214.00 },
+            { x = 1453.77, y = 527.16, z = 214.00 },
+            { x = 1667.00, y = 144.48, z = 214.00 },
+            { x = 1539.85, y = -237.95, z = 214.00 },
+            { x = 1144.74, y = -391.97, z = 214.00 },
+            { x = 836.94, y = -294.42, z = 214.00 },
+            { x = 817.62, y = 113.47, z = 214.00 },
+            { x = 1144.63, y = 450.36, z = 214.00 },
+            { x = 1523.33, y = 540.28, z = 214.00 },
+            { x = 1861.58, y = 427.00, z = 214.00 },
+            { x = 1973.35, y = 64.40, z = 214.00 },
+            { x = 1772.62, y = -263.85, z = 214.00 },
+            { x = 1388.79, y = -281.59, z = 214.00 },
+            { x = 1087.23, y = -92.81, z = 214.00 },
+            { x = 1342.47, y = 183.81, z = 214.00 },
+            { x = 1651.00, y = 184.82, z = 214.00 },
+            { x = 2066.83, y = 163.33, z = 214.00 },
+            { x = 2485.26, y = 76.59, z = 214.00 },
+            { x = 2960.00, y = -32.00, z = 214.00 }
         }
     }),
     make_npc_dialogue_route_action({
