@@ -5286,6 +5286,76 @@ function M.maybe_handle_task_info_stability_gate(ctx, current_time, player_x, pl
     return false
 end
 
+function M.maybe_handle_no_task_target_immediate_boss_kite(ctx, current_time, player_x, player_y, player_z)
+    local task_cfg, task_name = M.current_task_runtime_config()
+    local map_cfg = select(1, current_map_task_config())
+    local objective_cfg = type(task_cfg) == "table"
+        and type(task_cfg.objective) == "table"
+        and task_cfg.objective
+        or (type(map_cfg) == "table" and type(map_cfg.objective) == "table" and map_cfg.objective or nil)
+    if type(objective_cfg) ~= "table"
+        or tostring(objective_cfg.mode or "") ~= "boss_kite"
+        or objective_cfg.allow_no_task_target_force_kite ~= true
+        or objective_cfg.immediate_no_task_target_kite ~= true
+    then
+        return false
+    end
+
+    local last_task_click_at = tonumber(state.last_task_button_click_at) or 0
+    if last_task_click_at <= 0 then
+        return false
+    end
+
+    local wait_ms = math.max(
+        TASK_BUTTON_SETTLE_MS,
+        tonumber(objective_cfg.no_task_target_kite_wait_ms) or TASK_BUTTON_SETTLE_MS
+    )
+    local ready_at = math.max(
+        last_task_click_at + wait_ms,
+        tonumber(state.task_path_wait_until) or 0
+    )
+    if current_time < ready_at then
+        log_throttled(ctx, "no_task_target_boss_kite_wait_click", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] no-target boss kite waiting task button settle | task=%s detail=%s objective=%s wait_left=%dms",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            tostring(objective_cfg.key or ""),
+            math.max(0, ready_at - current_time)
+        ))
+        return false
+    end
+
+    update_task_target(ctx, current_time, player_x, player_y)
+    if type(state.task_target) == "table" then
+        return false
+    end
+
+    if M.arm_immediate_task_boss_kite(
+        ctx,
+        current_time,
+        task_name,
+        objective_cfg,
+        nil,
+        nil,
+        nil,
+        player_x,
+        player_y,
+        player_z,
+        "no_task_target"
+    ) then
+        log_throttled(ctx, "no_task_target_immediate_boss_kite", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] no-target boss kite armed from current position | task=%s detail=%s objective=%s last_task_click_ms=%d",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            tostring(objective_cfg.key or ""),
+            math.max(0, current_time - last_task_click_at)
+        ))
+        return true
+    end
+
+    return false
+end
+
 function M.update(now, ctx)
     if state.running ~= true then
         return false, "Leveling runner is not started."
@@ -5450,7 +5520,6 @@ function M.update(now, ctx)
                 current_time,
                 "level_text_missing:" .. tostring(seed_reason or "")
             )
-            state.level_up_maintenance_treasure_window_active = true
         end
     end
 
@@ -5459,14 +5528,7 @@ function M.update(now, ctx)
     then
         local allow_treasure_maintenance, treasure_maintenance_reason =
             M.treasure_allows_level_up_maintenance(player_x, player_y, player_z)
-        if not allow_treasure_maintenance and state.level_up_maintenance_treasure_window_active == true then
-            allow_treasure_maintenance = true
-            treasure_maintenance_reason = "treasure_level_up_window_active"
-        end
         if state.level_up_maintenance_executor_active == true or allow_treasure_maintenance then
-            if allow_treasure_maintenance then
-                state.level_up_maintenance_treasure_window_active = true
-            end
             local level_up_cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
             local next_level_up_plan = type(M.level_up_maintenance_find_next_plan) == "function"
                 and M.level_up_maintenance_find_next_plan(level_up_cfg)
@@ -5481,8 +5543,29 @@ function M.update(now, ctx)
                 and next_level_up_plan_body.default_skill_plan == true
                 and type(level_up_cfg) == "table"
                 and level_up_cfg.default_skill_block_main_flow == false
-            local treasure_start_window = tostring(treasure_maintenance_reason or "") == "treasure_route_start_grinding"
-                or tostring(treasure_maintenance_reason or "") == "treasure_level_up_window_active"
+            local treasure_actual_start_window = tostring(treasure_maintenance_reason or "") == "treasure_route_start_grinding"
+            local treasure_start_window = treasure_actual_start_window
+            if allow_treasure_maintenance and treasure_actual_start_window then
+                local treasure_runtime = type(state.treasure_runtime) == "table" and state.treasure_runtime or {}
+                local treasure_key = tostring(treasure_runtime.active_key or treasure_runtime.route_store_key or "")
+                if treasure_key == "" then
+                    treasure_key = tostring(treasure_maintenance_reason or "")
+                end
+                if state.level_up_maintenance_treasure_start_retry_clear_key ~= treasure_key then
+                    if (tonumber(state.level_up_maintenance_next_retry_at) or 0) > current_time then
+                        state.level_up_maintenance_next_retry_at = 0
+                        state.level_up_maintenance_safe_since = 0
+                        state.level_up_maintenance_last_block_reason = nil
+                        state.level_up_maintenance_nearby_block_since = nil
+                        logger(ctx).info(string.format(
+                            "[Leveling] treasure start clears level-up maintenance retry cooldown | key=%s %s",
+                            treasure_key,
+                            M.level_up_maintenance_pending_summary()
+                        ))
+                    end
+                    state.level_up_maintenance_treasure_start_retry_clear_key = treasure_key
+                end
+            end
             if allow_treasure_maintenance and treasure_start_window and default_skill_nonblocking then
                 state.level_up_maintenance_force_block_default_skill = true
                 default_skill_nonblocking = false
@@ -5512,10 +5595,13 @@ function M.update(now, ctx)
                 log_heartbeat(ctx, current_time, player_x, player_y, player_z)
                 return true
             end
+        else
+            state.level_up_maintenance_force_block_default_skill = nil
+            state.level_up_maintenance_treasure_start_retry_clear_key = nil
         end
     else
-        state.level_up_maintenance_treasure_window_active = nil
         state.level_up_maintenance_force_block_default_skill = nil
+        state.level_up_maintenance_treasure_start_retry_clear_key = nil
     end
 
     if M.maybe_handle_treasure_dungeon(ctx, current_time, player_x, player_y, player_z) then
@@ -5598,6 +5684,13 @@ function M.update(now, ctx)
     end
 
     local task_entry_action_active = M.is_task_entry_action_active(current_time)
+
+    if type(state.task_target) ~= "table"
+        and M.maybe_handle_no_task_target_immediate_boss_kite(ctx, current_time, player_x, player_y, player_z)
+    then
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
 
     if type(state.task_target) ~= "table"
         and not ((tonumber(state.post_revive_boss_engage_until) or 0) > current_time)

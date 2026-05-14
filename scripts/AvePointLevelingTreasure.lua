@@ -370,6 +370,7 @@ local function ensure_runtime_state(main_state)
             loot_ignore_until = 0,
             loot_stuck_reference_count = 0,
             loot_stuck_attempts = 0,
+            boss_loot_pulse_count = 0,
             nearby_hold_signature = "",
             nearby_hold_started_at = 0,
             player_level = nil,
@@ -395,6 +396,7 @@ local function clear_round_flags(runtime)
     runtime.boss_portal_detected_at = 0
     runtime.boss_loot_seen_items = false
     runtime.boss_loot_empty_started_at = 0
+    runtime.boss_loot_pulse_count = 0
     runtime.boss_kite_points = nil
     runtime.boss_kite_index = 0
     runtime.boss_kite_next_switch_at = 0
@@ -533,6 +535,7 @@ local function reset_runtime(main_state)
     runtime.loot_ignore_until = 0
     runtime.loot_stuck_reference_count = 0
     runtime.loot_stuck_attempts = 0
+    runtime.boss_loot_pulse_count = 0
     runtime.nearby_hold_signature = ""
     runtime.nearby_hold_started_at = 0
     runtime.player_level = nil
@@ -757,6 +760,7 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
     runtime.loot_ignore_until = 0
     runtime.loot_stuck_reference_count = 0
     runtime.loot_stuck_attempts = 0
+    runtime.boss_loot_pulse_count = 0
     runtime.nearby_hold_signature = ""
     runtime.nearby_hold_started_at = 0
     runtime.player_level = nil
@@ -1666,6 +1670,7 @@ local function execute_treasure_boss_fight(ctx, main_state, cfg, runtime, hooks,
             runtime.loot_next_at = current_time
             runtime.loot_stuck_reference_count = 0
             runtime.loot_stuck_attempts = 0
+            runtime.boss_loot_pulse_count = 0
             transition_mode(
                 ctx,
                 hooks,
@@ -2500,8 +2505,28 @@ local function maybe_handle_treasure_boss_loot(ctx, main_state, cfg, runtime, ho
     runtime.boss_loot_empty_started_at = 0
     local summary = summarize_ground_items(items, 3)
     local next_loot_at = tonumber(runtime.loot_next_at) or 0
+    local max_pulses = tonumber(boss_cfg.loot_max_pulses) or tonumber(cfg.boss_loot_max_pulses)
+    if max_pulses ~= nil and max_pulses > 0 and (tonumber(runtime.boss_loot_pulse_count) or 0) >= max_pulses then
+        if type(hooks.log_info) == "function" then
+            hooks.log_info(ctx, string.format(
+                "[Treasure] boss room loot pulse cap reached, continue to portal phase | key=%s count=%d items=%s pulses=%d max_pulses=%d",
+                tostring(cfg.key or ""),
+                item_count,
+                summary ~= "" and summary or "unknown",
+                tonumber(runtime.boss_loot_pulse_count) or 0,
+                max_pulses
+            ))
+        end
+        runtime.loot_stuck_reference_count = 0
+        runtime.loot_stuck_attempts = 0
+        runtime.boss_loot_seen_items = false
+        runtime.boss_loot_empty_started_at = 0
+        runtime.loot_next_at = current_time + math.max(350, tonumber(cfg.loot_press_interval_ms) or 700)
+        return false
+    end
     if current_time >= next_loot_at then
         local ok, press_err = hooks.press_loot_key(ctx)
+        runtime.boss_loot_pulse_count = (tonumber(runtime.boss_loot_pulse_count) or 0) + 1
         runtime.loot_next_at = current_time + math.max(350, tonumber(cfg.loot_press_interval_ms) or 700)
         if tonumber(runtime.loot_stuck_reference_count) == item_count then
             runtime.loot_stuck_attempts = (tonumber(runtime.loot_stuck_attempts) or 0) + 1
@@ -2511,13 +2536,14 @@ local function maybe_handle_treasure_boss_loot(ctx, main_state, cfg, runtime, ho
         end
         if type(hooks.log_info) == "function" then
             hooks.log_info(ctx, string.format(
-                "[Treasure] boss room loot pickup pulse | key=%s count=%d items=%s press_ok=%s err=%s attempts=%d",
+                "[Treasure] boss room loot pickup pulse | key=%s count=%d items=%s press_ok=%s err=%s attempts=%d pulses=%d",
                 tostring(cfg.key or ""),
                 item_count,
                 summary ~= "" and summary or "unknown",
                 ok and "true" or "false",
                 tostring(press_err or ""),
-                tonumber(runtime.loot_stuck_attempts) or 0
+                tonumber(runtime.loot_stuck_attempts) or 0,
+                tonumber(runtime.boss_loot_pulse_count) or 0
             ))
         end
         local max_attempts = math.max(1, tonumber(cfg.loot_stuck_max_attempts) or 2)
@@ -3417,6 +3443,7 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                         runtime.loot_next_at = current_time
                         runtime.loot_stuck_reference_count = 0
                         runtime.loot_stuck_attempts = 0
+                        runtime.boss_loot_pulse_count = 0
                         transition_mode(
                             ctx,
                             hooks,

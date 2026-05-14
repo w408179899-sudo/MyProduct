@@ -1287,6 +1287,95 @@ do
             0.753113
         )
     end
+
+    local level_32_talent_plan = make_level_22_plus_talent_plan(
+        32,
+        768.776794,
+        482.651550,
+        0.534244,
+        0.536280,
+        598.579102,
+        677.801453,
+        0.415969,
+        0.753113
+    )
+    local level_32_talent_steps = type(level_32_talent_plan.steps) == "table" and level_32_talent_plan.steps or {}
+    local level_32_back_step = table.remove(level_32_talent_steps, #level_32_talent_steps)
+    level_32_talent_steps[#level_32_talent_steps + 1] = maintenance_locator_step(
+        "activate_level_32_talent_node_repeat_2",
+        "32级天赋：第二次激活天赋节点",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+            "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+        },
+        598.579102,
+        677.801453,
+        0.415969,
+        0.753113,
+        80,
+        650
+    )
+    level_32_talent_steps[#level_32_talent_steps + 1] = maintenance_locator_step(
+        "activate_level_32_talent_node_repeat_3",
+        "32级天赋：第三次激活天赋节点",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+            "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+        },
+        598.579102,
+        677.801453,
+        0.415969,
+        0.753113,
+        80,
+        650
+    )
+    if type(level_32_back_step) == "table" then
+        level_32_talent_steps[#level_32_talent_steps + 1] = level_32_back_step
+    end
+    level_32_talent_plan.key = "level_32_talent_node_activate_triple"
+    level_32_talent_plan.label = "32级天赋：激活天赋节点三次"
+    level_32_talent_plan.steps = level_32_talent_steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[32] = level_32_talent_plan
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[33] = make_level_22_plus_talent_plan(
+        33,
+        924.706848,
+        482.651550,
+        0.642604,
+        0.536280,
+        754.509155,
+        677.801453,
+        0.524329,
+        0.753113
+    )
+
+    for _, level in ipairs({ 34, 35, 36 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_22_plus_talent_plan(
+            level,
+            924.706848,
+            413.208282,
+            0.642604,
+            0.459120,
+            754.509155,
+            677.801453,
+            0.524329,
+            0.753113
+        )
+    end
+
+    for _, level in ipairs({ 37, 38 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_22_plus_talent_plan(
+            level,
+            1080.636841,
+            413.208282,
+            0.750964,
+            0.459120,
+            910.439148,
+            677.801453,
+            0.632689,
+            0.753113
+        )
+    end
 end
 
 do
@@ -2065,6 +2154,40 @@ do
             fixed_click_step("level_29_contract_second_click_1322_812", "29级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
             contract_back_step("level_29_contract_back_1"),
             contract_back_step("level_29_contract_back_2")
+        }
+    }
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[32] = {
+        key = "level_32_contract_second_setup",
+        label = "32级契灵：第二套契约点击配置",
+        require_available_points = false,
+        monster_guard_distance = 160,
+        safe_no_monster_ms = 600,
+        close_with_escape = false,
+        steps = {
+            open_menu_step("level_32_contract_open_menu"),
+            open_contract_panel_step("level_32_contract_open_panel"),
+            fixed_click_step("level_32_contract_second_click_329_256", "32级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
+            fixed_click_step("level_32_contract_second_click_1322_812", "32级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
+            contract_back_step("level_32_contract_back_1"),
+            contract_back_step("level_32_contract_back_2")
+        }
+    }
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[36] = {
+        key = "level_36_contract_second_setup",
+        label = "36级契灵：第二套契约点击配置",
+        require_available_points = false,
+        monster_guard_distance = 160,
+        safe_no_monster_ms = 600,
+        close_with_escape = false,
+        steps = {
+            open_menu_step("level_36_contract_open_menu"),
+            open_contract_panel_step("level_36_contract_open_panel"),
+            fixed_click_step("level_36_contract_second_click_329_256", "36级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
+            fixed_click_step("level_36_contract_second_click_1322_812", "36级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
+            contract_back_step("level_36_contract_back_1"),
+            contract_back_step("level_36_contract_back_2")
         }
     }
 end
@@ -3034,7 +3157,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
         nearby_monster_soft_hold_distance = 350,
         nearby_monster_soft_hold_timeout_ms = 4000,
         loot_press_interval_ms = 700,
-        loot_stuck_max_attempts = 5,
+        loot_stuck_max_attempts = 2,
         loot_ignore_ms = 12000,
         route_simplify = {
             min_spacing = 240,
@@ -3048,6 +3171,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             },
             loot_enabled = true,
             loot_anchor_distance = 320,
+            loot_max_pulses = 2,
             reentry_trigger = {
                 x = 2379.95,
                 y = -991.42,
@@ -3164,7 +3288,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "Restart/exit triggers are intentionally separated now; keep 16457.17,-12098.53 as exit-only data unless F7 proves otherwise",
             "Restart/exit portal probe now prefers hint fallback when distance-anchor locator drifts",
             "Before target_level=38 the restart portal must not fallback_interact; if the 求生之欲 MapTrapBtn cannot be located, wait for better button data instead of pressing E on the exit portal",
-            "Raised loot_stuck_max_attempts for this treasure to avoid skipping boss drops after only two pulses",
+            "Final boss loot is intentionally capped at two pickup pulses",
             "Verify boss name_patterns / panel_query and dedicated portal button locator logs on next real run"
         }
     },
@@ -4065,18 +4189,21 @@ local function make_free_fire_elsa_approval_boss_task_config()
         "free_fire_elsa_approval_boss_room",
         {
             trigger_distance = 520,
-            kite_radius = 1800,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = true,
+            immediate_no_task_target_kite = true,
+            kite_radius = 1260,
+            kite_point_count = 3,
             kite_switch_ms = 2400,
+            seamless_kite = true,
+            kite_arrive_distance = 420,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
             boss_clear_settle_ms = 3000,
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
-            kite_points = {
-                { x = 17723.00, y = -6545.00, z = 606.00 },
-                { x = 16728.18, y = -6623.85, z = 606.00 },
-                { x = 17723.00, y = -6545.00, z = 606.00 },
-                { x = 16728.18, y = -6623.85, z = 606.00 }
-            }
+            ignore_terminal_text_change_when_objective_same = true
         },
         {
             task_patterns = {
@@ -8569,6 +8696,7 @@ M.ROUTE_POINT_ACTIONS = {
             "\u{5E1D}\u{56FD}\u{4F59}\u{7130}"
         },
         task_detail_patterns = {
+            "\u{6DF1}\u{5165}\u{7FA4}\u{72FC}\u{8857}\u{5DF7}",
             "\u{7A81}\u{7834}\u{7FA4}\u{72FC}\u{5E2E}\u{4F0F}\u{51FB}"
         },
         constraint_mode = "all",
@@ -10691,37 +10819,6 @@ M.OBJECTIVE_POINT_CONFIGS = {
         task_detail_patterns = {
             "\u{6253}\u{8D25}\u{201C}\u{5934}\u{72FC}\u{201D}\u{9053}\u{5947}",
             "\u{5BFB}\u{627E}\u{7FA4}\u{72FC}\u{5E2E}\u{9996}\u{9886}"
-        },
-        constraint_mode = "all",
-        exclude_task_patterns = {
-            "\u{4EA4}\u{8C08}",
-            "\u{5BF9}\u{8BDD}"
-        }
-    }),
-    Actions.make_clear_room_point({
-        key = "free_fire_elsa_approval_boss_room",
-        x = 17225.59,
-        y = -6584.43,
-        z = 606.00,
-        radius = 1600,
-        trigger_distance = 1000,
-        kite_radius = 1800,
-        kite_switch_ms = 2400,
-        boss_clear_settle_ms = 3000,
-        kite_points = {
-            { x = 17723.00, y = -6545.00, z = 606.00 },
-            { x = 16728.18, y = -6623.85, z = 606.00 },
-            { x = 17723.00, y = -6545.00, z = 606.00 },
-            { x = 16728.18, y = -6623.85, z = 606.00 }
-        },
-        task_patterns = {
-            "\u{81EA}\u{7531}\u{7684}\u{7130}\u{706B}",
-            "\u{53D6}\u{5F97}\u{4F0A}\u{5C14}\u{838E}\u{7684}\u{8BA4}\u{53EF}",
-            "\u{94F6}\u{7130}\u{9996}\u{9886}\u{00B7}\u{4F0A}\u{5C14}\u{838E}"
-        },
-        task_detail_patterns = {
-            "\u{53D6}\u{5F97}\u{4F0A}\u{5C14}\u{838E}\u{7684}\u{8BA4}\u{53EF}",
-            "\u{94F6}\u{7130}\u{9996}\u{9886}\u{00B7}\u{4F0A}\u{5C14}\u{838E}"
         },
         constraint_mode = "all",
         exclude_task_patterns = {

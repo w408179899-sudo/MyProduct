@@ -7247,6 +7247,24 @@ function M.consume_terminal_task_refresh_marker(ctx, current_time, stage_name)
     local previous_task_detail = state.terminal_task_refresh_previous_task_detail
     local source = tostring(state.terminal_task_refresh_source or "")
     local locked_objective_key = normalize_map_name(state.terminal_task_locked_objective_key)
+    local stage_key = tostring(stage_name or state.stage or "")
+    if locked_objective_key ~= nil
+        and source == "nearby_text"
+        and (stage_key == "task_combat_kite" or state.task_combat_force_kite == true)
+    then
+        log_throttled(ctx, "terminal_marker_soft_probe_boss_ignored", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] terminal task refresh marker ignored during boss kite soft probe | old_task=%s old_detail=%s objective=%s new_task=%s new_detail=%s source=%s stage=%s",
+            tostring(previous_task_name or state.terminal_task_locked_name or ""),
+            tostring(previous_task_detail or state.terminal_task_locked_detail or ""),
+            tostring(state.terminal_task_locked_objective_key or ""),
+            tostring(state.terminal_task_refresh_new_task_name or state.current_task_name or ""),
+            tostring(state.terminal_task_refresh_new_task_detail or state.current_task_detail or ""),
+            source,
+            stage_key
+        ))
+        M.clear_terminal_task_refresh_marker()
+        return false
+    end
     if locked_objective_key ~= nil then
         local current_task_cfg, current_task_name = M.current_task_runtime_config()
         local current_objective = type(current_task_cfg) == "table" and type(current_task_cfg.objective) == "table"
