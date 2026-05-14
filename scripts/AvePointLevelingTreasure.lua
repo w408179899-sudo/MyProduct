@@ -53,6 +53,7 @@ local TREASURE_BOSS_KITE_POINT_ARRIVE_DISTANCE = 220
 local TREASURE_BOSS_KITE_CONFIGURED_SWITCH_MS = 2800
 local TREASURE_BOSS_ZERO_MONSTER_GRACE_MS = 700
 local TREASURE_BOSS_PRE_ENGAGE_ANCHOR_DISTANCE = 220
+local TREASURE_BOSS_LOOT_MAX_PULSES = 2
 
 local function is_valid_point(point)
     return type(point) == "table"
@@ -1551,6 +1552,31 @@ local function build_treasure_boss_kite_target(ctx, cfg, runtime, hooks, current
 end
 
 local function execute_treasure_route_follow(ctx, main_state, cfg, runtime, hooks, current_time, player_x, player_y, player_z)
+    local allow_zero_landing = landing_ready(player_x, player_y, player_z, type(cfg) == "table" and cfg.inside_landing or nil)
+        or landing_ready(player_x, player_y, player_z, type(cfg) == "table" and cfg.restart_landing or nil)
+    if not has_reliable_world_pos(player_x, player_y) and not allow_zero_landing then
+        set_treasure_stage(main_state, "treasure_follow_wait_position")
+        if type(hooks.hold_navigation) == "function" then
+            hooks.hold_navigation(ctx, current_time, "treasure_route_wait_valid_pos")
+        end
+        if type(hooks.clear_task_target_state) == "function" then
+            hooks.clear_task_target_state()
+        end
+        runtime.next_retry_at = math.max(tonumber(runtime.next_retry_at) or 0, current_time + 250)
+        if type(hooks.log_throttled) == "function" then
+            hooks.log_throttled(ctx, "treasure_route_wait_valid_pos_" .. tostring(cfg.key or ""), "info", 1200,
+                string.format(
+                    "[Treasure] route executor waiting valid position | key=%s mode=%s pos=%.2f, %.2f, %.2f",
+                    tostring(cfg.key or ""),
+                    tostring(runtime.mode or ""),
+                    tonumber(player_x) or 0,
+                    tonumber(player_y) or 0,
+                    tonumber(player_z) or 0
+                ))
+        end
+        return true
+    end
+
     local injected, inject_err = inject_route_target(ctx, main_state, cfg, runtime, hooks, current_time, player_x, player_y)
     local target = type(main_state) == "table" and type(main_state.task_target) == "table" and main_state.task_target or nil
     if not injected or type(target) ~= "table" then
@@ -2129,6 +2155,9 @@ landing_ready = function(player_x, player_y, player_z, landing)
     if not is_valid_point(landing) then
         return false
     end
+    if not has_reliable_world_pos(player_x, player_y) and landing.allow_zero ~= true then
+        return false
+    end
     if tonumber(landing.x) == 0 and tonumber(landing.y) == 0 and landing.allow_zero ~= true then
         return false
     end
@@ -2397,6 +2426,12 @@ local function maybe_handle_treasure_boss_loot(ctx, main_state, cfg, runtime, ho
     if type(hooks.enum_ground_items) ~= "function" or type(hooks.press_loot_key) ~= "function" then
         return false
     end
+    local max_pulses = tonumber(boss_cfg.loot_max_pulses)
+        or tonumber(cfg.boss_loot_max_pulses)
+        or TREASURE_BOSS_LOOT_MAX_PULSES
+    if max_pulses ~= nil and max_pulses <= 0 then
+        max_pulses = nil
+    end
 
     local items, enum_err = hooks.enum_ground_items(ctx)
     if type(items) ~= "table" then
@@ -2459,18 +2494,32 @@ local function maybe_handle_treasure_boss_loot(ctx, main_state, cfg, runtime, ho
             if empty_wait_ms < empty_confirm_ms then
                 local next_loot_at = tonumber(runtime.loot_next_at) or 0
                 if current_time >= next_loot_at then
-                    local ok, press_err = hooks.press_loot_key(ctx)
-                    runtime.loot_next_at = current_time + math.max(350, tonumber(cfg.loot_press_interval_ms) or 700)
-                    if type(hooks.log_info) == "function" then
-                        hooks.log_info(ctx, string.format(
-                            "[Treasure] boss room loot empty confirm pulse | key=%s wait_ms=%d confirm_ms=%d seen_items=%s press_ok=%s err=%s",
-                            tostring(cfg.key or ""),
-                            empty_wait_ms,
-                            empty_confirm_ms,
-                            runtime.boss_loot_seen_items == true and "true" or "false",
-                            ok and "true" or "false",
-                            tostring(press_err or "")
-                        ))
+                    local pulse_count = tonumber(runtime.boss_loot_pulse_count) or 0
+                    if max_pulses == nil or pulse_count < max_pulses then
+                        local ok, press_err = hooks.press_loot_key(ctx)
+                        runtime.boss_loot_pulse_count = pulse_count + 1
+                        runtime.loot_next_at = current_time + math.max(350, tonumber(cfg.loot_press_interval_ms) or 700)
+                        if type(hooks.log_info) == "function" then
+                            hooks.log_info(ctx, string.format(
+                                "[Treasure] boss room loot empty confirm pulse | key=%s wait_ms=%d confirm_ms=%d seen_items=%s press_ok=%s err=%s pulses=%d max_pulses=%s",
+                                tostring(cfg.key or ""),
+                                empty_wait_ms,
+                                empty_confirm_ms,
+                                runtime.boss_loot_seen_items == true and "true" or "false",
+                                ok and "true" or "false",
+                                tostring(press_err or ""),
+                                tonumber(runtime.boss_loot_pulse_count) or 0,
+                                tostring(max_pulses or "")
+                            ))
+                        end
+                    elseif type(hooks.log_throttled) == "function" then
+                        hooks.log_throttled(ctx, "treasure_boss_loot_empty_confirm_cap_" .. tostring(cfg.key or ""), "info", 900,
+                            string.format(
+                                "[Treasure] boss room loot empty confirm pulse cap reached | key=%s pulses=%d max_pulses=%d",
+                                tostring(cfg.key or ""),
+                                pulse_count,
+                                max_pulses
+                            ))
                     end
                 end
                 if type(hooks.hold_navigation) == "function" then
@@ -2505,7 +2554,6 @@ local function maybe_handle_treasure_boss_loot(ctx, main_state, cfg, runtime, ho
     runtime.boss_loot_empty_started_at = 0
     local summary = summarize_ground_items(items, 3)
     local next_loot_at = tonumber(runtime.loot_next_at) or 0
-    local max_pulses = tonumber(boss_cfg.loot_max_pulses) or tonumber(cfg.boss_loot_max_pulses)
     if max_pulses ~= nil and max_pulses > 0 and (tonumber(runtime.boss_loot_pulse_count) or 0) >= max_pulses then
         if type(hooks.log_info) == "function" then
             hooks.log_info(ctx, string.format(
@@ -2935,17 +2983,40 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                 if type(hooks.clear_task_target_state) == "function" then
                     hooks.clear_task_target_state()
                 end
+                local deadline_at = tonumber(runtime.stage_deadline_at) or 0
+                if deadline_at <= 0 then
+                    arm_entry_ui_step_deadline(ctx, hooks, cfg, runtime, current_time, step, step_index, step_total)
+                    deadline_at = tonumber(runtime.stage_deadline_at) or 0
+                elseif current_time > deadline_at then
+                    reset_entry_chain_to_first_step(
+                        ctx,
+                        main_state,
+                        hooks,
+                        cfg,
+                        runtime,
+                        current_time,
+                        "entry_trigger_invalid_pos_timeout",
+                        player_x,
+                        player_y,
+                        player_z,
+                        step_index,
+                        step_total,
+                        type(step) == "table" and (step.key or "") or ""
+                    )
+                    return true
+                end
                 if type(hooks.log_throttled) == "function" then
                     hooks.log_throttled(ctx, "treasure_entry_invalid_pos_probe_" .. tostring(cfg.key or "") .. "_" .. tostring(step_index), "info", 1200,
                         string.format(
-                            "[Treasure] entry trigger invalid position, continue UI button probe | key=%s step=%d/%d step_key=%s pos=%.2f, %.2f, %.2f",
+                            "[Treasure] entry trigger invalid position, continue UI button probe | key=%s step=%d/%d step_key=%s pos=%.2f, %.2f, %.2f deadline_in=%dms",
                             tostring(cfg.key or ""),
                             tonumber(step_index) or 0,
                             tonumber(step_total) or 0,
                             tostring(type(step) == "table" and (step.key or "") or ""),
                             tonumber(player_x) or 0,
                             tonumber(player_y) or 0,
-                            tonumber(player_z) or 0
+                            tonumber(player_z) or 0,
+                            math.max(0, deadline_at - current_time)
                         ))
                 end
             else

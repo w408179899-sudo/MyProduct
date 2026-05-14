@@ -773,6 +773,7 @@ do
         end
         if tostring(step.key or "") == "click_skill_upgrade_image" then
             step.missing_image_means_done = true
+            step.missing_image_means_step_done = nil
             step.cleanup_back_before_finish = true
             step.repeat_image_until_missing = true
             step.repeat_image_until_missing_max_count = 30
@@ -1363,7 +1364,7 @@ do
         )
     end
 
-    for _, level in ipairs({ 37, 38 }) do
+    for _, level in ipairs({ 37, 38, 39 }) do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_22_plus_talent_plan(
             level,
             1080.636841,
@@ -1376,6 +1377,202 @@ do
             0.753113
         )
     end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[40] = make_level_22_plus_talent_plan(
+        40,
+        1236.566772,
+        413.208282,
+        0.859324,
+        0.459120,
+        1066.369263,
+        677.801453,
+        0.741049,
+        0.753113
+    )
+
+    local level_41_open_menu_step = clone_step_with_key(
+        open_menu_step,
+        "level_41_open_fast_entrance_menu",
+        "41级天赋：打开菜单"
+    )
+    level_41_open_menu_step.missing_target_means_step_done = true
+    local level_41_select_category_step = make_fixed_client_click_step({
+        key = "select_level_41_talent_category",
+        label = "41级天赋：固定点击天赋大类",
+        fixed_client_x = 1071.00,
+        fixed_client_y = 522.00,
+        fixed_ratio_x = 0.744267,
+        fixed_ratio_y = 0.580000,
+        fixed_prefer_ratio = true,
+        click_delay = 60,
+        hover_delay_ms = 90,
+        wait_after_ms = 900
+    })
+    local level_41_activate_category_step = make_fixed_client_click_step({
+        key = "activate_level_41_talent_category",
+        label = "41级天赋：固定点击天赋大类激活",
+        fixed_client_x = 1296.00,
+        fixed_client_y = 479.00,
+        fixed_ratio_x = 0.900625,
+        fixed_ratio_y = 0.532222,
+        fixed_prefer_ratio = true,
+        click_delay = 60,
+        hover_delay_ms = 90,
+        wait_after_ms = 900
+    })
+    local level_41_activate_node_step = maintenance_locator_step(
+        "activate_level_41_talent_node",
+        "41级天赋：连续激活天赋节点",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+            "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+        },
+        900.439148,
+        672.801453,
+        0.625740,
+        0.747557,
+        80,
+        650
+    )
+    level_41_activate_node_step.click_repeat_count = 3
+    level_41_activate_node_step.click_repeat_interval_ms = 180
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[41] = {
+        key = "level_41_talent_category_tab_and_node_activate",
+        label = "41级天赋：激活天赋大类并点天赋节点",
+        require_available_points = "defer",
+        close_with_escape = false,
+        steps = {
+            level_41_open_menu_step,
+            clone_step_with_key(open_talent_step, "level_41_open_talent_panel", "41级天赋：打开天赋面板"),
+            clone_step_with_key(check_points_step, "level_41_check_talent_points", "41级天赋：检查天赋点"),
+            level_41_select_category_step,
+            level_41_activate_category_step,
+            maintenance_locator_step(
+                "select_level_41_second_talent_card",
+                "41级天赋：切换第二张天赋卡",
+                {
+                    "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+                },
+                47.726845,
+                392.616241,
+                0.033167,
+                0.436240,
+                80,
+                900
+            ),
+            maintenance_locator_step(
+                "select_level_41_talent_node",
+                "41级天赋：选择天赋节点",
+                {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                },
+                1070.636841,
+                616.538025,
+                0.744014,
+                0.685042,
+                80,
+                1200
+            ),
+            level_41_activate_node_step,
+            clone_step_with_key(back_step, "level_41_back_from_talent_panel", "41级天赋：返回")
+        }
+    }
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[42] = make_level_22_plus_talent_plan(
+        42,
+        1226.566772,
+        616.538025,
+        0.852374,
+        0.685042,
+        1056.369263,
+        672.801453,
+        0.734100,
+        0.747557
+    )
+
+    local level_43_talent_plan = make_level_22_plus_talent_plan(
+        43,
+        914.706848,
+        547.094788,
+        0.635655,
+        0.607883,
+        744.509155,
+        672.801453,
+        0.517380,
+        0.747557
+    )
+    local level_43_talent_steps = type(level_43_talent_plan.steps) == "table" and level_43_talent_plan.steps or {}
+    local level_43_back_step = table.remove(level_43_talent_steps, #level_43_talent_steps)
+    level_43_talent_steps[#level_43_talent_steps + 1] = make_fixed_client_click_step({
+        key = "level_43_fixed_click_extra_talent_388_251",
+        label = "43级天赋：额外固定点击1",
+        fixed_client_x = 388.00,
+        fixed_client_y = 251.00,
+        fixed_ratio_x = 0.269632,
+        fixed_ratio_y = 0.278889,
+        fixed_prefer_ratio = true,
+        click_delay = 60,
+        hover_delay_ms = 90,
+        wait_after_ms = 900
+    })
+    level_43_talent_steps[#level_43_talent_steps + 1] = make_fixed_client_click_step({
+        key = "level_43_fixed_click_extra_talent_341_617",
+        label = "43级天赋：额外固定点击2",
+        fixed_client_x = 341.00,
+        fixed_client_y = 617.00,
+        fixed_ratio_x = 0.236970,
+        fixed_ratio_y = 0.685556,
+        fixed_prefer_ratio = true,
+        click_delay = 60,
+        hover_delay_ms = 90,
+        wait_after_ms = 900
+    })
+    level_43_talent_steps[#level_43_talent_steps + 1] = make_fixed_client_click_step({
+        key = "level_43_fixed_click_extra_talent_1277_148",
+        label = "43级天赋：额外固定点击3",
+        fixed_client_x = 1277.00,
+        fixed_client_y = 148.00,
+        fixed_ratio_x = 0.887422,
+        fixed_ratio_y = 0.164444,
+        fixed_prefer_ratio = true,
+        click_delay = 60,
+        hover_delay_ms = 90,
+        wait_after_ms = 900
+    })
+    if type(level_43_back_step) == "table" then
+        level_43_talent_steps[#level_43_talent_steps + 1] = level_43_back_step
+    end
+    level_43_talent_plan.key = "level_43_talent_node_activate_with_extra_category_clicks"
+    level_43_talent_plan.label = "43级天赋：激活天赋节点并额外点击大类"
+    level_43_talent_plan.steps = level_43_talent_steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[43] = level_43_talent_plan
+
+    for _, level in ipairs({ 44, 45 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_22_plus_talent_plan(
+            level,
+            914.706848,
+            547.094788,
+            0.635655,
+            0.607883,
+            744.509155,
+            672.801453,
+            0.517380,
+            0.747557
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[46] = make_level_22_plus_talent_plan(
+        46,
+        1070.636841,
+        547.094788,
+        0.744014,
+        0.607883,
+        900.439148,
+        672.801453,
+        0.625740,
+        0.747557
+    )
 end
 
 do
@@ -1387,6 +1584,22 @@ do
     local steps = type(level_5_skill_plan.steps) == "table" and level_5_skill_plan.steps or {}
     if #steps > 0 and tostring(steps[#steps].key or "") == "back_from_skill_panel" then
         table.remove(steps, #steps)
+    end
+    for _, step in ipairs(steps) do
+        if tostring(step.key or "") == "click_skill_upgrade_image" then
+            step.missing_image_means_done = false
+            step.missing_image_means_step_done = true
+            step.cleanup_back_before_finish = true
+            step.repeat_image_until_missing = true
+            step.repeat_image_until_missing_max_count = 30
+            step.repeat_image_until_missing_interval_ms = 180
+            if type(step.image_preset) == "table" then
+                step.image_preset.click_repeat_count = 1
+                step.image_preset.repeat_until_missing = true
+                step.image_preset.repeat_until_missing_max_count = 30
+                step.image_preset.repeat_until_missing_interval_ms = 180
+            end
+        end
     end
 
     local function fixed_click_step(key, label, client_x, client_y, ratio_x, ratio_y, wait_after_ms)
@@ -1550,7 +1763,8 @@ do
         elseif tostring(step.key or "") == "click_skill_upgrade_image" then
             step.key = "level_14_click_skill_upgrade_image"
             step.label = "14级技能升级找图按钮"
-            step.missing_image_means_done = true
+            step.missing_image_means_done = false
+            step.missing_image_means_step_done = true
             step.cleanup_back_before_finish = true
             step.repeat_image_until_missing = true
             step.repeat_image_until_missing_max_count = 30
@@ -1706,7 +1920,8 @@ do
         elseif tostring(step.key or "") == "click_skill_upgrade_image" then
             step.key = "level_21_click_skill_upgrade_image"
             step.label = "21级技能升级找图按钮"
-            step.missing_image_means_done = true
+            step.missing_image_means_done = false
+            step.missing_image_means_step_done = true
             step.cleanup_back_before_finish = true
             step.repeat_image_until_missing = true
             step.repeat_image_until_missing_max_count = 30
@@ -1871,7 +2086,8 @@ do
         elseif tostring(step.key or "") == "click_skill_upgrade_image" then
             step.key = "level_29_click_skill_upgrade_image"
             step.label = "29级技能升级找图按钮"
-            step.missing_image_means_done = true
+            step.missing_image_means_done = false
+            step.missing_image_means_step_done = true
             step.cleanup_back_before_finish = true
             step.repeat_image_until_missing = true
             step.repeat_image_until_missing_max_count = 30
@@ -2018,6 +2234,190 @@ do
 
     level_29_skill_plan.steps = level_29_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[29] = level_29_skill_plan
+
+    local level_40_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
+    level_40_skill_plan.key = "level_40_skill_upgrade_sequence"
+    level_40_skill_plan.label = "40级技能：找图升级并配置侵蚀"
+    level_40_skill_plan.close_with_escape = false
+
+    local level_40_steps = type(level_40_skill_plan.steps) == "table" and level_40_skill_plan.steps or {}
+    if #level_40_steps > 0 and tostring(level_40_steps[#level_40_steps].key or "") == "back_from_skill_panel" then
+        table.remove(level_40_steps, #level_40_steps)
+    end
+    for _, step in ipairs(level_40_steps) do
+        if tostring(step.key or "") == "open_skill_add_panel" then
+            step.key = "level_40_open_skill_add_panel"
+            step.label = "40级技能加点入口按钮"
+            step.missing_target_means_plan_done = true
+        elseif tostring(step.key or "") == "click_skill_upgrade_image" then
+            step.key = "level_40_click_skill_upgrade_image"
+            step.label = "40级技能升级找图按钮"
+            step.missing_image_means_done = false
+            step.missing_image_means_step_done = true
+            step.cleanup_back_before_finish = true
+            step.repeat_image_until_missing = true
+            step.repeat_image_until_missing_max_count = 30
+            step.repeat_image_until_missing_interval_ms = 180
+            if type(step.image_preset) == "table" then
+                step.image_preset.click_repeat_count = 1
+                step.image_preset.repeat_until_missing = true
+                step.image_preset.repeat_until_missing_max_count = 30
+                step.image_preset.repeat_until_missing_interval_ms = 180
+            end
+        end
+    end
+
+    level_40_steps[#level_40_steps + 1] = {
+        key = "level_40_open_fast_entrance_menu_after_skill_image",
+        label = "技能天赋菜单按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+        },
+        hint_client_x = 1383.688110,
+        hint_client_y = 52.706509,
+        hint_ratio_x = 0.961562,
+        hint_ratio_y = 0.058563,
+        hint_max_distance = 100,
+        wait_after_ms = 800
+    }
+    level_40_steps[#level_40_steps + 1] = {
+        key = "level_40_open_skill_panel_after_skill_image",
+        label = "技能按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 1249.024658,
+        hint_client_y = 155.104156,
+        hint_ratio_x = 0.867981,
+        hint_ratio_y = 0.172338,
+        hint_max_distance = 90,
+        wait_after_ms = 1000
+    }
+    level_40_steps[#level_40_steps + 1] = fixed_click_step(
+        "level_40_skill_fixed_click_82_531_a",
+        "40级技能固定点击1",
+        82.00,
+        531.00,
+        0.056984,
+        0.590000,
+        350
+    )
+    level_40_steps[#level_40_steps + 1] = fixed_click_step(
+        "level_40_skill_fixed_click_82_531_b",
+        "40级技能固定点击2",
+        82.00,
+        531.00,
+        0.056984,
+        0.590000,
+        350
+    )
+    level_40_steps[#level_40_steps + 1] = fixed_click_step(
+        "level_40_skill_fixed_click_82_531_c",
+        "40级技能固定点击3",
+        82.00,
+        531.00,
+        0.056984,
+        0.590000,
+        350
+    )
+    level_40_steps[#level_40_steps + 1] = fixed_click_step(
+        "level_40_skill_fixed_click_727_455",
+        "40级技能固定点击4",
+        727.00,
+        455.00,
+        0.505212,
+        0.505556,
+        350
+    )
+    level_40_steps[#level_40_steps + 1] = fixed_click_step(
+        "level_40_skill_search_focus",
+        "40级技能搜索输入框",
+        388.00,
+        653.00,
+        0.269632,
+        0.725556,
+        250
+    )
+    level_40_steps[#level_40_steps + 1] = {
+        kind = "type_text",
+        key = "level_40_skill_search_erosion_text",
+        label = "输入侵蚀",
+        text = "侵蚀",
+        input_method = "clipboard",
+        clear_before = true,
+        key_delay_ms = 30,
+        wait_after_ms = 500
+    }
+    level_40_steps[#level_40_steps + 1] = fixed_click_step(
+        "level_40_skill_search_confirm",
+        "40级技能搜索确认",
+        590.00,
+        655.00,
+        0.410007,
+        0.727778,
+        700
+    )
+    level_40_steps[#level_40_steps + 1] = fixed_click_step(
+        "level_40_skill_select_erosion_result",
+        "40级技能选择侵蚀结果",
+        354.00,
+        329.00,
+        0.246004,
+        0.365556,
+        700
+    )
+    level_40_steps[#level_40_steps + 1] = fixed_click_step(
+        "level_40_skill_fixed_click_812_423",
+        "40级技能固定点击5",
+        812.00,
+        423.00,
+        0.564281,
+        0.470000,
+        350
+    )
+    level_40_steps[#level_40_steps + 1] = fixed_click_step(
+        "level_40_skill_fixed_click_711_325",
+        "40级技能固定点击6",
+        711.00,
+        325.00,
+        0.494093,
+        0.361111,
+        350
+    )
+    level_40_steps[#level_40_steps + 1] = fixed_click_step(
+        "level_40_skill_fixed_click_535_421",
+        "40级技能固定点击7",
+        535.00,
+        421.00,
+        0.371786,
+        0.467778,
+        350
+    )
+    level_40_steps[#level_40_steps + 1] = fixed_click_step(
+        "level_40_skill_fixed_click_717_845",
+        "40级技能固定点击8",
+        717.00,
+        845.00,
+        0.498263,
+        0.938889,
+        700
+    )
+    level_40_steps[#level_40_steps + 1] = {
+        key = "back_from_skill_panel_after_erosion_setup",
+        label = "技能返回按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+        },
+        hint_client_x = 1384.784546,
+        hint_client_y = 52.000000,
+        hint_ratio_x = 0.961656,
+        hint_ratio_y = 0.057778,
+        hint_max_distance = 90,
+        wait_after_ms = 500
+    }
+
+    level_40_skill_plan.steps = level_40_steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[40] = level_40_skill_plan
 end
 
 do
@@ -2188,6 +2588,40 @@ do
             fixed_click_step("level_36_contract_second_click_1322_812", "36级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
             contract_back_step("level_36_contract_back_1"),
             contract_back_step("level_36_contract_back_2")
+        }
+    }
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[41] = {
+        key = "level_41_contract_second_setup",
+        label = "41级契灵：第二套契约点击配置",
+        require_available_points = false,
+        monster_guard_distance = 160,
+        safe_no_monster_ms = 600,
+        close_with_escape = false,
+        steps = {
+            open_menu_step("level_41_contract_open_menu"),
+            open_contract_panel_step("level_41_contract_open_panel"),
+            fixed_click_step("level_41_contract_second_click_329_256", "41级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
+            fixed_click_step("level_41_contract_second_click_1322_812", "41级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
+            contract_back_step("level_41_contract_back_1"),
+            contract_back_step("level_41_contract_back_2")
+        }
+    }
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[44] = {
+        key = "level_44_contract_second_setup",
+        label = "44级契灵：第二套契约点击配置",
+        require_available_points = false,
+        monster_guard_distance = 160,
+        safe_no_monster_ms = 600,
+        close_with_escape = false,
+        steps = {
+            open_menu_step("level_44_contract_open_menu"),
+            open_contract_panel_step("level_44_contract_open_panel"),
+            fixed_click_step("level_44_contract_second_click_329_256", "44级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
+            fixed_click_step("level_44_contract_second_click_1322_812", "44级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
+            contract_back_step("level_44_contract_back_1"),
+            contract_back_step("level_44_contract_back_2")
         }
     }
 end
@@ -4203,6 +4637,12 @@ local function make_free_fire_elsa_approval_boss_task_config()
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
+            allow_nearby_text_task_change_exit = true,
+            nearby_text_task_change_confirm_ms = 1200,
+            nearby_text_task_change_confirm_count = 2,
+            nearby_text_task_change_exit_patterns = {
+                "\u{4E0E}\u{4F0A}\u{5C14}\u{838E}\u{5BF9}\u{8BDD}"
+            },
             ignore_terminal_text_change_when_objective_same = true
         },
         {
@@ -4240,12 +4680,12 @@ end
 
 local function make_another_magic_academy_forbidden_guard_revive_reentry_config()
     return make_revive_reentry_config({
-        key = "another_magic_academy_forbidden_guard_boss_room_reentry_18306_8595",
+        key = "another_magic_academy_forbidden_guard_boss_room_reentry_18360_8571",
         label = "\u{53E6}\u{4E00}\u{4E2A}\u{9B54}\u{6CD5}\u{5B66}\u{9662} Boss\u{91CD}\u{8FDB}\u{623F}",
         anchor = {
-            x = 18306.24,
-            y = 8595.45,
-            z = 307.57,
+            x = 18360.00,
+            y = 8571.00,
+            z = 308.00,
             radius = 620,
             z_tolerance = 320
         },
@@ -4265,30 +4705,26 @@ local function make_another_magic_academy_forbidden_guard_boss_task_config()
         {
             trigger_distance = 520,
             immediate_kite_on_reached = true,
-            kite_radius = 1800,
+            kite_radius = 1260,
+            kite_point_count = 3,
             kite_switch_ms = 2400,
             seamless_kite = true,
-            kite_arrive_distance = 520,
+            kite_arrive_distance = 420,
             kite_move_interval_ms = 120,
             defer_followup_until_clear = true,
             boss_clear_settle_ms = 3000,
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
-            kite_points = {
-                { x = 19680.23, y = 8403.38, z = 607.00 },
-                { x = 20886.94, y = 7818.64, z = 605.00 },
-                { x = 20750.76, y = 9283.95, z = 605.00 }
-            },
+            ignore_terminal_text_change_when_objective_same = true,
             revive_reentry = make_another_magic_academy_forbidden_guard_revive_reentry_config()
         },
         {
             task_patterns = {
-                "\u{53E6}\u{4E00}\u{4E2A}\u{9B54}\u{6CD5}\u{5B66}\u{9662}",
-                "\u{51FB}\u{8D25}\u{7981}\u{533A}\u{5B88}\u{536B}",
-                "\u{5B88}\u{536B}\u{519B}\u{9886}\u{8896}\u{00B7}\u{963F}\u{5C14}\u{514B}\u{65AF}"
+                "\u{53E6}\u{4E00}\u{4E2A}\u{9B54}\u{6CD5}\u{5B66}\u{9662}"
             },
             task_detail_patterns = {
+                "\u{51B2}\u{7834}\u{9632}\u{7EBF}\u{FF0C}\u{62B5}\u{8FBE}\u{7981}\u{533A}\u{5165}\u{53E3}",
                 "\u{51FB}\u{8D25}\u{7981}\u{533A}\u{5B88}\u{536B}",
                 "\u{5B88}\u{536B}\u{519B}\u{9886}\u{8896}\u{00B7}\u{963F}\u{5C14}\u{514B}\u{65AF}"
             },
@@ -4302,18 +4738,21 @@ local function make_fire_treader_romel_boss_task_config()
         "fire_treader_romel_boss_room",
         {
             trigger_distance = 520,
-            kite_radius = 0,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = true,
+            immediate_no_task_target_kite = true,
+            kite_radius = 1260,
+            kite_point_count = 3,
             kite_switch_ms = 2400,
+            seamless_kite = true,
+            kite_arrive_distance = 420,
+            kite_move_interval_ms = 180,
+            defer_followup_until_clear = true,
             boss_clear_settle_ms = 3000,
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
-            kite_points = {
-                { x = 3550.00, y = -50.00, z = 6.00 },
-                { x = 3550.00, y = -50.00, z = 6.00 },
-                { x = 3550.00, y = -50.00, z = 6.00 },
-                { x = 3550.00, y = -50.00, z = 6.00 }
-            }
+            ignore_terminal_text_change_when_objective_same = true
         },
         {
             task_patterns = {
@@ -5413,8 +5852,6 @@ M.TASK_NAME_CONFIGS = {
     ["\u{548C}\u{4F0A}\u{5C14}\u{838E}\u{4EA4}\u{6D41}\u{60C5}\u{62A5}"] = make_long_plan_elsa_intel_dialogue_task_config(),
     ["\u{8FD4}\u{56DE}\u{9ECE}\u{660E}\u{5723}\u{6240}"] = make_long_plan_elsa_intel_dialogue_task_config(),
     ["\u{53E6}\u{4E00}\u{4E2A}\u{9B54}\u{6CD5}\u{5B66}\u{9662}"] = make_another_magic_academy_forbidden_guard_boss_task_config(),
-    ["\u{51FB}\u{8D25}\u{7981}\u{533A}\u{5B88}\u{536B}"] = make_another_magic_academy_forbidden_guard_boss_task_config(),
-    ["\u{5B88}\u{536B}\u{519B}\u{9886}\u{8896}\u{00B7}\u{963F}\u{5C14}\u{514B}\u{65AF}"] = make_another_magic_academy_forbidden_guard_boss_task_config(),
     ["\u{524D}\u{5F80}\u{5723}\u{5FB7}\u{5170}\u{9B54}\u{6CD5}\u{5B66}\u{9662}"] = make_world_map_send_task_config(
         "fire_treader_saint_delane_academy_world_map_send",
         {
@@ -8509,8 +8946,8 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
-        key = "abyss_below_trace_ryan_anchor_3223_6136",
-        label = "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}_\u{8FFD}\u{5BFB}\u{83B1}\u{5B89}\u{8E2A}\u{8FF9}_\u{5165}\u{53E3}\u{951A}\u{70B9}_3223_6136",
+        key = "abyss_below_trace_ryan_anchor_4326_6840_to_2801_8001",
+        label = "abyss_below_trace_ryan_anchor_4326_6840_to_2801_8001",
         mode = "recorded_route_point",
         task_patterns = {
             "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}"
@@ -8521,10 +8958,10 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 3223.00,
-            y = 6136.00,
+            x = 4326.42,
+            y = 6840.77,
             z = 503.00,
-            radius = 2200,
+            radius = 700,
             z_tolerance = 360
         },
         retry_ms = 600000,
@@ -8534,7 +8971,7 @@ M.ROUTE_POINT_ACTIONS = {
         move_interval_ms = 220,
         reacquire_retry_ms = 1200,
         waypoints = {
-            { x = 3223.00, y = 6136.00, z = 503.00 }
+            { x = 2801.18, y = 8001.29, z = 503.00 }
         }
     }),
     make_route_point_action({
@@ -10819,42 +11256,6 @@ M.OBJECTIVE_POINT_CONFIGS = {
         task_detail_patterns = {
             "\u{6253}\u{8D25}\u{201C}\u{5934}\u{72FC}\u{201D}\u{9053}\u{5947}",
             "\u{5BFB}\u{627E}\u{7FA4}\u{72FC}\u{5E2E}\u{9996}\u{9886}"
-        },
-        constraint_mode = "all",
-        exclude_task_patterns = {
-            "\u{4EA4}\u{8C08}",
-            "\u{5BF9}\u{8BDD}"
-        }
-    }),
-    Actions.make_clear_room_point({
-        key = "another_magic_academy_forbidden_guard_boss_room",
-        x = 20700.00,
-        y = 8610.00,
-        z = 605.00,
-        radius = 1400,
-        trigger_distance = 900,
-        immediate_kite_on_reached = true,
-        kite_radius = 1800,
-        kite_switch_ms = 2400,
-        seamless_kite = true,
-        kite_arrive_distance = 520,
-        kite_move_interval_ms = 120,
-        defer_followup_until_clear = true,
-        boss_clear_settle_ms = 3000,
-        kite_points = {
-            { x = 19680.23, y = 8403.38, z = 607.00 },
-            { x = 20886.94, y = 7818.64, z = 605.00 },
-            { x = 20750.76, y = 9283.95, z = 605.00 }
-        },
-        revive_reentry = make_another_magic_academy_forbidden_guard_revive_reentry_config(),
-        task_patterns = {
-            "\u{53E6}\u{4E00}\u{4E2A}\u{9B54}\u{6CD5}\u{5B66}\u{9662}",
-            "\u{51FB}\u{8D25}\u{7981}\u{533A}\u{5B88}\u{536B}",
-            "\u{5B88}\u{536B}\u{519B}\u{9886}\u{8896}\u{00B7}\u{963F}\u{5C14}\u{514B}\u{65AF}"
-        },
-        task_detail_patterns = {
-            "\u{51FB}\u{8D25}\u{7981}\u{533A}\u{5B88}\u{536B}",
-            "\u{5B88}\u{536B}\u{519B}\u{9886}\u{8896}\u{00B7}\u{963F}\u{5C14}\u{514B}\u{65AF}"
         },
         constraint_mode = "all",
         exclude_task_patterns = {

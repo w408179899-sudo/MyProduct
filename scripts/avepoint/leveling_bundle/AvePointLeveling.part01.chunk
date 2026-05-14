@@ -1723,6 +1723,10 @@ local function reset_state()
     state.task_combat_locked_objective_key = nil
     state.task_combat_locked_reentry_cfg = nil
     state.task_combat_locked_reentry_source = nil
+    state.task_combat_locked_allow_nearby_text_task_change_exit = false
+    state.task_combat_locked_nearby_text_task_change_confirm_ms = nil
+    state.task_combat_locked_nearby_text_task_change_confirm_count = nil
+    state.task_combat_locked_nearby_text_task_change_exit_patterns = nil
     state.last_boss_context_at = 0
     state.last_boss_locked_task_name = nil
     state.last_boss_locked_task_detail = nil
@@ -6892,6 +6896,24 @@ function M.lock_boss_combat_context(task_name, objective_cfg, point_objective_cf
             or type(point_objective_cfg) == "table" and point_objective_cfg.key
             or ""
     )
+    local function locked_option(name)
+        if type(point_objective_cfg) == "table" and point_objective_cfg[name] ~= nil then
+            return point_objective_cfg[name]
+        end
+        if type(objective_cfg) == "table" then
+            return objective_cfg[name]
+        end
+        return nil
+    end
+    state.task_combat_locked_allow_nearby_text_task_change_exit =
+        locked_option("allow_nearby_text_task_change_exit") == true
+    state.task_combat_locked_nearby_text_task_change_confirm_ms =
+        tonumber(locked_option("nearby_text_task_change_confirm_ms"))
+    state.task_combat_locked_nearby_text_task_change_confirm_count =
+        tonumber(locked_option("nearby_text_task_change_confirm_count"))
+    local exit_patterns = locked_option("nearby_text_task_change_exit_patterns")
+    state.task_combat_locked_nearby_text_task_change_exit_patterns =
+        type(exit_patterns) == "table" and exit_patterns or nil
 
     local locked_reentry_cfg = M.extract_revive_reentry_config(point_objective_cfg)
         or M.extract_revive_reentry_config(objective_cfg)
@@ -7002,6 +7024,47 @@ function M.maybe_handle_boss_task_change(ctx, current_time, objective_cfg, playe
     local current_log_task_detail = normalize_map_name(M.current_task_log_detail())
     local current_task_source = tostring(state.current_task_name_source or "")
     local current_detail_source = tostring(state.current_task_detail_source or "")
+    local function boss_soft_exit_option(name)
+        if type(objective_cfg) == "table" and objective_cfg[name] ~= nil then
+            return objective_cfg[name]
+        end
+        if type(current_objective) == "table" and current_objective[name] ~= nil then
+            return current_objective[name]
+        end
+        if type(locked_point_cfg) == "table" and locked_point_cfg[name] ~= nil then
+            return locked_point_cfg[name]
+        end
+        if name == "allow_nearby_text_task_change_exit" then
+            return state.task_combat_locked_allow_nearby_text_task_change_exit
+        end
+        if name == "nearby_text_task_change_confirm_ms" then
+            return state.task_combat_locked_nearby_text_task_change_confirm_ms
+        end
+        if name == "nearby_text_task_change_confirm_count" then
+            return state.task_combat_locked_nearby_text_task_change_confirm_count
+        end
+        if name == "nearby_text_task_change_exit_patterns" then
+            return state.task_combat_locked_nearby_text_task_change_exit_patterns
+        end
+        return nil
+    end
+    local function boss_soft_exit_candidate_allowed(candidate)
+        local patterns = boss_soft_exit_option("nearby_text_task_change_exit_patterns")
+        if type(patterns) ~= "table" or #patterns == 0 then
+            return true
+        end
+        local candidate_text = normalize_map_name(candidate)
+        if candidate_text == nil then
+            return false
+        end
+        for _, pattern in ipairs(patterns) do
+            local pattern_text = normalize_map_name(pattern)
+            if pattern_text ~= nil and candidate_text:find(pattern_text, 1, true) ~= nil then
+                return true
+            end
+        end
+        return false
+    end
     local detail_changed = locked_task_detail ~= nil
         and current_log_task_detail ~= nil
         and current_log_task_detail ~= locked_task_detail
@@ -7057,19 +7120,84 @@ function M.maybe_handle_boss_task_change(ctx, current_time, objective_cfg, playe
         and (name_changed or detail_changed or detail_missing_changed)
     then
         if soft_probe_change then
-            log_throttled(ctx, "boss_task_change_soft_probe_ignored", "warn", LOG_THROTTLE_MS, string.format(
-                "[Leveling] boss task change ignored from soft text probe | old_task=%s old_detail=%s old_objective=%s new_task=%s new_detail=%s new_objective=%s task_source=%s detail_source=%s stage=%s",
-                tostring(locked_task_name or ""),
-                tostring(locked_task_detail or ""),
-                tostring(locked_objective_key or ""),
-                tostring(current_log_task_name or current_task_name or ""),
-                tostring(current_log_task_detail or ""),
-                tostring(current_objective_key or ""),
-                tostring(current_task_source or ""),
-                tostring(current_detail_source or ""),
-                tostring(state.stage or "")
-            ))
-            return false
+            local allow_soft_exit = boss_soft_exit_option("allow_nearby_text_task_change_exit") == true
+            local soft_candidate = detail_changed and current_log_task_detail or current_log_task_name
+            if allow_soft_exit and boss_soft_exit_candidate_allowed(soft_candidate) then
+                local candidate_key = normalize_map_name(soft_candidate)
+                local pending_key = normalize_map_name(state.boss_soft_task_change_candidate)
+                local confirm_ms = math.max(
+                    300,
+                    tonumber(boss_soft_exit_option("nearby_text_task_change_confirm_ms")) or 1500
+                )
+                local min_count = math.max(
+                    1,
+                    tonumber(boss_soft_exit_option("nearby_text_task_change_confirm_count")) or 2
+                )
+                if pending_key == nil or candidate_key == nil or pending_key ~= candidate_key then
+                    state.boss_soft_task_change_candidate = soft_candidate
+                    state.boss_soft_task_change_first_at = current_time
+                    state.boss_soft_task_change_seen_count = 1
+                    log_throttled(ctx, "boss_task_change_soft_probe_pending", "info", LOG_THROTTLE_MS, string.format(
+                        "[Leveling] boss task change soft probe pending | old_task=%s old_detail=%s old_objective=%s candidate=%s confirm_ms=%d count=1/%d stage=%s",
+                        tostring(locked_task_name or ""),
+                        tostring(locked_task_detail or ""),
+                        tostring(locked_objective_key or ""),
+                        tostring(soft_candidate or ""),
+                        confirm_ms,
+                        min_count,
+                        tostring(state.stage or "")
+                    ))
+                    return false
+                end
+
+                state.boss_soft_task_change_seen_count = (tonumber(state.boss_soft_task_change_seen_count) or 1) + 1
+                local elapsed = math.max(
+                    0,
+                    current_time - (tonumber(state.boss_soft_task_change_first_at) or current_time)
+                )
+                if elapsed < confirm_ms or (tonumber(state.boss_soft_task_change_seen_count) or 0) < min_count then
+                    log_throttled(ctx, "boss_task_change_soft_probe_pending", "info", LOG_THROTTLE_MS, string.format(
+                        "[Leveling] boss task change soft probe pending | old_task=%s old_detail=%s old_objective=%s candidate=%s elapsed=%d/%dms count=%d/%d stage=%s",
+                        tostring(locked_task_name or ""),
+                        tostring(locked_task_detail or ""),
+                        tostring(locked_objective_key or ""),
+                        tostring(soft_candidate or ""),
+                        elapsed,
+                        confirm_ms,
+                        tonumber(state.boss_soft_task_change_seen_count) or 0,
+                        min_count,
+                        tostring(state.stage or "")
+                    ))
+                    return false
+                end
+
+                logger(ctx).info(string.format(
+                    "[Leveling] boss task change soft probe confirmed, exit kite | old_task=%s old_detail=%s old_objective=%s candidate=%s elapsed=%dms count=%d stage=%s",
+                    tostring(locked_task_name or ""),
+                    tostring(locked_task_detail or ""),
+                    tostring(locked_objective_key or ""),
+                    tostring(soft_candidate or ""),
+                    elapsed,
+                    tonumber(state.boss_soft_task_change_seen_count) or 0,
+                    tostring(state.stage or "")
+                ))
+                soft_probe_change = false
+                same_objective_text_change = false
+            else
+                log_throttled(ctx, "boss_task_change_soft_probe_ignored", "warn", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] boss task change ignored from soft text probe | old_task=%s old_detail=%s old_objective=%s new_task=%s new_detail=%s new_objective=%s task_source=%s detail_source=%s stage=%s",
+                    tostring(locked_task_name or ""),
+                    tostring(locked_task_detail or ""),
+                    tostring(locked_objective_key or ""),
+                    tostring(current_log_task_name or current_task_name or ""),
+                    tostring(current_log_task_detail or ""),
+                    tostring(current_objective_key or ""),
+                    tostring(current_task_source or ""),
+                    tostring(current_detail_source or ""),
+                    tostring(state.stage or "")
+                ))
+                return false
+            end
         end
         if same_objective_text_change then
             log_throttled(ctx, "boss_task_change_objective_same_ignored", "info", LOG_THROTTLE_MS, string.format(
@@ -10292,6 +10420,10 @@ clear_task_combat_state = function()
     state.task_combat_locked_objective_key = nil
     state.task_combat_locked_reentry_cfg = nil
     state.task_combat_locked_reentry_source = nil
+    state.task_combat_locked_allow_nearby_text_task_change_exit = false
+    state.task_combat_locked_nearby_text_task_change_confirm_ms = nil
+    state.task_combat_locked_nearby_text_task_change_confirm_count = nil
+    state.task_combat_locked_nearby_text_task_change_exit_patterns = nil
     state.task_combat_anchor_x = nil
     state.task_combat_anchor_y = nil
     state.task_combat_anchor_z = nil

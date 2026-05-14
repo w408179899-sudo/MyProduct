@@ -4575,6 +4575,24 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
                     end
                     return M.finish_level_up_maintenance_executor(ctx, current_time)
                 end
+                if clicked_count <= 0 and step.missing_image_means_step_done == true then
+                    logger(ctx).info(string.format(
+                        "[Leveling] level-up maintenance image loop target absent; skip step | kind=%s level=%s plan=%s step=%d/%d key=%s clicks=%d err=%s",
+                        tostring(state.level_up_maintenance_executor_kind or ""),
+                        tostring(state.level_up_maintenance_executor_level or ""),
+                        tostring(state.level_up_maintenance_executor_plan_label or ""),
+                        index,
+                        #steps,
+                        tostring(step.key or ""),
+                        clicked_count,
+                        tostring(loop_fetch_err or "")
+                    ))
+                    state.level_up_maintenance_executor_step_index = index + 1
+                    local cfg = M.level_up_maintenance_config()
+                    state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
+                        + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+                    return true
+                end
                 if clicked_count > 0 then
                     logger(ctx).info(string.format(
                         "[Leveling] level-up maintenance image loop completed; target absent | kind=%s level=%s plan=%s step=%d/%d key=%s clicks=%d err=%s",
@@ -4665,6 +4683,26 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
             end
             return M.finish_level_up_maintenance_executor(ctx, current_time)
         end
+        if type(step) == "table"
+            and type(step.image_preset) == "table"
+            and step.missing_image_means_step_done == true
+        then
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance image target absent; skip step | kind=%s level=%s plan=%s step=%d/%d key=%s err=%s",
+                tostring(state.level_up_maintenance_executor_kind or ""),
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                index,
+                #steps,
+                tostring(step.key or ""),
+                tostring(fetch_err or "")
+            ))
+            state.level_up_maintenance_executor_step_index = index + 1
+            local cfg = M.level_up_maintenance_config()
+            state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
+                + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+            return true
+        end
         if type(step) == "table" and step.missing_target_means_plan_done == true then
             logger(ctx).info(string.format(
                 "[Leveling] level-up maintenance target absent; mark plan done | kind=%s level=%s plan=%s step=%d/%d key=%s err=%s",
@@ -4697,23 +4735,57 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         end
         return M.fail_level_up_maintenance_executor(ctx, current_time, "fetch failed: " .. tostring(fetch_err or ""))
     end
-    local clicked, click_err = click_locator_button_target(ctx, step, target)
-    if not clicked then
-        return M.fail_level_up_maintenance_executor(ctx, current_time, "click failed: " .. tostring(click_err or ""))
+    local repeat_count = math.max(1, math.floor(tonumber(step.click_repeat_count or step.repeat_count) or 1))
+    local repeat_interval_ms = math.max(0, tonumber(step.click_repeat_interval_ms or step.repeat_interval_ms) or 120)
+    for repeat_index = 1, repeat_count do
+        local clicked, click_err = click_locator_button_target(ctx, step, target)
+        if not clicked then
+            return M.fail_level_up_maintenance_executor(
+                ctx,
+                current_time,
+                string.format(
+                    "click failed at repeat %d/%d: %s",
+                    repeat_index,
+                    repeat_count,
+                    tostring(click_err or "")
+                )
+            )
+        end
+        if repeat_index < repeat_count and repeat_interval_ms > 0 and type(sys) == "table" and type(sys.sleep) == "function" then
+            sys.sleep(repeat_interval_ms)
+        end
     end
-    logger(ctx).info(string.format(
-        "[Leveling] level-up maintenance step clicked | kind=%s level=%s plan=%s step=%d/%d key=%s label=%s addr=%s pos=(%s,%s)",
-        tostring(state.level_up_maintenance_executor_kind or ""),
-        tostring(state.level_up_maintenance_executor_level or ""),
-        tostring(state.level_up_maintenance_executor_plan_label or ""),
-        index,
-        #steps,
-        tostring(step.key or ""),
-        tostring(step.label or ""),
-        tostring(type(target) == "table" and target.addr or ""),
-        tostring(type(target) == "table" and target.x or ""),
-        tostring(type(target) == "table" and target.y or "")
-    ))
+    if repeat_count > 1 then
+        logger(ctx).info(string.format(
+            "[Leveling] level-up maintenance step clicked repeatedly | kind=%s level=%s plan=%s step=%d/%d key=%s label=%s repeat=%d interval_ms=%d addr=%s pos=(%s,%s)",
+            tostring(state.level_up_maintenance_executor_kind or ""),
+            tostring(state.level_up_maintenance_executor_level or ""),
+            tostring(state.level_up_maintenance_executor_plan_label or ""),
+            index,
+            #steps,
+            tostring(step.key or ""),
+            tostring(step.label or ""),
+            repeat_count,
+            repeat_interval_ms,
+            tostring(type(target) == "table" and target.addr or ""),
+            tostring(type(target) == "table" and target.x or ""),
+            tostring(type(target) == "table" and target.y or "")
+        ))
+    else
+        logger(ctx).info(string.format(
+            "[Leveling] level-up maintenance step clicked | kind=%s level=%s plan=%s step=%d/%d key=%s label=%s addr=%s pos=(%s,%s)",
+            tostring(state.level_up_maintenance_executor_kind or ""),
+            tostring(state.level_up_maintenance_executor_level or ""),
+            tostring(state.level_up_maintenance_executor_plan_label or ""),
+            index,
+            #steps,
+            tostring(step.key or ""),
+            tostring(step.label or ""),
+            tostring(type(target) == "table" and target.addr or ""),
+            tostring(type(target) == "table" and target.x or ""),
+            tostring(type(target) == "table" and target.y or "")
+        ))
+    end
     state.level_up_maintenance_executor_step_index = index + 1
     local cfg = M.level_up_maintenance_config()
     state.level_up_maintenance_executor_next_step_at = current_time
@@ -8469,6 +8541,40 @@ function M.should_defer_revive_for_task_entry_action(current_time, in_main_inter
     return false, nil, nil
 end
 
+function M.should_defer_revive_for_treasure_entry(current_time, in_main_interface)
+    local runtime = type(state.treasure_runtime) == "table" and state.treasure_runtime or nil
+    if type(runtime) ~= "table" then
+        return false, nil
+    end
+
+    local mode = tostring(runtime.mode or "")
+    if mode ~= "pending_entry" and mode ~= "entering" then
+        return false, nil
+    end
+
+    local step_index = tonumber(runtime.entry_step_index) or 1
+    if mode == "pending_entry" and step_index <= 1 then
+        return false, nil
+    end
+
+    local now = tonumber(current_time) or 0
+    local next_retry_at = tonumber(runtime.next_retry_at) or 0
+    local stage_deadline_at = tonumber(runtime.stage_deadline_at) or 0
+    local active_until = math.max(next_retry_at + 8000, stage_deadline_at)
+    if active_until <= 0 or now > active_until then
+        return false, nil
+    end
+
+    -- Treasure entry has a two-step UI flow: MapTrapBtn opens the detail panel,
+    -- then SendBtn enters the dungeon. During this panel/transition window the
+    -- game can report hp=0 and position 0,0 before the player has actually died.
+    if in_main_interface == false then
+        return true, runtime
+    end
+
+    return false, nil
+end
+
 local function maybe_handle_revive(ctx, current_time, hp, player_x, player_y, player_z, in_main_interface)
     local is_dead = type(hp) == "number" and hp <= 0
     local revive_active = (tonumber(state.revive_started_at) or 0) > 0
@@ -8485,6 +8591,18 @@ local function maybe_handle_revive(ctx, current_time, hp, player_x, player_y, pl
                 tostring(entry_action and entry_action.key or ""),
                 tostring(state.stage or ""),
                 math.max(0, current_time - (tonumber(state.task_entry_action_button_click_at) or tonumber(state.last_task_button_click_at) or current_time))
+            ))
+            return false
+        end
+        local defer_treasure_revive, treasure_runtime = M.should_defer_revive_for_treasure_entry(current_time, in_main_interface)
+        if defer_treasure_revive then
+            log_throttled(ctx, "revive_deferred_by_treasure_entry", "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] hp=0 ignored during treasure entry flow | key=%s mode=%s step=%d next_retry_in=%dms deadline_in=%dms",
+                tostring(treasure_runtime and (treasure_runtime.active_key or treasure_runtime.key) or ""),
+                tostring(treasure_runtime and treasure_runtime.mode or ""),
+                tonumber(treasure_runtime and treasure_runtime.entry_step_index) or 0,
+                math.max(0, (tonumber(treasure_runtime and treasure_runtime.next_retry_at) or current_time) - current_time),
+                math.max(0, (tonumber(treasure_runtime and treasure_runtime.stage_deadline_at) or current_time) - current_time)
             ))
             return false
         end
