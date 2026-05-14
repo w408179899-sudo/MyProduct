@@ -1273,6 +1273,20 @@ do
             0.759779
         )
     end
+
+    for _, level in ipairs({ 29, 30, 31 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_22_plus_talent_plan(
+            level,
+            456.916748,
+            621.538025,
+            0.317524,
+            0.690598,
+            667.368225,
+            677.801453,
+            0.463772,
+            0.753113
+        )
+    end
 end
 
 do
@@ -1750,6 +1764,171 @@ do
 
     level_21_skill_plan.steps = level_21_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[21] = level_21_skill_plan
+
+    local level_29_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
+    level_29_skill_plan.key = "level_29_skill_upgrade_sequence"
+    level_29_skill_plan.label = "29级技能：找图升级并配置附加腐蚀"
+    level_29_skill_plan.close_with_escape = false
+
+    local level_29_steps = type(level_29_skill_plan.steps) == "table" and level_29_skill_plan.steps or {}
+    if #level_29_steps > 0 and tostring(level_29_steps[#level_29_steps].key or "") == "back_from_skill_panel" then
+        table.remove(level_29_steps, #level_29_steps)
+    end
+    for _, step in ipairs(level_29_steps) do
+        if tostring(step.key or "") == "open_skill_add_panel" then
+            step.key = "level_29_open_skill_add_panel"
+            step.label = "29级技能加点入口按钮"
+            step.missing_target_means_plan_done = true
+        elseif tostring(step.key or "") == "click_skill_upgrade_image" then
+            step.key = "level_29_click_skill_upgrade_image"
+            step.label = "29级技能升级找图按钮"
+            step.missing_image_means_done = true
+            step.cleanup_back_before_finish = true
+            step.repeat_image_until_missing = true
+            step.repeat_image_until_missing_max_count = 30
+            step.repeat_image_until_missing_interval_ms = 180
+            if type(step.image_preset) == "table" then
+                step.image_preset.click_repeat_count = 1
+                step.image_preset.repeat_until_missing = true
+                step.image_preset.repeat_until_missing_max_count = 30
+                step.image_preset.repeat_until_missing_interval_ms = 180
+            end
+        end
+    end
+
+    level_29_steps[#level_29_steps + 1] = {
+        key = "level_29_open_fast_entrance_menu_after_skill_image",
+        label = "技能天赋菜单按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+        },
+        hint_client_x = 1383.688110,
+        hint_client_y = 52.706509,
+        hint_ratio_x = 0.961562,
+        hint_ratio_y = 0.058563,
+        hint_max_distance = 100,
+        wait_after_ms = 800
+    }
+    level_29_steps[#level_29_steps + 1] = {
+        key = "level_29_open_skill_panel_after_skill_image",
+        label = "技能按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 1249.024658,
+        hint_client_y = 155.104156,
+        hint_ratio_x = 0.867981,
+        hint_ratio_y = 0.172338,
+        hint_max_distance = 90,
+        wait_after_ms = 1000
+    }
+    level_29_steps[#level_29_steps + 1] = fixed_click_step(
+        "level_29_skill_fixed_click_82_359",
+        "29级技能固定点击1",
+        82.00,
+        359.00,
+        0.056984,
+        0.398889,
+        350
+    )
+    level_29_steps[#level_29_steps + 1] = fixed_click_step(
+        "level_29_skill_fixed_click_724_299",
+        "29级技能固定点击2",
+        724.00,
+        299.00,
+        0.503127,
+        0.332222,
+        350
+    )
+    level_29_steps[#level_29_steps + 1] = fixed_click_step(
+        "level_29_skill_fixed_click_722_300",
+        "29级技能固定点击3",
+        722.00,
+        300.00,
+        0.501737,
+        0.333333,
+        350
+    )
+    level_29_steps[#level_29_steps + 1] = fixed_click_step(
+        "level_29_skill_search_focus",
+        "29级技能搜索输入框",
+        382.00,
+        654.00,
+        0.265462,
+        0.726667,
+        250
+    )
+    level_29_steps[#level_29_steps + 1] = {
+        kind = "type_text",
+        key = "level_29_skill_search_corrosion_text",
+        label = "输入附加腐蚀",
+        text = "附加腐蚀",
+        input_method = "clipboard",
+        clear_before = true,
+        key_delay_ms = 30,
+        wait_after_ms = 500
+    }
+    level_29_steps[#level_29_steps + 1] = fixed_click_step(
+        "level_29_skill_search_confirm",
+        "29级技能搜索确认",
+        594.00,
+        656.00,
+        0.412787,
+        0.728889,
+        700
+    )
+    level_29_steps[#level_29_steps + 1] = fixed_click_step(
+        "level_29_skill_select_corrosion_result",
+        "29级技能选择附加腐蚀结果",
+        350.00,
+        331.00,
+        0.243224,
+        0.367778,
+        700
+    )
+    level_29_steps[#level_29_steps + 1] = fixed_click_step(
+        "level_29_skill_fixed_click_815_351",
+        "29级技能固定点击4",
+        815.00,
+        351.00,
+        0.566366,
+        0.390000,
+        350
+    )
+    level_29_steps[#level_29_steps + 1] = fixed_click_step(
+        "level_29_skill_fixed_click_714_330",
+        "29级技能固定点击5",
+        714.00,
+        330.00,
+        0.496178,
+        0.366667,
+        350
+    )
+    level_29_steps[#level_29_steps + 1] = fixed_click_step(
+        "level_29_skill_fixed_click_536_350",
+        "29级技能固定点击6",
+        536.00,
+        350.00,
+        0.372481,
+        0.388889,
+        700
+    )
+    level_29_steps[#level_29_steps + 1] = {
+        key = "back_from_skill_panel_after_corrosion_setup",
+        label = "技能返回按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+        },
+        hint_client_x = 1384.784546,
+        hint_client_y = 52.000000,
+        hint_ratio_x = 0.961656,
+        hint_ratio_y = 0.057778,
+        hint_max_distance = 90,
+        wait_after_ms = 500
+    }
+
+    level_29_skill_plan.steps = level_29_steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[29] = level_29_skill_plan
 end
 
 do
@@ -1869,6 +2048,23 @@ do
             fixed_click_step("level_24_contract_second_click_1322_812", "24级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
             contract_back_step("level_24_contract_back_1"),
             contract_back_step("level_24_contract_back_2")
+        }
+    }
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[29] = {
+        key = "level_29_contract_second_setup",
+        label = "29级契灵：第二套契约点击配置",
+        require_available_points = false,
+        monster_guard_distance = 160,
+        safe_no_monster_ms = 600,
+        close_with_escape = false,
+        steps = {
+            open_menu_step("level_29_contract_open_menu"),
+            open_contract_panel_step("level_29_contract_open_panel"),
+            fixed_click_step("level_29_contract_second_click_329_256", "29级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
+            fixed_click_step("level_29_contract_second_click_1322_812", "29级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
+            contract_back_step("level_29_contract_back_1"),
+            contract_back_step("level_29_contract_back_2")
         }
     }
 end
@@ -7576,9 +7772,15 @@ M.ROUTE_POINT_ACTIONS = {
             fallback_interact = true
         }
     }),
-    make_npc_dialogue_route_action({
-        key = "wall_of_sighs_aria_dialogue_18459_-2492",
-        label = "wall_of_sighs_aria_dialogue_npc",
+    make_route_point_action({
+        key = "wall_of_sighs_aria_dialogue_route_18660_-3654",
+        label = "wall_of_sighs_aria_dialogue_pre_route",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "wall_of_sighs_aria_dialogue_npc_18827_-1574",
         task_patterns = {
             "\u{53F9}\u{606F}\u{4E4B}\u{5899}"
         },
@@ -7587,25 +7789,56 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 18017.00,
-            y = -2362.00,
+            x = 18020.00,
+            y = -1950.00,
             z = 403.00,
-            radius = 2200,
-            z_tolerance = 260
+            radius = 820,
+            z_tolerance = 320
+        },
+        retry_ms = 600000,
+        timeout_ms = 45000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 320,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 18660.00, y = -3654.00, z = 403.00 },
+            { x = 19250.00, y = -2955.00, z = 403.00 },
+            { x = 18827.22, y = -1573.58, z = 403.00 }
+        }
+    }),
+    make_npc_dialogue_route_action({
+        key = "wall_of_sighs_aria_dialogue_npc_18827_-1574",
+        label = "wall_of_sighs_aria_dialogue_npc",
+        allow_without_task_target = true,
+        direct_when_task_active = true,
+        task_patterns = {
+            "\u{53F9}\u{606F}\u{4E4B}\u{5899}"
+        },
+        task_detail_patterns = {
+            "\u{548C}\u{963F}\u{745E}\u{5A05}\u{4EA4}\u{8C08}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 18827.22,
+            y = -1573.58,
+            z = 403.00,
+            radius = 900,
+            z_tolerance = 320
         },
         retry_ms = 6000,
         dialogue = {
-            x = 18017.00,
-            y = -2362.00,
+            x = 18827.22,
+            y = -1573.58,
             z = 403.00,
-            radius = 260,
-            interact_radius = 160,
+            radius = 300,
+            interact_radius = 180,
             move_interval_ms = 180,
-            z_tolerance = 260,
+            z_tolerance = 320,
             center_settle_ms = 700,
             interact_retry_ms = 1800,
             timeout_ms = 22000,
-            npc_search_radius = 560,
+            npc_search_radius = 700,
             fallback_interact = true
         }
     }),
