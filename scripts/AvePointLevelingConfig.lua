@@ -10533,6 +10533,52 @@ M.OBJECTIVE_POINT_CONFIGS = {
         }
     }),
     Actions.make_clear_room_point({
+        key = "wall_of_sighs_final_mechanism_guard_loop",
+        x = 17832.21,
+        y = -2009.37,
+        z = 405.00,
+        radius = 1900,
+        trigger_distance = 900,
+        immediate_kite_on_reached = true,
+        allow_no_task_target_force_kite = true,
+        seamless_kite = true,
+        kite_switch_ms = 1800,
+        kite_arrive_distance = 360,
+        kite_move_interval_ms = 120,
+        defer_followup_until_clear = true,
+        boss_clear_settle_ms = 3000,
+        generic_followup_refresh_ms = 3500,
+        generic_followup_requires_task_pos_only = true,
+        generic_followup_require_no_special = true,
+        ignore_terminal_text_change_when_objective_same = true,
+        allow_nearby_text_task_change_exit = true,
+        nearby_text_task_change_confirm_ms = 1200,
+        nearby_text_task_change_confirm_count = 2,
+        kite_points = {
+            { x = 17820.00, y = -1551.00, z = 405.00 },
+            { x = 18070.56, y = -1139.69, z = 403.00 },
+            { x = 18406.62, y = -1067.46, z = 403.00 },
+            { x = 18965.71, y = -1216.23, z = 403.00 },
+            { x = 19252.46, y = -1612.01, z = 403.00 },
+            { x = 19311.52, y = -2050.16, z = 403.00 },
+            { x = 19186.79, y = -2472.19, z = 403.00 },
+            { x = 18871.83, y = -2808.62, z = 403.00 },
+            { x = 18126.66, y = -2686.86, z = 403.00 },
+            { x = 17643.00, y = -1858.00, z = 407.00 }
+        },
+        task_patterns = {
+            "\u{53F9}\u{606F}\u{4E4B}\u{5899}"
+        },
+        task_detail_patterns = {
+            "\u{6D88}\u{706D}\u{5B88}\u{536B}\u{FF0C}\u{5173}\u{95ED}\u{6700}\u{7EC8}\u{673A}\u{5173}"
+        },
+        exclude_task_detail_patterns = {
+            "\u{4EA4}\u{8C08}",
+            "\u{5BF9}\u{8BDD}"
+        },
+        constraint_mode = "all"
+    }),
+    Actions.make_clear_room_point({
         key = "fire_treader_romel_boss_room",
         x = 3550.00,
         y = -50.00,
