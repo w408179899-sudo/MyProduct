@@ -210,6 +210,153 @@ function M.make_fixed_client_click_step(opts)
     return step
 end
 
+function M.make_maintenance_locator_step(opts)
+    local step = {
+        hint_max_distance = 80,
+        wait_after_ms = 650
+    }
+    merge_into(step, opts)
+    return step
+end
+
+function M.make_maintenance_fixed_click_step(opts)
+    local step = M.make_fixed_client_click_step({
+        fixed_prefer_ratio = true,
+        click_delay = 60,
+        hover_delay_ms = 90,
+        wait_after_ms = 500
+    })
+    merge_into(step, opts)
+    return step
+end
+
+function M.make_maintenance_open_menu_step(key, label, extra)
+    local step = M.make_maintenance_locator_step({
+        key = key,
+        label = label or "open maintenance menu",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+        },
+        hint_client_x = 1383.688110,
+        hint_client_y = 52.706509,
+        hint_ratio_x = 0.961562,
+        hint_ratio_y = 0.058563,
+        hint_max_distance = 100,
+        wait_after_ms = 800
+    })
+    merge_into(step, extra)
+    return step
+end
+
+function M.make_contract_panel_step(key, label, extra)
+    local step = M.make_maintenance_locator_step({
+        key = key,
+        label = label or "open contract panel",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 1200.015381,
+        hint_client_y = 235.364059,
+        hint_ratio_x = 0.833923,
+        hint_ratio_y = 0.261516,
+        hint_max_distance = 80,
+        wait_after_ms = 1000
+    })
+    merge_into(step, extra)
+    return step
+end
+
+function M.make_contract_back_click_step(key, label, extra)
+    local step = M.make_maintenance_fixed_click_step({
+        key = key,
+        label = label or "contract back",
+        fixed_client_x = 53.00,
+        fixed_client_y = 35.00,
+        fixed_ratio_x = 0.036831,
+        fixed_ratio_y = 0.038889,
+        wait_after_ms = 700
+    })
+    merge_into(step, extra)
+    return step
+end
+
+local function contract_fixed_click(key, label, x, y, rx, ry, wait_after_ms)
+    return M.make_maintenance_fixed_click_step({
+        key = key,
+        label = label,
+        fixed_client_x = x,
+        fixed_client_y = y,
+        fixed_ratio_x = rx,
+        fixed_ratio_y = ry,
+        wait_after_ms = wait_after_ms
+    })
+end
+
+local function numbered_label(prefix, index)
+    if prefix == nil then
+        return nil
+    end
+    return tostring(prefix) .. tostring(index)
+end
+
+local function contract_plan_base(opts)
+    local level = tostring(type(opts) == "table" and opts.level or "")
+    return {
+        key = tostring(type(opts) == "table" and opts.key or ""),
+        label = tostring(type(opts) == "table" and opts.label or ""),
+        require_available_points = false,
+        monster_guard_distance = 160,
+        safe_no_monster_ms = 600,
+        close_with_escape = false,
+        steps = {}
+    }, level
+end
+
+function M.make_contract_second_setup_plan(opts)
+    opts = type(opts) == "table" and opts or {}
+    local plan, level = contract_plan_base(opts)
+    plan.key = opts.key or ("level_" .. level .. "_contract_second_setup")
+    plan.label = opts.label or ("level " .. level .. " contract second setup")
+    merge_into(plan, opts.extra_plan)
+
+    plan.steps = {
+        M.make_maintenance_open_menu_step("level_" .. level .. "_contract_open_menu", opts.open_menu_label, opts.open_menu_extra),
+        M.make_contract_panel_step("level_" .. level .. "_contract_open_panel", opts.open_panel_label, opts.open_panel_extra),
+        contract_fixed_click("level_" .. level .. "_contract_second_click_329_256", opts.first_click_label or numbered_label(opts.click_label_prefix, 1), 329.00, 256.00, 0.228631, 0.284444, 500),
+        contract_fixed_click("level_" .. level .. "_contract_second_click_1322_812", opts.second_click_label or numbered_label(opts.click_label_prefix, 2), 1322.00, 812.00, 0.918694, 0.902222, 700),
+        M.make_contract_back_click_step("level_" .. level .. "_contract_back_1", opts.back_label, opts.back_extra),
+        M.make_contract_back_click_step("level_" .. level .. "_contract_back_2", opts.back_label, opts.back_extra)
+    }
+    return plan
+end
+
+function M.make_contract_initial_and_second_setup_plan(opts)
+    opts = type(opts) == "table" and opts or {}
+    local plan, level = contract_plan_base(opts)
+    plan.key = opts.key or ("level_" .. level .. "_contract_setup")
+    plan.label = opts.label or ("level " .. level .. " contract setup")
+    merge_into(plan, opts.extra_plan)
+
+    plan.steps = {
+        M.make_maintenance_open_menu_step("level_" .. level .. "_contract_open_menu_first", opts.open_menu_label, opts.open_menu_extra),
+        M.make_contract_panel_step("level_" .. level .. "_contract_open_panel_first", opts.open_panel_label, opts.open_panel_extra),
+        contract_fixed_click("level_" .. level .. "_contract_first_click_106_376", opts.first_sequence_labels and opts.first_sequence_labels[1] or numbered_label(opts.click_label_prefix, 1), 106.00, 376.00, 0.073662, 0.417778, 450),
+        contract_fixed_click("level_" .. level .. "_contract_first_click_295_121", opts.first_sequence_labels and opts.first_sequence_labels[2] or numbered_label(opts.click_label_prefix, 2), 295.00, 121.00, 0.205003, 0.134444, 450),
+        contract_fixed_click("level_" .. level .. "_contract_first_click_281_253", opts.first_sequence_labels and opts.first_sequence_labels[3] or numbered_label(opts.click_label_prefix, 3), 281.00, 253.00, 0.195274, 0.281111, 450),
+        contract_fixed_click("level_" .. level .. "_contract_first_click_103_226", opts.first_sequence_labels and opts.first_sequence_labels[4] or numbered_label(opts.click_label_prefix, 4), 103.00, 226.00, 0.071577, 0.251111, 450),
+        contract_fixed_click("level_" .. level .. "_contract_first_click_1340_845", opts.first_sequence_labels and opts.first_sequence_labels[5] or numbered_label(opts.click_label_prefix, 5), 1340.00, 845.00, 0.931202, 0.938889, 700),
+        M.make_contract_back_click_step("level_" .. level .. "_contract_back_first_1", opts.back_label, opts.back_extra),
+        M.make_contract_back_click_step("level_" .. level .. "_contract_back_first_2", opts.back_label, opts.back_extra),
+        M.make_maintenance_open_menu_step("level_" .. level .. "_contract_open_menu_second", opts.open_menu_label, opts.open_menu_extra),
+        M.make_contract_panel_step("level_" .. level .. "_contract_open_panel_second", opts.open_panel_label, opts.open_panel_extra),
+        contract_fixed_click("level_" .. level .. "_contract_second_click_329_256", opts.second_sequence_labels and opts.second_sequence_labels[1] or numbered_label(opts.click_label_prefix, 6), 329.00, 256.00, 0.228631, 0.284444, 500),
+        contract_fixed_click("level_" .. level .. "_contract_second_click_1322_812", opts.second_sequence_labels and opts.second_sequence_labels[2] or numbered_label(opts.click_label_prefix, 7), 1322.00, 812.00, 0.918694, 0.902222, 700),
+        M.make_contract_back_click_step("level_" .. level .. "_contract_back_second_1", opts.back_label, opts.back_extra),
+        M.make_contract_back_click_step("level_" .. level .. "_contract_back_second_2", opts.back_label, opts.back_extra)
+    }
+    return plan
+end
+
 -- Post-dialogue action flow: armed only after the normal dialogue JumpBtn
 -- succeeds for the matched task.
 function M.make_post_dialogue_flow_task(key, steps, extra_flow, extra_task)
@@ -345,6 +492,177 @@ function M.make_force_kite_name_set(names)
         end
     end
     return out
+end
+
+local function append_issue(issues, message)
+    issues[#issues + 1] = tostring(message or "")
+end
+
+local function is_non_empty_array(value)
+    return type(value) == "table" and type(value[1]) ~= "nil"
+end
+
+local function validate_steps(issues, scope, steps)
+    if type(steps) ~= "table" then
+        append_issue(issues, scope .. ": missing steps")
+        return
+    end
+
+    local seen = {}
+    for index, step in ipairs(steps) do
+        if type(step) ~= "table" then
+            append_issue(issues, scope .. ": step " .. tostring(index) .. " is not a table")
+        else
+            local key = tostring(step.key or "")
+            if key == "" then
+                append_issue(issues, scope .. ": step " .. tostring(index) .. " missing key")
+            elseif seen[key] then
+                append_issue(issues, scope .. ": duplicate step key " .. key)
+            else
+                seen[key] = true
+            end
+
+            local has_executor = step.kind ~= nil
+                or step.image_preset ~= nil
+                or step.fixed_client_click == true
+                or is_non_empty_array(step.include_patterns)
+                or step.distance_button_name ~= nil
+            if not has_executor then
+                append_issue(issues, scope .. ": step " .. tostring(key ~= "" and key or index) .. " has no executor locator")
+            end
+
+            if step.fixed_client_click == true then
+                local has_point = tonumber(step.fixed_client_x) ~= nil and tonumber(step.fixed_client_y) ~= nil
+                local has_ratio = tonumber(step.fixed_ratio_x) ~= nil and tonumber(step.fixed_ratio_y) ~= nil
+                if not has_point and not has_ratio then
+                    append_issue(issues, scope .. ": fixed click step " .. tostring(key) .. " missing point/ratio")
+                end
+            end
+
+            if type(step.image_preset) == "table" and tostring(step.image_preset.template_path or "") == "skill_level_up.bmp" then
+                local threshold = tonumber(step.image_preset.template_threshold)
+                if threshold == nil or threshold > 0.85 then
+                    append_issue(issues, scope .. ": skill_level_up threshold must be <= 0.85 at " .. tostring(key))
+                end
+            end
+        end
+    end
+end
+
+local function validate_plan_table(issues, kind, plans)
+    if type(plans) ~= "table" then
+        return
+    end
+    local seen_plan_keys = {}
+    for level, plan in pairs(plans) do
+        local scope = kind .. "[" .. tostring(level) .. "]"
+        if type(plan) ~= "table" then
+            append_issue(issues, scope .. ": plan is not a table")
+        else
+            local key = tostring(plan.key or "")
+            if key == "" then
+                append_issue(issues, scope .. ": missing plan key")
+            elseif seen_plan_keys[key] then
+                append_issue(issues, scope .. ": duplicate plan key " .. key)
+            else
+                seen_plan_keys[key] = true
+            end
+            if plan.close_with_escape == true then
+                append_issue(issues, scope .. ": close_with_escape is not allowed for maintenance plans")
+            end
+            validate_steps(issues, scope, plan.steps)
+        end
+    end
+end
+
+local function validate_route_actions(issues, actions)
+    if type(actions) ~= "table" then
+        return
+    end
+    local seen = {}
+    for index, action in ipairs(actions) do
+        local scope = "route_action[" .. tostring(index) .. "]"
+        if type(action) ~= "table" then
+            append_issue(issues, scope .. ": not a table")
+        else
+            local key = tostring(action.key or "")
+            if key == "" then
+                append_issue(issues, scope .. ": missing key")
+            elseif seen[key] then
+                append_issue(issues, scope .. ": duplicate key " .. key)
+            else
+                seen[key] = true
+                scope = "route_action[" .. key .. "]"
+            end
+
+            if action.allow_without_task_target == true
+                and type(action.task_patterns) ~= "table"
+                and type(action.task_detail_patterns) ~= "table"
+            then
+                append_issue(issues, scope .. ": allow_without_task_target requires task/detail patterns")
+            end
+
+            local trigger = type(action.trigger) == "table" and action.trigger or action
+            local has_trigger = tonumber(trigger.x) ~= nil and tonumber(trigger.y) ~= nil
+            if not has_trigger then
+                append_issue(issues, scope .. ": missing trigger x/y")
+            end
+        end
+    end
+end
+
+local function validate_task_configs(issues, task_configs)
+    if type(task_configs) ~= "table" then
+        return
+    end
+    for name, cfg in pairs(task_configs) do
+        if type(cfg) == "table" and type(cfg.objective) == "table" and cfg.objective.mode == "boss_kite" then
+            if tostring(cfg.objective.key or "") == "" then
+                append_issue(issues, "task_config[" .. tostring(name) .. "]: boss_kite missing objective key")
+            end
+            if cfg.objective.allow_nearby_text_task_change_exit == true
+                and type(cfg.objective.nearby_text_task_change_exit_patterns) ~= "table"
+            then
+                append_issue(issues, "task_config[" .. tostring(name) .. "]: nearby text exit needs explicit patterns")
+            end
+        end
+    end
+end
+
+local function validate_treasure_configs(issues, treasure_configs)
+    if type(treasure_configs) ~= "table" then
+        return
+    end
+    for key, cfg in pairs(treasure_configs) do
+        if type(cfg) == "table" and type(cfg.boss) == "table" and cfg.boss.loot_enabled ~= false then
+            local max_pulses = tonumber(cfg.boss.loot_max_pulses) or tonumber(cfg.boss_loot_max_pulses) or 2
+            if max_pulses > 2 then
+                append_issue(issues, "treasure[" .. tostring(key) .. "]: boss loot max pulses must stay <= 2")
+            end
+        end
+    end
+end
+
+function M.validate_leveling_config(config)
+    local issues = {}
+    if type(config) ~= "table" then
+        return false, { "config is not a table" }
+    end
+
+    local maintenance = type(config.LEVEL_UP_MAINTENANCE_CONFIG) == "table"
+        and config.LEVEL_UP_MAINTENANCE_CONFIG
+        or {}
+    validate_plan_table(issues, "skill_by_level", maintenance.skill_by_level)
+    if type(maintenance.default_skill_plan) == "table" then
+        validate_steps(issues, "default_skill_plan", maintenance.default_skill_plan.steps)
+    end
+    validate_plan_table(issues, "talent_by_level", maintenance.talent_by_level)
+    validate_plan_table(issues, "contract_by_level", maintenance.contract_by_level)
+    validate_route_actions(issues, config.ROUTE_POINT_ACTIONS)
+    validate_task_configs(issues, config.TASK_NAME_CONFIGS)
+    validate_treasure_configs(issues, config.TREASURE_DUNGEON_CONFIGS)
+
+    return #issues == 0, issues
 end
 
 return M

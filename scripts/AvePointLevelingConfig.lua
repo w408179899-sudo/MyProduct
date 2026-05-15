@@ -28,6 +28,10 @@ local make_fixed_client_click_step = Actions.make_fixed_client_click_step
 local make_revive_reentry_config = Actions.make_revive_reentry
 local make_npc_dialogue_route_action = Actions.make_npc_dialogue_route_action
 local make_route_point_action = Actions.make_route_point_action
+local make_maintenance_locator_step = Actions.make_maintenance_locator_step
+local make_maintenance_fixed_click_step = Actions.make_maintenance_fixed_click_step
+local make_contract_initial_and_second_setup_plan = Actions.make_contract_initial_and_second_setup_plan
+local make_contract_second_setup_plan = Actions.make_contract_second_setup_plan
 
 local TRIAL_OF_SUN_THREE_TRIALS_PACKAGE_KEY = "trial_of_sun_three_trials"
 local TRIAL_OF_SUN_POWER_SIDE_KEY = "trial_of_sun_power_side_task"
@@ -1007,22 +1011,19 @@ do
     end
 
     local function level_20_extra_talent_click_step(key, label, client_x, client_y, ratio_x, ratio_y, wait_after_ms)
-        return make_fixed_client_click_step({
+        return make_maintenance_fixed_click_step({
             key = key,
             label = label,
             fixed_client_x = client_x,
             fixed_client_y = client_y,
             fixed_ratio_x = ratio_x,
             fixed_ratio_y = ratio_y,
-            fixed_prefer_ratio = true,
-            click_delay = 60,
-            hover_delay_ms = 90,
             wait_after_ms = wait_after_ms or 650
         })
     end
 
     local function maintenance_locator_step(key, label, include_patterns, hint_client_x, hint_client_y, hint_ratio_x, hint_ratio_y, hint_max_distance, wait_after_ms)
-        return {
+        return make_maintenance_locator_step({
             key = key,
             label = label,
             include_patterns = include_patterns,
@@ -1032,7 +1033,7 @@ do
             hint_ratio_y = hint_ratio_y,
             hint_max_distance = hint_max_distance or 80,
             wait_after_ms = wait_after_ms or 650
-        }
+        })
     end
 
     local level_20_plan = make_level_18_to_20_talent_plan(20)
@@ -1396,28 +1397,22 @@ do
         "41级天赋：打开菜单"
     )
     level_41_open_menu_step.missing_target_means_step_done = true
-    local level_41_select_category_step = make_fixed_client_click_step({
+    local level_41_select_category_step = make_maintenance_fixed_click_step({
         key = "select_level_41_talent_category",
         label = "41级天赋：固定点击天赋大类",
         fixed_client_x = 1071.00,
         fixed_client_y = 522.00,
         fixed_ratio_x = 0.744267,
         fixed_ratio_y = 0.580000,
-        fixed_prefer_ratio = true,
-        click_delay = 60,
-        hover_delay_ms = 90,
         wait_after_ms = 900
     })
-    local level_41_activate_category_step = make_fixed_client_click_step({
+    local level_41_activate_category_step = make_maintenance_fixed_click_step({
         key = "activate_level_41_talent_category",
         label = "41级天赋：固定点击天赋大类激活",
         fixed_client_x = 1296.00,
         fixed_client_y = 479.00,
         fixed_ratio_x = 0.900625,
         fixed_ratio_y = 0.532222,
-        fixed_prefer_ratio = true,
-        click_delay = 60,
-        hover_delay_ms = 90,
         wait_after_ms = 900
     })
     local level_41_activate_node_step = maintenance_locator_step(
@@ -1504,40 +1499,31 @@ do
     )
     local level_43_talent_steps = type(level_43_talent_plan.steps) == "table" and level_43_talent_plan.steps or {}
     local level_43_back_step = table.remove(level_43_talent_steps, #level_43_talent_steps)
-    level_43_talent_steps[#level_43_talent_steps + 1] = make_fixed_client_click_step({
+    level_43_talent_steps[#level_43_talent_steps + 1] = make_maintenance_fixed_click_step({
         key = "level_43_fixed_click_extra_talent_388_251",
         label = "43级天赋：额外固定点击1",
         fixed_client_x = 388.00,
         fixed_client_y = 251.00,
         fixed_ratio_x = 0.269632,
         fixed_ratio_y = 0.278889,
-        fixed_prefer_ratio = true,
-        click_delay = 60,
-        hover_delay_ms = 90,
         wait_after_ms = 900
     })
-    level_43_talent_steps[#level_43_talent_steps + 1] = make_fixed_client_click_step({
+    level_43_talent_steps[#level_43_talent_steps + 1] = make_maintenance_fixed_click_step({
         key = "level_43_fixed_click_extra_talent_341_617",
         label = "43级天赋：额外固定点击2",
         fixed_client_x = 341.00,
         fixed_client_y = 617.00,
         fixed_ratio_x = 0.236970,
         fixed_ratio_y = 0.685556,
-        fixed_prefer_ratio = true,
-        click_delay = 60,
-        hover_delay_ms = 90,
         wait_after_ms = 900
     })
-    level_43_talent_steps[#level_43_talent_steps + 1] = make_fixed_client_click_step({
+    level_43_talent_steps[#level_43_talent_steps + 1] = make_maintenance_fixed_click_step({
         key = "level_43_fixed_click_extra_talent_1277_148",
         label = "43级天赋：额外固定点击3",
         fixed_client_x = 1277.00,
         fixed_client_y = 148.00,
         fixed_ratio_x = 0.887422,
         fixed_ratio_y = 0.164444,
-        fixed_prefer_ratio = true,
-        click_delay = 60,
-        hover_delay_ms = 90,
         wait_after_ms = 900
     })
     if type(level_43_back_step) == "table" then
@@ -1603,16 +1589,13 @@ do
     end
 
     local function fixed_click_step(key, label, client_x, client_y, ratio_x, ratio_y, wait_after_ms)
-        return make_fixed_client_click_step({
+        return make_maintenance_fixed_click_step({
             key = key,
             label = label,
             fixed_client_x = client_x,
             fixed_client_y = client_y,
             fixed_ratio_x = ratio_x,
             fixed_ratio_y = ratio_y,
-            fixed_prefer_ratio = true,
-            click_delay = 60,
-            hover_delay_ms = 90,
             wait_after_ms = wait_after_ms or 500
         })
     end
@@ -2421,209 +2404,27 @@ do
 end
 
 do
-    local function fixed_click_step(key, label, client_x, client_y, ratio_x, ratio_y, wait_after_ms)
-        return make_fixed_client_click_step({
-            key = key,
-            label = label,
-            fixed_client_x = client_x,
-            fixed_client_y = client_y,
-            fixed_ratio_x = ratio_x,
-            fixed_ratio_y = ratio_y,
-            fixed_prefer_ratio = true,
-            click_delay = 60,
-            hover_delay_ms = 90,
-            wait_after_ms = wait_after_ms or 500
-        })
-    end
-
-    local function open_menu_step(key)
-        return {
-            key = key,
-            label = "技能天赋菜单按钮",
-            include_patterns = {
-                "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
-            },
-            hint_client_x = 1383.688110,
-            hint_client_y = 52.706509,
-            hint_ratio_x = 0.961562,
-            hint_ratio_y = 0.058563,
-            hint_max_distance = 100,
-            wait_after_ms = 800
-        }
-    end
-
-    local function open_contract_panel_step(key)
-        return {
-            key = key,
-            label = "契灵面板按钮",
-            include_patterns = {
-                "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
-            },
-            hint_client_x = 1200.015381,
-            hint_client_y = 235.364059,
-            hint_ratio_x = 0.833923,
-            hint_ratio_y = 0.261516,
-            hint_max_distance = 80,
-            wait_after_ms = 1000
-        }
-    end
-
-    local function contract_back_step(key)
-        return fixed_click_step(
-            key,
-            "契灵返回固定点击",
-            53.00,
-            35.00,
-            0.036831,
-            0.038889,
-            700
-        )
-    end
-
-    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[18] = {
+    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[18] = make_contract_initial_and_second_setup_plan({
+        level = 18,
         key = "level_18_contract_setup",
         label = "18级契灵：配置契约面板",
-        require_available_points = false,
-        monster_guard_distance = 160,
-        safe_no_monster_ms = 600,
-        close_with_escape = false,
-        steps = {
-            open_menu_step("level_18_contract_open_menu_first"),
-            open_contract_panel_step("level_18_contract_open_panel_first"),
-            fixed_click_step("level_18_contract_first_click_106_376", "18级契灵固定点击1", 106.00, 376.00, 0.073662, 0.417778, 450),
-            fixed_click_step("level_18_contract_first_click_295_121", "18级契灵固定点击2", 295.00, 121.00, 0.205003, 0.134444, 450),
-            fixed_click_step("level_18_contract_first_click_281_253", "18级契灵固定点击3", 281.00, 253.00, 0.195274, 0.281111, 450),
-            fixed_click_step("level_18_contract_first_click_103_226", "18级契灵固定点击4", 103.00, 226.00, 0.071577, 0.251111, 450),
-            fixed_click_step("level_18_contract_first_click_1340_845", "18级契灵固定点击5", 1340.00, 845.00, 0.931202, 0.938889, 700),
-            contract_back_step("level_18_contract_back_first_1"),
-            contract_back_step("level_18_contract_back_first_2"),
-            open_menu_step("level_18_contract_open_menu_second"),
-            open_contract_panel_step("level_18_contract_open_panel_second"),
-            fixed_click_step("level_18_contract_second_click_329_256", "18级契灵固定点击6", 329.00, 256.00, 0.228631, 0.284444, 500),
-            fixed_click_step("level_18_contract_second_click_1322_812", "18级契灵固定点击7", 1322.00, 812.00, 0.918694, 0.902222, 700),
-            contract_back_step("level_18_contract_back_second_1"),
-            contract_back_step("level_18_contract_back_second_2")
-        }
-    }
+        open_menu_label = "技能天赋菜单按钮",
+        open_panel_label = "契灵面板按钮",
+        back_label = "契灵返回固定点击",
+        click_label_prefix = "18级契灵固定点击"
+    })
 
-    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[20] = {
-        key = "level_20_contract_second_setup",
-        label = "20级契灵：第二套契约点击配置",
-        require_available_points = false,
-        monster_guard_distance = 160,
-        safe_no_monster_ms = 600,
-        close_with_escape = false,
-        steps = {
-            open_menu_step("level_20_contract_open_menu"),
-            open_contract_panel_step("level_20_contract_open_panel"),
-            fixed_click_step("level_20_contract_second_click_329_256", "20级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
-            fixed_click_step("level_20_contract_second_click_1322_812", "20级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
-            contract_back_step("level_20_contract_back_1"),
-            contract_back_step("level_20_contract_back_2")
-        }
-    }
-
-    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[24] = {
-        key = "level_24_contract_second_setup",
-        label = "24级契灵：第二套契约点击配置",
-        require_available_points = false,
-        monster_guard_distance = 160,
-        safe_no_monster_ms = 600,
-        close_with_escape = false,
-        steps = {
-            open_menu_step("level_24_contract_open_menu"),
-            open_contract_panel_step("level_24_contract_open_panel"),
-            fixed_click_step("level_24_contract_second_click_329_256", "24级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
-            fixed_click_step("level_24_contract_second_click_1322_812", "24级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
-            contract_back_step("level_24_contract_back_1"),
-            contract_back_step("level_24_contract_back_2")
-        }
-    }
-
-    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[29] = {
-        key = "level_29_contract_second_setup",
-        label = "29级契灵：第二套契约点击配置",
-        require_available_points = false,
-        monster_guard_distance = 160,
-        safe_no_monster_ms = 600,
-        close_with_escape = false,
-        steps = {
-            open_menu_step("level_29_contract_open_menu"),
-            open_contract_panel_step("level_29_contract_open_panel"),
-            fixed_click_step("level_29_contract_second_click_329_256", "29级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
-            fixed_click_step("level_29_contract_second_click_1322_812", "29级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
-            contract_back_step("level_29_contract_back_1"),
-            contract_back_step("level_29_contract_back_2")
-        }
-    }
-
-    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[32] = {
-        key = "level_32_contract_second_setup",
-        label = "32级契灵：第二套契约点击配置",
-        require_available_points = false,
-        monster_guard_distance = 160,
-        safe_no_monster_ms = 600,
-        close_with_escape = false,
-        steps = {
-            open_menu_step("level_32_contract_open_menu"),
-            open_contract_panel_step("level_32_contract_open_panel"),
-            fixed_click_step("level_32_contract_second_click_329_256", "32级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
-            fixed_click_step("level_32_contract_second_click_1322_812", "32级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
-            contract_back_step("level_32_contract_back_1"),
-            contract_back_step("level_32_contract_back_2")
-        }
-    }
-
-    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[36] = {
-        key = "level_36_contract_second_setup",
-        label = "36级契灵：第二套契约点击配置",
-        require_available_points = false,
-        monster_guard_distance = 160,
-        safe_no_monster_ms = 600,
-        close_with_escape = false,
-        steps = {
-            open_menu_step("level_36_contract_open_menu"),
-            open_contract_panel_step("level_36_contract_open_panel"),
-            fixed_click_step("level_36_contract_second_click_329_256", "36级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
-            fixed_click_step("level_36_contract_second_click_1322_812", "36级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
-            contract_back_step("level_36_contract_back_1"),
-            contract_back_step("level_36_contract_back_2")
-        }
-    }
-
-    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[41] = {
-        key = "level_41_contract_second_setup",
-        label = "41级契灵：第二套契约点击配置",
-        require_available_points = false,
-        monster_guard_distance = 160,
-        safe_no_monster_ms = 600,
-        close_with_escape = false,
-        steps = {
-            open_menu_step("level_41_contract_open_menu"),
-            open_contract_panel_step("level_41_contract_open_panel"),
-            fixed_click_step("level_41_contract_second_click_329_256", "41级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
-            fixed_click_step("level_41_contract_second_click_1322_812", "41级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
-            contract_back_step("level_41_contract_back_1"),
-            contract_back_step("level_41_contract_back_2")
-        }
-    }
-
-    M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[44] = {
-        key = "level_44_contract_second_setup",
-        label = "44级契灵：第二套契约点击配置",
-        require_available_points = false,
-        monster_guard_distance = 160,
-        safe_no_monster_ms = 600,
-        close_with_escape = false,
-        steps = {
-            open_menu_step("level_44_contract_open_menu"),
-            open_contract_panel_step("level_44_contract_open_panel"),
-            fixed_click_step("level_44_contract_second_click_329_256", "44级契灵固定点击1", 329.00, 256.00, 0.228631, 0.284444, 500),
-            fixed_click_step("level_44_contract_second_click_1322_812", "44级契灵固定点击2", 1322.00, 812.00, 0.918694, 0.902222, 700),
-            contract_back_step("level_44_contract_back_1"),
-            contract_back_step("level_44_contract_back_2")
-        }
-    }
+    for _, level in ipairs({ 20, 24, 29, 32, 36, 41, 44 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[level] = make_contract_second_setup_plan({
+            level = level,
+            key = "level_" .. tostring(level) .. "_contract_second_setup",
+            label = tostring(level) .. "级契灵：第二套契约点击配置",
+            open_menu_label = "技能天赋菜单按钮",
+            open_panel_label = "契灵面板按钮",
+            back_label = "契灵返回固定点击",
+            click_label_prefix = tostring(level) .. "级契灵固定点击"
+        })
+    end
 end
 
 local function make_sun_faction_choice_action()
@@ -5990,6 +5791,38 @@ M.TASK_NAME_CONFIGS = {
             constraint_mode = "all"
         }
     ),
+    ["追寻莱安的踪迹"] = make_boss_kite_task_config(
+        "abyss_below_ryan_phantom_boss_room",
+        {
+            trigger_distance = 1600,
+            immediate_kite_on_reached = true,
+            seamless_kite = true,
+            kite_radius = 1260,
+            kite_point_count = 3,
+            kite_switch_ms = 2400,
+            kite_arrive_distance = 520,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 3500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            ignore_terminal_text_change_when_objective_same = true
+        },
+        {
+            task_patterns = { "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}" },
+            task_detail_patterns = { "追寻莱安的踪迹" },
+            constraint_mode = "all",
+            exclude_task_patterns = {
+                "\u{4EA4}\u{8C08}",
+                "\u{5BF9}\u{8BDD}"
+            },
+            exclude_task_detail_patterns = {
+                "\u{4EA4}\u{8C08}",
+                "\u{5BF9}\u{8BDD}"
+            }
+        }
+    ),
     ["\u{51FB}\u{8D25}\u{83B1}\u{5B89}\u{5E7B}\u{5F71}"] = make_boss_kite_task_config(
         "abyss_below_ryan_phantom_boss_room",
         {
@@ -6005,6 +5838,7 @@ M.TASK_NAME_CONFIGS = {
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
             allow_no_task_target_force_kite = true,
+            immediate_no_task_target_kite = true,
             kite_points = {
                 { x = -1549.53, y = 25388.33, z = 503.00 },
                 { x = -116.72, y = 24092.46, z = 503.00 },
@@ -6032,7 +5866,6 @@ M.TASK_NAME_CONFIGS = {
             trigger_distance = 320,
             skip_direct_interact = true,
             ignore_terminal_text_change_when_objective_same = true,
-            arm_task_entry_action_after_click = true,
             button_steps = {
                 {
                     key = "day_of_apotheosis_enter_ascension_hall_transport_btn",
@@ -6049,37 +5882,6 @@ M.TASK_NAME_CONFIGS = {
                     prefer_hint_fallback = true,
                     settle_ms = 1200
                 }
-            }
-        },
-        entry_action = {
-            key = "day_of_apotheosis_enter_ascension_hall_world_map_send",
-            mode = "world_map_send",
-            map_open_wait_ms = 3000,
-            center_click_ratio_x = 0.428472,
-            center_click_ratio_y = 0.496667,
-            center_use_human_mouse = true,
-            center_mouse_mode = "api",
-            center_hover_delay_ms = 90,
-            center_click_delay_ms = 60,
-            center_settle_ms = 750,
-            center_retry_ms = 1400,
-            transition_wait_ms = 2500,
-            timeout_ms = 18000,
-            step = {
-                label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
-                distance_anchor_exact_text = "\u{4F20}\u{9001}",
-                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn",
-                distance_min = 8.248740,
-                distance_max = 9.248740,
-                include_patterns = {
-                    "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn"
-                },
-                hint_client_x = 659.188843,
-                hint_client_y = 827.716736,
-                hint_ratio_x = 0.457770,
-                hint_ratio_y = 0.919685,
-                hint_max_distance = 80.000,
-                prefer_hint_fallback = true
             }
         },
         task_patterns = { "\u{6210}\u{795E}\u{4E4B}\u{65E5}" },
@@ -6101,6 +5903,30 @@ M.TASK_NAME_CONFIGS = {
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
             allow_no_task_target_force_kite = true,
+            allow_nearby_text_task_change_exit = true,
+            nearby_text_task_change_confirm_ms = 800,
+            nearby_text_task_change_confirm_count = 2,
+            nearby_text_task_change_exit_patterns = {
+                "\u{8BE2}\u{95EE}\u{963F}\u{745E}\u{5A05}\u{60C5}\u{51B5}"
+            },
+            revive_reentry = make_revive_reentry_config({
+                key = "day_of_apotheosis_geegang_boss_room_reentry_291_-126",
+                label = "\u{6210}\u{795E}\u{4E4B}\u{65E5}\u{57FA}\u{5188}Boss\u{91CD}\u{8FDB}\u{623F}",
+                anchor = {
+                    x = 290.58,
+                    y = -125.95,
+                    z = 551.90,
+                    radius = 620,
+                    z_tolerance = 360
+                },
+                interact_distance = 300,
+                portal_scan_distance = 900,
+                retry_ms = 900,
+                settle_ms = 1400,
+                timeout_ms = 22000,
+                post_transition_boss_engage_ms = 16000,
+                fallback_interact = true
+            }),
             kite_points = {
                 { x = 155.47, y = 2093.02, z = 1281.00 },
                 { x = 1450.77, y = 3179.78, z = 1281.00 },
@@ -7399,6 +7225,82 @@ M.ROUTE_POINT_ACTIONS = {
     make_daylight_rivalry_talk_to_ariya_route_action(),
     make_evil_sun_chase_queen_detour_route_action(),
     make_shadow_sun_chase_queen_detour_route_action(),
+    make_route_point_action({
+        key = "day_of_apotheosis_enter_ascension_hall_move_to_portal_1692_25481",
+        label = "\u{6210}\u{795E}\u{4E4B}\u{65E5}_\u{8FDB}\u{5165}\u{5347}\u{534E}\u{79D8}\u{6BBF}_\u{79FB}\u{52A8}\u{5230}\u{4F20}\u{9001}\u{95E8}",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "day_of_apotheosis_enter_ascension_hall_portal_1692_25481",
+        task_patterns = {
+            "\u{6210}\u{795E}\u{4E4B}\u{65E5}"
+        },
+        task_detail_patterns = {
+            "\u{8FDB}\u{5165}\u{5347}\u{534E}\u{79D8}\u{6BBF}\u{FF0C}\u{963B}\u{6B62}\u{57FA}\u{5188}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 1691.62,
+            y = 25481.29,
+            z = 503.00,
+            radius = 1800,
+            z_tolerance = 360
+        },
+        retry_ms = 600000,
+        timeout_ms = 30000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 360,
+        move_interval_ms = 220,
+        waypoints = {
+            { x = 1691.62, y = 25481.29, z = 503.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "day_of_apotheosis_enter_ascension_hall_portal_1692_25481",
+        label = "\u{6210}\u{795E}\u{4E4B}\u{65E5}_\u{8FDB}\u{5165}\u{5347}\u{534E}\u{79D8}\u{6BBF}_PortalBtn",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "\u{6210}\u{795E}\u{4E4B}\u{65E5}"
+        },
+        task_detail_patterns = {
+            "\u{8FDB}\u{5165}\u{5347}\u{534E}\u{79D8}\u{6BBF}\u{FF0C}\u{963B}\u{6B62}\u{57FA}\u{5188}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 1691.62,
+            y = 25481.29,
+            z = 503.00,
+            radius = 720,
+            z_tolerance = 360
+        },
+        interact_radius = 240,
+        probe_retry_ms = 700,
+        retry_ms = 2500,
+        settle_ms = 4500,
+        timeout_ms = 18000,
+        force_task_call_after_transition = true,
+        task_pos_reject_extra_ms = 3500,
+        fallback_interact = true,
+        fallback_interact_distance = 280,
+        fallback_retry_ms = 2500,
+        step = {
+            key = "day_of_apotheosis_enter_ascension_hall_portal_btn_1692_25481",
+            label = "\u{5347}\u{534E}\u{79D8}\u{6BBF}\u{4F20}\u{9001}\u{95E8}PortalBtn",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn"
+            },
+            hint_client_x = 697.204834,
+            hint_client_y = 724.439941,
+            hint_ratio_x = 0.484170,
+            hint_ratio_y = 0.804933,
+            hint_max_distance = 180.000
+        }
+    }),
     make_route_point_action({
         key = "holy_fire_academy_clue_detour_5626_15854",
         label = "holy_fire_academy_clue_detour_5626_15854",
@@ -8924,7 +8826,7 @@ M.ROUTE_POINT_ACTIONS = {
         },
         interact_radius = 140,
         probe_retry_ms = 700,
-        retry_ms = 2500,
+        retry_ms = 600000,
         settle_ms = 2200,
         timeout_ms = 18000,
         force_task_call_after_transition = true,
@@ -8943,6 +8845,37 @@ M.ROUTE_POINT_ACTIONS = {
             hint_max_distance = 80.000,
             settle_ms = 2200,
             task_pos_reject_extra_ms = 3800
+        }
+    }),
+    make_route_point_action({
+        key = "abyss_below_trace_ryan_anchor_3222_6102_then_main_task",
+        label = "abyss_below_trace_ryan_anchor_3222_6102_then_main_task",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        task_patterns = {
+            "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}"
+        },
+        task_detail_patterns = {
+            "\u{8FFD}\u{5BFB}\u{83B1}\u{5B89}\u{7684}\u{8E2A}\u{8FF9}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 3222.00,
+            y = 6102.00,
+            z = 503.00,
+            radius = 1800,
+            z_tolerance = 360
+        },
+        retry_ms = 600000,
+        timeout_ms = 30000,
+        waypoint_reach_radius = 180,
+        waypoint_z_tolerance = 360,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 3222.00, y = 6102.00, z = 503.00 }
         }
     }),
     make_route_point_action({
@@ -9037,9 +8970,12 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
-        key = "abyss_below_principal_derek_dialogue_anchor_-1599_23620",
-        label = "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}_\u{4E0E}\u{6821}\u{957F}\u{5FB7}\u{91CC}\u{514B}\u{5BF9}\u{8BDD}_\u{5165}\u{53E3}\u{951A}\u{70B9}",
+        key = "abyss_below_principal_derek_dialogue_route_-398_25165_to_1681_25614",
+        label = "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}_\u{4E0E}\u{6821}\u{957F}\u{5FB7}\u{91CC}\u{514B}\u{5BF9}\u{8BDD}_\u{4E09}\u{70B9}\u{5F55}\u{5236}\u{8DEF}\u{7EBF}",
         mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
         task_patterns = {
             "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}"
         },
@@ -9048,20 +8984,22 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = -1599.00,
-            y = 23620.00,
-            z = 503.00,
-            radius = 1500,
-            z_tolerance = 320
+            x = -398.00,
+            y = 25165.00,
+            z = 509.41,
+            radius = 2600,
+            z_tolerance = 420
         },
         retry_ms = 600000,
-        timeout_ms = 30000,
+        timeout_ms = 45000,
         waypoint_reach_radius = 180,
-        waypoint_z_tolerance = 320,
+        waypoint_z_tolerance = 420,
         move_interval_ms = 220,
         reacquire_retry_ms = 1200,
         waypoints = {
-            { x = -1599.00, y = 23620.00, z = 503.00 }
+            { x = -398.00, y = 25165.00, z = 509.41 },
+            { x = 101.82, y = 24799.29, z = 503.00 },
+            { x = 1681.99, y = 25614.40, z = 503.00 }
         }
     }),
     make_route_point_action({
@@ -11470,6 +11408,10 @@ M.OBJECTIVE_POINT_CONFIGS = {
         }
     })
 }
+
+function M.validate()
+    return Actions.validate_leveling_config(M)
+end
 
 return M
 

@@ -3,6 +3,8 @@
     })
 end
 
+local resolve_main_task_button_hint
+
 function M.arm_linear_task_recipe(ctx, current_time, recipe)
     current_time = tonumber(current_time) or now_ms(ctx)
     local key = tostring(type(recipe) == "table" and (recipe.key or recipe.recipe_key) or "")
@@ -8652,7 +8654,7 @@ local function maybe_handle_revive(ctx, current_time, hp, player_x, player_y, pl
     return true
 end
 
-local function resolve_main_task_button_hint(ctx)
+function resolve_main_task_button_hint(ctx)
     local step = M.apply_main_task_button_step_defaults(MAIN_TASK_BUTTON_STEP)
     local hint_x = tonumber(step.hint_client_x)
     local hint_y = tonumber(step.hint_client_y)

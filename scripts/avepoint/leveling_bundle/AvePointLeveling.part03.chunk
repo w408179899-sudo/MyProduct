@@ -5301,6 +5301,17 @@ function M.maybe_handle_no_task_target_immediate_boss_kite(ctx, current_time, pl
         return false
     end
 
+    local locked_objective_key = tostring(state.task_combat_locked_objective_key or "")
+    local objective_key = tostring(objective_cfg.key or "")
+    if tostring(state.stage or "") == "task_combat_kite"
+        and state.task_combat_force_kite == true
+        and locked_objective_key ~= ""
+        and objective_key ~= ""
+        and locked_objective_key == objective_key
+    then
+        return false
+    end
+
     local last_task_click_at = tonumber(state.last_task_button_click_at) or 0
     if last_task_click_at <= 0 then
         return false
