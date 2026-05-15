@@ -1559,6 +1559,50 @@ do
         0.625740,
         0.747557
     )
+
+    local level_47_talent_plan = make_level_22_plus_talent_plan(
+        47,
+        920.706848,
+        415.208282,
+        0.639824,
+        0.461343,
+        750.509155,
+        679.801453,
+        0.521549,
+        0.755335
+    )
+    local level_47_talent_steps = type(level_47_talent_plan.steps) == "table" and level_47_talent_plan.steps or {}
+    table.insert(level_47_talent_steps, 4, maintenance_locator_step(
+        "select_level_47_trickster_talent_card",
+        "47级天赋：切换欺诈之神天赋卡",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+        },
+        53.726845,
+        344.195770,
+        0.037336,
+        0.382440,
+        80,
+        900
+    ))
+    level_47_talent_plan.key = "level_47_trickster_card_and_talent_node_activate"
+    level_47_talent_plan.label = "47级天赋：切换欺诈之神并激活天赋节点"
+    level_47_talent_plan.steps = level_47_talent_steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[47] = level_47_talent_plan
+
+    for _, level in ipairs({ 48, 49 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_22_plus_talent_plan(
+            level,
+            920.706848,
+            415.208282,
+            0.639824,
+            0.461343,
+            750.509155,
+            679.801453,
+            0.521549,
+            0.755335
+        )
+    end
 end
 
 do
@@ -2414,7 +2458,7 @@ do
         click_label_prefix = "18级契灵固定点击"
     })
 
-    for _, level in ipairs({ 20, 24, 29, 32, 36, 41, 44 }) do
+    for _, level in ipairs({ 20, 24, 29, 32, 36, 41, 44, 49 }) do
         M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[level] = make_contract_second_setup_plan({
             level = level,
             key = "level_" .. tostring(level) .. "_contract_second_setup",
@@ -4461,6 +4505,48 @@ local function make_free_fire_elsa_approval_boss_task_config()
     )
 end
 
+local function make_late_star_royal_encirclement_boss_task_config(opts)
+    opts = type(opts) == "table" and opts or {}
+    local allow_no_target = opts.allow_no_target == true
+    local detail_pattern = tostring(opts.detail_pattern or "")
+    local detail_patterns = {}
+    if detail_pattern ~= "" then
+        detail_patterns[#detail_patterns + 1] = detail_pattern
+    end
+    return make_boss_kite_task_config(
+        "late_star_royal_encirclement_boss_kite",
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = allow_no_target,
+            immediate_no_task_target_kite = allow_no_target,
+            kite_radius = 1260,
+            kite_point_count = 3,
+            kite_switch_ms = 2200,
+            seamless_kite = true,
+            kite_arrive_distance = 420,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 3500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            ignore_terminal_text_change_when_objective_same = true
+        },
+        {
+            task_patterns = {
+                "\u{665A}\u{661F}\u{5F85}\u{660E}"
+            },
+            task_detail_patterns = detail_patterns,
+            exclude_task_detail_patterns = {
+                "\u{4EA4}\u{8C08}",
+                "\u{5BF9}\u{8BDD}"
+            },
+            constraint_mode = "all"
+        }
+    )
+end
+
 local function make_long_plan_elsa_intel_dialogue_task_config()
     return {
         objective = {
@@ -5703,6 +5789,90 @@ M.TASK_NAME_CONFIGS = {
     ["\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}"] = make_kingdom_end_deep_boss_task_config(),
     ["\u{51FB}\u{8D25}\u{7279}\u{6B8A}\u{5B9E}\u{9A8C}\u{4F53}\u{57FA}\u{5C14}"] = make_forgotten_temple_special_experiment_keel_task_config(),
     ["\u{7279}\u{6B8A}\u{5B9E}\u{9A8C}\u{4F53}\u{57FA}\u{5C14}"] = make_forgotten_temple_special_experiment_keel_task_config(),
+    ["坠星 / 前往集市中心"] = make_boss_kite_task_config(
+        "falling_star_market_center_route_kite",
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            seamless_kite = true,
+            kite_switch_ms = 2000,
+            kite_arrive_distance = 420,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 3500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            ignore_terminal_text_change_when_objective_same = true,
+            kite_points = {
+                { x = -372.02, y = -171.76, z = 2026.00 },
+                { x = -17.34, y = 219.02, z = 2032.84 },
+                { x = 538.66, y = 364.33, z = 2046.76 },
+                { x = 971.16, y = 171.65, z = 2057.52 },
+                { x = 1236.11, y = -309.72, z = 2040.21 },
+                { x = 1188.95, y = -782.28, z = 2035.18 },
+                { x = 918.32, y = -1162.18, z = 2028.86 },
+                { x = 303.64, y = -1254.36, z = 2015.21 },
+                { x = -277.20, y = -1163.33, z = 2023.37 }
+            }
+        },
+        {
+            task_patterns = {
+                "坠星"
+            },
+            task_detail_patterns = {
+                "前往集市中心"
+            },
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
+            },
+            constraint_mode = "all"
+        }
+    ),
+    ["晚星待明 / 跟随艾丝梅拉达，前往营救晚星战俘"] = make_late_star_royal_encirclement_boss_task_config({
+        detail_pattern = "跟随艾丝梅拉达，前往营救晚星战俘"
+    }),
+    ["晚星待明 / 击败王命围捕"] = make_late_star_royal_encirclement_boss_task_config({
+        detail_pattern = "击败王命围捕",
+        allow_no_target = true
+    }),
+    ["永夜鸣沙 / 向沙漠深处进发，找到伊吉人的聚集地"] = make_boss_kite_task_config(
+        "eternal_sand_find_iji_gathering_kite",
+        {
+            trigger_distance = 520,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = true,
+            immediate_no_task_target_kite = true,
+            kite_radius = 1260,
+            kite_point_count = 3,
+            kite_switch_ms = 2400,
+            seamless_kite = true,
+            kite_arrive_distance = 420,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 3500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            allow_nearby_text_task_change_exit = true,
+            nearby_text_task_change_confirm_ms = 800,
+            nearby_text_task_change_confirm_count = 2,
+            nearby_text_task_change_exit_patterns = {
+                "前往沉没沙丘"
+            },
+            ignore_terminal_text_change_when_objective_same = true
+        },
+        {
+            task_patterns = {
+                "永夜鸣沙"
+            },
+            task_detail_patterns = {
+                "向沙漠深处进发，找到伊吉人的聚集地"
+            },
+            constraint_mode = "all"
+        }
+    ),
     ["\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}"] = make_abyss_below_awakened_temple_deep_route_task_config(),
     ["\u{8FDB}\u{5165}\u{89C9}\u{9192}\u{79D8}\u{6BBF}\u{6DF1}\u{5904}"] = make_abyss_below_awakened_temple_deep_route_task_config(),
     ["\u{9634}\u{4E91}\u{538B}\u{57CE}"] = make_overcast_city_awakened_ryan_task_config(),
@@ -8484,6 +8654,43 @@ M.ROUTE_POINT_ACTIONS = {
             fallback_interact = true
         }
     }),
+    make_npc_dialogue_route_action({
+        key = "late_star_talk_to_esmeralda_npc_-679_-735",
+        label = "late_star_talk_to_esmeralda_npc",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        retry_ms = 600000,
+        task_patterns = {
+            "\u{665A}\u{661F}\u{5F85}\u{660E}"
+        },
+        task_detail_patterns = {
+            "\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -679.00,
+            y = -735.00,
+            z = 2009.27,
+            radius = 1800,
+            z_tolerance = 420
+        },
+        dialogue = {
+            x = -679.00,
+            y = -735.00,
+            z = 2009.27,
+            radius = 320,
+            interact_radius = 160,
+            move_interval_ms = 220,
+            z_tolerance = 420,
+            center_settle_ms = 700,
+            interact_retry_ms = 1800,
+            timeout_ms = 22000,
+            npc_search_radius = 700,
+            fallback_interact = true
+        }
+    }),
     make_route_point_action({
         key = "starlight_lions_heart_counterattack_portal_7622_8484",
         label = "\u{7FA4}\u{661F}\u{4E4B}\u{8F89}_\u{524D}\u{5F80}\u{96C4}\u{72EE}\u{4E4B}\u{5FC3}_\u{4F20}\u{9001}\u{95E8}",
@@ -10716,6 +10923,125 @@ M.ROUTE_POINT_ACTIONS = {
             hint_ratio_x = 0.481617,
             hint_ratio_y = 0.777368,
             hint_max_distance = 80.000
+        }
+    }),
+    make_route_point_action({
+        key = "guiding_light_repair_desert_lamp_route_-2337_3517",
+        label = "指路明灯_维修沙漠之灯_录制路径后接Gather",
+        mode = "recorded_route_point",
+        task_patterns = {
+            "指路明灯"
+        },
+        task_detail_patterns = {
+            "维修沙漠之灯"
+        },
+        constraint_mode = "all",
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "guiding_light_repair_desert_lamp_gather_-2744_4191",
+        trigger = {
+            x = -2336.90,
+            y = 3516.98,
+            z = 32.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 90000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = -2336.90, y = 3516.98, z = 32.00 },
+            { x = -3229.19, y = 4122.77, z = 32.00 },
+            { x = -2743.97, y = 4191.09, z = 32.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "guiding_light_repair_desert_lamp_gather_-2744_4191",
+        label = "指路明灯_维修沙漠之灯_终点Gather",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        task_patterns = {
+            "指路明灯"
+        },
+        task_detail_patterns = {
+            "维修沙漠之灯"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -2743.97,
+            y = 4191.09,
+            z = 32.00,
+            radius = 520,
+            z_tolerance = 260
+        },
+        interact_radius = 320,
+        pre_action_combat_guard = false,
+        probe_retry_ms = 700,
+        retry_ms = 2500,
+        settle_ms = 1600,
+        timeout_ms = 14000,
+        step = {
+            key = "guiding_light_repair_desert_lamp_gather_btn",
+            label = "维修沙漠之灯Gather按钮",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn"
+            },
+            hint_client_x = 698.053040,
+            hint_client_y = 706.797729,
+            hint_ratio_x = 0.485096,
+            hint_ratio_y = 0.785331,
+            hint_max_distance = 90.000,
+            prefer_hint_fallback = true,
+            settle_ms = 1200
+        }
+    }),
+    make_route_point_action({
+        key = "yellow_sand_sunken_dunes_route_7206_3137",
+        label = "黄沙迢迢_探索沉没沙丘_录制路径后重call主线",
+        mode = "recorded_route_point",
+        task_patterns = {
+            "黄沙迢迢"
+        },
+        task_detail_patterns = {
+            "探索沉没沙丘，打听伊吉部族和火种的下落"
+        },
+        constraint_mode = "all",
+        require_destination_match = true,
+        destination_match_radius = 1800,
+        trigger = {
+            x = 7206.00,
+            y = 3137.00,
+            z = 2491.00,
+            radius = 1500,
+            z_tolerance = 360
+        },
+        retry_ms = 600000,
+        timeout_ms = 210000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 360,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 8048.30, y = 3604.33, z = 2491.00 },
+            { x = 8685.24, y = 3114.89, z = 2491.00 },
+            { x = 9474.63, y = 2369.36, z = 2491.00 },
+            { x = 9922.41, y = 1736.90, z = 2491.00 },
+            { x = 10491.38, y = 743.37, z = 2491.00 },
+            { x = 10905.17, y = 17.13, z = 2491.00 },
+            { x = 11378.81, y = -601.05, z = 2491.00 },
+            { x = 12284.64, y = -1470.26, z = 2491.00 },
+            { x = 12992.25, y = -1806.04, z = 2491.00 },
+            { x = 13626.59, y = -2152.43, z = 2491.00 },
+            { x = 14270.57, y = -2595.87, z = 2491.00 },
+            { x = 14888.51, y = -3027.15, z = 2491.00 },
+            { x = 15540.90, y = -3346.94, z = 2491.00 },
+            { x = 16145.75, y = -3732.92, z = 2491.00 },
+            { x = 16595.14, y = -4266.89, z = 2491.00 },
+            { x = 16792.00, y = -5341.00, z = 2491.00 },
+            { x = 16910.00, y = -5549.00, z = 2491.00 }
         }
     }),
     make_route_point_action({

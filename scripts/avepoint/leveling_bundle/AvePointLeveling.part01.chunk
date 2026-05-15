@@ -7280,6 +7280,11 @@ function M.maybe_handle_boss_task_change(ctx, current_time, objective_cfg, playe
         and current_objective_key ~= locked_objective_key
     local soft_probe_change = (current_task_source == "nearby_text" and name_changed)
         or (current_detail_source == "nearby_text" and detail_changed)
+    local confirmed_detail_refresh = detail_changed
+        and current_task_source ~= "nearby_text"
+        and current_log_task_name ~= nil
+        and current_log_task_name == locked_task_name
+        and (current_objective_key == nil or current_objective_key ~= locked_objective_key)
     local same_objective_text_change = locked_objective_key ~= nil
         and current_objective_key ~= nil
         and current_objective_key == locked_objective_key
@@ -7297,9 +7302,30 @@ function M.maybe_handle_boss_task_change(ctx, current_time, objective_cfg, playe
         and (name_changed or detail_changed or detail_missing_changed)
     then
         if soft_probe_change then
-            local allow_soft_exit = boss_soft_exit_option("allow_nearby_text_task_change_exit") == true
             local soft_candidate = detail_changed and current_log_task_detail or current_log_task_name
-            if allow_soft_exit and boss_soft_exit_candidate_allowed(soft_candidate) then
+            if confirmed_detail_refresh then
+                state.boss_soft_task_change_candidate = nil
+                state.boss_soft_task_change_first_at = 0
+                state.boss_soft_task_change_seen_count = 0
+                state.boss_soft_task_change_confirmed_candidate = soft_candidate
+                state.boss_soft_task_change_confirmed_at = current_time
+                logger(ctx).info(string.format(
+                    "[Leveling] boss task change accepted from confirmed detail refresh | old_task=%s old_detail=%s old_objective=%s new_task=%s new_detail=%s new_objective=%s task_source=%s detail_source=%s stage=%s",
+                    tostring(locked_task_name or ""),
+                    tostring(locked_task_detail or ""),
+                    tostring(locked_objective_key or ""),
+                    tostring(current_log_task_name or current_task_name or ""),
+                    tostring(current_log_task_detail or ""),
+                    tostring(current_objective_key or ""),
+                    tostring(current_task_source or ""),
+                    tostring(current_detail_source or ""),
+                    tostring(state.stage or "")
+                ))
+                soft_probe_change = false
+                same_objective_text_change = false
+            elseif boss_soft_exit_option("allow_nearby_text_task_change_exit") == true
+                and boss_soft_exit_candidate_allowed(soft_candidate)
+            then
                 local candidate_key = normalize_map_name(soft_candidate)
                 local pending_key = normalize_map_name(state.boss_soft_task_change_candidate)
                 local confirm_ms = math.max(
@@ -7557,18 +7583,57 @@ function M.consume_terminal_task_refresh_marker(ctx, current_time, stage_name)
         and source == "nearby_text"
         and (stage_key == "task_combat_kite" or state.task_combat_force_kite == true)
     then
-        log_throttled(ctx, "terminal_marker_soft_probe_boss_ignored", "info", LOG_THROTTLE_MS, string.format(
-            "[Leveling] terminal task refresh marker ignored during boss kite soft probe | old_task=%s old_detail=%s objective=%s new_task=%s new_detail=%s source=%s stage=%s",
-            tostring(previous_task_name or state.terminal_task_locked_name or ""),
-            tostring(previous_task_detail or state.terminal_task_locked_detail or ""),
-            tostring(state.terminal_task_locked_objective_key or ""),
-            tostring(state.terminal_task_refresh_new_task_name or state.current_task_name or ""),
-            tostring(state.terminal_task_refresh_new_task_detail or state.current_task_detail or ""),
-            source,
-            stage_key
-        ))
-        M.clear_terminal_task_refresh_marker()
-        return false
+        local current_task_cfg, current_task_name = M.current_task_runtime_config()
+        local current_objective = type(current_task_cfg) == "table" and type(current_task_cfg.objective) == "table"
+            and current_task_cfg.objective or nil
+        local current_objective_key = normalize_map_name(type(current_objective) == "table" and current_objective.key or nil)
+        local previous_detail_key = normalize_map_name(previous_task_detail or state.terminal_task_locked_detail)
+        local new_detail_key = normalize_map_name(
+            state.terminal_task_refresh_new_task_detail
+                or M.current_task_log_detail()
+                or state.current_task_detail
+        )
+        local previous_task_key = M.normalize_task_title_key(previous_task_name or state.terminal_task_locked_name)
+        local new_task_key = M.normalize_task_title_key(
+            state.terminal_task_refresh_new_task_name
+                or M.current_task_log_name()
+                or state.current_task_name
+                or current_task_name
+        )
+        local confirmed_detail_refresh = previous_task_key ~= nil
+            and new_task_key ~= nil
+            and previous_task_key == new_task_key
+            and previous_detail_key ~= nil
+            and new_detail_key ~= nil
+            and previous_detail_key ~= new_detail_key
+            and (current_objective_key == nil or current_objective_key ~= locked_objective_key)
+            and tostring(state.current_task_name_source or "") ~= "nearby_text"
+        if confirmed_detail_refresh then
+            logger(ctx).info(string.format(
+                "[Leveling] terminal task refresh accepted from confirmed detail refresh | old_task=%s old_detail=%s objective=%s new_task=%s new_detail=%s new_objective=%s source=%s stage=%s",
+                tostring(previous_task_name or state.terminal_task_locked_name or ""),
+                tostring(previous_task_detail or state.terminal_task_locked_detail or ""),
+                tostring(state.terminal_task_locked_objective_key or ""),
+                tostring(state.terminal_task_refresh_new_task_name or state.current_task_name or current_task_name or ""),
+                tostring(state.terminal_task_refresh_new_task_detail or state.current_task_detail or ""),
+                tostring(current_objective_key or ""),
+                source,
+                stage_key
+            ))
+        else
+            log_throttled(ctx, "terminal_marker_soft_probe_boss_ignored", "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] terminal task refresh marker ignored during boss kite soft probe | old_task=%s old_detail=%s objective=%s new_task=%s new_detail=%s source=%s stage=%s",
+                tostring(previous_task_name or state.terminal_task_locked_name or ""),
+                tostring(previous_task_detail or state.terminal_task_locked_detail or ""),
+                tostring(state.terminal_task_locked_objective_key or ""),
+                tostring(state.terminal_task_refresh_new_task_name or state.current_task_name or ""),
+                tostring(state.terminal_task_refresh_new_task_detail or state.current_task_detail or ""),
+                source,
+                stage_key
+            ))
+            M.clear_terminal_task_refresh_marker()
+            return false
+        end
     end
     if locked_objective_key ~= nil then
         local current_task_cfg, current_task_name = M.current_task_runtime_config()
@@ -11605,7 +11670,8 @@ function M.resolve_current_task_intent(ctx, current_time, player_x, player_y, pl
     local route_point_active = M.current_route_point_active_intent()
     local route_point_candidate = M.find_route_point_intent_candidate(ctx, current_time, player_x, player_y, player_z, {
         require_allow_without_task_target = opts.require_allow_without_task_target == true,
-        require_wait_task_path_recover = opts.require_wait_task_path_recover == true
+        require_wait_task_path_recover = opts.require_wait_task_path_recover == true,
+        has_target = opts.has_target == true or type(state.task_target) == "table"
     })
 
     local task_recipe_candidate = nil

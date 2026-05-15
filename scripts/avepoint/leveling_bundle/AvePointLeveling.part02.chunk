@@ -4336,7 +4336,17 @@ function M.finish_level_up_maintenance_executor(ctx, current_time)
     else
         state.level_up_maintenance_next_retry_at = current_time + 500
     end
-    M.level_up_maintenance_clear_pending_if_done(ctx)
+    local all_done = M.level_up_maintenance_clear_pending_if_done(ctx)
+    if all_done and type(schedule_task_refresh_after_transition) == "function" then
+        state.stage = "level_up_maintenance_reacquire_task"
+        state.level_up_maintenance_safe_since = 0
+        state.level_up_maintenance_last_block_reason = nil
+        state.level_up_maintenance_nearby_block_since = nil
+        release_async_combat_inputs(ctx, current_time, true)
+        schedule_task_refresh_after_transition(ctx, current_time, "level_up_maintenance_complete", TASK_BUTTON_SETTLE_MS, {
+            force_task_call = true
+        })
+    end
     return true
 end
 
@@ -5324,6 +5334,7 @@ function M.route_point_action_intent_kind(action)
 end
 
 function M.current_route_point_active_intent()
+    local has_task_target = type(state.task_target) == "table"
     local route_wait_until = tonumber(state.route_point_action_route_wait_reacquire_until) or 0
     local route_wait_key = tostring(state.route_point_action_route_wait_key or "")
     if route_wait_until > 0 and route_wait_key ~= "" then
@@ -5360,13 +5371,34 @@ function M.current_route_point_active_intent()
         local active_key = tostring(type(item) == "table" and item.key or "")
         if active_key ~= "" then
             local action = M.find_route_point_action_by_key(active_key)
-            return M.build_task_intent_candidate(
-                tostring(item.kind or ""),
-                "route_point_active",
-                active_key,
-                action,
-                "active_route_point_action"
-            )
+            if type(action) == "table"
+                and (
+                    (action.direct_without_task_target_only == true and has_task_target)
+                    or (
+                        action.drop_active_when_task_mismatch == true
+                        and not M.route_point_action_matches_task(action)
+                    )
+                )
+            then
+                local kind = tostring(type(item) == "table" and item.kind or "")
+                if kind == "route_point_boarding" then
+                    M.clear_route_point_action_board_state()
+                elseif kind == "route_point_npc_dialogue" then
+                    M.clear_route_point_action_npc_dialogue_state()
+                elseif kind == "route_point_recorded_route" then
+                    M.clear_route_point_action_route_state()
+                elseif kind == "route_point_objective" then
+                    M.clear_route_point_action_objective_state()
+                end
+            else
+                return M.build_task_intent_candidate(
+                    tostring(item.kind or ""),
+                    "route_point_active",
+                    active_key,
+                    action,
+                    "active_route_point_action"
+                )
+            end
         end
     end
 
@@ -5381,6 +5413,8 @@ function M.find_route_point_intent_candidate(ctx, current_time, player_x, player
     opts = type(opts) == "table" and opts or {}
     local require_allow_without_task_target = opts.require_allow_without_task_target == true
     local require_wait_task_path_recover = opts.require_wait_task_path_recover == true
+    local has_task_target = opts.has_target == true
+        or type(state.task_target) == "table"
 
     if M.is_task_combat_or_post_loot_active() then
         return nil
@@ -5416,6 +5450,12 @@ function M.find_route_point_intent_candidate(ctx, current_time, player_x, player
             if allow_candidate and require_wait_task_path_recover and not action_allows_wait_task_path_recover then
                 allow_candidate = false
             end
+            if allow_candidate
+                and action.direct_without_task_target_only == true
+                and has_task_target
+            then
+                allow_candidate = false
+            end
             if allow_candidate and M.route_point_action_matches_task(action) then
                 local skip_reason = select(1, M.route_point_action_skip_reason(ctx, action, current_time))
                 if skip_reason == nil then
@@ -5430,8 +5470,9 @@ function M.find_route_point_intent_candidate(ctx, current_time, player_x, player
                         local z_gap = trigger_z ~= nil and type(player_z) == "number"
                             and math.abs((tonumber(player_z) or 0) - trigger_z)
                             or 0
-                        local direct_task_match = action.direct_when_task_active == true
-                            or action.activate_on_task_match == true
+                        local direct_task_match = (action.direct_when_task_active == true
+                            or action.activate_on_task_match == true)
+                            and not (action.direct_without_task_target_only == true and has_task_target)
                         if direct_task_match
                             or (trigger_distance <= trigger_radius and z_gap <= z_tolerance)
                         then

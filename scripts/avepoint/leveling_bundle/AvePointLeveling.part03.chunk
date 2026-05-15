@@ -5478,38 +5478,18 @@ function M.update(now, ctx)
         })
     end
 
-    if (tonumber(state.startup_state_resolve_until) or 0) > current_time
-        and (state.level_up_maintenance_executor_active == true or M.level_up_maintenance_has_pending())
-    then
-        local level_up_cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
-        local startup_plan_info = type(M.level_up_maintenance_find_next_plan) == "function"
-            and M.level_up_maintenance_find_next_plan(level_up_cfg)
-            or nil
-        local startup_plan = type(startup_plan_info) == "table"
-            and type(startup_plan_info.plan) == "table"
-            and startup_plan_info.plan
-            or nil
-        local default_skill_nonblocking = type(startup_plan_info) == "table"
-            and tostring(startup_plan_info.kind or "") == "skill"
-            and type(startup_plan) == "table"
-            and startup_plan.default_skill_plan == true
-            and type(level_up_cfg) == "table"
-            and level_up_cfg.default_skill_block_main_flow == false
-            and state.level_up_maintenance_force_block_default_skill ~= true
-        if state.level_up_maintenance_executor_active == true
-            or (type(startup_plan_info) == "table" and not default_skill_nonblocking)
-        then
-            log_throttled(ctx, "startup_level_up_maintenance_priority", "info", LOG_THROTTLE_MS, string.format(
-                "[Leveling] startup defers to level-up maintenance before main task reacquire | kind=%s level=%s plan=%s %s",
-                type(startup_plan_info) == "table" and tostring(startup_plan_info.kind or "") or tostring(state.level_up_maintenance_executor_kind or ""),
-                type(startup_plan_info) == "table" and tostring(startup_plan_info.level or "") or tostring(state.level_up_maintenance_executor_level or ""),
-                type(startup_plan) == "table" and tostring(startup_plan.label or startup_plan.key or "") or tostring(state.level_up_maintenance_executor_plan_label or ""),
-                M.level_up_maintenance_pending_summary()
-            ))
-            if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
-                log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-                return true
-            end
+    if (tonumber(state.startup_state_resolve_until) or 0) > current_time then
+        if M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, player_z, hp_ratio) then
+            return true
+        end
+        if (tonumber(state.startup_state_resolve_until) or 0) > current_time then
+            state.stage = "startup_task_reacquire"
+            release_async_combat_inputs(ctx, current_time, true)
+            hold_navigation(ctx, current_time, "startup_task_reacquire")
+            log_throttled(ctx, "startup_main_task_priority_before_maintenance", "info", LOG_THROTTLE_MS,
+                "[Leveling] startup keeps main task reacquire priority; level-up maintenance deferred.")
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
         end
     end
 
