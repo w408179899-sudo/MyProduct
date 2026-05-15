@@ -5977,8 +5977,8 @@ M.TASK_NAME_CONFIGS = {
         },
         {
             map_open_wait_ms = 1900,
-            center_click_ratio_x = 0.503127,
-            center_click_ratio_y = 0.493333,
+            center_click_ratio_x = 0.503822,
+            center_click_ratio_y = 0.495556,
             center_use_human_mouse = true,
             center_mouse_mode = "api",
             center_hover_delay_ms = 90,
@@ -5989,16 +5989,11 @@ M.TASK_NAME_CONFIGS = {
             timeout_ms = 16000
         },
         {
-            task_patterns = {
-                "\u{957F}\u{591C}\u{7EC8}\u{5C3D}",
-                "\u{5723}\u{8BEC}\u{4E4B}\u{672B}",
-                "导师馈赠"
-            },
-            task_detail_patterns = { "\u{524D}\u{5F80}\u{4F59}\u{70EC}\u{4E4B}\u{606F}" },
+            -- This exact-detail key is used when the game returns no task path and opens world map selection.
             main_task_call = {
                 allow_anchor_click_fallback = true
             },
-            constraint_mode = "all"
+            enable_linear_recipe = true
         }
     ),
     ["\u{524D}\u{5F80}\u{6C89}\u{6CA1}\u{6C99}\u{4E18}"] = make_world_map_send_task_config(
@@ -6145,7 +6140,7 @@ M.TASK_NAME_CONFIGS = {
             }
         }
     ),
-    ["\u{4E0E}\u{83AB}\u{7433}\u{5A1C}\u{4EA4}\u{8C08}"] = make_dialogue_locator_flow_task_config(
+    ["\u{957F}\u{591C}\u{7EC8}\u{5C3D} / \u{4E0E}\u{83AB}\u{7433}\u{5A1C}\u{4EA4}\u{8C08}"] = make_dialogue_locator_flow_task_config(
         "long_night_end_task_detail_before_molina_jump",
         {
             {
@@ -6178,10 +6173,51 @@ M.TASK_NAME_CONFIGS = {
         },
         {
             task_patterns = {
-                "\u{957F}\u{591C}\u{7EC8}\u{5C3D}",
-                "\u{5723}\u{8BEC}\u{4E4B}\u{672B}"
+                "\u{957F}\u{591C}\u{7EC8}\u{5C3D}"
             },
             task_detail_patterns = {
+                "\u{4E0E}\u{83AB}\u{7433}\u{5A1C}\u{4EA4}\u{8C08}"
+            },
+            constraint_mode = "all"
+        }
+    ),
+    ["\u{5723}\u{8BEB}\u{4E4B}\u{672B} / \u{4E0E}\u{83AB}\u{7433}\u{5A1C}\u{4EA4}\u{8C08}"] = make_dialogue_locator_flow_task_config(
+        "saint_end_molina_task_detail_before_jump",
+        {
+            {
+                key = "saint_end_task_detail_btn",
+                label = "[\u{4EFB}\u{52A1}] \u{5723}\u{8BEB}\u{4E4B}\u{672B}\u{6309}\u{94AE}",
+                distance_anchor_exact_text = "[\u{4EFB}\u{52A1}] \u{5723}\u{8BEB}\u{4E4B}\u{672B}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button",
+                distance_min = 61.015769,
+                distance_max = 64.789940,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button"
+                },
+                hint_client_x = 615.611877,
+                hint_client_y = 272.200287,
+                hint_ratio_x = 0.427805,
+                hint_ratio_y = 0.302445,
+                hint_max_distance = 80.000,
+                retry_ms = 600,
+                settle_ms = 1200
+            }
+        },
+        {
+            key = "saint_end_molina_task_detail_before_jump",
+            timeout_ms = 9000,
+            origins = {
+                "npc",
+                "interaction_prompt"
+            },
+            settle_ms = 1200
+        },
+        {
+            task_names = {
+                "\u{5723}\u{8BEB}\u{4E4B}\u{672B}",
+                "\u{4E3B}\u{7EBF} \u{5723}\u{8BEB}\u{4E4B}\u{672B}"
+            },
+            task_detail_names = {
                 "\u{4E0E}\u{83AB}\u{7433}\u{5A1C}\u{4EA4}\u{8C08}"
             },
             constraint_mode = "all"
@@ -7147,7 +7183,7 @@ M.TASK_NAME_CONFIGS["美欲之试"] = M.TASK_NAME_CONFIGS["支线 美欲之试"]
 M.TASK_NAME_CONFIGS["权力之试"] = M.TASK_NAME_CONFIGS["支线 权力之试"]
 M.TASK_NAME_CONFIGS["征伐之试"] = M.TASK_NAME_CONFIGS["支线 征伐之试"]
 
-M.TASK_NAME_CONFIGS["\u{5723}\u{8BEC}\u{4E4B}\u{672B}"] = make_world_map_send_task_config(
+M.TASK_NAME_CONFIGS["\u{5723}\u{8BEB}\u{4E4B}\u{672B}"] = make_world_map_send_task_config(
     "ember_rest_world_map_send",
     {
         label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
@@ -7167,8 +7203,8 @@ M.TASK_NAME_CONFIGS["\u{5723}\u{8BEC}\u{4E4B}\u{672B}"] = make_world_map_send_ta
     },
     {
         map_open_wait_ms = 1900,
-        center_click_ratio_x = 0.503127,
-        center_click_ratio_y = 0.493333,
+        center_click_ratio_x = 0.503822,
+        center_click_ratio_y = 0.495556,
         center_use_human_mouse = true,
         center_mouse_mode = "api",
         center_hover_delay_ms = 90,
@@ -7179,14 +7215,20 @@ M.TASK_NAME_CONFIGS["\u{5723}\u{8BEC}\u{4E4B}\u{672B}"] = make_world_map_send_ta
         timeout_ms = 16000
     },
     {
+        task_names = {
+            "\u{5723}\u{8BEB}\u{4E4B}\u{672B}",
+            "\u{4E3B}\u{7EBF} \u{5723}\u{8BEB}\u{4E4B}\u{672B}"
+        },
         task_patterns = {
-            "\u{5723}\u{8BEC}\u{4E4B}\u{672B}"
+            "\u{5723}\u{8BEB}\u{4E4B}\u{672B}"
         },
         main_task_call = {
             allow_anchor_click_fallback = true
-        }
+        },
+        enable_linear_recipe = true
     }
 )
+M.TASK_NAME_CONFIGS["\u{4E3B}\u{7EBF} \u{5723}\u{8BEB}\u{4E4B}\u{672B}"] = M.TASK_NAME_CONFIGS["\u{5723}\u{8BEB}\u{4E4B}\u{672B}"]
 
 M.GUIDE_SKIP_STEP = {
     label = "鍔犳枃鎸夐挳",

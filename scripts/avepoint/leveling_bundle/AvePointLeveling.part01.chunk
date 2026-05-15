@@ -6384,8 +6384,18 @@ local function current_map_task_config()
 end
 
 function M.current_task_runtime_config()
-    local task_name = normalize_map_name(state.current_task_name)
-    local task_detail = normalize_map_name(state.current_task_detail)
+    local state_task_name = normalize_map_name(state.current_task_name)
+    local log_task_name = normalize_map_name(M.current_task_log_name())
+    local task_name = log_task_name or state_task_name
+    local task_detail = normalize_map_name(M.current_task_log_detail()) or normalize_map_name(state.current_task_detail)
+    local function has_task_and_detail_constraints(cfg)
+        if type(cfg) ~= "table" then
+            return false
+        end
+        local has_task_constraints = type(cfg.task_names) == "table" or type(cfg.task_patterns) == "table"
+        local has_detail_constraints = type(cfg.task_detail_names) == "table" or type(cfg.task_detail_patterns) == "table"
+        return has_task_constraints and has_detail_constraints
+    end
     local function cfg_matches_runtime(cfg)
         if type(cfg) ~= "table" then
             return false
@@ -6394,6 +6404,39 @@ function M.current_task_runtime_config()
             task_name = task_name,
             task_detail = task_detail
         })
+    end
+    local function push_unique(list, seen, value)
+        local key = normalize_map_name(value)
+        if key ~= nil and seen[key] ~= true then
+            seen[key] = true
+            list[#list + 1] = key
+        end
+    end
+
+    if type(M.TASK_NAME_CONFIGS) == "table" then
+        local candidate_tasks = {}
+        local seen_tasks = {}
+        push_unique(candidate_tasks, seen_tasks, task_name)
+        push_unique(candidate_tasks, seen_tasks, state_task_name)
+        push_unique(candidate_tasks, seen_tasks, log_task_name)
+        push_unique(candidate_tasks, seen_tasks, M.normalize_task_title_key(task_name))
+        push_unique(candidate_tasks, seen_tasks, M.normalize_task_title_key(state_task_name))
+        push_unique(candidate_tasks, seen_tasks, M.normalize_task_title_key(log_task_name))
+        if task_detail ~= nil then
+            for _, candidate_task in ipairs(candidate_tasks) do
+                local composite_key = candidate_task .. " / " .. task_detail
+                local composite_cfg = M.TASK_NAME_CONFIGS[composite_key]
+                if has_task_and_detail_constraints(composite_cfg) and cfg_matches_runtime(composite_cfg) then
+                    return composite_cfg, task_name or task_detail, "task_detail_key"
+                end
+            end
+        end
+
+        for cfg_name, cfg in pairs(M.TASK_NAME_CONFIGS) do
+            if has_task_and_detail_constraints(cfg) and cfg_matches_runtime(cfg) then
+                return cfg, task_name or task_detail, "task_detail_constraints"
+            end
+        end
     end
 
     if type(M._leveling_policy) == "table"
@@ -6443,8 +6486,12 @@ function M.matches_task_constraints(cfg, opts)
     end
 
     opts = type(opts) == "table" and opts or {}
-    local task_key = normalize_map_name(opts.task_name or M.current_task_log_name() or state.current_task_name)
-    local task_detail_key = normalize_map_name(opts.task_detail or M.current_task_log_detail() or state.current_task_detail)
+    local task_key = normalize_map_name(opts.task_name)
+        or normalize_map_name(M.current_task_log_name())
+        or normalize_map_name(state.current_task_name)
+    local task_detail_key = normalize_map_name(opts.task_detail)
+        or normalize_map_name(M.current_task_log_detail())
+        or normalize_map_name(state.current_task_detail)
 
     local function contains_normalized_match(list, value)
         if type(list) ~= "table" or value == nil then
@@ -6514,14 +6561,63 @@ function M.current_task_entry_action_config(opts)
         return state.task_entry_action_locked_cfg, state.task_entry_action_locked_task_name
     end
 
-    local task_cfg, task_name, task_cfg_source = M.current_task_runtime_config()
-    if type(task_cfg) == "table" and type(task_cfg.entry_action) == "table" then
-        if task_cfg.entry_action.defer_until_explicit_arm == true
+    local task_name_key = normalize_map_name(M.current_task_log_name()) or normalize_map_name(state.current_task_name)
+    local task_detail_key = normalize_map_name(M.current_task_log_detail()) or normalize_map_name(state.current_task_detail)
+    local function entry_action_for_cfg(cfg, matched_name)
+        if type(cfg) ~= "table" or type(cfg.entry_action) ~= "table" then
+            return nil, matched_name
+        end
+        if not M.matches_task_constraints(cfg, {
+            task_name = task_name_key,
+            task_detail = task_detail_key
+        }) then
+            return nil, matched_name
+        end
+        if cfg.entry_action.defer_until_explicit_arm == true
             and opts.allow_deferred_entry_action ~= true
         then
-            return nil, task_name
+            return nil, matched_name
         end
-        return task_cfg.entry_action, task_name
+        return cfg.entry_action, matched_name
+    end
+
+    -- Detail-specific entry actions should not be masked by broader task-title configs.
+    if task_detail_key ~= nil and type(M.TASK_NAME_CONFIGS) == "table" then
+        local detail_cfg = M.TASK_NAME_CONFIGS[task_detail_key]
+        if task_detail_key == "\u{524D}\u{5F80}\u{4F59}\u{70EC}\u{4E4B}\u{606F}"
+            or task_name_key == "\u{5723}\u{8BEB}\u{4E4B}\u{672B}"
+        then
+            log_throttled(state.log_ctx, "entry_action_debug_ember_rest", "info", 1000, string.format(
+                "[Leveling] entry action debug | task_key=%s detail_key=%s has_detail_cfg=%s detail_has_entry=%s detail_constraints_match=%s",
+                tostring(task_name_key or ""),
+                tostring(task_detail_key or ""),
+                type(detail_cfg) == "table" and "true" or "false",
+                type(detail_cfg) == "table" and type(detail_cfg.entry_action) == "table" and "true" or "false",
+                type(detail_cfg) == "table" and M.matches_task_constraints(detail_cfg, {
+                    task_name = task_name_key,
+                    task_detail = task_detail_key
+                }) and "true" or "false"
+            ))
+        end
+        local detail_action, detail_name = entry_action_for_cfg(
+            detail_cfg,
+            task_detail_key
+        )
+        if type(detail_action) == "table" then
+            logger(state.log_ctx).info(string.format(
+                "[Leveling] entry action config matched exact detail | task=%s detail=%s matched_source=task_detail_exact key=%s",
+                tostring(M.current_task_log_name() or state.current_task_name or ""),
+                tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                tostring(detail_action.key or "")
+            ))
+            return detail_action, detail_name
+        end
+    end
+
+    local task_cfg, task_name, task_cfg_source = M.current_task_runtime_config()
+    local runtime_action, runtime_name = entry_action_for_cfg(task_cfg, task_name)
+    if type(runtime_action) == "table" then
+        return runtime_action, runtime_name
     end
     return nil, task_name
 end
@@ -6560,12 +6656,93 @@ function M.button_slot_definition(slot)
 end
 
 function M.current_task_dialogue_flow_config()
-    local task_cfg, task_name = M.current_task_runtime_config()
-    local flow = type(task_cfg) == "table" and type(task_cfg.dialogue_flow) == "table" and task_cfg.dialogue_flow or nil
-    if type(flow) ~= "table" or flow.enabled == false then
-        return nil, task_name
+    local state_task_name_key = normalize_map_name(state.current_task_name)
+    local log_task_name_key = normalize_map_name(M.current_task_log_name())
+    local task_name_key = log_task_name_key or state_task_name_key
+    local task_detail_key = normalize_map_name(M.current_task_log_detail()) or normalize_map_name(state.current_task_detail)
+    local function has_task_and_detail_constraints(cfg)
+        if type(cfg) ~= "table" then
+            return false
+        end
+        local has_task_constraints = type(cfg.task_names) == "table" or type(cfg.task_patterns) == "table"
+        local has_detail_constraints = type(cfg.task_detail_names) == "table" or type(cfg.task_detail_patterns) == "table"
+        return has_task_constraints and has_detail_constraints
     end
-    if type(flow.steps) ~= "table" or #flow.steps <= 0 then
+    local function valid_dialogue_flow(cfg)
+        local flow = type(cfg) == "table" and type(cfg.dialogue_flow) == "table" and cfg.dialogue_flow or nil
+        if type(flow) ~= "table" or flow.enabled == false then
+            return nil
+        end
+        if type(flow.steps) ~= "table" or #flow.steps <= 0 then
+            return nil
+        end
+        return flow
+    end
+    local function push_unique(list, seen, value)
+        local key = normalize_map_name(value)
+        if key ~= nil and seen[key] ~= true then
+            seen[key] = true
+            list[#list + 1] = key
+        end
+    end
+
+    -- Dialogue-flow identity is task+detail. Scan constrained configs before
+    -- broader task-title configs so duplicate details do not mask each other.
+    if type(M.TASK_NAME_CONFIGS) == "table" then
+        local candidate_tasks = {}
+        local seen_tasks = {}
+        push_unique(candidate_tasks, seen_tasks, task_name_key)
+        push_unique(candidate_tasks, seen_tasks, state_task_name_key)
+        push_unique(candidate_tasks, seen_tasks, log_task_name_key)
+        push_unique(candidate_tasks, seen_tasks, M.normalize_task_title_key(task_name_key))
+        push_unique(candidate_tasks, seen_tasks, M.normalize_task_title_key(state_task_name_key))
+        push_unique(candidate_tasks, seen_tasks, M.normalize_task_title_key(log_task_name_key))
+        if task_detail_key ~= nil then
+            for _, candidate_task in ipairs(candidate_tasks) do
+                local composite_key = candidate_task .. " / " .. task_detail_key
+                local cfg = M.TASK_NAME_CONFIGS[composite_key]
+                local flow = valid_dialogue_flow(cfg)
+                if type(flow) == "table"
+                    and has_task_and_detail_constraints(cfg)
+                    and M.matches_task_constraints(cfg, {
+                        task_name = task_name_key,
+                        task_detail = task_detail_key
+                    })
+                then
+                    logger(state.log_ctx).info(string.format(
+                        "[Leveling] task dialogue flow config matched task+detail key | task=%s detail=%s matched_key=%s",
+                        tostring(M.current_task_log_name() or state.current_task_name or ""),
+                        tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                        tostring(composite_key or "")
+                    ))
+                    return flow, composite_key
+                end
+            end
+        end
+
+        for cfg_name, cfg in pairs(M.TASK_NAME_CONFIGS) do
+            local flow = valid_dialogue_flow(cfg)
+            if type(flow) == "table"
+                and has_task_and_detail_constraints(cfg)
+                and M.matches_task_constraints(cfg, {
+                    task_name = task_name_key,
+                    task_detail = task_detail_key
+                })
+            then
+                logger(state.log_ctx).info(string.format(
+                    "[Leveling] task dialogue flow config matched task+detail | task=%s detail=%s matched_key=%s",
+                    tostring(M.current_task_log_name() or state.current_task_name or ""),
+                    tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                    tostring(cfg_name or "")
+                ))
+                return flow, cfg_name
+            end
+        end
+    end
+
+    local task_cfg, task_name = M.current_task_runtime_config()
+    local flow = valid_dialogue_flow(task_cfg)
+    if type(flow) ~= "table" then
         return nil, task_name
     end
     return flow, task_name
