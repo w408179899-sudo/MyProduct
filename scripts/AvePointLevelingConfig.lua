@@ -37,6 +37,15 @@ local TRIAL_OF_SUN_THREE_TRIALS_PACKAGE_KEY = "trial_of_sun_three_trials"
 local TRIAL_OF_SUN_POWER_SIDE_KEY = "trial_of_sun_power_side_task"
 local TRIAL_OF_SUN_CONQUEST_SIDE_KEY = "trial_of_sun_conquest_side_task"
 local TRIAL_OF_SUN_BEAUTY_SIDE_KEY = "trial_of_sun_beauty_side_task"
+local TRIAL_OF_SUN_MAIN_TASK_PATTERNS = {
+    "太阳的试炼",
+    "通过三处试炼"
+}
+local TRIAL_OF_SUN_MAIN_DETAIL_PATTERNS = {
+    "通过三处试炼",
+    "追击夺走火种",
+    "支线 藏宝地"
+}
 
 local function read_project_config_number(key, default_value)
     key = tostring(key or "")
@@ -1603,6 +1612,121 @@ do
             0.755335
         )
     end
+
+    for _, level in ipairs({ 50, 51, 52 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_22_plus_talent_plan(
+            level,
+            1089.636841,
+            426.208282,
+            0.757218,
+            0.473565,
+            919.439148,
+            690.801453,
+            0.638943,
+            0.767557
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[53] = make_level_22_plus_talent_plan(
+        53,
+        1245.566772,
+        426.208282,
+        0.865578,
+        0.473565,
+        1075.369263,
+        690.801453,
+        0.747303,
+        0.767557
+    )
+
+    local level_54_talent_plan = make_level_22_plus_talent_plan(
+        54,
+        621.846802,
+        426.208282,
+        0.432138,
+        0.473565,
+        832.298279,
+        690.801453,
+        0.578387,
+        0.767557
+    )
+    for _, step in ipairs(type(level_54_talent_plan.steps) == "table" and level_54_talent_plan.steps or {}) do
+        if tostring(step.key or "") == "activate_level_54_talent_node" then
+            step.label = "54级天赋：激活天赋节点两次"
+            step.click_repeat_count = 2
+            step.click_repeat_interval_ms = 180
+            break
+        end
+    end
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[54] = level_54_talent_plan
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[55] = make_level_22_plus_talent_plan(
+        55,
+        621.846802,
+        426.208282,
+        0.432138,
+        0.473565,
+        832.298279,
+        690.801453,
+        0.578387,
+        0.767557
+    )
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[56] = make_level_22_plus_talent_plan(
+        56,
+        777.776794,
+        426.208282,
+        0.540498,
+        0.473565,
+        607.579102,
+        690.801453,
+        0.422223,
+        0.767557
+    )
+
+    for _, level in ipairs({ 57, 58, 59 }) do
+        local plan = make_level_22_plus_talent_plan(
+            level,
+            309.986755,
+            426.208282,
+            0.215418,
+            0.473565,
+            520.438232,
+            690.801453,
+            0.361667,
+            0.767557
+        )
+        local steps = type(plan.steps) == "table" and plan.steps or {}
+        table.insert(steps, 4, maintenance_locator_step(
+            "select_level_" .. tostring(level) .. "_psychic_talent_card",
+            tostring(level) .. "级天赋：切换异能者天赋卡",
+            {
+                "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem3.WidgetTree.TabBtn"
+            },
+            66.726845,
+            466.036713,
+            0.046370,
+            0.517819,
+            80,
+            900
+        ))
+        plan.key = "level_" .. tostring(level) .. "_psychic_card_and_talent_node_activate"
+        plan.label = tostring(level) .. "级天赋：切换异能者并激活天赋节点"
+        plan.steps = steps
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = plan
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[60] = make_level_22_plus_talent_plan(
+        60,
+        445.916748,
+        407.208282,
+        0.309880,
+        0.452454,
+        656.368225,
+        671.801453,
+        0.456128,
+        0.746446
+    )
 end
 
 do
@@ -2458,7 +2582,7 @@ do
         click_label_prefix = "18级契灵固定点击"
     })
 
-    for _, level in ipairs({ 20, 24, 29, 32, 36, 41, 44, 49 }) do
+    for _, level in ipairs({ 20, 24, 29, 32, 36, 41, 44, 49, 53, 57, 58 }) do
         M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[level] = make_contract_second_setup_plan({
             level = level,
             key = "level_" .. tostring(level) .. "_contract_second_setup",
@@ -2491,8 +2615,8 @@ local function make_sun_faction_choice_action()
         },
         constraint_mode = "all",
         trigger = {
-            x = 10535.00,
-            y = 660.00,
+            x = 10442.29,
+            y = 653.28,
             z = 501.00,
             radius = 520,
             z_tolerance = 260
@@ -2515,6 +2639,11 @@ local function make_sun_faction_choice_action()
 end
 
 local function make_sun_faction_after_join_route_action()
+    local is_moon = SUN_FACTION_CHOICE == 2
+    local point = is_moon
+        and { x = 10357.46, y = 53.56, z = 501.00 }
+        or { x = 10412.35, y = 1060.25, z = 501.00 }
+
     return make_route_point_action({
         key = "daylight_rivalry_after_faction_join_route_11196_512",
         label = "与日争辉_加入阵营后短路线",
@@ -2525,15 +2654,14 @@ local function make_sun_faction_after_join_route_action()
             "与日争辉"
         },
         task_detail_patterns = {
-            "与英灵对话",
-            "选择加入繁星或皓月阵营"
+            "挑战太阳斗场的英灵"
         },
         constraint_mode = "all",
         trigger = {
-            x = 10412.35,
-            y = 1060.25,
-            z = 501.00,
-            radius = 900,
+            x = point.x,
+            y = point.y,
+            z = point.z,
+            radius = 650,
             z_tolerance = 260
         },
         retry_ms = 600000,
@@ -3060,6 +3188,9 @@ local function make_trial_of_sun_power_maptrap_action(index, from_point, objecti
         settle_ms = 1200,
         timeout_ms = 35000,
         force_task_call_after_transition = false,
+        skip_missing_button_to_followup = followup_key ~= nil,
+        missing_button_complete_side_task = followup_key == nil,
+        missing_button_skip_after_ms = 3000,
         followup_route_action_key = followup_key,
         step = make_trial_of_sun_power_maptrap_step(index)
     })
@@ -3123,6 +3254,9 @@ local function make_trial_of_sun_side_maptrap_action(opts)
         settle_ms = tonumber(opts.settle_ms) or 1200,
         timeout_ms = tonumber(opts.timeout_ms) or 35000,
         force_task_call_after_transition = opts.force_task_call_after_transition == true,
+        skip_missing_button_to_followup = opts.followup_route_action_key ~= nil,
+        missing_button_complete_side_task = opts.followup_route_action_key == nil,
+        missing_button_skip_after_ms = tonumber(opts.missing_button_skip_after_ms) or 3000,
         followup_route_action_key = opts.followup_route_action_key,
         combat_pulse_while_waiting = opts.combat_pulse_while_waiting == true,
         step = make_trial_of_sun_side_maptrap_step(prefix, opts.button_label or opts.label, index)
@@ -4037,7 +4171,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
         enabled = true,
         name = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{94F6}\u{6C99}\u{8FB9}\u{57CE}",
         route_store_key = "treasure_silver_sand_edge_city_entry_-7886_-4560_v1",
-        target_level = 60,
+        target_level = 58,
         inside_detect_task_panel_text = false,
         allow_when_task_unknown = true,
         task_patterns = {
@@ -4541,6 +4675,48 @@ local function make_late_star_royal_encirclement_boss_task_config(opts)
             exclude_task_detail_patterns = {
                 "\u{4EA4}\u{8C08}",
                 "\u{5BF9}\u{8BDD}"
+            },
+            constraint_mode = "all"
+        }
+    )
+end
+
+local function make_breakthrough_royal_message_boss_task_config(opts)
+    opts = type(opts) == "table" and opts or {}
+    local allow_no_target = opts.allow_no_target == true
+    local detail_pattern = tostring(opts.detail_pattern or "")
+    local detail_patterns = {}
+    if detail_pattern ~= "" then
+        detail_patterns[#detail_patterns + 1] = detail_pattern
+    end
+    return make_boss_kite_task_config(
+        tostring(opts.key or "breakthrough_royal_message_boss_kite"),
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = allow_no_target,
+            immediate_no_task_target_kite = allow_no_target,
+            kite_radius = 1260,
+            kite_point_count = 3,
+            kite_switch_ms = 2200,
+            seamless_kite = true,
+            kite_arrive_distance = 420,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 3500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            ignore_terminal_text_change_when_objective_same = true
+        },
+        {
+            task_patterns = {
+                "突破重围"
+            },
+            task_detail_patterns = detail_patterns,
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
             },
             constraint_mode = "all"
         }
@@ -5315,6 +5491,23 @@ local function make_mountain_heart_dwarf_king_reentry_config()
     })
 end
 
+M.TASK_DETAIL_RECOVERY_CONFIGS = {
+    {
+        key = "double_strings_after_upper_prefer_lower_detail",
+        task_patterns = {
+            "双弦"
+        },
+        prefer_detail_patterns = {
+            "击败下弦之默吉特",
+            "击败下弦"
+        },
+        raw_detail_patterns = {
+            "完成",
+            ""
+        }
+    }
+}
+
 M.TASK_NAME_CONFIGS = {
     ["与日争辉"] = make_sun_faction_join_dialogue_flow_task(),
     ["尽快找到丽芙"] = {
@@ -5837,6 +6030,15 @@ M.TASK_NAME_CONFIGS = {
         detail_pattern = "击败王命围捕",
         allow_no_target = true
     }),
+    ["突破重围 / 带领反抗军突破重围"] = make_breakthrough_royal_message_boss_task_config({
+        key = "breakthrough_lead_rebels_endpoint_kite",
+        detail_pattern = "带领反抗军突破重围"
+    }),
+    ["突破重围 / 击败王命传讯"] = make_breakthrough_royal_message_boss_task_config({
+        key = "breakthrough_defeat_royal_message_no_target_kite",
+        detail_pattern = "击败王命传讯",
+        allow_no_target = true
+    }),
     ["永夜鸣沙 / 向沙漠深处进发，找到伊吉人的聚集地"] = make_boss_kite_task_config(
         "eternal_sand_find_iji_gathering_kite",
         {
@@ -6249,6 +6451,145 @@ M.TASK_NAME_CONFIGS = {
             constraint_mode = "all",
             post_dialogue_flow = {
                 key = "mentor_gift_wait_after_antonio_jump",
+                wait_task_info_refresh_after_jump = true,
+                task_info_refresh_timeout_ms = 6500
+            }
+        }
+    ),
+    ["\u{5BFC}\u{5E08}\u{9988}\u{8D60} / \u{4E0E}\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{7684}\u{6280}\u{80FD}\u{5BFC}\u{5E08}\u{5BF9}\u{8BDD}"] = make_dialogue_locator_flow_task_config(
+        "mentor_gift_ember_skill_tutor_dragon_scale_belt_before_jump",
+        {
+            {
+                key = "mentor_gift_dragon_scale_belt_btn",
+                label = "\u{9F99}\u{9CDE}\u{62A4}\u{8170}\u{6309}\u{94AE}",
+                distance_anchor_exact_text = "\u{9F99}\u{9CDE}\u{62A4}\u{8170}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button",
+                distance_min = 19.166834,
+                distance_max = 20.352411,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button"
+                },
+                hint_client_x = 616.611877,
+                hint_client_y = 270.200287,
+                hint_ratio_x = 0.428500,
+                hint_ratio_y = 0.300223,
+                hint_max_distance = 80.000,
+                retry_ms = 600,
+                settle_ms = 1200
+            }
+        },
+        {
+            key = "mentor_gift_ember_skill_tutor_dragon_scale_belt_before_jump",
+            timeout_ms = 9000,
+            origins = {
+                "npc",
+                "interaction_prompt"
+            },
+            settle_ms = 1200
+        },
+        {
+            task_patterns = {
+                "\u{5BFC}\u{5E08}\u{9988}\u{8D60}"
+            },
+            task_detail_patterns = {
+                "\u{4E0E}\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{7684}\u{6280}\u{80FD}\u{5BFC}\u{5E08}\u{5BF9}\u{8BDD}",
+                "\u{788E}\u{7532}\u{5DE8}\u{5251}"
+            },
+            constraint_mode = "all",
+            post_dialogue_flow = {
+                key = "mentor_gift_ember_skill_tutor_wait_after_dragon_scale_belt_jump",
+                wait_task_info_refresh_after_jump = true,
+                task_info_refresh_timeout_ms = 6500
+            }
+        }
+    ),
+    ["\u{88C5}\u{5907}\u{6253}\u{9020} / \u{4E0E}\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{7684}\u{519B}\u{706B}\u{5546}\u{4EBA}\u{5BF9}\u{8BDD}"] = make_dialogue_locator_flow_task_config(
+        "equipment_crafting_ember_arms_dealer_dragon_scale_belt_before_jump",
+        {
+            {
+                key = "equipment_crafting_dragon_scale_belt_btn",
+                label = "\u{9F99}\u{9CDE}\u{62A4}\u{8170}\u{6309}\u{94AE}",
+                distance_anchor_exact_text = "\u{9F99}\u{9CDE}\u{62A4}\u{8170}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button",
+                distance_min = 19.166834,
+                distance_max = 20.352411,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button"
+                },
+                hint_client_x = 616.611877,
+                hint_client_y = 270.200287,
+                hint_ratio_x = 0.428500,
+                hint_ratio_y = 0.300223,
+                hint_max_distance = 80.000,
+                retry_ms = 600,
+                settle_ms = 1200
+            }
+        },
+        {
+            key = "equipment_crafting_ember_arms_dealer_dragon_scale_belt_before_jump",
+            timeout_ms = 9000,
+            origins = {
+                "npc",
+                "interaction_prompt"
+            },
+            settle_ms = 1200
+        },
+        {
+            task_patterns = {
+                "\u{88C5}\u{5907}\u{6253}\u{9020}"
+            },
+            task_detail_patterns = {
+                "\u{4E0E}\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{7684}\u{519B}\u{706B}\u{5546}\u{4EBA}\u{5BF9}\u{8BDD}"
+            },
+            constraint_mode = "all",
+            post_dialogue_flow = {
+                key = "equipment_crafting_ember_arms_dealer_wait_after_dragon_scale_belt_jump",
+                wait_task_info_refresh_after_jump = true,
+                task_info_refresh_timeout_ms = 6500
+            }
+        }
+    ),
+    ["\u{5F02}\u{754C}\u{63A2}\u{7D22} / \u{4E0E}\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{7684}\u{5F02}\u{754C}\u{5BFC}\u{5E08}\u{5BF9}\u{8BDD}"] = make_dialogue_locator_flow_task_config(
+        "otherworld_exploration_ember_otherworld_tutor_dragon_scale_belt_before_jump",
+        {
+            {
+                key = "otherworld_exploration_dragon_scale_belt_btn",
+                label = "\u{9F99}\u{9CDE}\u{62A4}\u{8170}\u{6309}\u{94AE}",
+                distance_anchor_exact_text = "\u{9F99}\u{9CDE}\u{62A4}\u{8170}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button",
+                distance_min = 19.166834,
+                distance_max = 20.352411,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button"
+                },
+                hint_client_x = 616.611877,
+                hint_client_y = 270.200287,
+                hint_ratio_x = 0.428500,
+                hint_ratio_y = 0.300223,
+                hint_max_distance = 80.000,
+                retry_ms = 600,
+                settle_ms = 1200
+            }
+        },
+        {
+            key = "otherworld_exploration_ember_otherworld_tutor_dragon_scale_belt_before_jump",
+            timeout_ms = 9000,
+            origins = {
+                "npc",
+                "interaction_prompt"
+            },
+            settle_ms = 1200
+        },
+        {
+            task_patterns = {
+                "\u{5F02}\u{754C}\u{63A2}\u{7D22}"
+            },
+            task_detail_patterns = {
+                "\u{4E0E}\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{7684}\u{5F02}\u{754C}\u{5BFC}\u{5E08}\u{5BF9}\u{8BDD}"
+            },
+            constraint_mode = "all",
+            post_dialogue_flow = {
+                key = "otherworld_exploration_ember_otherworld_tutor_wait_after_dragon_scale_belt_jump",
                 wait_task_info_refresh_after_jump = true,
                 task_info_refresh_timeout_ms = 6500
             }
@@ -6852,11 +7193,14 @@ M.TASK_NAME_CONFIGS = {
         {
             trigger_distance = 900,
             immediate_kite_on_reached = true,
-            kite_radius = 2200,
+            kite_radius = 1260,
+            kite_point_count = 3,
             kite_switch_ms = 2200,
             seamless_kite = true,
             kite_arrive_distance = 520,
             kite_move_interval_ms = 120,
+            allow_no_task_target_force_kite = true,
+            immediate_no_task_target_kite = true,
             defer_followup_until_clear = true,
             boss_clear_settle_ms = 3000,
             generic_followup_refresh_ms = 2500,
@@ -6864,13 +7208,7 @@ M.TASK_NAME_CONFIGS = {
             generic_followup_require_no_special = true,
             allow_nearby_text_task_change_exit = true,
             nearby_text_task_change_confirm_ms = 1200,
-            nearby_text_task_change_confirm_count = 2,
-            kite_points = {
-                { x = -571.96, y = 9730.78, z = 606.00 },
-                { x = 172.86, y = 9841.78, z = 606.00 },
-                { x = 950.42, y = 9945.04, z = 606.00 },
-                { x = 1818.80, y = 10347.91, z = 606.00 }
-            }
+            nearby_text_task_change_confirm_count = 2
         },
         {
             task_patterns = {
@@ -6932,7 +7270,9 @@ M.TASK_NAME_CONFIGS = {
             trigger_distance = 900,
             immediate_kite_on_reached = true,
             allow_no_task_target_force_kite = true,
-            kite_radius = 2200,
+            immediate_no_task_target_kite = true,
+            kite_radius = 1260,
+            kite_point_count = 3,
             kite_switch_ms = 2200,
             seamless_kite = true,
             kite_arrive_distance = 520,
@@ -6944,13 +7284,7 @@ M.TASK_NAME_CONFIGS = {
             generic_followup_require_no_special = true,
             allow_nearby_text_task_change_exit = true,
             nearby_text_task_change_confirm_ms = 1200,
-            nearby_text_task_change_confirm_count = 2,
-            kite_points = {
-                { x = 9138.96, y = 11697.53, z = 2416.00 },
-                { x = 8967.00, y = 10986.00, z = 2416.00 },
-                { x = 8736.51, y = 11502.49, z = 2416.00 },
-                { x = 9100.00, y = 11880.00, z = 2416.00 }
-            }
+            nearby_text_task_change_confirm_count = 2
         },
         {
             task_patterns = {
@@ -6985,6 +7319,24 @@ M.TASK_NAME_CONFIGS = {
             allow_nearby_text_task_change_exit = true,
             nearby_text_task_change_confirm_ms = 1200,
             nearby_text_task_change_confirm_count = 2,
+            revive_reentry = make_revive_reentry_config({
+                key = "eternal_rust_sun_queen_room_reentry_11591_-15",
+                label = "\u{6C38}\u{6052}\u{9508}\u{8680}\u{592A}\u{9633}\u{5973}\u{738B}Boss\u{91CD}\u{8FDB}\u{623F}",
+                anchor = {
+                    x = 11591.00,
+                    y = -15.00,
+                    z = 1104.20,
+                    radius = 620,
+                    z_tolerance = 360
+                },
+                interact_distance = 300,
+                portal_scan_distance = 900,
+                retry_ms = 900,
+                settle_ms = 1400,
+                timeout_ms = 22000,
+                post_transition_boss_engage_ms = 16000,
+                fallback_interact = true
+            }),
             kite_points = {
                 { x = 14140.00, y = 820.00, z = 1215.00 },
                 { x = 13125.48, y = 743.95, z = 1215.00 },
@@ -7123,7 +7475,7 @@ M.TASK_NAME_CONFIGS = {
             }
         }
     ),
-    ["完成"] = make_boss_kite_task_config(
+    ["双弦 / 击败下弦之默吉特"] = make_boss_kite_task_config(
         "double_strings_second_boss",
         {
             trigger_distance = 700,
@@ -7147,7 +7499,8 @@ M.TASK_NAME_CONFIGS = {
                 "双弦"
             },
             task_detail_patterns = {
-                "完成"
+                "击败下弦之默吉特",
+                "击败下弦"
             },
             constraint_mode = "all",
             main_task_call = {
@@ -7165,6 +7518,7 @@ M.TASK_NAME_CONFIGS = {
                 settle_ms = 1200,
                 locator_candidate_sequence = true,
                 locator_candidate_sequence_key = "trial_of_sun_trials_power_first",
+                locator_candidate_sequence_share_across_details = true,
                 locator_candidates = {
                     {
                         key = "trial_of_sun_choose_power_trial",
@@ -7226,6 +7580,8 @@ M.TASK_NAME_CONFIGS = {
         {
             key = "trial_of_sun_choose_trial_reverse_dialogue_flow",
             timeout_ms = 9000,
+            timeout_close_dialogue_and_refresh = true,
+            timeout_refresh_wait_ms = 1200,
             origins = {
                 "npc",
                 "interaction_prompt"
@@ -7233,14 +7589,38 @@ M.TASK_NAME_CONFIGS = {
             settle_ms = 1200
         },
         {
-            task_patterns = {
-                "太阳的试炼"
-            },
-            task_detail_patterns = {
-                "通过三处试炼",
-                "追击夺走火种的神秘人"
-            },
+            task_patterns = TRIAL_OF_SUN_MAIN_TASK_PATTERNS,
+            task_detail_patterns = TRIAL_OF_SUN_MAIN_DETAIL_PATTERNS,
             constraint_mode = "all",
+            post_dialogue_flow = {
+                key = "trial_of_sun_repeat_npc_dialogue_until_three_trials",
+                mode = "after_jump_route_action",
+                steps = {},
+                initial_delay_ms = 900,
+                timeout_ms = 9000,
+                followup_route_action_key = "trial_of_sun_prophecy_site_dialogue_-342_1891",
+                followup_route_action_source = "trial_of_sun_dialogue_chain",
+                followup_route_action_ignore_retry = true,
+                followup_locator_candidate_sequence_key = "trial_of_sun_trials_power_first",
+                followup_locator_candidate_count = 3,
+                followup_locator_candidate_sequence_share_across_details = true
+            },
+            defer_blocking_side_tasks_until_dialogue_chain = {
+                key = "trial_of_sun_accept_all_trials_before_side_routes",
+                route_action_key = "trial_of_sun_prophecy_site_dialogue_-342_1891",
+                route_action_source = "trial_of_sun_blocking_side_task_gate",
+                ignore_route_action_retry = true,
+                locator_candidate_sequence_key = "trial_of_sun_trials_power_first",
+                locator_candidate_count = 3,
+                locator_candidate_sequence_share_across_details = true,
+                trigger = {
+                    x = -341.84,
+                    y = 1891.37,
+                    z = 1235.00,
+                    radius = 2200,
+                    z_tolerance = 320
+                }
+            },
             recipe_package = {
                 key = TRIAL_OF_SUN_THREE_TRIALS_PACKAGE_KEY,
                 label = "太阳的试炼_三试炼任务包",
@@ -7714,13 +8094,8 @@ M.ROUTE_POINT_ACTIONS = {
         label = "太阳的试炼_通过三处试炼_NPC对话",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
-        task_patterns = {
-            "太阳的试炼"
-        },
-        task_detail_patterns = {
-            "通过三处试炼",
-            "追击夺走火种的神秘人"
-        },
+        task_patterns = TRIAL_OF_SUN_MAIN_TASK_PATTERNS,
+        task_detail_patterns = TRIAL_OF_SUN_MAIN_DETAIL_PATTERNS,
         constraint_mode = "all",
         trigger = {
             x = -341.84,
@@ -8035,45 +8410,11 @@ M.ROUTE_POINT_ACTIONS = {
     make_trial_of_sun_power_maptrap_action(17,
         { x = 1951.12, y = 19277.79, z = 1235.00 },
         { x = 2397.10, y = 18547.67, z = 1235.00 },
-        "trial_of_sun_power_post_maptrap_route_1869_18922"
+        "trial_of_sun_power_maptrap_18"
     ),
-    make_trial_of_sun_recorded_route_action(TRIAL_OF_SUN_POWER_SIDE_KEY, {
-        key = "trial_of_sun_power_post_maptrap_route_1869_18922",
-        label = "太阳的试炼_权力之试_终段录制路线",
-        mode = "recorded_route_point",
-        allow_without_task_target = true,
-        allow_wait_task_path_recover = true,
-        task_patterns = {
-            "权力之试",
-            "通过权力试炼"
-        },
-        task_detail_patterns = {
-            "通过权力试炼",
-            "权力之瞳"
-        },
-        trigger = {
-            x = 2397.10,
-            y = 18547.67,
-            z = 1235.00,
-            radius = 1400,
-            z_tolerance = 260
-        },
-        retry_ms = 600000,
-        timeout_ms = 45000,
-        waypoint_reach_radius = 260,
-        waypoint_z_tolerance = 260,
-        move_interval_ms = 220,
-        complete_without_task_reacquire = true,
-        followup_route_action_key = "trial_of_sun_power_maptrap_18",
-        waypoints = {
-            { x = 1869.00, y = 18922.00, z = 1235.00 },
-            { x = 1320.34, y = 19672.26, z = 1235.00 },
-            { x = 105.00, y = 20181.00, z = 1235.00 }
-        }
-    }),
     make_trial_of_sun_power_maptrap_action(18,
-        { x = 105.00, y = 20181.00, z = 1235.00, radius = 900, z_tolerance = 260 },
-        { x = 105.00, y = 20181.00, z = 1235.00 },
+        { x = 2397.10, y = 18547.67, z = 1235.00, radius = 1400, z_tolerance = 260 },
+        { x = 187.00, y = 20535.00, z = 1235.00 },
         "trial_of_sun_power_after_complete_route_542_19390"
     ),
     make_trial_of_sun_recorded_route_action(TRIAL_OF_SUN_POWER_SIDE_KEY, {
@@ -8095,8 +8436,8 @@ M.ROUTE_POINT_ACTIONS = {
             "追击夺走火种"
         },
         trigger = {
-            x = 105.00,
-            y = 20181.00,
+            x = 187.00,
+            y = 20535.00,
             z = 1235.00,
             radius = 1200,
             z_tolerance = 260
@@ -8680,6 +9021,44 @@ M.ROUTE_POINT_ACTIONS = {
             x = -679.00,
             y = -735.00,
             z = 2009.27,
+            radius = 320,
+            interact_radius = 160,
+            move_interval_ms = 220,
+            z_tolerance = 420,
+            center_settle_ms = 700,
+            interact_retry_ms = 1800,
+            timeout_ms = 22000,
+            npc_search_radius = 700,
+            fallback_interact = true
+        }
+    }),
+    make_npc_dialogue_route_action({
+        key = "breakthrough_talk_to_esmeralda_npc_5626_6589",
+        label = "突破重围_与艾丝梅拉达对话_NPC对话",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        retry_ms = 600000,
+        task_patterns = {
+            "突破重围"
+        },
+        task_detail_patterns = {
+            "与艾丝梅拉达对话"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 5626.00,
+            y = 6589.00,
+            z = 849.00,
+            radius = 1800,
+            z_tolerance = 420
+        },
+        dialogue = {
+            x = 5626.00,
+            y = 6589.00,
+            z = 849.00,
             radius = 320,
             interact_radius = 160,
             move_interval_ms = 220,
@@ -10056,8 +10435,39 @@ M.ROUTE_POINT_ACTIONS = {
             { x = 2960.00, y = -32.00, z = 214.00 }
         }
     }),
+    make_route_point_action({
+        key = "lionheart_aria_press_a_then_dialogue_9054_-2058",
+        label = "狮心_与阿瑞娅对话_先按A五次",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "狮心"
+        },
+        task_detail_patterns = {
+            "与阿瑞娅对话"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 9054.00,
+            y = -2058.00,
+            z = 1805.00,
+            radius = 2600,
+            z_tolerance = 700
+        },
+        interact_radius = 2600,
+        pre_action_combat_guard = false,
+        retry_ms = 600000,
+        settle_ms = 600,
+        timeout_ms = 12000,
+        hotkey = "A",
+        hotkey_repeat_count = 5,
+        hotkey_interval_ms = 180,
+        hotkey_label = "lionheart aria pre-dialogue",
+        followup_route_action_key = "lionheart_aria_dialogue_9054_-2058"
+    }),
     make_npc_dialogue_route_action({
-        key = "lionheart_aria_dialogue_8622_-1591",
+        key = "lionheart_aria_dialogue_9054_-2058",
         label = "狮心_与阿瑞娅对话_NPC对话",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
@@ -10069,17 +10479,17 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 8622.00,
-            y = -1591.00,
-            z = 1808.00,
+            x = 9054.00,
+            y = -2058.00,
+            z = 1805.00,
             radius = 1900,
             z_tolerance = 520
         },
         retry_ms = 6000,
         dialogue = {
-            x = 8622.00,
-            y = -1591.00,
-            z = 1808.00,
+            x = 9054.00,
+            y = -2058.00,
+            z = 1805.00,
             radius = 260,
             interact_radius = 160,
             move_interval_ms = 180,
@@ -10225,7 +10635,7 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
-        key = "loser_badge_deep_star_road_detour_-5316_2383",
+        key = "loser_badge_deep_star_road_detour_-5496_2403",
         label = "败者之证_深入繁星之路_补充录制路线",
         mode = "recorded_route_point",
         allow_without_task_target = true,
@@ -10238,28 +10648,50 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = -5316.00,
-            y = 2383.00,
+            x = -5496.00,
+            y = 2403.00,
             z = 502.00,
-            radius = 800,
+            radius = 900,
             z_tolerance = 260
         },
         retry_ms = 600000,
-        timeout_ms = 90000,
+        timeout_ms = 180000,
         waypoint_reach_radius = 260,
         waypoint_z_tolerance = 260,
         move_interval_ms = 220,
         reacquire_retry_ms = 1200,
         waypoints = {
-            { x = -5316.00, y = 2383.00, z = 502.00 },
-            { x = -6099.21, y = 2502.90, z = 502.00 },
-            { x = -7140.07, y = 2953.51, z = 502.00 },
-            { x = -7993.93, y = 2913.00, z = 502.00 },
-            { x = -8569.53, y = 2446.38, z = 502.00 },
-            { x = -8557.00, y = 1867.74, z = 502.00 },
-            { x = -8145.38, y = 1545.30, z = 502.00 },
-            { x = -7644.74, y = 1253.12, z = 502.00 },
-            { x = -7576.35, y = 551.80, z = 502.00 }
+            { x = -6585.85, y = 2895.76, z = 502.00 },
+            { x = -7416.95, y = 3247.24, z = 502.00 },
+            { x = -8115.27, y = 3105.36, z = 502.00 },
+            { x = -8614.34, y = 2610.57, z = 502.00 },
+            { x = -8755.82, y = 1996.60, z = 502.00 },
+            { x = -8453.01, y = 1430.29, z = 502.00 },
+            { x = -7944.23, y = 1215.65, z = 502.00 },
+            { x = -7330.97, y = 1362.10, z = 502.00 },
+            { x = -6895.48, y = 1755.38, z = 502.00 },
+            { x = -6671.89, y = 2231.68, z = 502.00 },
+            { x = -6689.82, y = 2759.27, z = 502.00 },
+            { x = -7086.81, y = 3098.98, z = 502.00 },
+            { x = -7584.95, y = 3236.54, z = 502.00 },
+            { x = -8122.72, y = 3090.52, z = 502.00 },
+            { x = -8501.85, y = 2748.63, z = 502.00 },
+            { x = -8681.52, y = 2266.19, z = 502.00 },
+            { x = -8597.50, y = 1743.70, z = 502.00 },
+            { x = -8282.00, y = 1438.78, z = 502.00 },
+            { x = -7750.57, y = 1347.07, z = 502.00 },
+            { x = -7324.80, y = 1591.97, z = 502.00 },
+            { x = -7050.29, y = 2010.43, z = 502.00 },
+            { x = -6839.81, y = 2457.36, z = 502.00 },
+            { x = -7081.51, y = 2819.95, z = 502.00 },
+            { x = -7520.78, y = 2910.79, z = 502.00 },
+            { x = -7921.75, y = 2725.93, z = 502.00 },
+            { x = -8105.21, y = 2334.20, z = 502.00 },
+            { x = -7951.94, y = 1934.84, z = 502.00 },
+            { x = -7700.69, y = 2136.07, z = 502.00 },
+            { x = -7631.88, y = 2631.48, z = 502.00 },
+            { x = -7978.46, y = 2700.89, z = 502.00 },
+            { x = -8086.57, y = 2298.28, z = 502.00 }
         }
     }),
     make_route_point_action({
@@ -10320,7 +10752,7 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
-        key = "loser_badge_star_road_detour_181_11951",
+        key = "loser_badge_star_road_detour_146_12012",
         label = "败者之证_繁星之路_东侧补充录制路线",
         mode = "recorded_route_point",
         allow_without_task_target = true,
@@ -10334,38 +10766,72 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 181.00,
-            y = 11951.00,
+            x = 146.07,
+            y = 12012.00,
             z = 502.00,
             radius = 900,
             z_tolerance = 260
         },
         retry_ms = 600000,
-        timeout_ms = 180000,
+        timeout_ms = 240000,
         waypoint_reach_radius = 260,
         waypoint_z_tolerance = 260,
         move_interval_ms = 220,
         reacquire_retry_ms = 1200,
         waypoints = {
-            { x = 181.00, y = 11951.00, z = 502.00 },
-            { x = 1382.08, y = 11367.06, z = 502.00 },
-            { x = 2309.44, y = 10991.29, z = 502.00 },
-            { x = 2997.17, y = 11232.97, z = 502.00 },
-            { x = 3342.84, y = 11894.42, z = 502.00 },
-            { x = 3181.56, y = 12458.43, z = 502.00 },
-            { x = 2578.50, y = 12834.74, z = 502.00 },
-            { x = 2018.51, y = 12795.75, z = 502.00 },
-            { x = 1625.00, y = 12236.38, z = 502.00 },
-            { x = 1508.32, y = 11786.81, z = 502.00 },
-            { x = 1510.19, y = 11360.43, z = 502.00 },
-            { x = 1794.94, y = 10985.20, z = 502.00 },
-            { x = 2292.38, y = 10875.37, z = 502.00 },
-            { x = 3057.00, y = 11210.98, z = 502.00 },
-            { x = 3300.46, y = 11643.15, z = 502.00 },
-            { x = 3258.56, y = 12144.73, z = 502.00 },
-            { x = 2985.46, y = 12599.52, z = 502.00 },
-            { x = 2680.13, y = 12784.45, z = 502.00 },
-            { x = 2297.76, y = 12949.63, z = 502.00 }
+            { x = 1073.09, y = 11720.13, z = 502.00 },
+            { x = 1695.34, y = 11222.76, z = 502.00 },
+            { x = 2233.44, y = 11057.38, z = 502.00 },
+            { x = 2771.20, y = 11187.65, z = 502.00 },
+            { x = 3215.79, y = 11558.87, z = 502.00 },
+            { x = 3406.88, y = 11991.53, z = 502.00 },
+            { x = 3093.62, y = 12289.00, z = 502.00 },
+            { x = 2811.87, y = 12639.18, z = 502.00 },
+            { x = 2409.58, y = 12715.59, z = 502.00 },
+            { x = 2059.59, y = 12499.85, z = 502.00 },
+            { x = 1689.80, y = 12193.26, z = 502.00 },
+            { x = 1346.95, y = 11913.86, z = 502.00 },
+            { x = 1247.79, y = 11615.37, z = 502.00 },
+            { x = 1508.88, y = 11347.49, z = 502.00 },
+            { x = 1792.98, y = 11078.42, z = 502.00 },
+            { x = 2148.44, y = 10933.25, z = 502.00 },
+            { x = 2509.40, y = 10935.79, z = 502.00 },
+            { x = 2815.45, y = 11170.36, z = 502.00 },
+            { x = 3048.70, y = 11448.62, z = 502.00 },
+            { x = 3273.50, y = 11736.86, z = 502.00 },
+            { x = 3411.57, y = 12013.36, z = 502.00 },
+            { x = 3210.79, y = 12277.68, z = 502.00 },
+            { x = 2938.72, y = 12523.46, z = 502.00 },
+            { x = 2592.91, y = 12698.77, z = 502.00 },
+            { x = 2182.90, y = 12645.01, z = 502.00 },
+            { x = 1816.45, y = 12500.61, z = 502.00 },
+            { x = 1523.16, y = 12245.64, z = 502.00 },
+            { x = 1339.50, y = 11932.06, z = 502.00 },
+            { x = 1307.01, y = 11601.38, z = 502.00 },
+            { x = 1520.37, y = 11251.86, z = 502.00 },
+            { x = 1819.67, y = 11051.13, z = 502.00 },
+            { x = 2172.57, y = 10966.81, z = 502.00 },
+            { x = 2556.57, y = 11040.92, z = 502.00 },
+            { x = 2927.73, y = 11246.59, z = 502.00 },
+            { x = 3139.23, y = 11508.17, z = 502.00 },
+            { x = 3377.50, y = 11817.07, z = 502.00 },
+            { x = 3396.61, y = 12152.31, z = 502.00 },
+            { x = 3132.86, y = 12395.91, z = 502.00 },
+            { x = 2786.22, y = 12575.96, z = 502.00 },
+            { x = 2412.95, y = 12683.03, z = 502.00 },
+            { x = 2085.06, y = 12632.46, z = 502.00 },
+            { x = 1772.11, y = 12408.75, z = 502.00 },
+            { x = 1570.54, y = 12041.34, z = 502.00 },
+            { x = 1460.87, y = 11698.54, z = 502.00 },
+            { x = 1526.49, y = 11420.80, z = 502.00 },
+            { x = 1876.08, y = 11176.03, z = 502.00 },
+            { x = 2266.04, y = 11123.88, z = 502.00 },
+            { x = 2628.03, y = 11148.83, z = 502.00 },
+            { x = 2967.53, y = 11336.12, z = 502.00 },
+            { x = 3162.04, y = 11626.32, z = 502.00 },
+            { x = 3234.77, y = 11894.38, z = 502.00 },
+            { x = 3126.99, y = 12268.98, z = 502.00 },
+            { x = 2708.87, y = 12676.96, z = 502.00 }
         }
     }),
     make_route_point_action({
@@ -10597,6 +11063,85 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
+        key = "face_sun_chase_mysterious_person_move_to_portal_12200_699",
+        label = "直面太阳_继续追击神秘人_无坐标移动到传送门",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "face_sun_chase_mysterious_person_portal_12200_699",
+        task_patterns = {
+            "直面太阳"
+        },
+        task_detail_patterns = {
+            "继续追击神秘人"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 12200.00,
+            y = 699.00,
+            z = 2330.33,
+            radius = 2400,
+            z_tolerance = 700
+        },
+        retry_ms = 600000,
+        timeout_ms = 30000,
+        waypoint_reach_radius = 240,
+        waypoint_z_tolerance = 700,
+        move_interval_ms = 220,
+        waypoints = {
+            { x = 12200.00, y = 699.00, z = 2330.33 }
+        }
+    }),
+    make_route_point_action({
+        key = "face_sun_chase_mysterious_person_portal_12200_699",
+        label = "直面太阳_继续追击神秘人_传送门过图",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "直面太阳"
+        },
+        task_detail_patterns = {
+            "继续追击神秘人"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 12200.00,
+            y = 699.00,
+            z = 2330.33,
+            radius = 720,
+            z_tolerance = 700
+        },
+        interact_radius = 260,
+        probe_retry_ms = 700,
+        retry_ms = 2500,
+        settle_ms = 4500,
+        timeout_ms = 18000,
+        force_task_call_after_transition = true,
+        task_pos_reject_extra_ms = 3500,
+        fallback_interact = true,
+        fallback_interact_distance = 280,
+        fallback_retry_ms = 2500,
+        step = {
+            key = "face_sun_chase_mysterious_person_portal_btn_12200_699",
+            label = "直面太阳继续追击神秘人传送门",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn"
+            },
+            hint_client_x = 697.204834,
+            hint_client_y = 724.439941,
+            hint_ratio_x = 0.484170,
+            hint_ratio_y = 0.804933,
+            hint_max_distance = 180.000
+        }
+    }),
+    make_route_point_action({
         key = "first_light_moon_road_pre_route_-107_1051",
         label = "初升之辉_前往皓月之路_前置录制路线",
         mode = "recorded_route_point",
@@ -10705,11 +11250,83 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
+        key = "first_light_moon_road_trial_route_-10534_19191",
+        label = "初升之辉_皓月之路英杰_北侧循环补充录制路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "初升之辉"
+        },
+        task_detail_patterns = {
+            "踏上皓月之路",
+            "挑战路途的英杰"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -10533.50,
+            y = 19190.70,
+            z = 503.00,
+            radius = 1200,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 150000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = -10476.16, y = 20073.21, z = 503.00 },
+            { x = -10229.26, y = 20730.23, z = 503.00 },
+            { x = -9768.41, y = 21249.77, z = 503.00 },
+            { x = -9558.03, y = 21813.92, z = 503.00 },
+            { x = -9721.13, y = 22361.15, z = 503.00 },
+            { x = -10220.59, y = 22683.67, z = 503.00 },
+            { x = -10666.91, y = 22540.45, z = 503.00 },
+            { x = -11114.28, y = 22447.97, z = 503.00 },
+            { x = -11477.95, y = 21969.66, z = 503.00 },
+            { x = -11646.44, y = 21510.66, z = 503.00 },
+            { x = -11396.55, y = 21126.00, z = 503.00 },
+            { x = -10984.09, y = 20867.17, z = 503.00 },
+            { x = -10508.52, y = 20725.79, z = 503.00 },
+            { x = -10100.24, y = 21081.93, z = 503.00 },
+            { x = -9717.42, y = 21363.81, z = 503.00 },
+            { x = -9542.47, y = 21830.41, z = 503.00 },
+            { x = -9651.80, y = 22287.28, z = 503.00 },
+            { x = -9895.40, y = 22618.90, z = 503.00 },
+            { x = -10208.79, y = 22695.37, z = 503.00 },
+            { x = -10728.34, y = 22743.26, z = 503.00 },
+            { x = -11203.05, y = 22525.29, z = 503.00 },
+            { x = -11521.49, y = 22159.44, z = 503.00 },
+            { x = -11695.56, y = 21709.93, z = 503.00 },
+            { x = -11533.63, y = 21278.83, z = 503.00 },
+            { x = -11134.20, y = 20894.19, z = 503.00 },
+            { x = -10664.40, y = 20640.35, z = 503.00 },
+            { x = -10162.02, y = 20862.54, z = 503.00 },
+            { x = -9781.77, y = 21227.46, z = 503.00 },
+            { x = -9576.90, y = 21651.22, z = 503.00 },
+            { x = -9693.32, y = 22113.33, z = 503.00 },
+            { x = -9976.82, y = 22522.65, z = 503.00 },
+            { x = -10419.00, y = 22721.11, z = 503.00 },
+            { x = -10940.67, y = 22577.14, z = 503.00 },
+            { x = -11309.21, y = 22239.20, z = 503.00 },
+            { x = -11518.92, y = 21771.38, z = 503.00 },
+            { x = -11423.91, y = 21309.62, z = 503.00 },
+            { x = -11109.29, y = 20959.54, z = 503.00 },
+            { x = -10704.66, y = 20616.61, z = 503.00 },
+            { x = -10444.25, y = 19963.51, z = 503.00 },
+            { x = -10420.64, y = 19728.15, z = 503.00 }
+        }
+    }),
+    make_route_point_action({
         key = "lionheart_power_facility_1_route_3731_-1539",
         label = "狮心_关闭供电设施_第一设施录制路线",
         mode = "recorded_route_point",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
         task_patterns = {
             "狮心"
         },
@@ -10747,6 +11364,8 @@ M.ROUTE_POINT_ACTIONS = {
         mode = "objective_button_flow_point",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
         task_patterns = {
             "狮心"
         },
@@ -10766,6 +11385,7 @@ M.ROUTE_POINT_ACTIONS = {
         retry_ms = 600000,
         settle_ms = 2400,
         timeout_ms = 5200,
+        timeout_followup_route_action_key = "lionheart_power_facility_2_route_13106_-5386",
         force_task_call_after_transition = false,
         step = {
             key = "lionheart_power_facility_1_map_trap_btn",
@@ -10795,10 +11415,13 @@ M.ROUTE_POINT_ACTIONS = {
         mode = "recorded_route_point",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
         task_patterns = {
             "狮心"
         },
         task_detail_patterns = {
+            "关闭东北边的供电设施",
             "完成"
         },
         constraint_mode = "all",
@@ -10816,12 +11439,15 @@ M.ROUTE_POINT_ACTIONS = {
         move_interval_ms = 220,
         complete_without_task_reacquire = true,
         waypoints = {
-            { x = 13105.93, y = -5386.19, z = 2718.32 },
-            { x = 13697.77, y = -3850.59, z = 2711.11 },
-            { x = 14145.25, y = -2778.23, z = 2810.00 },
-            { x = 13773.04, y = -855.30, z = 2810.14 },
-            { x = 13605.54, y = 85.18, z = 2768.01 },
-            { x = 13878.81, y = 2079.32, z = 2705.00 }
+            { x = 13117.66, y = -5179.54, z = 2712.86 },
+            { x = 13729.42, y = -3814.14, z = 2710.61 },
+            { x = 13960.15, y = -2720.11, z = 2810.00 },
+            { x = 13940.30, y = -1832.10, z = 2810.00 },
+            { x = 13932.98, y = -940.49, z = 2810.52 },
+            { x = 13926.47, y = -153.18, z = 2792.77 },
+            { x = 13919.81, y = 600.28, z = 2714.25 },
+            { x = 13909.78, y = 1381.68, z = 2705.00 },
+            { x = 13838.53, y = 2093.45, z = 2705.00 }
         }
     }),
     make_route_point_action({
@@ -10830,10 +11456,13 @@ M.ROUTE_POINT_ACTIONS = {
         mode = "objective_button_flow_point",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
         task_patterns = {
             "狮心"
         },
         task_detail_patterns = {
+            "关闭东北边的供电设施",
             "完成"
         },
         constraint_mode = "all",
@@ -11045,6 +11674,88 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
+        key = "sand_sea_find_iji_fire_seed_route_10975_8556",
+        label = "狂沙地海_找到伊吉部族追寻火种_固定路线后重call主线",
+        mode = "recorded_route_point",
+        task_patterns = {
+            "狂沙地海"
+        },
+        task_detail_patterns = {
+            "找到伊吉部族，追寻火种的下落"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 10975.00,
+            y = 8556.00,
+            z = 16.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 300000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 11120.11, y = 8748.14, z = 16.00 },
+            { x = 11711.10, y = 9045.97, z = 16.00 },
+            { x = 12228.95, y = 9155.10, z = 16.00 },
+            { x = 12734.58, y = 9082.60, z = 16.00 },
+            { x = 13204.50, y = 8841.82, z = 16.00 },
+            { x = 13657.60, y = 8517.60, z = 16.00 },
+            { x = 13942.08, y = 8112.83, z = 16.00 },
+            { x = 14115.23, y = 7613.25, z = 16.00 },
+            { x = 14162.61, y = 7030.51, z = 16.00 },
+            { x = 13999.12, y = 6517.34, z = 16.00 },
+            { x = 13662.51, y = 6059.90, z = 16.00 },
+            { x = 13274.36, y = 5698.42, z = 16.00 },
+            { x = 12720.35, y = 5449.76, z = 16.00 },
+            { x = 12211.47, y = 5392.41, z = 16.00 },
+            { x = 11711.42, y = 5568.60, z = 16.00 },
+            { x = 11237.40, y = 5895.88, z = 16.00 },
+            { x = 10950.88, y = 6307.60, z = 16.00 },
+            { x = 10766.11, y = 6799.72, z = 16.00 },
+            { x = 10686.58, y = 7352.39, z = 16.00 },
+            { x = 10737.20, y = 7877.82, z = 16.00 },
+            { x = 10970.83, y = 8352.15, z = 16.00 },
+            { x = 11355.75, y = 8790.32, z = 16.00 },
+            { x = 11828.04, y = 9025.86, z = 16.00 },
+            { x = 12308.97, y = 9161.57, z = 16.00 },
+            { x = 12840.07, y = 9136.53, z = 16.00 },
+            { x = 12420.82, y = 9185.46, z = 16.00 },
+            { x = 11888.22, y = 9041.95, z = 16.00 },
+            { x = 11377.16, y = 8763.87, z = 16.00 },
+            { x = 10998.00, y = 8390.92, z = 16.00 },
+            { x = 10695.82, y = 7956.34, z = 16.00 },
+            { x = 10550.73, y = 7435.02, z = 16.00 },
+            { x = 10614.72, y = 6942.19, z = 16.00 },
+            { x = 10879.39, y = 6428.89, z = 16.00 },
+            { x = 11193.28, y = 6147.65, z = 16.00 },
+            { x = 11635.35, y = 5853.67, z = 16.00 },
+            { x = 12129.34, y = 5632.81, z = 16.00 },
+            { x = 12648.53, y = 5549.57, z = 16.00 },
+            { x = 13137.08, y = 5645.47, z = 16.00 },
+            { x = 13596.85, y = 5933.98, z = 16.00 },
+            { x = 13988.32, y = 6247.21, z = 16.00 },
+            { x = 14314.91, y = 6695.95, z = 16.00 },
+            { x = 14473.11, y = 7224.48, z = 16.00 },
+            { x = 14424.56, y = 7697.47, z = 16.00 },
+            { x = 14243.06, y = 8166.76, z = 16.00 },
+            { x = 13954.11, y = 8573.64, z = 16.00 },
+            { x = 13527.40, y = 8886.95, z = 16.00 },
+            { x = 12978.39, y = 9033.92, z = 16.00 },
+            { x = 12447.24, y = 9075.82, z = 16.00 },
+            { x = 11968.45, y = 8999.07, z = 16.00 },
+            { x = 11470.53, y = 8813.10, z = 16.00 },
+            { x = 11042.63, y = 8557.15, z = 16.00 },
+            { x = 10679.69, y = 8211.42, z = 16.00 },
+            { x = 10390.41, y = 7768.57, z = 16.00 },
+            { x = 10549.25, y = 7337.20, z = 16.00 },
+            { x = 10847.97, y = 6971.20, z = 16.00 }
+        }
+    }),
+    make_route_point_action({
         key = "wall_of_sighs_manual_route_5104_-1737",
         label = "\u{53F9}\u{606F}\u{4E4B}\u{5899}\u{5F}\u{7A7F}\u{8D8A}\u{610F}\u{5FD7}\u{9AD8}\u{5899}\u{5F}\u{5F55}\u{5236}\u{8DEF}\u{5F84}\u{7EA0}\u{504F}",
         mode = "recorded_route_point",
@@ -11128,38 +11839,49 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = -4587.94,
-            y = -4022.63,
-            z = 1603.00,
-            radius = 1200,
-            z_tolerance = 260
+            x = -5191.00,
+            y = -4262.00,
+            z = 1605.72,
+            radius = 1500,
+            z_tolerance = 320
         },
         retry_ms = 600000,
-        timeout_ms = 180000,
+        timeout_ms = 240000,
         waypoint_reach_radius = 260,
-        waypoint_z_tolerance = 260,
+        waypoint_z_tolerance = 320,
         move_interval_ms = 220,
         reacquire_retry_ms = 1200,
         waypoints = {
-            { x = -4587.94, y = -4022.63, z = 1603.00 },
-            { x = -3991.38, y = -3859.42, z = 1603.00 },
-            { x = -3548.20, y = -3803.11, z = 1603.00 },
-            { x = -3253.67, y = -3766.59, z = 1603.00 },
-            { x = -2984.46, y = -3344.93, z = 1603.00 },
-            { x = -2901.77, y = -3114.44, z = 1603.00 },
-            { x = -3031.95, y = -2328.35, z = 1603.00 },
-            { x = -2678.59, y = -1667.85, z = 1603.00 },
-            { x = -2164.97, y = -892.11, z = 1620.55 },
-            { x = -1220.98, y = -573.41, z = 1603.00 },
-            { x = -575.13, y = -328.59, z = 1603.00 },
-            { x = -151.91, y = 7.03, z = 1603.00 },
-            { x = 105.61, y = 295.49, z = 1603.00 },
-            { x = 699.46, y = -93.14, z = 1605.12 },
-            { x = 758.58, y = -126.97, z = 1610.13 },
-            { x = 1671.07, y = -117.06, z = 1578.00 },
-            { x = 2148.72, y = -375.55, z = 1604.28 },
-            { x = 2523.21, y = -552.71, z = 1615.19 },
-            { x = 3077.58, y = -896.83, z = 1634.95 }
+            { x = -5191.00, y = -4262.00, z = 1605.72 },
+            { x = -4240.00, y = -4000.00, z = 1603.00 },
+            { x = -3869.79, y = -3868.36, z = 1603.00 },
+            { x = -3407.35, y = -3767.77, z = 1603.00 },
+            { x = -3029.44, y = -3418.71, z = 1603.00 },
+            { x = -2959.84, y = -3271.93, z = 1603.00 },
+            { x = -2923.10, y = -2739.76, z = 1603.00 },
+            { x = -2953.16, y = -2253.22, z = 1603.00 },
+            { x = -2614.72, y = -1618.82, z = 1603.00 },
+            { x = -2192.00, y = -1056.00, z = 1613.00 },
+            { x = -1097.89, y = -607.74, z = 1603.00 },
+            { x = -643.52, y = -349.40, z = 1603.00 },
+            { x = -218.51, y = -21.50, z = 1603.00 },
+            { x = 372.09, y = 263.45, z = 1603.00 },
+            { x = 565.05, y = 18.20, z = 1603.00 },
+            { x = 685.78, y = -78.91, z = 1604.06 },
+            { x = 969.56, y = -225.86, z = 1628.37 },
+            { x = 1446.02, y = -201.45, z = 1632.00 },
+            { x = 1816.27, y = -151.50, z = 1583.44 },
+            { x = 2122.52, y = -303.54, z = 1604.00 },
+            { x = 2421.11, y = -514.51, z = 1607.70 },
+            { x = 2458.97, y = -506.27, z = 1610.44 },
+            { x = 2620.74, y = -640.15, z = 1623.69 },
+            { x = 2802.81, y = -768.79, z = 1637.15 },
+            { x = 2974.85, y = -855.50, z = 1637.53 },
+            { x = 3176.62, y = -950.85, z = 1631.30 },
+            { x = 3358.73, y = -1003.97, z = 1610.40 },
+            { x = 3580.60, y = -1004.33, z = 1607.43 },
+            { x = 3803.41, y = -1004.67, z = 1604.19 },
+            { x = 4154.82, y = -977.11, z = 1603.00 }
         }
     })
 }

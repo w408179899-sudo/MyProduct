@@ -1063,7 +1063,162 @@
             ui_snapshot = ui_snapshot
         })
 
+        local function count_resolved_blocking_side_tasks()
+            local total = 0
+            local resolved = 0
+            local details = {}
+            for _, blocker in ipairs(blockers) do
+                if type(blocker) == "table" and blocker.enabled ~= false then
+                    total = total + 1
+                    if M.is_blocking_side_task_completed(blocker) then
+                        resolved = resolved + 1
+                        details[#details + 1] = tostring(M.blocking_side_task_key(blocker) or blocker.task_name or "") .. "=completed"
+                    else
+                        local queries = blocker.queries
+                        if type(queries) ~= "table" then
+                            queries = { blocker.query, blocker.task_name, blocker.task_detail }
+                        end
+                        local visible = false
+                        for _, query in ipairs(queries) do
+                            local query_text = trim(query or "")
+                            if query_text ~= "" then
+                                local found_item = select(1, nav_mod.find_task_panel_entry(query_text, ui_snapshot, {
+                                    exact = false
+                                }))
+                                if type(found_item) == "table"
+                                    and not is_mainline_panel_entry(found_item)
+                                    and panel_entry_matches_blocking_side_task(found_item, blocker)
+                                then
+                                    visible = true
+                                    break
+                                end
+                            end
+                        end
+                        if visible then
+                            resolved = resolved + 1
+                            details[#details + 1] = tostring(M.blocking_side_task_key(blocker) or blocker.task_name or "") .. "=visible"
+                        else
+                            details[#details + 1] = tostring(M.blocking_side_task_key(blocker) or blocker.task_name or "") .. "=missing"
+                        end
+                    end
+                end
+            end
+            return resolved, total, table.concat(details, " | ")
+        end
+
+        local function maybe_defer_blocking_side_tasks_for_dialogue_chain()
+            local gate = type(task_cfg) == "table" and task_cfg.defer_blocking_side_tasks_until_dialogue_chain or nil
+            if type(gate) ~= "table" or gate.enabled == false then
+                return false, nil
+            end
+
+            local resolved_count, total_count, resolved_detail = count_resolved_blocking_side_tasks()
+            if total_count <= 0 or resolved_count >= total_count then
+                return false, string.format(
+                    "dialogue chain gate skipped; blocking side tasks resolved %d/%d.",
+                    resolved_count,
+                    total_count
+                )
+            end
+
+            local sequence_total = math.max(0, tonumber(gate.locator_candidate_count) or 0)
+            local sequence_base_key = trim(gate.locator_candidate_sequence_key or "")
+            local sequence_key = ""
+            local sequence_next = nil
+            if sequence_base_key ~= "" and sequence_total > 0 then
+                sequence_key, sequence_next = M.resolve_locator_candidate_sequence_runtime(
+                    sequence_base_key,
+                    gate.locator_candidate_sequence_share_across_details == true
+                )
+                sequence_next = math.max(1, tonumber(sequence_next) or 1)
+                if sequence_next > sequence_total then
+                    return false, string.format(
+                        "dialogue chain gate skipped; sequence exhausted key=%s next=%d total=%d.",
+                        tostring(sequence_key or ""),
+                        sequence_next,
+                        sequence_total
+                    )
+                end
+            end
+
+            local trigger = type(gate.trigger) == "table" and gate.trigger or nil
+            if type(trigger) == "table" then
+                local player_x, player_y, player_z = read_player_pos(ctx)
+                local trigger_x = tonumber(trigger.x)
+                local trigger_y = tonumber(trigger.y)
+                local trigger_z = tonumber(trigger.z)
+                if player_x == nil or player_y == nil or trigger_x == nil or trigger_y == nil then
+                    return false, "dialogue chain gate skipped; position unavailable."
+                end
+                local radius = math.max(80, tonumber(trigger.radius) or 900)
+                local z_tolerance = math.max(0, tonumber(trigger.z_tolerance) or 260)
+                local distance = distance_2d(player_x, player_y, trigger_x, trigger_y)
+                local z_gap = trigger_z ~= nil and player_z ~= nil and math.abs((tonumber(player_z) or 0) - trigger_z) or 0
+                if distance > radius or z_gap > z_tolerance then
+                    return false, string.format(
+                        "dialogue chain gate skipped; player not near npc trigger distance=%.2f z_gap=%.2f radius=%.2f ztol=%.2f.",
+                        distance,
+                        z_gap,
+                        radius,
+                        z_tolerance
+                    )
+                end
+            end
+
+            local action_key = trim(gate.route_action_key or "")
+            if action_key == "" then
+                return false, "dialogue chain gate missing route action key."
+            end
+            if gate.ignore_route_action_retry == true
+                and type(M.find_route_point_action_by_key) == "function"
+                and type(M.route_point_action_state_key) == "function"
+            then
+                local action_cfg = M.find_route_point_action_by_key(action_key)
+                if type(action_cfg) == "table" and type(state.map_transition_triggered) == "table" then
+                    state.map_transition_triggered[M.route_point_action_state_key(action_cfg)] = 0
+                end
+            end
+
+            local action, action_err = M.activate_route_point_action(
+                ctx,
+                current_time,
+                action_key,
+                trim(gate.route_action_source or "") ~= ""
+                    and tostring(gate.route_action_source)
+                    or "blocking_side_task_dialogue_chain_gate"
+            )
+            if type(action) == "table" then
+                logger(ctx).info(string.format(
+                    "[Leveling] blocking side task deferred for dialogue chain | action=%s resolved=%d/%d sequence=%s next=%s detail=%s",
+                    tostring(action_key),
+                    resolved_count,
+                    total_count,
+                    tostring(sequence_key or ""),
+                    tostring(sequence_next or ""),
+                    tostring(resolved_detail or "")
+                ))
+            else
+                logger(ctx).warn(string.format(
+                    "[Leveling] blocking side task dialogue chain defer failed | action=%s err=%s resolved=%d/%d detail=%s",
+                    tostring(action_key),
+                    tostring(action_err or ""),
+                    resolved_count,
+                    total_count,
+                    tostring(resolved_detail or "")
+                ))
+            end
+            return true, action_err
+        end
+
+        local deferred, defer_err = maybe_defer_blocking_side_tasks_for_dialogue_chain()
+        if deferred == true then
+            return true
+        end
+
         local misses = {}
+        if trim(defer_err or "") ~= "" then
+            misses[#misses + 1] = defer_err
+        end
         for _, blocker in ipairs(blockers) do
             if type(blocker) == "table"
                 and blocker.enabled ~= false
@@ -2171,6 +2326,54 @@ function M.maybe_handle_treasure_dungeon(ctx, current_time, player_x, player_y, 
         player_y,
         player_z
     )
+end
+
+function M.maybe_recover_treasure_inside_startup(ctx, current_time, player_x, player_y, player_z)
+    if type(M._leveling_treasure) ~= "table"
+        or type(M._leveling_treasure.maybe_recover_inside_startup) ~= "function"
+        or type(M.TREASURE_DUNGEON_CONFIGS) ~= "table"
+        or #M.TREASURE_DUNGEON_CONFIGS == 0
+    then
+        return false
+    end
+    return M._leveling_treasure.maybe_recover_inside_startup(
+        ctx,
+        state,
+        M.TREASURE_DUNGEON_CONFIGS,
+        M.build_treasure_hooks(ctx),
+        current_time,
+        player_x,
+        player_y,
+        player_z
+    )
+end
+
+function M.has_active_treasure_runtime()
+    local runtime = type(state.treasure_runtime) == "table" and state.treasure_runtime or nil
+    local mode = tostring(type(runtime) == "table" and (runtime.mode or "") or "")
+    if not (mode ~= ""
+        and mode ~= "inactive"
+        and mode ~= "completed"
+        and mode ~= "failed")
+    then
+        return false
+    end
+
+    local active_key = tostring(runtime.active_key or "")
+    if active_key == "" or type(M.TREASURE_DUNGEON_CONFIGS) ~= "table" then
+        return false
+    end
+    for _, item in ipairs(M.TREASURE_DUNGEON_CONFIGS) do
+        if type(item) == "table"
+            and (
+                tostring(item.key or "") == active_key
+                or tostring(item.route_store_key or "") == active_key
+            )
+        then
+            return true
+        end
+    end
+    return false
 end
 
 function M.treasure_allows_level_up_maintenance(player_x, player_y, player_z)
@@ -5479,10 +5682,28 @@ function M.update(now, ctx)
     end
 
     if (tonumber(state.startup_state_resolve_until) or 0) > current_time then
+        if M.maybe_recover_treasure_inside_startup(ctx, current_time, player_x, player_y, player_z) then
+            if M.maybe_handle_treasure_dungeon(ctx, current_time, player_x, player_y, player_z) then
+                M.log_execution_trace(ctx, current_time, "treasure_dungeon", state.task_target, nil, nil, nil, player_x, player_y, player_z)
+                log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+                return true
+            end
+            hold_navigation(ctx, current_time, "treasure_startup_inside_recovery")
+            M.log_execution_trace(ctx, current_time, "treasure_dungeon", state.task_target, nil, nil, nil, player_x, player_y, player_z)
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
+        end
+    end
+
+    if (tonumber(state.startup_state_resolve_until) or 0) > current_time
+        and not M.has_active_treasure_runtime()
+    then
         if M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, player_z, hp_ratio) then
             return true
         end
-        if (tonumber(state.startup_state_resolve_until) or 0) > current_time then
+        if (tonumber(state.startup_state_resolve_until) or 0) > current_time
+            and not M.has_active_treasure_runtime()
+        then
             state.stage = "startup_task_reacquire"
             release_async_combat_inputs(ctx, current_time, true)
             hold_navigation(ctx, current_time, "startup_task_reacquire")
@@ -5493,7 +5714,9 @@ function M.update(now, ctx)
         end
     end
 
-    if M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, player_z, hp_ratio) then
+    if not M.has_active_treasure_runtime()
+        and M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, player_z, hp_ratio)
+    then
         return true
     end
 

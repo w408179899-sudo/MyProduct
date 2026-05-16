@@ -6923,7 +6923,39 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
             tonumber(objective_y) or 0,
             tonumber(objective_z) or 0
         ))
+        local timeout_followup_route_action_key = trim(action.timeout_followup_route_action_key or "")
         M.clear_route_point_action_objective_state()
+        if timeout_followup_route_action_key ~= "" then
+            local followup_action, followup_err = M.activate_route_point_action(
+                ctx,
+                current_time,
+                timeout_followup_route_action_key,
+                "route_point_objective_timeout_followup"
+            )
+            if type(followup_action) == "table" then
+                logger(ctx).info(string.format(
+                    "[Leveling] route point action objective timeout follow-up armed | task=%s key=%s next_key=%s mode=%s",
+                    tostring(M.current_task_log_name() or state.current_task_name or ""),
+                    tostring(action.key or ""),
+                    tostring(timeout_followup_route_action_key),
+                    tostring(followup_action.mode or "")
+                ))
+                return true
+            end
+            log_throttled(
+                ctx,
+                "route_point_action_objective_timeout_followup_failed_" .. tostring(action.key or ""),
+                "warn",
+                LOG_THROTTLE_MS,
+                string.format(
+                    "[Leveling] route point action objective timeout follow-up arm failed | task=%s key=%s next_key=%s err=%s",
+                    tostring(M.current_task_log_name() or state.current_task_name or ""),
+                    tostring(action.key or ""),
+                    tostring(timeout_followup_route_action_key),
+                    tostring(followup_err or "")
+                )
+            )
+        end
         return false
     end
 
@@ -6933,6 +6965,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
         or 0
 
     if objective_distance > interact_radius or z_gap > z_tolerance then
+        state.route_point_action_objective_missing_button_since_at = 0
         state.stage = "route_point_action_objective_move"
         release_async_combat_inputs(ctx, current_time, true)
         issue_move(ctx, current_time, {
@@ -7159,6 +7192,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
         end
     end
     if target then
+        state.route_point_action_objective_missing_button_since_at = 0
         local clicked, click_err, retryable = click_locator_button_target(ctx, step, target)
         if clicked then
             local state_key = tostring(state.route_point_action_objective_active_state_key or active_key)
@@ -7271,6 +7305,85 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
     end
 
     pulse_while_waiting("route_point_objective_wait_button")
+    local missing_button_skip_after_ms = math.max(0, tonumber(action.missing_button_skip_after_ms) or 0)
+    local missing_button_followup_key = trim(action.missing_button_followup_route_action_key or "")
+    if missing_button_followup_key == "" and action.skip_missing_button_to_followup == true then
+        missing_button_followup_key = trim(action.followup_route_action_key or action.next_route_point_action_key or "")
+    end
+    local missing_button_complete_side_task = action.missing_button_complete_side_task == true
+    if missing_button_skip_after_ms > 0
+        and (missing_button_followup_key ~= "" or missing_button_complete_side_task)
+    then
+        local missing_since = tonumber(state.route_point_action_objective_missing_button_since_at) or 0
+        if missing_since <= 0 then
+            missing_since = current_time
+            state.route_point_action_objective_missing_button_since_at = missing_since
+        end
+        local missing_elapsed = math.max(0, current_time - missing_since)
+        if missing_elapsed >= missing_button_skip_after_ms then
+            local state_key = tostring(state.route_point_action_objective_active_state_key or active_key)
+            if missing_button_followup_key ~= "" then
+                state.map_transition_triggered[state_key] = current_time
+                M.mark_recipe_action_completed(ctx, current_time, action, "objective_button_missing_skipped")
+                M.clear_route_point_action_objective_state()
+                local followup_action, followup_err = M.activate_route_point_action(
+                    ctx,
+                    current_time,
+                    missing_button_followup_key,
+                    "route_point_objective_missing_button_followup"
+                )
+                if type(followup_action) == "table" then
+                    logger(ctx).warn(string.format(
+                        "[Leveling] route point action objective missing button skipped to follow-up | task=%s key=%s next_key=%s missing_ms=%d distance=%.2f z_gap=%.2f err=%s",
+                        tostring(M.current_task_log_name() or state.current_task_name or ""),
+                        tostring(action.key or ""),
+                        tostring(missing_button_followup_key),
+                        missing_elapsed,
+                        tonumber(objective_distance) or 0,
+                        tonumber(z_gap) or 0,
+                        tostring(fetch_err or "")
+                    ))
+                    return true
+                end
+                log_throttled(
+                    ctx,
+                    "route_point_action_objective_missing_followup_failed_" .. tostring(action.key or ""),
+                    "warn",
+                    LOG_THROTTLE_MS,
+                    string.format(
+                        "[Leveling] route point action objective missing button follow-up arm failed | task=%s key=%s next_key=%s err=%s",
+                        tostring(M.current_task_log_name() or state.current_task_name or ""),
+                        tostring(action.key or ""),
+                        tostring(missing_button_followup_key),
+                        tostring(followup_err or "")
+                    )
+                )
+                return false
+            end
+            if missing_button_complete_side_task then
+                state.map_transition_triggered[state_key] = current_time
+                M.mark_recipe_action_completed(ctx, current_time, action, "objective_button_missing_completed")
+                M.clear_route_point_action_objective_state()
+                schedule_task_refresh_after_transition(
+                    ctx,
+                    current_time,
+                    "route_point_action_objective_missing_completed_" .. tostring(action.key or ""),
+                    tonumber(action.settle_ms) or POST_DIALOGUE_SETTLE_MS
+                )
+                logger(ctx).warn(string.format(
+                    "[Leveling] route point action objective missing button completed side task | task=%s key=%s missing_ms=%d distance=%.2f z_gap=%.2f err=%s",
+                    tostring(M.current_task_log_name() or state.current_task_name or ""),
+                    tostring(action.key or ""),
+                    missing_elapsed,
+                    tonumber(objective_distance) or 0,
+                    tonumber(z_gap) or 0,
+                    tostring(fetch_err or "")
+                ))
+                return true
+            end
+        end
+    end
+
     if action.fallback_interact == true and objective_distance <= fallback_distance then
         local state_key = tostring(state.route_point_action_objective_active_state_key or active_key)
         local attempted_at = tonumber(state.route_point_action_attempted[state_key]) or 0
@@ -8849,9 +8962,85 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         return nil
     end
 
-    local function find_nearby_subtask_detail(preferred_task_name)
+    local function find_nearby_subtask_detail(preferred_task_name, raw_detail)
         local preferred_key = M.normalize_task_title_key(preferred_task_name or state.current_task_name)
         local best_text, best_score, best_dx, best_dy = nil, nil, nil, nil
+        local candidates = {}
+        local function recovery_rule_matches(rule)
+            if type(rule) ~= "table" then
+                return false
+            end
+            local raw_patterns = rule.raw_detail_patterns
+            if type(raw_patterns) == "table" and #raw_patterns > 0 then
+                local raw_key = normalize_map_name(raw_detail) or ""
+                local raw_allowed = false
+                for _, pattern in ipairs(raw_patterns) do
+                    local pattern_key = normalize_map_name(pattern) or ""
+                    if pattern_key == "" then
+                        if raw_key == "" then
+                            raw_allowed = true
+                            break
+                        end
+                    elseif raw_key:find(pattern_key, 1, true) then
+                        raw_allowed = true
+                        break
+                    end
+                end
+                if not raw_allowed then
+                    return false
+                end
+            end
+            return M.matches_task_constraints(rule, {
+                task_name = preferred_task_name or state.current_task_name,
+                task_detail = raw_detail
+            })
+        end
+        local function choose_preferred_candidate()
+            if type(M.TASK_DETAIL_RECOVERY_CONFIGS) ~= "table" or #candidates == 0 then
+                return nil, nil, nil, nil
+            end
+            for _, rule in ipairs(M.TASK_DETAIL_RECOVERY_CONFIGS) do
+                if recovery_rule_matches(rule) then
+                    local prefer_patterns = rule.prefer_detail_patterns or rule.detail_patterns
+                    if type(prefer_patterns) == "table" then
+                        for _, pattern in ipairs(prefer_patterns) do
+                            local pattern_key = normalize_map_name(pattern)
+                            if pattern_key ~= nil then
+                                local preferred_candidate = nil
+                                for _, candidate in ipairs(candidates) do
+                                    local candidate_key = normalize_map_name(candidate.text)
+                                    if candidate_key ~= nil and candidate_key:find(pattern_key, 1, true) then
+                                        if preferred_candidate == nil
+                                            or (tonumber(candidate.score) or -999999) > (tonumber(preferred_candidate.score) or -999999)
+                                        then
+                                            preferred_candidate = candidate
+                                        end
+                                    end
+                                end
+                                if preferred_candidate ~= nil then
+                                    log_throttled(ctx, "task_detail_recovery_preferred_" .. tostring(rule.key or "rule"), "info", LOG_THROTTLE_MS, string.format(
+                                        "[Leveling] task detail recovery preferred candidate | task=%s raw_detail=%s detail=%s rule=%s pattern=%s dx=%.1f dy=%.1f score=%.1f",
+                                        tostring(state.current_task_name or preferred_task_name or ""),
+                                        tostring(raw_detail or ""),
+                                        tostring(preferred_candidate.text or ""),
+                                        tostring(rule.key or ""),
+                                        tostring(pattern or ""),
+                                        tonumber(preferred_candidate.dx) or 0,
+                                        tonumber(preferred_candidate.dy) or 0,
+                                        tonumber(preferred_candidate.score) or 0
+                                    ))
+                                    return preferred_candidate.text,
+                                        preferred_candidate.score,
+                                        preferred_candidate.dx,
+                                        preferred_candidate.dy
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            return nil, nil, nil, nil
+        end
         for _, item in ipairs(ui.texts or {}) do
             local raw_text = trim(item and item.text or "")
             local text = normalize_task_title(raw_text)
@@ -8882,6 +9071,12 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
                     and not is_same_as_task_title
                 then
                     local score = 500 - math.abs(dx - 44) * 1.4 - math.abs(dy - 24) * 2.6 - math.abs(#text - 8) * 0.5
+                    candidates[#candidates + 1] = {
+                        text = text,
+                        score = score,
+                        dx = dx,
+                        dy = dy
+                    }
                     if best_score == nil or score > best_score then
                         best_text = text
                         best_score = score
@@ -8890,6 +9085,10 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
                     end
                 end
             end
+        end
+        local preferred_text, preferred_score, preferred_dx, preferred_dy = choose_preferred_candidate()
+        if preferred_text ~= nil then
+            return preferred_text, preferred_score, preferred_dx, preferred_dy
         end
         return best_text, best_score, best_dx, best_dy
     end
@@ -8903,7 +9102,7 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         local next_detail = raw_detail
         local detail_source = tostring(source or "task_panel")
         if M.is_task_detail_noise(next_detail) then
-            local recovered_detail, recovered_score, recovered_dx, recovered_dy = find_nearby_subtask_detail(preferred_task_name)
+            local recovered_detail, recovered_score, recovered_dx, recovered_dy = find_nearby_subtask_detail(preferred_task_name, raw_detail)
             if recovered_detail ~= nil then
                 next_detail = recovered_detail
                 detail_source = detail_source .. "_nearby_subtask"
@@ -8928,7 +9127,7 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
                 ))
             end
         elseif next_detail == "" then
-            local recovered_detail, recovered_score, recovered_dx, recovered_dy = find_nearby_subtask_detail(preferred_task_name)
+            local recovered_detail, recovered_score, recovered_dx, recovered_dy = find_nearby_subtask_detail(preferred_task_name, raw_detail)
             if recovered_detail ~= nil then
                 next_detail = recovered_detail
                 detail_source = detail_source .. "_nearby_subtask"

@@ -705,6 +705,9 @@ if type(M._leveling_config) == "table" then
     if type(M._leveling_config.TASK_NAME_CONFIGS) == "table" then
         M.TASK_NAME_CONFIGS = M._leveling_config.TASK_NAME_CONFIGS
     end
+    if type(M._leveling_config.TASK_DETAIL_RECOVERY_CONFIGS) == "table" then
+        M.TASK_DETAIL_RECOVERY_CONFIGS = M._leveling_config.TASK_DETAIL_RECOVERY_CONFIGS
+    end
     if type(M._leveling_config.FORCE_KITE_MONSTER_NAMES) == "table" then
         M.FORCE_KITE_MONSTER_NAMES = M._leveling_config.FORCE_KITE_MONSTER_NAMES
     end
@@ -824,6 +827,7 @@ function M.clear_route_point_action_objective_state()
     state.route_point_action_objective_entered_at = 0
     state.route_point_action_objective_next_probe_at = 0
     state.route_point_action_objective_deadline_at = 0
+    state.route_point_action_objective_missing_button_since_at = 0
 end
 
 function M.clear_route_point_action_route_state()
@@ -853,6 +857,7 @@ end
 
 function M.clear_post_dialogue_flow_state()
     state.post_dialogue_flow_key = nil
+    state.post_dialogue_flow_config = nil
     state.post_dialogue_flow_steps = nil
     state.post_dialogue_flow_step_index = 0
     state.post_dialogue_flow_started_at = 0
@@ -1773,6 +1778,7 @@ local function reset_state()
     state.route_point_action_objective_entered_at = 0
     state.route_point_action_objective_next_probe_at = 0
     state.route_point_action_objective_deadline_at = 0
+    state.route_point_action_objective_missing_button_since_at = 0
     state.route_point_action_route_active_key = nil
     state.route_point_action_route_active_state_key = nil
     state.route_point_action_route_started_at = 0
@@ -6760,7 +6766,8 @@ function M.current_task_post_dialogue_flow_config()
         end
         local has_steps = type(flow.steps) == "table" and #flow.steps > 0
         local is_wait_only_refresh_flow = flow.wait_task_info_refresh_after_jump == true
-        if not has_steps and not is_wait_only_refresh_flow then
+        local has_followup_route_action = trim(flow.followup_route_action_key or "") ~= ""
+        if not has_steps and not is_wait_only_refresh_flow and not has_followup_route_action then
             return nil
         end
         return flow
@@ -10990,20 +10997,54 @@ function M.build_locator_candidate_step(base_step, candidate, candidate_index)
     return merged
 end
 
+function M.resolve_locator_candidate_sequence_runtime(base_key, share_across_details)
+    local normalized_base_key = tostring(base_key or "locator_candidates")
+    local task_name = tostring(M.current_task_log_name() or state.current_task_name or "")
+    local task_detail = tostring(M.current_task_log_detail() or state.current_task_detail or "")
+    local sequence_key = string.format(
+        "%s|%s|%s",
+        normalized_base_key,
+        task_name,
+        task_detail
+    )
+    local next_index = nil
+    if type(state.locator_candidate_sequence_next) == "table" then
+        next_index = tonumber(state.locator_candidate_sequence_next[sequence_key])
+        if next_index == nil and share_across_details == true then
+            local prefix = string.format("%s|%s|", normalized_base_key, task_name)
+            local best_key = nil
+            local best_next = nil
+            for key, value in pairs(state.locator_candidate_sequence_next) do
+                local runtime_key = tostring(key or "")
+                if string.sub(runtime_key, 1, #prefix) == prefix then
+                    local candidate_next = tonumber(value)
+                    if candidate_next ~= nil and (best_next == nil or candidate_next > best_next) then
+                        best_key = runtime_key
+                        best_next = candidate_next
+                    end
+                end
+            end
+            if best_next ~= nil then
+                sequence_key = best_key or sequence_key
+                next_index = best_next
+            end
+        end
+    end
+    return sequence_key, next_index
+end
+
 function M.fetch_locator_candidate_target(ctx, step)
     if type(step) == "table" and type(step.locator_candidates) == "table" and #step.locator_candidates > 0 then
         local sequence_key = nil
         local start_index = 1
         if step.locator_candidate_sequence == true then
-            sequence_key = string.format(
-                "%s|%s|%s",
-                tostring(step.locator_candidate_sequence_key or step.key or "locator_candidates"),
-                tostring(M.current_task_log_name() or state.current_task_name or ""),
-                tostring(M.current_task_log_detail() or state.current_task_detail or "")
-            )
             if type(state.locator_candidate_sequence_next) ~= "table" then
                 state.locator_candidate_sequence_next = {}
             end
+            sequence_key = M.resolve_locator_candidate_sequence_runtime(
+                step.locator_candidate_sequence_key or step.key or "locator_candidates",
+                step.locator_candidate_sequence_share_across_details == true
+            )
             start_index = math.max(1, tonumber(state.locator_candidate_sequence_next[sequence_key]) or 1)
             if start_index > #step.locator_candidates then
                 return nil, string.format("locator candidate sequence exhausted key=%s next=%d total=%d", sequence_key, start_index, #step.locator_candidates), nil, nil
@@ -11105,6 +11146,44 @@ function M.maybe_handle_task_dialogue_flow(ctx, current_time)
 
     local deadline_at = tonumber(state.task_dialogue_flow_deadline_at) or 0
     if deadline_at > 0 and current_time > deadline_at then
+        if flow.timeout_close_dialogue_and_refresh == true then
+            release_async_combat_inputs(ctx, current_time, true)
+            local close_ok, close_err = false, "disabled"
+            if type(press_keyboard_hotkey) == "function" then
+                close_ok, close_err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "task dialogue flow timeout close")
+            end
+
+            log_throttled(ctx, "task_dialogue_flow_timeout_close_refresh_" .. flow_key, "warn", LOG_THROTTLE_MS, string.format(
+                "[Leveling] task dialogue flow timeout, close dialogue and refresh task | task=%s key=%s origin=%s step=%d/%d pending_label=%s close_ok=%s err=%s",
+                tostring(task_name or state.current_task_name or ""),
+                flow_key,
+                interaction_origin,
+                math.max(1, tonumber(state.task_dialogue_flow_step_index) or 1),
+                #steps,
+                tostring(state.pending_interaction_label or ""),
+                close_ok and "true" or "false",
+                tostring(close_err or "")
+            ))
+            M.clear_task_dialogue_flow_state()
+            if type(schedule_task_refresh_after_transition) == "function" then
+                schedule_task_refresh_after_transition(
+                    ctx,
+                    current_time,
+                    "task_dialogue_flow_timeout_close_refresh:" .. flow_key,
+                    tonumber(flow.timeout_refresh_wait_ms) or POST_DIALOGUE_SETTLE_MS,
+                    {
+                        force_task_call = flow.timeout_force_task_call == true,
+                        task_pos_reject_extra_ms = tonumber(flow.timeout_task_pos_reject_extra_ms) or 2500
+                    }
+                )
+            end
+            state.pause_combat_until = math.max(
+                tonumber(state.pause_combat_until) or 0,
+                current_time + math.max(600, tonumber(flow.timeout_refresh_wait_ms) or POST_DIALOGUE_SETTLE_MS)
+            )
+            return true
+        end
+
         log_throttled(ctx, "task_dialogue_flow_timeout_" .. flow_key, "warn", LOG_THROTTLE_MS, string.format(
             "[Leveling] task dialogue flow timeout, fallback to normal jump | task=%s key=%s origin=%s step=%d/%d pending_label=%s",
             tostring(task_name or state.current_task_name or ""),
@@ -11233,14 +11312,21 @@ function M.maybe_handle_task_dialogue_flow(ctx, current_time)
 end
 
 function M.arm_post_dialogue_flow(ctx, current_time, flow, task_name, interaction_origin)
-    if type(flow) ~= "table" or type(flow.steps) ~= "table" or #flow.steps <= 0 then
+    if type(flow) ~= "table" then
+        M.clear_post_dialogue_flow_state()
+        return false
+    end
+    local has_steps = type(flow.steps) == "table" and #flow.steps > 0
+    local has_followup_route_action = trim(flow.followup_route_action_key or "") ~= ""
+    if not has_steps and not has_followup_route_action then
         M.clear_post_dialogue_flow_state()
         return false
     end
 
     local flow_key = tostring(flow.key or task_name or state.current_task_name or "post_dialogue_flow")
     state.post_dialogue_flow_key = flow_key
-    state.post_dialogue_flow_steps = flow.steps
+    state.post_dialogue_flow_config = flow
+    state.post_dialogue_flow_steps = has_steps and flow.steps or {}
     state.post_dialogue_flow_step_index = 1
     state.post_dialogue_flow_started_at = current_time
     state.post_dialogue_flow_deadline_at = current_time + math.max(3000, tonumber(flow.timeout_ms) or 8000)
@@ -11254,7 +11340,7 @@ function M.arm_post_dialogue_flow(ctx, current_time, flow, task_name, interactio
         tostring(state.post_dialogue_flow_task_name or ""),
         flow_key,
         tostring(state.post_dialogue_flow_origin or ""),
-        #flow.steps,
+        has_steps and #flow.steps or 0,
         math.max(0, tonumber(flow.initial_delay_ms) or 500),
         math.max(3000, tonumber(flow.timeout_ms) or 8000),
         state.post_dialogue_flow_skip_dialogue_jump == true and "true" or "false"
@@ -11269,8 +11355,14 @@ function M.maybe_handle_post_dialogue_flow(ctx, current_time)
         return false
     end
 
+    local flow = state.post_dialogue_flow_config
     local steps = state.post_dialogue_flow_steps
-    if type(steps) ~= "table" or #steps <= 0 then
+    local has_followup_route_action = type(flow) == "table"
+        and trim(flow.followup_route_action_key or "") ~= ""
+    if type(steps) ~= "table" then
+        steps = {}
+    end
+    if #steps <= 0 and not has_followup_route_action then
         M.clear_post_dialogue_flow_state()
         return false
     end
@@ -11307,12 +11399,76 @@ function M.maybe_handle_post_dialogue_flow(ctx, current_time)
     if type(step) ~= "table" then
         local should_open_jump_window = state.post_dialogue_flow_skip_dialogue_jump == true
         local post_flow_origin = tostring(state.post_dialogue_flow_origin or "")
+        local followup_route_action_key = type(flow) == "table" and trim(flow.followup_route_action_key or "") or ""
         logger(ctx).info(string.format(
             "[Leveling] post dialogue flow completed | task=%s key=%s steps=%d",
             tostring(state.post_dialogue_flow_task_name or state.current_task_name or ""),
             flow_key,
             #steps
         ))
+        if followup_route_action_key ~= "" then
+            local sequence_key = nil
+            local sequence_next = nil
+            local sequence_total = tonumber(flow.followup_locator_candidate_count) or 0
+            local sequence_base_key = trim(flow.followup_locator_candidate_sequence_key or "")
+            local should_followup = true
+            if sequence_base_key ~= "" and sequence_total > 0 then
+                sequence_key, sequence_next = M.resolve_locator_candidate_sequence_runtime(
+                    sequence_base_key,
+                    flow.followup_locator_candidate_sequence_share_across_details == true
+                )
+                sequence_next = math.max(1, tonumber(sequence_next) or 1)
+                should_followup = sequence_next <= sequence_total
+            end
+            if should_followup then
+                M.clear_post_dialogue_flow_state()
+                if flow.followup_route_action_ignore_retry == true
+                    and type(M.find_route_point_action_by_key) == "function"
+                    and type(M.route_point_action_state_key) == "function"
+                then
+                    local followup_cfg = M.find_route_point_action_by_key(followup_route_action_key)
+                    if type(followup_cfg) == "table" and type(state.map_transition_triggered) == "table" then
+                        state.map_transition_triggered[M.route_point_action_state_key(followup_cfg)] = 0
+                    end
+                end
+                local followup_action, followup_err = M.activate_route_point_action(
+                    ctx,
+                    current_time,
+                    followup_route_action_key,
+                    trim(flow.followup_route_action_source or "") ~= ""
+                        and tostring(flow.followup_route_action_source)
+                        or "post_dialogue_flow_followup"
+                )
+                if type(followup_action) == "table" then
+                    logger(ctx).info(string.format(
+                        "[Leveling] post dialogue flow follow-up route armed | task=%s key=%s next_key=%s mode=%s sequence=%s next=%s total=%s",
+                        tostring(state.current_task_name or ""),
+                        flow_key,
+                        tostring(followup_route_action_key),
+                        tostring(followup_action.mode or ""),
+                        tostring(sequence_key or ""),
+                        tostring(sequence_next or ""),
+                        tostring(sequence_total > 0 and sequence_total or "")
+                    ))
+                    return true
+                end
+                log_throttled(ctx, "post_dialogue_flow_followup_failed_" .. flow_key, "warn", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] post dialogue flow follow-up route arm failed | task=%s key=%s next_key=%s err=%s",
+                    tostring(state.current_task_name or ""),
+                    flow_key,
+                    tostring(followup_route_action_key),
+                    tostring(followup_err or "")
+                ))
+                return false
+            end
+            logger(ctx).info(string.format(
+                "[Leveling] post dialogue flow follow-up skipped; sequence exhausted | key=%s sequence=%s next=%s total=%s",
+                flow_key,
+                tostring(sequence_key or ""),
+                tostring(sequence_next or ""),
+                tostring(sequence_total)
+            ))
+        end
         M.clear_post_dialogue_flow_state()
         if should_open_jump_window then
             state.task_update_wait_until = math.max(

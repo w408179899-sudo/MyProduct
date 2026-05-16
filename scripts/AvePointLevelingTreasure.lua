@@ -698,7 +698,19 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
         local near_known_inside = near_inside_landing or near_restart_landing or near_boss_trigger or near_restart_portal or near_exit_portal
         local route_gap = nearest_route_distance(cached_route, player_x, player_y)
         local near_route = route_gap <= math.max(1800, tonumber(cfg.resume_route_distance) or 2600)
-        if near_exit_landing and mode ~= "wait_exit" and mode ~= "return_mainline" then
+        local exit_landing_context = mode == "wait_exit"
+            or mode == "return_mainline"
+            or snapshot.pending_return_mainline == true
+        local exit_landing_shared_with_inside = near_exit_landing and (near_inside_landing or near_restart_landing)
+        if near_exit_landing and exit_landing_context then
+            allow_restore = true
+            restore_reason = "exit_landing_resume"
+            resume_override_mode = "return_mainline"
+        elseif near_exit_landing
+            and not exit_landing_shared_with_inside
+            and mode ~= "wait_exit"
+            and mode ~= "return_mainline"
+        then
             allow_restore = true
             restore_reason = "exit_landing_resume_override"
             resume_override_mode = "return_mainline"
@@ -1206,6 +1218,91 @@ likely_inside_treasure = function(cfg, hooks, runtime, current_time, player_x, p
     end
 
     return false, nil
+end
+
+local function startup_inside_recovery_match(cfg, hooks, player_x, player_y, player_z)
+    if type(cfg) ~= "table" or cfg.enabled == false then
+        return false, nil
+    end
+
+    local map_name = trim(type(hooks.current_map_name) == "function" and hooks.current_map_name() or "")
+    local treasure_name = trim(cfg.name or "")
+    if treasure_name ~= "" and map_name:find(treasure_name, 1, true) then
+        return true, "map_name"
+    end
+    if match_text_patterns(cfg.inside_map_patterns, map_name) then
+        return true, "inside_map_pattern"
+    end
+    if landing_ready(player_x, player_y, player_z, cfg.inside_landing) then
+        return true, "inside_landing"
+    end
+    if landing_ready(player_x, player_y, player_z, cfg.restart_landing) then
+        return true, "restart_landing"
+    end
+
+    return false, nil
+end
+
+local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, current_time, player_x, player_y, player_z)
+    if type(configs) ~= "table" then
+        return nil
+    end
+
+    local runtime = ensure_runtime_state(main_state)
+    for _, candidate in ipairs(configs) do
+        local inside_match, inside_reason = startup_inside_recovery_match(candidate, hooks, player_x, player_y, player_z)
+        if inside_match then
+            local record = ensure_record(main_state, candidate)
+            local target_level = configured_target_level(candidate)
+            local candidate_level = nil
+            if target_level ~= nil then
+                candidate_level = refresh_player_level(ctx, candidate, runtime, hooks, current_time, runtime.player_level == nil)
+            end
+
+            if record.completed == true
+                and target_level ~= nil
+                and type(candidate_level) == "number"
+                and candidate_level < target_level
+            then
+                record.completed = false
+                record.route_acquired = type(record.route) == "table" and #record.route > 0 or record.route_acquired == true
+                local save_ok, save_err = save_record(ctx, main_state, candidate)
+                runtime.last_save_err = save_ok and nil or save_err
+                if type(hooks.log_info) == "function" then
+                    hooks.log_info(ctx, string.format(
+                        "[Treasure] stale completed record cleared by inside startup recovery | key=%s level=%d target_level=%d reason=%s save_ok=%s err=%s",
+                        tostring(candidate.key or ""),
+                        candidate_level,
+                        target_level,
+                        tostring(inside_reason or ""),
+                        save_ok and "true" or "false",
+                        tostring(save_err or "")
+                    ))
+                end
+            end
+
+            if record.completed ~= true
+                and not (target_level ~= nil and type(candidate_level) == "number" and candidate_level >= target_level)
+            then
+                activate_cfg(ctx, main_state, candidate, hooks, player_x, player_y, player_z)
+                if type(hooks.log_info) == "function" then
+                    hooks.log_info(ctx, string.format(
+                        "[Treasure] startup inside recovery activated | key=%s reason=%s level=%s target_level=%s pos=%.2f, %.2f, %.2f",
+                        tostring(candidate.key or ""),
+                        tostring(inside_reason or ""),
+                        tostring(candidate_level or ""),
+                        tostring(target_level or ""),
+                        tonumber(player_x) or 0,
+                        tonumber(player_y) or 0,
+                        tonumber(player_z) or 0
+                    ))
+                end
+                return candidate
+            end
+        end
+    end
+
+    return nil
 end
 
 local function find_nearest_route_index(player_x, player_y, route)
@@ -2761,6 +2858,23 @@ function M.provide_task_target_override(ctx, main_state, configs, hooks, current
     return inject_route_target(ctx, main_state, cfg, runtime, hooks, current_time, player_x, player_y)
 end
 
+function M.maybe_recover_inside_startup(ctx, main_state, configs, hooks, current_time, player_x, player_y, player_z)
+    if type(current_cfg(main_state, configs)) == "table" then
+        return false
+    end
+
+    return type(recover_inside_startup_cfg(
+        ctx,
+        main_state,
+        configs,
+        hooks,
+        current_time,
+        player_x,
+        player_y,
+        player_z
+    )) == "table"
+end
+
 local function recover_completed_exit_if_needed(ctx, main_state, configs, hooks, current_time, player_x, player_y, player_z)
     if type(configs) ~= "table" or not has_reliable_world_pos(player_x, player_y) then
         return nil
@@ -2831,6 +2945,10 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                 break
             end
         end
+    end
+
+    if type(cfg) ~= "table" then
+        cfg = recover_inside_startup_cfg(ctx, main_state, configs, hooks, current_time, player_x, player_y, player_z)
     end
 
     if type(cfg) ~= "table" then
