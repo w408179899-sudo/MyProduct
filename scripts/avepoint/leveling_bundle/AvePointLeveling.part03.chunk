@@ -1762,16 +1762,20 @@
 
     ensure_mainline_panel_entry()
     pre_click_entry_action, pre_click_entry_task_name = M.current_task_entry_action_config()
+    local pre_click_entry_action_mode = type(pre_click_entry_action) == "table"
+        and tostring(pre_click_entry_action.mode or "")
+        or ""
     if type(pre_click_entry_action) == "table"
-        and tostring(pre_click_entry_action.mode or "") == "world_map_send"
+        and (pre_click_entry_action_mode == "world_map_send" or pre_click_entry_action_mode == "key_sequence")
     then
         pre_click_entry_task_log_name = M.current_task_log_name() or state.current_task_name
         pre_click_entry_task_log_detail = M.current_task_log_detail() or state.current_task_detail
         logger(ctx).info(string.format(
-            "[Leveling] main task call prelocked entry action candidate | task=%s detail=%s entry_task=%s key=%s",
+            "[Leveling] main task call prelocked entry action candidate | task=%s detail=%s entry_task=%s mode=%s key=%s",
             tostring(pre_click_entry_task_log_name or ""),
             tostring(pre_click_entry_task_log_detail or ""),
             tostring(pre_click_entry_task_name or ""),
+            tostring(pre_click_entry_action_mode),
             tostring(pre_click_entry_action.key or "")
         ))
     end
@@ -4109,6 +4113,11 @@ function M.start(ctx)
         return false, err
     end
 
+    M.refresh_persistence_character_identity(ctx, true)
+    if type(M.current_persistence_character_id()) ~= "string" or M.current_persistence_character_id() == "" then
+        logger(ctx).warn("[Leveling] character persistence identity unavailable at startup; scoped progress saves will wait for main UI text.")
+    end
+
     if LEVELING_USE_NAV_WORKER == true then
         local worker_ok, worker_err = start_nav_worker(ctx, current_time)
         if not worker_ok then
@@ -5935,6 +5944,12 @@ function M.update(now, ctx)
     if waiting_for_task_path and current_time >= (tonumber(state.next_task_refresh_at) or 0) then
         update_task_target(ctx, current_time, player_x, player_y)
         target_synced_this_tick = true
+    end
+
+    if task_entry_action_active == true then
+        if M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y, player_z) then
+            return true
+        end
     end
 
     if waiting_for_task_path and type(state.task_target) ~= "table" then

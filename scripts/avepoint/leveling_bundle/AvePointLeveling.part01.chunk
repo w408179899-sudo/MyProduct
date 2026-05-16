@@ -78,6 +78,7 @@ M._leveling_treasure = M.load_leveling_support_module(
 M.BUTTON_SESSION_STATE_FILE_PATH = "scripts/avepoint_leveling_button_session.lua"
 M.RECIPE_PROGRESS_STATE_FILE_PATH = "scripts/avepoint_leveling_recipe_state.lua"
 M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH = "scripts/avepoint_leveling_maintenance_state.lua"
+M.CHARACTER_SCOPED_STATE_VERSION = 2
 M.MAIN_TASK_BUTTON_CACHE_DISABLED = true
 M.MAIN_TASK_BUTTON_HOVER_EACH_CALL = false
 M.BUTTON_CALL_CACHE_DISABLED = true
@@ -2842,8 +2843,203 @@ function M.save_button_session_state()
     return true
 end
 
+M._persistence_character_id = nil
+M._persistence_character_label = nil
+M._persistence_character_level = nil
+M._persistence_character_text = nil
+
+function M.extract_persistence_identity_from_snapshot(snapshot)
+    if type(snapshot) ~= "table" or type(snapshot.texts) ~= "table" then
+        return nil, nil, nil, nil
+    end
+
+    local best_id = nil
+    local best_label = nil
+    local best_text = nil
+    local fallback_id = nil
+    local fallback_text = nil
+    local level = nil
+
+    for _, item in ipairs(snapshot.texts) do
+        if type(item) == "table" then
+            local name = tostring(item.name or item.Fullname or item.fullname or "")
+            local text = trim(tostring(item.text or ""))
+            if name:find("FightBattleInfoView_C.WidgetTree.UITextBlock", 1, true) ~= nil then
+                local parsed_level = tonumber(text:match("^%D*(%d+)%("))
+                if parsed_level ~= nil then
+                    level = parsed_level
+                end
+            end
+
+            if name:find("FightTextInfoView_C.WidgetTree.UITextBlock", 1, true) ~= nil then
+                local id = text:match("(%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d+)")
+                if id ~= nil then
+                    if text:match("^%s*%d+%s*$") then
+                        fallback_id = fallback_id or id
+                        fallback_text = fallback_text or text
+                    else
+                        best_id = id
+                        best_text = text
+                        best_label = trim(text:gsub(id, ""))
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    if best_id == nil and fallback_id ~= nil then
+        best_id = fallback_id
+        best_text = fallback_text
+        best_label = ""
+    end
+
+    return best_id, best_label, level, best_text
+end
+
+function M.refresh_persistence_character_identity(ctx, force)
+    if force ~= true and M._persistence_character_id ~= nil then
+        return M._persistence_character_id, M._persistence_character_label, M._persistence_character_level
+    end
+
+    local nav_mod = nav_api(ctx)
+    if type(nav_mod) ~= "table" or type(nav_mod.enum_ui) ~= "function" then
+        return M._persistence_character_id, M._persistence_character_label, M._persistence_character_level
+    end
+
+    local snapshot, snapshot_err = nav_mod.enum_ui()
+    if type(snapshot) ~= "table" then
+        state.persistence_character_last_error = tostring(snapshot_err or "enum_ui failed.")
+        return M._persistence_character_id, M._persistence_character_label, M._persistence_character_level
+    end
+
+    local id, label, level, text = M.extract_persistence_identity_from_snapshot(snapshot)
+    if id ~= nil and id ~= "" then
+        local previous_id = M._persistence_character_id
+        M._persistence_character_id = tostring(id)
+        M._persistence_character_label = tostring(label or "")
+        M._persistence_character_level = tonumber(level)
+        M._persistence_character_text = tostring(text or "")
+        _G.AVEPOINT_PERSISTENCE_CHARACTER_ID = M._persistence_character_id
+        _G.AVEPOINT_PERSISTENCE_CHARACTER_LABEL = M._persistence_character_label
+        if previous_id ~= M._persistence_character_id then
+            logger(ctx).info(string.format(
+                "[Leveling] character persistence identity resolved | id=%s label=%s level=%s text=%s",
+                tostring(M._persistence_character_id or ""),
+                tostring(M._persistence_character_label or ""),
+                tostring(M._persistence_character_level or ""),
+                tostring(M._persistence_character_text or "")
+            ))
+        end
+        return M._persistence_character_id, M._persistence_character_label, M._persistence_character_level
+    end
+
+    state.persistence_character_last_error = "character id text not found"
+    return M._persistence_character_id, M._persistence_character_label, M._persistence_character_level
+end
+
+function M.current_persistence_character_id()
+    if M._persistence_character_id ~= nil and M._persistence_character_id ~= "" then
+        return M._persistence_character_id
+    end
+    if type(_G.AVEPOINT_PERSISTENCE_CHARACTER_ID) == "string"
+        and _G.AVEPOINT_PERSISTENCE_CHARACTER_ID ~= ""
+    then
+        return _G.AVEPOINT_PERSISTENCE_CHARACTER_ID
+    end
+    local id = M.refresh_persistence_character_identity(nil, false)
+    if type(id) == "string" and id ~= "" then
+        return id
+    end
+    return nil
+end
+
+function M.normalize_character_scoped_root(data)
+    if type(data) ~= "table" then
+        return {
+            version = M.CHARACTER_SCOPED_STATE_VERSION,
+            characters = {}
+        }
+    end
+    if type(data.characters) == "table" then
+        data.version = tonumber(data.version) or M.CHARACTER_SCOPED_STATE_VERSION
+        return data
+    end
+    return {
+        version = M.CHARACTER_SCOPED_STATE_VERSION,
+        characters = {},
+        legacy = data
+    }
+end
+
+function M.load_character_scoped_root(path)
+    local chunk = loadfile(path)
+    if not chunk then
+        return M.normalize_character_scoped_root(nil)
+    end
+    local ok, data = pcall(chunk)
+    if not ok or type(data) ~= "table" then
+        return M.normalize_character_scoped_root(nil)
+    end
+    return M.normalize_character_scoped_root(data)
+end
+
+function M.save_character_scoped_root(path, root)
+    if type(root) ~= "table" then
+        root = M.normalize_character_scoped_root(nil)
+    end
+    root.version = M.CHARACTER_SCOPED_STATE_VERSION
+    if type(root.characters) ~= "table" then
+        root.characters = {}
+    end
+    local file, err = io.open(path, "w")
+    if not file then
+        return false, err
+    end
+    file:write("return ")
+    file:write(M.serialize_button_session_lua_table(root, 0))
+    file:write("\n")
+    file:close()
+    return true
+end
+
+function M.max_completed_plan_level(data)
+    if type(data) ~= "table" or type(data.completed_plans) ~= "table" then
+        return nil
+    end
+    local max_level = nil
+    for _, record in pairs(data.completed_plans) do
+        if type(record) == "table" then
+            local level = tonumber(record.level)
+            if level ~= nil and (max_level == nil or level > max_level) then
+                max_level = level
+            end
+        end
+    end
+    return max_level
+end
+
+function M.should_import_legacy_maintenance_state(root, character_id)
+    if type(root) ~= "table" or type(root.legacy) ~= "table" then
+        return false
+    end
+    if type(character_id) ~= "string" or character_id == "" then
+        return false
+    end
+    if root.legacy_imported_to ~= nil then
+        return false
+    end
+    local current_level = tonumber(M._persistence_character_level)
+    local max_level = M.max_completed_plan_level(root.legacy)
+    return current_level ~= nil
+        and max_level ~= nil
+        and max_level <= current_level
+end
+
 M._recipe_progress_state = nil
 M._recipe_progress_state_loaded = false
+M._recipe_progress_state_root = nil
+M._recipe_progress_state_character_id = nil
 
 function M.default_recipe_progress_state()
     return {
@@ -2853,24 +3049,36 @@ function M.default_recipe_progress_state()
 end
 
 function M.load_recipe_progress_state()
-    local chunk = loadfile(M.RECIPE_PROGRESS_STATE_FILE_PATH)
-    if not chunk then
+    if type(M._recipe_progress_state_root) ~= "table" then
+        M._recipe_progress_state_root = M.load_character_scoped_root(M.RECIPE_PROGRESS_STATE_FILE_PATH)
+    end
+    local root = M._recipe_progress_state_root
+    if type(root.characters) ~= "table" then
+        root.characters = {}
+    end
+    local character_id = M.current_persistence_character_id()
+    if type(character_id) ~= "string" or character_id == "" then
+        M._recipe_progress_state_character_id = nil
         return M.default_recipe_progress_state()
     end
 
-    local ok, data = pcall(chunk)
-    if not ok or type(data) ~= "table" then
-        return M.default_recipe_progress_state()
+    if type(root.characters[character_id]) ~= "table" then
+        root.characters[character_id] = M.default_recipe_progress_state()
+        root.characters[character_id].character_id = character_id
     end
+    local data = root.characters[character_id]
     if type(data.packages) ~= "table" then
         data.packages = {}
     end
     data.version = tonumber(data.version) or 1
+    data.character_id = character_id
+    M._recipe_progress_state_character_id = character_id
     return data
 end
 
 function M.ensure_recipe_progress_state()
-    if M._recipe_progress_state_loaded ~= true then
+    local character_id = M.current_persistence_character_id()
+    if M._recipe_progress_state_loaded ~= true or M._recipe_progress_state_character_id ~= character_id then
         M._recipe_progress_state = M.load_recipe_progress_state()
         M._recipe_progress_state_loaded = true
     end
@@ -2884,20 +3092,26 @@ function M.ensure_recipe_progress_state()
 end
 
 function M.save_recipe_progress_state()
-    local data = M.ensure_recipe_progress_state()
-    local file, err = io.open(M.RECIPE_PROGRESS_STATE_FILE_PATH, "w")
-    if not file then
-        return false, err
+    local character_id = M.current_persistence_character_id()
+    if type(character_id) ~= "string" or character_id == "" then
+        return false, "character persistence id unavailable; recipe progress not saved"
     end
-    file:write("return ")
-    file:write(M.serialize_button_session_lua_table(data, 0))
-    file:write("\n")
-    file:close()
-    return true
+    local data = M.ensure_recipe_progress_state()
+    if type(M._recipe_progress_state_root) ~= "table" then
+        M._recipe_progress_state_root = M.load_character_scoped_root(M.RECIPE_PROGRESS_STATE_FILE_PATH)
+    end
+    if type(M._recipe_progress_state_root.characters) ~= "table" then
+        M._recipe_progress_state_root.characters = {}
+    end
+    data.character_id = character_id
+    M._recipe_progress_state_root.characters[character_id] = data
+    return M.save_character_scoped_root(M.RECIPE_PROGRESS_STATE_FILE_PATH, M._recipe_progress_state_root)
 end
 
 M._level_up_maintenance_state = nil
 M._level_up_maintenance_state_loaded = false
+M._level_up_maintenance_state_root = nil
+M._level_up_maintenance_state_character_id = nil
 
 function M.default_level_up_maintenance_state()
     return {
@@ -2907,24 +3121,48 @@ function M.default_level_up_maintenance_state()
 end
 
 function M.load_level_up_maintenance_state()
-    local chunk = loadfile(M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH)
-    if not chunk then
+    if type(M._level_up_maintenance_state_root) ~= "table" then
+        M._level_up_maintenance_state_root = M.load_character_scoped_root(M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH)
+    end
+    local root = M._level_up_maintenance_state_root
+    if type(root.characters) ~= "table" then
+        root.characters = {}
+    end
+    local character_id = M.current_persistence_character_id()
+    if type(character_id) ~= "string" or character_id == "" then
+        M._level_up_maintenance_state_character_id = nil
         return M.default_level_up_maintenance_state()
     end
 
-    local ok, data = pcall(chunk)
-    if not ok or type(data) ~= "table" then
-        return M.default_level_up_maintenance_state()
+    if type(root.characters[character_id]) ~= "table" then
+        if M.should_import_legacy_maintenance_state(root, character_id) then
+            root.characters[character_id] = root.legacy
+            root.legacy_imported_to = character_id
+            logger(state.log_ctx).info(string.format(
+                "[Leveling] imported legacy maintenance state into character scope | id=%s level=%s max_completed=%s",
+                tostring(character_id),
+                tostring(M._persistence_character_level or ""),
+                tostring(M.max_completed_plan_level(root.legacy) or "")
+            ))
+            M.save_character_scoped_root(M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH, root)
+        else
+            root.characters[character_id] = M.default_level_up_maintenance_state()
+        end
+        root.characters[character_id].character_id = character_id
     end
+    local data = root.characters[character_id]
     if type(data.completed_plans) ~= "table" then
         data.completed_plans = {}
     end
     data.version = tonumber(data.version) or 1
+    data.character_id = character_id
+    M._level_up_maintenance_state_character_id = character_id
     return data
 end
 
 function M.ensure_level_up_maintenance_state()
-    if M._level_up_maintenance_state_loaded ~= true then
+    local character_id = M.current_persistence_character_id()
+    if M._level_up_maintenance_state_loaded ~= true or M._level_up_maintenance_state_character_id ~= character_id then
         M._level_up_maintenance_state = M.load_level_up_maintenance_state()
         M._level_up_maintenance_state_loaded = true
     end
@@ -2938,16 +3176,20 @@ function M.ensure_level_up_maintenance_state()
 end
 
 function M.save_level_up_maintenance_state()
-    local data = M.ensure_level_up_maintenance_state()
-    local file, err = io.open(M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH, "w")
-    if not file then
-        return false, err
+    local character_id = M.current_persistence_character_id()
+    if type(character_id) ~= "string" or character_id == "" then
+        return false, "character persistence id unavailable; maintenance state not saved"
     end
-    file:write("return ")
-    file:write(M.serialize_button_session_lua_table(data, 0))
-    file:write("\n")
-    file:close()
-    return true
+    local data = M.ensure_level_up_maintenance_state()
+    if type(M._level_up_maintenance_state_root) ~= "table" then
+        M._level_up_maintenance_state_root = M.load_character_scoped_root(M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH)
+    end
+    if type(M._level_up_maintenance_state_root.characters) ~= "table" then
+        M._level_up_maintenance_state_root.characters = {}
+    end
+    data.character_id = character_id
+    M._level_up_maintenance_state_root.characters[character_id] = data
+    return M.save_character_scoped_root(M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH, M._level_up_maintenance_state_root)
 end
 
 function M.ensure_recipe_package_record(package_key)
@@ -6816,11 +7058,12 @@ end
 
 function M.is_task_entry_action_active(current_time)
     local entry_action, task_name = M.current_task_entry_action_config()
-    if type(entry_action) ~= "table" or tostring(entry_action.mode or "") ~= "world_map_send" then
+    if type(entry_action) ~= "table" then
         return false, entry_action, task_name
     end
 
-    if type(state.task_target) == "table" then
+    local mode = tostring(entry_action.mode or "")
+    if mode ~= "world_map_send" and mode ~= "key_sequence" then
         return false, entry_action, task_name
     end
 
@@ -6829,8 +7072,14 @@ function M.is_task_entry_action_active(current_time)
         return false, entry_action, task_name
     end
 
-    if (tonumber(state.task_entry_action_send_clicked_at) or 0) > 0 then
-        return false, entry_action, task_name
+    if mode == "world_map_send" then
+        if type(state.task_target) == "table" then
+            return false, entry_action, task_name
+        end
+
+        if (tonumber(state.task_entry_action_send_clicked_at) or 0) > 0 then
+            return false, entry_action, task_name
+        end
     end
 
     local timeout_ms = math.max(5000, tonumber(entry_action.timeout_ms) or 12000)

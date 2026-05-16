@@ -1,6 +1,9 @@
 local M = {}
 
 local STATE_FILE_PATH = "scripts/avepoint_treasure_state.lua"
+local CHARACTER_SCOPED_STATE_VERSION = 2
+local persisted_state_root = nil
+local persisted_state_character_id = nil
 
 local transition_mode
 local likely_inside_treasure
@@ -307,20 +310,42 @@ local function serialize_lua(value, indent)
     return table.concat(lines, "\n")
 end
 
-local function load_persisted_state()
-    local chunk = loadfile(STATE_FILE_PATH)
-    if not chunk then
+local function default_persisted_state()
+    return {
+        treasures = {},
+        resume = nil
+    }
+end
+
+local function current_character_id()
+    local id = _G.AVEPOINT_PERSISTENCE_CHARACTER_ID
+    if type(id) == "string" and id:match("^%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d+$") then
+        return id
+    end
+    return nil
+end
+
+local function normalize_state_root(data)
+    if type(data) ~= "table" then
         return {
-            treasures = {},
-            resume = nil
+            version = CHARACTER_SCOPED_STATE_VERSION,
+            characters = {}
         }
     end
-    local ok, data = pcall(chunk)
-    if not ok or type(data) ~= "table" then
-        return {
-            treasures = {},
-            resume = nil
-        }
+    if type(data.characters) == "table" then
+        data.version = tonumber(data.version) or CHARACTER_SCOPED_STATE_VERSION
+        return data
+    end
+    return {
+        version = CHARACTER_SCOPED_STATE_VERSION,
+        characters = {},
+        legacy = data
+    }
+end
+
+local function sanitize_persisted_state(data, character_id)
+    if type(data) ~= "table" then
+        data = default_persisted_state()
     end
     if type(data.treasures) ~= "table" then
         data.treasures = {}
@@ -328,16 +353,64 @@ local function load_persisted_state()
     if data.resume ~= nil and type(data.resume) ~= "table" then
         data.resume = nil
     end
+    if type(character_id) == "string" and character_id ~= "" then
+        data.character_id = character_id
+    end
     return data
 end
 
+local function load_state_root()
+    local chunk = loadfile(STATE_FILE_PATH)
+    if not chunk then
+        return normalize_state_root(nil)
+    end
+    local ok, data = pcall(chunk)
+    if not ok or type(data) ~= "table" then
+        return normalize_state_root(nil)
+    end
+    return normalize_state_root(data)
+end
+
+local function load_persisted_state()
+    local character_id = current_character_id()
+    if type(persisted_state_root) ~= "table" then
+        persisted_state_root = load_state_root()
+    end
+    if type(character_id) ~= "string" or character_id == "" then
+        persisted_state_character_id = nil
+        return default_persisted_state()
+    end
+    if type(persisted_state_root.characters) ~= "table" then
+        persisted_state_root.characters = {}
+    end
+    if type(persisted_state_root.characters[character_id]) ~= "table" then
+        persisted_state_root.characters[character_id] = default_persisted_state()
+    end
+    persisted_state_character_id = character_id
+    return sanitize_persisted_state(persisted_state_root.characters[character_id], character_id)
+end
+
 local function save_persisted_state(data)
+    local character_id = current_character_id()
+    if type(character_id) ~= "string" or character_id == "" then
+        return false, "character persistence id unavailable; treasure state not saved"
+    end
+    if type(persisted_state_root) ~= "table" then
+        persisted_state_root = load_state_root()
+    end
+    if type(persisted_state_root.characters) ~= "table" then
+        persisted_state_root.characters = {}
+    end
+    persisted_state_root.version = CHARACTER_SCOPED_STATE_VERSION
+    persisted_state_root.characters[character_id] = sanitize_persisted_state(data, character_id)
+    persisted_state_character_id = character_id
+
     local file, err = io.open(STATE_FILE_PATH, "w")
     if not file then
         return false, err
     end
     file:write("return ")
-    file:write(serialize_lua(data, 0))
+    file:write(serialize_lua(persisted_state_root, 0))
     file:write("\n")
     file:close()
     return true
@@ -381,13 +454,31 @@ local function ensure_runtime_state(main_state)
             player_level_next_probe_at = 0
         }
     end
-    if type(main_state.treasure_persisted) ~= "table" then
+    local character_id = current_character_id()
+    if type(main_state.treasure_persisted) ~= "table"
+        or main_state.treasure_persisted_character_id ~= character_id
+    then
         main_state.treasure_persisted = load_persisted_state()
+        main_state.treasure_persisted_character_id = character_id
     end
     if type(main_state.treasure_persisted.treasures) ~= "table" then
         main_state.treasure_persisted.treasures = {}
     end
     return main_state.treasure_runtime
+end
+
+local function ensure_persisted_state(main_state)
+    if type(main_state) ~= "table" then
+        return load_persisted_state()
+    end
+    local character_id = current_character_id()
+    if type(main_state.treasure_persisted) ~= "table"
+        or main_state.treasure_persisted_character_id ~= character_id
+    then
+        main_state.treasure_persisted = load_persisted_state()
+        main_state.treasure_persisted_character_id = character_id
+    end
+    return main_state.treasure_persisted
 end
 
 local function clear_round_flags(runtime)
@@ -548,8 +639,7 @@ local function reset_runtime(main_state)
 end
 
 local function ensure_record(main_state, cfg)
-    local persisted = main_state.treasure_persisted or load_persisted_state()
-    main_state.treasure_persisted = persisted
+    local persisted = ensure_persisted_state(main_state)
     persisted.treasures = persisted.treasures or {}
     local key = tostring(cfg.route_store_key or cfg.key or cfg.name or "")
     if type(persisted.treasures[key]) ~= "table" then
@@ -614,8 +704,7 @@ local function build_resume_snapshot(main_state)
 end
 
 local function save_resume_snapshot(ctx, main_state, reason)
-    local persisted = main_state.treasure_persisted or load_persisted_state()
-    main_state.treasure_persisted = persisted
+    local persisted = ensure_persisted_state(main_state)
     local snapshot = build_resume_snapshot(main_state)
     persisted.resume = snapshot
     local ok, err = save_persisted_state(persisted)
@@ -640,8 +729,7 @@ local function save_resume_snapshot(ctx, main_state, reason)
 end
 
 local function restore_resume_snapshot(ctx, main_state, configs, player_x, player_y, player_z)
-    local persisted = main_state.treasure_persisted or load_persisted_state()
-    main_state.treasure_persisted = persisted
+    local persisted = ensure_persisted_state(main_state)
     local snapshot = type(persisted.resume) == "table" and persisted.resume or nil
     if type(snapshot) ~= "table" then
         return false

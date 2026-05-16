@@ -4845,6 +4845,7 @@ local function make_overcast_city_awakened_ryan_task_config()
             kite_arrive_distance = 520,
             kite_move_interval_ms = 180,
             boss_clear_settle_ms = 3500,
+            defer_followup_until_clear = true,
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
@@ -4865,6 +4866,28 @@ local function make_overcast_city_awakened_ryan_task_config()
             constraint_mode = "all"
         }
     )
+end
+
+local function make_overcast_city_ask_liv_key_sequence_task_config()
+    return {
+        entry_action = {
+            key = "overcast_city_ask_liv_press_a_after_task_call",
+            mode = "key_sequence",
+            hotkey = "A",
+            repeat_count = 5,
+            interval_ms = 140,
+            initial_delay_ms = 250,
+            timeout_ms = 5000,
+            label = "阴云压城_询问丽芙情况_A键确认"
+        },
+        task_patterns = {
+            "\u{9634}\u{4E91}\u{538B}\u{57CE}"
+        },
+        task_detail_patterns = {
+            "\u{8BE2}\u{95EE}\u{4E3D}\u{8299}\u{60C5}\u{51B5}"
+        },
+        constraint_mode = "all"
+    }
 end
 
 local function make_journey_begin_awakened_leader_task_config()
@@ -6077,6 +6100,7 @@ M.TASK_NAME_CONFIGS = {
     ),
     ["\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}"] = make_abyss_below_awakened_temple_deep_route_task_config(),
     ["\u{8FDB}\u{5165}\u{89C9}\u{9192}\u{79D8}\u{6BBF}\u{6DF1}\u{5904}"] = make_abyss_below_awakened_temple_deep_route_task_config(),
+    ["\u{8BE2}\u{95EE}\u{4E3D}\u{8299}\u{60C5}\u{51B5}"] = make_overcast_city_ask_liv_key_sequence_task_config(),
     ["\u{9634}\u{4E91}\u{538B}\u{57CE}"] = make_overcast_city_awakened_ryan_task_config(),
     ["\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}"] = make_overcast_city_awakened_ryan_task_config(),
     ["\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{83B1}\u{5B89}"] = make_overcast_city_awakened_ryan_task_config(),

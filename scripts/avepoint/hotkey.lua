@@ -3244,6 +3244,113 @@ local function avepoint_hotkey_probe_main_task_button_by_coordinate()
     return true
 end
 
+local function avepoint_hotkey_dump_visible_text_controls()
+    if type(nav.game_api) ~= "table" then
+        return false, "nav.game_api unavailable"
+    end
+    if type(nav.game_api.EnumCText) ~= "function" then
+        return false, "EnumCText unavailable"
+    end
+
+    local raw_ok, raw_texts, raw_err = pcall(nav.game_api.EnumCText)
+    if not raw_ok or type(raw_texts) ~= "table" then
+        return false, raw_ok and "EnumCText returned non-table" or tostring(raw_texts or raw_err or "")
+    end
+
+    local client_w = nil
+    local client_h = nil
+    local cursor_client_x = nil
+    local cursor_client_y = nil
+    local hwnd = nil
+
+    if type(nav.cursor_client_pos) == "function" then
+        local cursor = select(1, nav.cursor_client_pos({
+            allow_outside = true
+        }))
+        if type(cursor) == "table" then
+            client_w = tonumber(cursor.client_w)
+            client_h = tonumber(cursor.client_h)
+            cursor_client_x = tonumber(cursor.client_x)
+            cursor_client_y = tonumber(cursor.client_y)
+            hwnd = cursor.hwnd
+        end
+    end
+
+    local function format_dump_text(value)
+        local text = tostring(value or "")
+        text = text:gsub("\\", "\\\\")
+        text = text:gsub("\r", "\\r")
+        text = text:gsub("\n", "\\n")
+        text = text:gsub("\t", "\\t")
+        return text
+    end
+
+    local function format_extra_fields(item)
+        if type(item) ~= "table" then
+            return "{}"
+        end
+        local primary = {
+            addr = true,
+            name = true,
+            text = true,
+            fullname = true,
+            Fullname = true,
+            x = true,
+            y = true
+        }
+        local keys = {}
+        for key, value in pairs(item) do
+            if primary[key] ~= true and (type(value) ~= "table" and type(value) ~= "function") then
+                keys[#keys + 1] = key
+            end
+        end
+        table.sort(keys, function(a, b)
+            return tostring(a) < tostring(b)
+        end)
+        local parts = {}
+        for index = 1, math.min(#keys, 16) do
+            local key = keys[index]
+            parts[#parts + 1] = tostring(key) .. "=" .. format_dump_text(item[key])
+        end
+        if #keys > 16 then
+            parts[#parts + 1] = "_keys=" .. tostring(#keys)
+        end
+        if #parts == 0 then
+            return "{}"
+        end
+        return "{" .. table.concat(parts, " ") .. "}"
+    end
+
+    log.info(string.format(
+        "F2 EnumCText dump start | total=%d cursor=(%s,%s) client_size=(%s,%s) hwnd=%s source=nav.game_api.EnumCText",
+        #raw_texts,
+        tostring(cursor_client_x or ""),
+        tostring(cursor_client_y or ""),
+        tostring(client_w or ""),
+        tostring(client_h or ""),
+        avepoint_format_addr_hex(hwnd)
+    ))
+
+    for index, item in ipairs(raw_texts) do
+        log.info(string.format(
+            "F2 EnumCText text[%d/%d] | addr=%s name=%s text=%s fullname=%s x=%s y=%s raw_extra=%s",
+            index,
+            #raw_texts,
+            avepoint_format_addr_hex(type(item) == "table" and item.addr or nil),
+            format_dump_text(type(item) == "table" and item.name or ""),
+            format_dump_text(type(item) == "table" and item.text or ""),
+            format_dump_text(type(item) == "table" and (item.Fullname or item.fullname) or ""),
+            tostring(type(item) == "table" and item.x or ""),
+            tostring(type(item) == "table" and item.y or ""),
+            format_extra_fields(item)
+        ))
+    end
+
+    log.info(string.format("F2 EnumCText dump complete | total=%d", #raw_texts))
+
+    return true
+end
+
 local function avepoint_hotkey_click_skill_add_panel_button()
     local step = {
         label = "技能加点入口按钮",
@@ -4229,7 +4336,7 @@ function main()
         log.info("Press Insert or Ctrl+F9 or [ to start current task mode; hold Delete or Ctrl+F10 or ] to stop")
     end
     log.info("Press F1 to dump all buttons returned by EnumCButton")
-    log.info("Press F2 to direct-call the skill point panel AddPanelBtn")
+    log.info("Press F2 to dump all texts returned by EnumCText")
     log.info("Press F12 to dump raw GetCurrentSelected API output without clicking")
     local f4_preset = HOTKEY_DISTANCE_PREVIEW_PRESETS and HOTKEY_DISTANCE_PREVIEW_PRESETS.current or nil
     log.info(string.format(
@@ -4396,35 +4503,17 @@ function main()
         end
 
         if pressed_once(HOTKEY_F2) then
-            if state.running then
-                log.info("F2 skill panel button call ignored while automation is running")
-            elseif state.f6_loop_active == true then
-                log.info("F2 skill panel button call ignored while F6 3-round loop is active")
-            else
-                if not initialized then
-                    local attach_target = avepoint_hotkey_attach_target_pid()
-                    local init_ok, init_err = avepoint_wait_for_torch_init(3500, attach_target, MODE)
-                    if not init_ok then
-                        log.warn("F2 skill panel button call unavailable: Torch API init failed: " .. tostring(init_err))
-                    end
+            if not initialized then
+                local attach_target = avepoint_hotkey_attach_target_pid()
+                local init_ok, init_err = avepoint_wait_for_torch_init(3500, attach_target, MODE)
+                if not init_ok then
+                    log.warn("F2 EnumCText dump unavailable: Torch API init failed: " .. tostring(init_err))
                 end
-                if initialized then
-                    local ok, result = avepoint_hotkey_click_skill_add_panel_button()
-                    if ok then
-                        log.info(string.format(
-                            "F2 skill panel button called | addr=%s name=%s text=%s fullname=%s x=%s y=%s related_text=%s related_distance=%s",
-                            avepoint_format_addr_hex(result.addr),
-                            tostring(result.name or ""),
-                            tostring(result.text or ""),
-                            tostring(result.fullname or ""),
-                            tostring(result.x or ""),
-                            tostring(result.y or ""),
-                            tostring(result.related_text or ""),
-                            tostring(result.related_text_distance or "")
-                        ))
-                    else
-                        log.error("F2 skill panel button call failed: " .. tostring(result))
-                    end
+            end
+            if initialized then
+                local ok, err = avepoint_hotkey_dump_visible_text_controls()
+                if not ok then
+                    log.error("F2 EnumCText dump failed: " .. tostring(err))
                 end
             end
         end

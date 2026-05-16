@@ -1846,9 +1846,135 @@ function M.click_window_client_point(ctx, current_time, label, ratio_x, ratio_y,
     return false, "window center click API is unavailable."
 end
 
+function M.task_entry_action_hotkey_vk(entry_action)
+    if type(entry_action) ~= "table" then
+        return nil
+    end
+    local vk = tonumber(entry_action.hotkey_vk or entry_action.key_vk or entry_action.vk)
+    if vk ~= nil then
+        return vk
+    end
+    local key_name = string.upper(trim(entry_action.hotkey or entry_action.hotkey_key or entry_action.press_key or ""))
+    if key_name == "A" then
+        return M.VK_A
+    end
+    if key_name == "D" then
+        return VK_D
+    end
+    return nil
+end
+
+function M.maybe_handle_task_entry_key_sequence(ctx, current_time, player_x, player_y, player_z, entry_action, task_name)
+    if type(entry_action) ~= "table" then
+        return false
+    end
+
+    local button_click_at = tonumber(state.task_entry_action_button_click_at) or tonumber(state.last_task_button_click_at) or 0
+    if button_click_at <= 0 then
+        return false
+    end
+
+    local effective_time = tonumber(current_time) or now_ms(ctx)
+    if button_click_at > effective_time then
+        effective_time = button_click_at
+    end
+
+    local timeout_ms = math.max(5000, tonumber(entry_action.timeout_ms) or 5000)
+    local initial_delay_ms = math.max(0, tonumber(entry_action.initial_delay_ms or entry_action.delay_ms) or 250)
+    local action_elapsed_ms = effective_time - button_click_at
+
+    if action_elapsed_ms > timeout_ms then
+        local locked_entry_key = tostring(state.task_entry_action_locked_key or entry_action.key or "")
+        M.clear_task_entry_action_state()
+        log_throttled(ctx, "task_entry_key_sequence_timeout", "warn", LOG_THROTTLE_MS, string.format(
+            "[Leveling] task entry key sequence timeout, fallback to normal path | task=%s key=%s elapsed=%dms",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(locked_entry_key),
+            tonumber(action_elapsed_ms) or 0
+        ))
+        return false
+    end
+
+    state.stage = "task_entry_action"
+    release_async_combat_inputs(ctx, current_time, true)
+    hold_navigation(ctx, current_time, "task_entry_key_sequence")
+    state.task_path_wait_until = math.max(tonumber(state.task_path_wait_until) or 0, effective_time + 800)
+    state.next_task_button_click_at = math.max(tonumber(state.next_task_button_click_at) or 0, effective_time + 800)
+
+    if action_elapsed_ms < initial_delay_ms then
+        log_throttled(ctx, "task_entry_key_sequence_initial_delay", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] task entry key sequence waiting initial delay | task=%s key=%s elapsed=%dms wait=%dms",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(entry_action.key or ""),
+            tonumber(action_elapsed_ms) or 0,
+            tonumber(initial_delay_ms) or 0
+        ))
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    local hotkey_vk = M.task_entry_action_hotkey_vk(entry_action)
+    if hotkey_vk == nil then
+        local locked_entry_key = tostring(state.task_entry_action_locked_key or entry_action.key or "")
+        M.clear_task_entry_action_state()
+        logger(ctx).warn(string.format(
+            "[Leveling] task entry key sequence missing hotkey, cleared lock | task=%s key=%s",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(locked_entry_key)
+        ))
+        return false
+    end
+
+    local repeat_count = math.max(1, math.floor(tonumber(entry_action.repeat_count or entry_action.key_repeat_count or entry_action.count) or 1))
+    local interval_ms = math.max(0, tonumber(entry_action.interval_ms or entry_action.key_interval_ms or entry_action.repeat_interval_ms) or 120)
+    local label = tostring(entry_action.hotkey_label or entry_action.label or entry_action.key or "task entry key sequence")
+    for index = 1, repeat_count do
+        local press_time = now_ms(ctx)
+        local ok, err = press_keyboard_hotkey(ctx, press_time, hotkey_vk, label)
+        if not ok then
+            local locked_entry_key = tostring(state.task_entry_action_locked_key or entry_action.key or "")
+            M.clear_task_entry_action_state()
+            logger(ctx).warn(string.format(
+                "[Leveling] task entry key sequence failed, cleared lock | task=%s key=%s index=%d/%d err=%s",
+                tostring(task_name or state.current_task_name or ""),
+                tostring(locked_entry_key),
+                index,
+                repeat_count,
+                tostring(err or "")
+            ))
+            return false
+        end
+        if index < repeat_count and interval_ms > 0 then
+            sleep_ms(ctx, interval_ms)
+        end
+    end
+
+    local after_key_time = now_ms(ctx)
+    local locked_entry_key = tostring(state.task_entry_action_locked_key or entry_action.key or "")
+    M.clear_task_entry_action_state()
+    state.next_task_refresh_at = math.min(tonumber(state.next_task_refresh_at) or after_key_time, after_key_time)
+    logger(ctx).info(string.format(
+        "[Leveling] task entry key sequence completed, cleared lock | task=%s key=%s vk=0x%02X count=%d",
+        tostring(task_name or state.current_task_name or ""),
+        tostring(locked_entry_key),
+        tonumber(hotkey_vk) or 0,
+        repeat_count
+    ))
+    log_heartbeat(ctx, after_key_time, player_x, player_y, player_z)
+    return true
+end
+
 function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y, player_z)
     local entry_action, task_name = M.current_task_entry_action_config()
-    if type(entry_action) ~= "table" or tostring(entry_action.mode or "") ~= "world_map_send" then
+    if type(entry_action) ~= "table" then
+        return false
+    end
+
+    local mode = tostring(entry_action.mode or "")
+    if mode == "key_sequence" then
+        return M.maybe_handle_task_entry_key_sequence(ctx, current_time, player_x, player_y, player_z, entry_action, task_name)
+    end
+    if mode ~= "world_map_send" then
         return false
     end
 
@@ -11240,9 +11366,11 @@ end
     end
 
     local function arm_pre_click_task_entry_action(after_click_time)
-        if type(pre_click_entry_action) ~= "table"
-            or tostring(pre_click_entry_action.mode or "") ~= "world_map_send"
-        then
+        if type(pre_click_entry_action) ~= "table" then
+            return false
+        end
+        local entry_action_mode = tostring(pre_click_entry_action.mode or "")
+        if entry_action_mode ~= "world_map_send" and entry_action_mode ~= "key_sequence" then
             return false
         end
 
@@ -11269,6 +11397,12 @@ end
         state.task_entry_action_locked_cfg = pre_click_entry_action
         state.task_entry_action_locked_task_name = pre_click_entry_task_name
         state.task_entry_action_locked_key = tostring(pre_click_entry_action.key or "")
+        if entry_action_mode == "key_sequence" then
+            local initial_delay_ms = math.max(0, tonumber(pre_click_entry_action.initial_delay_ms or pre_click_entry_action.delay_ms) or 250)
+            map_open_wait_ms = initial_delay_ms
+            state.task_entry_action_map_open_wait_ms = 0
+            state.task_entry_action_next_center_click_at = 0
+        end
         state.task_path_wait_until = math.max(
             tonumber(state.task_path_wait_until) or 0,
             after_click_time + map_open_wait_ms + 1000
@@ -11287,10 +11421,11 @@ end
         )
 
         logger(ctx).info(string.format(
-            "[Leveling] main task click armed task entry action | task=%s detail=%s entry_task=%s key=%s wait=%dms timeout=%dms",
+            "[Leveling] main task click armed task entry action | task=%s detail=%s entry_task=%s mode=%s key=%s wait=%dms timeout=%dms",
             tostring(pre_click_entry_task_log_name or M.current_task_log_name() or state.current_task_name or ""),
             tostring(pre_click_entry_task_log_detail or M.current_task_log_detail() or state.current_task_detail or ""),
             tostring(pre_click_entry_task_name or ""),
+            tostring(entry_action_mode),
             tostring(pre_click_entry_action.key or ""),
             tonumber(map_open_wait_ms) or 0,
             tonumber(timeout_ms) or 0
