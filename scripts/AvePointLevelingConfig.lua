@@ -741,6 +741,93 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     contract_by_level = {}
 }
 
+M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
+    enabled = true,
+    execute_ui = true,
+    trigger_after_post_combat_loot = true,
+    priority_over_level_up = true,
+    periodic_scan_enabled = false,
+    after_loot_timeout_ms = 12000,
+    scan_interval_ms = 45000,
+    retry_ms = 12000,
+    min_hp_ratio = 0.72,
+    allow_low_hp_maintenance = false,
+    allow_position_available_without_main_interface = true,
+    safe_no_monster_ms = 1800,
+    monster_guard_distance = 1000,
+    monster_hard_block_distance = 300,
+    nearby_monster_soft_observe_ms = 1800,
+    nearby_monster_soft_resource_drop_epsilon = 1,
+    open_bag_key_vk = 0x42,
+    close_bag_key_vk = 0x42,
+    close_bag_after_run = true,
+    bag_open_wait_ms = 650,
+    bag_close_wait_ms = 350,
+    hover_wait_ms = 260,
+    right_click_delay_ms = 50,
+    equip_wait_ms = 650,
+    identify_all_on_bag_open = true,
+    identify_all_before_scan = true,
+    identify_all_wait_ms = 800,
+    identify_all_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.pcuigridlistview.widgettree.uibutton_onekey",
+    scan_max_items = 32,
+    max_equips_per_run = 2,
+    min_survival_gain = 0,
+    min_damage_gain = 0,
+    allow_damage_upgrade_when_survival_equal = true,
+    bag_grid = {
+        center_scan = true,
+        first_center_x = 958,
+        first_center_y = 570,
+        last_center_x = 1392,
+        last_center_y = 755,
+        columns = 8,
+        rows = 4,
+        hover_jitter_px = 2,
+        min_x = 880,
+        max_x = 1395,
+        min_y = 550,
+        max_y = 790
+    }
+}
+
+M.EQUIP_RECYCLE_MAINTENANCE_CONFIG = {
+    enabled = true,
+    execute_ui = true,
+    trigger_after_auto_equip = true,
+    priority_over_level_up = true,
+    after_auto_equip_timeout_ms = 12000,
+    open_bag_key_vk = 0x42,
+    close_bag_key_vk = 0x42,
+    bag_open_wait_ms = 650,
+    bag_close_wait_ms = 350,
+    bag_verify_attempts = 3,
+    step_wait_ms = 350,
+    confirm_wait_ms = 650,
+    button_retry_attempts = 5,
+    button_retry_wait_ms = 300,
+    recycle_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.pcuigridlistview.widgettree.uibutton_recycle",
+    recycle_execute_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.pcuigridlistview.widgettree.uibutton_recycle",
+    rarity_filter_button_pattern = "pcbagfilterrarityitem.widgettree.selectbtn0",
+    confirm_button_pattern = "confirmv2_c.widgettree.combuttonv2.widgettree.btn",
+    random_click_count = 1,
+    random_click_rect = {
+        min_x = 981,
+        max_x = 1274,
+        min_y = 87,
+        max_y = 240
+    }
+}
+
+M.POST_COMBAT_LOOT_CONFIG = {
+    enabled = true,
+    boss_kite_enabled = true,
+    duration_ms = 3000,
+    max_duration_ms = 5500,
+    press_interval_ms = 450,
+    empty_settle_ms = 900
+}
+
 local function clone_plain_table(value)
     if type(value) ~= "table" then
         return value
@@ -922,8 +1009,18 @@ do
     for _, step in ipairs(type(level_13_talent_plan.steps) == "table" and level_13_talent_plan.steps or {}) do
         if tostring(step.key or "") == "select_level_12_talent_node" then
             step.key = "select_level_13_talent_node"
+            step.hint_client_x = 760.776794
+            step.hint_client_y = 480.651550
+            step.hint_ratio_x = 0.528684
+            step.hint_ratio_y = 0.534057
+            step.hint_max_distance = 80
         elseif tostring(step.key or "") == "activate_level_12_talent_node" then
             step.key = "activate_level_13_talent_node"
+            step.hint_client_x = 590.579102
+            step.hint_client_y = 675.801453
+            step.hint_ratio_x = 0.410409
+            step.hint_ratio_y = 0.750891
+            step.hint_max_distance = 80
         end
     end
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[13] = level_13_talent_plan
@@ -2335,6 +2432,163 @@ do
 
     level_6_skill_plan.steps = level_6_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[6] = level_6_skill_plan
+
+    local level_12_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
+    level_12_skill_plan.key = "level_12_skill_add_emergency_sequence"
+    level_12_skill_plan.label = "12级技能：添加应急"
+    level_12_skill_plan.close_with_escape = false
+
+    local level_12_steps = type(level_12_skill_plan.steps) == "table" and level_12_skill_plan.steps or {}
+    if #level_12_steps > 0 and tostring(level_12_steps[#level_12_steps].key or "") == "back_from_skill_panel" then
+        table.remove(level_12_steps, #level_12_steps)
+    end
+    for _, step in ipairs(level_12_steps) do
+        if tostring(step.key or "") == "open_skill_add_panel" then
+            step.key = "level_12_open_skill_add_panel"
+            step.label = "12级技能加点入口按钮"
+            step.missing_target_means_plan_done = true
+        elseif tostring(step.key or "") == "click_skill_upgrade_image" then
+            step.key = "level_12_click_skill_upgrade_image"
+            step.label = "12级技能升级找图按钮"
+            step.missing_image_means_done = false
+            step.missing_image_means_step_done = true
+            step.cleanup_back_before_finish = true
+            step.repeat_image_until_missing = true
+            step.repeat_image_until_missing_max_count = 30
+            step.repeat_image_until_missing_interval_ms = 180
+            if type(step.image_preset) == "table" then
+                step.image_preset.click_repeat_count = 1
+                step.image_preset.repeat_until_missing = true
+                step.image_preset.repeat_until_missing_max_count = 30
+                step.image_preset.repeat_until_missing_interval_ms = 180
+            end
+        end
+    end
+
+    level_12_steps[#level_12_steps + 1] = {
+        key = "level_12_open_fast_entrance_menu_after_skill_image",
+        label = "技能天赋菜单按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+        },
+        hint_client_x = 1383.688110,
+        hint_client_y = 52.706509,
+        hint_ratio_x = 0.961562,
+        hint_ratio_y = 0.058563,
+        hint_max_distance = 100,
+        wait_after_ms = 800
+    }
+    level_12_steps[#level_12_steps + 1] = {
+        key = "level_12_open_skill_panel_after_skill_image",
+        label = "技能按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 1249.024658,
+        hint_client_y = 155.104156,
+        hint_ratio_x = 0.867981,
+        hint_ratio_y = 0.172338,
+        hint_max_distance = 90,
+        wait_after_ms = 1000
+    }
+    level_12_steps[#level_12_steps + 1] = fixed_click_step(
+        "level_12_skill_fixed_click_78_307",
+        "12级技能固定点击1",
+        78.00,
+        307.00,
+        0.054204,
+        0.341111,
+        500
+    )
+    level_12_steps[#level_12_steps + 1] = fixed_click_step(
+        "level_12_skill_fixed_click_722_297",
+        "12级技能固定点击2",
+        722.00,
+        297.00,
+        0.501737,
+        0.330000,
+        500
+    )
+    level_12_steps[#level_12_steps + 1] = fixed_click_step(
+        "level_12_skill_search_focus",
+        "12级技能搜索输入框",
+        385.00,
+        657.00,
+        0.267547,
+        0.730000,
+        250
+    )
+    level_12_steps[#level_12_steps + 1] = {
+        kind = "type_text",
+        key = "level_12_skill_search_emergency_text",
+        label = "输入应急",
+        text = "应急",
+        input_method = "clipboard",
+        clear_before = true,
+        key_delay_ms = 30,
+        wait_after_ms = 500
+    }
+    level_12_steps[#level_12_steps + 1] = fixed_click_step(
+        "level_12_skill_search_confirm",
+        "12级技能搜索确认",
+        593.00,
+        658.00,
+        0.412092,
+        0.731111,
+        700
+    )
+    level_12_steps[#level_12_steps + 1] = fixed_click_step(
+        "level_12_skill_select_emergency_result",
+        "12级技能选择应急结果",
+        351.00,
+        338.00,
+        0.243919,
+        0.375556,
+        700
+    )
+    level_12_steps[#level_12_steps + 1] = fixed_click_step(
+        "level_12_skill_fixed_click_811_337",
+        "12级技能固定点击3",
+        811.00,
+        337.00,
+        0.563586,
+        0.374444,
+        350
+    )
+    level_12_steps[#level_12_steps + 1] = fixed_click_step(
+        "level_12_skill_fixed_click_715_331",
+        "12级技能固定点击4",
+        715.00,
+        331.00,
+        0.496873,
+        0.367778,
+        350
+    )
+    level_12_steps[#level_12_steps + 1] = fixed_click_step(
+        "level_12_skill_fixed_click_547_335",
+        "12级技能固定点击5",
+        547.00,
+        335.00,
+        0.380125,
+        0.372222,
+        700
+    )
+    level_12_steps[#level_12_steps + 1] = {
+        key = "back_from_skill_panel_after_emergency_setup",
+        label = "技能返回按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+        },
+        hint_client_x = 1384.784546,
+        hint_client_y = 52.000000,
+        hint_ratio_x = 0.961656,
+        hint_ratio_y = 0.057778,
+        hint_max_distance = 90,
+        wait_after_ms = 500
+    }
+
+    level_12_skill_plan.steps = level_12_steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[12] = level_12_skill_plan
 
     local level_14_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
     level_14_skill_plan.key = "level_14_skill_upgrade_sequence"
@@ -5637,6 +5891,24 @@ local function make_tianqian_guard_cannon_awakened_task_config()
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
+            revive_reentry = make_revive_reentry_config({
+                key = "tianqian_guard_cannon_awakened_room_reentry_16219_18567",
+                label = "天堑歧路_巨炮守护者_Boss重进房",
+                anchor = {
+                    x = 16219.00,
+                    y = 18567.00,
+                    z = 108.16,
+                    radius = 620,
+                    z_tolerance = 320
+                },
+                interact_distance = 320,
+                portal_scan_distance = 900,
+                retry_ms = 900,
+                settle_ms = 1400,
+                timeout_ms = 24000,
+                post_transition_boss_engage_ms = 16000,
+                fallback_interact = true
+            }),
             kite_points = {
                 { x = -649.51,  y = 2742.25, z = 2446.00 },
                 { x = -1642.57, y = 3729.06, z = 2446.00 },
@@ -5672,6 +5944,7 @@ local function make_dragonbone_griffin_boss_task_config()
             seamless_kite = true,
             kite_arrive_distance = 420,
             kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
             boss_clear_settle_ms = 2500,
             generic_followup_refresh_ms = 3000,
             generic_followup_requires_task_pos_only = true,
@@ -5736,6 +6009,7 @@ local function make_dragonbone_griffin_boss_recovery_task_config()
             seamless_kite = true,
             kite_arrive_distance = 420,
             kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
             boss_clear_settle_ms = 2500,
             generic_followup_refresh_ms = 3000,
             generic_followup_requires_task_pos_only = true,
@@ -12267,6 +12541,111 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
+        key = "sky_rift_giant_cannon_route_loop_2368_-8862",
+        label = "天堑歧路_寻找通往巨炮的道路_固定路线直到任务刷新",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "sky_rift_giant_cannon_route_loop_2368_-8862",
+        task_patterns = {
+            "天堑歧路"
+        },
+        task_detail_patterns = {
+            "寻找通往巨炮的道路"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 2367.70,
+            y = -8862.28,
+            z = 86.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 240000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 1756.83, y = -8787.88, z = 86.00 },
+            { x = 1219.40, y = -8666.88, z = 86.00 },
+            { x = 868.64, y = -8408.96, z = 86.00 },
+            { x = 678.52, y = -8004.62, z = 86.00 },
+            { x = 647.04, y = -7636.01, z = 86.00 },
+            { x = 734.55, y = -7260.59, z = 86.00 },
+            { x = 991.57, y = -6967.92, z = 86.00 },
+            { x = 1344.68, y = -6818.18, z = 86.00 },
+            { x = 1664.28, y = -6828.89, z = 86.00 },
+            { x = 1967.39, y = -7003.92, z = 86.00 },
+            { x = 2095.97, y = -7348.97, z = 86.00 },
+            { x = 2113.45, y = -7716.38, z = 86.00 },
+            { x = 2121.63, y = -8062.55, z = 86.00 },
+            { x = 1991.28, y = -8380.56, z = 86.00 },
+            { x = 1718.94, y = -8614.19, z = 86.00 },
+            { x = 1384.81, y = -8696.11, z = 86.00 },
+            { x = 1071.07, y = -8662.04, z = 86.00 },
+            { x = 845.31, y = -8402.38, z = 86.00 },
+            { x = 711.37, y = -8062.62, z = 86.00 },
+            { x = 700.50, y = -7716.18, z = 86.00 },
+            { x = 786.88, y = -7324.77, z = 86.00 },
+            { x = 958.17, y = -6927.34, z = 86.00 },
+            { x = 1223.29, y = -6734.72, z = 86.00 },
+            { x = 1567.87, y = -6760.54, z = 86.00 },
+            { x = 1766.07, y = -7043.52, z = 86.00 },
+            { x = 1968.30, y = -7388.63, z = 86.00 },
+            { x = 2102.86, y = -7626.49, z = 86.00 },
+            { x = 2160.69, y = -7989.35, z = 86.00 },
+            { x = 2108.72, y = -8346.73, z = 86.00 },
+            { x = 1861.08, y = -8583.51, z = 86.00 },
+            { x = 1584.07, y = -8692.05, z = 86.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "sky_rift_cross_wall_cannon_route_loop_8782_10765",
+        label = "天堑歧路_穿越巨墙到摧毁驻墙炮_跑打路线直到任务完成",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "sky_rift_cross_wall_cannon_route_loop_8782_10765",
+        task_patterns = {
+            "天堑歧路"
+        },
+        task_detail_patterns = {
+            "继续前进，穿越巨墙",
+            "摧毁驻墙炮",
+            "摧毁筑墙炮"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 8782.00,
+            y = 10765.00,
+            z = 86.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 240000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 8641.79, y = 11673.27, z = 86.00 },
+            { x = 9496.08, y = 13424.81, z = 86.00 },
+            { x = 9172.51, y = 13972.56, z = 86.00 },
+            { x = 8606.10, y = 13918.16, z = 86.00 },
+            { x = 7998.49, y = 13594.15, z = 86.00 },
+            { x = 7549.61, y = 13120.57, z = 86.00 },
+            { x = 7384.69, y = 12522.47, z = 86.00 },
+            { x = 7554.50, y = 11975.18, z = 86.00 },
+            { x = 8158.14, y = 11885.33, z = 86.00 },
+            { x = 8721.16, y = 11985.37, z = 86.00 }
+        }
+    }),
+    make_route_point_action({
         key = "wall_of_sighs_manual_route_5104_-1737",
         label = "\u{53F9}\u{606F}\u{4E4B}\u{5899}\u{5F}\u{7A7F}\u{8D8A}\u{610F}\u{5FD7}\u{9AD8}\u{5899}\u{5F}\u{5F55}\u{5236}\u{8DEF}\u{5F84}\u{7EA0}\u{504F}",
         mode = "recorded_route_point",
@@ -12697,6 +13076,7 @@ M.OBJECTIVE_POINT_CONFIGS = {
         kite_switch_ms = 2200,
         kite_arrive_distance = 420,
         kite_move_interval_ms = 120,
+        defer_followup_until_clear = true,
         boss_clear_settle_ms = 2500,
         generic_followup_refresh_ms = 3000,
         generic_followup_requires_task_pos_only = true,

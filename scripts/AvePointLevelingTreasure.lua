@@ -3878,6 +3878,9 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         if maybe_handle_treasure_boss_loot(ctx, main_state, cfg, runtime, hooks, current_time) then
             return true
         end
+        if type(hooks.mark_auto_equip_after_loot) == "function" then
+            hooks.mark_auto_equip_after_loot(ctx, current_time, "treasure:" .. tostring(cfg.key or ""))
+        end
         transition_mode(ctx, hooks, cfg, runtime, "post_boss_portal", "boss_loot_finished")
         runtime.next_retry_at = current_time
         hooks.clear_task_target_state()

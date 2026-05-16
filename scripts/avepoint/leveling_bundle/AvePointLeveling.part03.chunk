@@ -2266,6 +2266,12 @@ function M.build_treasure_hooks(ctx)
         press_loot_key = function(inner_ctx)
             return press_keyboard_hotkey(inner_ctx, now_ms(inner_ctx), M.VK_A, "treasure pickup loot")
         end,
+        mark_auto_equip_after_loot = function(inner_ctx, current_time, source_key)
+            if type(M.mark_auto_equip_after_post_combat_loot) == "function" then
+                return M.mark_auto_equip_after_post_combat_loot(inner_ctx, current_time, source_key)
+            end
+            return false
+        end,
         try_click_main_task_button = function(inner_ctx, current_time)
             return click_main_task_button(inner_ctx, current_time)
         end,
@@ -4701,16 +4707,58 @@ function M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, pla
 end
 
 function M.normalize_post_combat_loot_cfg(objective_cfg)
+    local global_cfg = type(M.POST_COMBAT_LOOT_CONFIG) == "table" and M.POST_COMBAT_LOOT_CONFIG or {}
+    local global_enabled = global_cfg.enabled ~= false
     local raw = type(objective_cfg) == "table" and objective_cfg.post_combat_loot or nil
-    if raw == true then
-        raw = {}
+    if raw == false then
+        return nil
     end
-    if type(raw) ~= "table" or raw.enabled == false then
+    if type(raw) == "table" and raw.enabled == false then
         return nil
     end
 
-    local duration_ms = math.max(800, tonumber(raw.duration_ms or raw.min_duration_ms) or 3000)
-    local max_duration_ms = tonumber(raw.max_duration_ms)
+    local objective_mode = tostring(type(objective_cfg) == "table" and objective_cfg.mode or "")
+    local has_kite_markers = type(objective_cfg) == "table" and (
+        objective_mode == "boss_kite"
+        or objective_cfg.force_kite == true
+        or type(objective_cfg.kite_points) == "table"
+        or tonumber(objective_cfg.kite_point_count) ~= nil
+    )
+    local force_kite_active = type(state) == "table" and state.task_combat_force_kite == true
+    local use_common_default = raw == nil
+        and global_enabled
+        and global_cfg.boss_kite_enabled ~= false
+        and (has_kite_markers or force_kite_active)
+
+    if raw == true then
+        raw = {}
+    end
+    if type(raw) ~= "table" then
+        if not use_common_default then
+            return nil
+        end
+        raw = {}
+    end
+
+    local function pick_cfg_value(name, default_value)
+        local raw_value = raw[name]
+        if raw_value ~= nil then
+            return raw_value
+        end
+        if global_enabled then
+            local global_value = global_cfg[name]
+            if global_value ~= nil then
+                return global_value
+            end
+        end
+        return default_value
+    end
+
+    local duration_ms = math.max(
+        800,
+        tonumber(pick_cfg_value("duration_ms", pick_cfg_value("min_duration_ms", 3000))) or 3000
+    )
+    local max_duration_ms = tonumber(pick_cfg_value("max_duration_ms", nil))
     if max_duration_ms == nil then
         max_duration_ms = duration_ms + 2500
     end
@@ -4719,8 +4767,9 @@ function M.normalize_post_combat_loot_cfg(objective_cfg)
     return {
         duration_ms = duration_ms,
         max_duration_ms = max_duration_ms,
-        press_interval_ms = math.max(200, tonumber(raw.press_interval_ms) or 450),
-        empty_settle_ms = math.max(200, tonumber(raw.empty_settle_ms) or 900)
+        press_interval_ms = math.max(200, tonumber(pick_cfg_value("press_interval_ms", 450)) or 450),
+        empty_settle_ms = math.max(200, tonumber(pick_cfg_value("empty_settle_ms", 900)) or 900),
+        common_default = use_common_default
     }
 end
 
@@ -4774,11 +4823,12 @@ function M.maybe_handle_post_combat_loot(ctx, current_time, player_x, player_y, 
         state.post_combat_loot_press_interval_ms = cfg.press_interval_ms
         state.post_combat_loot_empty_settle_ms = cfg.empty_settle_ms
         logger(ctx).info(string.format(
-            "[Leveling] post-combat loot started | objective=%s duration_ms=%d max_duration_ms=%d press_interval_ms=%d",
+            "[Leveling] post-combat loot started | objective=%s duration_ms=%d max_duration_ms=%d press_interval_ms=%d common_default=%s",
             objective_key,
             tonumber(cfg.duration_ms) or 0,
             tonumber(cfg.max_duration_ms) or 0,
-            tonumber(cfg.press_interval_ms) or 0
+            tonumber(cfg.press_interval_ms) or 0,
+            cfg.common_default and "true" or "false"
         ))
     end
 
@@ -4810,6 +4860,10 @@ function M.maybe_handle_post_combat_loot(ctx, current_time, player_x, player_y, 
         ))
         state.post_combat_loot_completed_key = tostring(state.post_combat_loot_active_key or objective_key)
         state.post_combat_loot_completed_at = current_time
+        if type(M.mark_auto_equip_after_post_combat_loot) == "function" then
+            M.mark_auto_equip_after_post_combat_loot(ctx, current_time, state.post_combat_loot_completed_key)
+        end
+        state.stage = "post_combat_loot_finished"
         M.clear_post_combat_loot_state()
         return false
     end
@@ -5579,6 +5633,401 @@ function M.maybe_handle_no_task_target_immediate_boss_kite(ctx, current_time, pl
     return false
 end
 
+function M.auto_equip_maintenance_config()
+    return type(M.AUTO_EQUIP_MAINTENANCE_CONFIG) == "table"
+        and M.AUTO_EQUIP_MAINTENANCE_CONFIG
+        or {}
+end
+
+function M.recycle_maintenance_config()
+    return type(M.EQUIP_RECYCLE_MAINTENANCE_CONFIG) == "table"
+        and M.EQUIP_RECYCLE_MAINTENANCE_CONFIG
+        or {}
+end
+
+function M.recycle_after_auto_equip_enabled()
+    local cfg = M.recycle_maintenance_config()
+    return cfg.enabled == true
+        and cfg.execute_ui == true
+        and cfg.trigger_after_auto_equip ~= false
+end
+
+function M.mark_recycle_after_auto_equip(ctx, current_time, source_key)
+    if not M.recycle_after_auto_equip_enabled() then
+        return false
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    state.recycle_after_auto_equip_pending = true
+    state.recycle_after_auto_equip_source_key = tostring(source_key or "")
+    state.recycle_after_auto_equip_started_at = current_time
+    logger(ctx).info(string.format(
+        "[Leveling] recycle armed after auto-equip | source=%s",
+        tostring(source_key or "")
+    ))
+    return true
+end
+
+function M.clear_recycle_after_auto_equip_pending(ctx, current_time, reason)
+    if state.recycle_after_auto_equip_pending == true then
+        logger(ctx).info(string.format(
+            "[Leveling] recycle after auto-equip pending cleared | source=%s reason=%s elapsed_ms=%d",
+            tostring(state.recycle_after_auto_equip_source_key or ""),
+            tostring(reason or ""),
+            math.max(0, (tonumber(current_time) or now_ms(ctx)) - (tonumber(state.recycle_after_auto_equip_started_at) or 0))
+        ))
+    end
+    state.recycle_after_auto_equip_pending = false
+    state.recycle_after_auto_equip_source_key = nil
+    state.recycle_after_auto_equip_started_at = 0
+end
+
+function M.auto_equip_after_loot_enabled()
+    local cfg = M.auto_equip_maintenance_config()
+    return cfg.enabled == true
+        and cfg.execute_ui == true
+        and cfg.trigger_after_post_combat_loot ~= false
+end
+
+function M.mark_auto_equip_after_post_combat_loot(ctx, current_time, objective_key)
+    if not M.auto_equip_after_loot_enabled() then
+        return false
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    state.auto_equip_after_loot_pending = true
+    state.auto_equip_after_loot_objective_key = tostring(objective_key or "")
+    state.auto_equip_after_loot_started_at = current_time
+    state.auto_equip_after_loot_last_wait_reason = nil
+    state.auto_equip_next_scan_at = 0
+    state.auto_equip_safe_since = 0
+    logger(ctx).info(string.format(
+        "[Leveling] auto-equip armed after post-combat loot | objective=%s",
+        tostring(objective_key or "")
+    ))
+    return true
+end
+
+function M.clear_auto_equip_after_loot_pending(ctx, current_time, reason)
+    if state.auto_equip_after_loot_pending == true then
+        logger(ctx).info(string.format(
+            "[Leveling] auto-equip after-loot pending cleared | objective=%s reason=%s elapsed_ms=%d",
+            tostring(state.auto_equip_after_loot_objective_key or ""),
+            tostring(reason or ""),
+            math.max(0, (tonumber(current_time) or now_ms(ctx)) - (tonumber(state.auto_equip_after_loot_started_at) or 0))
+        ))
+    end
+    state.auto_equip_after_loot_pending = false
+    state.auto_equip_after_loot_objective_key = nil
+    state.auto_equip_after_loot_started_at = 0
+    state.auto_equip_after_loot_last_wait_reason = nil
+end
+
+function M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface)
+    local cfg = M.auto_equip_maintenance_config()
+    local after_loot_pending = state.auto_equip_after_loot_pending == true
+    local periodic_enabled = cfg.periodic_scan_enabled == true
+    if not after_loot_pending and not periodic_enabled then
+        return false
+    end
+
+    local function hold_after_loot(reason)
+        if not after_loot_pending then
+            return false
+        end
+        if type(release_async_combat_inputs) == "function" then
+            release_async_combat_inputs(ctx, current_time, true)
+        end
+        hold_navigation(ctx, current_time, "auto_equip_after_loot_wait")
+        log_throttled(ctx, "auto_equip_after_loot_wait", "info", 1000, string.format(
+            "[Leveling] auto-equip after-loot waits | objective=%s reason=%s elapsed_ms=%d",
+            tostring(state.auto_equip_after_loot_objective_key or ""),
+            tostring(reason or ""),
+            math.max(0, current_time - (tonumber(state.auto_equip_after_loot_started_at) or current_time))
+        ))
+        return true
+    end
+
+    if type(M._leveling_auto_equip) ~= "table"
+        or type(M._leveling_auto_equip.maybe_handle) ~= "function"
+    then
+        if after_loot_pending then
+            M.clear_auto_equip_after_loot_pending(ctx, current_time, "module_unavailable")
+        end
+        return false
+    end
+
+    if after_loot_pending then
+        local timeout_ms = math.max(1000, tonumber(cfg.after_loot_timeout_ms) or 12000)
+        local started_at = tonumber(state.auto_equip_after_loot_started_at) or current_time
+        if current_time - started_at > timeout_ms then
+            M.clear_auto_equip_after_loot_pending(ctx, current_time, "timeout")
+            return false
+        end
+    end
+
+    local auto_equip_priority_over_level_up = after_loot_pending and cfg.priority_over_level_up ~= false
+    local level_up_pending = type(M.level_up_maintenance_has_pending) == "function"
+        and M.level_up_maintenance_has_pending()
+    if state.level_up_maintenance_executor_active == true or (not auto_equip_priority_over_level_up and level_up_pending) then
+        return hold_after_loot(
+            state.level_up_maintenance_executor_active == true
+                and "level_up_maintenance_executor_active"
+                or "level_up_maintenance_pending"
+        )
+    end
+    if type(state.task_target) ~= "table" then
+        local last_task_click_at = tonumber(state.last_task_button_click_at) or 0
+        if last_task_click_at > 0
+            and current_time < math.max(
+                last_task_click_at + TASK_BUTTON_SETTLE_MS,
+                tonumber(state.task_path_wait_until) or 0
+            )
+        then
+            return hold_after_loot("task_button_settle")
+        end
+    end
+
+    if type(M.refresh_persistence_character_identity) == "function" then
+        M.refresh_persistence_character_identity(ctx, false)
+    end
+
+    local character_id = nil
+    if type(M.current_persistence_character_id) == "function" then
+        character_id = M.current_persistence_character_id()
+    end
+
+    if after_loot_pending then
+        state.auto_equip_next_scan_at = 0
+    end
+
+    local handled = M._leveling_auto_equip.maybe_handle(ctx, {
+        runtime = state,
+        config = cfg,
+        nav = nav_api(ctx),
+        logger = logger,
+        current_time = current_time,
+        player_x = player_x,
+        player_y = player_y,
+        player_z = player_z,
+        hp_ratio = hp_ratio,
+        in_main_interface = in_main_interface,
+        character_id = character_id,
+        force_scan = after_loot_pending,
+        press_key = press_keyboard_hotkey,
+        release_inputs = release_async_combat_inputs,
+        hold_navigation = hold_navigation,
+        is_task_entry_action_active = function(time_ms)
+            return type(M.is_task_entry_action_active) == "function" and M.is_task_entry_action_active(time_ms)
+        end,
+        is_task_combat_or_post_loot_active = function()
+            return type(M.is_task_combat_or_post_loot_active) == "function" and M.is_task_combat_or_post_loot_active()
+        end,
+        dialogue_block_reason = function(context, time_ms)
+            if type(M.level_up_maintenance_dialogue_block_reason) == "function" then
+                return M.level_up_maintenance_dialogue_block_reason(context, time_ms)
+            end
+            return nil
+        end,
+        find_task_monsters = function(context, time_ms, x, y)
+            if type(M.find_task_monsters) == "function" then
+                return M.find_task_monsters(context, time_ms, x, y)
+            end
+            return nil
+        end,
+        player_resource = function(context, time_ms, force_refresh)
+            if type(M.level_up_maintenance_player_resource) == "function" then
+                return M.level_up_maintenance_player_resource(context, time_ms, force_refresh)
+            end
+            return nil
+        end
+    })
+
+    if handled then
+        if after_loot_pending then
+            local source_key = tostring(state.auto_equip_after_loot_objective_key or "")
+            local result = tostring(state.auto_equip_last_result or "")
+            M.clear_auto_equip_after_loot_pending(ctx, current_time, "handled")
+            if result == "success" then
+                M.mark_recycle_after_auto_equip(ctx, now_ms(ctx), source_key)
+            else
+                logger(ctx).warn(string.format(
+                    "[Leveling] recycle not armed because auto-equip did not complete successfully | source=%s result=%s",
+                    tostring(source_key or ""),
+                    tostring(result or "")
+                ))
+            end
+        end
+        return true
+    end
+
+    return hold_after_loot("safe_window")
+end
+
+function M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface)
+    if state.recycle_after_auto_equip_pending ~= true then
+        return false
+    end
+
+    local cfg = M.recycle_maintenance_config()
+    local function hold_recycle(reason)
+        if type(release_async_combat_inputs) == "function" then
+            release_async_combat_inputs(ctx, current_time, true)
+        end
+        hold_navigation(ctx, current_time, "recycle_after_auto_equip_wait")
+        log_throttled(ctx, "recycle_after_auto_equip_wait", "info", 1000, string.format(
+            "[Leveling] recycle after auto-equip waits | source=%s reason=%s elapsed_ms=%d",
+            tostring(state.recycle_after_auto_equip_source_key or ""),
+            tostring(reason or ""),
+            math.max(0, current_time - (tonumber(state.recycle_after_auto_equip_started_at) or current_time))
+        ))
+        return true
+    end
+
+    if cfg.enabled ~= true or cfg.execute_ui ~= true then
+        M.clear_recycle_after_auto_equip_pending(ctx, current_time, "disabled")
+        return false
+    end
+    if type(M._leveling_recycle) ~= "table"
+        or type(M._leveling_recycle.maybe_handle) ~= "function"
+    then
+        M.clear_recycle_after_auto_equip_pending(ctx, current_time, "module_unavailable")
+        return false
+    end
+
+    local timeout_ms = math.max(1000, tonumber(cfg.after_auto_equip_timeout_ms) or 12000)
+    local started_at = tonumber(state.recycle_after_auto_equip_started_at) or current_time
+    if current_time - started_at > timeout_ms then
+        M.clear_recycle_after_auto_equip_pending(ctx, current_time, "timeout")
+        return false
+    end
+
+    local recycle_priority_over_level_up = cfg.priority_over_level_up ~= false
+    local level_up_pending = type(M.level_up_maintenance_has_pending) == "function"
+        and M.level_up_maintenance_has_pending()
+    if state.level_up_maintenance_executor_active == true or (not recycle_priority_over_level_up and level_up_pending) then
+        return hold_recycle(
+            state.level_up_maintenance_executor_active == true
+                and "level_up_maintenance_executor_active"
+                or "level_up_maintenance_pending"
+        )
+    end
+
+    local handled = M._leveling_recycle.maybe_handle(ctx, {
+        runtime = state,
+        config = cfg,
+        nav = nav_api(ctx),
+        logger = logger,
+        current_time = current_time,
+        player_x = player_x,
+        player_y = player_y,
+        player_z = player_z,
+        hp_ratio = hp_ratio,
+        in_main_interface = in_main_interface,
+        press_key = press_keyboard_hotkey,
+        release_inputs = release_async_combat_inputs,
+        hold_navigation = hold_navigation
+    })
+    if handled then
+        M.clear_recycle_after_auto_equip_pending(ctx, current_time, "handled")
+        return true
+    end
+
+    return hold_recycle("not_handled")
+end
+
+function M.after_loot_maintenance_priority_blocks_level_up()
+    if state.level_up_maintenance_executor_active == true then
+        return false
+    end
+
+    local auto_cfg = M.auto_equip_maintenance_config()
+    if state.auto_equip_after_loot_pending == true and auto_cfg.priority_over_level_up ~= false then
+        return true
+    end
+
+    local recycle_cfg = M.recycle_maintenance_config()
+    if state.recycle_after_auto_equip_pending == true and recycle_cfg.priority_over_level_up ~= false then
+        return true
+    end
+
+    return false
+end
+
+function M.snapshot_indicates_bag_open(snapshot)
+    if type(snapshot) ~= "table" or type(snapshot.buttons) ~= "table" then
+        return false
+    end
+
+    for _, button in ipairs(snapshot.buttons) do
+        local x = tonumber(type(button) == "table" and (button.x or button.X))
+        local y = tonumber(type(button) == "table" and (button.y or button.Y))
+        if x ~= nil and y ~= nil and x > 0 and y > 0 then
+            local name = tostring(button.name or button.Fullname or button.fullname or ""):lower()
+            if name:find("pcbag_c.widgettree.pcbagmain", 1, true) ~= nil
+                or name:find("pcuibagequipitem.widgettree.pcbagequipslot", 1, true) ~= nil
+                or name:find("pcuigridlistview.widgettree.uibutton_recycle", 1, true) ~= nil
+                or name:find("pcuigridlistview.widgettree.uibutton_onekey", 1, true) ~= nil
+            then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+function M.ensure_bag_closed_for_flow(ctx, current_time, reason)
+    local nav_mod = nav_api(ctx)
+    if type(nav_mod) ~= "table" or type(nav_mod.enum_ui) ~= "function" then
+        return true
+    end
+
+    local ok, snapshot_or_err = safe_call(nav_mod.enum_ui)
+    if not ok or type(snapshot_or_err) ~= "table" then
+        log_throttled(ctx, "bag_close_guard_enum_failed", "warn", LOG_THROTTLE_MS, string.format(
+            "[Leveling] bag close guard enum failed | reason=%s err=%s",
+            tostring(reason or ""),
+            tostring(snapshot_or_err or "")
+        ))
+        return true
+    end
+    if not M.snapshot_indicates_bag_open(snapshot_or_err) then
+        return true
+    end
+
+    if type(release_async_combat_inputs) == "function" then
+        release_async_combat_inputs(ctx, current_time, true)
+    end
+    hold_navigation(ctx, current_time, "close_bag_before_" .. tostring(reason or "flow"))
+
+    local pressed, press_err = press_keyboard_hotkey(ctx, current_time, 0x42, "close bag before " .. tostring(reason or "flow"))
+    if not pressed then
+        log_throttled(ctx, "bag_close_guard_press_failed", "warn", LOG_THROTTLE_MS, string.format(
+            "[Leveling] bag close guard press failed | reason=%s err=%s",
+            tostring(reason or ""),
+            tostring(press_err or "")
+        ))
+        return false
+    end
+
+    sleep_ms(ctx, 380)
+    ok, snapshot_or_err = safe_call(nav_mod.enum_ui)
+    if ok and type(snapshot_or_err) == "table" and not M.snapshot_indicates_bag_open(snapshot_or_err) then
+        logger(ctx).info(string.format(
+            "[Leveling] bag closed before flow | reason=%s",
+            tostring(reason or "")
+        ))
+        return true
+    end
+
+    log_throttled(ctx, "bag_close_guard_verify_failed", "warn", LOG_THROTTLE_MS, string.format(
+        "[Leveling] bag close guard verification failed | reason=%s",
+        tostring(reason or "")
+    ))
+    return false
+end
+
 function M.update(now, ctx)
     if state.running ~= true then
         return false, "Leveling runner is not started."
@@ -5747,7 +6196,7 @@ function M.update(now, ctx)
     end
 
     if state.level_up_maintenance_executor_active == true
-        or M.level_up_maintenance_has_pending()
+        or (M.level_up_maintenance_has_pending() and not M.after_loot_maintenance_priority_blocks_level_up())
     then
         local allow_treasure_maintenance, treasure_maintenance_reason =
             M.treasure_allows_level_up_maintenance(player_x, player_y, player_z)
@@ -5814,6 +6263,10 @@ function M.update(now, ctx)
                 state.level_up_maintenance_executor_active == true and "true" or "false",
                 M.level_up_maintenance_pending_summary()
             ))
+            if not M.ensure_bag_closed_for_flow(ctx, current_time, "level_up_maintenance") then
+                log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+                return true
+            end
             if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
                 log_heartbeat(ctx, current_time, player_x, player_y, player_z)
                 return true
@@ -5827,6 +6280,26 @@ function M.update(now, ctx)
         state.level_up_maintenance_treasure_start_retry_clear_key = nil
     end
 
+    if M.has_active_treasure_runtime() and M.after_loot_maintenance_priority_blocks_level_up() then
+        if M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
+        end
+        if M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
+        end
+    end
+
+    if M.has_active_treasure_runtime()
+        and not M.after_loot_maintenance_priority_blocks_level_up()
+        and in_main_interface == false
+        and not M.ensure_bag_closed_for_flow(ctx, current_time, "treasure_flow")
+    then
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
     if M.maybe_handle_treasure_dungeon(ctx, current_time, player_x, player_y, player_z) then
         M.log_execution_trace(ctx, current_time, "treasure_dungeon", state.task_target, nil, nil, nil, player_x, player_y, player_z)
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
@@ -5835,6 +6308,14 @@ function M.update(now, ctx)
 
     if state.revive_reentry_pending == true
         and maybe_handle_map_specific_transition(ctx, current_time, player_x, player_y)
+    then
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    if in_main_interface == false
+        and not M.after_loot_maintenance_priority_blocks_level_up()
+        and not M.ensure_bag_closed_for_flow(ctx, current_time, "pre_main_flow")
     then
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
@@ -5874,10 +6355,6 @@ function M.update(now, ctx)
         return true
     end
 
-    if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
-        return true
-    end
-
     if state.require_task_button_refresh == true then
         state.stage = "refresh_task_button_after_dialogue"
         M.log_execution_trace(ctx, current_time, "require_task_button_refresh", nil, nil, nil, nil, player_x, player_y, player_z)
@@ -5902,6 +6379,32 @@ function M.update(now, ctx)
                 in_main_interface = in_main_interface
             })
         end
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    if M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    if M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    if state.level_up_maintenance_executor_active == true or M.level_up_maintenance_has_pending() then
+        if not M.ensure_bag_closed_for_flow(ctx, current_time, "level_up_maintenance") then
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
+        end
+    end
+
+    if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+        return true
+    end
+
+    if in_main_interface == false and not M.ensure_bag_closed_for_flow(ctx, current_time, "main_flow") then
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end

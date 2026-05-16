@@ -75,6 +75,20 @@ M._leveling_treasure = M.load_leveling_support_module(
     "AvePointLevelingTreasure"
 )
 
+M._leveling_auto_equip = M.load_leveling_support_module(
+    "AvePointLevelingAutoEquip",
+    "scripts.AvePointLevelingAutoEquip",
+    "scripts/AvePointLevelingAutoEquip.lua",
+    "AvePointLevelingAutoEquip"
+)
+
+M._leveling_recycle = M.load_leveling_support_module(
+    "AvePointLevelingRecycle",
+    "scripts.AvePointLevelingRecycle",
+    "scripts/AvePointLevelingRecycle.lua",
+    "AvePointLevelingRecycle"
+)
+
 M.BUTTON_SESSION_STATE_FILE_PATH = "scripts/avepoint_leveling_button_session.lua"
 M.RECIPE_PROGRESS_STATE_FILE_PATH = "scripts/avepoint_leveling_recipe_state.lua"
 M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH = "scripts/avepoint_leveling_maintenance_state.lua"
@@ -195,6 +209,18 @@ M.INTERACTION_COMBAT_GUARD_DISTANCE = 520
 M.LEVEL_UP_MAINTENANCE_CONFIG = type(M._leveling_config) == "table"
     and type(M._leveling_config.LEVEL_UP_MAINTENANCE_CONFIG) == "table"
     and M._leveling_config.LEVEL_UP_MAINTENANCE_CONFIG
+    or {}
+M.AUTO_EQUIP_MAINTENANCE_CONFIG = type(M._leveling_config) == "table"
+    and type(M._leveling_config.AUTO_EQUIP_MAINTENANCE_CONFIG) == "table"
+    and M._leveling_config.AUTO_EQUIP_MAINTENANCE_CONFIG
+    or {}
+M.POST_COMBAT_LOOT_CONFIG = type(M._leveling_config) == "table"
+    and type(M._leveling_config.POST_COMBAT_LOOT_CONFIG) == "table"
+    and M._leveling_config.POST_COMBAT_LOOT_CONFIG
+    or {}
+M.EQUIP_RECYCLE_MAINTENANCE_CONFIG = type(M._leveling_config) == "table"
+    and type(M._leveling_config.EQUIP_RECYCLE_MAINTENANCE_CONFIG) == "table"
+    and M._leveling_config.EQUIP_RECYCLE_MAINTENANCE_CONFIG
     or {}
 local POTION_THRESHOLD_RATIO = 0.60
 local POTION_COOLDOWN_MS = 2500
@@ -1184,7 +1210,7 @@ function M.is_task_combat_or_post_loot_active()
         or stage_name == "task_combat_kite"
         or stage_name == "task_combat_settle"
         or stage_name == "task_combat_complete_settle"
-        or stage_name == "post_combat_loot"
+        or (stage_name == "post_combat_loot" and state.post_combat_loot_active_key ~= nil)
 end
 
 local function clear_task_target_state()
@@ -1817,6 +1843,24 @@ local function reset_state()
     state.level_up_maintenance_executor_close_pending = nil
     state.level_up_maintenance_executor_close_attempts = nil
     state.level_up_maintenance_executor_point_check_miss_count = nil
+    state.auto_equip_next_scan_at = 0
+    state.auto_equip_safe_since = 0
+    state.auto_equip_last_block_reason = nil
+    state.auto_equip_active = false
+    state.auto_equip_bag_opened_by_module = false
+    state.auto_equip_soft_monster_since = 0
+    state.auto_equip_soft_monster_resource = nil
+    state.auto_equip_soft_monster_distance = nil
+    state.auto_equip_last_result = nil
+    state.auto_equip_last_summary = nil
+    state.auto_equip_after_loot_pending = false
+    state.auto_equip_after_loot_objective_key = nil
+    state.auto_equip_after_loot_started_at = 0
+    state.auto_equip_after_loot_last_wait_reason = nil
+    state.recycle_after_auto_equip_pending = false
+    state.recycle_after_auto_equip_source_key = nil
+    state.recycle_after_auto_equip_started_at = 0
+    state.recycle_active = false
     state.next_route_point_action_map_probe_at = 0
     state.cached_route_point_action_map_name = nil
     state.cached_route_point_action_map_error = nil
