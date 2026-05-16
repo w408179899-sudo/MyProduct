@@ -2175,6 +2175,167 @@ do
     level_5_skill_plan.steps = steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[5] = level_5_skill_plan
 
+    local level_6_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
+    level_6_skill_plan.key = "level_6_skill_add_revival_warcry_sequence"
+    level_6_skill_plan.label = "6级技能：添加复苏战吼"
+    level_6_skill_plan.close_with_escape = false
+
+    local level_6_steps = type(level_6_skill_plan.steps) == "table" and level_6_skill_plan.steps or {}
+    if #level_6_steps > 0 and tostring(level_6_steps[#level_6_steps].key or "") == "back_from_skill_panel" then
+        table.remove(level_6_steps, #level_6_steps)
+    end
+    for _, step in ipairs(level_6_steps) do
+        if tostring(step.key or "") == "open_skill_add_panel" then
+            step.key = "level_6_open_skill_add_panel"
+            step.label = "6级技能加点入口按钮"
+            step.missing_target_means_plan_done = true
+        elseif tostring(step.key or "") == "click_skill_upgrade_image" then
+            step.key = "level_6_click_skill_upgrade_image"
+            step.label = "6级技能升级找图按钮"
+            step.missing_image_means_done = false
+            step.missing_image_means_step_done = true
+            step.cleanup_back_before_finish = true
+            step.repeat_image_until_missing = true
+            step.repeat_image_until_missing_max_count = 30
+            step.repeat_image_until_missing_interval_ms = 180
+            if type(step.image_preset) == "table" then
+                step.image_preset.click_repeat_count = 1
+                step.image_preset.repeat_until_missing = true
+                step.image_preset.repeat_until_missing_max_count = 30
+                step.image_preset.repeat_until_missing_interval_ms = 180
+            end
+        end
+    end
+
+    level_6_steps[#level_6_steps + 1] = {
+        key = "level_6_open_fast_entrance_menu_after_skill_image",
+        label = "技能天赋菜单按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+        },
+        hint_client_x = 1383.688110,
+        hint_client_y = 52.706509,
+        hint_ratio_x = 0.961562,
+        hint_ratio_y = 0.058563,
+        hint_max_distance = 100,
+        wait_after_ms = 800
+    }
+    level_6_steps[#level_6_steps + 1] = {
+        key = "level_6_open_skill_panel_after_skill_image",
+        label = "技能按钮",
+        distance_anchor_exact_text = "技能",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
+        distance_min = 49.048348,
+        distance_max = 52.082267,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 1249.024658,
+        hint_client_y = 155.104156,
+        hint_ratio_x = 0.867981,
+        hint_ratio_y = 0.172338,
+        hint_max_distance = 90,
+        wait_after_ms = 1000
+    }
+    level_6_steps[#level_6_steps + 1] = fixed_click_step(
+        "level_6_skill_fixed_click_80_412",
+        "6级技能固定点击1",
+        80.00,
+        412.00,
+        0.055594,
+        0.457778,
+        500
+    )
+    level_6_steps[#level_6_steps + 1] = fixed_click_step(
+        "level_6_skill_fixed_click_725_456",
+        "6级技能固定点击2",
+        725.00,
+        456.00,
+        0.503822,
+        0.506667,
+        500
+    )
+    level_6_steps[#level_6_steps + 1] = fixed_click_step(
+        "level_6_skill_search_focus",
+        "6级技能搜索输入框",
+        381.00,
+        654.00,
+        0.264767,
+        0.726667,
+        250
+    )
+    level_6_steps[#level_6_steps + 1] = {
+        kind = "type_text",
+        key = "level_6_skill_search_revival_warcry_text",
+        label = "输入复苏战吼",
+        text = "复苏战吼",
+        input_method = "clipboard",
+        clear_before = true,
+        key_delay_ms = 30,
+        wait_after_ms = 500
+    }
+    level_6_steps[#level_6_steps + 1] = fixed_click_step(
+        "level_6_skill_search_confirm",
+        "6级技能搜索确认",
+        594.00,
+        657.00,
+        0.412787,
+        0.730000,
+        700
+    )
+    level_6_steps[#level_6_steps + 1] = fixed_click_step(
+        "level_6_skill_select_revival_warcry_result",
+        "6级技能选择复苏战吼结果",
+        354.00,
+        330.00,
+        0.246004,
+        0.366667,
+        700
+    )
+    level_6_steps[#level_6_steps + 1] = fixed_click_step(
+        "level_6_skill_fixed_click_816_398",
+        "6级技能固定点击3",
+        816.00,
+        398.00,
+        0.567060,
+        0.442222,
+        350
+    )
+    level_6_steps[#level_6_steps + 1] = fixed_click_step(
+        "level_6_skill_fixed_click_799_331",
+        "6级技能固定点击4",
+        799.00,
+        331.00,
+        0.555247,
+        0.367778,
+        350
+    )
+    level_6_steps[#level_6_steps + 1] = fixed_click_step(
+        "level_6_skill_fixed_click_536_401",
+        "6级技能固定点击5",
+        536.00,
+        401.00,
+        0.372481,
+        0.445556,
+        700
+    )
+    level_6_steps[#level_6_steps + 1] = {
+        key = "back_from_skill_panel_after_revival_warcry_setup",
+        label = "技能返回按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+        },
+        hint_client_x = 1384.784546,
+        hint_client_y = 52.000000,
+        hint_ratio_x = 0.961656,
+        hint_ratio_y = 0.057778,
+        hint_max_distance = 90,
+        wait_after_ms = 500
+    }
+
+    level_6_skill_plan.steps = level_6_steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[6] = level_6_skill_plan
+
     local level_14_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
     level_14_skill_plan.key = "level_14_skill_upgrade_sequence"
     level_14_skill_plan.label = "14级技能：找图升级并配置范围"
@@ -8109,6 +8270,46 @@ M.GLOBAL_TASK_PORTAL_STEP = {
 }
 
 M.ROUTE_POINT_ACTIONS = {
+    make_route_point_action({
+        key = "ancient_battlefield_rescue_barrel_dwarf_action_5138_2465",
+        label = "上古战场_帮被卡在木桶中的矮人出来_无坐标固定点交互",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "上古战场"
+        },
+        task_detail_patterns = {
+            "帮被卡在木桶中的矮人出来"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 5138.30,
+            y = 2464.59,
+            z = 566.00,
+            radius = 1800,
+            z_tolerance = 260
+        },
+        objective_point = {
+            x = 5138.30,
+            y = 2464.59,
+            z = 566.00,
+            radius = 160,
+            z_tolerance = 260
+        },
+        interact_radius = 160,
+        probe_retry_ms = 700,
+        retry_ms = 600000,
+        settle_ms = 2400,
+        timeout_ms = 18000,
+        hotkey = "D",
+        hotkey_label = "上古战场木桶矮人交互",
+        hotkey_repeat_count = 1,
+        force_task_call_after_transition = false
+    }),
     make_sun_faction_choice_action(),
     make_sun_faction_after_join_route_action(),
     make_daylight_rivalry_arena_hero_route_action(),
@@ -9064,32 +9265,40 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_npc_dialogue_route_action({
-        key = "keli_dialogue_11802_-7232",
-        label = "keli_dialogue_11802_-7232_npc",
+        key = "ancient_battlefield_keli_dialogue_12169_-7323",
+        label = "上古战场_和科里交谈_无坐标NPC对话",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        retry_ms = 600000,
         task_patterns = {
-            "\u{548C}\u{79D1}\u{91CC}\u{4EA4}\u{8C08}"
+            "\u{4E0A}\u{53E4}\u{6218}\u{573A}"
         },
         task_detail_patterns = {
             "\u{548C}\u{79D1}\u{91CC}\u{4EA4}\u{8C08}"
         },
+        constraint_mode = "all",
         trigger = {
-            x = 12351.00,
-            y = -7100.00,
-            radius = 180
+            x = 12169.00,
+            y = -7323.00,
+            z = 568.00,
+            radius = 1800,
+            z_tolerance = 320
         },
-        retry_ms = 6000,
         dialogue = {
-            x = 11802.00,
-            y = -7232.00,
-            z = 566.00,
-            radius = 260,
+            x = 12169.00,
+            y = -7323.00,
+            z = 568.00,
+            radius = 320,
             interact_radius = 160,
-            move_interval_ms = 180,
-            z_tolerance = 220,
+            move_interval_ms = 220,
+            z_tolerance = 320,
             center_settle_ms = 700,
             interact_retry_ms = 1800,
             timeout_ms = 22000,
-            npc_search_radius = 560,
+            npc_search_radius = 700,
             fallback_interact = true
         }
     }),
