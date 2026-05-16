@@ -764,6 +764,8 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
     bag_open_wait_ms = 650,
     bag_close_wait_ms = 350,
     hover_wait_ms = 260,
+    right_click_mouse_mode = "driver",
+    right_click_foreground_wait_ms = 40,
     right_click_delay_ms = 50,
     equip_wait_ms = 650,
     identify_all_on_bag_open = true,
@@ -2725,12 +2727,12 @@ do
         350
     )
     level_14_steps[#level_14_steps + 1] = fixed_click_step(
-        "level_14_skill_fixed_click_796_330",
+        "level_14_skill_fixed_click_710_329",
         "14级技能固定点击4",
-        796.00,
-        330.00,
-        0.553162,
-        0.366667,
+        710.00,
+        329.00,
+        0.493398,
+        0.365556,
         350
     )
     level_14_steps[#level_14_steps + 1] = fixed_click_step(

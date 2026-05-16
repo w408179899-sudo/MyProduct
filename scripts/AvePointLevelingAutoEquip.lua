@@ -26,6 +26,8 @@ M.DEFAULT_CONFIG = {
     hover_wait_ms = 260,
     move_min_duration_ms = 80,
     move_max_duration_ms = 180,
+    right_click_mouse_mode = "driver",
+    right_click_foreground_wait_ms = 40,
     right_click_delay_ms = 50,
     equip_wait_ms = 650,
     identify_all_on_bag_open = true,
@@ -625,6 +627,95 @@ local function move_to_candidate(ctx, nav_mod, hwnd, candidate, cfg)
     })
 end
 
+local function right_click_current_position(ctx, deps, hwnd, candidate, cfg)
+    if type(human_mouse) == "table" and type(human_mouse.cancel_async_move) == "function" then
+        human_mouse.cancel_async_move()
+    end
+
+    if type(mouse) ~= "table" then
+        return false, "mouse api unavailable"
+    end
+
+    if type(wnd) == "table" and type(wnd.set_foreground) == "function" and hwnd ~= nil then
+        pcall(wnd.set_foreground, hwnd)
+        sleep_ms(ctx, tonumber(cfg.right_click_foreground_wait_ms) or 40)
+    end
+
+    if type(mouse.set_window) == "function" and hwnd ~= nil then
+        pcall(mouse.set_window, hwnd)
+    end
+
+    local previous_mode = nil
+    if type(mouse.get_mode) == "function" then
+        local ok, mode = pcall(mouse.get_mode)
+        if ok then
+            previous_mode = mode
+        end
+    end
+
+    local click_mode = tostring(cfg.right_click_mouse_mode or "driver")
+    if click_mode ~= "" and type(mouse.set_mode) == "function" then
+        local ok = mouse.set_mode(click_mode)
+        if ok == false then
+            return false, "mouse.set_mode(" .. click_mode .. ") failed"
+        end
+    end
+
+    local click_delay_ms = math.max(1, tonumber(cfg.right_click_delay_ms) or 50)
+    local clicked = false
+    local click_err = nil
+    local ok, err = pcall(function()
+        if type(mouse.click) == "function" then
+            local click_ok = mouse.click("right", click_delay_ms)
+            if click_ok == false then
+                error("mouse.click(right) failed")
+            end
+            return true
+        end
+
+        if type(mouse.down) == "function" and type(mouse.up) == "function" then
+            local down_ok = mouse.down("right")
+            if down_ok == false then
+                error("mouse.down(right) failed")
+            end
+            sleep_ms(ctx, click_delay_ms)
+            local up_ok = mouse.up("right")
+            if up_ok == false then
+                error("mouse.up(right) failed")
+            end
+            return true
+        end
+
+        error("mouse.click API is not available")
+    end)
+
+    if ok then
+        clicked = err == true
+    else
+        click_err = err
+    end
+
+    if type(mouse.set_mode) == "function"
+        and type(previous_mode) == "string"
+        and previous_mode ~= ""
+        and previous_mode ~= click_mode
+    then
+        pcall(mouse.set_mode, previous_mode)
+    end
+
+    if not clicked then
+        return false, tostring(click_err or "mouse right click failed")
+    end
+
+    log_line(ctx, deps, "info", string.format(
+        "[Leveling] auto-equip driver right click | cell=(%.1f, %.1f) mode=%s",
+        tonumber(type(candidate) == "table" and candidate.x) or 0,
+        tonumber(type(candidate) == "table" and candidate.y) or 0,
+        click_mode
+    ))
+    return true
+end
+
 local function press_bag_key(ctx, deps, current_time, vk, label)
     if type(deps) ~= "table" or type(deps.press_key) ~= "function" then
         return false, "press_key hook unavailable"
@@ -831,27 +922,34 @@ function M.perform_scan(ctx, deps, runtime, cfg, current_time, character_id)
                         has_unidentified_text(hover_snapshot) and "true" or "false"
                     ))
                     if equip then
-                        move_to_candidate(ctx, nav_mod, hwnd, candidate, cfg)
-                        local clicked, click_err = nav_mod.click_window_to_move(hwnd, candidate.x, candidate.y, {
-                            button = "right",
-                            delay = tonumber(cfg.right_click_delay_ms) or 50,
-                            wait = false
-                        })
-                        if clicked then
-                            equipped = equipped + 1
-                            sleep_ms(ctx, cfg.equip_wait_ms)
-                            if equipped >= max_equips then
-                                break
-                            end
-                        else
+                        local ready, ready_err = move_to_candidate(ctx, nav_mod, hwnd, candidate, cfg)
+                        if not ready then
                             skipped = skipped + 1
                             log_line(ctx, deps, "warn", string.format(
-                                "[Leveling] auto-equip right click failed | id=%s cell=(%.1f, %.1f) err=%s",
+                                "[Leveling] auto-equip right click move failed | id=%s cell=(%.1f, %.1f) err=%s",
                                 tostring(character_id or ""),
                                 tonumber(candidate.x) or 0,
                                 tonumber(candidate.y) or 0,
-                                tostring(click_err or "")
+                                tostring(ready_err or "")
                             ))
+                        else
+                            local clicked, click_err = right_click_current_position(ctx, deps, hwnd, candidate, cfg)
+                            if clicked then
+                                equipped = equipped + 1
+                                sleep_ms(ctx, cfg.equip_wait_ms)
+                                if equipped >= max_equips then
+                                    break
+                                end
+                            else
+                                skipped = skipped + 1
+                                log_line(ctx, deps, "warn", string.format(
+                                    "[Leveling] auto-equip right click failed | id=%s cell=(%.1f, %.1f) err=%s",
+                                    tostring(character_id or ""),
+                                    tonumber(candidate.x) or 0,
+                                    tonumber(candidate.y) or 0,
+                                    tostring(click_err or "")
+                                ))
+                            end
                         end
                     else
                         skipped = skipped + 1
