@@ -97,6 +97,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     nearby_monster_hold_timeout_ms = 7000,
     nearby_monster_defer_retry_ms = 8000,
     min_hp_ratio = 0.72,
+    allow_low_hp_maintenance = true,
     allow_position_available_without_main_interface = true,
     step_wait_ms = 650,
     retry_ms = 5000,
@@ -1725,17 +1726,285 @@ do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = plan
     end
 
-    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[60] = make_level_22_plus_talent_plan(
-        60,
-        445.916748,
-        407.208282,
-        0.309880,
-        0.452454,
-        656.368225,
-        671.801453,
-        0.456128,
-        0.746446
+    local original_talent_by_level = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level)
+
+    local function safe_step_key(value)
+        local text = tostring(value or "step")
+        text = text:gsub("[^%w_]", "_")
+        if text == "" then
+            text = "step"
+        end
+        return text
+    end
+
+    local function clone_shifted_step(step, level, index, suffix)
+        local cloned = clone_plain_table(step)
+        if type(cloned) ~= "table" then
+            cloned = {}
+        end
+        cloned.key = string.format(
+            "level_%d_shift_%02d_%s",
+            tonumber(level) or 0,
+            tonumber(index) or 0,
+            safe_step_key(suffix or cloned.key or "step")
+        )
+        return cloned
+    end
+
+    local function retarget_shifted_talent_plan(source_plan, level, source_level)
+        local plan = clone_plain_table(source_plan)
+        if type(plan) ~= "table" then
+            return nil
+        end
+        plan.key = string.format("level_%d_talent_shift_from_level_%d", tonumber(level) or 0, tonumber(source_level) or 0)
+        plan.label = string.format("%d级天赋：执行原%d级补位配置", tonumber(level) or 0, tonumber(source_level) or 0)
+        local retargeted_steps = {}
+        for index, step in ipairs(type(plan.steps) == "table" and plan.steps or {}) do
+            retargeted_steps[#retargeted_steps + 1] = clone_shifted_step(step, level, index, step.key)
+        end
+        plan.steps = retargeted_steps
+        return plan
+    end
+
+    local function find_step_by_key_contains(plan, needle)
+        local steps = type(plan) == "table" and type(plan.steps) == "table" and plan.steps or {}
+        for _, step in ipairs(steps) do
+            if tostring(step.key or ""):find(tostring(needle or ""), 1, true) ~= nil then
+                return step
+            end
+        end
+        return nil
+    end
+
+    local function append_shifted_step(steps, level, source_step, suffix)
+        if type(source_step) ~= "table" then
+            return
+        end
+        steps[#steps + 1] = clone_shifted_step(source_step, level, #steps + 1, suffix or source_step.key)
+    end
+
+    local function append_shifted_setup(steps, level, base_plan)
+        append_shifted_step(steps, level, find_step_by_key_contains(base_plan, "open_fast_entrance_menu"), "open_fast_entrance_menu")
+        append_shifted_step(steps, level, find_step_by_key_contains(base_plan, "open_talent_panel"), "open_talent_panel")
+        append_shifted_step(steps, level, find_step_by_key_contains(base_plan, "check_talent_points"), "check_talent_points")
+    end
+
+    local function append_shifted_back(steps, level, base_plan)
+        append_shifted_step(steps, level, find_step_by_key_contains(base_plan, "back_from_talent"), "back_from_talent")
+    end
+
+    local function clone_activation_step_for_repeat(step, repeat_count)
+        local cloned = clone_plain_table(step)
+        if type(cloned) ~= "table" then
+            cloned = {}
+        end
+        repeat_count = tonumber(repeat_count) or 1
+        if repeat_count > 1 then
+            cloned.click_repeat_count = repeat_count
+            cloned.click_repeat_interval_ms = tonumber(cloned.click_repeat_interval_ms) or 180
+        else
+            cloned.click_repeat_count = nil
+            cloned.click_repeat_interval_ms = nil
+        end
+        return cloned
+    end
+
+    local function make_composite_talent_plan(level, label, base_plan, build_steps)
+        local plan = {
+            key = string.format("level_%d_talent_shift_composite", tonumber(level) or 0),
+            label = label,
+            require_available_points = "defer",
+            close_with_escape = false,
+            steps = {}
+        }
+        append_shifted_setup(plan.steps, level, base_plan)
+        if type(build_steps) == "function" then
+            build_steps(plan.steps, level)
+        end
+        append_shifted_back(plan.steps, level, base_plan)
+        return plan
+    end
+
+    local function make_manual_talent_plan(level, label, build_steps)
+        local plan = {
+            key = string.format("level_%d_talent_shift_manual", tonumber(level) or 0),
+            label = label,
+            require_available_points = "defer",
+            close_with_escape = false,
+            steps = {}
+        }
+        if type(build_steps) == "function" then
+            build_steps(plan.steps, level)
+        end
+        return plan
+    end
+
+    local function append_shifted_plan_steps(steps, level, source_plan)
+        for _, step in ipairs(type(source_plan) == "table" and type(source_plan.steps) == "table" and source_plan.steps or {}) do
+            append_shifted_step(steps, level, step, step.key)
+        end
+    end
+
+    local function append_shifted_exact_steps(steps, level, source_plan, keys)
+        local source_steps = type(source_plan) == "table" and type(source_plan.steps) == "table" and source_plan.steps or {}
+        for _, key in ipairs(type(keys) == "table" and keys or {}) do
+            append_shifted_step(steps, level, find_plan_step(source_steps, key), key)
+        end
+    end
+
+    -- Talent point order correction:
+    -- level 4 must repeat the same first node as level 3. Later levels consume
+    -- the previous point in the original sequence; multi-point levels are split
+    -- across the following level when the shifted sequence crosses a boundary.
+    -- Level 60 has no talent plan after this correction.
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[4] =
+        retarget_shifted_talent_plan(original_talent_by_level[3], 4, 3)
+    for level = 5, 31 do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] =
+            retarget_shifted_talent_plan(original_talent_by_level[level - 1], level, level - 1)
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[20] = make_manual_talent_plan(
+        20,
+        "20级天赋：补位激活19级节点并执行20级前两段",
+        function(steps, level)
+            append_shifted_plan_steps(steps, level, original_talent_by_level[19])
+            append_shifted_exact_steps(steps, level, original_talent_by_level[20], {
+                "level_20_extra_open_fast_entrance_menu",
+                "level_20_extra_open_talent_panel",
+                "level_20_extra_check_talent_points",
+                "level_20_extra_talent_tab_click",
+                "level_20_extra_talent_node_click",
+                "level_20_extra_talent_confirm_click",
+                "level_20_extra_back_from_talent_panel",
+                "level_20_main_open_fast_entrance_menu",
+                "level_20_main_open_talent_panel",
+                "level_20_main_check_talent_points",
+                "select_level_20_talent_node",
+                "activate_level_20_talent_node",
+                "back_from_talent_detail"
+            })
+        end
     )
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[21] = make_manual_talent_plan(
+        21,
+        "21级天赋：补位激活20级剩余第二节点",
+        function(steps, level)
+            append_shifted_exact_steps(steps, level, original_talent_by_level[20], {
+                "level_20_main_open_fast_entrance_menu",
+                "level_20_main_open_talent_panel",
+                "level_20_main_check_talent_points",
+                "select_level_20_second_talent_node",
+                "activate_level_20_second_talent_node",
+                "back_from_talent_detail"
+            })
+        end
+    )
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[32] = make_composite_talent_plan(
+        32,
+        "32级天赋：补位激活31级节点并激活32级节点两次",
+        original_talent_by_level[32],
+        function(steps, level)
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[31], "select_level_31_talent_node"), "select_level_31_talent_node")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[31], "activate_level_31_talent_node"), "activate_level_31_talent_node")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[32], "select_level_32_talent_node"), "select_level_32_talent_node")
+            append_shifted_step(steps, level, clone_activation_step_for_repeat(
+                find_step_by_key_contains(original_talent_by_level[32], "activate_level_32_talent_node"),
+                2
+            ), "activate_level_32_talent_node_twice")
+        end
+    )
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[33] = make_composite_talent_plan(
+        33,
+        "33级天赋：补位激活32级节点第三次",
+        original_talent_by_level[32],
+        function(steps, level)
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[32], "select_level_32_talent_node"), "select_level_32_talent_node")
+            append_shifted_step(steps, level, clone_activation_step_for_repeat(
+                find_step_by_key_contains(original_talent_by_level[32], "activate_level_32_talent_node"),
+                1
+            ), "activate_level_32_talent_node_once")
+        end
+    )
+    for level = 34, 40 do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] =
+            retarget_shifted_talent_plan(original_talent_by_level[level - 1], level, level - 1)
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[41] = make_composite_talent_plan(
+        41,
+        "41级天赋：补位激活40级节点并激活41级节点两次",
+        original_talent_by_level[41],
+        function(steps, level)
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[40], "select_level_40_talent_node"), "select_level_40_talent_node")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[40], "activate_level_40_talent_node"), "activate_level_40_talent_node")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[41], "select_level_41_talent_category"), "select_level_41_talent_category")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[41], "activate_level_41_talent_category"), "activate_level_41_talent_category")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[41], "select_level_41_second_talent_card"), "select_level_41_second_talent_card")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[41], "select_level_41_talent_node"), "select_level_41_talent_node")
+            append_shifted_step(steps, level, clone_activation_step_for_repeat(
+                find_step_by_key_contains(original_talent_by_level[41], "activate_level_41_talent_node"),
+                2
+            ), "activate_level_41_talent_node_twice")
+        end
+    )
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[42] = make_composite_talent_plan(
+        42,
+        "42级天赋：补位激活41级节点第三次",
+        original_talent_by_level[41],
+        function(steps, level)
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[41], "select_level_41_talent_category"), "select_level_41_talent_category")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[41], "activate_level_41_talent_category"), "activate_level_41_talent_category")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[41], "select_level_41_second_talent_card"), "select_level_41_second_talent_card")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[41], "select_level_41_talent_node"), "select_level_41_talent_node")
+            append_shifted_step(steps, level, clone_activation_step_for_repeat(
+                find_step_by_key_contains(original_talent_by_level[41], "activate_level_41_talent_node"),
+                1
+            ), "activate_level_41_talent_node_once")
+        end
+    )
+    for level = 43, 53 do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] =
+            retarget_shifted_talent_plan(original_talent_by_level[level - 1], level, level - 1)
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[54] = make_composite_talent_plan(
+        54,
+        "54级天赋：补位激活53级节点并激活54级节点一次",
+        original_talent_by_level[54],
+        function(steps, level)
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[53], "select_level_53_talent_node"), "select_level_53_talent_node")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[53], "activate_level_53_talent_node"), "activate_level_53_talent_node")
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[54], "select_level_54_talent_node"), "select_level_54_talent_node")
+            append_shifted_step(steps, level, clone_activation_step_for_repeat(
+                find_step_by_key_contains(original_talent_by_level[54], "activate_level_54_talent_node"),
+                1
+            ), "activate_level_54_talent_node_once")
+        end
+    )
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[55] = make_composite_talent_plan(
+        55,
+        "55级天赋：补位激活54级节点第二次",
+        original_talent_by_level[54],
+        function(steps, level)
+            append_shifted_step(steps, level, find_step_by_key_contains(original_talent_by_level[54], "select_level_54_talent_node"), "select_level_54_talent_node")
+            append_shifted_step(steps, level, clone_activation_step_for_repeat(
+                find_step_by_key_contains(original_talent_by_level[54], "activate_level_54_talent_node"),
+                1
+            ), "activate_level_54_talent_node_once")
+        end
+    )
+    for level = 56, 59 do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] =
+            retarget_shifted_talent_plan(original_talent_by_level[level - 1], level, level - 1)
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[60] = nil
 end
 
 do

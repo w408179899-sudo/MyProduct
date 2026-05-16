@@ -5103,8 +5103,17 @@ function M.level_up_maintenance_safe_window(ctx, current_time, player_x, player_
             return block("not_main_interface")
         end
     end
+    local low_hp_passthrough = false
     if type(hp_ratio) == "number" and hp_ratio < (tonumber(cfg.min_hp_ratio) or 0.72) then
-        return block(string.format("low_hp:%.2f", hp_ratio))
+        if cfg.allow_low_hp_maintenance ~= true then
+            return block(string.format("low_hp:%.2f", hp_ratio))
+        end
+        low_hp_passthrough = true
+        log_throttled(ctx, "level_up_maintenance_low_hp_passthrough", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] level-up maintenance low hp passthrough | hp_ratio=%.2f %s",
+            hp_ratio,
+            M.level_up_maintenance_pending_summary()
+        ))
     end
     if state.task_info_stability_gate_active == true then
         return block("task_info_stability_gate")
@@ -5143,57 +5152,59 @@ function M.level_up_maintenance_safe_window(ctx, current_time, player_x, player_
         end
     end
 
-    local nearby_monsters, monster_err = M.find_task_monsters(ctx, current_time, player_x, player_y)
-    if type(nearby_monsters) == "table" and type(nearby_monsters.nearest) == "table" then
-        local nearest_distance = tonumber(nearby_monsters.nearest.distance) or math.huge
-        local guard_distance = math.max(120, tonumber(plan.monster_guard_distance) or tonumber(cfg.monster_guard_distance) or 620)
-        local hard_distance = math.max(0, tonumber(plan.monster_hard_block_distance)
-            or tonumber(cfg.monster_hard_block_distance)
-            or 300)
-        if nearest_distance <= guard_distance then
-            if hard_distance > 0 and nearest_distance <= hard_distance then
-                return block(string.format("nearby_monster_hard:%.1f", nearest_distance))
-            end
+    if not low_hp_passthrough then
+        local nearby_monsters, monster_err = M.find_task_monsters(ctx, current_time, player_x, player_y)
+        if type(nearby_monsters) == "table" and type(nearby_monsters.nearest) == "table" then
+            local nearest_distance = tonumber(nearby_monsters.nearest.distance) or math.huge
+            local guard_distance = math.max(120, tonumber(plan.monster_guard_distance) or tonumber(cfg.monster_guard_distance) or 620)
+            local hard_distance = math.max(0, tonumber(plan.monster_hard_block_distance)
+                or tonumber(cfg.monster_hard_block_distance)
+                or 300)
+            if nearest_distance <= guard_distance then
+                if hard_distance > 0 and nearest_distance <= hard_distance then
+                    return block(string.format("nearby_monster_hard:%.1f", nearest_distance))
+                end
 
-            local observe_ms = math.max(0, tonumber(plan.nearby_monster_soft_observe_ms)
-                or tonumber(cfg.nearby_monster_soft_observe_ms)
-                or 2000)
-            if observe_ms <= 0 then
-                return block(string.format("nearby_monster:%.1f", nearest_distance))
-            end
+                local observe_ms = math.max(0, tonumber(plan.nearby_monster_soft_observe_ms)
+                    or tonumber(cfg.nearby_monster_soft_observe_ms)
+                    or 2000)
+                if observe_ms <= 0 then
+                    return block(string.format("nearby_monster:%.1f", nearest_distance))
+                end
 
-            local resource = M.level_up_maintenance_player_resource(ctx, current_time, true)
-            if type(resource) ~= "number" then
-                state.level_up_maintenance_safe_since = 0
+                local resource = M.level_up_maintenance_player_resource(ctx, current_time, true)
+                if type(resource) ~= "number" then
+                    state.level_up_maintenance_safe_since = 0
+                    M.clear_level_up_maintenance_soft_monster_observe()
+                    return false, string.format("nearby_monster_soft_no_resource:%.1f", nearest_distance)
+                end
+
+                local drop_epsilon = math.max(0, tonumber(plan.nearby_monster_soft_resource_drop_epsilon)
+                    or tonumber(cfg.nearby_monster_soft_resource_drop_epsilon)
+                    or 1)
+                local since = tonumber(state.level_up_maintenance_soft_monster_since) or 0
+                local baseline = tonumber(state.level_up_maintenance_soft_monster_resource)
+                if since <= 0 or baseline == nil or resource < baseline - drop_epsilon then
+                    state.level_up_maintenance_safe_since = 0
+                    state.level_up_maintenance_soft_monster_since = current_time
+                    state.level_up_maintenance_soft_monster_resource = resource
+                    state.level_up_maintenance_soft_monster_distance = nearest_distance
+                    return false, string.format("nearby_monster_soft_observe:%.1f", nearest_distance)
+                end
+
+                local elapsed = current_time - since
+                if elapsed < observe_ms then
+                    state.level_up_maintenance_safe_since = 0
+                    state.level_up_maintenance_soft_monster_distance = nearest_distance
+                    return false, string.format("nearby_monster_soft_observe:%.1f:%d", nearest_distance, math.max(0, observe_ms - elapsed))
+                end
+
                 M.clear_level_up_maintenance_soft_monster_observe()
-                return false, string.format("nearby_monster_soft_no_resource:%.1f", nearest_distance)
+                return true, "ready_soft_monster_passthrough"
             end
-
-            local drop_epsilon = math.max(0, tonumber(plan.nearby_monster_soft_resource_drop_epsilon)
-                or tonumber(cfg.nearby_monster_soft_resource_drop_epsilon)
-                or 1)
-            local since = tonumber(state.level_up_maintenance_soft_monster_since) or 0
-            local baseline = tonumber(state.level_up_maintenance_soft_monster_resource)
-            if since <= 0 or baseline == nil or resource < baseline - drop_epsilon then
-                state.level_up_maintenance_safe_since = 0
-                state.level_up_maintenance_soft_monster_since = current_time
-                state.level_up_maintenance_soft_monster_resource = resource
-                state.level_up_maintenance_soft_monster_distance = nearest_distance
-                return false, string.format("nearby_monster_soft_observe:%.1f", nearest_distance)
-            end
-
-            local elapsed = current_time - since
-            if elapsed < observe_ms then
-                state.level_up_maintenance_safe_since = 0
-                state.level_up_maintenance_soft_monster_distance = nearest_distance
-                return false, string.format("nearby_monster_soft_observe:%.1f:%d", nearest_distance, math.max(0, observe_ms - elapsed))
-            end
-
-            M.clear_level_up_maintenance_soft_monster_observe()
-            return true, "ready_soft_monster_passthrough"
+        elseif monster_err ~= nil then
+            state.level_up_maintenance_last_block_reason = nil
         end
-    elseif monster_err ~= nil then
-        state.level_up_maintenance_last_block_reason = nil
     end
     M.clear_level_up_maintenance_soft_monster_observe()
 
@@ -11251,6 +11262,11 @@ end
             zero_buttons = 0,
             task_buttons = 0,
             zero_task_buttons = 0,
+            fight_interactive_buttons = 0,
+            zero_fight_interactive_buttons = 0,
+            visible_fight_interactive_buttons = 0,
+            fast_entrance_buttons = 0,
+            visible_fast_entrance_buttons = 0,
             skip_buttons = 0,
             skip_visible = 0,
             skip_name = ""
@@ -11280,6 +11296,20 @@ end
                     result.zero_task_buttons = result.zero_task_buttons + 1
                 end
             end
+            if identity:find("fightinteractiveview_c.widgettree.", 1, true) ~= nil then
+                result.fight_interactive_buttons = result.fight_interactive_buttons + 1
+                if has_visible_pos then
+                    result.visible_fight_interactive_buttons = result.visible_fight_interactive_buttons + 1
+                else
+                    result.zero_fight_interactive_buttons = result.zero_fight_interactive_buttons + 1
+                end
+            end
+            if identity:find("fastentranceview_c.widgettree.", 1, true) ~= nil then
+                result.fast_entrance_buttons = result.fast_entrance_buttons + 1
+                if has_visible_pos then
+                    result.visible_fast_entrance_buttons = result.visible_fast_entrance_buttons + 1
+                end
+            end
             if identity:find("skiplevelsequence_c.widgettree.skipbutton", 1, true) ~= nil then
                 result.skip_buttons = result.skip_buttons + 1
                 if has_visible_pos then
@@ -11297,11 +11327,21 @@ end
 
     local function maybe_handle_level_sequence_or_unstable_task_ui()
         local ui_state = inspect_main_task_ui_stability(ui_snapshot)
+        local total_buttons = math.max(1, tonumber(ui_state.total_buttons) or 0)
+        local zero_ratio = (tonumber(ui_state.zero_buttons) or 0) / total_buttons
+        local visible_ratio = (tonumber(ui_state.visible_buttons) or 0) / total_buttons
+        local task_buttons_all_zero = ui_state.task_buttons > 0
+            and ui_state.zero_task_buttons >= ui_state.task_buttons
+        local fight_interactive_all_zero = ui_state.fight_interactive_buttons >= 5
+            and ui_state.zero_fight_interactive_buttons >= ui_state.fight_interactive_buttons
+        local sparse_visible_buttons = ui_state.visible_buttons <= math.max(2, math.floor(total_buttons * 0.08))
+        local mostly_zero_buttons = zero_ratio >= 0.85
         local animation_like = ui_state.skip_buttons > 0
             and (
-                ui_state.zero_buttons >= 10
+                ui_state.skip_visible > 0
+                or ui_state.zero_buttons >= 10
                 or ui_state.visible_buttons <= 5
-                or ui_state.zero_buttons >= math.floor(math.max(1, ui_state.total_buttons) * 0.50)
+                or zero_ratio >= 0.50
             )
         if animation_like then
             local retry_ms = math.max(800, tonumber(MAIN_TASK_BUTTON_STEP.sequence_skip_retry_ms) or 1200)
@@ -11321,35 +11361,70 @@ end
                 end
                 local log_fn = ok and logger(ctx).info or logger(ctx).warn
                 log_fn(string.format(
-                    "[Leveling] level sequence skip detected; ESC %s | skip_buttons=%d visible=%d zero=%d total=%d task_zero=%d/%d name=%s err=%s",
+                    "[Leveling] level sequence skip detected; ESC %s | skip_buttons=%d visible=%d zero=%d total=%d zero_ratio=%.2f task_zero=%d/%d fight_zero=%d/%d name=%s err=%s",
                     ok and "sent" or "failed",
                     ui_state.skip_buttons,
                     ui_state.visible_buttons,
                     ui_state.zero_buttons,
                     ui_state.total_buttons,
+                    zero_ratio,
                     ui_state.zero_task_buttons,
                     ui_state.task_buttons,
+                    ui_state.zero_fight_interactive_buttons,
+                    ui_state.fight_interactive_buttons,
                     tostring(ui_state.skip_name or ""),
                     tostring(err or "")
                 ))
             else
                 log_throttled(ctx, "skip_level_sequence_wait", "info", 600, string.format(
-                    "[Leveling] level sequence skip active; waiting UI recovery | skip_buttons=%d visible=%d zero=%d total=%d task_zero=%d/%d retry_in=%dms",
+                    "[Leveling] level sequence skip active; waiting UI recovery | skip_buttons=%d visible=%d zero=%d total=%d zero_ratio=%.2f task_zero=%d/%d fight_zero=%d/%d retry_in=%dms",
                     ui_state.skip_buttons,
                     ui_state.visible_buttons,
                     ui_state.zero_buttons,
                     ui_state.total_buttons,
+                    zero_ratio,
                     ui_state.zero_task_buttons,
                     ui_state.task_buttons,
+                    ui_state.zero_fight_interactive_buttons,
+                    ui_state.fight_interactive_buttons,
                     math.max(0, esc_due - current_time)
                 ))
             end
             return true, "level sequence skip UI active"
         end
 
-        if ui_state.task_buttons > 0
-            and ui_state.zero_task_buttons >= ui_state.task_buttons
-            and ui_state.zero_buttons >= math.max(3, math.floor(math.max(1, ui_state.total_buttons) * 0.20))
+        local transition_like = task_buttons_all_zero
+            and (
+                sparse_visible_buttons
+                or mostly_zero_buttons
+                or (zero_ratio >= 0.65 and fight_interactive_all_zero)
+            )
+        if transition_like then
+            local retry_ms = math.max(900, tonumber(MAIN_TASK_BUTTON_STEP.transition_ui_retry_ms) or 1400)
+            state.next_task_button_click_at = current_time + retry_ms
+            if type(hold_navigation) == "function" then
+                hold_navigation(ctx, current_time, "main_task_transition_ui")
+            end
+            log_throttled(ctx, "main_task_transition_ui_wait", "info", 900, string.format(
+                "[Leveling] main task UI transition-like; wait only | task_zero=%d/%d zero=%d visible=%d total=%d zero_ratio=%.2f visible_ratio=%.2f fight_zero=%d/%d fast_visible=%d/%d retry_ms=%d",
+                ui_state.zero_task_buttons,
+                ui_state.task_buttons,
+                ui_state.zero_buttons,
+                ui_state.visible_buttons,
+                ui_state.total_buttons,
+                zero_ratio,
+                visible_ratio,
+                ui_state.zero_fight_interactive_buttons,
+                ui_state.fight_interactive_buttons,
+                ui_state.visible_fast_entrance_buttons,
+                ui_state.fast_entrance_buttons,
+                retry_ms
+            ))
+            return true, "main task UI transition-like"
+        end
+
+        if task_buttons_all_zero
+            and ui_state.zero_buttons >= math.max(3, math.floor(total_buttons * 0.20))
         then
             state.next_task_button_click_at = current_time + math.max(300,
                 tonumber(MAIN_TASK_BUTTON_STEP.zero_taskbtn_retry_ms) or 700)
@@ -11357,12 +11432,15 @@ end
                 hold_navigation(ctx, current_time, "main_task_taskbtn_zero")
             end
             log_throttled(ctx, "main_task_taskbtn_zero_wait", "info", 800, string.format(
-                "[Leveling] main task TaskBtn not visible; wait instead of position fallback | task_zero=%d/%d zero=%d visible=%d total=%d",
+                "[Leveling] main task TaskBtn not visible; wait instead of position fallback | task_zero=%d/%d zero=%d visible=%d total=%d zero_ratio=%.2f fight_zero=%d/%d",
                 ui_state.zero_task_buttons,
                 ui_state.task_buttons,
                 ui_state.zero_buttons,
                 ui_state.visible_buttons,
-                ui_state.total_buttons
+                ui_state.total_buttons,
+                zero_ratio,
+                ui_state.zero_fight_interactive_buttons,
+                ui_state.fight_interactive_buttons
             ))
             return true, "main task TaskBtn coordinates are zero"
         end
