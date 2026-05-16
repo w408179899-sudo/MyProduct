@@ -6001,14 +6001,46 @@ function M.ensure_bag_closed_for_flow(ctx, current_time, reason)
     end
     hold_navigation(ctx, current_time, "close_bag_before_" .. tostring(reason or "flow"))
 
-    local pressed, press_err = press_keyboard_hotkey(ctx, current_time, 0x42, "close bag before " .. tostring(reason or "flow"))
-    if not pressed then
-        log_throttled(ctx, "bag_close_guard_press_failed", "warn", LOG_THROTTLE_MS, string.format(
-            "[Leveling] bag close guard press failed | reason=%s err=%s",
-            tostring(reason or ""),
-            tostring(press_err or "")
-        ))
-        return false
+    local close_button = nil
+    for _, button in ipairs(snapshot_or_err.buttons) do
+        local x = tonumber(type(button) == "table" and (button.x or button.X))
+        local y = tonumber(type(button) == "table" and (button.y or button.Y))
+        local name = tostring(type(button) == "table" and (button.name or button.Fullname or button.fullname) or ""):lower()
+        if x ~= nil and y ~= nil and x > 0 and y > 0
+            and name:find("pcbag_c.widgettree.pcbagmain.widgettree.uibutton_close", 1, true) ~= nil
+        then
+            close_button = button
+            break
+        end
+    end
+
+    local close_clicked = false
+    if type(close_button) == "table" and type(nav_mod.control_click) == "function" then
+        local addr = tonumber(close_button.addr or close_button.address)
+        if addr ~= nil then
+            local clicked, click_err = nav_mod.control_click(addr)
+            if clicked then
+                close_clicked = true
+            else
+                log_throttled(ctx, "bag_close_guard_button_failed", "warn", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] bag close guard button failed | reason=%s err=%s",
+                    tostring(reason or ""),
+                    tostring(click_err or "")
+                ))
+            end
+        end
+    end
+
+    if close_clicked ~= true then
+        local pressed, press_err = press_keyboard_hotkey(ctx, current_time, 0x42, "close bag before " .. tostring(reason or "flow"))
+        if not pressed then
+            log_throttled(ctx, "bag_close_guard_press_failed", "warn", LOG_THROTTLE_MS, string.format(
+                "[Leveling] bag close guard press failed | reason=%s err=%s",
+                tostring(reason or ""),
+                tostring(press_err or "")
+            ))
+            return false
+        end
     end
 
     sleep_ms(ctx, 380)

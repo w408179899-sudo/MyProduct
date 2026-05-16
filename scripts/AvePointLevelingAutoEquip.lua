@@ -32,6 +32,7 @@ M.DEFAULT_CONFIG = {
     identify_all_before_scan = true,
     identify_all_wait_ms = 800,
     identify_all_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.pcuigridlistview.widgettree.uibutton_onekey",
+    bag_close_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.uibutton_close",
     scan_max_items = 32,
     max_equips_per_run = 2,
     allow_damage_upgrade_when_survival_equal = true,
@@ -668,7 +669,27 @@ function M.perform_scan(ctx, deps, runtime, cfg, current_time, character_id)
             end
             return
         end
-        press_bag_key(ctx, deps, current_time, tonumber(cfg.close_bag_key_vk) or 0x42, "auto-equip close bag")
+        local close_clicked = false
+        local close_snapshot = nav_mod.enum_ui()
+        local close_button = find_visible_button(close_snapshot, cfg.bag_close_button_pattern)
+        if type(close_button) == "table" and type(nav_mod.control_click) == "function" then
+            local addr = button_addr(close_button)
+            if addr ~= nil then
+                local clicked = nav_mod.control_click(addr)
+                close_clicked = clicked == true
+                if close_clicked then
+                    log_line(ctx, deps, "info", string.format(
+                        "[Leveling] auto-equip close button clicked | addr=%s x=%.1f y=%.1f",
+                        string.format("0x%X", addr),
+                        tonumber(close_button.x or close_button.X) or 0,
+                        tonumber(close_button.y or close_button.Y) or 0
+                    ))
+                end
+            end
+        end
+        if close_clicked ~= true then
+            press_bag_key(ctx, deps, current_time, tonumber(cfg.close_bag_key_vk) or 0x42, "auto-equip close bag")
+        end
         sleep_ms(ctx, cfg.bag_close_wait_ms)
         opened_by_module = false
         if type(runtime) == "table" then

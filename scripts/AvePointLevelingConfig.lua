@@ -770,6 +770,7 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
     identify_all_before_scan = true,
     identify_all_wait_ms = 800,
     identify_all_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.pcuigridlistview.widgettree.uibutton_onekey",
+    bag_close_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.uibutton_close",
     scan_max_items = 32,
     max_equips_per_run = 2,
     min_survival_gain = 0,
@@ -810,6 +811,17 @@ M.EQUIP_RECYCLE_MAINTENANCE_CONFIG = {
     recycle_execute_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.pcuigridlistview.widgettree.uibutton_recycle",
     rarity_filter_button_pattern = "pcbagfilterrarityitem.widgettree.selectbtn0",
     confirm_button_pattern = "confirmv2_c.widgettree.combuttonv2.widgettree.btn",
+    bag_close_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.uibutton_close",
+    button_fallbacks = {
+        recycle_open = {
+            client_x = 1348.82,
+            client_y = 849.17
+        },
+        recycle_execute = {
+            client_x = 1348.82,
+            client_y = 849.17
+        }
+    },
     random_click_count = 1,
     random_click_rect = {
         min_x = 981,

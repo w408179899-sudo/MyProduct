@@ -20,6 +20,17 @@ M.DEFAULT_CONFIG = {
     recycle_execute_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.pcuigridlistview.widgettree.uibutton_recycle",
     rarity_filter_button_pattern = "pcbagfilterrarityitem.widgettree.selectbtn0",
     confirm_button_pattern = "confirmv2_c.widgettree.combuttonv2.widgettree.btn",
+    bag_close_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.uibutton_close",
+    button_fallbacks = {
+        recycle_open = {
+            client_x = 1348.82,
+            client_y = 849.17
+        },
+        recycle_execute = {
+            client_x = 1348.82,
+            client_y = 849.17
+        }
+    },
     random_click_count = 1,
     random_click_rect = {
         min_x = 981,
@@ -182,6 +193,9 @@ local function ensure_bag_open(ctx, deps, nav_mod, cfg, current_time)
     return false, snapshot, last_err or "bag open verification failed"
 end
 
+local find_bag_close_button
+local button_addr
+
 local function close_bag(ctx, deps, nav_mod, cfg, current_time)
     local snapshot, snapshot_err = enum_ui(nav_mod)
     if type(snapshot) == "table" and not is_bag_open(snapshot) then
@@ -191,9 +205,28 @@ local function close_bag(ctx, deps, nav_mod, cfg, current_time)
     local attempts = math.max(1, math.floor(tonumber(cfg.bag_verify_attempts) or 3))
     local last_err = snapshot_err
     for _ = 1, attempts do
-        local pressed, press_err = press_bag_key(ctx, deps, current_time, tonumber(cfg.close_bag_key_vk) or 0x42, "recycle close bag")
-        if not pressed then
-            return false, press_err or "close bag failed"
+        local close_button = find_bag_close_button(snapshot, cfg)
+        local close_clicked = false
+        if type(close_button) == "table" and type(nav_mod.control_click) == "function" then
+            local addr = button_addr(close_button)
+            local clicked, click_err = nav_mod.control_click(addr)
+            if not clicked then
+                last_err = click_err or "close button click failed"
+            else
+                close_clicked = true
+                log_line(ctx, deps, "info", string.format(
+                    "[Leveling] recycle close button clicked | addr=%s x=%.1f y=%.1f",
+                    addr ~= nil and string.format("0x%X", addr) or "",
+                    tonumber(close_button.x or close_button.X) or 0,
+                    tonumber(close_button.y or close_button.Y) or 0
+                ))
+            end
+        end
+        if close_clicked ~= true then
+            local pressed, press_err = press_bag_key(ctx, deps, current_time, tonumber(cfg.close_bag_key_vk) or 0x42, "recycle close bag")
+            if not pressed then
+                return false, press_err or "close bag failed"
+            end
         end
         sleep_ms(ctx, cfg.bag_close_wait_ms)
         snapshot, last_err = enum_ui(nav_mod)
@@ -228,12 +261,48 @@ local function find_button(snapshot, pattern)
     return best
 end
 
-local function button_addr(button)
+find_bag_close_button = function(snapshot, cfg)
+    return find_button(snapshot, cfg.bag_close_button_pattern)
+end
+
+button_addr = function(button)
     local addr = type(button) == "table" and (button.addr or button.address)
     return tonumber(addr)
 end
 
-local function click_button(ctx, deps, nav_mod, cfg, snapshot, pattern, label, required)
+local function click_button_fallback(ctx, deps, nav_mod, hwnd, cfg, label)
+    local fallbacks = type(cfg.button_fallbacks) == "table" and cfg.button_fallbacks or {}
+    local fallback = fallbacks[tostring(label or "")]
+    if type(fallback) ~= "table" then
+        return false, "fallback missing"
+    end
+    if type(nav_mod.click_window_to_move) ~= "function" then
+        return false, "nav.click_window_to_move unavailable"
+    end
+    local x = tonumber(fallback.client_x)
+    local y = tonumber(fallback.client_y)
+    if x == nil or y == nil then
+        return false, "fallback point missing"
+    end
+    local ok, click_err = nav_mod.click_window_to_move(hwnd, x, y, {
+        button = fallback.button or "left",
+        delay = tonumber(fallback.delay_ms) or 50,
+        wait = false
+    })
+    if not ok then
+        return false, click_err or "fallback click failed"
+    end
+    sleep_ms(ctx, cfg.step_wait_ms)
+    log_line(ctx, deps, "info", string.format(
+        "[Leveling] recycle fallback button clicked | label=%s x=%.1f y=%.1f",
+        tostring(label or ""),
+        x,
+        y
+    ))
+    return true
+end
+
+local function click_button(ctx, deps, nav_mod, hwnd, cfg, snapshot, pattern, label, required)
     local button = find_button(snapshot, pattern)
     if type(button) ~= "table" and required ~= false then
         local attempts = math.max(1, math.floor(tonumber(cfg.button_retry_attempts) or 1))
@@ -260,7 +329,12 @@ local function click_button(ctx, deps, nav_mod, cfg, snapshot, pattern, label, r
         if required == false then
             return false, snapshot, "missing_optional"
         end
-        return false, snapshot, "button not found: " .. tostring(label)
+        local fallback_ok, fallback_err = click_button_fallback(ctx, deps, nav_mod, hwnd, cfg, label)
+        if not fallback_ok then
+            return false, snapshot, "button not found: " .. tostring(label) .. ", fallback=" .. tostring(fallback_err or "")
+        end
+        local next_snapshot, enum_err = enum_ui(nav_mod)
+        return true, type(next_snapshot) == "table" and next_snapshot or snapshot, enum_err
     end
 
     local addr = button_addr(button)
@@ -345,13 +419,13 @@ function M.perform_recycle(ctx, deps, runtime, cfg, current_time)
     end
 
     local clicked, err
-    clicked, snapshot, err = click_button(ctx, deps, nav_mod, cfg, snapshot, cfg.recycle_button_pattern, "recycle_open", true)
+    clicked, snapshot, err = click_button(ctx, deps, nav_mod, hwnd, cfg, snapshot, cfg.recycle_button_pattern, "recycle_open", true)
     if not clicked then
         close_bag(ctx, deps, nav_mod, cfg, current_time)
         return false, err
     end
 
-    clicked, snapshot, err = click_button(ctx, deps, nav_mod, cfg, snapshot, cfg.rarity_filter_button_pattern, "rarity_filter_0", true)
+    clicked, snapshot, err = click_button(ctx, deps, nav_mod, hwnd, cfg, snapshot, cfg.rarity_filter_button_pattern, "rarity_filter_0", true)
     if not clicked then
         close_bag(ctx, deps, nav_mod, cfg, current_time)
         return false, err
@@ -361,6 +435,7 @@ function M.perform_recycle(ctx, deps, runtime, cfg, current_time)
         ctx,
         deps,
         nav_mod,
+        hwnd,
         cfg,
         snapshot,
         cfg.recycle_execute_button_pattern or cfg.recycle_button_pattern,
@@ -374,7 +449,7 @@ function M.perform_recycle(ctx, deps, runtime, cfg, current_time)
 
     sleep_ms(ctx, cfg.confirm_wait_ms)
     snapshot = enum_ui(nav_mod) or snapshot
-    clicked, snapshot, err = click_button(ctx, deps, nav_mod, cfg, snapshot, cfg.confirm_button_pattern, "confirm", false)
+    clicked, snapshot, err = click_button(ctx, deps, nav_mod, hwnd, cfg, snapshot, cfg.confirm_button_pattern, "confirm", false)
     local confirm_clicked = clicked == true
     if err ~= nil and tostring(err) ~= "missing_optional" then
         log_line(ctx, deps, "warn", "[Leveling] recycle confirm skipped | err=" .. tostring(err))
