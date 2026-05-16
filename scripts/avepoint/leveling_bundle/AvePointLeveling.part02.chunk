@@ -4298,6 +4298,7 @@ end
 
 function M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_executor_active = false
+    state.level_up_maintenance_executor_started_at = nil
     state.level_up_maintenance_executor_kind = nil
     state.level_up_maintenance_executor_level = nil
     state.level_up_maintenance_executor_plan_key = nil
@@ -4385,6 +4386,7 @@ function M.start_level_up_maintenance_executor(ctx, current_time, plan_info)
     current_time = tonumber(current_time) or now_ms(ctx)
     local plan = type(plan_info.plan) == "table" and plan_info.plan or {}
     state.level_up_maintenance_executor_active = true
+    state.level_up_maintenance_executor_started_at = current_time
     state.level_up_maintenance_executor_kind = tostring(plan_info.kind or "")
     state.level_up_maintenance_executor_level = math.floor(tonumber(plan_info.level) or 0)
     state.level_up_maintenance_executor_plan_key = tostring(plan.key or plan_info.id or "")
@@ -8857,6 +8859,33 @@ function M.should_defer_revive_for_treasure_entry(current_time, in_main_interfac
     return false, nil
 end
 
+function M.should_defer_revive_for_level_up_maintenance(current_time, in_main_interface)
+    if state.level_up_maintenance_executor_active ~= true then
+        return false, nil
+    end
+
+    if in_main_interface ~= false then
+        return false, nil
+    end
+
+    local now = tonumber(current_time) or 0
+    local started_at = tonumber(state.level_up_maintenance_executor_started_at) or 0
+    local next_step_at = tonumber(state.level_up_maintenance_executor_next_step_at) or 0
+    local active_until = math.max(started_at + 30000, next_step_at + 8000)
+    if active_until <= 0 or now > active_until then
+        return false, nil
+    end
+
+    return true, {
+        kind = tostring(state.level_up_maintenance_executor_kind or ""),
+        level = tonumber(state.level_up_maintenance_executor_level) or 0,
+        plan = tostring(state.level_up_maintenance_executor_plan_label or ""),
+        step = tonumber(state.level_up_maintenance_executor_step_index) or 0,
+        next_step_at = next_step_at,
+        active_until = active_until
+    }
+end
+
 local function maybe_handle_revive(ctx, current_time, hp, player_x, player_y, player_z, in_main_interface)
     local is_dead = type(hp) == "number" and hp <= 0
     local revive_active = (tonumber(state.revive_started_at) or 0) > 0
@@ -8885,6 +8914,20 @@ local function maybe_handle_revive(ctx, current_time, hp, player_x, player_y, pl
                 tonumber(treasure_runtime and treasure_runtime.entry_step_index) or 0,
                 math.max(0, (tonumber(treasure_runtime and treasure_runtime.next_retry_at) or current_time) - current_time),
                 math.max(0, (tonumber(treasure_runtime and treasure_runtime.stage_deadline_at) or current_time) - current_time)
+            ))
+            return false
+        end
+        local defer_maintenance_revive, maintenance_runtime =
+            M.should_defer_revive_for_level_up_maintenance(current_time, in_main_interface)
+        if defer_maintenance_revive then
+            log_throttled(ctx, "revive_deferred_by_level_up_maintenance", "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] hp=0 ignored during level-up maintenance | kind=%s level=%s plan=%s step=%d next_step_in=%dms active_until=%dms",
+                tostring(maintenance_runtime and maintenance_runtime.kind or ""),
+                tostring(maintenance_runtime and maintenance_runtime.level or ""),
+                tostring(maintenance_runtime and maintenance_runtime.plan or ""),
+                tonumber(maintenance_runtime and maintenance_runtime.step) or 0,
+                math.max(0, (tonumber(maintenance_runtime and maintenance_runtime.next_step_at) or current_time) - current_time),
+                math.max(0, (tonumber(maintenance_runtime and maintenance_runtime.active_until) or current_time) - current_time)
             ))
             return false
         end

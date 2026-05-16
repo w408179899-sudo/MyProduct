@@ -236,18 +236,27 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                 },
                 {
                     key = "select_trickster_god",
-                    label = "欺诈之神按钮",
-                    distance_anchor_exact_text = "欺诈之神",
-                    distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.UICareerPointItem_C.WidgetTree.SelectBtn",
-                    distance_min = 28.495576,
-                    distance_max = 30.258189,
+                    label = "天赋大类按钮",
                     include_patterns = {
                         "UIButton Transient.GameEngine.CoreGameInstance.UICareerPointItem_C.WidgetTree.SelectBtn"
                     },
-                    hint_client_x = 1044.438477,
-                    hint_client_y = 420.786438,
-                    hint_ratio_x = 0.725809,
-                    hint_ratio_y = 0.467540,
+                    hint_client_x = 1049.438477,
+                    hint_client_y = 412.786438,
+                    hint_ratio_x = 0.729283,
+                    hint_ratio_y = 0.458652,
+                    hint_max_distance = 80,
+                    wait_after_ms = 500
+                },
+                {
+                    key = "activate_trickster_god_category",
+                    label = "天赋大类激活按钮",
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TipCareerItem_C.WidgetTree.ActiveBtn"
+                    },
+                    hint_client_x = 1250.157104,
+                    hint_client_y = 454.429352,
+                    hint_ratio_x = 0.868768,
+                    hint_ratio_y = 0.504922,
                     hint_max_distance = 80,
                     wait_after_ms = 500
                 },
