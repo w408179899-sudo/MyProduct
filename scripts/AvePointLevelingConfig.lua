@@ -3957,8 +3957,8 @@ M.TREASURE_DUNGEON_CONFIGS = {
             x = -1800.00,
             y = 2700.00,
             z = 105.00,
-            radius = 2400,
-            z_tolerance = 600
+            radius = 900,
+            z_tolerance = 260
         },
         exit_landing = {
             x = -900.00,
