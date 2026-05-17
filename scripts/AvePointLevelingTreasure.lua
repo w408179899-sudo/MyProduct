@@ -1324,7 +1324,9 @@ local function startup_inside_recovery_match(cfg, hooks, player_x, player_y, pla
     if landing_ready(player_x, player_y, player_z, cfg.inside_landing) then
         return true, "inside_landing"
     end
-    if landing_ready(player_x, player_y, player_z, cfg.restart_landing) then
+    if cfg.startup_recovery_restart_landing ~= false
+        and landing_ready(player_x, player_y, player_z, cfg.restart_landing)
+    then
         return true, "restart_landing"
     end
 

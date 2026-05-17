@@ -4233,6 +4233,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
         route_store_key = "treasure_empire_ashes_wolf_ambush_entry",
         target_level = 38,
         inside_detect_task_panel_text = false,
+        startup_recovery_restart_landing = false,
         task_patterns = {
             "\u{5E1D}\u{56FD}\u{4F59}\u{7130}"
         },
@@ -4437,7 +4438,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "Keep inside_detect_task_panel_text=false; outside detail may temporarily show 前往藏宝地：曙光大道 and must not skip entry flow",
             "Known entrance button behavior: same as previous treasure entrance button",
             "Verified inside boss anchor / kite points / exit portal from latest measured run; exit trigger moved to user F6 door anchor 16509,-12043,105 and restart trigger to 17066,-12015,105, but button F8 and real restart_landing still need verification",
-            "Verified exit_landing near -827,9412,606; restart_landing still needs F7 after a real 求生之欲 restart click",
+            "Verified exit_landing near -827,9412,606; restart_landing still needs F7 after a real 求生之欲 restart click, so startup recovery must not use restart_landing yet",
             "Confirmed target_level=38 for return-to-mainline gate",
             "Restart/exit triggers are intentionally separated now; keep 16457.17,-12098.53 as exit-only data unless F7 proves otherwise",
             "Restart/exit portal probe now prefers hint fallback when distance-anchor locator drifts",
