@@ -4234,6 +4234,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
         target_level = 38,
         inside_detect_task_panel_text = false,
         startup_recovery_restart_landing = false,
+        resume_route_nearby = false,
         task_patterns = {
             "\u{5E1D}\u{56FD}\u{4F59}\u{7130}"
         },

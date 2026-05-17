@@ -755,7 +755,11 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
     local restore_reason = "allowed"
     local resume_override_mode = nil
     local near_zero_inside_landing = landing_ready(player_x, player_y, player_z, cfg.inside_landing)
-    local near_zero_restart_landing = landing_ready(player_x, player_y, player_z, cfg.restart_landing)
+    local restart_landing_resume_enabled = cfg.resume_restart_landing ~= false
+        and cfg.startup_recovery_restart_landing ~= false
+    local route_nearby_resume_enabled = cfg.resume_route_nearby ~= false
+    local near_zero_restart_landing = restart_landing_resume_enabled
+        and landing_ready(player_x, player_y, player_z, cfg.restart_landing)
     local near_zero_exit_landing = landing_ready(player_x, player_y, player_z, cfg.exit_landing)
     if not has_reliable_world_pos(player_x, player_y) then
         local near_configured_landing = near_zero_inside_landing or near_zero_restart_landing or near_zero_exit_landing
@@ -778,14 +782,16 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
         restore_reason = allow_restore and "entry_trigger" or "outside_entry_trigger"
     else
         local near_inside_landing = landing_ready(player_x, player_y, player_z, cfg.inside_landing)
-        local near_restart_landing = landing_ready(player_x, player_y, player_z, cfg.restart_landing)
+        local near_restart_landing = restart_landing_resume_enabled
+            and landing_ready(player_x, player_y, player_z, cfg.restart_landing)
         local near_exit_landing = landing_ready(player_x, player_y, player_z, cfg.exit_landing)
         local near_boss_trigger = within_trigger(player_x, player_y, player_z, type(cfg.boss) == "table" and cfg.boss.trigger or nil)
         local near_restart_portal = within_trigger(player_x, player_y, player_z, cfg.portals and cfg.portals.restart and cfg.portals.restart.trigger or nil)
         local near_exit_portal = within_trigger(player_x, player_y, player_z, cfg.portals and cfg.portals.exit and cfg.portals.exit.trigger or nil)
         local near_known_inside = near_inside_landing or near_restart_landing or near_boss_trigger or near_restart_portal or near_exit_portal
         local route_gap = nearest_route_distance(cached_route, player_x, player_y)
-        local near_route = route_gap <= math.max(1800, tonumber(cfg.resume_route_distance) or 2600)
+        local near_route = route_nearby_resume_enabled
+            and route_gap <= math.max(1800, tonumber(cfg.resume_route_distance) or 2600)
         local exit_landing_context = mode == "wait_exit"
             or mode == "return_mainline"
             or snapshot.pending_return_mainline == true
