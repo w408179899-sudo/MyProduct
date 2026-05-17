@@ -21,14 +21,23 @@ M.DEFAULT_CONFIG = {
     rarity_filter_button_pattern = "pcbagfilterrarityitem.widgettree.selectbtn0",
     confirm_button_pattern = "confirmv2_c.widgettree.combuttonv2.widgettree.btn",
     bag_close_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.uibutton_close",
+    require_bag_open_for_button_fallback = true,
     button_fallbacks = {
         recycle_open = {
             client_x = 1348.82,
-            client_y = 849.17
+            client_y = 850.71
+        },
+        rarity_filter_0 = {
+            client_x = 911.132019,
+            client_y = 849.165894
         },
         recycle_execute = {
             client_x = 1348.82,
-            client_y = 849.17
+            client_y = 850.71
+        },
+        confirm = {
+            client_x = 734.516785,
+            client_y = 609.795044
         }
     },
     random_click_count = 1,
@@ -129,19 +138,17 @@ local function is_visible_button(button)
     return x ~= nil and y ~= nil and x > 0 and y > 0
 end
 
-local function is_bag_open(snapshot)
+local function is_bag_open(snapshot, cfg)
     if type(snapshot) ~= "table" or type(snapshot.buttons) ~= "table" then
         return false
     end
+    local close_pattern = tostring(type(cfg) == "table" and cfg.bag_close_button_pattern or ""):lower()
+    if close_pattern == "" then
+        close_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.uibutton_close"
+    end
     for _, button in ipairs(snapshot.buttons) do
         local name = identity_of(button)
-        if is_visible_button(button)
-            and (
-                name:find("pcbag_c.widgettree.pcbagmain", 1, true) ~= nil
-                or name:find("pcuibagequipitem.widgettree.pcbagequipslot", 1, true) ~= nil
-                or name:find("pcuigridlistview.widgettree.uibutton_recycle", 1, true) ~= nil
-            )
-        then
+        if is_visible_button(button) and name:find(close_pattern, 1, true) ~= nil then
             return true
         end
     end
@@ -171,7 +178,7 @@ end
 
 local function ensure_bag_open(ctx, deps, nav_mod, cfg, current_time)
     local snapshot, snapshot_err = enum_ui(nav_mod)
-    if type(snapshot) == "table" and is_bag_open(snapshot) then
+    if type(snapshot) == "table" and is_bag_open(snapshot, cfg) then
         return true, snapshot
     end
 
@@ -185,7 +192,7 @@ local function ensure_bag_open(ctx, deps, nav_mod, cfg, current_time)
         sleep_ms(ctx, cfg.bag_open_wait_ms)
         snapshot, snapshot_err = enum_ui(nav_mod)
         last_err = snapshot_err
-        if type(snapshot) == "table" and is_bag_open(snapshot) then
+        if type(snapshot) == "table" and is_bag_open(snapshot, cfg) then
             return true, snapshot
         end
     end
@@ -198,7 +205,7 @@ local button_addr
 
 local function close_bag(ctx, deps, nav_mod, cfg, current_time)
     local snapshot, snapshot_err = enum_ui(nav_mod)
-    if type(snapshot) == "table" and not is_bag_open(snapshot) then
+    if type(snapshot) == "table" and not is_bag_open(snapshot, cfg) then
         return true
     end
 
@@ -230,7 +237,7 @@ local function close_bag(ctx, deps, nav_mod, cfg, current_time)
         end
         sleep_ms(ctx, cfg.bag_close_wait_ms)
         snapshot, last_err = enum_ui(nav_mod)
-        if type(snapshot) == "table" and not is_bag_open(snapshot) then
+        if type(snapshot) == "table" and not is_bag_open(snapshot, cfg) then
             return true
         end
     end
@@ -238,22 +245,48 @@ local function close_bag(ctx, deps, nav_mod, cfg, current_time)
     return false, last_err or "bag close verification failed"
 end
 
-local function find_button(snapshot, pattern)
+local function button_hint_distance(button, hint)
+    if type(button) ~= "table" or type(hint) ~= "table" then
+        return nil
+    end
+    local hint_x = tonumber(hint.client_x)
+    local hint_y = tonumber(hint.client_y)
+    local x = tonumber(button.x or button.X)
+    local y = tonumber(button.y or button.Y)
+    if hint_x == nil or hint_y == nil or x == nil or y == nil then
+        return nil
+    end
+    local dx = x - hint_x
+    local dy = y - hint_y
+    return dx * dx + dy * dy
+end
+
+local function find_button(snapshot, pattern, hint)
     local needle = tostring(pattern or ""):lower()
     if needle == "" or type(snapshot) ~= "table" or type(snapshot.buttons) ~= "table" then
         return nil
     end
 
     local best = nil
+    local best_hint_distance = nil
     for _, button in ipairs(snapshot.buttons) do
         local name = identity_of(button)
         if is_visible_button(button) and name:find(needle, 1, true) ~= nil then
+            local hint_distance = button_hint_distance(button, hint)
             if best == nil then
                 best = button
+                best_hint_distance = hint_distance
             else
-                local best_name = identity_of(best)
-                if #name < #best_name then
+                local should_replace = false
+                if hint_distance ~= nil then
+                    should_replace = best_hint_distance == nil or hint_distance < best_hint_distance
+                elseif best_hint_distance == nil then
+                    local best_name = identity_of(best)
+                    should_replace = #name < #best_name
+                end
+                if should_replace then
                     best = button
+                    best_hint_distance = hint_distance
                 end
             end
         end
@@ -270,40 +303,10 @@ button_addr = function(button)
     return tonumber(addr)
 end
 
-local function click_button_fallback(ctx, deps, nav_mod, hwnd, cfg, label)
+local function click_button(ctx, deps, nav_mod, hwnd, cfg, snapshot, pattern, label, required)
     local fallbacks = type(cfg.button_fallbacks) == "table" and cfg.button_fallbacks or {}
     local fallback = fallbacks[tostring(label or "")]
-    if type(fallback) ~= "table" then
-        return false, "fallback missing"
-    end
-    if type(nav_mod.click_window_to_move) ~= "function" then
-        return false, "nav.click_window_to_move unavailable"
-    end
-    local x = tonumber(fallback.client_x)
-    local y = tonumber(fallback.client_y)
-    if x == nil or y == nil then
-        return false, "fallback point missing"
-    end
-    local ok, click_err = nav_mod.click_window_to_move(hwnd, x, y, {
-        button = fallback.button or "left",
-        delay = tonumber(fallback.delay_ms) or 50,
-        wait = false
-    })
-    if not ok then
-        return false, click_err or "fallback click failed"
-    end
-    sleep_ms(ctx, cfg.step_wait_ms)
-    log_line(ctx, deps, "info", string.format(
-        "[Leveling] recycle fallback button clicked | label=%s x=%.1f y=%.1f",
-        tostring(label or ""),
-        x,
-        y
-    ))
-    return true
-end
-
-local function click_button(ctx, deps, nav_mod, hwnd, cfg, snapshot, pattern, label, required)
-    local button = find_button(snapshot, pattern)
+    local button = find_button(snapshot, pattern, fallback)
     if type(button) ~= "table" and required ~= false then
         local attempts = math.max(1, math.floor(tonumber(cfg.button_retry_attempts) or 1))
         for attempt = 1, attempts do
@@ -311,7 +314,7 @@ local function click_button(ctx, deps, nav_mod, hwnd, cfg, snapshot, pattern, la
             local retry_snapshot = enum_ui(nav_mod)
             if type(retry_snapshot) == "table" then
                 snapshot = retry_snapshot
-                button = find_button(snapshot, pattern)
+                button = find_button(snapshot, pattern, fallback)
                 if type(button) == "table" then
                     log_line(ctx, deps, "info", string.format(
                         "[Leveling] recycle button found after retry | label=%s attempt=%d pattern=%s",
@@ -329,11 +332,40 @@ local function click_button(ctx, deps, nav_mod, hwnd, cfg, snapshot, pattern, la
         if required == false then
             return false, snapshot, "missing_optional"
         end
-        local fallback_ok, fallback_err = click_button_fallback(ctx, deps, nav_mod, hwnd, cfg, label)
-        if not fallback_ok then
-            return false, snapshot, "button not found: " .. tostring(label) .. ", fallback=" .. tostring(fallback_err or "")
+        if type(fallback) ~= "table" then
+            return false, snapshot, "button not found: " .. tostring(label) .. ", fallback=missing"
         end
+        if cfg.require_bag_open_for_button_fallback ~= false then
+            local fallback_snapshot = enum_ui(nav_mod)
+            if type(fallback_snapshot) ~= "table" or not is_bag_open(fallback_snapshot, cfg) then
+                return false, snapshot, "button not found: " .. tostring(label) .. ", fallback=bag_not_open"
+            end
+            snapshot = fallback_snapshot
+        end
+        if type(nav_mod.click_window_to_move) ~= "function" then
+            return false, snapshot, "button not found: " .. tostring(label) .. ", fallback=nav.click_window_to_move unavailable"
+        end
+        local x = tonumber(fallback.client_x)
+        local y = tonumber(fallback.client_y)
+        if x == nil or y == nil then
+            return false, snapshot, "button not found: " .. tostring(label) .. ", fallback=point missing"
+        end
+        local ok, click_err = nav_mod.click_window_to_move(hwnd, x, y, {
+            button = "left",
+            delay = tonumber(fallback.delay_ms) or 50,
+            wait = false
+        })
+        if not ok then
+            return false, snapshot, "button not found: " .. tostring(label) .. ", fallback=" .. tostring(click_err or "click failed")
+        end
+        sleep_ms(ctx, cfg.step_wait_ms)
         local next_snapshot, enum_err = enum_ui(nav_mod)
+        log_line(ctx, deps, "info", string.format(
+            "[Leveling] recycle fallback left click | label=%s x=%.1f y=%.1f",
+            tostring(label or ""),
+            x,
+            y
+        ))
         return true, type(next_snapshot) == "table" and next_snapshot or snapshot, enum_err
     end
 
@@ -449,10 +481,11 @@ function M.perform_recycle(ctx, deps, runtime, cfg, current_time)
 
     sleep_ms(ctx, cfg.confirm_wait_ms)
     snapshot = enum_ui(nav_mod) or snapshot
-    clicked, snapshot, err = click_button(ctx, deps, nav_mod, hwnd, cfg, snapshot, cfg.confirm_button_pattern, "confirm", false)
+    clicked, snapshot, err = click_button(ctx, deps, nav_mod, hwnd, cfg, snapshot, cfg.confirm_button_pattern, "confirm", true)
     local confirm_clicked = clicked == true
-    if err ~= nil and tostring(err) ~= "missing_optional" then
-        log_line(ctx, deps, "warn", "[Leveling] recycle confirm skipped | err=" .. tostring(err))
+    if not confirm_clicked then
+        close_bag(ctx, deps, nav_mod, cfg, current_time)
+        return false, err or "confirm button not clicked"
     end
 
     local random_ok, random_err = random_rect_clicks(ctx, deps, nav_mod, hwnd, cfg)
@@ -462,12 +495,14 @@ function M.perform_recycle(ctx, deps, runtime, cfg, current_time)
 
     local closed, close_err = close_bag(ctx, deps, nav_mod, cfg, current_time)
     if not closed then
-        return false, close_err or "bag close failed"
+        log_line(ctx, deps, "warn", "[Leveling] recycle close after completion failed | err=" .. tostring(close_err or ""))
     end
 
     return true, {
         confirm_clicked = confirm_clicked,
-        random_clicked = random_ok == true
+        random_clicked = random_ok == true,
+        close_ok = closed == true,
+        close_error = closed == true and nil or close_err
     }
 end
 
@@ -492,22 +527,31 @@ function M.maybe_handle(ctx, deps)
         deps.hold_navigation(ctx, current_time, "recycle_maintenance")
     end
 
+    runtime.recycle_last_result = "running"
+    runtime.recycle_last_error = nil
     local ok, handled, summary = safe_call(M.perform_recycle, ctx, deps, runtime, cfg, current_time)
     runtime.recycle_active = false
 
     if not ok then
+        runtime.recycle_last_result = "crashed"
+        runtime.recycle_last_error = tostring(handled or "")
         log_line(ctx, deps, "warn", "[Leveling] recycle maintenance crashed | err=" .. tostring(handled or ""))
         return true
     end
     if handled ~= true then
+        runtime.recycle_last_result = "failed"
+        runtime.recycle_last_error = tostring(summary or "")
         log_line(ctx, deps, "warn", "[Leveling] recycle maintenance failed | err=" .. tostring(summary or ""))
         return true
     end
 
+    runtime.recycle_last_result = "success"
+    runtime.recycle_last_error = nil
     log_line(ctx, deps, "info", string.format(
-        "[Leveling] recycle maintenance complete | confirm=%s random_click=%s",
+        "[Leveling] recycle maintenance complete | confirm=%s random_click=%s close=%s",
         tostring(type(summary) == "table" and summary.confirm_clicked or ""),
-        tostring(type(summary) == "table" and summary.random_clicked or "")
+        tostring(type(summary) == "table" and summary.random_clicked or ""),
+        tostring(type(summary) == "table" and summary.close_ok or "")
     ))
     return true
 end

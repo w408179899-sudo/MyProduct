@@ -771,10 +771,16 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
     identify_all_on_bag_open = true,
     identify_all_before_scan = true,
     identify_all_wait_ms = 800,
+    identify_all_retry_attempts = 5,
+    identify_all_retry_wait_ms = 300,
     identify_all_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.pcuigridlistview.widgettree.uibutton_onekey",
+    identify_all_button_fallback = {
+        client_x = 1264.059570,
+        client_y = 850.707092
+    },
     bag_close_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.uibutton_close",
     scan_max_items = 32,
-    max_equips_per_run = 2,
+    max_equips_per_run = 10,
     min_survival_gain = 0,
     min_damage_gain = 0,
     allow_damage_upgrade_when_survival_equal = true,
@@ -814,14 +820,23 @@ M.EQUIP_RECYCLE_MAINTENANCE_CONFIG = {
     rarity_filter_button_pattern = "pcbagfilterrarityitem.widgettree.selectbtn0",
     confirm_button_pattern = "confirmv2_c.widgettree.combuttonv2.widgettree.btn",
     bag_close_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.uibutton_close",
+    require_bag_open_for_button_fallback = true,
     button_fallbacks = {
         recycle_open = {
             client_x = 1348.82,
-            client_y = 849.17
+            client_y = 850.71
+        },
+        rarity_filter_0 = {
+            client_x = 911.132019,
+            client_y = 849.165894
         },
         recycle_execute = {
             client_x = 1348.82,
-            client_y = 849.17
+            client_y = 850.71
+        },
+        confirm = {
+            client_x = 734.516785,
+            client_y = 609.795044
         }
     },
     random_click_count = 1,
@@ -1083,6 +1098,25 @@ do
 
     for _, level in ipairs({ 15, 16, 17 }) do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_15_to_17_talent_plan(level)
+    end
+
+    for _, step in ipairs(type(M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[15].steps) == "table" and M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[15].steps or {}) do
+        if tostring(step.key or "") == "select_level_15_talent_node" then
+            step.hint_client_x = 916.706848
+            step.hint_client_y = 480.651550
+            step.hint_ratio_x = 0.637044
+            step.hint_ratio_y = 0.534057
+            step.hint_max_distance = 80
+        elseif tostring(step.key or "") == "activate_level_15_talent_node" then
+            step.include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+            }
+            step.hint_client_x = 746.509155
+            step.hint_client_y = 675.801453
+            step.hint_ratio_x = 0.518769
+            step.hint_ratio_y = 0.750891
+            step.hint_max_distance = 80
+        end
     end
 
     local function make_level_18_to_20_talent_plan(level)
@@ -4611,9 +4645,9 @@ M.TREASURE_DUNGEON_CONFIGS = {
             z_tolerance = 700
         },
         exit_landing = {
-            x = 1537.00,
-            y = -2794.00,
-            z = 3183.69,
+            x = 13463.00,
+            y = 15847.00,
+            z = 5214.00,
             radius = 2200,
             z_tolerance = 900
         },
@@ -4626,7 +4660,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "Target level is 16; return-to-mainline gate is enabled",
             "Boss loot uses faster pickup pulses plus empty-list confirmation to avoid leaving drops behind",
             "Configured boss center/kite points, restart portal, exit portal, restart landing, and exit landing from measured F6/F7 data",
-            "Exit landing updated after game map change to 1537,-2794,3183.69; wait_exit should resume mainline from this outside point",
+            "Exit landing updated after latest F6 sample to 13463,15847,5214; wait_exit should resume mainline from this outside point",
             "Persisted route_acquired is still false until this treasure completes its first path capture",
             "Restart landing updated to -1708,746,5929; still need F7 restart EPortal data if restart door matching drifts"
         }

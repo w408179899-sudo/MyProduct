@@ -33,10 +33,16 @@ M.DEFAULT_CONFIG = {
     identify_all_on_bag_open = true,
     identify_all_before_scan = true,
     identify_all_wait_ms = 800,
+    identify_all_retry_attempts = 5,
+    identify_all_retry_wait_ms = 300,
     identify_all_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.pcuigridlistview.widgettree.uibutton_onekey",
+    identify_all_button_fallback = {
+        client_x = 1264.059570,
+        client_y = 850.707092
+    },
     bag_close_button_pattern = "pcbag_c.widgettree.pcbagmain.widgettree.uibutton_close",
     scan_max_items = 32,
-    max_equips_per_run = 2,
+    max_equips_per_run = 10,
     allow_damage_upgrade_when_survival_equal = true,
     min_survival_gain = 0,
     min_damage_gain = 0,
@@ -446,7 +452,59 @@ end
 local function click_identify_all(ctx, deps, nav_mod, hwnd, cfg, snapshot, character_id)
     local button = find_visible_button(snapshot, cfg.identify_all_button_pattern)
     if type(button) ~= "table" then
-        return false, snapshot, "identify-all button not found"
+        local attempts = math.max(1, math.floor(tonumber(cfg.identify_all_retry_attempts) or 1))
+        for attempt = 1, attempts do
+            sleep_ms(ctx, tonumber(cfg.identify_all_retry_wait_ms) or 300)
+            local retry_snapshot = nav_mod.enum_ui()
+            if type(retry_snapshot) == "table" then
+                snapshot = retry_snapshot
+                button = find_visible_button(snapshot, cfg.identify_all_button_pattern)
+                if type(button) == "table" then
+                    log_line(ctx, deps, "info", string.format(
+                        "[Leveling] auto-equip identify-all button found after retry | id=%s attempt=%d",
+                        tostring(character_id or ""),
+                        attempt
+                    ))
+                    break
+                end
+            end
+        end
+    end
+
+    if type(button) ~= "table" then
+        local fallback = type(cfg.identify_all_button_fallback) == "table" and cfg.identify_all_button_fallback or nil
+        if type(fallback) ~= "table" then
+            return false, snapshot, "identify-all button not found"
+        end
+        local fallback_snapshot = nav_mod.enum_ui()
+        if type(fallback_snapshot) ~= "table" or not is_bag_open(fallback_snapshot) then
+            return false, snapshot, "identify-all button not found, fallback=bag_not_open"
+        end
+        if type(nav_mod.click_window_to_move) ~= "function" then
+            return false, fallback_snapshot, "identify-all button not found, fallback=click unavailable"
+        end
+        local x = tonumber(fallback.client_x)
+        local y = tonumber(fallback.client_y)
+        if x == nil or y == nil then
+            return false, fallback_snapshot, "identify-all button not found, fallback=point missing"
+        end
+        local fallback_clicked, fallback_err = nav_mod.click_window_to_move(hwnd, x, y, {
+            button = "left",
+            delay = tonumber(cfg.right_click_delay_ms) or 50,
+            wait = false
+        })
+        if not fallback_clicked then
+            return false, fallback_snapshot, fallback_err or "identify-all fallback click failed"
+        end
+        sleep_ms(ctx, cfg.identify_all_wait_ms)
+        local next_snapshot, enum_err = nav_mod.enum_ui()
+        log_line(ctx, deps, "info", string.format(
+            "[Leveling] auto-equip identify-all fallback left click | id=%s x=%.1f y=%.1f",
+            tostring(character_id or ""),
+            x,
+            y
+        ))
+        return true, type(next_snapshot) == "table" and next_snapshot or fallback_snapshot, enum_err
     end
 
     local addr = button_addr(button)
@@ -749,8 +807,17 @@ function M.perform_scan(ctx, deps, runtime, cfg, current_time, character_id)
     end
 
     local opened_by_module = false
+    local keep_bag_open_after_run = deps.keep_bag_open_after_run == true
     local function close_if_needed(force)
         if opened_by_module ~= true then
+            return
+        end
+        if force ~= true and keep_bag_open_after_run then
+            opened_by_module = false
+            if type(runtime) == "table" then
+                runtime.auto_equip_bag_opened_by_module = false
+            end
+            log_line(ctx, deps, "info", "[Leveling] auto-equip leaves bag open for recycle")
             return
         end
         if force ~= true and cfg.close_bag_after_run == false then

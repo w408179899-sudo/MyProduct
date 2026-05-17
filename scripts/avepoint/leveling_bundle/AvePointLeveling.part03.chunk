@@ -5682,6 +5682,51 @@ function M.clear_recycle_after_auto_equip_pending(ctx, current_time, reason)
     state.recycle_after_auto_equip_started_at = 0
 end
 
+function M.run_recycle_after_auto_equip_now(ctx, current_time, source_key, player_x, player_y, player_z, hp_ratio, in_main_interface)
+    local cfg = M.recycle_maintenance_config()
+    if cfg.enabled ~= true or cfg.execute_ui ~= true then
+        return false, "disabled"
+    end
+    if type(M._leveling_recycle) ~= "table"
+        or type(M._leveling_recycle.maybe_handle) ~= "function"
+    then
+        return false, "module_unavailable"
+    end
+
+    if type(release_async_combat_inputs) == "function" then
+        release_async_combat_inputs(ctx, current_time, true)
+    end
+    hold_navigation(ctx, current_time, "recycle_after_auto_equip_immediate")
+    logger(ctx).info(string.format(
+        "[Leveling] recycle running immediately after auto-equip | source=%s",
+        tostring(source_key or "")
+    ))
+
+    local handled = M._leveling_recycle.maybe_handle(ctx, {
+        runtime = state,
+        config = cfg,
+        nav = nav_api(ctx),
+        logger = logger,
+        current_time = current_time,
+        player_x = player_x,
+        player_y = player_y,
+        player_z = player_z,
+        hp_ratio = hp_ratio,
+        in_main_interface = in_main_interface,
+        press_key = press_keyboard_hotkey,
+        release_inputs = release_async_combat_inputs,
+        hold_navigation = hold_navigation
+    })
+    local recycle_result = tostring(state.recycle_last_result or "")
+    if handled and recycle_result == "success" then
+        return true
+    end
+    if handled then
+        return false, recycle_result ~= "" and recycle_result or "not_handled"
+    end
+    return false, "not_handled"
+end
+
 function M.auto_equip_after_loot_enabled()
     local cfg = M.auto_equip_maintenance_config()
     return cfg.enabled == true
@@ -5814,6 +5859,7 @@ function M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, play
         in_main_interface = in_main_interface,
         character_id = character_id,
         force_scan = after_loot_pending,
+        keep_bag_open_after_run = after_loot_pending and M.recycle_after_auto_equip_enabled(),
         press_key = press_keyboard_hotkey,
         release_inputs = release_async_combat_inputs,
         hold_navigation = hold_navigation,
@@ -5849,7 +5895,24 @@ function M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, play
             local result = tostring(state.auto_equip_last_result or "")
             M.clear_auto_equip_after_loot_pending(ctx, current_time, "handled")
             if result == "success" then
-                M.mark_recycle_after_auto_equip(ctx, now_ms(ctx), source_key)
+                local recycled, recycle_reason = M.run_recycle_after_auto_equip_now(
+                    ctx,
+                    current_time,
+                    source_key,
+                    player_x,
+                    player_y,
+                    player_z,
+                    hp_ratio,
+                    in_main_interface
+                )
+                if not recycled then
+                    logger(ctx).warn(string.format(
+                        "[Leveling] recycle immediate after auto-equip did not run; fallback to pending | source=%s reason=%s",
+                        tostring(source_key or ""),
+                        tostring(recycle_reason or "")
+                    ))
+                    M.mark_recycle_after_auto_equip(ctx, now_ms(ctx), source_key)
+                end
             else
                 logger(ctx).warn(string.format(
                     "[Leveling] recycle not armed because auto-equip did not complete successfully | source=%s result=%s",
@@ -5929,7 +5992,17 @@ function M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_
         hold_navigation = hold_navigation
     })
     if handled then
-        M.clear_recycle_after_auto_equip_pending(ctx, current_time, "handled")
+        local recycle_result = tostring(state.recycle_last_result or "")
+        if recycle_result == "success" then
+            M.clear_recycle_after_auto_equip_pending(ctx, current_time, "handled")
+        else
+            logger(ctx).warn(string.format(
+                "[Leveling] recycle after auto-equip handled without success | source=%s result=%s err=%s",
+                tostring(state.recycle_after_auto_equip_source_key or ""),
+                tostring(recycle_result or ""),
+                tostring(state.recycle_last_error or "")
+            ))
+        end
         return true
     end
 
@@ -5964,10 +6037,7 @@ function M.snapshot_indicates_bag_open(snapshot)
         local y = tonumber(type(button) == "table" and (button.y or button.Y))
         if x ~= nil and y ~= nil and x > 0 and y > 0 then
             local name = tostring(button.name or button.Fullname or button.fullname or ""):lower()
-            if name:find("pcbag_c.widgettree.pcbagmain", 1, true) ~= nil
-                or name:find("pcuibagequipitem.widgettree.pcbagequipslot", 1, true) ~= nil
-                or name:find("pcuigridlistview.widgettree.uibutton_recycle", 1, true) ~= nil
-                or name:find("pcuigridlistview.widgettree.uibutton_onekey", 1, true) ~= nil
+            if name:find("pcbag_c.widgettree.pcbagmain.widgettree.uibutton_close", 1, true) ~= nil
             then
                 return true
             end
