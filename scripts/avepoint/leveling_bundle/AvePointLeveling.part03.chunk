@@ -5884,12 +5884,13 @@ function M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, play
     local auto_equip_priority_over_level_up = after_loot_pending and cfg.priority_over_level_up ~= false
     local level_up_pending = type(M.level_up_maintenance_has_pending) == "function"
         and M.level_up_maintenance_has_pending()
-    if state.level_up_maintenance_executor_active == true or (not auto_equip_priority_over_level_up and level_up_pending) then
-        return hold_after_loot(
-            state.level_up_maintenance_executor_active == true
-                and "level_up_maintenance_executor_active"
-                or "level_up_maintenance_pending"
-        )
+    local level_up_preempts_after_loot = type(M.level_up_maintenance_should_preempt_after_loot) == "function"
+        and M.level_up_maintenance_should_preempt_after_loot()
+    if state.level_up_maintenance_executor_active == true
+        or level_up_preempts_after_loot
+        or (not auto_equip_priority_over_level_up and level_up_pending)
+    then
+        return false
     end
     if type(state.task_target) ~= "table" then
         local last_task_click_at = tonumber(state.last_task_button_click_at) or 0
@@ -6040,12 +6041,13 @@ function M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_
     local recycle_priority_over_level_up = cfg.priority_over_level_up ~= false
     local level_up_pending = type(M.level_up_maintenance_has_pending) == "function"
         and M.level_up_maintenance_has_pending()
-    if state.level_up_maintenance_executor_active == true or (not recycle_priority_over_level_up and level_up_pending) then
-        return hold_recycle(
-            state.level_up_maintenance_executor_active == true
-                and "level_up_maintenance_executor_active"
-                or "level_up_maintenance_pending"
-        )
+    local level_up_preempts_after_loot = type(M.level_up_maintenance_should_preempt_after_loot) == "function"
+        and M.level_up_maintenance_should_preempt_after_loot()
+    if state.level_up_maintenance_executor_active == true
+        or level_up_preempts_after_loot
+        or (not recycle_priority_over_level_up and level_up_pending)
+    then
+        return false
     end
 
     local handled = M._leveling_recycle.maybe_handle(ctx, {
@@ -6081,8 +6083,41 @@ function M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_
     return hold_recycle("not_handled")
 end
 
+function M.level_up_maintenance_should_preempt_after_loot()
+    if state.level_up_maintenance_executor_active == true then
+        return true
+    end
+    if type(M.level_up_maintenance_has_pending) ~= "function"
+        or not M.level_up_maintenance_has_pending()
+    then
+        return false
+    end
+    if type(M.level_up_maintenance_config) ~= "function"
+        or type(M.level_up_maintenance_find_next_plan) ~= "function"
+    then
+        return false
+    end
+
+    local cfg = M.level_up_maintenance_config()
+    local next_plan_info = M.level_up_maintenance_find_next_plan(cfg)
+    if type(next_plan_info) ~= "table" then
+        return false
+    end
+
+    local plan = type(next_plan_info.plan) == "table" and next_plan_info.plan or {}
+    local default_skill_nonblocking = tostring(next_plan_info.kind or "") == "skill"
+        and plan.default_skill_plan == true
+        and type(cfg) == "table"
+        and cfg.default_skill_block_main_flow == false
+        and state.level_up_maintenance_force_block_default_skill ~= true
+    return not default_skill_nonblocking
+end
+
 function M.after_loot_maintenance_blocks_main_flow()
     if state.level_up_maintenance_executor_active == true then
+        return false
+    end
+    if M.level_up_maintenance_should_preempt_after_loot() then
         return false
     end
 
