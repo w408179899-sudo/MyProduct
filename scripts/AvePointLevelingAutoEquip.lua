@@ -744,12 +744,19 @@ local function missing_all_ring_slot_keep_reason(compare, cfg)
     return nil
 end
 
+local ring_slot_lock_reason_from_keep_rules
+
 local function forced_ring_candidate_reason(compare, cfg, reason)
     if type(compare) ~= "table" or not is_ring_type(compare.item_type) then
         return nil
     end
     if compare.direct_ring_equip ~= true
         and compare_slot_from_text(compare.compare_slot) == nil
+    then
+        return nil
+    end
+    if compare.direct_ring_equip ~= true
+        and ring_slot_lock_reason_from_keep_rules(compare, cfg, compare.compare_slot) ~= nil
     then
         return nil
     end
@@ -916,7 +923,7 @@ local function select_ring_compare_row_by_slot(rows, cfg, slot)
     return best
 end
 
-local function ring_slot_lock_reason_from_keep_rules(result, cfg, slot)
+ring_slot_lock_reason_from_keep_rules = function(result, cfg, slot)
     slot = compare_slot_from_text(slot)
     if type(result) ~= "table" or slot == nil then
         return nil
@@ -1228,6 +1235,17 @@ end
 
 local function skip_reason_for_special_equipment(compare, cfg)
     local item_type = trim(type(compare) == "table" and compare.item_type or "")
+    if cfg.ring_slot_selection_enabled ~= false
+        and is_ring_type(item_type)
+        and type(compare) == "table"
+        and compare.direct_ring_equip ~= true
+    then
+        local locked_reason = ring_slot_lock_reason_from_keep_rules(compare, cfg, compare.compare_slot)
+        if locked_reason ~= nil then
+            return locked_reason
+        end
+    end
+
     local force_reason = trim(type(compare) == "table" and compare.force_equip_reason or "")
     local keep_reason = force_reason == "" and equipment_keep_skip_reason(compare, cfg) or nil
     if keep_reason ~= nil then
@@ -1260,6 +1278,17 @@ local function should_equip(compare, cfg)
     local damage = tonumber(type(compare) == "table" and compare.damage)
     local min_survival = tonumber(cfg.min_survival_gain) or 0
     local min_damage = tonumber(cfg.min_damage_gain) or 0
+    if cfg.ring_slot_selection_enabled ~= false
+        and type(compare) == "table"
+        and compare.direct_ring_equip ~= true
+        and is_ring_type(compare.item_type)
+    then
+        local locked_reason = ring_slot_lock_reason_from_keep_rules(compare, cfg, compare.compare_slot)
+        if locked_reason ~= nil then
+            return false, locked_reason
+        end
+    end
+
     local force_reason = trim(type(compare) == "table" and compare.force_equip_reason or "")
     if force_reason ~= "" then
         return true, force_reason

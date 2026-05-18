@@ -11,6 +11,8 @@ local detect_boss_portal_ready
 local cfg_by_key
 local normalize_route
 local landing_ready
+local cfg_landing_ready
+local cfg_landing_has_point
 
 local function trim(value)
     return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -916,7 +918,7 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
     local route_nearby_resume_enabled = cfg.resume_route_nearby ~= false
     local near_zero_restart_landing = restart_landing_resume_enabled
         and landing_ready(player_x, player_y, player_z, cfg.restart_landing)
-    local near_zero_exit_landing = landing_ready(player_x, player_y, player_z, cfg.exit_landing)
+    local near_zero_exit_landing = cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
     if not has_reliable_world_pos(player_x, player_y) then
         local near_configured_landing = near_zero_inside_landing or near_zero_restart_landing or near_zero_exit_landing
         local exit_landing_context = mode == "wait_exit"
@@ -940,7 +942,7 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
         local near_inside_landing = landing_ready(player_x, player_y, player_z, cfg.inside_landing)
         local near_restart_landing = restart_landing_resume_enabled
             and landing_ready(player_x, player_y, player_z, cfg.restart_landing)
-        local near_exit_landing = landing_ready(player_x, player_y, player_z, cfg.exit_landing)
+        local near_exit_landing = cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
         local near_boss_trigger = within_trigger(player_x, player_y, player_z, type(cfg.boss) == "table" and cfg.boss.trigger or nil)
         local near_restart_portal = within_trigger(player_x, player_y, player_z, cfg.portals and cfg.portals.restart and cfg.portals.restart.trigger or nil)
         local near_exit_portal = within_trigger(player_x, player_y, player_z, cfg.portals and cfg.portals.exit and cfg.portals.exit.trigger or nil)
@@ -969,7 +971,7 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
             restore_reason = "restart_landing_resume_override"
             resume_override_mode = "grinding"
         elseif mode == "wait_exit" or mode == "return_mainline" then
-            allow_restore = landing_ready(player_x, player_y, player_z, cfg.exit_landing)
+            allow_restore = cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
             restore_reason = allow_restore and "exit_landing" or "outside_exit_landing"
         elseif resume_requires_known_inside(mode) then
             allow_restore = near_known_inside or near_route
@@ -2599,6 +2601,63 @@ landing_ready = function(player_x, player_y, player_z, landing)
     return within_trigger(player_x, player_y, player_z, landing)
 end
 
+local function landing_has_point(landing)
+    return is_valid_point(landing) and (tonumber(landing.x) ~= 0 or tonumber(landing.y) ~= 0)
+end
+
+local function get_extra_landings(cfg, key)
+    if type(cfg) ~= "table" then
+        return nil
+    end
+    local typed_key = tostring(key or "")
+    local extra = cfg["extra_" .. typed_key .. "s"]
+    if type(extra) == "table" then
+        return extra
+    end
+    local list_key = typed_key:gsub("_landing$", "_landings")
+    extra = cfg[list_key]
+    if type(extra) == "table" then
+        return extra
+    end
+    return nil
+end
+
+cfg_landing_ready = function(player_x, player_y, player_z, cfg, key)
+    if type(cfg) ~= "table" then
+        return false
+    end
+    if landing_ready(player_x, player_y, player_z, cfg[key]) then
+        return true
+    end
+    local extras = get_extra_landings(cfg, key)
+    if type(extras) == "table" then
+        for _, landing in ipairs(extras) do
+            if landing_ready(player_x, player_y, player_z, landing) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+cfg_landing_has_point = function(cfg, key)
+    if type(cfg) ~= "table" then
+        return false
+    end
+    if landing_has_point(cfg[key]) then
+        return true
+    end
+    local extras = get_extra_landings(cfg, key)
+    if type(extras) == "table" then
+        for _, landing in ipairs(extras) do
+            if landing_has_point(landing) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 local function entry_step_trigger(cfg, step, step_index)
     local trigger = type(step) == "table" and step.trigger or nil
     if is_valid_point(trigger) then
@@ -3227,7 +3286,7 @@ local function recover_completed_exit_if_needed(ctx, main_state, configs, hooks,
             local record = ensure_record(main_state, candidate)
             local exit_portal = type(candidate.portals) == "table" and candidate.portals.exit or nil
             local near_exit_portal = within_trigger(player_x, player_y, player_z, type(exit_portal) == "table" and exit_portal.trigger or nil)
-            local already_landed = landing_ready(player_x, player_y, player_z, candidate.exit_landing)
+            local already_landed = cfg_landing_ready(player_x, player_y, player_z, candidate, "exit_landing")
             if record.completed == true and near_exit_portal and not already_landed then
                 record.completed = false
                 runtime.last_save_err = nil
@@ -4265,12 +4324,12 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             and type(current_level) == "number"
             and current_level >= target_level
         local restart_exit_share_landing = landing_ready(player_x, player_y, player_z, cfg.restart_landing)
-            and landing_ready(player_x, player_y, player_z, cfg.exit_landing)
+            and cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
         local accidental_exit_landing = runtime.pending_return_mainline ~= true
             and target_level ~= nil
             and target_level_reached ~= true
             and not restart_exit_share_landing
-            and landing_ready(player_x, player_y, player_z, cfg.exit_landing)
+            and cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
         if accidental_exit_landing then
             transition_mode(ctx, hooks, cfg, runtime, "pending_entry", "restart_landed_exit_before_target_level")
             runtime.next_retry_at = current_time
@@ -4357,9 +4416,8 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
 
     if mode == "wait_exit" then
         set_treasure_stage(main_state, "treasure_wait_exit")
-        local landing = cfg.exit_landing
-        local has_landing = is_valid_point(landing) and (tonumber(landing.x) ~= 0 or tonumber(landing.y) ~= 0)
-        local ready = landing_ready(player_x, player_y, player_z, landing)
+        local has_landing = cfg_landing_has_point(cfg, "exit_landing")
+        local ready = cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
             or (not has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0))
         if ready then
             if runtime.pending_return_mainline == true and record.completed ~= true then

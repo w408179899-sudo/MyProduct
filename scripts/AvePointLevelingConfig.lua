@@ -2776,24 +2776,40 @@ do
                     80,
                     650
                 ), "activate_level_24_resampled_talent_node")
-                append_shifted_step(steps, current_level, extra_talent_fixed_click_step(
+                append_shifted_step(steps, current_level, maintenance_locator_step(
                     "level_24_extra_talent_tab_click",
-                    "24级额外天赋：点击额外页签",
-                    385.00,
-                    249.00,
-                    0.267547,
-                    0.276667,
+                    "24按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.KeyStoneItem2.WidgetTree.TabBtn"
+                    },
+                    461.451080,
+                    251.016342,
+                    0.320675,
+                    0.278907,
+                    80,
                     650
                 ), "level_24_extra_talent_tab_click")
-                append_shifted_step(steps, current_level, extra_talent_fixed_click_step(
+                steps[#steps].distance_anchor_exact_text = "24"
+                steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.KeyStoneItem2.WidgetTree.TabBtn"
+                steps[#steps].distance_min = 50.743154
+                steps[#steps].distance_max = 53.881905
+                append_shifted_step(steps, current_level, maintenance_locator_step(
                     "level_24_extra_talent_node_click",
-                    "24级额外天赋：点击额外节点",
-                    726.00,
-                    618.00,
-                    0.504517,
-                    0.686667,
+                    "2按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabKeyStoneItem_C.WidgetTree.SelectBtn2"
+                    },
+                    646.869873,
+                    634.373291,
+                    0.449527,
+                    0.704859,
+                    80,
                     900
                 ), "level_24_extra_talent_node_click")
+                steps[#steps].distance_anchor_exact_text = "2"
+                steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TabKeyStoneItem_C.WidgetTree.SelectBtn2"
+                steps[#steps].distance_min = 31.585863
+                steps[#steps].distance_max = 33.539628
                 append_shifted_step(steps, current_level, extra_talent_fixed_click_step(
                     "level_24_extra_talent_confirm_click",
                     "24级额外天赋：点击额外确认",
@@ -5078,6 +5094,15 @@ M.TREASURE_DUNGEON_CONFIGS = {
             z = 1603.89,
             radius = 2400,
             z_tolerance = 900
+        },
+        extra_exit_landings = {
+            {
+                x = 1433.78,
+                y = -2558.69,
+                z = 3141.51,
+                radius = 2400,
+                z_tolerance = 900
+            }
         },
         transition_timeout_ms = 15000
     },
@@ -7473,6 +7498,49 @@ M.TASK_NAME_CONFIGS = {
             generic_followup_require_no_special = true
         }
     ),
+    ["藏宝地：曙光大道 / 在群狼街巷找到下一个藏宝地（推荐等级27~35级）"] = make_world_map_send_task_config(
+        "treasure_dawn_avenue_wolf_street_world_map_send",
+        {
+            label = "传送按钮",
+            distance_anchor_exact_text = "传送",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn",
+            distance_min = 8.248740,
+            distance_max = 9.248740,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn"
+            },
+            hint_client_x = 661.188843,
+            hint_client_y = 827.716736,
+            hint_ratio_x = 0.459159,
+            hint_ratio_y = 0.919685,
+            hint_max_distance = 80.000,
+            prefer_hint_fallback = true
+        },
+        {
+            map_open_wait_ms = 1200,
+            center_click_ratio_x = 0.161223,
+            center_click_ratio_y = 0.536667,
+            center_use_human_mouse = true,
+            center_mouse_mode = "api",
+            center_hover_delay_ms = 90,
+            center_click_delay_ms = 60,
+            center_settle_ms = 700,
+            center_retry_ms = 1400,
+            transition_wait_ms = 2500,
+            timeout_ms = 16000
+        },
+        {
+            task_patterns = {
+                "藏宝地：曙光大道",
+                "燃烧的长夜"
+            },
+            task_detail_patterns = {
+                "在群狼街巷找到下一个藏宝地（推荐等级27~35级）",
+                "前往阴翳之地"
+            },
+            constraint_mode = "all"
+        }
+    ),
     ["\u{524D}\u{5F80}\u{9F99}\u{9AA8}\u{5C71}\u{810A}"] = make_world_map_send_task_config(
         "dragonbone_ridge_world_map_send",
         {
@@ -9453,6 +9521,8 @@ M.TASK_NAME_CONFIGS = {
 M.TASK_NAME_CONFIGS["美欲之试"] = M.TASK_NAME_CONFIGS["支线 美欲之试"]
 M.TASK_NAME_CONFIGS["权力之试"] = M.TASK_NAME_CONFIGS["支线 权力之试"]
 M.TASK_NAME_CONFIGS["征伐之试"] = M.TASK_NAME_CONFIGS["支线 征伐之试"]
+M.TASK_NAME_CONFIGS["燃烧的长夜 / 前往阴翳之地"] =
+    M.TASK_NAME_CONFIGS["藏宝地：曙光大道 / 在群狼街巷找到下一个藏宝地（推荐等级27~35级）"]
 
 M.TASK_NAME_CONFIGS["\u{5723}\u{8BEB}\u{4E4B}\u{672B}"] = make_world_map_send_task_config(
     "ember_rest_world_map_send",
@@ -9835,9 +9905,11 @@ M.ROUTE_POINT_ACTIONS = {
         interact_radius = 260,
         pre_action_combat_guard = false,
         probe_retry_ms = 700,
-        retry_ms = 3500,
+        retry_ms = 600000,
         settle_ms = 1600,
         timeout_ms = 14000,
+        missing_button_complete_action = true,
+        missing_button_skip_after_ms = 3000,
         step = {
             key = "shadowland_fire_seed_gather_button_10068_9823",
             label = "火种后续Gather按钮",

@@ -7574,8 +7574,9 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
         missing_button_followup_key = trim(action.followup_route_action_key or action.next_route_point_action_key or "")
     end
     local missing_button_complete_side_task = action.missing_button_complete_side_task == true
+    local missing_button_complete_action = action.missing_button_complete_action == true
     if missing_button_skip_after_ms > 0
-        and (missing_button_followup_key ~= "" or missing_button_complete_side_task)
+        and (missing_button_followup_key ~= "" or missing_button_complete_side_task or missing_button_complete_action)
     then
         local missing_since = tonumber(state.route_point_action_objective_missing_button_since_at) or 0
         if missing_since <= 0 then
@@ -7623,9 +7624,11 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
                 )
                 return false
             end
-            if missing_button_complete_side_task then
+            if missing_button_complete_side_task or missing_button_complete_action then
                 state.map_transition_triggered[state_key] = current_time
-                M.mark_recipe_action_completed(ctx, current_time, action, "objective_button_missing_completed")
+                if missing_button_complete_side_task then
+                    M.mark_recipe_action_completed(ctx, current_time, action, "objective_button_missing_completed")
+                end
                 M.clear_route_point_action_objective_state()
                 schedule_task_refresh_after_transition(
                     ctx,
@@ -7634,7 +7637,8 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
                     tonumber(action.settle_ms) or POST_DIALOGUE_SETTLE_MS
                 )
                 logger(ctx).warn(string.format(
-                    "[Leveling] route point action objective missing button completed side task | task=%s key=%s missing_ms=%d distance=%.2f z_gap=%.2f err=%s",
+                    "[Leveling] route point action objective missing button completed %s | task=%s key=%s missing_ms=%d distance=%.2f z_gap=%.2f err=%s",
+                    missing_button_complete_side_task and "side task" or "action",
                     tostring(M.current_task_log_name() or state.current_task_name or ""),
                     tostring(action.key or ""),
                     missing_elapsed,
@@ -11894,6 +11898,18 @@ end
             local esc_due = tonumber(state.skip_level_sequence_next_escape_at) or 0
             if current_time >= esc_due then
                 state.skip_level_sequence_next_escape_at = current_time + math.max(1200, retry_ms)
+                local click_ok, click_err = false, nil
+                if type(M.click_window_client_point) == "function" then
+                    click_ok, click_err = M.click_window_client_point(ctx, current_time, "skip level sequence pre-esc click", 0.5, 0.5, {
+                        center_use_human_mouse = true,
+                        center_mouse_mode = "api",
+                        center_click_button = "left",
+                        center_click_delay_ms = 50,
+                        center_hover_delay_ms = 0
+                    })
+                else
+                    click_err = "click_window_client_point unavailable"
+                end
                 local ok, err = true, nil
                 if type(press_keyboard_hotkey) == "function" then
                     ok, err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "skip level sequence")
@@ -11902,7 +11918,8 @@ end
                 end
                 local log_fn = ok and logger(ctx).info or logger(ctx).warn
                 log_fn(string.format(
-                    "[Leveling] level sequence skip detected; ESC %s | skip_buttons=%d visible=%d zero=%d total=%d zero_ratio=%.2f task_zero=%d/%d fight_zero=%d/%d name=%s err=%s",
+                    "[Leveling] level sequence skip detected; pre_click=%s ESC %s | skip_buttons=%d visible=%d zero=%d total=%d zero_ratio=%.2f task_zero=%d/%d fight_zero=%d/%d name=%s click_err=%s err=%s",
+                    click_ok and "sent" or "failed",
                     ok and "sent" or "failed",
                     ui_state.skip_buttons,
                     ui_state.visible_buttons,
@@ -11914,6 +11931,7 @@ end
                     ui_state.zero_fight_interactive_buttons,
                     ui_state.fight_interactive_buttons,
                     tostring(ui_state.skip_name or ""),
+                    tostring(click_err or ""),
                     tostring(err or "")
                 ))
             else
