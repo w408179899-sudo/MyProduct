@@ -2254,6 +2254,17 @@ function M.build_treasure_hooks(ctx)
         issue_combat_pulse = function(inner_ctx, current_time, reason, ignore_move_guard)
             return issue_combat_pulse(inner_ctx, current_time, reason, ignore_move_guard)
         end,
+        tick_combat_sidecar = function(inner_ctx, current_time, player_x, player_y, player_z, opts)
+            opts = type(opts) == "table" and opts or {}
+            return M.tick_combat_sidecar(inner_ctx, current_time, player_x, player_y, player_z, opts.hp_ratio, {
+                phase = tostring(opts.phase or "treasure_acquire_path"),
+                in_main_interface = opts.in_main_interface,
+                allow_when_main_interface_false = opts.allow_when_main_interface_false == true,
+                allow_during_entry_action = opts.allow_during_entry_action == true,
+                allow_during_action_lock = opts.allow_during_action_lock == true,
+                skip_ambient = opts.skip_ambient == true
+            })
+        end,
         schedule_task_refresh_after_transition = function(inner_ctx, current_time, reason, wait_ms, opts)
             return schedule_task_refresh_after_transition(inner_ctx, current_time, reason, wait_ms, opts)
         end,
@@ -4214,6 +4225,26 @@ function M.maybe_handle_forced_kite_monster(ctx, current_time, player_x, player_
         or (type(point_objective_cfg) == "table" and "point" or "none")
     local objective_mode = type(objective_cfg) == "table" and tostring(objective_cfg.mode or "") or ""
     local boss_objective_active = objective_mode == "boss_kite"
+    local require_task_path_for_kite = (
+        type(objective_cfg) == "table" and objective_cfg.require_task_path_for_kite == true
+    ) or (
+        type(point_objective_cfg) == "table" and point_objective_cfg.require_task_path_for_kite == true
+    )
+    local task_path_ready_for_kite = tostring(type(target) == "table" and target.source or "") == "task_path"
+        or tostring(type(destination) == "table" and destination.source or "") == "task_path"
+        or tostring(type(destination) == "table" and destination.source or "") == "path_first_endpoint"
+        or tostring(type(destination) == "table" and destination.source or "") == "path_last_endpoint"
+    if boss_objective_active and require_task_path_for_kite and not task_path_ready_for_kite then
+        log_throttled(ctx, "forced_kite_wait_task_path_" .. tostring(type(objective_cfg) == "table" and objective_cfg.key or ""), "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] boss kite force trigger waiting for task_path target | task=%s detail=%s objective=%s target_source=%s destination_source=%s",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            tostring(type(objective_cfg) == "table" and objective_cfg.key or ""),
+            tostring(type(target) == "table" and target.source or ""),
+            tostring(type(destination) == "table" and destination.source or "")
+        ))
+        boss_objective_active = false
+    end
     local revive_boss_engage_armed = boss_objective_active
         and (tonumber(state.post_revive_boss_engage_until) or 0) > current_time
     local startup_boss_engage_armed = boss_objective_active
@@ -4405,6 +4436,15 @@ function M.maybe_handle_forced_kite_monster(ctx, current_time, player_x, player_
                 state.task_combat_anchor_z = tonumber(point_objective_cfg.z) or tonumber(state.task_combat_anchor_z)
                 state.task_combat_kite_radius = tonumber(point_objective_cfg.kite_radius)
                     or tonumber(objective_cfg and objective_cfg.kite_radius)
+                    or tonumber(state.task_combat_kite_radius)
+            elseif tostring(type(point_objective_cfg) == "table" and point_objective_cfg.kite_anchor_source or objective_cfg and objective_cfg.kite_anchor_source or "") == "task_destination"
+                and is_valid_world_point(destination or target)
+            then
+                local anchor = destination or target
+                state.task_combat_anchor_x = tonumber(anchor.x) or tonumber(state.task_combat_anchor_x)
+                state.task_combat_anchor_y = tonumber(anchor.y) or tonumber(state.task_combat_anchor_y)
+                state.task_combat_anchor_z = tonumber(anchor.z) or tonumber(state.task_combat_anchor_z)
+                state.task_combat_kite_radius = tonumber(objective_cfg and objective_cfg.kite_radius)
                     or tonumber(state.task_combat_kite_radius)
             else
                 state.task_combat_anchor_x = tonumber(selected_monster.x) or tonumber(state.task_combat_anchor_x)
@@ -6041,19 +6081,51 @@ function M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_
     return hold_recycle("not_handled")
 end
 
-function M.after_loot_maintenance_priority_blocks_level_up()
+function M.after_loot_maintenance_blocks_main_flow()
     if state.level_up_maintenance_executor_active == true then
         return false
     end
 
     local auto_cfg = M.auto_equip_maintenance_config()
-    if state.auto_equip_after_loot_pending == true and auto_cfg.priority_over_level_up ~= false then
+    if state.auto_equip_after_loot_pending == true
+        and auto_cfg.enabled == true
+        and auto_cfg.execute_ui == true
+        and auto_cfg.trigger_after_post_combat_loot ~= false
+    then
         return true
     end
 
     local recycle_cfg = M.recycle_maintenance_config()
-    if state.recycle_after_auto_equip_pending == true and recycle_cfg.priority_over_level_up ~= false then
+    if state.recycle_after_auto_equip_pending == true
+        and recycle_cfg.enabled == true
+        and recycle_cfg.execute_ui == true
+        and recycle_cfg.trigger_after_auto_equip ~= false
+    then
         return true
+    end
+
+    return false
+end
+
+function M.after_loot_maintenance_priority_blocks_level_up()
+    return M.after_loot_maintenance_blocks_main_flow()
+end
+
+function M.maybe_handle_after_loot_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface)
+    if not M.after_loot_maintenance_blocks_main_flow() then
+        return false
+    end
+
+    if state.auto_equip_after_loot_pending == true then
+        if M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+            return true
+        end
+    end
+
+    if state.recycle_after_auto_equip_pending == true then
+        if M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+            return true
+        end
     end
 
     return false
@@ -6330,7 +6402,7 @@ function M.update(now, ctx)
     end
 
     if state.level_up_maintenance_executor_active == true
-        or (M.level_up_maintenance_has_pending() and not M.after_loot_maintenance_priority_blocks_level_up())
+        or (M.level_up_maintenance_has_pending() and not M.after_loot_maintenance_blocks_main_flow())
     then
         local allow_treasure_maintenance, treasure_maintenance_reason =
             M.treasure_allows_level_up_maintenance(player_x, player_y, player_z)
@@ -6414,19 +6486,13 @@ function M.update(now, ctx)
         state.level_up_maintenance_treasure_start_retry_clear_key = nil
     end
 
-    if M.has_active_treasure_runtime() and M.after_loot_maintenance_priority_blocks_level_up() then
-        if M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
-            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-            return true
-        end
-        if M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
-            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-            return true
-        end
+    if M.maybe_handle_after_loot_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
     end
 
     if M.has_active_treasure_runtime()
-        and not M.after_loot_maintenance_priority_blocks_level_up()
+        and not M.after_loot_maintenance_blocks_main_flow()
         and in_main_interface == false
         and not M.ensure_bag_closed_for_flow(ctx, current_time, "treasure_flow")
     then
@@ -6448,7 +6514,7 @@ function M.update(now, ctx)
     end
 
     if in_main_interface == false
-        and not M.after_loot_maintenance_priority_blocks_level_up()
+        and not M.after_loot_maintenance_blocks_main_flow()
         and not M.ensure_bag_closed_for_flow(ctx, current_time, "pre_main_flow")
     then
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
@@ -6486,6 +6552,11 @@ function M.update(now, ctx)
     end
 
     if M.maybe_handle_task_info_stability_gate(ctx, current_time, player_x, player_y, player_z, in_main_interface) then
+        return true
+    end
+
+    if M.maybe_handle_after_loot_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
 

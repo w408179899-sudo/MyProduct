@@ -31,6 +31,36 @@ M.DEFAULT_CONFIG = {
     right_click_foreground_wait_ms = 40,
     right_click_delay_ms = 50,
     equip_wait_ms = 650,
+    ring_slot_selection_enabled = true,
+    ring_slot_select_wait_ms = 450,
+    ring_slot_left = {
+        client_x = 972,
+        client_y = 381
+    },
+    ring_slot_right = {
+        client_x = 1376,
+        client_y = 376
+    },
+    keep_equipped_rules = {
+        {
+            key = "firebirth_rings",
+            item_type_patterns = { "戒指" },
+            keep_names = { "火焰降生" },
+            mode = "all_ring_slots",
+            reason = "ring_keep_both_equipped"
+        },
+        {
+            key = "survival_belt",
+            item_type_patterns = { "腰带", "护腰" },
+            keep_names = { "求生之欲" },
+            mode = "any_equipped",
+            reason = "belt_keep_equipped"
+        }
+    },
+    keep_equipped_panel_max_x = 650,
+    keep_equipped_marker_match_max_dx = 180,
+    keep_equipped_marker_match_max_dy = 100,
+    skip_non_two_hand_weapons = true,
     identify_all_on_bag_open = true,
     identify_all_before_scan = true,
     identify_all_wait_ms = 800,
@@ -110,9 +140,17 @@ local function text_of(item)
     return trim(item.text or "")
 end
 
+local function item_x(item)
+    return tonumber(type(item) == "table" and (item.x or item.X))
+end
+
+local function item_y(item)
+    return tonumber(type(item) == "table" and (item.y or item.Y))
+end
+
 local function is_visible_button(button)
-    local x = tonumber(type(button) == "table" and (button.x or button.X))
-    local y = tonumber(type(button) == "table" and (button.y or button.Y))
+    local x = item_x(button)
+    local y = item_y(button)
     return x ~= nil and y ~= nil and x > 0 and y > 0
 end
 
@@ -218,6 +256,45 @@ function M.safe_window(ctx, deps, runtime, cfg, current_time, player_x, player_y
             return block(runtime, "not_main_interface")
         end
     end
+    if force_open_bag then
+        if runtime.loading_transition_reacquire_pending == true then
+            return block(runtime, "loading_transition_reacquire")
+        end
+        if type(deps) == "table"
+            and type(deps.is_task_entry_action_active) == "function"
+            and deps.is_task_entry_action_active(current_time)
+        then
+            return block(runtime, "task_entry_action")
+        end
+        if type(deps) == "table"
+            and type(deps.is_task_combat_or_post_loot_active) == "function"
+            and deps.is_task_combat_or_post_loot_active()
+        then
+            return block(runtime, "task_combat_or_post_loot")
+        end
+        if runtime.pending_interaction_origin ~= nil then
+            return block(runtime, "pending_interaction")
+        end
+        if runtime.route_point_action_dialogue_active_key ~= nil
+            or runtime.route_point_action_objective_active_key ~= nil
+            or runtime.route_point_action_route_active_key ~= nil
+        then
+            return block(runtime, "route_point_action_active")
+        end
+        if runtime.task_recipe_active_key ~= nil then
+            return block(runtime, "task_recipe_active")
+        end
+        if type(deps) == "table" and type(deps.dialogue_block_reason) == "function" then
+            local dialogue_reason = deps.dialogue_block_reason(ctx, current_time)
+            if dialogue_reason ~= nil then
+                return block(runtime, tostring(dialogue_reason))
+            end
+        end
+
+        runtime.auto_equip_safe_since = 0
+        reset_safe_observe(runtime)
+        return true, "ready_force_open_bag"
+    end
     if not force_open_bag
         and type(hp_ratio) == "number"
         and hp_ratio < (tonumber(cfg.min_hp_ratio) or 0.72)
@@ -266,12 +343,6 @@ function M.safe_window(ctx, deps, runtime, cfg, current_time, player_x, player_y
         if dialogue_reason ~= nil then
             return block(runtime, tostring(dialogue_reason))
         end
-    end
-
-    if force_open_bag then
-        runtime.auto_equip_safe_since = 0
-        reset_safe_observe(runtime)
-        return true, "ready_force_open_bag"
     end
 
     if type(deps) == "table" and type(deps.find_task_monsters) == "function" then
@@ -361,20 +432,456 @@ local function parse_percent(text)
     return tonumber(value)
 end
 
-local function parse_compare(snapshot)
+local function text_contains(text, needle)
+    text = tostring(text or "")
+    needle = tostring(needle or "")
+    return needle ~= "" and text:find(needle, 1, true) ~= nil
+end
+
+local function is_ring_type(item_type)
+    return text_contains(item_type, "戒指")
+end
+
+local function is_weapon_type(item_type)
+    return text_contains(item_type, "单手") or text_contains(item_type, "双手")
+end
+
+local function is_two_hand_weapon_type(item_type)
+    return text_contains(item_type, "双手")
+end
+
+local function compare_slot_from_text(text)
+    if text == "left" or text == "right" then
+        return text
+    end
+    if text_contains(text, "左") then
+        return "left"
+    end
+    if text_contains(text, "右") then
+        return "right"
+    end
+    return nil
+end
+
+local function keep_name_matches(item_name, keep_names)
+    local name = trim(item_name)
+    if name == "" then
+        return false
+    end
+
+    if type(keep_names) ~= "table" then
+        return false
+    end
+    for _, keep_name in ipairs(keep_names) do
+        if name == trim(keep_name) then
+            return true
+        end
+    end
+    return false
+end
+
+local function nearest_tip_item_name(marker, item_names, max_dx, max_dy)
+    local marker_x = tonumber(marker and marker.x)
+    local marker_y = tonumber(marker and marker.y)
+    if marker_x == nil or marker_y == nil then
+        return nil
+    end
+
+    max_dx = tonumber(max_dx) or 180
+    max_dy = tonumber(max_dy) or 100
+    local best = nil
+    local best_score = nil
+    for _, item in ipairs(item_names) do
+        local name_x = tonumber(item.x)
+        local name_y = tonumber(item.y)
+        if name_x ~= nil and name_y ~= nil then
+            local dx = math.abs(name_x - marker_x)
+            local dy = math.abs(name_y - marker_y)
+            if dx <= max_dx and dy <= max_dy then
+                local score = dx + dy
+                if best == nil or score < best_score then
+                    best = item
+                    best_score = score
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function parse_equipped_ring_names(texts, cfg)
+    local item_names = {}
+    local hand_marks = {}
+    local max_panel_x = tonumber(type(cfg) == "table" and cfg.keep_equipped_panel_max_x)
+        or tonumber(M.DEFAULT_CONFIG.keep_equipped_panel_max_x)
+        or 650
+    local max_dx = tonumber(type(cfg) == "table" and cfg.keep_equipped_marker_match_max_dx)
+        or tonumber(M.DEFAULT_CONFIG.keep_equipped_marker_match_max_dx)
+        or 180
+    local max_dy = tonumber(type(cfg) == "table" and cfg.keep_equipped_marker_match_max_dy)
+        or tonumber(M.DEFAULT_CONFIG.keep_equipped_marker_match_max_dy)
+        or 100
+
+    for _, item in ipairs(texts) do
+        local name = identity_of(item)
+        local text = text_of(item)
+        local x = item_x(item)
+        local y = item_y(item)
+        if x ~= nil and y ~= nil and x > 0 and y > 0 and x <= max_panel_x then
+            if name:find("tipweaponitem_c.widgettree.uitextblock", 1, true) ~= nil
+                and text ~= ""
+            then
+                table.insert(item_names, {
+                    text = text,
+                    x = x,
+                    y = y
+                })
+            elseif name:find("tipequipmarkitem_c.widgettree.handtext", 1, true) ~= nil then
+                local slot = compare_slot_from_text(text)
+                if slot ~= nil then
+                    table.insert(hand_marks, {
+                        slot = slot,
+                        x = x,
+                        y = y
+                    })
+                end
+            end
+        end
+    end
+
+    local equipped = {}
+    for _, marker in ipairs(hand_marks) do
+        local item_name = nearest_tip_item_name(marker, item_names, max_dx, max_dy)
+        if item_name ~= nil then
+            equipped[marker.slot] = item_name.text
+        end
+    end
+    return equipped
+end
+
+local function parse_equipped_item_names(texts, cfg)
+    local item_names = {}
+    local equipped_marks = {}
+    local max_panel_x = tonumber(type(cfg) == "table" and cfg.keep_equipped_panel_max_x)
+        or tonumber(M.DEFAULT_CONFIG.keep_equipped_panel_max_x)
+        or 650
+    local max_dx = tonumber(type(cfg) == "table" and cfg.keep_equipped_marker_match_max_dx)
+        or tonumber(M.DEFAULT_CONFIG.keep_equipped_marker_match_max_dx)
+        or 180
+    local max_dy = tonumber(type(cfg) == "table" and cfg.keep_equipped_marker_match_max_dy)
+        or tonumber(M.DEFAULT_CONFIG.keep_equipped_marker_match_max_dy)
+        or 100
+
+    for _, item in ipairs(texts) do
+        local name = identity_of(item)
+        local text = text_of(item)
+        local x = item_x(item)
+        local y = item_y(item)
+        if x ~= nil and y ~= nil and x > 0 and y > 0 and x <= max_panel_x then
+            if name:find("tipweaponitem_c.widgettree.uitextblock", 1, true) ~= nil
+                and text ~= ""
+            then
+                table.insert(item_names, {
+                    text = text,
+                    x = x,
+                    y = y
+                })
+            elseif name:find("tipequipmarkitem_c.widgettree.uitextblock", 1, true) ~= nil
+                and text_contains(text, "已装备")
+            then
+                table.insert(equipped_marks, {
+                    x = x,
+                    y = y
+                })
+            end
+        end
+    end
+
+    local equipped = {}
+    for _, marker in ipairs(equipped_marks) do
+        local item_name = nearest_tip_item_name(marker, item_names, max_dx, max_dy)
+        if item_name ~= nil then
+            table.insert(equipped, item_name.text)
+        end
+    end
+    return equipped
+end
+
+local function item_type_matches_rule(item_type, rule)
+    local patterns = type(rule) == "table" and rule.item_type_patterns or nil
+    if type(patterns) ~= "table" then
+        return false
+    end
+
+    for _, pattern in ipairs(patterns) do
+        if text_contains(item_type, pattern) then
+            return true
+        end
+    end
+    return false
+end
+
+local function configured_keep_equipped_rules(cfg)
+    if type(cfg) == "table" and type(cfg.keep_equipped_rules) == "table" then
+        return cfg.keep_equipped_rules
+    end
+    if type(M.DEFAULT_CONFIG.keep_equipped_rules) == "table" then
+        return M.DEFAULT_CONFIG.keep_equipped_rules
+    end
+    return {}
+end
+
+local function keep_rule_skip_reason(compare, rule)
+    if type(compare) ~= "table" or type(rule) ~= "table" then
+        return nil
+    end
+    if not item_type_matches_rule(compare.item_type, rule) then
+        return nil
+    end
+
+    local keep_names = type(rule.keep_names) == "table" and rule.keep_names or {}
+    local mode = tostring(rule.mode or "any_equipped")
+    if mode == "all_ring_slots" then
+        local equipped = type(compare.equipped_ring_names) == "table" and compare.equipped_ring_names or {}
+        if keep_name_matches(equipped.left, keep_names) and keep_name_matches(equipped.right, keep_names) then
+            return tostring(rule.reason or "keep_all_ring_slots")
+        end
+        return nil
+    end
+
+    if mode == "any_ring_slot" then
+        local equipped = type(compare.equipped_ring_names) == "table" and compare.equipped_ring_names or {}
+        if keep_name_matches(equipped.left, keep_names) or keep_name_matches(equipped.right, keep_names) then
+            return tostring(rule.reason or "keep_any_ring_slot")
+        end
+        return nil
+    end
+
+    local equipped_items = type(compare.equipped_item_names) == "table" and compare.equipped_item_names or {}
+    for _, item_name in ipairs(equipped_items) do
+        if keep_name_matches(item_name, keep_names) then
+            return tostring(rule.reason or "keep_equipped")
+        end
+    end
+    return nil
+end
+
+local function equipment_keep_skip_reason(compare, cfg)
+    for _, rule in ipairs(configured_keep_equipped_rules(cfg)) do
+        local reason = keep_rule_skip_reason(compare, rule)
+        if reason ~= nil then
+            return reason
+        end
+    end
+    return nil
+end
+
+local function joined_names(names)
+    if type(names) ~= "table" or #names == 0 then
+        return ""
+    end
+    return table.concat(names, "/")
+end
+
+local function compare_row_key(name)
+    return tostring(name or ""):match("attrbutecompareitem(%d+)")
+end
+
+local function ensure_compare_row(rows, key)
+    if type(rows) ~= "table" or key == nil or key == "" then
+        return nil
+    end
+
+    local row = rows[key]
+    if row == nil then
+        row = { key = key }
+        rows[key] = row
+        rows[#rows + 1] = row
+    end
+    return row
+end
+
+local function collect_ring_compare_row(rows, name, text)
+    if name:find("attrbutecompareitems", 1, true) == nil then
+        return
+    end
+
+    local row = ensure_compare_row(rows, compare_row_key(name))
+    if row == nil then
+        return
+    end
+
+    if name:find("tipstagitem_name.widgettree.uitextblock", 1, true) ~= nil then
+        row.slot = compare_slot_from_text(text) or row.slot
+        return
+    end
+
+    if name:find("text_attrvalue", 1, true) == nil then
+        return
+    end
+
+    local value = parse_percent(text)
+    if value == nil then
+        return
+    end
+    if name:find("attrbuteitem_dps", 1, true) ~= nil then
+        row.damage = value
+    elseif name:find("attrbuteitem_def", 1, true) ~= nil then
+        row.survival = value
+    end
+end
+
+local function ring_row_can_equip(row, cfg)
+    if type(row) ~= "table" or row.slot == nil then
+        return false
+    end
+
+    local survival = tonumber(row.survival)
+    local damage = tonumber(row.damage)
+    local min_survival = tonumber(cfg.min_survival_gain) or 0
+    local min_damage = tonumber(cfg.min_damage_gain) or 0
+    if survival == nil and damage == nil then
+        return false
+    end
+    if survival ~= nil and survival > min_survival then
+        return true
+    end
+    if survival ~= nil and survival < min_survival then
+        return false
+    end
+    return cfg.allow_damage_upgrade_when_survival_equal == true
+        and (survival == nil or survival >= min_survival)
+        and damage ~= nil
+        and damage > min_damage
+end
+
+local function ring_row_score(row, cfg)
+    local min_survival = tonumber(cfg.min_survival_gain) or 0
+    local survival = tonumber(type(row) == "table" and row.survival)
+    local damage = tonumber(type(row) == "table" and row.damage)
+    return survival ~= nil and survival or min_survival, damage ~= nil and damage or -1000000000
+end
+
+local function ring_row_is_better(row, best, cfg)
+    if best == nil then
+        return true
+    end
+
+    local survival, damage = ring_row_score(row, cfg)
+    local best_survival, best_damage = ring_row_score(best, cfg)
+    if survival ~= best_survival then
+        return survival > best_survival
+    end
+    if damage ~= best_damage then
+        return damage > best_damage
+    end
+
+    return tonumber(row.key) ~= nil
+        and tonumber(best.key) ~= nil
+        and tonumber(row.key) < tonumber(best.key)
+end
+
+local function select_ring_compare_row(rows, cfg, require_upgrade)
+    if type(rows) ~= "table" then
+        return nil
+    end
+
+    local best = nil
+    for _, row in ipairs(rows) do
+        if type(row) == "table" and row.slot ~= nil then
+            if require_upgrade ~= true or ring_row_can_equip(row, cfg) then
+                if ring_row_is_better(row, best, cfg) then
+                    best = row
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function select_ring_compare_row_by_slot(rows, cfg, slot)
+    slot = compare_slot_from_text(slot)
+    if type(rows) ~= "table" or slot == nil then
+        return nil
+    end
+
+    local best = nil
+    for _, row in ipairs(rows) do
+        if type(row) == "table" and compare_slot_from_text(row.slot) == slot then
+            if ring_row_is_better(row, best, cfg) then
+                best = row
+            end
+        end
+    end
+    return best
+end
+
+local function preferred_ring_slot_from_keep_rules(result, cfg)
+    if type(result) ~= "table" then
+        return nil
+    end
+
+    local equipped = type(result.equipped_ring_names) == "table" and result.equipped_ring_names or {}
+    for _, rule in ipairs(configured_keep_equipped_rules(cfg)) do
+        if type(rule) == "table"
+            and tostring(rule.mode or "") == "all_ring_slots"
+            and item_type_matches_rule(result.item_type, rule)
+            and keep_name_matches(result.item_name, rule.keep_names)
+        then
+            local left_matches = keep_name_matches(equipped.left, rule.keep_names)
+            local right_matches = keep_name_matches(equipped.right, rule.keep_names)
+            if left_matches and not right_matches then
+                return "right"
+            end
+            if right_matches and not left_matches then
+                return "left"
+            end
+        end
+    end
+    return nil
+end
+
+local function apply_ring_compare_choice(result, ring_rows, cfg)
+    if type(result) ~= "table" or not is_ring_type(result.item_type) then
+        return
+    end
+
+    local preferred_slot = preferred_ring_slot_from_keep_rules(result, cfg)
+    local selected = select_ring_compare_row_by_slot(ring_rows, cfg, preferred_slot)
+        or select_ring_compare_row(ring_rows, cfg, true)
+        or select_ring_compare_row(ring_rows, cfg, false)
+    if selected == nil then
+        result.compare_slot = nil
+        return
+    end
+
+    result.compare_slot = selected.slot
+    result.damage = selected.damage
+    result.survival = selected.survival
+end
+
+local function parse_compare(snapshot, cfg)
     local result = {
         damage = nil,
         survival = nil,
         item_name = nil,
-        item_type = nil
+        item_type = nil,
+        compare_slot = nil,
+        equipped_ring_names = {},
+        equipped_item_names = {}
     }
     if type(snapshot) ~= "table" or type(snapshot.texts) ~= "table" then
         return result
     end
 
+    result.equipped_ring_names = parse_equipped_ring_names(snapshot.texts, cfg)
+    result.equipped_item_names = parse_equipped_item_names(snapshot.texts, cfg)
+    local ring_rows = {}
+
     for _, item in ipairs(snapshot.texts) do
         local name = identity_of(item)
         local text = text_of(item)
+        collect_ring_compare_row(ring_rows, name, text)
         if name:find("tipweaponitem_c.widgettree.uitextblock", 1, true) ~= nil
             and result.item_name == nil
             and text ~= ""
@@ -399,7 +906,32 @@ local function parse_compare(snapshot)
         end
     end
 
+    apply_ring_compare_choice(result, ring_rows, cfg)
     return result
+end
+
+local function skip_reason_for_special_equipment(compare, cfg)
+    local item_type = trim(type(compare) == "table" and compare.item_type or "")
+    local keep_reason = equipment_keep_skip_reason(compare, cfg)
+    if keep_reason ~= nil then
+        return keep_reason
+    end
+
+    if cfg.skip_non_two_hand_weapons ~= false
+        and is_weapon_type(item_type)
+        and not is_two_hand_weapon_type(item_type)
+    then
+        return "skip_non_two_hand_weapon"
+    end
+
+    if cfg.ring_slot_selection_enabled ~= false
+        and is_ring_type(item_type)
+        and compare_slot_from_text(type(compare) == "table" and compare.compare_slot or nil) == nil
+    then
+        return "ring_slot_unknown"
+    end
+
+    return nil
 end
 
 local function should_equip(compare, cfg)
@@ -407,6 +939,10 @@ local function should_equip(compare, cfg)
     local damage = tonumber(type(compare) == "table" and compare.damage)
     local min_survival = tonumber(cfg.min_survival_gain) or 0
     local min_damage = tonumber(cfg.min_damage_gain) or 0
+    local keep_reason = equipment_keep_skip_reason(compare, cfg)
+    if keep_reason ~= nil then
+        return false, keep_reason
+    end
 
     if survival == nil and damage == nil then
         return false, "compare_missing"
@@ -695,7 +1231,7 @@ local function move_to_candidate(ctx, nav_mod, hwnd, candidate, cfg)
     })
 end
 
-local function right_click_current_position(ctx, deps, hwnd, candidate, cfg)
+local function click_current_position(ctx, deps, hwnd, button, cfg)
     if type(human_mouse) == "table" and type(human_mouse.cancel_async_move) == "function" then
         human_mouse.cancel_async_move()
     end
@@ -734,22 +1270,22 @@ local function right_click_current_position(ctx, deps, hwnd, candidate, cfg)
     local click_err = nil
     local ok, err = pcall(function()
         if type(mouse.click) == "function" then
-            local click_ok = mouse.click("right", click_delay_ms)
+            local click_ok = mouse.click(button, click_delay_ms)
             if click_ok == false then
-                error("mouse.click(right) failed")
+                error("mouse.click(" .. tostring(button) .. ") failed")
             end
             return true
         end
 
         if type(mouse.down) == "function" and type(mouse.up) == "function" then
-            local down_ok = mouse.down("right")
+            local down_ok = mouse.down(button)
             if down_ok == false then
-                error("mouse.down(right) failed")
+                error("mouse.down(" .. tostring(button) .. ") failed")
             end
             sleep_ms(ctx, click_delay_ms)
-            local up_ok = mouse.up("right")
+            local up_ok = mouse.up(button)
             if up_ok == false then
-                error("mouse.up(right) failed")
+                error("mouse.up(" .. tostring(button) .. ") failed")
             end
             return true
         end
@@ -772,15 +1308,105 @@ local function right_click_current_position(ctx, deps, hwnd, candidate, cfg)
     end
 
     if not clicked then
-        return false, tostring(click_err or "mouse right click failed")
+        return false, tostring(click_err or ("mouse " .. tostring(button) .. " click failed"))
+    end
+
+    return true, click_mode
+end
+
+local function right_click_current_position(ctx, deps, hwnd, candidate, cfg)
+    local clicked, click_mode_or_err = click_current_position(ctx, deps, hwnd, "right", cfg)
+    if not clicked then
+        return false, click_mode_or_err
     end
 
     log_line(ctx, deps, "info", string.format(
         "[Leveling] auto-equip driver right click | cell=(%.1f, %.1f) mode=%s",
         tonumber(type(candidate) == "table" and candidate.x) or 0,
         tonumber(type(candidate) == "table" and candidate.y) or 0,
-        click_mode
+        tostring(click_mode_or_err or "")
     ))
+    return true
+end
+
+local function left_click_client_point(ctx, deps, nav_mod, hwnd, x, y, cfg, label)
+    if type(nav_mod) ~= "table" or type(nav_mod.move_mouse_to_client) ~= "function" then
+        return false, "nav.move_mouse_to_client unavailable"
+    end
+
+    local moved, move_err = nav_mod.move_mouse_to_client(x, y, {
+        hwnd = hwnd,
+        mouse_mode = cfg.mouse_mode or "api",
+        min_duration_ms = cfg.move_min_duration_ms,
+        max_duration_ms = cfg.move_max_duration_ms,
+        hover_ms = math.max(0, tonumber(cfg.ring_slot_select_hover_ms) or 80),
+        set_foreground = true
+    })
+    if not moved then
+        return false, move_err or "move to click point failed"
+    end
+
+    local clicked, click_mode_or_err = click_current_position(ctx, deps, hwnd, "left", cfg)
+    if not clicked then
+        return false, click_mode_or_err
+    end
+
+    log_line(ctx, deps, "info", string.format(
+        "[Leveling] auto-equip fixed left click | label=%s x=%.1f y=%.1f mode=%s",
+        tostring(label or ""),
+        tonumber(x) or 0,
+        tonumber(y) or 0,
+        tostring(click_mode_or_err or "")
+    ))
+    return true
+end
+
+local function select_ring_slot_after_right_click(ctx, deps, nav_mod, hwnd, compare, cfg, character_id, candidate)
+    if cfg.ring_slot_selection_enabled == false or not is_ring_type(type(compare) == "table" and compare.item_type or "") then
+        return true
+    end
+
+    local slot = compare_slot_from_text(type(compare) == "table" and compare.compare_slot or nil)
+    local point = nil
+    if slot == "left" then
+        point = type(cfg.ring_slot_left) == "table" and cfg.ring_slot_left or nil
+    elseif slot == "right" then
+        point = type(cfg.ring_slot_right) == "table" and cfg.ring_slot_right or nil
+    end
+    if type(point) ~= "table" then
+        return false, "ring slot selection point missing"
+    end
+
+    local x = tonumber(point.client_x)
+    local y = tonumber(point.client_y)
+    if x == nil or y == nil then
+        return false, "ring slot selection point invalid"
+    end
+
+    local clicked, click_err = left_click_client_point(
+        ctx,
+        deps,
+        nav_mod,
+        hwnd,
+        x,
+        y,
+        cfg,
+        "ring_" .. slot
+    )
+    if not clicked then
+        return false, click_err
+    end
+
+    log_line(ctx, deps, "info", string.format(
+        "[Leveling] auto-equip ring slot selected | id=%s cell=(%.1f, %.1f) slot=%s x=%.1f y=%.1f",
+        tostring(character_id or ""),
+        tonumber(type(candidate) == "table" and candidate.x) or 0,
+        tonumber(type(candidate) == "table" and candidate.y) or 0,
+        slot,
+        x,
+        y
+    ))
+    sleep_ms(ctx, cfg.ring_slot_select_wait_ms)
     return true
 end
 
@@ -984,15 +1610,26 @@ function M.perform_scan(ctx, deps, runtime, cfg, current_time, character_id)
                         ))
                     end
 
-                    local compare = parse_compare(hover_snapshot)
+                    local compare = parse_compare(hover_snapshot, cfg)
                     local equip, reason = should_equip(compare, cfg)
+                    if equip then
+                        local special_skip_reason = skip_reason_for_special_equipment(compare, cfg)
+                        if special_skip_reason ~= nil then
+                            equip = false
+                            reason = special_skip_reason
+                        end
+                    end
                     log_line(ctx, deps, "info", string.format(
-                        "[Leveling] auto-equip candidate | id=%s cell=(%.1f, %.1f) name=%s type=%s survival=%s damage=%s decision=%s unidentified=%s",
+                        "[Leveling] auto-equip candidate | id=%s cell=(%.1f, %.1f) name=%s type=%s slot=%s equipped_rings=%s/%s equipped_items=%s survival=%s damage=%s decision=%s unidentified=%s",
                         tostring(character_id or ""),
                         tonumber(candidate.x) or 0,
                         tonumber(candidate.y) or 0,
                         tostring(compare.item_name or ""),
                         tostring(compare.item_type or ""),
+                        tostring(compare.compare_slot or ""),
+                        tostring(type(compare.equipped_ring_names) == "table" and compare.equipped_ring_names.left or ""),
+                        tostring(type(compare.equipped_ring_names) == "table" and compare.equipped_ring_names.right or ""),
+                        joined_names(compare.equipped_item_names),
                         tostring(compare.survival),
                         tostring(compare.damage),
                         tostring(reason or ""),
@@ -1012,10 +1649,33 @@ function M.perform_scan(ctx, deps, runtime, cfg, current_time, character_id)
                         else
                             local clicked, click_err = right_click_current_position(ctx, deps, hwnd, candidate, cfg)
                             if clicked then
-                                equipped = equipped + 1
-                                sleep_ms(ctx, cfg.equip_wait_ms)
-                                if equipped >= max_equips then
-                                    break
+                                local post_click_ok, post_click_err = select_ring_slot_after_right_click(
+                                    ctx,
+                                    deps,
+                                    nav_mod,
+                                    hwnd,
+                                    compare,
+                                    cfg,
+                                    character_id,
+                                    candidate
+                                )
+                                if post_click_ok then
+                                    equipped = equipped + 1
+                                    sleep_ms(ctx, cfg.equip_wait_ms)
+                                    if equipped >= max_equips then
+                                        break
+                                    end
+                                else
+                                    skipped = skipped + 1
+                                    log_line(ctx, deps, "warn", string.format(
+                                        "[Leveling] auto-equip post-click selection failed | id=%s cell=(%.1f, %.1f) type=%s slot=%s err=%s",
+                                        tostring(character_id or ""),
+                                        tonumber(candidate.x) or 0,
+                                        tonumber(candidate.y) or 0,
+                                        tostring(compare.item_type or ""),
+                                        tostring(compare.compare_slot or ""),
+                                        tostring(post_click_err or "")
+                                    ))
                                 end
                             else
                                 skipped = skipped + 1

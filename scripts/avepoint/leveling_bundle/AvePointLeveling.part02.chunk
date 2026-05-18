@@ -2851,6 +2851,19 @@ function M.maybe_handle_task_reached(
     local objective_source = type(task_cfg) == "table" and type(task_cfg.objective) == "table" and "task"
         or (type(map_cfg) == "table" and type(map_cfg.objective) == "table" and "map" or nil)
         or (type(point_objective_cfg) == "table" and "point" or "none")
+    local require_task_path_for_kite = (
+        type(objective_cfg) == "table" and objective_cfg.require_task_path_for_kite == true
+    ) or (
+        type(point_objective_cfg) == "table" and point_objective_cfg.require_task_path_for_kite == true
+    )
+    local target_source_for_kite = tostring(type(target) == "table" and target.source or "")
+    local destination_source_for_kite = tostring(type(destination) == "table" and destination.source or "")
+    local task_path_ready_for_kite =
+        target_source == "task_path"
+        or target_source_for_kite == "task_path"
+        or destination_source_for_kite == "task_path"
+        or destination_source_for_kite == "path_first_endpoint"
+        or destination_source_for_kite == "path_last_endpoint"
     local sticky_force_boss = state.task_combat_force_kite == true
         and (tonumber(state.task_combat_last_seen_at) or 0) > 0
         and current_time - (tonumber(state.task_combat_last_seen_at) or 0) <= TASK_COMBAT_CLEAR_SETTLE_MS
@@ -2926,6 +2939,7 @@ function M.maybe_handle_task_reached(
         and objective_cfg.immediate_kite_on_reached == true
         and type(goal_distance) == "number"
         and goal_distance <= boss_trigger_distance
+        and (not require_task_path_for_kite or task_path_ready_for_kite)
         and M.arm_immediate_task_boss_kite(
             ctx,
             current_time,
@@ -2942,6 +2956,21 @@ function M.maybe_handle_task_reached(
     then
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
+    end
+    if force_boss_objective
+        and require_task_path_for_kite
+        and not task_path_ready_for_kite
+        and type(goal_distance) == "number"
+        and goal_distance <= boss_trigger_distance
+    then
+        log_throttled(ctx, "boss_kite_wait_task_path_" .. tostring(type(objective_cfg) == "table" and objective_cfg.key or ""), "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] boss kite waiting for task_path target | task=%s detail=%s objective=%s source=%s goal_distance=%.2f",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(task_detail or ""),
+            tostring(type(objective_cfg) == "table" and objective_cfg.key or ""),
+            tostring(target_source or ""),
+            tonumber(goal_distance) or 0
+        ))
     end
 
     local recent_combat_gate_active = false
@@ -3225,6 +3254,15 @@ function M.maybe_handle_task_reached(
                     state.task_combat_anchor_z = tonumber(point_objective_cfg.z) or tonumber(state.task_combat_anchor_z)
                     state.task_combat_kite_radius = tonumber(point_objective_cfg.kite_radius)
                         or tonumber(objective_cfg and objective_cfg.kite_radius)
+                        or tonumber(state.task_combat_kite_radius)
+                elseif tostring(type(point_objective_cfg) == "table" and point_objective_cfg.kite_anchor_source or objective_cfg and objective_cfg.kite_anchor_source or "") == "task_destination"
+                    and is_valid_world_point(destination or target)
+                then
+                    local anchor = destination or target
+                    state.task_combat_anchor_x = tonumber(anchor.x) or tonumber(state.task_combat_anchor_x)
+                    state.task_combat_anchor_y = tonumber(anchor.y) or tonumber(state.task_combat_anchor_y)
+                    state.task_combat_anchor_z = tonumber(anchor.z) or tonumber(state.task_combat_anchor_z)
+                    state.task_combat_kite_radius = tonumber(objective_cfg and objective_cfg.kite_radius)
                         or tonumber(state.task_combat_kite_radius)
                 elseif type(boss_anchor) == "table" then
                     state.task_combat_anchor_x = tonumber(boss_anchor.x) or tonumber(state.task_combat_anchor_x)
@@ -4693,93 +4731,134 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
                 or tonumber(image_preset.repeat_until_missing_interval_ms)
                 or 150
         )
+        local missing_retry_count = math.max(
+            0,
+            math.floor(
+                tonumber(step.missing_image_retry_count)
+                    or tonumber(image_preset.missing_image_retry_count)
+                    or 0
+            )
+        )
+        local missing_retry_interval_ms = math.max(
+            0,
+            tonumber(step.missing_image_retry_interval_ms)
+                or tonumber(image_preset.missing_image_retry_interval_ms)
+                or interval_ms
+        )
+        local missing_retry_attempt = 0
         local clicked_count = 0
         local last_target = nil
         for attempt = 1, max_count do
             local loop_target, loop_fetch_err = fetch_locator_button_target(ctx, step)
             if not loop_target then
-                if step.missing_image_means_done == true then
+                if clicked_count <= 0 and missing_retry_attempt < missing_retry_count then
+                    missing_retry_attempt = missing_retry_attempt + 1
                     logger(ctx).info(string.format(
-                        "[Leveling] level-up maintenance image loop completed; mark plan done | kind=%s level=%s plan=%s step=%d/%d key=%s clicks=%d err=%s",
+                        "[Leveling] level-up maintenance image loop target absent; retry | kind=%s level=%s plan=%s step=%d/%d key=%s retry=%d/%d err=%s",
                         tostring(state.level_up_maintenance_executor_kind or ""),
                         tostring(state.level_up_maintenance_executor_level or ""),
                         tostring(state.level_up_maintenance_executor_plan_label or ""),
                         index,
                         #steps,
                         tostring(step.key or ""),
-                        clicked_count,
+                        missing_retry_attempt,
+                        missing_retry_count,
                         tostring(loop_fetch_err or "")
                     ))
-                    if step.cleanup_back_before_finish == true then
-                        M.try_click_level_up_maintenance_back_button(ctx, "image_loop_missing_done")
+                    if missing_retry_interval_ms > 0
+                        and type(sys) == "table"
+                        and type(sys.sleep) == "function"
+                    then
+                        sys.sleep(missing_retry_interval_ms)
                     end
-                    return M.finish_level_up_maintenance_executor(ctx, current_time)
+                else
+                    if step.missing_image_means_done == true then
+                        logger(ctx).info(string.format(
+                            "[Leveling] level-up maintenance image loop completed; mark plan done | kind=%s level=%s plan=%s step=%d/%d key=%s clicks=%d err=%s",
+                            tostring(state.level_up_maintenance_executor_kind or ""),
+                            tostring(state.level_up_maintenance_executor_level or ""),
+                            tostring(state.level_up_maintenance_executor_plan_label or ""),
+                            index,
+                            #steps,
+                            tostring(step.key or ""),
+                            clicked_count,
+                            tostring(loop_fetch_err or "")
+                        ))
+                        if step.cleanup_back_before_finish == true then
+                            M.try_click_level_up_maintenance_back_button(ctx, "image_loop_missing_done")
+                        end
+                        return M.finish_level_up_maintenance_executor(ctx, current_time)
+                    end
+                    if clicked_count <= 0 and step.missing_image_means_step_done == true then
+                        logger(ctx).info(string.format(
+                            "[Leveling] level-up maintenance image loop target absent; skip step | kind=%s level=%s plan=%s step=%d/%d key=%s clicks=%d err=%s",
+                            tostring(state.level_up_maintenance_executor_kind or ""),
+                            tostring(state.level_up_maintenance_executor_level or ""),
+                            tostring(state.level_up_maintenance_executor_plan_label or ""),
+                            index,
+                            #steps,
+                            tostring(step.key or ""),
+                            clicked_count,
+                            tostring(loop_fetch_err or "")
+                        ))
+                        state.level_up_maintenance_executor_step_index = index + 1
+                        local cfg = M.level_up_maintenance_config()
+                        state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
+                            + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+                        return true
+                    end
+                    if clicked_count > 0 then
+                        logger(ctx).info(string.format(
+                            "[Leveling] level-up maintenance image loop completed; target absent | kind=%s level=%s plan=%s step=%d/%d key=%s clicks=%d err=%s",
+                            tostring(state.level_up_maintenance_executor_kind or ""),
+                            tostring(state.level_up_maintenance_executor_level or ""),
+                            tostring(state.level_up_maintenance_executor_plan_label or ""),
+                            index,
+                            #steps,
+                            tostring(step.key or ""),
+                            clicked_count,
+                            tostring(loop_fetch_err or "")
+                        ))
+                        state.level_up_maintenance_executor_step_index = index + 1
+                        local cfg = M.level_up_maintenance_config()
+                        state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
+                            + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+                        return true
+                    end
+                    return M.fail_level_up_maintenance_executor(
+                        ctx,
+                        current_time,
+                        "fetch failed: " .. tostring(loop_fetch_err or "")
+                    )
                 end
-                if clicked_count <= 0 and step.missing_image_means_step_done == true then
-                    logger(ctx).info(string.format(
-                        "[Leveling] level-up maintenance image loop target absent; skip step | kind=%s level=%s plan=%s step=%d/%d key=%s clicks=%d err=%s",
-                        tostring(state.level_up_maintenance_executor_kind or ""),
-                        tostring(state.level_up_maintenance_executor_level or ""),
-                        tostring(state.level_up_maintenance_executor_plan_label or ""),
-                        index,
-                        #steps,
-                        tostring(step.key or ""),
-                        clicked_count,
-                        tostring(loop_fetch_err or "")
-                    ))
-                    state.level_up_maintenance_executor_step_index = index + 1
-                    local cfg = M.level_up_maintenance_config()
-                    state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
-                        + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
-                    return true
+            else
+                local clicked, click_err = click_locator_button_target(ctx, step, loop_target)
+                if not clicked then
+                    return M.fail_level_up_maintenance_executor(ctx, current_time, "click failed: " .. tostring(click_err or ""))
                 end
-                if clicked_count > 0 then
-                    logger(ctx).info(string.format(
-                        "[Leveling] level-up maintenance image loop completed; target absent | kind=%s level=%s plan=%s step=%d/%d key=%s clicks=%d err=%s",
-                        tostring(state.level_up_maintenance_executor_kind or ""),
-                        tostring(state.level_up_maintenance_executor_level or ""),
-                        tostring(state.level_up_maintenance_executor_plan_label or ""),
-                        index,
-                        #steps,
-                        tostring(step.key or ""),
-                        clicked_count,
-                        tostring(loop_fetch_err or "")
-                    ))
-                    state.level_up_maintenance_executor_step_index = index + 1
-                    local cfg = M.level_up_maintenance_config()
-                    state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
-                        + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
-                    return true
+                clicked_count = clicked_count + 1
+                last_target = loop_target
+                logger(ctx).info(string.format(
+                    "[Leveling] level-up maintenance image loop clicked | kind=%s level=%s plan=%s step=%d/%d key=%s loop=%d/%d addr=%s pos=(%s,%s)",
+                    tostring(state.level_up_maintenance_executor_kind or ""),
+                    tostring(state.level_up_maintenance_executor_level or ""),
+                    tostring(state.level_up_maintenance_executor_plan_label or ""),
+                    index,
+                    #steps,
+                    tostring(step.key or ""),
+                    attempt,
+                    max_count,
+                    tostring(type(loop_target) == "table" and loop_target.addr or ""),
+                    tostring(type(loop_target) == "table" and loop_target.x or ""),
+                    tostring(type(loop_target) == "table" and loop_target.y or "")
+                ))
+                if interval_ms > 0
+                    and attempt < max_count
+                    and type(sys) == "table"
+                    and type(sys.sleep) == "function"
+                then
+                    sys.sleep(interval_ms)
                 end
-                return M.fail_level_up_maintenance_executor(
-                    ctx,
-                    current_time,
-                    "fetch failed: " .. tostring(loop_fetch_err or "")
-                )
-            end
-
-            local clicked, click_err = click_locator_button_target(ctx, step, loop_target)
-            if not clicked then
-                return M.fail_level_up_maintenance_executor(ctx, current_time, "click failed: " .. tostring(click_err or ""))
-            end
-            clicked_count = clicked_count + 1
-            last_target = loop_target
-            logger(ctx).info(string.format(
-                "[Leveling] level-up maintenance image loop clicked | kind=%s level=%s plan=%s step=%d/%d key=%s loop=%d/%d addr=%s pos=(%s,%s)",
-                tostring(state.level_up_maintenance_executor_kind or ""),
-                tostring(state.level_up_maintenance_executor_level or ""),
-                tostring(state.level_up_maintenance_executor_plan_label or ""),
-                index,
-                #steps,
-                tostring(step.key or ""),
-                attempt,
-                max_count,
-                tostring(type(loop_target) == "table" and loop_target.addr or ""),
-                tostring(type(loop_target) == "table" and loop_target.x or ""),
-                tostring(type(loop_target) == "table" and loop_target.y or "")
-            ))
-            if interval_ms > 0 and attempt < max_count and type(sys) == "table" and type(sys.sleep) == "function" then
-                sys.sleep(interval_ms)
             end
         end
 
@@ -7990,7 +8069,349 @@ local function try_click_map_transition(ctx, current_time, map_name, transition,
     return true
 end
 
+function M.is_three_point_kite_config(cfg)
+    if type(cfg) ~= "table" then
+        return false
+    end
+
+    if tostring(cfg.mode or "") ~= "boss_kite" then
+        return false
+    end
+
+    local point_count = tonumber(cfg.kite_point_count or cfg.generated_kite_points)
+    if point_count ~= nil and point_count >= 3 then
+        return true
+    end
+
+    if type(cfg.kite_points) == "table" and #cfg.kite_points >= 3 then
+        return true
+    end
+
+    return tostring(cfg.kite_anchor_source or "") == "task_destination"
+end
+
+function M.task_uses_three_point_kite(task_cfg, objective_cfg)
+    if M.is_three_point_kite_config(objective_cfg) then
+        return true
+    end
+
+    if type(task_cfg) ~= "table" then
+        return false
+    end
+
+    if M.is_three_point_kite_config(task_cfg.objective) then
+        return true
+    end
+
+    local point_key = task_cfg.boss_objective_point_key or task_cfg.revive_reentry_objective_key
+    local point_cfg = M.find_objective_point_config_by_key(point_key)
+    return M.is_three_point_kite_config(point_cfg)
+end
+
+function M.common_revive_reentry_watch_active(current_time)
+    return (tonumber(state.post_revive_common_reentry_until) or 0) > (tonumber(current_time) or 0)
+        and type(M.COMMON_REVIVE_REENTRY_PORTALS) == "table"
+        and #M.COMMON_REVIVE_REENTRY_PORTALS > 0
+end
+
+function M.point_matches_common_revive_reentry(point, cfg)
+    if not is_valid_world_point(point) or type(cfg) ~= "table" then
+        return false, nil
+    end
+
+    local anchor_x = tonumber(cfg.x)
+    local anchor_y = tonumber(cfg.y)
+    if anchor_x == nil or anchor_y == nil then
+        return false, nil
+    end
+
+    local distance = distance_2d(point.x, point.y, anchor_x, anchor_y)
+    local radius = math.max(80, tonumber(cfg.path_match_radius) or tonumber(cfg.radius) or 700)
+    if distance > radius then
+        return false, distance
+    end
+
+    local z_tolerance = tonumber(cfg.z_tolerance)
+    if z_tolerance ~= nil and tonumber(cfg.z) ~= nil and tonumber(point.z) ~= nil then
+        if math.abs((tonumber(point.z) or 0) - (tonumber(cfg.z) or 0)) > z_tolerance then
+            return false, distance
+        end
+    end
+
+    return true, distance
+end
+
+function M.common_revive_reentry_path_match(cfg, destination)
+    local candidates = {
+        { point = state.task_target, source = "task_target" },
+        { point = state.task_pos, source = "task_pos" },
+        { point = destination, source = "task_destination" }
+    }
+
+    for _, item in ipairs(candidates) do
+        local matched, distance = M.point_matches_common_revive_reentry(item.point, cfg)
+        if matched then
+            return true, item.source, distance
+        end
+    end
+
+    if type(state.task_path) == "table" then
+        for index, point in ipairs(state.task_path) do
+            local matched, distance = M.point_matches_common_revive_reentry(point, cfg)
+            if matched then
+                return true, "task_path[" .. tostring(index) .. "]", distance
+            end
+        end
+    end
+
+    return false, nil, nil
+end
+
+function M.find_common_revive_reentry_enum_portal(ctx, cfg, player_x, player_y)
+    if type(cfg) ~= "table" then
+        return nil, "common revive reentry cfg unavailable."
+    end
+
+    local anchor_x = tonumber(cfg.x)
+    local anchor_y = tonumber(cfg.y)
+    if anchor_x == nil or anchor_y == nil then
+        return nil, "common revive reentry anchor unavailable."
+    end
+
+    local nav_mod = nav_api(ctx)
+    if type(nav_mod) ~= "table" or type(nav_mod.enum_portals) ~= "function" then
+        return nil, "nav.enum_portals is unavailable."
+    end
+
+    local portals, enum_err = nav_mod.enum_portals()
+    if type(portals) ~= "table" then
+        return nil, tostring(enum_err or "EnumPortal failed.")
+    end
+
+    local portal_match_radius = math.max(
+        tonumber(cfg.path_match_radius) or 700,
+        tonumber(cfg.portal_match_radius) or tonumber(cfg.portal_max_distance) or 1300
+    )
+    local z_tolerance = tonumber(cfg.z_tolerance)
+    local anchor_z = tonumber(cfg.z)
+    local best_portal = nil
+    local count = 0
+    for index, item in ipairs(portals) do
+        count = count + 1
+        local portal_x, portal_y, portal_z = extract_position_from_item(ctx, item)
+        if portal_x ~= nil and portal_y ~= nil then
+            local anchor_distance = distance_2d(anchor_x, anchor_y, portal_x, portal_y)
+            local z_ok = true
+            if z_tolerance ~= nil and anchor_z ~= nil and tonumber(portal_z) ~= nil then
+                z_ok = math.abs((tonumber(portal_z) or 0) - anchor_z) <= z_tolerance
+            end
+            if z_ok and anchor_distance <= portal_match_radius then
+                local player_distance = distance_2d(player_x, player_y, portal_x, portal_y)
+                local score = anchor_distance + player_distance * 0.35
+                if best_portal == nil or score < (tonumber(best_portal.score) or math.huge) then
+                    best_portal = {
+                        index = index,
+                        x = portal_x,
+                        y = portal_y,
+                        z = portal_z,
+                        label = npc_label(item),
+                        anchor_distance = anchor_distance,
+                        player_distance = player_distance,
+                        count = count,
+                        score = score
+                    }
+                end
+            end
+        end
+    end
+
+    if best_portal == nil then
+        return nil, string.format(
+            "EnumPortal no configured portal matched count=%d radius=%.2f",
+            count,
+            tonumber(portal_match_radius) or 0
+        )
+    end
+
+    best_portal.count = count
+    return best_portal, nil
+end
+
+function M.maybe_click_common_revive_reentry_portal(ctx, current_time, player_x, player_y)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    if not M.common_revive_reentry_watch_active(current_time) then
+        return false, false
+    end
+
+    if state.require_task_button_refresh == true
+        or current_time < (tonumber(state.task_update_wait_until) or 0)
+    then
+        return false, true
+    end
+
+    if current_time < (tonumber(state.next_common_revive_reentry_scan_at) or 0) then
+        return false, true
+    end
+
+    local destination = build_task_destination_point(player_x, player_y)
+    local has_task_path_context = type(state.task_target) == "table"
+        or is_valid_world_point(state.task_pos)
+        or is_valid_world_point(destination)
+        or (type(state.task_path) == "table" and #state.task_path > 0)
+    if not has_task_path_context then
+        state.next_common_revive_reentry_scan_at = current_time + 700
+        log_throttled(ctx, "common_revive_reentry_wait_path", "info", LOG_THROTTLE_MS,
+            "[Leveling] common revive reentry waiting task path for three-point kite.")
+        return false, true
+    end
+
+    state.next_common_revive_reentry_scan_at = current_time + 800
+    local best_cfg = nil
+    local best_source = nil
+    local best_path_distance = nil
+    local best_player_distance = nil
+    for _, cfg in ipairs(M.COMMON_REVIVE_REENTRY_PORTALS) do
+        local matched, match_source, path_distance = M.common_revive_reentry_path_match(cfg, destination)
+        if matched then
+            local anchor_x = tonumber(cfg.x)
+            local anchor_y = tonumber(cfg.y)
+            local player_distance = anchor_x ~= nil and anchor_y ~= nil
+                and distance_2d(player_x, player_y, anchor_x, anchor_y)
+                or math.huge
+            local player_radius = math.max(
+                tonumber(cfg.path_match_radius) or 700,
+                tonumber(cfg.player_radius) or tonumber(cfg.trigger_radius) or 1300
+            )
+            if player_distance <= player_radius then
+                local score = player_distance + (tonumber(path_distance) or 0) * 0.35
+                if best_cfg == nil or score < (
+                    (tonumber(best_player_distance) or math.huge)
+                    + (tonumber(best_path_distance) or 0) * 0.35
+                ) then
+                    best_cfg = cfg
+                    best_source = match_source
+                    best_path_distance = path_distance
+                    best_player_distance = player_distance
+                end
+            else
+                log_throttled(ctx, "common_revive_reentry_far_player", "info", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] common revive reentry path matched but player is not near portal | key=%s player_distance=%.2f radius=%.2f source=%s",
+                    tostring(cfg.key or ""),
+                    tonumber(player_distance) or 0,
+                    tonumber(player_radius) or 0,
+                    tostring(match_source or "")
+                ))
+            end
+        end
+    end
+
+    if best_cfg == nil then
+        return false, false
+    end
+
+    local enum_portal, enum_err = M.find_common_revive_reentry_enum_portal(
+        ctx,
+        best_cfg,
+        player_x,
+        player_y
+    )
+    if type(enum_portal) ~= "table" then
+        log_throttled(ctx, "common_revive_reentry_wait_enum_portal", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] common revive reentry path matched, waiting enum portal | key=%s source=%s path_distance=%s player_distance=%s portal_err=%s",
+            tostring(best_cfg.key or ""),
+            tostring(best_source or ""),
+            best_path_distance ~= nil and string.format("%.2f", best_path_distance) or "nil",
+            best_player_distance ~= nil and string.format("%.2f", best_player_distance) or "nil",
+            tostring(enum_err or "")
+        ))
+        return false, best_cfg.require_enum_portal ~= false
+    end
+
+    local step = type(best_cfg.step) == "table" and best_cfg.step or M.GLOBAL_TASK_PORTAL_STEP
+    if type(step) ~= "table" then
+        return false, true
+    end
+
+    if current_time < (tonumber(state.next_common_revive_reentry_click_at) or 0) then
+        return false, true
+    end
+
+    local target, fetch_err = fetch_locator_button_target(ctx, step)
+    if type(target) ~= "table" then
+        log_throttled(ctx, "common_revive_reentry_wait_portal", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] common revive reentry enum portal matched, waiting PortalBtn | key=%s source=%s path_distance=%s player_distance=%s enum_pos=%.2f, %.2f enum_distance=%.2f err=%s",
+            tostring(best_cfg.key or ""),
+            tostring(best_source or ""),
+            best_path_distance ~= nil and string.format("%.2f", best_path_distance) or "nil",
+            best_player_distance ~= nil and string.format("%.2f", best_player_distance) or "nil",
+            tonumber(enum_portal.x) or 0,
+            tonumber(enum_portal.y) or 0,
+            tonumber(enum_portal.player_distance) or 0,
+            tostring(fetch_err or "")
+        ))
+        return false, true
+    end
+
+    state.stage = "common_revive_reentry_portal"
+    hold_navigation(ctx, current_time, "common_revive_reentry_portal")
+    release_async_combat_inputs(ctx, current_time, true)
+    local clicked, click_err, retryable = click_locator_button_target(ctx, step, target)
+    if not clicked then
+        log_throttled(ctx,
+            retryable and "common_revive_reentry_click_retry" or "common_revive_reentry_click_failed",
+            retryable and "info" or "warn",
+            LOG_THROTTLE_MS,
+            "[Leveling] common revive reentry portal click failed: " .. tostring(click_err))
+        state.next_common_revive_reentry_click_at = current_time + 900
+        return false, true
+    end
+
+    state.last_common_revive_reentry_key = best_cfg.key
+    state.post_revive_common_reentry_until = 0
+    state.post_revive_common_reentry_reason = nil
+    state.next_common_revive_reentry_click_at = current_time + math.max(900, tonumber(best_cfg.retry_ms) or 1200)
+    M.clear_revive_reentry_state()
+    schedule_task_refresh_after_transition(
+        ctx,
+        current_time,
+        "common_revive_reentry_" .. tostring(best_cfg.key or "portal"),
+        tonumber(best_cfg.settle_ms) or POST_DIALOGUE_SETTLE_MS,
+        {
+            force_task_call = true,
+            task_pos_reject_extra_ms = tonumber(best_cfg.task_pos_reject_extra_ms) or 3500
+        }
+    )
+    logger(ctx).info(string.format(
+        "[Leveling] common revive reentry portal clicked | key=%s label=%s source=%s path_distance=%s player_distance=%s enum_label=%s enum_pos=%.2f, %.2f enum_anchor_distance=%.2f enum_player_distance=%.2f enum_count=%d",
+        tostring(best_cfg.key or ""),
+        tostring(best_cfg.label or ""),
+        tostring(best_source or ""),
+        best_path_distance ~= nil and string.format("%.2f", best_path_distance) or "nil",
+        best_player_distance ~= nil and string.format("%.2f", best_player_distance) or "nil",
+        tostring(enum_portal.label or ""),
+        tonumber(enum_portal.x) or 0,
+        tonumber(enum_portal.y) or 0,
+        tonumber(enum_portal.anchor_distance) or 0,
+        tonumber(enum_portal.player_distance) or 0,
+        tonumber(enum_portal.count) or 0
+    ))
+    return true, true
+end
+
 local function maybe_handle_map_specific_transition(ctx, current_time, player_x, player_y)
+    local common_clicked, common_defer = M.maybe_click_common_revive_reentry_portal(
+        ctx,
+        current_time,
+        player_x,
+        player_y
+    )
+    if common_clicked then
+        return true
+    end
+    if common_defer then
+        return false
+    end
+
     if state.revive_reentry_pending == true and type(state.revive_reentry_cfg) == "table" then
         local revive_cfg = state.revive_reentry_cfg
         local deadline_at = tonumber(state.revive_reentry_deadline_at) or 0
@@ -8703,6 +9124,10 @@ local function enter_revive_state(ctx, current_time, hp)
     state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, current_time + POST_UI_PAUSE_MS)
     clear_task_target_state()
     clear_runtime_objective_caches()
+    state.post_revive_common_reentry_until = 0
+    state.post_revive_common_reentry_reason = nil
+    state.next_common_revive_reentry_scan_at = 0
+    state.next_common_revive_reentry_click_at = 0
     state.post_revive_boss_engage_until = 0
     state.startup_state_resolve_until = 0
     logger(ctx).info(string.format(
@@ -8730,16 +9155,73 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
     local task_cfg, task_name = M.current_task_runtime_config()
     local objective_cfg = type(task_cfg) == "table" and type(task_cfg.objective) == "table" and task_cfg.objective or nil
     local revive_reentry_cfg, revive_reentry_source, revive_reentry_objective_key = M.resolve_revive_reentry_config()
+    local three_point_kite_reentry = M.task_uses_three_point_kite(task_cfg, objective_cfg)
     local boss_objective_active = (type(objective_cfg) == "table" and tostring(objective_cfg.mode or "") == "boss_kite")
         or state.task_combat_force_kite == true
         or type(revive_reentry_cfg) == "table"
-    if boss_objective_active then
+    local post_revive_force_task_path_reacquire =
+        three_point_kite_reentry
+        or (type(objective_cfg) == "table" and objective_cfg.post_revive_force_task_path_reacquire == true)
+        or (type(task_cfg) == "table" and task_cfg.post_revive_force_task_path_reacquire == true)
+
+    if three_point_kite_reentry and type(M.COMMON_REVIVE_REENTRY_PORTALS) == "table" and #M.COMMON_REVIVE_REENTRY_PORTALS > 0 then
+        local timeout_ms = 45000
+        for _, cfg in ipairs(M.COMMON_REVIVE_REENTRY_PORTALS) do
+            timeout_ms = math.max(timeout_ms, tonumber(type(cfg) == "table" and cfg.timeout_ms) or 0)
+        end
+        state.post_revive_common_reentry_until = current_time + timeout_ms
+        state.post_revive_common_reentry_reason = "three_point_kite"
+        state.next_common_revive_reentry_scan_at = current_time
+        state.next_common_revive_reentry_click_at = current_time
+        logger(ctx).info(string.format(
+            "[Leveling] common revive reentry watch armed | task=%s detail=%s reason=three_point_kite window=%dms",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            timeout_ms
+        ))
+    end
+
+    if boss_objective_active and not post_revive_force_task_path_reacquire then
         local revive_boss_engage_ms = 10000
         state.post_revive_boss_engage_until = current_time + revive_boss_engage_ms
         logger(ctx).info(string.format(
             "[Leveling] revive boss combat armed | task=%s window=%dms",
             tostring(task_name or state.current_task_name or ""),
             revive_boss_engage_ms
+        ))
+    elseif boss_objective_active and post_revive_force_task_path_reacquire then
+        local wait_ms = math.max(
+            500,
+            tonumber(type(objective_cfg) == "table" and objective_cfg.post_revive_task_path_reacquire_wait_ms)
+                or tonumber(type(task_cfg) == "table" and task_cfg.post_revive_task_path_reacquire_wait_ms)
+                or 900
+        )
+        local reject_extra_ms = math.max(
+            0,
+            tonumber(type(objective_cfg) == "table" and objective_cfg.post_revive_task_pos_reject_extra_ms)
+                or tonumber(type(task_cfg) == "table" and task_cfg.post_revive_task_pos_reject_extra_ms)
+                or 3500
+        )
+        state.post_revive_boss_engage_until = 0
+        schedule_task_refresh_after_transition(
+            ctx,
+            current_time,
+            "post_revive_task_path_reacquire_" .. tostring(type(objective_cfg) == "table" and objective_cfg.key or ""),
+            wait_ms,
+            {
+                force_task_call = true,
+                task_pos_reject_extra_ms = reject_extra_ms,
+                previous_task_name = state.current_task_name,
+                previous_task_detail = state.current_task_detail
+            }
+        )
+        logger(ctx).info(string.format(
+            "[Leveling] revive task-path reacquire armed | task=%s detail=%s objective=%s wait_ms=%d reject_extra_ms=%d",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            tostring(type(objective_cfg) == "table" and objective_cfg.key or ""),
+            wait_ms,
+            reject_extra_ms
         ))
     end
     local locked_point_cfg = M.find_objective_point_config_by_key(

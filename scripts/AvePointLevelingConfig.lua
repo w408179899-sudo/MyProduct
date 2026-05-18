@@ -118,8 +118,9 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     },
     skill_enabled = true,
     talent_enabled = true,
+    talent_extra_enabled = true,
     contract_enabled = true,
-    plan_order = { "skill", "talent", "contract" },
+    plan_order = { "skill", "talent", "talent_extra", "contract" },
     default_skill_enabled = true,
     default_skill_min_level = 1,
     default_skill_catch_up_missing = false,
@@ -152,6 +153,8 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                     repeat_image_until_missing = true,
                     repeat_image_until_missing_max_count = 30,
                     repeat_image_until_missing_interval_ms = 180,
+                    missing_image_retry_count = 6,
+                    missing_image_retry_interval_ms = 300,
                     image_preset = {
                         template_path = "skill_level_up.bmp",
                         template_threshold = 0.85,
@@ -738,6 +741,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
             }
         }
     },
+    talent_extra_by_level = {},
     contract_by_level = {}
 }
 
@@ -770,6 +774,36 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
     right_click_foreground_wait_ms = 40,
     right_click_delay_ms = 50,
     equip_wait_ms = 650,
+    ring_slot_selection_enabled = true,
+    ring_slot_select_wait_ms = 450,
+    ring_slot_left = {
+        client_x = 972,
+        client_y = 381
+    },
+    ring_slot_right = {
+        client_x = 1376,
+        client_y = 376
+    },
+    keep_equipped_rules = {
+        {
+            key = "firebirth_rings",
+            item_type_patterns = { "戒指" },
+            keep_names = { "火焰降生" },
+            mode = "all_ring_slots",
+            reason = "ring_keep_both_equipped"
+        },
+        {
+            key = "survival_belt",
+            item_type_patterns = { "腰带", "护腰" },
+            keep_names = { "求生之欲" },
+            mode = "any_equipped",
+            reason = "belt_keep_equipped"
+        }
+    },
+    keep_equipped_panel_max_x = 650,
+    keep_equipped_marker_match_max_dx = 180,
+    keep_equipped_marker_match_max_dy = 100,
+    skip_non_two_hand_weapons = true,
     identify_all_on_bag_open = true,
     identify_all_before_scan = true,
     identify_all_wait_ms = 800,
@@ -1176,7 +1210,7 @@ do
         return copy
     end
 
-    local function level_20_extra_talent_click_step(key, label, client_x, client_y, ratio_x, ratio_y, wait_after_ms)
+    local function extra_talent_fixed_click_step(key, label, client_x, client_y, ratio_x, ratio_y, wait_after_ms)
         return make_maintenance_fixed_click_step({
             key = key,
             label = label,
@@ -1208,39 +1242,7 @@ do
     local open_talent_step = find_plan_step(level_20_base_steps, "open_talent_panel")
     local check_points_step = find_plan_step(level_20_base_steps, "check_talent_points")
     local back_step = find_plan_step(level_20_base_steps, "back_from_talent_detail")
-    local level_20_steps = {
-        clone_step_with_key(open_menu_step, "level_20_extra_open_fast_entrance_menu", "20级额外天赋：打开菜单"),
-        clone_step_with_key(open_talent_step, "level_20_extra_open_talent_panel", "20级额外天赋：打开天赋面板"),
-        clone_step_with_key(check_points_step, "level_20_extra_check_talent_points", "20级额外天赋：检查天赋点"),
-        level_20_extra_talent_click_step(
-            "level_20_extra_talent_tab_click",
-            "20级额外天赋：点击额外页签",
-            492.00,
-            247.00,
-            0.341904,
-            0.274444,
-            650
-        ),
-        level_20_extra_talent_click_step(
-            "level_20_extra_talent_node_click",
-            "20级额外天赋：点击额外节点",
-            721.00,
-            614.00,
-            0.501042,
-            0.682222,
-            900
-        ),
-        level_20_extra_talent_click_step(
-            "level_20_extra_talent_confirm_click",
-            "20级额外天赋：点击额外确认",
-            1227.00,
-            207.00,
-            0.852675,
-            0.230000,
-            650
-        ),
-        clone_step_with_key(back_step, "level_20_extra_back_from_talent_panel", "20级额外天赋：返回")
-    }
+    local level_20_steps = {}
 
     for _, step in ipairs(level_20_base_steps) do
         local key = tostring(step.key or "")
@@ -1287,8 +1289,8 @@ do
         end
     end
 
-    level_20_plan.key = "level_20_talent_extra_then_node_activate"
-    level_20_plan.label = "20级天赋：额外点击后激活天赋节点"
+    level_20_plan.key = "level_20_talent_node_activate"
+    level_20_plan.label = "20级天赋：激活天赋节点"
     level_20_plan.steps = level_20_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[20] = level_20_plan
 
@@ -2017,13 +2019,6 @@ do
         function(steps, level)
             append_shifted_plan_steps(steps, level, original_talent_by_level[19])
             append_shifted_exact_steps(steps, level, original_talent_by_level[20], {
-                "level_20_extra_open_fast_entrance_menu",
-                "level_20_extra_open_talent_panel",
-                "level_20_extra_check_talent_points",
-                "level_20_extra_talent_tab_click",
-                "level_20_extra_talent_node_click",
-                "level_20_extra_talent_confirm_click",
-                "level_20_extra_back_from_talent_panel",
                 "level_20_main_open_fast_entrance_menu",
                 "level_20_main_open_talent_panel",
                 "level_20_main_check_talent_points",
@@ -2200,6 +2195,175 @@ do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] =
             retarget_shifted_talent_plan(pre_level_18_insert_talent_by_level[level - 1], level, level - 1)
     end
+
+    local function append_level_19_extra_fixed_talent_steps(steps, level, base_plan)
+        append_shifted_step(
+            steps,
+            level,
+            find_step_by_key_contains(base_plan, "open_fast_entrance_menu"),
+            "level_19_extra_open_fast_entrance_menu"
+        )
+        append_shifted_step(
+            steps,
+            level,
+            find_step_by_key_contains(base_plan, "open_talent_panel"),
+            "level_19_extra_open_talent_panel"
+        )
+        append_shifted_step(steps, level, extra_talent_fixed_click_step(
+            "level_19_extra_talent_tab_click",
+            "19级额外天赋：点击额外页签",
+            492.00,
+            247.00,
+            0.341904,
+            0.274444,
+            650
+        ), "level_19_extra_talent_tab_click")
+        append_shifted_step(steps, level, extra_talent_fixed_click_step(
+            "level_19_extra_talent_node_click",
+            "19级额外天赋：点击额外节点",
+            721.00,
+            614.00,
+            0.501042,
+            0.682222,
+            900
+        ), "level_19_extra_talent_node_click")
+        append_shifted_step(steps, level, extra_talent_fixed_click_step(
+            "level_19_extra_talent_confirm_click",
+            "19级额外天赋：点击额外确认",
+            1227.00,
+            207.00,
+            0.852675,
+            0.230000,
+            650
+        ), "level_19_extra_talent_confirm_click")
+        append_shifted_step(
+            steps,
+            level,
+            find_step_by_key_contains(base_plan, "back_from_talent"),
+            "level_19_extra_back_from_talent_panel"
+        )
+    end
+
+    local function make_level_19_extra_fixed_talent_plan()
+        return {
+            key = "level_19_talent_extra_fixed_clicks",
+            label = "19级额外天赋：固定鼠标点击",
+            require_available_points = false,
+            close_with_escape = false,
+            steps = {}
+        }
+    end
+
+    local function make_level_19_manual_talent_plan()
+        return make_manual_talent_plan(
+            19,
+            "19级天赋：激活指定天赋节点三次",
+            function(steps, level)
+                local base_plan = pre_level_18_insert_talent_by_level[19]
+                    or pre_level_18_insert_talent_by_level[18]
+                    or original_talent_by_level[19]
+                append_shifted_setup(steps, level, base_plan)
+                append_shifted_step(steps, level, maintenance_locator_step(
+                    "select_level_19_manual_talent_node",
+                    "19级天赋：选择指定天赋节点",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    923.706848,
+                    411.208282,
+                    0.641909,
+                    0.456898,
+                    80,
+                    1200
+                ), "select_level_19_manual_talent_node")
+
+                local activate_step = maintenance_locator_step(
+                    "activate_level_19_manual_talent_node_triple",
+                    "19级天赋：激活指定天赋节点三次",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+                    },
+                    753.509155,
+                    675.801453,
+                    0.523634,
+                    0.750891,
+                    80,
+                    650
+                )
+                activate_step.click_repeat_count = 3
+                activate_step.click_repeat_interval_ms = 180
+                append_shifted_step(steps, level, activate_step, "activate_level_19_manual_talent_node_triple")
+                append_shifted_back(steps, level, base_plan)
+            end
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[19] = make_level_19_manual_talent_plan()
+
+    do
+        local extra_plan = make_level_19_extra_fixed_talent_plan()
+        local extra_base_plan = pre_level_18_insert_talent_by_level[19]
+            or pre_level_18_insert_talent_by_level[18]
+            or original_talent_by_level[19]
+        append_level_19_extra_fixed_talent_steps(extra_plan.steps, 19, extra_base_plan)
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_extra_by_level[19] = extra_plan
+    end
+
+    local function make_level_20_to_22_manual_talent_plan(level)
+        return make_manual_talent_plan(
+            level,
+            string.format("%d级天赋：激活指定天赋节点", level),
+            function(steps, current_level)
+                local base_plan = pre_level_18_insert_talent_by_level[current_level]
+                    or pre_level_18_insert_talent_by_level[19]
+                    or pre_level_18_insert_talent_by_level[18]
+                    or original_talent_by_level[current_level]
+                append_shifted_setup(steps, current_level, base_plan)
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("select_level_%d_manual_talent_node", current_level),
+                    string.format("%d级天赋：选择指定天赋节点", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    1079.636841,
+                    411.208282,
+                    0.750269,
+                    0.456898,
+                    20,
+                    1200
+                ), string.format("select_level_%d_manual_talent_node", current_level))
+
+                local activate_step = maintenance_locator_step(
+                    string.format("activate_level_%d_manual_talent_node", current_level),
+                    string.format("%d级天赋：激活指定天赋节点", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    909.439148,
+                    675.801453,
+                    0.631994,
+                    0.750891,
+                    80,
+                    650
+                )
+                activate_step.exclude_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+                }
+                append_shifted_step(
+                    steps,
+                    current_level,
+                    activate_step,
+                    string.format("activate_level_%d_manual_talent_node", current_level)
+                )
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    for _, level in ipairs({ 20, 21, 22 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_20_to_22_manual_talent_plan(level)
+    end
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[61] = nil
 end
 
@@ -2214,7 +2378,9 @@ do
         table.remove(steps, #steps)
     end
     for _, step in ipairs(steps) do
-        if tostring(step.key or "") == "click_skill_upgrade_image" then
+        if tostring(step.key or "") == "open_skill_add_panel" then
+            step.missing_target_means_step_done = true
+        elseif tostring(step.key or "") == "click_skill_upgrade_image" then
             step.missing_image_means_done = false
             step.missing_image_means_step_done = true
             step.cleanup_back_before_finish = true
@@ -2384,7 +2550,7 @@ do
         if tostring(step.key or "") == "open_skill_add_panel" then
             step.key = "level_6_open_skill_add_panel"
             step.label = "6级技能加点入口按钮"
-            step.missing_target_means_plan_done = true
+            step.missing_target_means_step_done = true
         elseif tostring(step.key or "") == "click_skill_upgrade_image" then
             step.key = "level_6_click_skill_upgrade_image"
             step.label = "6级技能升级找图按钮"
@@ -2545,7 +2711,7 @@ do
         if tostring(step.key or "") == "open_skill_add_panel" then
             step.key = "level_12_open_skill_add_panel"
             step.label = "12级技能加点入口按钮"
-            step.missing_target_means_plan_done = true
+            step.missing_target_means_step_done = true
         elseif tostring(step.key or "") == "click_skill_upgrade_image" then
             step.key = "level_12_click_skill_upgrade_image"
             step.label = "12级技能升级找图按钮"
@@ -2702,7 +2868,7 @@ do
         if tostring(step.key or "") == "open_skill_add_panel" then
             step.key = "level_14_open_skill_add_panel"
             step.label = "14级技能加点入口按钮"
-            step.missing_target_means_plan_done = true
+            step.missing_target_means_step_done = true
         elseif tostring(step.key or "") == "click_skill_upgrade_image" then
             step.key = "level_14_click_skill_upgrade_image"
             step.label = "14级技能升级找图按钮"
@@ -2859,7 +3025,7 @@ do
         if tostring(step.key or "") == "open_skill_add_panel" then
             step.key = "level_21_open_skill_add_panel"
             step.label = "21级技能加点入口按钮"
-            step.missing_target_means_plan_done = true
+            step.missing_target_means_step_done = true
         elseif tostring(step.key or "") == "click_skill_upgrade_image" then
             step.key = "level_21_click_skill_upgrade_image"
             step.label = "21级技能升级找图按钮"
@@ -3025,7 +3191,7 @@ do
         if tostring(step.key or "") == "open_skill_add_panel" then
             step.key = "level_29_open_skill_add_panel"
             step.label = "29级技能加点入口按钮"
-            step.missing_target_means_plan_done = true
+            step.missing_target_means_step_done = true
         elseif tostring(step.key or "") == "click_skill_upgrade_image" then
             step.key = "level_29_click_skill_upgrade_image"
             step.label = "29级技能升级找图按钮"
@@ -3191,7 +3357,7 @@ do
         if tostring(step.key or "") == "open_skill_add_panel" then
             step.key = "level_40_open_skill_add_panel"
             step.label = "40级技能加点入口按钮"
-            step.missing_target_means_plan_done = true
+            step.missing_target_means_step_done = true
         elseif tostring(step.key or "") == "click_skill_upgrade_image" then
             step.key = "level_40_click_skill_upgrade_image"
             step.label = "40级技能升级找图按钮"
@@ -4152,6 +4318,10 @@ M.TREASURE_DUNGEON_CONFIGS = {
         path_retry_count = 5,
         path_retry_interval_ms = 1200,
         min_path_points = 3,
+        acquire_path_hold_navigation = true,
+        acquire_path_combat_sidecar = true,
+        discard_terminal_route_nearby_resume = true,
+        terminal_route_resume_distance = 450,
         route_refresh_ms = 900,
         route_arrive_tolerance = 150,
         route_reanchor_forward_delta = 8,
@@ -5347,8 +5517,8 @@ M.MAP_TASK_CONFIGS = {
             key = "boss_return_portal",
             label = "\u{4E0A}\u{53E4}\u{6218}\u{573A}\u{590D}\u{6D3B}\u{56DE}boss\u{95E8}",
             anchor = {
-                x = 10329.00,
-                y = -7267.00,
+                x = 10237.00,
+                y = -7284.00,
                 z = 566.00,
                 radius = 1200
             },
@@ -5722,10 +5892,16 @@ local function make_ancient_battlefield_trace_ryan_task_config()
     return make_boss_kite_task_config(
         "ancient_battlefield_trace_ryan_kite",
         {
-            trigger_distance = 1700,
+            trigger_distance = 900,
             immediate_kite_on_reached = true,
             allow_no_task_target_force_kite = true,
+            require_task_path_for_kite = true,
+            post_revive_force_task_path_reacquire = true,
+            post_revive_task_path_reacquire_wait_ms = 900,
+            post_revive_task_pos_reject_extra_ms = 5500,
+            kite_anchor_source = "task_destination",
             kite_radius = 1260,
+            kite_point_count = 3,
             kite_switch_ms = 2400,
             seamless_kite = true,
             kite_arrive_distance = 520,
@@ -5735,15 +5911,7 @@ local function make_ancient_battlefield_trace_ryan_task_config()
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
-            allow_nearby_text_task_change_exit = true,
-            nearby_text_task_change_confirm_ms = 1200,
-            nearby_text_task_change_confirm_count = 2,
-            ignore_terminal_text_change_when_objective_same = true,
-            kite_points = {
-                { x = 1920.00, y = -1616.00, z = 566.00 },
-                { x = 30.00, y = -524.81, z = 566.00 },
-                { x = 30.00, y = -2707.19, z = 566.00 }
-            }
+            ignore_terminal_text_change_when_objective_same = true
         },
         {
             task_patterns = {
@@ -6574,7 +6742,9 @@ M.TASK_NAME_CONFIGS = {
         {
             trigger_distance = 520,
             immediate_kite_on_reached = true,
+            kite_anchor_source = "task_destination",
             kite_radius = 1200,
+            kite_point_count = 3,
             kite_switch_ms = 2400,
             seamless_kite = true,
             kite_arrive_distance = 520,
@@ -6583,12 +6753,7 @@ M.TASK_NAME_CONFIGS = {
             boss_clear_settle_ms = 3000,
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
-            generic_followup_require_no_special = true,
-            kite_points = {
-                { x = 12803.00, y = -7308.00, z = 608.00 },
-                { x = 11910.25, y = -6507.10, z = 607.00 },
-                { x = 11391.75, y = -7504.81, z = 566.00 }
-            }
+            generic_followup_require_no_special = true
         },
         {
             exclude_task_detail_patterns = {
@@ -7001,9 +7166,9 @@ M.TASK_NAME_CONFIGS = {
     ["\u{65C5}\u{9014}\u{4E4B}\u{59CB}"] = make_journey_begin_awakened_leader_task_config(),
     ["\u{7A81}\u{7834}\u{89C9}\u{9192}\u{8005}\u{91CD}\u{56F4}"] = make_journey_begin_awakened_leader_task_config(),
     ["\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{5934}\u{76EE}"] = make_journey_begin_awakened_leader_task_config(),
-    ["\u{5E26}\u{4E0A}\u{79D1}\u{91CC}\u{FF0C}\u{7EE7}\u{7EED}\u{8FFD}\u{8E2A}\u{83B1}\u{5B89}"] = make_ancient_battlefield_trace_ryan_task_config(),
-    ["\u{7B49}\u{5F85}\u{79D1}\u{91CC}\u{5C06}\u{6728}\u{6865}\u{4FEE}\u{597D}"] = make_ancient_battlefield_trace_ryan_task_config(),
-    ["\u{63A9}\u{62A4}\u{79D1}\u{91CC}\u{4FEE}\u{6865}"] = make_ancient_battlefield_trace_ryan_task_config(),
+    ["\u{4E0A}\u{53E4}\u{6218}\u{573A} / \u{5E26}\u{4E0A}\u{79D1}\u{91CC}\u{FF0C}\u{7EE7}\u{7EED}\u{8FFD}\u{8E2A}\u{83B1}\u{5B89}"] = make_ancient_battlefield_trace_ryan_task_config(),
+    ["\u{4E0A}\u{53E4}\u{6218}\u{573A} / \u{7B49}\u{5F85}\u{79D1}\u{91CC}\u{5C06}\u{6728}\u{6865}\u{4FEE}\u{597D}"] = make_ancient_battlefield_trace_ryan_task_config(),
+    ["\u{4E0A}\u{53E4}\u{6218}\u{573A} / \u{63A9}\u{62A4}\u{79D1}\u{91CC}\u{4FEE}\u{6865}"] = make_ancient_battlefield_trace_ryan_task_config(),
     ["\u{51FB}\u{8D25}\u{62E6}\u{8DEF}\u{7684}\u{526F}\u{5B98}"] = make_fanmu_blocking_deputy_task_config(),
     ["\u{51FB}\u{8D25}\u{526F}\u{5B98}\u{54C8}\u{65AF}"] = make_escape_inner_city_hass_task_config(),
     ["\u{51FB}\u{8D25}\u{9A7B}\u{5B88}\u{57CE}\u{5899}\u{7684}\u{5B66}\u{57CE}\u{5B88}\u{536B}"] = make_wall_of_sighs_city_guard_task_config(),
@@ -8721,6 +8886,25 @@ M.GLOBAL_TASK_PORTAL_STEP = {
     hint_ratio_x = 0.484170,
     hint_ratio_y = 0.804933,
     hint_max_distance = 180.000
+}
+
+M.COMMON_REVIVE_REENTRY_PORTALS = {
+    {
+        key = "ancient_battlefield_reentry_portal_10237_-7284",
+        label = "上古战场复活进门",
+        x = 10237.00,
+        y = -7284.00,
+        z = 566.00,
+        path_match_radius = 900,
+        portal_match_radius = 1800,
+        player_radius = 1300,
+        z_tolerance = 260,
+        require_enum_portal = true,
+        retry_ms = 1200,
+        settle_ms = 1200,
+        timeout_ms = 45000,
+        task_pos_reject_extra_ms = 3500
+    }
 }
 
 M.ROUTE_POINT_ACTIONS = {

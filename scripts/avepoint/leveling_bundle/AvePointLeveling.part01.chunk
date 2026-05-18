@@ -713,6 +713,8 @@ M.GLOBAL_TASK_PORTAL_STEP = {
     hint_max_distance = 80.000
 }
 
+M.COMMON_REVIVE_REENTRY_PORTALS = {}
+
 M.ROUTE_POINT_ACTIONS = {}
 M.TREASURE_DUNGEON_CONFIGS = {}
 
@@ -743,6 +745,9 @@ if type(M._leveling_config) == "table" then
     end
     if type(M._leveling_config.GLOBAL_TASK_PORTAL_STEP) == "table" then
         M.GLOBAL_TASK_PORTAL_STEP = M._leveling_config.GLOBAL_TASK_PORTAL_STEP
+    end
+    if type(M._leveling_config.COMMON_REVIVE_REENTRY_PORTALS) == "table" then
+        M.COMMON_REVIVE_REENTRY_PORTALS = M._leveling_config.COMMON_REVIVE_REENTRY_PORTALS
     end
     if type(M._leveling_config.ROUTE_POINT_ACTIONS) == "table" then
         M.ROUTE_POINT_ACTIONS = M._leveling_config.ROUTE_POINT_ACTIONS
@@ -1713,6 +1718,11 @@ local function reset_state()
     state.revive_reentry_source = nil
     state.revive_reentry_objective_key = nil
     state.revive_reentry_deadline_at = 0
+    state.post_revive_common_reentry_until = 0
+    state.post_revive_common_reentry_reason = nil
+    state.next_common_revive_reentry_scan_at = 0
+    state.next_common_revive_reentry_click_at = 0
+    state.last_common_revive_reentry_key = nil
     state.post_revive_boss_engage_until = 0
     state.startup_boss_engage_until = 0
     state.startup_state_resolve_until = 0
@@ -10939,6 +10949,11 @@ local function reset_revive_state()
     state.revive_click_count = 0
     state.revive_resume_ready_at = 0
     state.next_revive_click_at = 0
+    state.post_revive_common_reentry_until = 0
+    state.post_revive_common_reentry_reason = nil
+    state.next_common_revive_reentry_scan_at = 0
+    state.next_common_revive_reentry_click_at = 0
+    state.last_common_revive_reentry_key = nil
     state.post_revive_boss_engage_until = 0
     state.startup_state_resolve_until = 0
 end

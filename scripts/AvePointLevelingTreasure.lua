@@ -310,11 +310,29 @@ local function serialize_lua(value, indent)
     return table.concat(lines, "\n")
 end
 
-local function default_persisted_state()
-    return {
+local function default_persisted_state(character_id)
+    local data = {
         treasures = {},
         resume = nil
     }
+    if type(character_id) == "string" and character_id ~= "" then
+        data.character_id = character_id
+    end
+    return data
+end
+
+local function default_treasure_record(character_id)
+    local record = {
+        run_count = 0,
+        completed = false,
+        route_acquired = false,
+        route = nil,
+        last_update = 0
+    }
+    if type(character_id) == "string" and character_id ~= "" then
+        record.character_id = character_id
+    end
+    return record
 end
 
 local function current_character_id()
@@ -338,23 +356,49 @@ local function normalize_state_root(data)
     end
     return {
         version = CHARACTER_SCOPED_STATE_VERSION,
-        characters = {},
-        legacy = data
+        characters = {}
     }
 end
 
 local function sanitize_persisted_state(data, character_id)
     if type(data) ~= "table" then
-        data = default_persisted_state()
+        data = default_persisted_state(character_id)
+    end
+    local scoped_character_id = type(character_id) == "string" and character_id or ""
+    if scoped_character_id ~= "" then
+        local stored_character_id = trim(data.character_id)
+        if stored_character_id ~= "" and stored_character_id ~= scoped_character_id then
+            data = default_persisted_state(scoped_character_id)
+        end
+        data.character_id = scoped_character_id
     end
     if type(data.treasures) ~= "table" then
         data.treasures = {}
     end
+    if scoped_character_id ~= "" then
+        for key, record in pairs(data.treasures) do
+            if type(record) ~= "table" then
+                data.treasures[key] = nil
+            else
+                local record_character_id = trim(record.character_id)
+                if record_character_id == "" or record_character_id ~= scoped_character_id then
+                    data.treasures[key] = nil
+                else
+                    record.character_id = scoped_character_id
+                end
+            end
+        end
+    end
     if data.resume ~= nil and type(data.resume) ~= "table" then
         data.resume = nil
     end
-    if type(character_id) == "string" and character_id ~= "" then
-        data.character_id = character_id
+    if type(data.resume) == "table" and scoped_character_id ~= "" then
+        local resume_character_id = trim(data.resume.character_id)
+        if resume_character_id == "" or resume_character_id ~= scoped_character_id then
+            data.resume = nil
+        else
+            data.resume.character_id = scoped_character_id
+        end
     end
     return data
 end
@@ -384,7 +428,7 @@ local function load_persisted_state()
         persisted_state_root.characters = {}
     end
     if type(persisted_state_root.characters[character_id]) ~= "table" then
-        persisted_state_root.characters[character_id] = default_persisted_state()
+        persisted_state_root.characters[character_id] = default_persisted_state(character_id)
     end
     persisted_state_character_id = character_id
     return sanitize_persisted_state(persisted_state_root.characters[character_id], character_id)
@@ -402,6 +446,8 @@ local function save_persisted_state(data)
         persisted_state_root.characters = {}
     end
     persisted_state_root.version = CHARACTER_SCOPED_STATE_VERSION
+    persisted_state_root.legacy = nil
+    persisted_state_root.legacy_imported_to = nil
     persisted_state_root.characters[character_id] = sanitize_persisted_state(data, character_id)
     persisted_state_character_id = character_id
 
@@ -641,17 +687,19 @@ end
 local function ensure_record(main_state, cfg)
     local persisted = ensure_persisted_state(main_state)
     persisted.treasures = persisted.treasures or {}
+    local character_id = current_character_id()
     local key = tostring(cfg.route_store_key or cfg.key or cfg.name or "")
-    if type(persisted.treasures[key]) ~= "table" then
-        persisted.treasures[key] = {
-            run_count = 0,
-            completed = false,
-            route_acquired = false,
-            route = nil,
-            last_update = 0
-        }
-    end
     local record = persisted.treasures[key]
+    local record_character_id = type(record) == "table" and trim(record.character_id) or ""
+    if type(record) ~= "table"
+        or (type(character_id) == "string" and character_id ~= "" and record_character_id ~= character_id)
+    then
+        persisted.treasures[key] = default_treasure_record(character_id)
+    end
+    record = persisted.treasures[key]
+    if type(character_id) == "string" and character_id ~= "" then
+        record.character_id = character_id
+    end
     return record
 end
 
@@ -690,7 +738,9 @@ local function build_resume_snapshot(main_state)
     if mode == nil then
         return nil
     end
+    local character_id = current_character_id()
     return {
+        character_id = character_id,
         active_key = tostring(runtime.active_key or ""),
         mode = mode,
         route_cursor = tonumber(runtime.route_cursor),
@@ -732,6 +782,34 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
     local persisted = ensure_persisted_state(main_state)
     local snapshot = type(persisted.resume) == "table" and persisted.resume or nil
     if type(snapshot) ~= "table" then
+        return false
+    end
+
+    local character_id = current_character_id()
+    local snapshot_character_id = trim(snapshot.character_id)
+    if type(character_id) ~= "string"
+        or character_id == ""
+        or snapshot_character_id == ""
+        or snapshot_character_id ~= character_id
+    then
+        local discard_reason = (type(character_id) ~= "string" or character_id == "")
+            and "character_id_unavailable"
+            or (snapshot_character_id == "" and "character_id_missing" or "character_id_mismatch")
+        persisted.resume = nil
+        save_persisted_state(persisted)
+        if type(ctx) == "table" and type(ctx.log) == "table" and type(ctx.log.info) == "function" then
+            ctx.log.info(string.format(
+                "[Treasure] resume snapshot discarded | key=%s mode=%s reason=%s current_id=%s snapshot_id=%s pos=%.2f, %.2f, %.2f",
+                tostring(snapshot.active_key or ""),
+                tostring(snapshot.mode or ""),
+                tostring(discard_reason),
+                tostring(character_id or ""),
+                tostring(snapshot_character_id or ""),
+                tonumber(player_x) or 0,
+                tonumber(player_y) or 0,
+                tonumber(player_z) or 0
+            ))
+        end
         return false
     end
 
@@ -826,6 +904,35 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
         else
             allow_restore = near_known_inside or near_route
             restore_reason = allow_restore and (near_known_inside and "known_inside_trigger" or "route_nearby") or "outside_treasure_space"
+        end
+    end
+
+    if allow_restore
+        and type(cfg) == "table"
+        and cfg.discard_terminal_route_nearby_resume == true
+        and (restore_reason == "route_nearby" or restore_reason == "route_nearby_resume_override")
+        and type(cached_route) == "table"
+        and #cached_route > 0
+    then
+        local terminal_slack = math.max(1, math.floor(tonumber(cfg.terminal_route_resume_cursor_slack) or 1))
+        local route_cursor = tonumber(snapshot.route_cursor) or tonumber(snapshot.route_nearest_index)
+        local terminal_point = cached_route[1]
+        local terminal_distance = distance_2d(
+            player_x,
+            player_y,
+            tonumber(type(terminal_point) == "table" and terminal_point.x),
+            tonumber(type(terminal_point) == "table" and terminal_point.y)
+        )
+        local terminal_distance_limit = math.max(
+            tonumber(cfg.terminal_route_resume_distance) or 450,
+            tonumber(cfg.route_arrive_tolerance) or 150
+        )
+        if route_cursor ~= nil
+            and route_cursor <= terminal_slack
+            and terminal_distance <= terminal_distance_limit
+        then
+            allow_restore = false
+            restore_reason = "terminal_route_nearby_resume"
         end
     end
 
@@ -1242,6 +1349,43 @@ local function route_spawn_point(runtime)
         y = tonumber(point.y),
         z = tonumber(point.z)
     }
+end
+
+local function handle_acquire_path_ownership(ctx, hooks, cfg, current_time, player_x, player_y, player_z)
+    if type(cfg) ~= "table" or type(hooks) ~= "table" then
+        return
+    end
+    local hold_enabled = cfg.acquire_path_hold_navigation == true
+    local combat_enabled = cfg.acquire_path_combat_sidecar == true
+    if not hold_enabled and not combat_enabled then
+        return
+    end
+
+    if hold_enabled then
+        if type(hooks.clear_task_target_state) == "function" then
+            hooks.clear_task_target_state()
+        end
+        if type(hooks.hold_navigation) == "function" then
+            hooks.hold_navigation(ctx, current_time, "treasure_acquire_path")
+        end
+    end
+
+    if combat_enabled and type(hooks.tick_combat_sidecar) == "function" then
+        hooks.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, {
+            phase = "treasure_acquire_path",
+            allow_when_main_interface_false = true
+        })
+    end
+
+    if type(hooks.log_throttled) == "function" then
+        hooks.log_throttled(ctx, "treasure_acquire_path_ownership_" .. tostring(cfg.key or ""), "info", 2500,
+            string.format(
+                "[Treasure] acquire_path owns local navigation/combat | key=%s hold=%s combat=%s",
+                tostring(cfg.key or ""),
+                hold_enabled and "true" or "false",
+                combat_enabled and "true" or "false"
+            ))
+    end
 end
 
 transition_mode = function(ctx, hooks, cfg, runtime, next_mode, reason)
@@ -3594,6 +3738,7 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
     end
 
     if mode == "acquire_path" then
+        handle_acquire_path_ownership(ctx, hooks, cfg, current_time, player_x, player_y, player_z)
         if current_time < (tonumber(runtime.next_retry_at) or 0) then
             return true
         end
