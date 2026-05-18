@@ -6171,6 +6171,63 @@ local function make_kingdom_end_deep_boss_task_config()
     )
 end
 
+local function make_wasteland_path_longhorn_task_config()
+    return make_boss_kite_task_config(
+        "wasteland_path_longhorn_beast_room_25430_12440",
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = true,
+            immediate_no_task_target_kite = true,
+            kite_radius = 1260,
+            kite_point_count = 3,
+            kite_switch_ms = 2200,
+            seamless_kite = true,
+            kite_arrive_distance = 420,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 3500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            ignore_terminal_text_change_when_objective_same = true,
+            revive_reentry = make_revive_reentry_config({
+                key = "wasteland_path_longhorn_beast_room_reentry_24236_11164",
+                label = "灾厄将至_长角异兽_Boss重进房",
+                anchor = {
+                    x = 24236.00,
+                    y = 11164.00,
+                    z = 5445.00,
+                    radius = 620,
+                    z_tolerance = 420
+                },
+                interact_distance = 320,
+                portal_scan_distance = 900,
+                retry_ms = 900,
+                settle_ms = 1400,
+                timeout_ms = 24000,
+                post_transition_boss_engage_ms = 16000,
+                fallback_interact = true
+            })
+        },
+        {
+            task_patterns = {
+                "灾厄将至"
+            },
+            task_detail_patterns = {
+                "继续追击莱安",
+                "击败拦路的长角异兽"
+            },
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话",
+                "藏宝地"
+            },
+            constraint_mode = "all"
+        }
+    )
+end
+
 local function make_forgotten_temple_special_experiment_keel_task_config()
     return make_boss_kite_task_config(
         "forgotten_temple_special_experiment_keel_kite",
@@ -6786,6 +6843,8 @@ M.TASK_NAME_CONFIGS = {
     ["\u{4E3B}\u{7EBF} \u{738B}\u{56FD}\u{7EC8}\u{9014} / \u{62B5}\u{8FBE}\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}"] = make_kingdom_end_deep_boss_task_config(),
     ["\u{738B}\u{56FD}\u{7EC8}\u{9014} / \u{51FB}\u{8D25}\u{7070}\u{70EC}\u{673A}\u{7532}"] = make_kingdom_end_deep_boss_task_config(),
     ["\u{4E3B}\u{7EBF} \u{738B}\u{56FD}\u{7EC8}\u{9014} / \u{51FB}\u{8D25}\u{7070}\u{70EC}\u{673A}\u{7532}"] = make_kingdom_end_deep_boss_task_config(),
+    ["灾厄将至 / 继续追击莱安"] = make_wasteland_path_longhorn_task_config(),
+    ["主线 灾厄将至 / 继续追击莱安"] = make_wasteland_path_longhorn_task_config(),
     ["\u{51FB}\u{8D25}\u{7279}\u{6B8A}\u{5B9E}\u{9A8C}\u{4F53}\u{57FA}\u{5C14}"] = make_forgotten_temple_special_experiment_keel_task_config(),
     ["\u{7279}\u{6B8A}\u{5B9E}\u{9A8C}\u{4F53}\u{57FA}\u{5C14}"] = make_forgotten_temple_special_experiment_keel_task_config(),
     ["坠星 / 前往集市中心"] = make_boss_kite_task_config(
@@ -12988,49 +13047,6 @@ M.OBJECTIVE_POINT_CONFIGS = {
             "交谈",
             "对话"
         }
-    }),
-    Actions.make_clear_room_point({
-        key = "wasteland_path_longhorn_beast_room_25430_12440",
-        x = 25430.00,
-        y = 12440.00,
-        z = 5448.75,
-        radius = 1200,
-        trigger_distance = 900,
-        kite_radius = 1260,
-        kite_point_count = 3,
-        kite_switch_ms = 2200,
-        seamless_kite = true,
-        kite_arrive_distance = 420,
-        kite_move_interval_ms = 120,
-        defer_followup_until_clear = true,
-        boss_clear_settle_ms = 3000,
-        task_patterns = {
-            "\u{707E}\u{5384}\u{5C06}\u{81F3}",
-            "\u{9AD8}\u{539F}\u{957F}\u{89D2}\u{5F02}\u{517D}"
-        },
-        task_detail_patterns = {
-            "\u{51FB}\u{8D25}\u{62E6}\u{8DEF}\u{7684}\u{957F}\u{89D2}\u{5F02}\u{517D}"
-        },
-        exclude_task_patterns = {
-            "\u{4EA4}\u{8C08}",
-            "\u{5BF9}\u{8BDD}"
-        },
-        revive_reentry = make_revive_reentry_config({
-            key = "wasteland_path_longhorn_beast_room_reentry_24163_11202",
-            label = "\u{8352}\u{829C}\u{5C71}\u{9053} Boss\u{91CD}\u{8FDB}\u{623F}",
-            anchor = {
-                x = 24163.00,
-                y = 11202.00,
-                z = 5446.06,
-                radius = 560
-            },
-            interact_distance = 280,
-            retry_ms = 1200,
-            settle_ms = 1400,
-            timeout_ms = 20000,
-            post_transition_boss_engage_ms = 16000,
-            fallback_interact = true
-        })
     }),
     Actions.make_clear_room_point({
         key = "counterattack_dawn_worm_room_17190_16840",
