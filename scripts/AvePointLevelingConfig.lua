@@ -747,7 +747,7 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
     trigger_after_post_combat_loot = true,
     priority_over_level_up = true,
     periodic_scan_enabled = false,
-    after_loot_timeout_ms = 12000,
+    after_loot_timeout_ms = 30000,
     scan_interval_ms = 45000,
     retry_ms = 12000,
     min_hp_ratio = 0.72,
@@ -6119,7 +6119,10 @@ local function make_kingdom_end_deep_boss_task_config()
         {
             trigger_distance = 700,
             immediate_kite_on_reached = true,
-            kite_radius = 2400,
+            allow_no_task_target_force_kite = true,
+            immediate_no_task_target_kite = true,
+            kite_radius = 1260,
+            kite_point_count = 3,
             kite_switch_ms = 2200,
             seamless_kite = true,
             kite_arrive_distance = 520,
@@ -6129,11 +6132,25 @@ local function make_kingdom_end_deep_boss_task_config()
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
-            kite_points = {
-                { x = 7221.80, y = -2788.37, z = -3106.00 },
-                { x = 7256.24, y = -2019.35, z = -3106.00 },
-                { x = 8473.43, y = -2139.18, z = -3105.92 }
-            }
+            ignore_terminal_text_change_when_objective_same = true,
+            revive_reentry = make_revive_reentry_config({
+                key = "kingdom_end_ash_mech_room_reentry_5657_-1199",
+                label = "王国终途_灰烬机甲_Boss重进房",
+                anchor = {
+                    x = 5657.21,
+                    y = -1199.08,
+                    z = -3340.30,
+                    radius = 620,
+                    z_tolerance = 420
+                },
+                interact_distance = 320,
+                portal_scan_distance = 900,
+                retry_ms = 900,
+                settle_ms = 1400,
+                timeout_ms = 24000,
+                post_transition_boss_engage_ms = 16000,
+                fallback_interact = true
+            })
         },
         {
             task_patterns = {
@@ -6141,7 +6158,8 @@ local function make_kingdom_end_deep_boss_task_config()
             },
             task_detail_patterns = {
                 "\u{62B5}\u{8FBE}\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}",
-                "\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}"
+                "\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}",
+                "\u{51FB}\u{8D25}\u{7070}\u{70EC}\u{673A}\u{7532}"
             },
             exclude_task_detail_patterns = {
                 "\u{4EA4}\u{8C08}",
@@ -6764,8 +6782,10 @@ M.TASK_NAME_CONFIGS = {
     ["\u{8E48}\u{706B}\u{4E4B}\u{4EBA}"] = make_fire_treader_romel_boss_task_config(),
     ["\u{51FB}\u{8D25}\u{88AB}\u{9B54}\u{6CD5}\u{5B66}\u{9662}\u{6539}\u{9020}\u{7684}\u{7F57}\u{6885}\u{5C14}"] = make_fire_treader_romel_boss_task_config(),
     ["\u{5B9E}\u{9A8C}\u{4F53}\u{00B7}\u{7F57}\u{6885}\u{5C14}"] = make_fire_treader_romel_boss_task_config(),
-    ["\u{62B5}\u{8FBE}\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}"] = make_kingdom_end_deep_boss_task_config(),
-    ["\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}"] = make_kingdom_end_deep_boss_task_config(),
+    ["\u{738B}\u{56FD}\u{7EC8}\u{9014} / \u{62B5}\u{8FBE}\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}"] = make_kingdom_end_deep_boss_task_config(),
+    ["\u{4E3B}\u{7EBF} \u{738B}\u{56FD}\u{7EC8}\u{9014} / \u{62B5}\u{8FBE}\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}"] = make_kingdom_end_deep_boss_task_config(),
+    ["\u{738B}\u{56FD}\u{7EC8}\u{9014} / \u{51FB}\u{8D25}\u{7070}\u{70EC}\u{673A}\u{7532}"] = make_kingdom_end_deep_boss_task_config(),
+    ["\u{4E3B}\u{7EBF} \u{738B}\u{56FD}\u{7EC8}\u{9014} / \u{51FB}\u{8D25}\u{7070}\u{70EC}\u{673A}\u{7532}"] = make_kingdom_end_deep_boss_task_config(),
     ["\u{51FB}\u{8D25}\u{7279}\u{6B8A}\u{5B9E}\u{9A8C}\u{4F53}\u{57FA}\u{5C14}"] = make_forgotten_temple_special_experiment_keel_task_config(),
     ["\u{7279}\u{6B8A}\u{5B9E}\u{9A8C}\u{4F53}\u{57FA}\u{5C14}"] = make_forgotten_temple_special_experiment_keel_task_config(),
     ["坠星 / 前往集市中心"] = make_boss_kite_task_config(

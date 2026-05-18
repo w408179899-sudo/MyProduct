@@ -4463,6 +4463,15 @@ function M.maybe_handle_forced_kite_monster(ctx, current_time, player_x, player_
     return true
 end
 
+function M.mark_startup_main_task_reacquired(ctx, current_time, reason)
+    state.startup_main_task_reacquired = true
+    state.startup_boss_engage_until = 0
+    log_throttled(ctx, "startup_main_task_reacquired", "info", LOG_THROTTLE_MS, string.format(
+        "[Leveling] startup main task reacquired; startup forced kite disabled | reason=%s",
+        tostring(reason or "")
+    ))
+end
+
 function M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, player_z, hp_ratio)
     local resolve_until = tonumber(state.startup_state_resolve_until) or 0
     if resolve_until <= 0 then
@@ -4507,19 +4516,28 @@ function M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, pla
         or TARGET_REACHED_DISTANCE
     local window_left_ms = math.max(0, resolve_until - current_time)
 
-    if M.maybe_handle_forced_kite_monster(
-        ctx,
-        current_time,
-        player_x,
-        player_y,
-        player_z,
-        hp_ratio,
-        target,
-        destination,
-        goal_distance
-    ) then
-        state.startup_state_resolve_until = 0
-        return true
+    if state.startup_main_task_reacquired == true then
+        if M.maybe_handle_forced_kite_monster(
+            ctx,
+            current_time,
+            player_x,
+            player_y,
+            player_z,
+            hp_ratio,
+            target,
+            destination,
+            goal_distance
+        ) then
+            state.startup_state_resolve_until = 0
+            return true
+        end
+    else
+        log_throttled(ctx, "startup_forced_kite_deferred_before_main_task", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] startup forced kite deferred until first main task call | task=%s detail=%s window_left=%dms",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            window_left_ms
+        ))
     end
 
     if type(target) == "table"
@@ -4528,6 +4546,7 @@ function M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, pla
         if current_time >= (tonumber(state.next_task_button_click_at) or 0) then
             local clicked = click_main_task_button(ctx, current_time)
             if clicked then
+                M.mark_startup_main_task_reacquired(ctx, current_time, "task_pos_requires_main_task_call")
                 state.task_pos_reject_until = current_time + TASK_BUTTON_PATH_FETCH_TIMEOUT_MS + 2500
                 state.task_pos_reject_reason = "startup_task_pos_requires_main_task_call"
                 logger(ctx).info(string.format(
@@ -4633,6 +4652,7 @@ function M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, pla
     then
         local clicked = click_main_task_button(ctx, current_time)
         if clicked then
+            M.mark_startup_main_task_reacquired(ctx, current_time, "task_pos_deferred_before_follow")
             logger(ctx).info(string.format(
                 "[Leveling] startup task_pos deferred, clicked main task before follow | task=%s detail=%s goal_distance=%.2f target=(%.2f, %.2f, %.2f) source=%s window_left=%dms",
                 tostring(task_name or state.current_task_name or ""),
@@ -4661,6 +4681,7 @@ function M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, pla
     then
         local clicked = click_main_task_button(ctx, current_time)
         if clicked then
+            M.mark_startup_main_task_reacquired(ctx, current_time, "no_task_data")
             logger(ctx).info(string.format(
                 "[Leveling] startup state unresolved, clicked main task to reacquire task path immediately | task=%s window_left=%dms",
                 tostring(task_name or state.current_task_name or ""),
@@ -6625,7 +6646,9 @@ function M.update(now, ctx)
                 return true
             end
         end
-        if (tonumber(state.startup_boss_engage_until) or 0) > current_time then
+        if (tonumber(state.startup_boss_engage_until) or 0) > current_time
+            and state.startup_main_task_reacquired == true
+        then
             if M.maybe_handle_forced_kite_monster(
                 ctx,
                 current_time,
@@ -6639,6 +6662,9 @@ function M.update(now, ctx)
             ) then
                 return true
             end
+        elseif (tonumber(state.startup_boss_engage_until) or 0) > current_time then
+            log_throttled(ctx, "startup_boss_engage_deferred_before_main_task", "info", LOG_THROTTLE_MS,
+                "[Leveling] startup boss engage deferred until first main task call.")
         end
         if maybe_handle_map_specific_transition(ctx, current_time, player_x, player_y) then
             log_heartbeat(ctx, current_time, player_x, player_y, player_z)
