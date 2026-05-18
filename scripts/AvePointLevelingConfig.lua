@@ -752,6 +752,8 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
     retry_ms = 12000,
     min_hp_ratio = 0.72,
     allow_low_hp_maintenance = false,
+    force_open_bag_after_loot_ignores_hp_and_monsters = true,
+    combat_pulse_while_waiting_after_loot = true,
     allow_position_available_without_main_interface = true,
     safe_no_monster_ms = 1800,
     monster_guard_distance = 1000,
@@ -2001,7 +2003,7 @@ do
     -- level 4 must repeat the same first node as level 3. Later levels consume
     -- the previous point in the original sequence; multi-point levels are split
     -- across the following level when the shifted sequence crosses a boundary.
-    -- Level 60 has no talent plan after this correction.
+    -- Before the level-18 insertion below, level 60 has no talent plan after this correction.
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[4] =
         retarget_shifted_talent_plan(original_talent_by_level[3], 4, 3)
     for level = 5, 31 do
@@ -2150,6 +2152,55 @@ do
     end
 
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[60] = nil
+
+    -- Level 18 has a newly sampled node. Insert it into the already-corrected
+    -- sequence, then let level 19+ consume the previous level's corrected plan.
+    local pre_level_18_insert_talent_by_level = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level)
+
+    local function make_inserted_level_18_talent_plan()
+        return make_manual_talent_plan(
+            18,
+            "18级天赋：激活新增天赋节点",
+            function(steps, level)
+                local base_plan = pre_level_18_insert_talent_by_level[18] or original_talent_by_level[18]
+                append_shifted_setup(steps, level, base_plan)
+                append_shifted_step(steps, level, maintenance_locator_step(
+                    "select_level_18_inserted_talent_node",
+                    "18级天赋：选择新增天赋节点",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    913.706848,
+                    478.651550,
+                    0.634960,
+                    0.531835,
+                    80,
+                    1200
+                ), "select_level_18_inserted_talent_node")
+                append_shifted_step(steps, level, maintenance_locator_step(
+                    "activate_level_18_inserted_talent_node",
+                    "18级天赋：激活新增天赋节点",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    743.509155,
+                    673.801453,
+                    0.516685,
+                    0.748668,
+                    80,
+                    650
+                ), "activate_level_18_inserted_talent_node")
+                append_shifted_back(steps, level, base_plan)
+            end
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[18] = make_inserted_level_18_talent_plan()
+    for level = 19, 60 do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] =
+            retarget_shifted_talent_plan(pre_level_18_insert_talent_by_level[level - 1], level, level - 1)
+    end
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[61] = nil
 end
 
 do
@@ -13057,6 +13108,7 @@ M.OBJECTIVE_POINT_CONFIGS = {
         trigger_distance = 1400,
         immediate_kite_on_reached = true,
         kite_radius = 2600,
+        kite_point_count = 3,
         kite_switch_ms = 2400,
         seamless_kite = true,
         kite_arrive_distance = 520,
@@ -13066,11 +13118,6 @@ M.OBJECTIVE_POINT_CONFIGS = {
         generic_followup_refresh_ms = 3500,
         generic_followup_requires_task_pos_only = true,
         generic_followup_require_no_special = true,
-        kite_points = {
-            { x = 19717.21, y = 20873.74, z = 920.00 },
-            { x = 19097.61, y = 19766.45, z = 920.00 },
-            { x = 18291.47, y = 20520.47, z = 920.00 }
-        },
         task_patterns = {
             "\u{53CD}\u{51FB}\u{7684}\u{9ECE}\u{660E}",
             "\u{5DE8}\u{578B}\u{8815}\u{866B}"
@@ -13088,8 +13135,8 @@ M.OBJECTIVE_POINT_CONFIGS = {
             key = "counterattack_dawn_worm_room_reentry_17580_18579",
             label = "\u{53CD}\u{51FB}\u{7684}\u{9ECE}\u{660E} Boss\u{91CD}\u{8FDB}\u{623F}",
             anchor = {
-                x = 17580.35,
-                y = 18579.16,
+                x = 17614.00,
+                y = 18548.00,
                 z = 920.00,
                 radius = 560,
                 z_tolerance = 260

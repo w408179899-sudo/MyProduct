@@ -13,6 +13,7 @@ M.DEFAULT_CONFIG = {
     retry_ms = 12000,
     min_hp_ratio = 0.72,
     allow_low_hp_maintenance = false,
+    force_open_bag_ignores_hp_and_monsters = false,
     safe_no_monster_ms = 1800,
     monster_guard_distance = 1000,
     monster_hard_block_distance = 300,
@@ -208,6 +209,8 @@ end
 function M.safe_window(ctx, deps, runtime, cfg, current_time, player_x, player_y, hp_ratio, in_main_interface)
     runtime = type(runtime) == "table" and runtime or {}
     current_time = tonumber(current_time) or now_ms(ctx)
+    local force_open_bag = cfg.force_open_bag_ignores_hp_and_monsters == true
+        or (type(deps) == "table" and deps.force_open_bag_ignores_hp_and_monsters == true)
 
     if in_main_interface == false then
         local has_player_position = type(player_x) == "number" and type(player_y) == "number"
@@ -215,7 +218,8 @@ function M.safe_window(ctx, deps, runtime, cfg, current_time, player_x, player_y
             return block(runtime, "not_main_interface")
         end
     end
-    if type(hp_ratio) == "number"
+    if not force_open_bag
+        and type(hp_ratio) == "number"
         and hp_ratio < (tonumber(cfg.min_hp_ratio) or 0.72)
         and cfg.allow_low_hp_maintenance ~= true
     then
@@ -262,6 +266,12 @@ function M.safe_window(ctx, deps, runtime, cfg, current_time, player_x, player_y
         if dialogue_reason ~= nil then
             return block(runtime, tostring(dialogue_reason))
         end
+    end
+
+    if force_open_bag then
+        runtime.auto_equip_safe_since = 0
+        reset_safe_observe(runtime)
+        return true, "ready_force_open_bag"
     end
 
     if type(deps) == "table" and type(deps.find_task_monsters) == "function" then

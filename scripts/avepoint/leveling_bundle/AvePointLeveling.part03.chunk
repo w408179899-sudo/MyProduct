@@ -5805,6 +5805,15 @@ function M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, play
             release_async_combat_inputs(ctx, current_time, true)
         end
         hold_navigation(ctx, current_time, "auto_equip_after_loot_wait")
+        if cfg.combat_pulse_while_waiting_after_loot ~= false
+            and type(M.tick_combat_sidecar) == "function"
+        then
+            M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
+                phase = "auto_equip_after_loot_wait",
+                in_main_interface = in_main_interface,
+                allow_when_main_interface_false = true
+            })
+        end
         log_throttled(ctx, "auto_equip_after_loot_wait", "info", 1000, string.format(
             "[Leveling] auto-equip after-loot waits | objective=%s reason=%s elapsed_ms=%d",
             tostring(state.auto_equip_after_loot_objective_key or ""),
@@ -5880,6 +5889,8 @@ function M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, play
         in_main_interface = in_main_interface,
         character_id = character_id,
         force_scan = after_loot_pending,
+        force_open_bag_ignores_hp_and_monsters = after_loot_pending
+            and cfg.force_open_bag_after_loot_ignores_hp_and_monsters == true,
         keep_bag_open_after_run = after_loot_pending and M.recycle_after_auto_equip_enabled(),
         press_key = press_keyboard_hotkey,
         release_inputs = release_async_combat_inputs,
