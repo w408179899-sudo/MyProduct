@@ -9460,7 +9460,6 @@ M.ROUTE_POINT_ACTIONS = {
         mode = "recorded_route_point",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
-        direct_when_task_active = true,
         complete_without_task_reacquire = true,
         followup_route_action_key = "mountain_heart_dwarf_king_lift_button_-1750_4240",
         task_patterns = {
@@ -9575,7 +9574,7 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_npc_dialogue_route_action({
-        key = "listen_keli_dwarf_king_dialogue_8496_17639",
+        key = "listen_keli_dwarf_king_dialogue_8378_17447",
         label = "聆听科里和矮人王的对话_NPC对话",
         task_patterns = {
             "群山之心"
@@ -9586,17 +9585,18 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 8496.49,
-            y = 17639.27,
+            x = 7451.00,
+            y = 17193.00,
             z = 812.00,
-            radius = 860,
+            radius = 520,
             z_tolerance = 260
         },
         retry_ms = 6000,
+        pre_action_combat_guard = false,
         dialogue = {
-            x = 8496.49,
-            y = 17639.27,
-            z = 812.00,
+            x = 8378.00,
+            y = 17447.00,
+            z = 811.00,
             radius = 260,
             interact_radius = 120,
             move_interval_ms = 180,
@@ -9604,7 +9604,7 @@ M.ROUTE_POINT_ACTIONS = {
             center_settle_ms = 700,
             interact_retry_ms = 1800,
             timeout_ms = 22000,
-            npc_search_radius = 420,
+            npc_search_radius = 180,
             fallback_interact = true
         }
     }),
@@ -12936,9 +12936,13 @@ M.OBJECTIVE_POINT_CONFIGS = {
         trigger_distance = 720,
         kite_radius = 2880,
         boss_clear_settle_ms = 3000,
+        post_combat_loot = false,
         task_patterns = {
             "\u{7FA4}\u{5C71}\u{4E4B}\u{5FC3}",
             "\u{5B8C}\u{6210}"
+        },
+        task_detail_patterns = {
+            "阻止矮人王的阴谋"
         },
         exclude_task_patterns = {
             "\u{4EA4}\u{8C08}",
