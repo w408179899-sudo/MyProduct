@@ -1508,7 +1508,10 @@ likely_inside_treasure = function(cfg, hooks, runtime, current_time, player_x, p
     if landing_ready(player_x, player_y, player_z, type(cfg) == "table" and cfg.inside_landing or nil) then
         return true, "inside_landing"
     end
-    if landing_ready(player_x, player_y, player_z, type(cfg) == "table" and cfg.restart_landing or nil) then
+    if type(cfg) == "table"
+        and cfg.inside_detect_restart_landing ~= false
+        and landing_ready(player_x, player_y, player_z, cfg.restart_landing)
+    then
         return true, "restart_landing"
     end
     if type(cfg) ~= "table" or cfg.inside_detect_task_panel_text ~= false then
@@ -2029,6 +2032,43 @@ local function execute_treasure_route_follow(ctx, main_state, cfg, runtime, hook
                     injected and "true" or "false",
                     tostring(inject_err or "")
                 ))
+        end
+        return true
+    end
+
+    local route_cursor = tonumber(runtime.route_cursor)
+    local terminal_distance = tonumber(target.current_distance) or math.huge
+    local terminal_arrive_tolerance = math.max(
+        90,
+        tonumber(target.route_arrive_tolerance) or tonumber(cfg.route_arrive_tolerance) or 150
+    )
+    if type(cfg) == "table"
+        and cfg.terminal_route_fail_without_boss == true
+        and route_cursor ~= nil
+        and route_cursor <= 1
+        and terminal_distance <= terminal_arrive_tolerance
+    then
+        transition_mode(ctx, hooks, cfg, runtime, "failed", "terminal_route_without_boss")
+        runtime.route = nil
+        runtime.route_loaded = false
+        runtime.route_cursor = nil
+        runtime.route_nearest_index = nil
+        runtime.next_retry_at = current_time + math.max(600, tonumber(cfg.path_retry_interval_ms) or 1200)
+        if type(hooks.clear_task_target_state) == "function" then
+            hooks.clear_task_target_state()
+        end
+        clear_treasure_combat_kite(ctx, hooks, cfg, runtime, "terminal_route_without_boss")
+        log_refresh_block_clear(ctx, hooks, cfg, runtime, "terminal_route_without_boss", clear_mainline_refresh_block(main_state))
+        if type(hooks.log_info) == "function" then
+            hooks.log_info(ctx, string.format(
+                "[Treasure] terminal route reached outside boss zone, releasing treasure route | key=%s pos=%.2f, %.2f, %.2f distance=%.2f tolerance=%.2f",
+                tostring(cfg.key or ""),
+                tonumber(player_x) or 0,
+                tonumber(player_y) or 0,
+                tonumber(player_z) or 0,
+                terminal_distance,
+                terminal_arrive_tolerance
+            ))
         end
         return true
     end

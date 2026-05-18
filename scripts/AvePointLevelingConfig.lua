@@ -5566,6 +5566,10 @@ M.TREASURE_DUNGEON_CONFIGS = {
         route_store_key = "treasure_fourth_entry_5643_-530_v1",
         target_level = 46,
         inside_detect_task_panel_text = false,
+        startup_recovery_restart_landing = false,
+        inside_detect_restart_landing = false,
+        discard_terminal_route_nearby_resume = true,
+        terminal_route_fail_without_boss = true,
         task_patterns = {
             "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}",
             "\u{85CF}\u{5B9D}\u{5730}",
@@ -5792,6 +5796,8 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "This F7 exit portal can be used as the fourth treasure boss-death/portal-ready signal because it matches the configured exit door, not the restart door",
             "Exit_landing reuses the original outside treasure entrance near 5642.69,-530.40,503.00",
             "Reject any acquired route whose first point falls near the outside mainline goal 3050,7050,503; that path is a false positive from the current 深渊以下 outside route, not an inside-treasure route",
+            "Restart_landing is too close to the later mainline route in 陷落圣城, so it must not drive startup/inside inference for this treasure; use inside_landing/map signals instead",
+            "If a captured route reaches terminal cursor 1 outside the boss trigger, release the treasure route instead of suppressing mainline task_pos forever",
             "Missing: reliable outside map name, exact entry / restart / exit button locator logs, inside map name, and restart/exit landing runtime verification"
         }
     },
