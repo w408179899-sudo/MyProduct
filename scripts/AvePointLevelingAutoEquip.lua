@@ -463,7 +463,7 @@ local function compare_slot_from_text(text)
     return nil
 end
 
-local function keep_name_matches(item_name, keep_names)
+local function keep_name_matches(item_name, keep_names, match_mode)
     local name = trim(item_name)
     if name == "" then
         return false
@@ -473,7 +473,12 @@ local function keep_name_matches(item_name, keep_names)
         return false
     end
     for _, keep_name in ipairs(keep_names) do
-        if name == trim(keep_name) then
+        local expected = trim(keep_name)
+        if expected ~= "" and tostring(match_mode or "") == "contains" then
+            if name:find(expected, 1, true) ~= nil then
+                return true
+            end
+        elseif name == expected then
             return true
         end
     end
@@ -640,10 +645,13 @@ local function keep_rule_skip_reason(compare, rule)
     end
 
     local keep_names = type(rule.keep_names) == "table" and rule.keep_names or {}
+    local keep_match_mode = tostring(rule.keep_name_match_mode or rule.name_match_mode or "")
     local mode = tostring(rule.mode or "any_equipped")
     if mode == "all_ring_slots" then
         local equipped = type(compare.equipped_ring_names) == "table" and compare.equipped_ring_names or {}
-        if keep_name_matches(equipped.left, keep_names) and keep_name_matches(equipped.right, keep_names) then
+        if keep_name_matches(equipped.left, keep_names, keep_match_mode)
+            and keep_name_matches(equipped.right, keep_names, keep_match_mode)
+        then
             return tostring(rule.reason or "keep_all_ring_slots")
         end
         return nil
@@ -651,15 +659,26 @@ local function keep_rule_skip_reason(compare, rule)
 
     if mode == "any_ring_slot" then
         local equipped = type(compare.equipped_ring_names) == "table" and compare.equipped_ring_names or {}
-        if keep_name_matches(equipped.left, keep_names) or keep_name_matches(equipped.right, keep_names) then
+        if keep_name_matches(equipped.left, keep_names, keep_match_mode)
+            or keep_name_matches(equipped.right, keep_names, keep_match_mode)
+        then
             return tostring(rule.reason or "keep_any_ring_slot")
         end
         return nil
     end
 
+    if mode == "ring_slot_lock" then
+        return nil
+    end
+
     local equipped_items = type(compare.equipped_item_names) == "table" and compare.equipped_item_names or {}
     for _, item_name in ipairs(equipped_items) do
-        if keep_name_matches(item_name, keep_names) then
+        if keep_name_matches(item_name, keep_names, keep_match_mode) then
+            if mode == "same_keep_name_only"
+                and keep_name_matches(compare.item_name, keep_names, keep_match_mode)
+            then
+                return nil
+            end
             return tostring(rule.reason or "keep_equipped")
         end
     end
@@ -816,6 +835,43 @@ local function select_ring_compare_row_by_slot(rows, cfg, slot)
     return best
 end
 
+local function ring_slot_lock_reason_from_keep_rules(result, cfg, slot)
+    slot = compare_slot_from_text(slot)
+    if type(result) ~= "table" or slot == nil then
+        return nil
+    end
+
+    local equipped = type(result.equipped_ring_names) == "table" and result.equipped_ring_names or {}
+    local equipped_name = equipped[slot]
+    for _, rule in ipairs(configured_keep_equipped_rules(cfg)) do
+        if type(rule) == "table"
+            and tostring(rule.mode or "") == "ring_slot_lock"
+            and item_type_matches_rule(result.item_type, rule)
+            and keep_name_matches(
+                equipped_name,
+                rule.keep_names,
+                tostring(rule.keep_name_match_mode or rule.name_match_mode or "")
+            )
+        then
+            return tostring(rule.reason or "ring_slot_locked")
+        end
+    end
+    return nil
+end
+
+local function first_ring_slot_lock_reason(rows, result, cfg)
+    if type(rows) ~= "table" then
+        return nil
+    end
+    for _, row in ipairs(rows) do
+        local reason = ring_slot_lock_reason_from_keep_rules(result, cfg, type(row) == "table" and row.slot or nil)
+        if reason ~= nil then
+            return reason
+        end
+    end
+    return nil
+end
+
 local function preferred_ring_slot_from_keep_rules(result, cfg)
     if type(result) ~= "table" then
         return nil
@@ -826,10 +882,15 @@ local function preferred_ring_slot_from_keep_rules(result, cfg)
         if type(rule) == "table"
             and tostring(rule.mode or "") == "all_ring_slots"
             and item_type_matches_rule(result.item_type, rule)
-            and keep_name_matches(result.item_name, rule.keep_names)
+            and keep_name_matches(
+                result.item_name,
+                rule.keep_names,
+                tostring(rule.keep_name_match_mode or rule.name_match_mode or "")
+            )
         then
-            local left_matches = keep_name_matches(equipped.left, rule.keep_names)
-            local right_matches = keep_name_matches(equipped.right, rule.keep_names)
+            local keep_match_mode = tostring(rule.keep_name_match_mode or rule.name_match_mode or "")
+            local left_matches = keep_name_matches(equipped.left, rule.keep_names, keep_match_mode)
+            local right_matches = keep_name_matches(equipped.right, rule.keep_names, keep_match_mode)
             if left_matches and not right_matches then
                 return "right"
             end
@@ -847,17 +908,41 @@ local function apply_ring_compare_choice(result, ring_rows, cfg)
     end
 
     local preferred_slot = preferred_ring_slot_from_keep_rules(result, cfg)
-    local selected = select_ring_compare_row_by_slot(ring_rows, cfg, preferred_slot)
-        or select_ring_compare_row(ring_rows, cfg, true)
-        or select_ring_compare_row(ring_rows, cfg, false)
+    local preferred_locked_reason = ring_slot_lock_reason_from_keep_rules(result, cfg, preferred_slot)
+    local selected = preferred_locked_reason == nil and select_ring_compare_row_by_slot(ring_rows, cfg, preferred_slot) or nil
+    if selected == nil then
+        local best_upgrade = nil
+        for _, row in ipairs(ring_rows) do
+            if ring_slot_lock_reason_from_keep_rules(result, cfg, type(row) == "table" and row.slot or nil) == nil
+                and ring_row_can_equip(row, cfg)
+                and ring_row_is_better(row, best_upgrade, cfg)
+            then
+                best_upgrade = row
+            end
+        end
+        selected = best_upgrade
+    end
+    if selected == nil then
+        local best_any = nil
+        for _, row in ipairs(ring_rows) do
+            if ring_slot_lock_reason_from_keep_rules(result, cfg, type(row) == "table" and row.slot or nil) == nil
+                and ring_row_is_better(row, best_any, cfg)
+            then
+                best_any = row
+            end
+        end
+        selected = best_any
+    end
     if selected == nil then
         result.compare_slot = nil
+        result.ring_slot_lock_reason = first_ring_slot_lock_reason(ring_rows, result, cfg)
         return
     end
 
     result.compare_slot = selected.slot
     result.damage = selected.damage
     result.survival = selected.survival
+    result.ring_slot_lock_reason = nil
 end
 
 local function parse_compare(snapshot, cfg)
@@ -928,7 +1013,9 @@ local function skip_reason_for_special_equipment(compare, cfg)
         and is_ring_type(item_type)
         and compare_slot_from_text(type(compare) == "table" and compare.compare_slot or nil) == nil
     then
-        return "ring_slot_unknown"
+        return tostring(type(compare) == "table" and compare.ring_slot_lock_reason or "") ~= ""
+            and tostring(compare.ring_slot_lock_reason)
+            or "ring_slot_unknown"
     end
 
     return nil

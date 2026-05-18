@@ -1588,6 +1588,26 @@ local function resolve_boss_anchor(cfg, runtime)
     return nil
 end
 
+local function resolve_boss_loot_anchor(cfg, runtime)
+    local boss = type(cfg) == "table" and cfg.boss or nil
+    local loot_anchor = type(boss) == "table" and boss.loot_anchor or nil
+    if is_valid_point(loot_anchor) and (tonumber(loot_anchor.x) ~= 0 or tonumber(loot_anchor.y) ~= 0) then
+        return {
+            x = tonumber(loot_anchor.x),
+            y = tonumber(loot_anchor.y),
+            z = tonumber(loot_anchor.z),
+            radius = math.max(180, tonumber(loot_anchor.radius) or tonumber(loot_anchor.distance) or 260),
+            z_tolerance = math.max(0, tonumber(loot_anchor.z_tolerance) or 420),
+            explicit = true
+        }
+    end
+    local boss_anchor = resolve_boss_anchor(cfg, runtime)
+    if type(boss_anchor) == "table" then
+        boss_anchor.explicit = false
+    end
+    return boss_anchor
+end
+
 local function should_enable_boss_phase(cfg)
     local boss = type(cfg) == "table" and cfg.boss or nil
     local trigger = type(boss) == "table" and boss.trigger or nil
@@ -3970,11 +3990,13 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
 
     if mode == "boss_loot" then
         set_treasure_stage(main_state, "treasure_boss_loot")
-        local boss_anchor = resolve_boss_anchor(cfg, runtime)
+        local boss_anchor = resolve_boss_loot_anchor(cfg, runtime)
         if type(boss_anchor) == "table" then
             local loot_anchor_distance = math.max(
                 180,
-                tonumber(type(cfg.boss) == "table" and cfg.boss.loot_anchor_distance) or math.min(520, math.floor((tonumber(boss_anchor.radius) or 900) * 0.35))
+                (boss_anchor.explicit == true and tonumber(boss_anchor.radius) or nil)
+                    or tonumber(type(cfg.boss) == "table" and cfg.boss.loot_anchor_distance)
+                    or math.min(520, math.floor((tonumber(boss_anchor.radius) or 900) * 0.35))
             )
             local anchor_distance = distance_2d(
                 player_x,
@@ -3992,7 +4014,7 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                     x = tonumber(boss_anchor.x),
                     y = tonumber(boss_anchor.y),
                     z = tonumber(boss_anchor.z),
-                    source = "treasure_boss_loot_anchor",
+                    source = boss_anchor.explicit == true and "treasure_boss_loot_config_anchor" or "treasure_boss_loot_anchor",
                     path_index = 0,
                     path_points = 0,
                     move_interval_ms = 260
@@ -4000,8 +4022,9 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                 if type(hooks.log_throttled) == "function" then
                     hooks.log_throttled(ctx, "treasure_boss_loot_anchor_" .. tostring(cfg.key or ""), "info", 900,
                         string.format(
-                            "[Treasure] boss loot approaching anchor before pickup | key=%s pos=%.2f, %.2f, %.2f anchor=%.2f, %.2f, %.2f anchor_distance=%.2f pickup_distance=%.2f move_ok=%s err=%s",
+                            "[Treasure] boss loot approaching anchor before pickup | key=%s anchor_kind=%s pos=%.2f, %.2f, %.2f anchor=%.2f, %.2f, %.2f anchor_distance=%.2f pickup_distance=%.2f move_ok=%s err=%s",
                             tostring(cfg.key or ""),
+                            boss_anchor.explicit == true and "config" or "boss",
                             tonumber(player_x) or 0,
                             tonumber(player_y) or 0,
                             tonumber(player_z) or 0,

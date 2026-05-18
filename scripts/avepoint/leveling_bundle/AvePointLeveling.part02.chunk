@@ -3972,21 +3972,64 @@ function M.level_up_maintenance_plan_id(kind, level, plan)
     )
 end
 
+function M.level_up_maintenance_plan_ids(kind, level, plan)
+    local ids = {}
+    local seen = {}
+    local normalized_kind = tostring(kind or "")
+    local normalized_level = math.floor(tonumber(level) or 0)
+    local function add_key(key)
+        key = tostring(key or "")
+        if key == "" then
+            return
+        end
+        local id = string.format("%s:%d:%s", normalized_kind, normalized_level, key)
+        if seen[id] ~= true then
+            seen[id] = true
+            ids[#ids + 1] = id
+        end
+    end
+
+    if type(plan) == "table" then
+        add_key(plan.key or plan.label)
+        local aliases = plan.completed_alias_keys or plan.completed_aliases or plan.legacy_completed_keys
+        if type(aliases) == "table" then
+            for _, alias in ipairs(aliases) do
+                add_key(alias)
+            end
+            for alias in pairs(aliases) do
+                if type(alias) ~= "number" then
+                    add_key(alias)
+                end
+            end
+        else
+            add_key(aliases)
+        end
+    else
+        add_key("")
+    end
+
+    return ids
+end
+
 function M.level_up_maintenance_plan_done(kind, level, plan)
-    local plan_id = M.level_up_maintenance_plan_id(kind, level, plan)
+    local plan_ids = M.level_up_maintenance_plan_ids(kind, level, plan)
     local done = type(state.level_up_maintenance_completed_plans) == "table"
         and state.level_up_maintenance_completed_plans
         or {}
-    if done[plan_id] == true then
-        return true
+    for _, plan_id in ipairs(plan_ids) do
+        if done[plan_id] == true then
+            return true
+        end
     end
 
     if type(M.ensure_level_up_maintenance_state) == "function" then
         local persisted = M.ensure_level_up_maintenance_state()
         local completed = type(persisted) == "table" and persisted.completed_plans or nil
-        local record = type(completed) == "table" and completed[plan_id] or nil
-        if record == true or type(record) == "table" then
-            return true
+        for _, plan_id in ipairs(plan_ids) do
+            local record = type(completed) == "table" and completed[plan_id] or nil
+            if record == true or type(record) == "table" then
+                return true
+            end
         end
     end
     return false
@@ -5231,7 +5274,9 @@ function M.level_up_maintenance_safe_window(ctx, current_time, player_x, player_
         end
     end
 
-    if not low_hp_passthrough then
+    local monster_guard_enabled = cfg.monster_guard_enabled ~= false
+        and plan.monster_guard_enabled ~= false
+    if monster_guard_enabled and not low_hp_passthrough then
         local nearby_monsters, monster_err = M.find_task_monsters(ctx, current_time, player_x, player_y)
         if type(nearby_monsters) == "table" and type(nearby_monsters.nearest) == "table" then
             local nearest_distance = tonumber(nearby_monsters.nearest.distance) or math.huge
@@ -9105,6 +9150,15 @@ local function enter_revive_state(ctx, current_time, hp)
         return
     end
 
+    if state.level_up_maintenance_executor_active == true
+        and type(M.clear_level_up_maintenance_executor_state) == "function"
+    then
+        M.clear_level_up_maintenance_executor_state()
+        local cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
+        state.level_up_maintenance_next_retry_at = current_time + math.max(1000, tonumber(cfg.retry_ms) or 5000)
+        logger(ctx).info("[Leveling] level-up maintenance executor cleared by death; pending preserved for retry.")
+    end
+
     state.revive_started_at = current_time
     state.revive_clicked_at = 0
     state.revive_click_count = 0
@@ -9354,6 +9408,11 @@ end
 
 function M.should_defer_revive_for_level_up_maintenance(current_time, in_main_interface)
     if state.level_up_maintenance_executor_active ~= true then
+        return false, nil
+    end
+
+    local cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
+    if type(cfg) == "table" and cfg.defer_revive_during_maintenance == false then
         return false, nil
     end
 

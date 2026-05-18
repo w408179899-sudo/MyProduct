@@ -90,6 +90,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     seed_next_missing_level_when_level_text_missing = true,
     probe_ms = 1200,
     safe_no_monster_ms = 1800,
+    monster_guard_enabled = false,
     monster_guard_distance = 1000,
     monster_hard_block_distance = 300,
     nearby_monster_soft_observe_ms = 2000,
@@ -98,6 +99,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     nearby_monster_defer_retry_ms = 8000,
     min_hp_ratio = 0.72,
     allow_low_hp_maintenance = true,
+    defer_revive_during_maintenance = false,
     allow_position_available_without_main_interface = true,
     step_wait_ms = 650,
     retry_ms = 5000,
@@ -798,6 +800,21 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
             keep_names = { "求生之欲" },
             mode = "any_equipped",
             reason = "belt_keep_equipped"
+        },
+        {
+            key = "rock_lizard_head_same_name",
+            item_type_patterns = { "头盔", "头部" },
+            keep_names = { "岩石巨蜥之颅" },
+            mode = "same_keep_name_only",
+            reason = "head_keep_rock_lizard_same_name_only"
+        },
+        {
+            key = "lone_wolf_ring_hand",
+            item_type_patterns = { "戒指" },
+            keep_names = { "孤胆" },
+            keep_name_match_mode = "contains",
+            mode = "ring_slot_lock",
+            reason = "ring_keep_lone_wolf_hand"
         }
     },
     keep_equipped_panel_max_x = 650,
@@ -2013,6 +2030,152 @@ do
             retarget_shifted_talent_plan(original_talent_by_level[level - 1], level, level - 1)
     end
 
+    -- The original level-8 plan includes the keystone selection. The generic
+    -- one-level shift would run it at level 9; delay that special plan to 12.
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[9] =
+        retarget_shifted_talent_plan(original_talent_by_level[9], 9, 9)
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[10] = make_composite_talent_plan(
+        10,
+        "10级天赋：按顺序激活两个天赋节点",
+        original_talent_by_level[10],
+        function(steps, level)
+            append_shifted_step(steps, level, {
+                key = "select_level_10_first_talent_node",
+                label = "10级天赋第一个节点按钮",
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                },
+                hint_client_x = 451.916748,
+                hint_client_y = 618.538025,
+                hint_ratio_x = 0.314049,
+                hint_ratio_y = 0.687264,
+                hint_max_distance = 80,
+                wait_after_ms = 1200
+            }, "select_level_10_first_talent_node")
+            append_shifted_step(steps, level, {
+                key = "activate_level_10_first_talent_node",
+                label = "10级天赋第一个节点激活按钮",
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                },
+                hint_client_x = 662.368225,
+                hint_client_y = 674.801453,
+                hint_ratio_x = 0.460298,
+                hint_ratio_y = 0.749779,
+                hint_max_distance = 80,
+                wait_after_ms = 650
+            }, "activate_level_10_first_talent_node")
+            append_shifted_step(steps, level, {
+                key = "select_level_10_second_talent_node",
+                label = "10级天赋第二个节点按钮",
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                },
+                hint_client_x = 607.846802,
+                hint_client_y = 618.538025,
+                hint_ratio_x = 0.422409,
+                hint_ratio_y = 0.687264,
+                hint_max_distance = 80,
+                wait_after_ms = 1200
+            }, "select_level_10_second_talent_node")
+            append_shifted_step(steps, level, {
+                key = "activate_level_10_second_talent_node",
+                label = "10级天赋第二个节点激活按钮",
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                },
+                hint_client_x = 818.298279,
+                hint_client_y = 674.801453,
+                hint_ratio_x = 0.568658,
+                hint_ratio_y = 0.749779,
+                hint_max_distance = 80,
+                wait_after_ms = 650
+            }, "activate_level_10_second_talent_node")
+        end
+    )
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[10].completed_alias_keys = {
+        "level_10_talent_shift_from_level_9",
+        "level_10_talent_node_activate"
+    }
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[11] = make_composite_talent_plan(
+        11,
+        "11级天赋：激活指定天赋节点",
+        original_talent_by_level[11],
+        function(steps, level)
+            append_shifted_step(steps, level, {
+                key = "select_level_11_talent_node",
+                label = "11级天赋节点按钮",
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                },
+                hint_client_x = 607.846802,
+                hint_client_y = 618.538025,
+                hint_ratio_x = 0.422409,
+                hint_ratio_y = 0.687264,
+                hint_max_distance = 80,
+                wait_after_ms = 1200
+            }, "select_level_11_talent_node")
+            append_shifted_step(steps, level, {
+                key = "activate_level_11_talent_node",
+                label = "11级天赋节点激活按钮",
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                },
+                hint_client_x = 818.298279,
+                hint_client_y = 674.801453,
+                hint_ratio_x = 0.568658,
+                hint_ratio_y = 0.749779,
+                hint_max_distance = 80,
+                wait_after_ms = 650
+            }, "activate_level_11_talent_node")
+        end
+    )
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[11].completed_alias_keys = {
+        "level_11_talent_shift_from_level_10",
+        "level_11_talent_shift_from_level_11",
+        "level_11_talent_node_activate"
+    }
+    local function make_level_12_to_14_same_talent_plan(level)
+        local plan = make_composite_talent_plan(
+            level,
+            string.format("%d级天赋：激活同组天赋节点", tonumber(level) or 0),
+            original_talent_by_level[level],
+            function(steps, current_level)
+                append_shifted_step(steps, current_level, {
+                    key = string.format("select_level_%d_same_talent_node", tonumber(current_level) or 0),
+                    label = string.format("%d级天赋节点按钮", tonumber(current_level) or 0),
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    hint_client_x = 763.776794,
+                    hint_client_y = 479.651550,
+                    hint_ratio_x = 0.530769,
+                    hint_ratio_y = 0.532946,
+                    hint_max_distance = 80,
+                    wait_after_ms = 1200
+                }, string.format("select_level_%d_same_talent_node", tonumber(current_level) or 0))
+                append_shifted_step(steps, current_level, {
+                    key = string.format("activate_level_%d_same_talent_node", tonumber(current_level) or 0),
+                    label = string.format("%d级天赋节点激活按钮", tonumber(current_level) or 0),
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    hint_client_x = 593.579102,
+                    hint_client_y = 674.801453,
+                    hint_ratio_x = 0.412494,
+                    hint_ratio_y = 0.749779,
+                    hint_max_distance = 80,
+                    wait_after_ms = 650
+                }, string.format("activate_level_%d_same_talent_node", tonumber(current_level) or 0))
+            end
+        )
+        plan.key = string.format("level_%d_talent_fixed_763_593", tonumber(level) or 0)
+        return plan
+    end
+    for _, level in ipairs({ 12, 13, 14 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_12_to_14_same_talent_plan(level)
+    end
+
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[20] = make_manual_talent_plan(
         20,
         "20级天赋：补位激活19级节点并执行20级前两段",
@@ -2365,6 +2528,13 @@ do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_20_to_22_manual_talent_plan(level)
     end
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[61] = nil
+
+    -- The talent route is being resampled from scratch. Keep the currently
+    -- verified early levels only; later legacy shift/patch plans must not run.
+    for level = 15, 61 do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = nil
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_extra_by_level[level] = nil
+    end
 end
 
 do
@@ -2855,40 +3025,18 @@ do
     level_12_skill_plan.steps = level_12_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[12] = level_12_skill_plan
 
-    local level_14_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
-    level_14_skill_plan.key = "level_14_skill_upgrade_sequence"
-    level_14_skill_plan.label = "14级技能：找图升级并配置范围"
-    level_14_skill_plan.close_with_escape = false
+    local level_11_skill_plan = {
+        key = "level_11_skill_range_setup_sequence",
+        label = "11级技能：配置范围",
+        require_available_points = false,
+        close_with_escape = false,
+        steps = {}
+    }
 
-    local level_14_steps = type(level_14_skill_plan.steps) == "table" and level_14_skill_plan.steps or {}
-    if #level_14_steps > 0 and tostring(level_14_steps[#level_14_steps].key or "") == "back_from_skill_panel" then
-        table.remove(level_14_steps, #level_14_steps)
-    end
-    for _, step in ipairs(level_14_steps) do
-        if tostring(step.key or "") == "open_skill_add_panel" then
-            step.key = "level_14_open_skill_add_panel"
-            step.label = "14级技能加点入口按钮"
-            step.missing_target_means_step_done = true
-        elseif tostring(step.key or "") == "click_skill_upgrade_image" then
-            step.key = "level_14_click_skill_upgrade_image"
-            step.label = "14级技能升级找图按钮"
-            step.missing_image_means_done = false
-            step.missing_image_means_step_done = true
-            step.cleanup_back_before_finish = true
-            step.repeat_image_until_missing = true
-            step.repeat_image_until_missing_max_count = 30
-            step.repeat_image_until_missing_interval_ms = 180
-            if type(step.image_preset) == "table" then
-                step.image_preset.click_repeat_count = 1
-                step.image_preset.repeat_until_missing = true
-                step.image_preset.repeat_until_missing_max_count = 30
-                step.image_preset.repeat_until_missing_interval_ms = 180
-            end
-        end
-    end
+    local level_11_steps = level_11_skill_plan.steps
 
-    level_14_steps[#level_14_steps + 1] = {
-        key = "level_14_open_fast_entrance_menu_after_skill_image",
+    level_11_steps[#level_11_steps + 1] = {
+        key = "level_11_open_fast_entrance_menu_for_range_setup",
         label = "技能天赋菜单按钮",
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
@@ -2900,8 +3048,8 @@ do
         hint_max_distance = 100,
         wait_after_ms = 800
     }
-    level_14_steps[#level_14_steps + 1] = {
-        key = "level_14_open_skill_panel_after_skill_image",
+    level_11_steps[#level_11_steps + 1] = {
+        key = "level_11_open_skill_panel_for_range_setup",
         label = "技能按钮",
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
@@ -2913,36 +3061,36 @@ do
         hint_max_distance = 90,
         wait_after_ms = 1000
     }
-    level_14_steps[#level_14_steps + 1] = fixed_click_step(
-        "level_14_skill_fixed_click_590_372_a",
-        "14级技能固定点击1",
+    level_11_steps[#level_11_steps + 1] = fixed_click_step(
+        "level_11_skill_fixed_click_590_372_a",
+        "11级技能固定点击1",
         590.00,
         372.00,
         0.410007,
         0.413333,
         350
     )
-    level_14_steps[#level_14_steps + 1] = fixed_click_step(
-        "level_14_skill_fixed_click_590_372_b",
-        "14级技能固定点击2",
+    level_11_steps[#level_11_steps + 1] = fixed_click_step(
+        "level_11_skill_fixed_click_590_372_b",
+        "11级技能固定点击2",
         590.00,
         372.00,
         0.410007,
         0.413333,
         350
     )
-    level_14_steps[#level_14_steps + 1] = fixed_click_step(
-        "level_14_skill_search_focus",
-        "14级技能搜索输入框",
+    level_11_steps[#level_11_steps + 1] = fixed_click_step(
+        "level_11_skill_search_focus",
+        "11级技能搜索输入框",
         343.00,
         652.00,
         0.238360,
         0.724444,
         250
     )
-    level_14_steps[#level_14_steps + 1] = {
+    level_11_steps[#level_11_steps + 1] = {
         kind = "type_text",
-        key = "level_14_skill_search_range_text",
+        key = "level_11_skill_search_range_text",
         label = "输入范围",
         text = "范围",
         input_method = "clipboard",
@@ -2950,53 +3098,53 @@ do
         key_delay_ms = 30,
         wait_after_ms = 500
     }
-    level_14_steps[#level_14_steps + 1] = fixed_click_step(
-        "level_14_skill_search_confirm",
-        "14级技能搜索确认",
+    level_11_steps[#level_11_steps + 1] = fixed_click_step(
+        "level_11_skill_search_confirm",
+        "11级技能搜索确认",
         593.00,
         657.00,
         0.412092,
         0.730000,
         700
     )
-    level_14_steps[#level_14_steps + 1] = fixed_click_step(
-        "level_14_skill_select_range_result",
-        "14级技能选择范围结果",
+    level_11_steps[#level_11_steps + 1] = fixed_click_step(
+        "level_11_skill_select_range_result",
+        "11级技能选择范围结果",
         356.00,
         333.00,
         0.247394,
         0.370000,
         700
     )
-    level_14_steps[#level_14_steps + 1] = fixed_click_step(
-        "level_14_skill_fixed_click_821_365",
-        "14级技能固定点击3",
+    level_11_steps[#level_11_steps + 1] = fixed_click_step(
+        "level_11_skill_fixed_click_821_365",
+        "11级技能固定点击3",
         821.00,
         365.00,
         0.570535,
         0.405556,
         350
     )
-    level_14_steps[#level_14_steps + 1] = fixed_click_step(
-        "level_14_skill_fixed_click_710_329",
-        "14级技能固定点击4",
+    level_11_steps[#level_11_steps + 1] = fixed_click_step(
+        "level_11_skill_fixed_click_710_329",
+        "11级技能固定点击4",
         710.00,
         329.00,
         0.493398,
         0.365556,
         350
     )
-    level_14_steps[#level_14_steps + 1] = fixed_click_step(
-        "level_14_skill_fixed_click_535_364",
-        "14级技能固定点击5",
+    level_11_steps[#level_11_steps + 1] = fixed_click_step(
+        "level_11_skill_fixed_click_535_364",
+        "11级技能固定点击5",
         535.00,
         364.00,
         0.371786,
         0.404444,
         700
     )
-    level_14_steps[#level_14_steps + 1] = {
-        key = "back_from_skill_panel_after_range_setup",
+    level_11_steps[#level_11_steps + 1] = {
+        key = "level_11_back_from_skill_panel_after_range_setup",
         label = "技能返回按钮",
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
@@ -3009,8 +3157,8 @@ do
         wait_after_ms = 500
     }
 
-    level_14_skill_plan.steps = level_14_steps
-    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[14] = level_14_skill_plan
+    level_11_skill_plan.steps = level_11_steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[11] = level_11_skill_plan
 
     local level_21_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
     level_21_skill_plan.key = "level_21_skill_upgrade_sequence"
@@ -4776,6 +4924,13 @@ M.TREASURE_DUNGEON_CONFIGS = {
             enabled = true,
             loot_enabled = true,
             loot_anchor_distance = 320,
+            loot_anchor = {
+                x = 7423.00,
+                y = 9030.00,
+                z = 4895.00,
+                radius = 220,
+                z_tolerance = 420
+            },
             trigger = {
                 x = 8294.91,
                 y = 8952.48,
