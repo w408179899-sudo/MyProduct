@@ -6373,6 +6373,13 @@ function M.update(now, ctx)
     update_progress_anchor(current_time, player_x, player_y)
     M.maybe_handle_potion_watch(ctx, current_time, hp, max_hp, hp_ratio)
     M.maybe_observe_level_up_maintenance(ctx, current_time)
+    if not M.is_task_combat_or_post_loot_active()
+        and M.maybe_click_guide_skip(ctx, current_time)
+    then
+        state.stage = "guide_skip"
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
     if tostring(state.stage or "") ~= "follow_task" then
         M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
             phase = "main_tick",

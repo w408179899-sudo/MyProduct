@@ -8863,16 +8863,16 @@ M.TASK_NAME_CONFIGS["\u{5723}\u{8BEB}\u{4E4B}\u{672B}"] = make_world_map_send_ta
 M.TASK_NAME_CONFIGS["\u{4E3B}\u{7EBF} \u{5723}\u{8BEB}\u{4E4B}\u{672B}"] = M.TASK_NAME_CONFIGS["\u{5723}\u{8BEB}\u{4E4B}\u{672B}"]
 
 M.GUIDE_SKIP_STEP = {
-    label = "鍔犳枃鎸夐挳",
+    label = "新手引导跳过按钮",
     distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.NoviceGuideMainUI_C.WidgetTree.C_SkipButton",
     include_patterns = {
         "UIButton Transient.GameEngine.CoreGameInstance.NoviceGuideMainUI_C.WidgetTree.C_SkipButton"
     },
-    hint_client_x = 748.399780,
-    hint_client_y = 123.799095,
-    hint_ratio_x = 0.519722,
-    hint_ratio_y = 0.137555,
-    hint_max_distance = 80.000
+    hint_client_x = 722.137634,
+    hint_client_y = 115.633369,
+    hint_ratio_x = 0.501833,
+    hint_ratio_y = 0.128482,
+    hint_max_distance = 120.000
 }
 
 M.GLOBAL_TASK_PORTAL_STEP = {

@@ -688,16 +688,16 @@ M.FORCE_KITE_MONSTER_NAMES = {
 }
 
 M.GUIDE_SKIP_STEP = {
-    label = "\u{52A0}\u{6587}\u{6309}\u{94AE}",
+    label = "\u{65B0}\u{624B}\u{5F15}\u{5BFC}\u{8DF3}\u{8FC7}\u{6309}\u{94AE}",
     distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.NoviceGuideMainUI_C.WidgetTree.C_SkipButton",
     include_patterns = {
         "UIButton Transient.GameEngine.CoreGameInstance.NoviceGuideMainUI_C.WidgetTree.C_SkipButton"
     },
-    hint_client_x = 748.399780,
-    hint_client_y = 123.799095,
-    hint_ratio_x = 0.519722,
-    hint_ratio_y = 0.137555,
-    hint_max_distance = 80.000
+    hint_client_x = 722.137634,
+    hint_client_y = 115.633369,
+    hint_ratio_x = 0.501833,
+    hint_ratio_y = 0.128482,
+    hint_max_distance = 120.000
 }
 
 M.GLOBAL_TASK_PORTAL_STEP = {
