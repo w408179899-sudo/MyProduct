@@ -4278,6 +4278,22 @@ function M.maybe_handle_forced_kite_monster(ctx, current_time, player_x, player_
         state.startup_boss_engage_until = 0
         startup_boss_engage_armed = false
     end
+    local revive_boss_following_far_goal = revive_boss_engage_armed
+        and type(goal_distance) == "number"
+        and goal_distance > startup_boss_far_goal_threshold
+        and (type(target) == "table" or is_valid_world_point(destination))
+    if revive_boss_following_far_goal then
+        log_throttled(ctx, "revive_boss_engage_deferred", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] revive boss engage deferred, continue main task route | task=%s goal_distance=%.2f threshold=%.2f target_source=%s path_points=%d",
+            tostring(select(2, M.current_task_runtime_config()) or state.current_task_name or ""),
+            goal_distance,
+            startup_boss_far_goal_threshold,
+            tostring(target and target.source or destination and destination.source or "none"),
+            tonumber(state.task_path_count) or 0
+        ))
+        state.post_revive_boss_engage_until = 0
+        revive_boss_engage_armed = false
+    end
     local early_boss_monster = nil
     if type(task_monsters) == "table"
         and boss_objective_active
@@ -6083,9 +6099,36 @@ function M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_
     return hold_recycle("not_handled")
 end
 
+function M.after_loot_maintenance_has_priority_over_level_up()
+    local auto_cfg = M.auto_equip_maintenance_config()
+    if state.auto_equip_after_loot_pending == true
+        and auto_cfg.enabled == true
+        and auto_cfg.execute_ui == true
+        and auto_cfg.trigger_after_post_combat_loot ~= false
+        and auto_cfg.priority_over_level_up ~= false
+    then
+        return true
+    end
+
+    local recycle_cfg = M.recycle_maintenance_config()
+    if state.recycle_after_auto_equip_pending == true
+        and recycle_cfg.enabled == true
+        and recycle_cfg.execute_ui == true
+        and recycle_cfg.trigger_after_auto_equip ~= false
+        and recycle_cfg.priority_over_level_up ~= false
+    then
+        return true
+    end
+
+    return false
+end
+
 function M.level_up_maintenance_should_preempt_after_loot()
     if state.level_up_maintenance_executor_active == true then
         return true
+    end
+    if M.after_loot_maintenance_has_priority_over_level_up() then
+        return false
     end
     if type(M.level_up_maintenance_has_pending) ~= "function"
         or not M.level_up_maintenance_has_pending()
@@ -6666,7 +6709,6 @@ function M.update(now, ctx)
     end
 
     if type(state.task_target) ~= "table"
-        and not ((tonumber(state.post_revive_boss_engage_until) or 0) > current_time)
         and not ((tonumber(state.startup_state_resolve_until) or 0) > current_time)
         and not M.should_suspend_treasure_task_refresh()
         and current_time >= (tonumber(state.next_task_button_click_at) or 0)

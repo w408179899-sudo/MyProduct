@@ -815,6 +815,16 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
             keep_name_match_mode = "contains",
             mode = "ring_slot_lock",
             reason = "ring_keep_lone_wolf_hand"
+        },
+        {
+            key = "lone_wolf_ring_force_equip",
+            item_type_patterns = { "戒指" },
+            keep_names = { "孤胆" },
+            keep_name_match_mode = "contains",
+            mode = "candidate_ring_force_equip",
+            preferred_slots = { "right", "left" },
+            direct_equip_when_no_rings = true,
+            reason = "ring_force_lone_wolf"
         }
     },
     keep_equipped_panel_max_x = 650,
@@ -2175,6 +2185,63 @@ do
     for _, level in ipairs({ 12, 13, 14 }) do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_12_to_14_same_talent_plan(level)
     end
+    do
+        local level = 13
+        local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] or original_talent_by_level[level]
+        local extra_plan = {
+            key = "level_13_talent_extra_fixed_clicks",
+            label = "13级额外天赋：固定鼠标点击",
+            require_available_points = false,
+            close_with_escape = false,
+            steps = {}
+        }
+        append_shifted_step(
+            extra_plan.steps,
+            level,
+            find_step_by_key_contains(base_plan, "open_fast_entrance_menu"),
+            "level_13_extra_open_fast_entrance_menu"
+        )
+        append_shifted_step(
+            extra_plan.steps,
+            level,
+            find_step_by_key_contains(base_plan, "open_talent_panel"),
+            "level_13_extra_open_talent_panel"
+        )
+        append_shifted_step(extra_plan.steps, level, extra_talent_fixed_click_step(
+            "level_13_extra_talent_tab_click",
+            "13级额外天赋：点击额外页签",
+            385.00,
+            249.00,
+            0.267547,
+            0.276667,
+            650
+        ), "level_13_extra_talent_tab_click")
+        append_shifted_step(extra_plan.steps, level, extra_talent_fixed_click_step(
+            "level_13_extra_talent_node_click",
+            "13级额外天赋：点击额外节点",
+            726.00,
+            618.00,
+            0.504517,
+            0.686667,
+            900
+        ), "level_13_extra_talent_node_click")
+        append_shifted_step(extra_plan.steps, level, extra_talent_fixed_click_step(
+            "level_13_extra_talent_confirm_click",
+            "13级额外天赋：点击额外确认",
+            1203.00,
+            159.00,
+            0.835997,
+            0.176667,
+            650
+        ), "level_13_extra_talent_confirm_click")
+        append_shifted_step(
+            extra_plan.steps,
+            level,
+            find_step_by_key_contains(base_plan, "back_from_talent"),
+            "level_13_extra_back_from_talent_panel"
+        )
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_extra_by_level[level] = extra_plan
+    end
 
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[20] = make_manual_talent_plan(
         20,
@@ -2534,6 +2601,50 @@ do
     for level = 15, 61 do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = nil
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_extra_by_level[level] = nil
+    end
+
+    local function make_level_15_to_17_resampled_talent_plan(level)
+        return make_manual_talent_plan(
+            level,
+            string.format("%d级天赋：激活同组天赋节点", level),
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                    or original_talent_by_level[current_level]
+                append_shifted_setup(steps, current_level, base_plan)
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("select_level_%d_resampled_talent_node", current_level),
+                    string.format("%d级天赋节点按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    919.706848,
+                    479.651550,
+                    0.639129,
+                    0.532946,
+                    80,
+                    1200
+                ), string.format("select_level_%d_resampled_talent_node", current_level))
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("activate_level_%d_resampled_talent_node", current_level),
+                    string.format("%d级天赋节点激活按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    749.509155,
+                    674.801453,
+                    0.520854,
+                    0.749779,
+                    80,
+                    650
+                ), string.format("activate_level_%d_resampled_talent_node", current_level))
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    for _, level in ipairs({ 15, 16, 17 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_15_to_17_resampled_talent_plan(level)
     end
 end
 
@@ -4824,7 +4935,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
         enabled = true,
         name = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{65B0}\u{7A57}\u{5C71}\u{4E18}",
         route_store_key = "treasure_new_sprout_hill_entry_v2",
-        target_level = 16,
+        target_level = 15,
         inside_detect_task_panel_text = false,
         task_patterns = {
             "\u{9F99}\u{9668}\u{4E4B}\u{91CE}",
@@ -5035,7 +5146,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "Known side task text: 藏宝地：新穗山丘 -> 通关1次藏宝地：新穗山丘",
             "Known outside entrance: 13597,15915,5214 on 龙骨平原",
             "Entry UI steps temporarily reuse the proven treasure_milu_creek/empire entrance buttons",
-            "Target level is 16; return-to-mainline gate is enabled",
+            "Target level is 15; return-to-mainline gate is enabled",
             "Boss loot uses faster pickup pulses plus empty-list confirmation to avoid leaving drops behind",
             "Configured boss center/kite points, restart portal, exit portal, restart landing, and exit landing from measured F6/F7 data",
             "Exit landing updated after latest F6 sample to 13463,15847,5214; wait_exit should resume mainline from this outside point",
@@ -6531,8 +6642,6 @@ local function make_kingdom_end_deep_boss_task_config()
                 "\u{738B}\u{56FD}\u{7EC8}\u{9014}"
             },
             task_detail_patterns = {
-                "\u{62B5}\u{8FBE}\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}",
-                "\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}",
                 "\u{51FB}\u{8D25}\u{7070}\u{70EC}\u{673A}\u{7532}"
             },
             exclude_task_detail_patterns = {
@@ -7210,8 +7319,6 @@ M.TASK_NAME_CONFIGS = {
     ["\u{8E48}\u{706B}\u{4E4B}\u{4EBA}"] = make_fire_treader_romel_boss_task_config(),
     ["\u{51FB}\u{8D25}\u{88AB}\u{9B54}\u{6CD5}\u{5B66}\u{9662}\u{6539}\u{9020}\u{7684}\u{7F57}\u{6885}\u{5C14}"] = make_fire_treader_romel_boss_task_config(),
     ["\u{5B9E}\u{9A8C}\u{4F53}\u{00B7}\u{7F57}\u{6885}\u{5C14}"] = make_fire_treader_romel_boss_task_config(),
-    ["\u{738B}\u{56FD}\u{7EC8}\u{9014} / \u{62B5}\u{8FBE}\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}"] = make_kingdom_end_deep_boss_task_config(),
-    ["\u{4E3B}\u{7EBF} \u{738B}\u{56FD}\u{7EC8}\u{9014} / \u{62B5}\u{8FBE}\u{56FD}\u{738B}\u{752C}\u{9053}\u{6700}\u{6DF1}\u{5904}"] = make_kingdom_end_deep_boss_task_config(),
     ["\u{738B}\u{56FD}\u{7EC8}\u{9014} / \u{51FB}\u{8D25}\u{7070}\u{70EC}\u{673A}\u{7532}"] = make_kingdom_end_deep_boss_task_config(),
     ["\u{4E3B}\u{7EBF} \u{738B}\u{56FD}\u{7EC8}\u{9014} / \u{51FB}\u{8D25}\u{7070}\u{70EC}\u{673A}\u{7532}"] = make_kingdom_end_deep_boss_task_config(),
     ["灾厄将至 / 继续追击莱安"] = make_wasteland_path_longhorn_task_config(),
@@ -11029,7 +11136,7 @@ M.ROUTE_POINT_ACTIONS = {
         label = "\u{9F99}\u{9668}\u{4E4B}\u{91CE}_\u{65B0}\u{7A57}\u{5C71}\u{4E18}\u{85CF}\u{5B9D}\u{5730}\u{5165}\u{53E3}\u{5F15}\u{5BFC}",
         mode = "recorded_route_point",
         skip_when_treasure_completed_key = "treasure_new_sprout_hill_entry_v2",
-        skip_when_player_level_at_least = 16,
+        skip_when_player_level_at_least = 15,
         task_patterns = {
             "\u{9F99}\u{9668}\u{4E4B}\u{91CE}"
         },

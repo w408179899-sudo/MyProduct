@@ -859,6 +859,80 @@ local function ring_slot_lock_reason_from_keep_rules(result, cfg, slot)
     return nil
 end
 
+local function candidate_force_ring_rule(result, cfg)
+    if type(result) ~= "table" or not is_ring_type(result.item_type) then
+        return nil
+    end
+
+    for _, rule in ipairs(configured_keep_equipped_rules(cfg)) do
+        if type(rule) == "table"
+            and (tostring(rule.mode or "") == "candidate_ring_force_equip" or rule.force_candidate_equip == true)
+            and item_type_matches_rule(result.item_type, rule)
+            and keep_name_matches(
+                result.item_name,
+                rule.keep_names,
+                tostring(rule.keep_name_match_mode or rule.name_match_mode or "")
+            )
+        then
+            return rule
+        end
+    end
+    return nil
+end
+
+local function append_unique_ring_slot(slots, slot)
+    slot = compare_slot_from_text(slot)
+    if slot == nil then
+        return
+    end
+    for _, existing in ipairs(slots) do
+        if existing == slot then
+            return
+        end
+    end
+    table.insert(slots, slot)
+end
+
+local function fallback_ring_slot_for_forced_candidate(result, cfg, rule)
+    if type(result) ~= "table" or type(rule) ~= "table" then
+        return nil
+    end
+
+    local slots = {}
+    if type(rule.preferred_slots) == "table" then
+        for _, slot in ipairs(rule.preferred_slots) do
+            append_unique_ring_slot(slots, slot)
+        end
+    end
+    append_unique_ring_slot(slots, rule.preferred_slot)
+    append_unique_ring_slot(slots, rule.fallback_slot)
+    append_unique_ring_slot(slots, "right")
+    append_unique_ring_slot(slots, "left")
+
+    local equipped = type(result.equipped_ring_names) == "table" and result.equipped_ring_names or {}
+    for _, slot in ipairs(slots) do
+        if ring_slot_lock_reason_from_keep_rules(result, cfg, slot) == nil
+            and trim(equipped[slot]) == ""
+        then
+            return slot
+        end
+    end
+
+    for _, slot in ipairs(slots) do
+        if ring_slot_lock_reason_from_keep_rules(result, cfg, slot) == nil then
+            return slot
+        end
+    end
+    return nil
+end
+
+local function equipped_ring_slots_empty(result)
+    local equipped = type(result) == "table" and type(result.equipped_ring_names) == "table"
+        and result.equipped_ring_names
+        or {}
+    return trim(equipped.left) == "" and trim(equipped.right) == ""
+end
+
 local function first_ring_slot_lock_reason(rows, result, cfg)
     if type(rows) ~= "table" then
         return nil
@@ -907,6 +981,7 @@ local function apply_ring_compare_choice(result, ring_rows, cfg)
         return
     end
 
+    local force_rule = candidate_force_ring_rule(result, cfg)
     local preferred_slot = preferred_ring_slot_from_keep_rules(result, cfg)
     local preferred_locked_reason = ring_slot_lock_reason_from_keep_rules(result, cfg, preferred_slot)
     local selected = preferred_locked_reason == nil and select_ring_compare_row_by_slot(ring_rows, cfg, preferred_slot) or nil
@@ -934,6 +1009,22 @@ local function apply_ring_compare_choice(result, ring_rows, cfg)
         selected = best_any
     end
     if selected == nil then
+        if force_rule ~= nil
+            and force_rule.direct_equip_when_no_rings ~= false
+            and equipped_ring_slots_empty(result)
+        then
+            result.direct_ring_equip = true
+            result.force_equip_reason = tostring(force_rule.reason or "ring_force_candidate")
+            result.ring_slot_lock_reason = nil
+            return
+        end
+        local fallback_slot = fallback_ring_slot_for_forced_candidate(result, cfg, force_rule)
+        if fallback_slot ~= nil then
+            result.compare_slot = fallback_slot
+            result.force_equip_reason = tostring(force_rule.reason or "ring_force_candidate")
+            result.ring_slot_lock_reason = nil
+            return
+        end
         result.compare_slot = nil
         result.ring_slot_lock_reason = first_ring_slot_lock_reason(ring_rows, result, cfg)
         return
@@ -943,6 +1034,13 @@ local function apply_ring_compare_choice(result, ring_rows, cfg)
     result.damage = selected.damage
     result.survival = selected.survival
     result.ring_slot_lock_reason = nil
+    if force_rule ~= nil then
+        result.force_equip_reason = tostring(force_rule.reason or "ring_force_candidate")
+        if force_rule.direct_equip_when_no_rings ~= false and equipped_ring_slots_empty(result) then
+            result.compare_slot = nil
+            result.direct_ring_equip = true
+        end
+    end
 end
 
 local function parse_compare(snapshot, cfg)
@@ -997,7 +1095,8 @@ end
 
 local function skip_reason_for_special_equipment(compare, cfg)
     local item_type = trim(type(compare) == "table" and compare.item_type or "")
-    local keep_reason = equipment_keep_skip_reason(compare, cfg)
+    local force_reason = trim(type(compare) == "table" and compare.force_equip_reason or "")
+    local keep_reason = force_reason == "" and equipment_keep_skip_reason(compare, cfg) or nil
     if keep_reason ~= nil then
         return keep_reason
     end
@@ -1011,6 +1110,8 @@ local function skip_reason_for_special_equipment(compare, cfg)
 
     if cfg.ring_slot_selection_enabled ~= false
         and is_ring_type(item_type)
+        and type(compare) == "table"
+        and compare.direct_ring_equip ~= true
         and compare_slot_from_text(type(compare) == "table" and compare.compare_slot or nil) == nil
     then
         return tostring(type(compare) == "table" and compare.ring_slot_lock_reason or "") ~= ""
@@ -1026,6 +1127,11 @@ local function should_equip(compare, cfg)
     local damage = tonumber(type(compare) == "table" and compare.damage)
     local min_survival = tonumber(cfg.min_survival_gain) or 0
     local min_damage = tonumber(cfg.min_damage_gain) or 0
+    local force_reason = trim(type(compare) == "table" and compare.force_equip_reason or "")
+    if force_reason ~= "" then
+        return true, force_reason
+    end
+
     local keep_reason = equipment_keep_skip_reason(compare, cfg)
     if keep_reason ~= nil then
         return false, keep_reason
@@ -1450,6 +1556,16 @@ end
 
 local function select_ring_slot_after_right_click(ctx, deps, nav_mod, hwnd, compare, cfg, character_id, candidate)
     if cfg.ring_slot_selection_enabled == false or not is_ring_type(type(compare) == "table" and compare.item_type or "") then
+        return true
+    end
+    if type(compare) == "table" and compare.direct_ring_equip == true then
+        log_line(ctx, deps, "info", string.format(
+            "[Leveling] auto-equip ring direct equip | id=%s cell=(%.1f, %.1f) name=%s",
+            tostring(character_id or ""),
+            tonumber(type(candidate) == "table" and candidate.x) or 0,
+            tonumber(type(candidate) == "table" and candidate.y) or 0,
+            tostring(compare.item_name or "")
+        ))
         return true
     end
 
