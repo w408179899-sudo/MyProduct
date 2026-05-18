@@ -792,12 +792,14 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
             item_type_patterns = { "戒指" },
             keep_names = { "火焰降生" },
             mode = "all_ring_slots",
-            reason = "ring_keep_both_equipped"
+            reason = "ring_keep_both_equipped",
+            force_reason = "ring_force_firebirth_missing_slot"
         },
         {
             key = "survival_belt",
             item_type_patterns = { "腰带", "护腰" },
             keep_names = { "求生之欲" },
+            keep_name_match_mode = "contains",
             mode = "any_equipped",
             reason = "belt_keep_equipped"
         },
@@ -825,6 +827,14 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
             preferred_slots = { "right", "left" },
             direct_equip_when_no_rings = true,
             reason = "ring_force_lone_wolf"
+        },
+        {
+            key = "firebirth_ring_hand",
+            item_type_patterns = { "戒指" },
+            keep_names = { "火焰降生" },
+            mode = "ring_slot_lock",
+            reason = "ring_keep_firebirth_hand",
+            force_reason = "ring_force_firebirth_missing_slot"
         }
     },
     keep_equipped_panel_max_x = 650,
@@ -2610,7 +2620,6 @@ do
             function(steps, current_level)
                 local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
                     or original_talent_by_level[14]
-                    or original_talent_by_level[current_level]
                 append_shifted_setup(steps, current_level, base_plan)
                 append_shifted_step(steps, current_level, maintenance_locator_step(
                     string.format("select_level_%d_resampled_talent_node", current_level),
@@ -2622,7 +2631,7 @@ do
                     479.651550,
                     0.639129,
                     0.532946,
-                    80,
+                    24,
                     1200
                 ), string.format("select_level_%d_resampled_talent_node", current_level))
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -2645,6 +2654,292 @@ do
 
     for _, level in ipairs({ 15, 16, 17 }) do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_15_to_17_resampled_talent_plan(level)
+    end
+
+    local function make_level_18_to_20_resampled_talent_plan(level)
+        return make_manual_talent_plan(
+            level,
+            string.format("%d级天赋：激活同组天赋节点", level),
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("select_level_%d_resampled_talent_node", current_level),
+                    string.format("%d级天赋节点按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    913.706848,
+                    407.208282,
+                    0.634960,
+                    0.452454,
+                    80,
+                    1200
+                ), string.format("select_level_%d_resampled_talent_node", current_level))
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("activate_level_%d_resampled_talent_node", current_level),
+                    string.format("%d级天赋节点激活按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    743.509155,
+                    671.801453,
+                    0.516685,
+                    0.746446,
+                    80,
+                    650
+                ), string.format("activate_level_%d_resampled_talent_node", current_level))
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    for _, level in ipairs({ 18, 19, 20 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_18_to_20_resampled_talent_plan(level)
+    end
+
+    local function make_level_21_to_23_resampled_talent_plan(level)
+        return make_manual_talent_plan(
+            level,
+            string.format("%d级天赋：激活同组天赋节点", level),
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("select_level_%d_resampled_talent_node", current_level),
+                    string.format("%d级天赋节点按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    1069.636841,
+                    407.208282,
+                    0.743320,
+                    0.452454,
+                    80,
+                    1200
+                ), string.format("select_level_%d_resampled_talent_node", current_level))
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("activate_level_%d_resampled_talent_node", current_level),
+                    string.format("%d级天赋节点激活按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    899.439148,
+                    671.801453,
+                    0.625045,
+                    0.746446,
+                    80,
+                    650
+                ), string.format("activate_level_%d_resampled_talent_node", current_level))
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    for _, level in ipairs({ 21, 22, 23 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_21_to_23_resampled_talent_plan(level)
+    end
+
+    local function make_level_24_resampled_talent_plan()
+        return make_manual_talent_plan(
+            24,
+            "24级天赋：激活同组天赋节点并执行额外固定点击",
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "select_level_24_resampled_talent_node",
+                    "24级天赋节点按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    1225.566772,
+                    407.208282,
+                    0.851679,
+                    0.452454,
+                    80,
+                    1200
+                ), "select_level_24_resampled_talent_node")
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "activate_level_24_resampled_talent_node",
+                    "24级天赋节点激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    1055.369263,
+                    671.801453,
+                    0.733405,
+                    0.746446,
+                    80,
+                    650
+                ), "activate_level_24_resampled_talent_node")
+                append_shifted_step(steps, current_level, extra_talent_fixed_click_step(
+                    "level_24_extra_talent_tab_click",
+                    "24级额外天赋：点击额外页签",
+                    385.00,
+                    249.00,
+                    0.267547,
+                    0.276667,
+                    650
+                ), "level_24_extra_talent_tab_click")
+                append_shifted_step(steps, current_level, extra_talent_fixed_click_step(
+                    "level_24_extra_talent_node_click",
+                    "24级额外天赋：点击额外节点",
+                    726.00,
+                    618.00,
+                    0.504517,
+                    0.686667,
+                    900
+                ), "level_24_extra_talent_node_click")
+                append_shifted_step(steps, current_level, extra_talent_fixed_click_step(
+                    "level_24_extra_talent_confirm_click",
+                    "24级额外天赋：点击额外确认",
+                    1203.00,
+                    159.00,
+                    0.835997,
+                    0.176667,
+                    650
+                ), "level_24_extra_talent_confirm_click")
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[24] = make_level_24_resampled_talent_plan()
+
+    local function make_level_25_second_tab_talent_plan()
+        return make_manual_talent_plan(
+            25,
+            "25级天赋：激活第二页天赋节点",
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_25_select_second_talent_tab",
+                    "123按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+                    },
+                    49.726845,
+                    391.616241,
+                    0.034557,
+                    0.435129,
+                    80,
+                    650
+                ), "level_25_select_second_talent_tab")
+                steps[#steps].distance_anchor_exact_text = "123"
+                steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+                steps[#steps].distance_min = 67.184104
+                steps[#steps].distance_max = 71.339822
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_25_select_talent_category",
+                    "25级天赋大类按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.UICareerPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    1044.438477,
+                    468.168762,
+                    0.725809,
+                    0.520188,
+                    80,
+                    650
+                ), "level_25_select_talent_category")
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_25_activate_talent_category",
+                    "25级天赋大类激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TipCareerItem_C.WidgetTree.ActiveBtn"
+                    },
+                    1245.157104,
+                    472.037933,
+                    0.865293,
+                    0.524487,
+                    80,
+                    650
+                ), "level_25_activate_talent_category")
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_25_select_talent_node",
+                    "25级天赋节点按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    292.986755,
+                    407.208282,
+                    0.203604,
+                    0.452454,
+                    80,
+                    1200
+                ), "level_25_select_talent_node")
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_25_activate_talent_node",
+                    "25级天赋节点激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    503.438232,
+                    671.801453,
+                    0.349853,
+                    0.746446,
+                    80,
+                    650
+                ), "level_25_activate_talent_node")
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[25] = make_level_25_second_tab_talent_plan()
+
+    local function make_select_trickster_god_tab_step(level)
+        return make_maintenance_locator_step({
+            key = string.format("level_%d_select_trickster_god_tab", tonumber(level) or 0),
+            label = "欺诈之神按钮",
+            distance_anchor_exact_text = "欺诈之神",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn",
+            distance_min = 68.595838,
+            distance_max = 72.838879,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+            },
+            hint_client_x = 49.726845,
+            hint_client_y = 336.195770,
+            hint_ratio_x = 0.034557,
+            hint_ratio_y = 0.373551,
+            hint_max_distance = 80,
+            wait_after_ms = 650
+        })
+    end
+
+    local function plan_has_step_key_contains(plan, needle)
+        local steps = type(plan) == "table" and type(plan.steps) == "table" and plan.steps or {}
+        for _, step in ipairs(steps) do
+            if tostring(step.key or ""):find(tostring(needle or ""), 1, true) ~= nil then
+                return true
+            end
+        end
+        return false
+    end
+
+    local function insert_trickster_god_tab_after_talent_open(level)
+        local plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level]
+        local steps = type(plan) == "table" and type(plan.steps) == "table" and plan.steps or nil
+        if steps == nil or plan_has_step_key_contains(plan, "select_trickster_god_tab") then
+            return
+        end
+        for index, step in ipairs(steps) do
+            if tostring(step.key or ""):find("open_talent_panel", 1, true) ~= nil then
+                table.insert(steps, index + 1, make_select_trickster_god_tab_step(level))
+                return
+            end
+        end
+    end
+
+    for level = 1, 24 do
+        insert_trickster_god_tab_after_talent_open(level)
     end
 end
 
@@ -3272,8 +3567,8 @@ do
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[11] = level_11_skill_plan
 
     local level_21_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
-    level_21_skill_plan.key = "level_21_skill_upgrade_sequence"
-    level_21_skill_plan.label = "21级技能：找图升级并配置钝化"
+    level_21_skill_plan.key = "level_21_skill_add_blunt_and_mana_boil_sequence"
+    level_21_skill_plan.label = "21级技能：配置钝化并添加魔力沸腾"
     level_21_skill_plan.close_with_escape = false
 
     local level_21_steps = type(level_21_skill_plan.steps) == "table" and level_21_skill_plan.steps or {}
@@ -3330,8 +3625,8 @@ do
         wait_after_ms = 1000
     }
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_fixed_click_587_538_a",
-        "21级技能固定点击1",
+        "level_21_skill_blunt_fixed_click_587_538_a",
+        "21级钝化固定点击1",
         587.00,
         538.00,
         0.407922,
@@ -3339,8 +3634,8 @@ do
         350
     )
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_fixed_click_587_538_b",
-        "21级技能固定点击2",
+        "level_21_skill_blunt_fixed_click_587_538_b",
+        "21级钝化固定点击2",
         587.00,
         538.00,
         0.407922,
@@ -3348,8 +3643,8 @@ do
         350
     )
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_search_focus",
-        "21级技能搜索输入框",
+        "level_21_skill_blunt_search_focus",
+        "21级钝化搜索输入框",
         355.00,
         651.00,
         0.246699,
@@ -3367,8 +3662,8 @@ do
         wait_after_ms = 500
     }
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_search_confirm",
-        "21级技能搜索确认",
+        "level_21_skill_blunt_search_confirm",
+        "21级钝化搜索确认",
         597.00,
         657.00,
         0.414871,
@@ -3385,8 +3680,8 @@ do
         700
     )
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_fixed_click_812_350",
-        "21级技能固定点击3",
+        "level_21_skill_blunt_fixed_click_812_350",
+        "21级钝化固定点击3",
         812.00,
         350.00,
         0.564281,
@@ -3394,8 +3689,8 @@ do
         350
     )
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_fixed_click_716_324",
-        "21级技能固定点击4",
+        "level_21_skill_blunt_fixed_click_716_324",
+        "21级钝化固定点击4",
         716.00,
         324.00,
         0.497568,
@@ -3403,8 +3698,8 @@ do
         350
     )
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_fixed_click_536_337",
-        "21级技能固定点击5",
+        "level_21_skill_blunt_fixed_click_536_337",
+        "21级钝化固定点击5",
         536.00,
         337.00,
         0.372481,
@@ -3420,8 +3715,90 @@ do
         0.277778,
         700
     )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_mana_boil_fixed_click_81_466",
+        "21级魔力沸腾固定点击1",
+        81.00,
+        466.00,
+        0.056289,
+        0.517778,
+        350
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_mana_boil_fixed_click_722_454",
+        "21级魔力沸腾固定点击2",
+        722.00,
+        454.00,
+        0.501737,
+        0.504444,
+        350
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_mana_boil_search_focus",
+        "21级魔力沸腾搜索输入框",
+        408.00,
+        654.00,
+        0.283530,
+        0.726667,
+        250
+    )
     level_21_steps[#level_21_steps + 1] = {
-        key = "back_from_skill_panel_after_blunt_setup",
+        kind = "type_text",
+        key = "level_21_skill_search_mana_boil_text",
+        label = "输入魔力沸腾",
+        text = "魔力沸腾",
+        input_method = "clipboard",
+        clear_before = true,
+        key_delay_ms = 30,
+        wait_after_ms = 500
+    }
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_mana_boil_search_confirm",
+        "21级魔力沸腾搜索确认",
+        600.00,
+        658.00,
+        0.416956,
+        0.731111,
+        700
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_select_mana_boil_result",
+        "21级技能选择魔力沸腾结果",
+        358.00,
+        331.00,
+        0.248784,
+        0.367778,
+        700
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_mana_boil_fixed_click_823_334",
+        "21级魔力沸腾固定点击3",
+        823.00,
+        334.00,
+        0.571925,
+        0.371111,
+        350
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_mana_boil_fixed_click_794_325",
+        "21级魔力沸腾固定点击4",
+        794.00,
+        325.00,
+        0.551772,
+        0.361111,
+        350
+    )
+    level_21_steps[#level_21_steps + 1] = fixed_click_step(
+        "level_21_skill_mana_boil_fixed_click_529_337",
+        "21级魔力沸腾固定点击5",
+        529.00,
+        337.00,
+        0.367616,
+        0.374444,
+        700
+    )
+    level_21_steps[#level_21_steps + 1] = {
+        key = "back_from_skill_panel_after_blunt_and_mana_boil_setup",
         label = "技能返回按钮",
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
@@ -6819,12 +7196,12 @@ end
 
 local function make_mountain_heart_dwarf_king_reentry_config()
     return make_revive_reentry_config({
-        key = "mountain_heart_dwarf_king_endpoint_reentry_4581_13976",
+        key = "mountain_heart_dwarf_king_endpoint_reentry_4529_13974",
         label = "群山之心_矮人王Boss重进房",
         anchor = {
-            x = 4581.00,
-            y = 13976.00,
-            z = 67.31,
+            x = 4529.50,
+            y = 13974.92,
+            z = 58.25,
             radius = 560
         },
         interact_distance = 280,
@@ -9161,6 +9538,22 @@ M.COMMON_REVIVE_REENTRY_PORTALS = {
         portal_match_radius = 1800,
         player_radius = 1300,
         z_tolerance = 260,
+        require_enum_portal = true,
+        retry_ms = 1200,
+        settle_ms = 1200,
+        timeout_ms = 45000,
+        task_pos_reject_extra_ms = 3500
+    },
+    {
+        key = "mountain_heart_dwarf_king_reentry_portal_4529_13974",
+        label = "群山之心矮人王复活进门",
+        x = 4529.50,
+        y = 13974.92,
+        z = 58.25,
+        path_match_radius = 900,
+        portal_match_radius = 1800,
+        player_radius = 1400,
+        z_tolerance = 320,
         require_enum_portal = true,
         retry_ms = 1200,
         settle_ms = 1200,
@@ -11538,6 +11931,71 @@ M.ROUTE_POINT_ACTIONS = {
         reacquire_retry_ms = 1000,
         waypoints = {
             { x = 11099.00, y = 4909.00, z = 1010.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "old_dusk_chase_lai_an_route_15980_22110",
+        label = "旧日的黄昏_追击觉醒者莱安_终点固定路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "旧日的黄昏"
+        },
+        task_detail_patterns = {
+            "追击觉醒者莱安"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 15980.00,
+            y = 22110.00,
+            z = 1010.00,
+            radius = 650,
+            z_tolerance = 320
+        },
+        retry_ms = 600000,
+        timeout_ms = 90000,
+        waypoint_reach_radius = 180,
+        waypoint_z_tolerance = 320,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1000,
+        waypoints = {
+            { x = 16062.68, y = 21748.39, z = 1010.00 },
+            { x = 15861.79, y = 21396.82, z = 1010.00 },
+            { x = 15573.68, y = 21163.07, z = 1010.00 },
+            { x = 15390.93, y = 21391.77, z = 1010.00 },
+            { x = 15568.50, y = 21713.51, z = 1010.00 },
+            { x = 15554.33, y = 22064.03, z = 1010.00 },
+            { x = 15637.87, y = 22350.27, z = 1010.00 },
+            { x = 15959.68, y = 22531.61, z = 1010.00 },
+            { x = 16277.79, y = 22483.36, z = 1010.00 },
+            { x = 16431.23, y = 22228.27, z = 1010.00 },
+            { x = 16349.61, y = 21957.81, z = 1010.00 },
+            { x = 16150.26, y = 21710.89, z = 1010.00 },
+            { x = 15989.07, y = 21463.74, z = 1010.00 },
+            { x = 15722.99, y = 21089.93, z = 1010.00 },
+            { x = 15519.95, y = 21081.93, z = 1010.00 },
+            { x = 15439.97, y = 21375.82, z = 1010.00 },
+            { x = 15470.29, y = 21693.87, z = 1010.00 },
+            { x = 15521.34, y = 21925.62, z = 1010.00 },
+            { x = 15751.08, y = 22092.48, z = 1010.00 },
+            { x = 15981.96, y = 22221.00, z = 1010.00 },
+            { x = 16209.13, y = 22386.11, z = 1010.00 },
+            { x = 15926.31, y = 22346.68, z = 1010.00 },
+            { x = 15712.10, y = 22028.35, z = 1010.00 },
+            { x = 15770.16, y = 21600.48, z = 1010.00 },
+            { x = 15822.66, y = 21332.27, z = 1010.00 },
+            { x = 15755.13, y = 21091.58, z = 1010.00 },
+            { x = 15548.01, y = 21052.36, z = 1010.00 },
+            { x = 15437.52, y = 21262.72, z = 1010.00 },
+            { x = 15469.15, y = 21500.51, z = 1010.00 },
+            { x = 15578.85, y = 21739.99, z = 1010.00 },
+            { x = 15717.51, y = 21912.40, z = 1010.00 },
+            { x = 15897.13, y = 22074.07, z = 1010.00 },
+            { x = 16156.77, y = 22166.51, z = 1010.00 },
+            { x = 16211.15, y = 21968.81, z = 1010.00 },
+            { x = 16085.17, y = 21847.74, z = 1010.00 },
+            { x = 15895.68, y = 21790.53, z = 1010.00 }
         }
     }),
     make_route_point_action({

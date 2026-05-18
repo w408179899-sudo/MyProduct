@@ -462,6 +462,84 @@ local function save_persisted_state(data)
     return true
 end
 
+local function save_state_root()
+    if type(persisted_state_root) ~= "table" then
+        persisted_state_root = load_state_root()
+    end
+    persisted_state_root.version = CHARACTER_SCOPED_STATE_VERSION
+    persisted_state_root.legacy = nil
+    persisted_state_root.legacy_imported_to = nil
+    if type(persisted_state_root.characters) ~= "table" then
+        persisted_state_root.characters = {}
+    end
+
+    local file, err = io.open(STATE_FILE_PATH, "w")
+    if not file then
+        return false, err
+    end
+    file:write("return ")
+    file:write(serialize_lua(persisted_state_root, 0))
+    file:write("\n")
+    file:close()
+    return true
+end
+
+local function clear_character_resume(main_state, character_id, reason)
+    character_id = trim(character_id or current_character_id())
+    if character_id == "" then
+        return false, "character persistence id unavailable; treasure resume not cleared"
+    end
+    if type(persisted_state_root) ~= "table" then
+        persisted_state_root = load_state_root()
+    end
+    if type(persisted_state_root.characters) ~= "table" then
+        persisted_state_root.characters = {}
+    end
+    if type(persisted_state_root.characters[character_id]) ~= "table" then
+        persisted_state_root.characters[character_id] = default_persisted_state(character_id)
+    end
+
+    local data = sanitize_persisted_state(persisted_state_root.characters[character_id], character_id)
+    data.resume = nil
+    data.resume_clear_reason = tostring(reason or "clear_character_resume")
+    if type(data.treasures) == "table" then
+        for key, record in pairs(data.treasures) do
+            if type(record) == "table" then
+                record.route = nil
+                record.route_acquired = false
+                record.route_cache_clear_reason = tostring(reason or "clear_character_resume")
+                record.character_id = character_id
+            else
+                data.treasures[key] = nil
+            end
+        end
+    end
+    persisted_state_root.characters[character_id] = data
+    persisted_state_character_id = character_id
+
+    if type(main_state) == "table"
+        and main_state.treasure_persisted_character_id == character_id
+        and type(main_state.treasure_persisted) == "table"
+    then
+        main_state.treasure_persisted.resume = nil
+        main_state.treasure_persisted.resume_clear_reason = data.resume_clear_reason
+        if type(main_state.treasure_persisted.treasures) == "table" then
+            for key, record in pairs(main_state.treasure_persisted.treasures) do
+                if type(record) == "table" then
+                    record.route = nil
+                    record.route_acquired = false
+                    record.route_cache_clear_reason = data.resume_clear_reason
+                    record.character_id = character_id
+                else
+                    main_state.treasure_persisted.treasures[key] = nil
+                end
+            end
+        end
+    end
+
+    return save_state_root()
+end
+
 local function ensure_runtime_state(main_state)
     if type(main_state.treasure_runtime) ~= "table" then
         main_state.treasure_runtime = {
@@ -3081,6 +3159,10 @@ end
 
 function M.save_resume_snapshot(ctx, main_state, reason)
     return save_resume_snapshot(ctx, main_state, reason)
+end
+
+function M.clear_character_resume(ctx, main_state, character_id, reason)
+    return clear_character_resume(main_state, character_id, reason)
 end
 
 function M.restore_resume_snapshot(ctx, main_state, configs, player_x, player_y, player_z)

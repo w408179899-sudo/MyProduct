@@ -92,7 +92,9 @@ M._leveling_recycle = M.load_leveling_support_module(
 M.BUTTON_SESSION_STATE_FILE_PATH = "scripts/avepoint_leveling_button_session.lua"
 M.RECIPE_PROGRESS_STATE_FILE_PATH = "scripts/avepoint_leveling_recipe_state.lua"
 M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH = "scripts/avepoint_leveling_maintenance_state.lua"
+M.TREASURE_STATE_FILE_PATH = "scripts/avepoint_treasure_state.lua"
 M.CHARACTER_SCOPED_STATE_VERSION = 2
+M.CHARACTER_CACHE_HYGIENE_VERSION = 3
 M.MAIN_TASK_BUTTON_CACHE_DISABLED = true
 M.MAIN_TASK_BUTTON_HOVER_EACH_CALL = false
 M.BUTTON_CALL_CACHE_DISABLED = true
@@ -128,6 +130,9 @@ local TASK_INTERACTION_APPROACH_DISTANCE = 70
 local INTERACTION_PROMPT_SCAN_INTERVAL_MS = 300
 local EXIT_PORTAL_SCAN_INTERVAL_MS = 300
 local TASK_COMBAT_CLEAR_SETTLE_MS = 1800
+
+M.TASK_BUTTON_PATH_EARLY_RETRY_AFTER_MS = 1100
+M.TASK_BUTTON_PATH_EARLY_RETRY_FAILED_MS = 1200
 local TASK_COMBAT_HARD_TRIGGER_MS = 4500
 local TASK_COMBAT_HARD_MONSTER_COUNT = 6
 local TASK_COMBAT_HARD_NEAREST_DISTANCE = 180
@@ -1230,6 +1235,8 @@ local function clear_task_target_state()
     state.task_path_count = 0
     state.task_path_refresh_requested = true
     state.task_path_wait_until = 0
+    state.task_path_early_retry_at = 0
+    state.task_path_early_retry_count = 0
     state.require_task_button_refresh_reason = nil
     state.task_pos_reject_until = 0
     state.task_pos_reject_reason = nil
@@ -1498,6 +1505,8 @@ local function reset_state()
     state.next_nav_retry_at = 0
     state.next_task_button_click_at = 0
     state.task_path_wait_until = 0
+    state.task_path_early_retry_at = 0
+    state.task_path_early_retry_count = 0
     state.next_follow_task_button_refresh_at = 0
     state.next_task_button_soft_refresh_at = 0
     state.next_task_path_deviation_refresh_at = 0
@@ -2897,10 +2906,32 @@ function M.save_button_session_state()
     return true
 end
 
+function M.reset_button_session_state(ctx, reason, character_id)
+    M._button_session_state = M.default_button_session_state()
+    M._button_session_state_loaded = true
+    local ok, err = M.save_button_session_state()
+    if ctx ~= nil then
+        local message = string.format(
+            "[Leveling] button session cache reset | reason=%s character_id=%s ok=%s err=%s",
+            tostring(reason or ""),
+            tostring(character_id or ""),
+            tostring(ok == true),
+            tostring(err or "")
+        )
+        if ok then
+            logger(ctx).info(message)
+        else
+            logger(ctx).warn(message)
+        end
+    end
+    return ok, err
+end
+
 M._persistence_character_id = nil
 M._persistence_character_label = nil
 M._persistence_character_level = nil
 M._persistence_character_text = nil
+M._new_character_cache_reset_checked = {}
 
 function M.extract_persistence_identity_from_snapshot(snapshot)
     if type(snapshot) ~= "table" or type(snapshot.texts) ~= "table" then
@@ -2984,6 +3015,14 @@ function M.refresh_persistence_character_identity(ctx, force)
                 tostring(M._persistence_character_level or ""),
                 tostring(M._persistence_character_text or "")
             ))
+            if ctx ~= nil and type(M.clear_caches_for_new_persistence_character) == "function" then
+                M.clear_caches_for_new_persistence_character(
+                    ctx,
+                    M._persistence_character_id,
+                    M._persistence_character_label,
+                    M._persistence_character_level
+                )
+            end
         end
         return M._persistence_character_id, M._persistence_character_label, M._persistence_character_level
     end
@@ -3054,6 +3093,228 @@ function M.save_character_scoped_root(path, root)
     file:write(M.serialize_button_session_lua_table(root, 0))
     file:write("\n")
     file:close()
+    return true
+end
+
+function M.character_scoped_entry_exists(path, character_id)
+    if type(path) ~= "string" or path == "" then
+        return false
+    end
+    if type(character_id) ~= "string" or character_id == "" then
+        return false
+    end
+    local root = M.load_character_scoped_root(path)
+    return type(root.characters) == "table" and type(root.characters[character_id]) == "table"
+end
+
+function M.ensure_character_scoped_entry(path, character_id, factory)
+    if type(path) ~= "string" or path == "" then
+        return false, "state path unavailable"
+    end
+    if type(character_id) ~= "string" or character_id == "" then
+        return false, "character id unavailable"
+    end
+    local root = M.load_character_scoped_root(path)
+    if type(root.characters) ~= "table" then
+        root.characters = {}
+    end
+    if type(root.characters[character_id]) ~= "table" then
+        local entry = nil
+        if type(factory) == "function" then
+            entry = factory(character_id)
+        end
+        if type(entry) ~= "table" then
+            entry = { version = 1 }
+        end
+        entry.character_id = character_id
+        root.characters[character_id] = entry
+    end
+    return M.save_character_scoped_root(path, root)
+end
+
+function M.default_treasure_persisted_state(character_id)
+    return {
+        character_id = character_id,
+        resume = nil,
+        treasures = {}
+    }
+end
+
+function M.character_cache_hygiene_version(character_id)
+    if type(character_id) ~= "string" or character_id == "" then
+        return 0
+    end
+    local root = M.load_character_scoped_root(M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH)
+    if type(root.cache_hygiene_versions) == "table" then
+        local version = tonumber(root.cache_hygiene_versions[character_id])
+        if version ~= nil then
+            return version
+        end
+    end
+    local entry = type(root.characters) == "table" and root.characters[character_id] or nil
+    if type(entry) == "table" then
+        return tonumber(entry.cache_hygiene_version) or 0
+    end
+    return 0
+end
+
+function M.mark_character_cache_hygiene_version(character_id)
+    if type(character_id) ~= "string" or character_id == "" then
+        return false, "character id unavailable"
+    end
+    local root = M.load_character_scoped_root(M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH)
+    if type(root.characters) ~= "table" then
+        root.characters = {}
+    end
+    if type(root.characters[character_id]) ~= "table" then
+        root.characters[character_id] = M.default_level_up_maintenance_state()
+        root.characters[character_id].character_id = character_id
+    end
+    if type(root.cache_hygiene_versions) ~= "table" then
+        root.cache_hygiene_versions = {}
+    end
+    root.cache_hygiene_versions[character_id] = M.CHARACTER_CACHE_HYGIENE_VERSION
+    root.characters[character_id].cache_hygiene_version = M.CHARACTER_CACHE_HYGIENE_VERSION
+    M._level_up_maintenance_state_root = root
+    return M.save_character_scoped_root(M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH, root)
+end
+
+function M.clear_treasure_resume_for_character(ctx, character_id)
+    if type(character_id) ~= "string" or character_id == "" then
+        return false, "character id unavailable"
+    end
+    local root = M.load_character_scoped_root(M.TREASURE_STATE_FILE_PATH)
+    local file_ok = true
+    local file_err = nil
+    if type(root.characters) ~= "table" then
+        root.characters = {}
+    end
+    local entry = root.characters[character_id]
+    if type(entry) == "table" then
+        entry.resume = nil
+        entry.resume_clear_reason = "character_cache_hygiene"
+        if type(entry.treasures) == "table" then
+            for key, record in pairs(entry.treasures) do
+                if type(record) == "table" then
+                    record.route = nil
+                    record.route_acquired = false
+                    record.route_cache_clear_reason = "character_cache_hygiene"
+                    record.character_id = character_id
+                else
+                    entry.treasures[key] = nil
+                end
+            end
+        end
+        entry.character_id = character_id
+        file_ok, file_err = M.save_character_scoped_root(M.TREASURE_STATE_FILE_PATH, root)
+    end
+
+    local module_ok = true
+    local module_err = nil
+    if type(M._leveling_treasure) == "table"
+        and type(M._leveling_treasure.clear_character_resume) == "function"
+    then
+        module_ok, module_err = M._leveling_treasure.clear_character_resume(
+            ctx,
+            state,
+            character_id,
+            "character_cache_hygiene"
+        )
+    end
+    return file_ok == true and module_ok == true, file_err or module_err
+end
+
+function M.is_known_persistence_character(character_id)
+    if type(character_id) ~= "string" or character_id == "" then
+        return false
+    end
+    return M.character_scoped_entry_exists(M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH, character_id)
+        or M.character_scoped_entry_exists(M.RECIPE_PROGRESS_STATE_FILE_PATH, character_id)
+        or M.character_scoped_entry_exists(M.TREASURE_STATE_FILE_PATH, character_id)
+end
+
+function M.clear_caches_for_new_persistence_character(ctx, character_id, label, level)
+    if type(character_id) ~= "string" or character_id == "" then
+        return false, "character id unavailable"
+    end
+    if type(M._new_character_cache_reset_checked) ~= "table" then
+        M._new_character_cache_reset_checked = {}
+    end
+    if M._new_character_cache_reset_checked[character_id] == true then
+        return false, "already checked"
+    end
+    M._new_character_cache_reset_checked[character_id] = true
+
+    local known_character = M.is_known_persistence_character(character_id)
+    local hygiene_version = M.character_cache_hygiene_version(character_id)
+    if known_character and hygiene_version >= M.CHARACTER_CACHE_HYGIENE_VERSION then
+        return false, "known character"
+    end
+
+    local reset_reason = known_character and "character_cache_hygiene" or "new_character"
+    local button_ok, button_err = M.reset_button_session_state(ctx, reset_reason, character_id)
+    M.clear_task_recipe_state()
+
+    if not known_character then
+        M._recipe_progress_state = nil
+        M._recipe_progress_state_loaded = false
+        M._recipe_progress_state_root = nil
+        M._recipe_progress_state_character_id = nil
+
+        M._level_up_maintenance_state = nil
+        M._level_up_maintenance_state_loaded = false
+        M._level_up_maintenance_state_root = nil
+        M._level_up_maintenance_state_character_id = nil
+    end
+
+    local recipe_ok, recipe_err = M.ensure_character_scoped_entry(
+        M.RECIPE_PROGRESS_STATE_FILE_PATH,
+        character_id,
+        function()
+            return M.default_recipe_progress_state()
+        end
+    )
+    local maintenance_ok, maintenance_err = M.ensure_character_scoped_entry(
+        M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH,
+        character_id,
+        function()
+            return M.default_level_up_maintenance_state()
+        end
+    )
+    local treasure_ok, treasure_err = M.ensure_character_scoped_entry(
+        M.TREASURE_STATE_FILE_PATH,
+        character_id,
+        function(id)
+            return M.default_treasure_persisted_state(id)
+        end
+    )
+    local treasure_resume_ok, treasure_resume_err = M.clear_treasure_resume_for_character(ctx, character_id)
+    local hygiene_ok, hygiene_err = M.mark_character_cache_hygiene_version(character_id)
+
+    if ctx ~= nil then
+        logger(ctx).info(string.format(
+            "[Leveling] character cache hygiene prepared | id=%s label=%s level=%s known=%s hygiene_before=%s hygiene_target=%s button_ok=%s recipe_ok=%s maintenance_ok=%s treasure_ok=%s treasure_resume_ok=%s hygiene_ok=%s button_err=%s recipe_err=%s maintenance_err=%s treasure_err=%s treasure_resume_err=%s hygiene_err=%s",
+            tostring(character_id or ""),
+            tostring(label or ""),
+            tostring(level or ""),
+            tostring(known_character == true),
+            tostring(hygiene_version or ""),
+            tostring(M.CHARACTER_CACHE_HYGIENE_VERSION or ""),
+            tostring(button_ok == true),
+            tostring(recipe_ok == true),
+            tostring(maintenance_ok == true),
+            tostring(treasure_ok == true),
+            tostring(treasure_resume_ok == true),
+            tostring(hygiene_ok == true),
+            tostring(button_err or ""),
+            tostring(recipe_err or ""),
+            tostring(maintenance_err or ""),
+            tostring(treasure_err or ""),
+            tostring(treasure_resume_err or ""),
+            tostring(hygiene_err or "")
+        ))
+    end
+
     return true
 end
 

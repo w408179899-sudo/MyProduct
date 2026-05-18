@@ -12108,12 +12108,17 @@ end
             clear_task_target_state()
             state.task_path_wait_until = after_click_time + TASK_BUTTON_PATH_FETCH_TIMEOUT_MS
             state.next_task_button_click_at = state.task_path_wait_until
+            state.task_path_early_retry_at = after_click_time
+                + math.max(900, tonumber(M.TASK_BUTTON_PATH_EARLY_RETRY_AFTER_MS) or 1100)
+            state.task_path_early_retry_count = 0
             state.cached_nearest_npc = nil
             state.cached_npc_error = nil
             state.cached_task_monsters = nil
             state.cached_task_monster_error = nil
             state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, after_click_time + POST_UI_PAUSE_MS)
         else
+            state.task_path_early_retry_at = 0
+            state.task_path_early_retry_count = 0
             state.next_task_button_click_at = after_click_time + TASK_BUTTON_RETRY_INTERVAL_MS
             state.cached_nearest_npc = nil
             state.cached_npc_error = nil

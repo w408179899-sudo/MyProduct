@@ -3002,6 +3002,8 @@ local function update_task_target(ctx, current_time, player_x, player_y)
 
     if target then
         state.task_path_wait_until = 0
+        state.task_path_early_retry_at = 0
+        state.task_path_early_retry_count = 0
         state.task_pos_reject_until = 0
         state.task_pos_reject_reason = nil
         state.force_task_path_reacquire_until = 0
@@ -3019,7 +3021,17 @@ local function update_task_target(ctx, current_time, player_x, player_y)
         return true
     end
 
+    local pending_path_wait_until = tonumber(state.task_path_wait_until) or 0
+    local pending_path_early_retry_at = tonumber(state.task_path_early_retry_at) or 0
+    local pending_path_early_retry_count = tonumber(state.task_path_early_retry_count) or 0
     clear_task_target_state()
+    if pending_path_wait_until > current_time
+        and (tonumber(state.last_task_button_click_at) or 0) > 0
+    then
+        state.task_path_wait_until = pending_path_wait_until
+        state.task_path_early_retry_at = pending_path_early_retry_at
+        state.task_path_early_retry_count = pending_path_early_retry_count
+    end
     log_throttled(ctx, "task_missing", "warn", LOG_THROTTLE_MS, string.format(
         "[Leveling] main task data unavailable after task button click. path_err=%s pos_err=%s nav=%s last_call=%s",
         tostring(path_err),
@@ -6747,6 +6759,39 @@ function M.update(now, ctx)
     if waiting_for_task_path and type(state.task_target) ~= "table" then
         if M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y, player_z) then
             return true
+        end
+        local early_retry_at = tonumber(state.task_path_early_retry_at) or 0
+        if task_entry_action_active ~= true
+            and early_retry_at > 0
+            and current_time >= early_retry_at
+            and not M.should_suspend_treasure_task_refresh()
+        then
+            local retry_failed_ms = math.max(900, tonumber(M.TASK_BUTTON_PATH_EARLY_RETRY_FAILED_MS) or 1200)
+            local previous_next_click_at = tonumber(state.next_task_button_click_at) or 0
+            state.task_path_early_retry_count = (tonumber(state.task_path_early_retry_count) or 0) + 1
+            state.task_path_early_retry_at = current_time + retry_failed_ms
+            state.next_task_button_click_at = current_time
+            state.stage = "wait_task_path_early_reclick"
+            logger(ctx).info(string.format(
+                "[Leveling] retry main task button early while waiting path | task=%s detail=%s wait_ms=%d attempt=%d old_retry_left=%d",
+                tostring(M.current_task_log_name() or state.current_task_name or ""),
+                tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                math.max(0, current_time - (tonumber(state.last_task_button_click_at) or current_time)),
+                tonumber(state.task_path_early_retry_count) or 0,
+                math.max(0, previous_next_click_at - current_time)
+            ))
+            local clicked, click_err = M.click_main_task_button(ctx, current_time, {
+                path_early_retry = true
+            })
+            if clicked then
+                return true
+            end
+            state.next_task_button_click_at = math.max(
+                tonumber(state.next_task_button_click_at) or 0,
+                current_time + retry_failed_ms
+            )
+            log_throttled(ctx, "task_path_early_reclick_failed", "info", LOG_THROTTLE_MS,
+                "[Leveling] early main task retry while waiting path failed: " .. tostring(click_err or "not ready"))
         end
         state.stage = "wait_task_path_after_button"
         M.log_execution_trace(ctx, current_time, "waiting_task_path_after_button", nil, nil, nil, nil, player_x, player_y, player_z)
