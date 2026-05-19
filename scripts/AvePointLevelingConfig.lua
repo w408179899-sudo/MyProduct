@@ -5997,6 +5997,15 @@ M.TREASURE_DUNGEON_CONFIGS = {
             radius = 2400,
             z_tolerance = 900
         },
+        extra_exit_landings = {
+            {
+                x = -7064.00,
+                y = -3717.00,
+                z = 507.00,
+                radius = 1800,
+                z_tolerance = 900
+            }
+        },
         transition_timeout_ms = 15000,
         notes = {
             "Based on the proven treasure_milu_creek baseline, but restart portal / restart_landing are not yet verified for this dungeon",
@@ -6005,6 +6014,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "Known entrance button behavior: same as previous treasure entrance button",
             "Verified inside boss anchor / kite points / exit portal from latest measured run; exit trigger moved to user F6 door anchor 16509,-12043,105 and restart trigger to 17066,-12015,105, but button F8 and real restart_landing still need verification",
             "Verified inside_landing after entry at -1800,2700,105; verified exit_landing near -827,9412,606; restart_landing still needs F7 after a real 求生之欲 restart click, so startup recovery must not use restart_landing yet",
+            "Observed exit portal landing at -7064,-3717,507 after level 38 exit; accept it as extra_exit_landing to avoid retrying the inside exit portal after a successful transition",
             "Confirmed target_level=38 for return-to-mainline gate",
             "Restart/exit triggers are intentionally separated now; keep 16457.17,-12098.53 as exit-only data unless F7 proves otherwise",
             "Restart/exit portal probe now prefers hint fallback when distance-anchor locator drifts",
