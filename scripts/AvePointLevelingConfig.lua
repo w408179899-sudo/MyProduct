@@ -3257,6 +3257,50 @@ do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_36_to_38_second_tab_talent_plan(level)
     end
 
+    local function make_level_39_to_41_second_tab_talent_plan(level)
+        return make_manual_talent_plan(
+            level,
+            string.format("%d级天赋：激活第二页右侧上排后续天赋节点", level),
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_select_second_tab_talent_node", current_level),
+                    string.format("%d级天赋节点按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    1070.636841,
+                    406.208282,
+                    0.744014,
+                    0.451343,
+                    80,
+                    1200
+                ), string.format("level_%d_select_second_tab_talent_node", current_level))
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_activate_second_tab_talent_node", current_level),
+                    string.format("%d级天赋节点激活按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+                    },
+                    900.439148,
+                    670.801453,
+                    0.625740,
+                    0.745335,
+                    80,
+                    650
+                ), string.format("level_%d_activate_second_tab_talent_node", current_level))
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    for _, level in ipairs({ 39, 40, 41 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_39_to_41_second_tab_talent_plan(level)
+    end
+
     local function make_select_trickster_god_tab_step(level)
         return make_maintenance_locator_step({
             key = string.format("level_%d_select_trickster_god_tab", tonumber(level) or 0),
