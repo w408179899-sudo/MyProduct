@@ -813,6 +813,14 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
             reason = "belt_keep_equipped"
         },
         {
+            key = "lost_time_boots",
+            item_type_patterns = { "鞋", "靴", "脚部", "足部" },
+            keep_names = { "失期" },
+            keep_name_match_mode = "contains",
+            mode = "any_equipped",
+            reason = "boots_keep_lost_time"
+        },
+        {
             key = "rock_lizard_head_same_name",
             item_type_patterns = { "头盔", "头部" },
             keep_names = { "岩石巨蜥之颅" },
@@ -832,6 +840,27 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
     keep_equipped_marker_match_max_dx = 180,
     keep_equipped_marker_match_max_dy = 100,
     skip_non_two_hand_weapons = true,
+    weapon_type_patterns = {
+        "单手",
+        "双手",
+        "主手",
+        "副手",
+        "剑",
+        "斧",
+        "锤",
+        "杖",
+        "弓",
+        "枪",
+        "盾",
+        "刀",
+        "爪",
+        "匕",
+        "弩",
+        "拳",
+        "炮",
+        "法器"
+    },
+    two_hand_weapon_type_patterns = { "双手" },
     identify_all_on_bag_open = true,
     identify_all_before_scan = true,
     identify_all_wait_ms = 800,
@@ -4396,7 +4425,7 @@ do
         538.211487,
         0.040685,
         0.598013,
-        80,
+        25,
         650
     )
     level_34_steps[#level_34_steps + 1] = fixed_click_step(
@@ -4442,17 +4471,13 @@ do
         80,
         700
     )
-    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
-        "level_34_select_store_skill",
-        "34级商店技能按钮",
-        {
-            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn"
-        },
-        315.798645,
-        306.459442,
-        0.219457,
-        0.340510,
-        80,
+    level_34_steps[#level_34_steps + 1] = fixed_click_step(
+        "level_34_select_store_skill_fixed_click",
+        "34级商店技能固定点击",
+        357.00,
+        327.00,
+        0.248089,
+        0.363333,
         700
     )
     level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
@@ -4505,6 +4530,116 @@ do
     level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
         "level_34_activate_all_skills",
         "34级技能启用全部按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.ActiveAll"
+        },
+        615.131897,
+        864.738708,
+        0.427472,
+        0.960821,
+        80,
+        700
+    )
+    level_34_steps[#level_34_steps + 1] = fixed_click_step(
+        "level_34_skill_spell_control_slot_click",
+        "34级法术控制固定点击1",
+        581.00,
+        417.00,
+        0.403753,
+        0.463333,
+        350
+    )
+    level_34_steps[#level_34_steps + 1] = fixed_click_step(
+        "level_34_skill_spell_control_search_focus",
+        "34级法术控制搜索输入框",
+        403.00,
+        654.00,
+        0.280056,
+        0.726667,
+        250
+    )
+    level_34_steps[#level_34_steps + 1] = {
+        kind = "type_text",
+        key = "level_34_skill_search_spell_control_text",
+        label = "输入法术控制",
+        text = "法术控制",
+        input_method = "clipboard",
+        clear_before = true,
+        key_delay_ms = 30,
+        wait_after_ms = 500
+    }
+    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
+        "level_34_spell_control_search_button",
+        "34级法术控制搜索按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
+        },
+        553.255676,
+        674.759521,
+        0.384472,
+        0.749733,
+        80,
+        700
+    )
+    level_34_steps[#level_34_steps + 1] = fixed_click_step(
+        "level_34_select_spell_control_store_skill_fixed_click",
+        "34级法术控制商店技能固定点击",
+        357.00,
+        327.00,
+        0.248089,
+        0.363333,
+        700
+    )
+    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
+        "level_34_get_spell_control_skill",
+        "34级法术控制获取按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        745.913513,
+        361.406097,
+        0.518355,
+        0.401562,
+        80,
+        700
+    )
+    level_34_steps[#level_34_steps].distance_anchor_exact_text = "获取"
+    level_34_steps[#level_34_steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+    level_34_steps[#level_34_steps].distance_min = 10.572878
+    level_34_steps[#level_34_steps].distance_max = 11.572878
+    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
+        "level_34_select_spell_control_bag_skill",
+        "34级法术控制背包技能按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
+        },
+        674.488770,
+        306.625092,
+        0.468720,
+        0.340695,
+        80,
+        700
+    )
+    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
+        "level_34_install_spell_control_skill",
+        "34级法术控制安装按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        463.365143,
+        342.206085,
+        0.322005,
+        0.380229,
+        80,
+        700
+    )
+    level_34_steps[#level_34_steps].distance_anchor_exact_text = "安装"
+    level_34_steps[#level_34_steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+    level_34_steps[#level_34_steps].distance_min = 10.572878
+    level_34_steps[#level_34_steps].distance_max = 11.572878
+    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
+        "level_34_activate_all_skills_after_spell_control",
+        "34级法术控制后启用全部按钮",
         {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.ActiveAll"
         },

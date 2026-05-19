@@ -4380,6 +4380,7 @@ end
 function M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_executor_active = false
     state.level_up_maintenance_executor_started_at = nil
+    state.level_up_maintenance_treasure_start_executor_active = nil
     state.level_up_maintenance_executor_kind = nil
     state.level_up_maintenance_executor_level = nil
     state.level_up_maintenance_executor_plan_key = nil

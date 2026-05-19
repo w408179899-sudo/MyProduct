@@ -55,12 +55,41 @@ M.DEFAULT_CONFIG = {
             keep_names = { "求生之欲" },
             mode = "any_equipped",
             reason = "belt_keep_equipped"
+        },
+        {
+            key = "lost_time_boots",
+            item_type_patterns = { "鞋", "靴", "脚部", "足部" },
+            keep_names = { "失期" },
+            keep_name_match_mode = "contains",
+            mode = "any_equipped",
+            reason = "boots_keep_lost_time"
         }
     },
     keep_equipped_panel_max_x = 650,
     keep_equipped_marker_match_max_dx = 180,
     keep_equipped_marker_match_max_dy = 100,
     skip_non_two_hand_weapons = true,
+    weapon_type_patterns = {
+        "单手",
+        "双手",
+        "主手",
+        "副手",
+        "剑",
+        "斧",
+        "锤",
+        "杖",
+        "弓",
+        "枪",
+        "盾",
+        "刀",
+        "爪",
+        "匕",
+        "弩",
+        "拳",
+        "炮",
+        "法器"
+    },
+    two_hand_weapon_type_patterns = { "双手" },
     identify_all_on_bag_open = true,
     identify_all_before_scan = true,
     identify_all_wait_ms = 800,
@@ -442,12 +471,32 @@ local function is_ring_type(item_type)
     return text_contains(item_type, "戒指")
 end
 
-local function is_weapon_type(item_type)
-    return text_contains(item_type, "单手") or text_contains(item_type, "双手")
+local function text_contains_any(text, patterns)
+    if type(patterns) ~= "table" then
+        return false
+    end
+    for _, pattern in ipairs(patterns) do
+        if text_contains(text, pattern) then
+            return true
+        end
+    end
+    return false
 end
 
-local function is_two_hand_weapon_type(item_type)
-    return text_contains(item_type, "双手")
+local function configured_patterns(cfg, key)
+    local patterns = type(cfg) == "table" and cfg[key] or nil
+    if type(patterns) == "table" then
+        return patterns
+    end
+    return M.DEFAULT_CONFIG[key]
+end
+
+local function is_weapon_type(item_type, cfg)
+    return text_contains_any(item_type, configured_patterns(cfg, "weapon_type_patterns"))
+end
+
+local function is_two_hand_weapon_type(item_type, cfg)
+    return text_contains_any(item_type, configured_patterns(cfg, "two_hand_weapon_type_patterns"))
 end
 
 local function compare_slot_from_text(text)
@@ -1253,8 +1302,8 @@ local function skip_reason_for_special_equipment(compare, cfg)
     end
 
     if cfg.skip_non_two_hand_weapons ~= false
-        and is_weapon_type(item_type)
-        and not is_two_hand_weapon_type(item_type)
+        and is_weapon_type(item_type, cfg)
+        and not is_two_hand_weapon_type(item_type, cfg)
     then
         return "skip_non_two_hand_weapon"
     end

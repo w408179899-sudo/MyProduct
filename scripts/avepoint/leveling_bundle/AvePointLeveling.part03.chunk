@@ -2407,12 +2407,6 @@ end
 function M.treasure_allows_level_up_maintenance(player_x, player_y, player_z)
     local runtime = type(state.treasure_runtime) == "table" and state.treasure_runtime or nil
     local mode = tostring(type(runtime) == "table" and (runtime.mode or "") or "")
-    if mode == "acquire_path" then
-        return true, "treasure_start_acquire_path"
-    end
-    if mode == "post_boss_portal" then
-        return true, "post_boss_portal"
-    end
     if mode == "grinding" and type(runtime) == "table" and runtime.route_loaded == true then
         local active_key = tostring(runtime.active_key or "")
         local cfg = nil
@@ -6525,7 +6519,13 @@ function M.update(now, ctx)
     then
         local allow_treasure_maintenance, treasure_maintenance_reason =
             M.treasure_allows_level_up_maintenance(player_x, player_y, player_z)
-        if state.level_up_maintenance_executor_active == true or allow_treasure_maintenance then
+        local continue_treasure_start_executor = state.level_up_maintenance_executor_active == true
+            and state.level_up_maintenance_treasure_start_executor_active == true
+        if continue_treasure_start_executor and not allow_treasure_maintenance then
+            allow_treasure_maintenance = true
+            treasure_maintenance_reason = "treasure_route_start_executor"
+        end
+        if allow_treasure_maintenance then
             local level_up_cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
             local next_level_up_plan = type(M.level_up_maintenance_find_next_plan) == "function"
                 and M.level_up_maintenance_find_next_plan(level_up_cfg)
@@ -6592,11 +6592,26 @@ function M.update(now, ctx)
                 log_heartbeat(ctx, current_time, player_x, player_y, player_z)
                 return true
             end
+            local was_executor_active = state.level_up_maintenance_executor_active == true
             if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+                if allow_treasure_maintenance
+                    and treasure_start_window
+                    and state.level_up_maintenance_executor_active == true
+                    and not was_executor_active
+                then
+                    state.level_up_maintenance_treasure_start_executor_active = true
+                end
                 log_heartbeat(ctx, current_time, player_x, player_y, player_z)
                 return true
             end
         else
+            if state.level_up_maintenance_executor_active == true then
+                log_throttled(ctx, "treasure_level_up_maintenance_defer_non_start", "info", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] treasure level-up maintenance executor deferred outside start window | mode=%s pending=%s",
+                    tostring(treasure_maintenance_reason or ""),
+                    M.level_up_maintenance_pending_summary()
+                ))
+            end
             state.level_up_maintenance_force_block_default_skill = nil
             state.level_up_maintenance_treasure_start_retry_clear_key = nil
         end
