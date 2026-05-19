@@ -8494,7 +8494,7 @@ M.TASK_NAME_CONFIGS = {
     ["\u{548C}\u{4F0A}\u{5C14}\u{838E}\u{4EA4}\u{6D41}\u{60C5}\u{62A5}"] = make_long_plan_elsa_intel_dialogue_task_config(),
     ["\u{8FD4}\u{56DE}\u{9ECE}\u{660E}\u{5723}\u{6240}"] = make_long_plan_elsa_intel_dialogue_task_config(),
     ["\u{53E6}\u{4E00}\u{4E2A}\u{9B54}\u{6CD5}\u{5B66}\u{9662}"] = make_another_magic_academy_forbidden_guard_boss_task_config(),
-    ["\u{524D}\u{5F80}\u{5723}\u{5FB7}\u{5170}\u{9B54}\u{6CD5}\u{5B66}\u{9662}"] = make_world_map_send_task_config(
+    ["\u{8E48}\u{706B}\u{4E4B}\u{4EBA} / \u{524D}\u{5F80}\u{5723}\u{5FB7}\u{5170}\u{9B54}\u{6CD5}\u{5B66}\u{9662}"] = make_world_map_send_task_config(
         "fire_treader_saint_delane_academy_world_map_send",
         {
             label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
@@ -8528,10 +8528,11 @@ M.TASK_NAME_CONFIGS = {
             defer_revive_during_map_entry = true
         },
         {
-            task_patterns = {
-                "\u{8E48}\u{706B}\u{4E4B}\u{4EBA}"
+            task_names = {
+                "\u{8E48}\u{706B}\u{4E4B}\u{4EBA}",
+                "\u{4E3B}\u{7EBF} \u{8E48}\u{706B}\u{4E4B}\u{4EBA}"
             },
-            task_detail_patterns = {
+            task_detail_names = {
                 "\u{524D}\u{5F80}\u{5723}\u{5FB7}\u{5170}\u{9B54}\u{6CD5}\u{5B66}\u{9662}"
             },
             constraint_mode = "all"
