@@ -1988,6 +1988,7 @@ local function nav_worker_clear_shares(ctx)
         "last_issue_at",
         "last_target_x",
         "last_target_y",
+        "last_target_path_index",
         "last_target_version",
         "heartbeat_at"
     }
@@ -2396,7 +2397,7 @@ local function sync_nav_worker_feedback(ctx, current_time)
             tonumber(nav_worker_get(ctx, "last_target_x")) or 0,
             tonumber(nav_worker_get(ctx, "last_target_y")) or 0,
             tostring(nav_worker_get(ctx, "target_source") or ""),
-            tonumber(nav_worker_get(ctx, "target_path_index")) or 0,
+            tonumber(nav_worker_get(ctx, "last_target_path_index")) or tonumber(nav_worker_get(ctx, "target_path_index")) or 0,
             tonumber(nav_worker_get(ctx, "move_interval_ms")) or 0,
             tostring(nav_worker_get(ctx, "last_route_mode") or ""),
             tonumber(nav_worker_get(ctx, "last_route_index")) or 0,
@@ -4075,6 +4076,12 @@ function M.find_persisted_recipe_route_point_candidate(ctx, current_time, player
                     allow_candidate = false
                 end
                 if allow_candidate and opts.require_wait_task_path_recover == true and not allow_wait_task_path_recover then
+                    allow_candidate = false
+                end
+                if allow_candidate
+                    and opts.require_allow_during_task_button_refresh == true
+                    and action.allow_during_task_button_refresh ~= true
+                then
                     allow_candidate = false
                 end
                 if allow_candidate and not M.route_point_action_matches_task(action) then
@@ -12396,6 +12403,8 @@ function M.resolve_current_task_intent(ctx, current_time, player_x, player_y, pl
     local route_point_candidate = M.find_route_point_intent_candidate(ctx, current_time, player_x, player_y, player_z, {
         require_allow_without_task_target = opts.require_allow_without_task_target == true,
         require_wait_task_path_recover = opts.require_wait_task_path_recover == true,
+        allow_during_task_button_refresh = opts.allow_during_task_button_refresh == true,
+        require_allow_during_task_button_refresh = opts.require_allow_during_task_button_refresh == true,
         has_target = opts.has_target == true or type(state.task_target) == "table"
     })
 

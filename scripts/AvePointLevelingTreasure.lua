@@ -96,6 +96,38 @@ local function match_text_patterns(patterns, value)
     return false
 end
 
+local function treasure_task_matches(cfg, task_name, task_detail)
+    if type(cfg) ~= "table" then
+        return false
+    end
+
+    local name = trim(task_name)
+    local detail = trim(task_detail)
+    local has_task_patterns = type(cfg.task_patterns) == "table" and #cfg.task_patterns > 0
+    local has_detail_patterns = type(cfg.task_detail_patterns) == "table" and #cfg.task_detail_patterns > 0
+    local task_ok = (not has_task_patterns) or match_text_patterns(cfg.task_patterns, name)
+    local detail_ok = (not has_detail_patterns) or match_text_patterns(cfg.task_detail_patterns, detail)
+    local include_ok = task_ok and detail_ok
+    if not include_ok then
+        return false
+    end
+
+    if match_text_patterns(cfg.exclude_task_patterns, name)
+        or match_text_patterns(cfg.exclude_task_patterns, detail)
+        or match_text_patterns(cfg.exclude_task_detail_patterns, detail)
+    then
+        return false
+    end
+
+    return true
+end
+
+local function current_treasure_task_matches(cfg, hooks)
+    local task_name = trim(type(hooks) == "table" and type(hooks.current_task_name) == "function" and hooks.current_task_name() or "")
+    local task_detail = trim(type(hooks) == "table" and type(hooks.current_task_detail) == "function" and hooks.current_task_detail() or "")
+    return treasure_task_matches(cfg, task_name, task_detail), task_name, task_detail
+end
+
 local function configured_target_level(cfg)
     local target_level = tonumber(type(cfg) == "table" and cfg.target_level)
     if target_level == nil or target_level <= 0 then
@@ -547,6 +579,8 @@ local function ensure_runtime_state(main_state)
         main_state.treasure_runtime = {
             mode = "inactive",
             active_key = nil,
+            task_match_confirmed = false,
+            startup_recovery_task_pending_since = nil,
             route = nil,
             route_loaded = false,
             route_cursor = nil,
@@ -738,6 +772,8 @@ local function reset_runtime(main_state)
     local runtime = ensure_runtime_state(main_state)
     runtime.mode = "inactive"
     runtime.active_key = nil
+    runtime.task_match_confirmed = false
+    runtime.startup_recovery_task_pending_since = nil
     runtime.route = nil
     runtime.route_loaded = false
     runtime.route_cursor = nil
@@ -954,7 +990,11 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
             or mode == "return_mainline"
             or snapshot.pending_return_mainline == true
         local exit_landing_shared_with_inside = near_exit_landing and (near_inside_landing or near_restart_landing)
-        if near_exit_landing and exit_landing_context then
+        if near_inside_landing and resume_requires_known_inside(mode) then
+            allow_restore = true
+            restore_reason = "inside_landing_resume_override"
+            resume_override_mode = "grinding"
+        elseif near_exit_landing and exit_landing_context then
             allow_restore = true
             restore_reason = "exit_landing_resume"
             resume_override_mode = "return_mainline"
@@ -1035,6 +1075,7 @@ local function restore_resume_snapshot(ctx, main_state, configs, player_x, playe
 
     local runtime = ensure_runtime_state(main_state)
     runtime.active_key = tostring(cfg.key or "")
+    runtime.task_match_confirmed = false
     runtime.mode = mode
     runtime.path_retry_count = 0
     runtime.next_retry_at = 0
@@ -1217,16 +1258,7 @@ local function activation_context_matches(cfg, hooks, player_x, player_y, player
     local task_name = trim(type(hooks.current_task_name) == "function" and hooks.current_task_name() or "")
     local task_detail = trim(type(hooks.current_task_detail) == "function" and hooks.current_task_detail() or "")
     local map_name = trim(type(hooks.current_map_name) == "function" and hooks.current_map_name() or "")
-    local task_ok = match_text_patterns(cfg.task_patterns, task_name)
-        or match_text_patterns(cfg.task_patterns, task_detail)
-        or match_text_patterns(cfg.task_detail_patterns, task_detail)
-    if not task_ok
-        and cfg.allow_when_task_unknown == true
-        and task_name == ""
-        and task_detail == ""
-    then
-        task_ok = true
-    end
+    local task_ok = treasure_task_matches(cfg, task_name, task_detail)
     local map_ok = map_name == ""
         or cfg.map_patterns == nil
         or match_text_patterns(cfg.map_patterns, map_name)
@@ -1330,6 +1362,8 @@ end
 local function activate_cfg(ctx, main_state, cfg, hooks, player_x, player_y, player_z)
     local runtime = ensure_runtime_state(main_state)
     runtime.active_key = tostring(cfg.key or "")
+    runtime.task_match_confirmed = true
+    runtime.startup_recovery_task_pending_since = nil
     transition_mode(ctx, hooks, cfg, runtime, "pending_entry", "activate_cfg")
     runtime.route = nil
     runtime.route_loaded = false
@@ -1489,7 +1523,7 @@ transition_mode = function(ctx, hooks, cfg, runtime, next_mode, reason)
     end
 end
 
-likely_inside_treasure = function(cfg, hooks, runtime, current_time, player_x, player_y, player_z)
+likely_inside_treasure = function(ctx, cfg, hooks, runtime, current_time, player_x, player_y, player_z)
     local map_name = trim(type(hooks.current_map_name) == "function" and hooks.current_map_name() or "")
     local task_name = trim(type(hooks.current_task_name) == "function" and hooks.current_task_name() or "")
     local task_detail = trim(type(hooks.current_task_detail) == "function" and hooks.current_task_detail() or "")
@@ -1498,6 +1532,22 @@ likely_inside_treasure = function(cfg, hooks, runtime, current_time, player_x, p
     local pos_reliable = has_reliable_world_pos(player_x, player_y)
     local entry_gap = pos_reliable and entry_distance(player_x, player_y, cfg) or math.huge
     local post_entry_grace_until = tonumber(type(runtime) == "table" and runtime.next_retry_at or 0) or 0
+
+    if not treasure_task_matches(cfg, task_name, task_detail) then
+        if type(hooks.log_throttled) == "function" then
+            hooks.log_throttled(ctx, "treasure_inside_detect_task_mismatch_" .. tostring(type(cfg) == "table" and (cfg.key or "") or ""), "info", 2500,
+                string.format(
+                    "[Treasure] inside detection skipped by task mismatch | key=%s task=%s detail=%s pos=%.2f, %.2f, %.2f",
+                    tostring(type(cfg) == "table" and (cfg.key or "") or ""),
+                    tostring(task_name or ""),
+                    tostring(task_detail or ""),
+                    tonumber(player_x) or 0,
+                    tonumber(player_y) or 0,
+                    tonumber(player_z) or 0
+                ))
+        end
+        return false, "task_mismatch"
+    end
 
     if treasure_name ~= "" and map_name:find(treasure_name, 1, true) then
         return true, "map_name"
@@ -1541,29 +1591,53 @@ likely_inside_treasure = function(cfg, hooks, runtime, current_time, player_x, p
     return false, nil
 end
 
-local function startup_inside_recovery_match(cfg, hooks, player_x, player_y, player_z)
+local function startup_inside_recovery_match(ctx, cfg, hooks, current_time, player_x, player_y, player_z)
     if type(cfg) ~= "table" or cfg.enabled == false then
         return false, nil
     end
 
     local map_name = trim(type(hooks.current_map_name) == "function" and hooks.current_map_name() or "")
     local treasure_name = trim(cfg.name or "")
+    local match_reason = nil
     if treasure_name ~= "" and map_name:find(treasure_name, 1, true) then
-        return true, "map_name"
-    end
-    if match_text_patterns(cfg.inside_map_patterns, map_name) then
-        return true, "inside_map_pattern"
-    end
-    if landing_ready(player_x, player_y, player_z, cfg.inside_landing) then
-        return true, "inside_landing"
-    end
-    if cfg.startup_recovery_restart_landing ~= false
+        match_reason = "map_name"
+    elseif match_text_patterns(cfg.inside_map_patterns, map_name) then
+        match_reason = "inside_map_pattern"
+    elseif landing_ready(player_x, player_y, player_z, cfg.inside_landing) then
+        match_reason = "inside_landing"
+    elseif cfg.startup_recovery_restart_landing ~= false
         and landing_ready(player_x, player_y, player_z, cfg.restart_landing)
     then
-        return true, "restart_landing"
+        match_reason = "restart_landing"
     end
 
-    return false, nil
+    if match_reason == nil then
+        return false, nil
+    end
+
+    local task_ok, task_name, task_detail = current_treasure_task_matches(cfg, hooks)
+    if not task_ok then
+        if cfg.startup_recovery_wait_for_task_panel == true
+            and trim(task_name or "") == ""
+            and trim(task_detail or "") == ""
+            and type(hooks.refresh_current_task_name) == "function"
+        then
+            hooks.refresh_current_task_name(ctx, current_time)
+            task_ok, task_name, task_detail = current_treasure_task_matches(cfg, hooks)
+            if task_ok then
+                return true, match_reason
+            end
+        end
+        if cfg.startup_recovery_wait_for_task_panel == true
+            and trim(task_name or "") == ""
+            and trim(task_detail or "") == ""
+        then
+            return false, "task_pending", task_name, task_detail, match_reason
+        end
+        return false, "task_mismatch", task_name, task_detail
+    end
+
+    return true, match_reason
 end
 
 local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, current_time, player_x, player_y, player_z)
@@ -1573,7 +1647,74 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
 
     local runtime = ensure_runtime_state(main_state)
     for _, candidate in ipairs(configs) do
-        local inside_match, inside_reason = startup_inside_recovery_match(candidate, hooks, player_x, player_y, player_z)
+        local inside_match, inside_reason, task_name, task_detail, match_reason = startup_inside_recovery_match(ctx, candidate, hooks, current_time, player_x, player_y, player_z)
+        if inside_reason == "task_pending" then
+            local target_level = configured_target_level(candidate)
+            local pending_level = nil
+            if candidate.startup_recovery_activate_by_level_gate == true and target_level ~= nil then
+                pending_level = refresh_player_level(ctx, candidate, runtime, hooks, current_time, runtime.player_level == nil)
+                if type(pending_level) == "number" and pending_level < target_level then
+                    inside_match = true
+                    inside_reason = tostring(match_reason or "inside_landing") .. "_level_gate"
+                    runtime.startup_recovery_task_pending_since = nil
+                    if type(hooks.log_info) == "function" then
+                        hooks.log_info(ctx, string.format(
+                            "[Treasure] startup inside recovery activated by level gate while task panel pending | key=%s reason=%s level=%d target_level=%d pos=%.2f, %.2f, %.2f",
+                            tostring(candidate.key or ""),
+                            tostring(match_reason or ""),
+                            pending_level,
+                            target_level,
+                            tonumber(player_x) or 0,
+                            tonumber(player_y) or 0,
+                            tonumber(player_z) or 0
+                        ))
+                    end
+                end
+            end
+
+            if not inside_match then
+                runtime.startup_recovery_task_pending_since = runtime.startup_recovery_task_pending_since or current_time
+                local pending_elapsed = current_time - (tonumber(runtime.startup_recovery_task_pending_since) or current_time)
+                local wait_cap_ms = tonumber(candidate.startup_recovery_task_panel_wait_cap_ms) or 9000
+                if pending_elapsed <= wait_cap_ms then
+                    local extend_ms = tonumber(candidate.startup_recovery_task_panel_wait_ms) or 1800
+                    main_state.startup_state_resolve_until = math.max(
+                        tonumber(main_state.startup_state_resolve_until) or 0,
+                        current_time + extend_ms
+                    )
+                end
+                if type(hooks.log_throttled) == "function" then
+                    hooks.log_throttled(ctx, "treasure_startup_recovery_task_pending_" .. tostring(candidate.key or ""), "info", 900,
+                        string.format(
+                            "[Treasure] startup inside recovery waits for task panel | key=%s reason=%s level=%s target_level=%s elapsed=%dms cap=%dms pos=%.2f, %.2f, %.2f",
+                            tostring(candidate.key or ""),
+                            tostring(match_reason or ""),
+                            tostring(pending_level or ""),
+                            tostring(target_level or ""),
+                            math.floor(math.max(0, pending_elapsed)),
+                            math.floor(wait_cap_ms),
+                            tonumber(player_x) or 0,
+                            tonumber(player_y) or 0,
+                            tonumber(player_z) or 0
+                        ))
+                end
+                if pending_elapsed <= wait_cap_ms then
+                    return "task_pending"
+                end
+            end
+        end
+        if inside_reason == "task_mismatch" and type(hooks.log_throttled) == "function" then
+            hooks.log_throttled(ctx, "treasure_startup_recovery_task_mismatch_" .. tostring(candidate.key or ""), "info", 2500,
+                string.format(
+                    "[Treasure] startup inside recovery skipped by task mismatch | key=%s task=%s detail=%s pos=%.2f, %.2f, %.2f",
+                    tostring(candidate.key or ""),
+                    tostring(task_name or ""),
+                    tostring(task_detail or ""),
+                    tonumber(player_x) or 0,
+                    tonumber(player_y) or 0,
+                    tonumber(player_z) or 0
+                ))
+        end
         if inside_match then
             local record = ensure_record(main_state, candidate)
             local target_level = configured_target_level(candidate)
@@ -3304,7 +3445,7 @@ function M.maybe_recover_inside_startup(ctx, main_state, configs, hooks, current
         return false
     end
 
-    return type(recover_inside_startup_cfg(
+    local recovered = recover_inside_startup_cfg(
         ctx,
         main_state,
         configs,
@@ -3313,7 +3454,8 @@ function M.maybe_recover_inside_startup(ctx, main_state, configs, hooks, current
         player_x,
         player_y,
         player_z
-    )) == "table"
+    )
+    return type(recovered) == "table" or recovered == "task_pending"
 end
 
 local function recover_completed_exit_if_needed(ctx, main_state, configs, hooks, current_time, player_x, player_y, player_z)
@@ -3402,8 +3544,49 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         return false
     end
 
-    local record = ensure_record(main_state, cfg)
     local mode = tostring(runtime.mode or "inactive")
+    if runtime.task_match_confirmed ~= true then
+        local task_ok, task_name, task_detail = current_treasure_task_matches(cfg, hooks)
+        if task_ok then
+            runtime.task_match_confirmed = true
+        elseif mode ~= "inactive" and mode ~= "completed" and mode ~= "failed" then
+            local task_info_blank = trim(task_name or "") == "" and trim(task_detail or "") == ""
+            if task_info_blank then
+                if type(hooks.log_throttled) == "function" then
+                    hooks.log_throttled(ctx, "treasure_active_task_blank_" .. tostring(cfg.key or ""), "info", 1200,
+                        string.format(
+                            "[Treasure] active runtime keeps ownership during task info vacuum | key=%s mode=%s pos=%.2f, %.2f, %.2f",
+                            tostring(cfg.key or ""),
+                            tostring(mode),
+                            tonumber(player_x) or 0,
+                            tonumber(player_y) or 0,
+                            tonumber(player_z) or 0
+                        ))
+                end
+            else
+                if type(hooks.log_info) == "function" then
+                    hooks.log_info(ctx, string.format(
+                        "[Treasure] active runtime cleared by task mismatch | key=%s mode=%s task=%s detail=%s pos=%.2f, %.2f, %.2f",
+                        tostring(cfg.key or ""),
+                        tostring(mode),
+                        tostring(task_name or ""),
+                        tostring(task_detail or ""),
+                        tonumber(player_x) or 0,
+                        tonumber(player_y) or 0,
+                        tonumber(player_z) or 0
+                    ))
+                end
+                reset_runtime(main_state)
+                save_resume_snapshot(ctx, main_state, "task_mismatch")
+                if type(hooks.clear_task_target_state) == "function" then
+                    hooks.clear_task_target_state()
+                end
+                return false
+            end
+        end
+    end
+
+    local record = ensure_record(main_state, cfg)
     if record.completed == true then
         transition_mode(ctx, hooks, cfg, runtime, "completed", "record_completed")
         return false
@@ -3420,6 +3603,7 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                 runtime.last_save_err = save_ok and nil or save_err
                 runtime.pending_return_mainline = false
                 runtime.active_key = nil
+                runtime.task_match_confirmed = false
                 runtime.route = nil
                 runtime.route_loaded = false
                 runtime.route_cursor = nil
@@ -3477,7 +3661,7 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                     math.max(0, (tonumber(runtime.next_retry_at) or 0) - current_time)
                 ))
         end
-        local inside_treasure, inside_reason = likely_inside_treasure(cfg, hooks, runtime, current_time, player_x, player_y, player_z)
+        local inside_treasure, inside_reason = likely_inside_treasure(ctx, cfg, hooks, runtime, current_time, player_x, player_y, player_z)
         if inside_treasure then
             transition_mode(
                 ctx,
@@ -3881,7 +4065,7 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             end
             return true
         end
-        local inside_treasure, inside_reason = likely_inside_treasure(cfg, hooks, runtime, current_time, player_x, player_y, player_z)
+        local inside_treasure, inside_reason = likely_inside_treasure(ctx, cfg, hooks, runtime, current_time, player_x, player_y, player_z)
         if inside_treasure then
             transition_mode(
                 ctx,
@@ -4558,12 +4742,14 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         end
         if record.completed ~= true then
             runtime.active_key = nil
+            runtime.task_match_confirmed = false
         end
         return true
     end
 
     if mode == "failed" then
         runtime.active_key = nil
+        runtime.task_match_confirmed = false
         runtime.route = nil
         runtime.route_loaded = false
         clear_round_flags(runtime)

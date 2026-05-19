@@ -2217,6 +2217,13 @@ function M.build_treasure_hooks(ctx)
         current_map_name = function()
             return state.current_map_name or ""
         end,
+        refresh_current_task_name = function(inner_ctx, current_time)
+            local hint_x, hint_y = resolve_main_task_button_hint(inner_ctx)
+            if hint_x == nil or hint_y == nil then
+                return nil, "main task hint unavailable."
+            end
+            return M.refresh_current_task_name(inner_ctx, tonumber(current_time) or now_ms(inner_ctx), nil, hint_x, hint_y)
+        end,
         fetch_locator_button_target = function(inner_ctx, step)
             return fetch_locator_button_target(inner_ctx, step)
         end,
@@ -4747,6 +4754,21 @@ function M.maybe_handle_startup_state(ctx, current_time, player_x, player_y, pla
         and current_time >= (tonumber(state.next_task_button_click_at) or 0)
         and task_entry_action_active ~= true
     then
+        if M.maybe_dispatch_explicit_task_intent(ctx, current_time, player_x, player_y, player_z, {
+            has_target = false,
+            require_allow_without_task_target = true,
+            allow_during_task_button_refresh = true,
+            require_allow_during_task_button_refresh = true
+        }, nil, nil, nil, nil) then
+            state.startup_state_resolve_until = 0
+            logger(ctx).info(string.format(
+                "[Leveling] startup no-task-data handled by explicit task intent; skip bootstrap main task reacquire | task=%s detail=%s window_left=%dms",
+                tostring(task_name or state.current_task_name or ""),
+                tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                window_left_ms
+            ))
+            return true
+        end
         local clicked = click_main_task_button(ctx, current_time)
         if clicked then
             M.mark_startup_main_task_reacquired(ctx, current_time, "no_task_data")
@@ -6628,7 +6650,8 @@ function M.update(now, ctx)
 
     if M.maybe_dispatch_explicit_task_intent(ctx, current_time, player_x, player_y, player_z, {
         has_target = type(state.task_target) == "table",
-        require_allow_without_task_target = type(state.task_target) ~= "table"
+        require_allow_without_task_target = type(state.task_target) ~= "table",
+        allow_during_task_button_refresh = state.require_task_button_refresh == true
     }, state.task_target, nil, nil, nil) then
         return true
     end

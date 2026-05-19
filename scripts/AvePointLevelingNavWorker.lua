@@ -449,6 +449,7 @@ while running do
                                 last_issue_at = now_ms
                                 share_set(SHARE_PREFIX, "last_target_x", point.x)
                                 share_set(SHARE_PREFIX, "last_target_y", point.y)
+                                share_set(SHARE_PREFIX, "last_target_path_index", route_point_index)
                                 share_set(SHARE_PREFIX, "last_target_version", route_version)
                                 share_set(SHARE_PREFIX, "target_path_index", route_point_index)
                                 share_set(SHARE_PREFIX, "last_error", nil)
@@ -562,6 +563,7 @@ while running do
                             last_issue_at = now_ms
                             share_set(SHARE_PREFIX, "last_target_x", point.x)
                             share_set(SHARE_PREFIX, "last_target_y", point.y)
+                            share_set(SHARE_PREFIX, "last_target_path_index", route_point_index)
                             share_set(SHARE_PREFIX, "last_target_version", route_version)
                             share_set(SHARE_PREFIX, "target_path_index", route_point_index)
                             share_set(SHARE_PREFIX, "last_error", nil)
@@ -600,10 +602,11 @@ while running do
     else
         last_route_mode = mode
         if version ~= last_version then
+            target_x = as_number(share_get(SHARE_PREFIX, "target_x"))
+            target_y = as_number(share_get(SHARE_PREFIX, "target_y"))
+            move_interval_ms = math.max(80, as_number(share_get(SHARE_PREFIX, "move_interval_ms")) or 900)
             last_version = version
-            if next_move_at <= 0 or last_issue_at <= 0 then
-                next_move_at = 0
-            end
+            next_move_at = 0
         end
 
         local nav_ok, nav_err = ensure_nav_ready()
@@ -622,6 +625,7 @@ while running do
                     break
                 end
                 if move_ok then
+                    local issued_path_index = as_number(share_get(SHARE_PREFIX, "target_path_index")) or 0
                     last_issue_at = now_ms
                     share_set(SHARE_PREFIX, "last_route_mode", "target")
                     share_set(SHARE_PREFIX, "last_route_index", 0)
@@ -630,9 +634,10 @@ while running do
                     share_set(SHARE_PREFIX, "last_route_distance", nil)
                     share_set(SHARE_PREFIX, "last_route_point_x", target_x)
                     share_set(SHARE_PREFIX, "last_route_point_y", target_y)
-                    share_set(SHARE_PREFIX, "last_route_original_index", as_number(share_get(SHARE_PREFIX, "target_path_index")) or 0)
+                    share_set(SHARE_PREFIX, "last_route_original_index", issued_path_index)
                     share_set(SHARE_PREFIX, "last_target_x", target_x)
                     share_set(SHARE_PREFIX, "last_target_y", target_y)
+                    share_set(SHARE_PREFIX, "last_target_path_index", issued_path_index)
                     share_set(SHARE_PREFIX, "last_target_version", version)
                     share_set(SHARE_PREFIX, "last_error", nil)
                     share_set(SHARE_PREFIX, "last_issue_at", now_ms)

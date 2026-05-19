@@ -796,6 +796,15 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
             force_reason = "ring_force_firebirth_missing_slot"
         },
         {
+            key = "firebirth_ring_force_equip",
+            item_type_patterns = { "戒指" },
+            keep_names = { "火焰降生" },
+            mode = "candidate_ring_force_equip",
+            preferred_slots = { "right", "left" },
+            direct_equip_when_no_rings = true,
+            reason = "ring_force_firebirth"
+        },
+        {
             key = "survival_belt",
             item_type_patterns = { "腰带", "护腰" },
             keep_names = { "求生之欲" },
@@ -809,24 +818,6 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
             keep_names = { "岩石巨蜥之颅" },
             mode = "same_keep_name_only",
             reason = "head_keep_rock_lizard_same_name_only"
-        },
-        {
-            key = "lone_wolf_ring_hand",
-            item_type_patterns = { "戒指" },
-            keep_names = { "孤胆" },
-            keep_name_match_mode = "contains",
-            mode = "ring_slot_lock",
-            reason = "ring_keep_lone_wolf_hand"
-        },
-        {
-            key = "lone_wolf_ring_force_equip",
-            item_type_patterns = { "戒指" },
-            keep_names = { "孤胆" },
-            keep_name_match_mode = "contains",
-            mode = "candidate_ring_force_equip",
-            preferred_slots = { "right", "left" },
-            direct_equip_when_no_rings = true,
-            reason = "ring_force_lone_wolf"
         },
         {
             key = "firebirth_ring_hand",
@@ -2909,6 +2900,178 @@ do
     end
 
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[25] = make_level_25_second_tab_talent_plan()
+
+    local function append_level_26_to_29_second_tab_step(steps, current_level)
+        append_shifted_step(steps, current_level, maintenance_locator_step(
+            string.format("level_%d_select_second_talent_tab", current_level),
+            "123按钮",
+            {
+                "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+            },
+            48.726845,
+            392.616241,
+            0.033862,
+            0.436240,
+            80,
+            650
+        ), string.format("level_%d_select_second_talent_tab", current_level))
+        steps[#steps].distance_anchor_exact_text = "123"
+        steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+        steps[#steps].distance_min = 67.184104
+        steps[#steps].distance_max = 71.339822
+    end
+
+    local function make_level_26_second_tab_talent_plan()
+        return make_manual_talent_plan(
+            26,
+            "26级天赋：激活第二页天赋节点两次",
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+                append_level_26_to_29_second_tab_step(steps, current_level)
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_26_select_second_tab_talent_node",
+                    "26级天赋节点按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    291.986755,
+                    408.208282,
+                    0.202909,
+                    0.453565,
+                    80,
+                    1200
+                ), "level_26_select_second_tab_talent_node")
+                local activate_step = maintenance_locator_step(
+                    "level_26_activate_second_tab_talent_node_twice",
+                    "26级天赋节点激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    502.438232,
+                    672.801453,
+                    0.349158,
+                    0.747557,
+                    80,
+                    650
+                )
+                activate_step.click_repeat_count = 2
+                activate_step.click_repeat_interval_ms = 180
+                append_shifted_step(steps, current_level, activate_step, "level_26_activate_second_tab_talent_node_twice")
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    local function make_level_27_to_29_second_tab_talent_plan(level)
+        return make_manual_talent_plan(
+            level,
+            string.format("%d级天赋：激活第二页同组天赋节点", level),
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+                append_level_26_to_29_second_tab_step(steps, current_level)
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_select_second_tab_talent_node", current_level),
+                    string.format("%d级天赋节点按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    447.916748,
+                    408.208282,
+                    0.311269,
+                    0.453565,
+                    80,
+                    1200
+                ), string.format("level_%d_select_second_tab_talent_node", current_level))
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_activate_second_tab_talent_node", current_level),
+                    string.format("%d级天赋节点激活按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    658.368225,
+                    672.801453,
+                    0.457518,
+                    0.747557,
+                    80,
+                    650
+                ), string.format("level_%d_activate_second_tab_talent_node", current_level))
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[26] = make_level_26_second_tab_talent_plan()
+    for _, level in ipairs({ 27, 28, 29 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_27_to_29_second_tab_talent_plan(level)
+    end
+
+    local function append_level_30_to_32_second_tab_step(steps, current_level)
+        append_shifted_step(steps, current_level, maintenance_locator_step(
+            string.format("level_%d_select_second_talent_tab", current_level),
+            "123按钮",
+            {
+                "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+            },
+            48.726845,
+            399.616241,
+            0.033862,
+            0.444018,
+            80,
+            650
+        ), string.format("level_%d_select_second_talent_tab", current_level))
+        steps[#steps].distance_anchor_exact_text = "123"
+        steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+        steps[#steps].distance_min = 67.184104
+        steps[#steps].distance_max = 71.339822
+    end
+
+    local function make_level_30_to_32_second_tab_talent_plan(level)
+        return make_manual_talent_plan(
+            level,
+            string.format("%d级天赋：激活第二页下排同组天赋节点", level),
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+                append_level_30_to_32_second_tab_step(steps, current_level)
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_select_second_tab_talent_node", current_level),
+                    string.format("%d级天赋节点按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    447.916748,
+                    623.538025,
+                    0.311269,
+                    0.692820,
+                    80,
+                    1200
+                ), string.format("level_%d_select_second_tab_talent_node", current_level))
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_activate_second_tab_talent_node", current_level),
+                    string.format("%d级天赋节点激活按钮", current_level),
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    658.368225,
+                    679.801453,
+                    0.457518,
+                    0.755335,
+                    80,
+                    650
+                ), string.format("level_%d_activate_second_tab_talent_node", current_level))
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    for _, level in ipairs({ 30, 31, 32 }) do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_30_to_32_second_tab_talent_plan(level)
+    end
 
     local function make_select_trickster_god_tab_step(level)
         return make_maintenance_locator_step({
@@ -5116,12 +5279,17 @@ M.TREASURE_DUNGEON_CONFIGS = {
         target_level = 38,
         inside_detect_task_panel_text = false,
         startup_recovery_restart_landing = false,
+        startup_recovery_wait_for_task_panel = true,
+        startup_recovery_activate_by_level_gate = true,
+        startup_recovery_task_panel_wait_ms = 1800,
+        startup_recovery_task_panel_wait_cap_ms = 9000,
         resume_route_nearby = false,
         task_patterns = {
             "\u{5E1D}\u{56FD}\u{4F59}\u{7130}"
         },
         task_detail_patterns = {
             "\u{7A81}\u{7834}\u{7FA4}\u{72FC}\u{5E2E}\u{4F0F}\u{51FB}",
+            "\u{6DF1}\u{5165}\u{7FA4}\u{72FC}\u{8857}\u{5DF7}",
             "\u{524D}\u{5F80}\u{7FA4}\u{72FC}\u{8857}\u{5DF7}"
         },
         entry_trigger = {
@@ -5300,6 +5468,13 @@ M.TREASURE_DUNGEON_CONFIGS = {
                 direct_nearest_button = true
             }
         },
+        inside_landing = {
+            x = -1800.00,
+            y = 2700.00,
+            z = 105.00,
+            radius = 900,
+            z_tolerance = 260
+        },
         restart_landing = {
             x = -1800.00,
             y = 2700.00,
@@ -5321,7 +5496,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "Keep inside_detect_task_panel_text=false; outside detail may temporarily show 前往藏宝地：曙光大道 and must not skip entry flow",
             "Known entrance button behavior: same as previous treasure entrance button",
             "Verified inside boss anchor / kite points / exit portal from latest measured run; exit trigger moved to user F6 door anchor 16509,-12043,105 and restart trigger to 17066,-12015,105, but button F8 and real restart_landing still need verification",
-            "Verified exit_landing near -827,9412,606; restart_landing still needs F7 after a real 求生之欲 restart click, so startup recovery must not use restart_landing yet",
+            "Verified inside_landing after entry at -1800,2700,105; verified exit_landing near -827,9412,606; restart_landing still needs F7 after a real 求生之欲 restart click, so startup recovery must not use restart_landing yet",
             "Confirmed target_level=38 for return-to-mainline gate",
             "Restart/exit triggers are intentionally separated now; keep 16457.17,-12098.53 as exit-only data unless F7 proves otherwise",
             "Restart/exit portal probe now prefers hint fallback when distance-anchor locator drifts",
@@ -6674,36 +6849,40 @@ local function make_fanmu_blocking_deputy_task_config()
     )
 end
 
-local function make_escape_inner_city_hass_task_config()
+local function make_escape_inner_city_exit_hass_kite_task_config(detail_patterns, opts)
+    opts = opts or {}
+    local objective = {
+        trigger_distance = 900,
+        immediate_kite_on_reached = true,
+        require_task_path_for_kite = opts.require_task_path_for_kite ~= false,
+        kite_anchor_source = "task_destination",
+        kite_radius = 1260,
+        kite_point_count = 3,
+        seamless_kite = true,
+        kite_switch_ms = 2400,
+        kite_arrive_distance = 520,
+        kite_move_interval_ms = 180,
+        defer_followup_until_clear = true,
+        boss_clear_settle_ms = 3500,
+        generic_followup_refresh_ms = 3500,
+        generic_followup_requires_task_pos_only = true,
+        generic_followup_require_no_special = true,
+        ignore_terminal_text_change_when_objective_same = true
+    }
+    if opts.no_task_target == true then
+        objective.allow_no_task_target_force_kite = true
+        objective.immediate_no_task_target_kite = true
+        objective.no_task_target_kite_wait_ms = tonumber(opts.no_task_target_kite_wait_ms) or 900
+        objective.require_task_path_for_kite = false
+    end
     return make_boss_kite_task_config(
-        "escape_inner_city_hass_room_kite",
-        {
-            trigger_distance = 520,
-            immediate_kite_on_reached = true,
-            seamless_kite = true,
-            kite_switch_ms = 1800,
-            kite_arrive_distance = 360,
-            kite_move_interval_ms = 120,
-            defer_followup_until_clear = true,
-            boss_clear_settle_ms = 3000,
-            generic_followup_refresh_ms = 3500,
-            generic_followup_requires_task_pos_only = true,
-            generic_followup_require_no_special = true,
-            ignore_terminal_text_change_when_objective_same = true,
-            kite_points = {
-                { x = -17411.62, y = 6564.26, z = 1004.00 },
-                { x = -17556.39, y = 5225.58, z = 1004.00 },
-                { x = -16261.53, y = 4982.27, z = 1004.00 },
-                { x = -16227.50, y = 6226.11, z = 1004.00 }
-            }
-        },
+        "escape_inner_city_exit_hass_endpoint_kite",
+        objective,
         {
             task_patterns = {
                 "\u{9003}\u{79BB}\u{5185}\u{57CE}\u{533A}"
             },
-            task_detail_patterns = {
-                "\u{51FB}\u{8D25}\u{526F}\u{5B98}\u{54C8}\u{65AF}"
-            },
+            task_detail_patterns = detail_patterns,
             constraint_mode = "all"
         }
     )
@@ -6743,40 +6922,69 @@ local function make_wall_of_sighs_city_guard_task_config()
     )
 end
 
-local function make_wall_of_sighs_will_wall_boss_task_config()
+local function wall_of_sighs_final_mechanism_kite_points()
+    return {
+        { x = 17850.98, y = -1722.21, z = 404.91 },
+        { x = 18286.77, y = -1240.62, z = 403.00 },
+        { x = 18873.88, y = -1170.40, z = 403.00 },
+        { x = 19287.23, y = -1559.87, z = 403.00 },
+        { x = 19406.10, y = -2068.39, z = 403.00 },
+        { x = 19289.77, y = -2547.40, z = 403.00 },
+        { x = 18918.86, y = -2933.72, z = 403.00 },
+        { x = 18475.91, y = -2973.80, z = 403.00 },
+        { x = 18051.16, y = -2828.32, z = 403.00 },
+        { x = 17673.04, y = -2483.23, z = 405.20 },
+        { x = 17341.30, y = -1990.53, z = 377.41 }
+    }
+end
+
+local function make_wall_of_sighs_final_mechanism_kite_task_config(detail_patterns, opts)
+    opts = opts or {}
+    local objective = {
+        trigger_distance = 2600,
+        immediate_kite_on_reached = true,
+        allow_no_task_target_force_kite = true,
+        seamless_kite = true,
+        kite_switch_ms = 1800,
+        kite_arrive_distance = 360,
+        kite_move_interval_ms = 120,
+        defer_followup_until_clear = true,
+        boss_clear_settle_ms = 3000,
+        generic_followup_refresh_ms = 3500,
+        generic_followup_requires_task_pos_only = true,
+        generic_followup_require_no_special = true,
+        ignore_terminal_text_change_when_objective_same = true,
+        kite_points = wall_of_sighs_final_mechanism_kite_points()
+    }
+    if opts.immediate_no_task_target == true then
+        objective.immediate_no_task_target_kite = true
+        objective.no_task_target_kite_wait_ms = tonumber(opts.no_task_target_kite_wait_ms) or 900
+    end
     return make_boss_kite_task_config(
-        "wall_of_sighs_will_wall_end_kite",
-        {
-            trigger_distance = 600,
-            immediate_kite_on_reached = true,
-            seamless_kite = true,
-            kite_switch_ms = 1800,
-            kite_arrive_distance = 360,
-            kite_move_interval_ms = 120,
-            defer_followup_until_clear = true,
-            boss_clear_settle_ms = 3000,
-            generic_followup_refresh_ms = 3500,
-            generic_followup_requires_task_pos_only = true,
-            generic_followup_require_no_special = true,
-            ignore_terminal_text_change_when_objective_same = true,
-            kite_points = {
-                { x = 18648.82, y = -3124.62, z = 403.00 },
-                { x = 17522.53, y = -2107.33, z = 408.00 },
-                { x = 17838.49, y = -1372.60, z = 404.00 },
-                { x = 19137.89, y = -1257.22, z = 403.00 },
-                { x = 19428.58, y = -2196.27, z = 403.00 }
-            }
-        },
+        "wall_of_sighs_final_mechanism_guard_loop",
+        objective,
         {
             task_patterns = {
                 "\u{53F9}\u{606F}\u{4E4B}\u{5899}"
             },
-            task_detail_patterns = {
-                "\u{7EE7}\u{7EED}\u{524D}\u{8FDB}\u{FF0C}\u{7A7F}\u{8D8A}\u{610F}\u{5FD7}\u{9AD8}\u{5899}"
-            },
+            task_detail_patterns = detail_patterns,
             constraint_mode = "all"
         }
     )
+end
+
+local function make_wall_of_sighs_will_wall_boss_task_config()
+    return make_wall_of_sighs_final_mechanism_kite_task_config({
+        "\u{7EE7}\u{7EED}\u{524D}\u{8FDB}\u{FF0C}\u{7A7F}\u{8D8A}\u{610F}\u{5FD7}\u{9AD8}\u{5899}"
+    })
+end
+
+local function make_wall_of_sighs_final_mechanism_task_config()
+    return make_wall_of_sighs_final_mechanism_kite_task_config({
+        "\u{6D88}\u{706D}\u{5B88}\u{536B}\u{FF0C}\u{5173}\u{95ED}\u{6700}\u{7EC8}\u{673A}\u{5173}"
+    }, {
+        immediate_no_task_target = true
+    })
 end
 
 local function make_tianqian_cross_wall_task_config()
@@ -7883,9 +8091,34 @@ M.TASK_NAME_CONFIGS = {
     ["\u{4E0A}\u{53E4}\u{6218}\u{573A} / \u{7B49}\u{5F85}\u{79D1}\u{91CC}\u{5C06}\u{6728}\u{6865}\u{4FEE}\u{597D}"] = make_ancient_battlefield_trace_ryan_task_config(),
     ["\u{4E0A}\u{53E4}\u{6218}\u{573A} / \u{63A9}\u{62A4}\u{79D1}\u{91CC}\u{4FEE}\u{6865}"] = make_ancient_battlefield_trace_ryan_task_config(),
     ["\u{51FB}\u{8D25}\u{62E6}\u{8DEF}\u{7684}\u{526F}\u{5B98}"] = make_fanmu_blocking_deputy_task_config(),
-    ["\u{51FB}\u{8D25}\u{526F}\u{5B98}\u{54C8}\u{65AF}"] = make_escape_inner_city_hass_task_config(),
+    ["\u{9003}\u{79BB}\u{5185}\u{57CE}\u{533A} / \u{524D}\u{5F80}\u{5B66}\u{8005}\u{8857}\u{5DF7}\u{7684}\u{51FA}\u{53E3}"] = make_escape_inner_city_exit_hass_kite_task_config({
+        "\u{524D}\u{5F80}\u{5B66}\u{8005}\u{8857}\u{5DF7}\u{7684}\u{51FA}\u{53E3}"
+    }),
+    ["\u{9003}\u{79BB}\u{5185}\u{57CE}\u{533A} / \u{51FB}\u{8D25}\u{526F}\u{5B98}\u{54C8}\u{65AF}"] = make_escape_inner_city_exit_hass_kite_task_config({
+        "\u{51FB}\u{8D25}\u{526F}\u{5B98}\u{54C8}\u{65AF}"
+    }, {
+        no_task_target = true
+    }),
     ["\u{51FB}\u{8D25}\u{9A7B}\u{5B88}\u{57CE}\u{5899}\u{7684}\u{5B66}\u{57CE}\u{5B88}\u{536B}"] = make_wall_of_sighs_city_guard_task_config(),
     ["\u{7EE7}\u{7EED}\u{524D}\u{8FDB}\u{FF0C}\u{7A7F}\u{8D8A}\u{610F}\u{5FD7}\u{9AD8}\u{5899}"] = make_wall_of_sighs_will_wall_boss_task_config(),
+    ["\u{53F9}\u{606F}\u{4E4B}\u{5899} / \u{548C}\u{963F}\u{745E}\u{5A05}\u{4EA4}\u{8C08}"] = {
+        task_patterns = {
+            "\u{53F9}\u{606F}\u{4E4B}\u{5899}"
+        },
+        task_detail_patterns = {
+            "\u{548C}\u{963F}\u{745E}\u{5A05}\u{4EA4}\u{8C08}"
+        },
+        constraint_mode = "all",
+        post_dialogue_flow = {
+            key = "wall_of_sighs_aria_dialogue_after_jump_19797_-2126",
+            initial_delay_ms = 900,
+            timeout_ms = 9000,
+            followup_route_action_key = "wall_of_sighs_aria_dialogue_after_jump_route_19797_-2126",
+            followup_route_action_source = "wall_of_sighs_aria_dialogue_jump_followup",
+            followup_route_action_ignore_retry = true
+        }
+    },
+    ["\u{53F9}\u{606F}\u{4E4B}\u{5899} / \u{6D88}\u{706D}\u{5B88}\u{536B}\u{FF0C}\u{5173}\u{95ED}\u{6700}\u{7EC8}\u{673A}\u{5173}"] = make_wall_of_sighs_final_mechanism_task_config(),
     ["\u{5E2E}\u{52A9}\u{9A6C}\u{5FB7}\u{5170}\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{9996}\u{9886}"] = make_holy_fire_roadblock_awakened_task_config(
         "\u{5E2E}\u{52A9}\u{9A6C}\u{5FB7}\u{5170}\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{9996}\u{9886}"
     ),
@@ -9796,6 +10029,44 @@ M.ROUTE_POINT_ACTIONS = {
             { x = 9006.98, y = 16825.09, z = 526.47 }
         }
     }),
+    make_npc_dialogue_route_action({
+        key = "holy_fire_ask_madlan_dialogue_14795_15865",
+        label = "圣洁之火_向马德兰询问情报_NPC对话",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        retry_ms = 600000,
+        task_patterns = {
+            "圣洁之火"
+        },
+        task_detail_patterns = {
+            "向马德兰询问情报"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 14794.81,
+            y = 15865.00,
+            z = 1714.00,
+            radius = 2200,
+            z_tolerance = 420
+        },
+        dialogue = {
+            x = 14794.81,
+            y = 15865.00,
+            z = 1714.00,
+            radius = 320,
+            interact_radius = 160,
+            move_interval_ms = 220,
+            z_tolerance = 420,
+            center_settle_ms = 700,
+            interact_retry_ms = 1800,
+            timeout_ms = 22000,
+            npc_search_radius = 700,
+            fallback_interact = true
+        }
+    }),
     make_route_point_action({
         key = "shadowland_fire_seed_route_8894_8983",
         label = "燃烧的长夜_火种拾取_固定点路线",
@@ -10674,14 +10945,16 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
-        key = "wall_of_sighs_aria_dialogue_route_18660_-3654",
-        label = "wall_of_sighs_aria_dialogue_pre_route",
+        key = "wall_of_sighs_aria_dialogue_route_18621_-3838",
+        label = "wall_of_sighs_aria_dialogue_fixed_route",
         mode = "recorded_route_point",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
         direct_when_task_active = true,
         complete_without_task_reacquire = true,
-        followup_route_action_key = "wall_of_sighs_aria_dialogue_npc_18827_-1574",
+        followup_route_action_key = "wall_of_sighs_aria_dialogue_npc_18882_-2531",
+        drop_active_when_task_mismatch = true,
         task_patterns = {
             "\u{53F9}\u{606F}\u{4E4B}\u{5899}"
         },
@@ -10690,29 +10963,29 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 18020.00,
-            y = -1950.00,
+            x = 18621.00,
+            y = -3838.00,
             z = 403.00,
-            radius = 820,
+            radius = 2600,
             z_tolerance = 320
         },
         retry_ms = 600000,
-        timeout_ms = 45000,
+        timeout_ms = 30000,
         waypoint_reach_radius = 220,
         waypoint_z_tolerance = 320,
         move_interval_ms = 220,
-        reacquire_retry_ms = 1200,
         waypoints = {
-            { x = 18660.00, y = -3654.00, z = 403.00 },
-            { x = 19250.00, y = -2955.00, z = 403.00 },
-            { x = 18827.22, y = -1573.58, z = 403.00 }
+            { x = 18621.00, y = -3838.00, z = 403.00 },
+            { x = 18882.00, y = -2531.00, z = 403.00 }
         }
     }),
     make_npc_dialogue_route_action({
-        key = "wall_of_sighs_aria_dialogue_npc_18827_-1574",
-        label = "wall_of_sighs_aria_dialogue_npc",
+        key = "wall_of_sighs_aria_dialogue_npc_18882_-2531",
+        label = "wall_of_sighs_aria_dialogue_fixed_route_npc",
         allow_without_task_target = true,
-        direct_when_task_active = true,
+        allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
+        drop_active_when_task_mismatch = true,
         task_patterns = {
             "\u{53F9}\u{606F}\u{4E4B}\u{5899}"
         },
@@ -10721,19 +10994,19 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 18827.22,
-            y = -1573.58,
+            x = 18882.00,
+            y = -2531.00,
             z = 403.00,
-            radius = 900,
+            radius = 420,
             z_tolerance = 320
         },
         retry_ms = 6000,
         dialogue = {
-            x = 18827.22,
-            y = -1573.58,
+            x = 18882.00,
+            y = -2531.00,
             z = 403.00,
             radius = 300,
-            interact_radius = 180,
+            interact_radius = 240,
             move_interval_ms = 180,
             z_tolerance = 320,
             center_settle_ms = 700,
@@ -10741,6 +11014,29 @@ M.ROUTE_POINT_ACTIONS = {
             timeout_ms = 22000,
             npc_search_radius = 700,
             fallback_interact = true
+        }
+    }),
+    make_route_point_action({
+        key = "wall_of_sighs_aria_dialogue_after_jump_route_19797_-2126",
+        label = "wall_of_sighs_aria_dialogue_after_jump_route",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
+        retry_ms = 600000,
+        timeout_ms = 16000,
+        waypoint_reach_radius = 180,
+        waypoint_z_tolerance = 320,
+        move_interval_ms = 220,
+        trigger = {
+            x = 19797.73,
+            y = -2126.16,
+            z = 403.00,
+            radius = 80,
+            z_tolerance = 320
+        },
+        waypoints = {
+            { x = 19797.73, y = -2126.16, z = 403.00 }
         }
     }),
     make_npc_dialogue_route_action({
@@ -11589,7 +11885,7 @@ M.ROUTE_POINT_ACTIONS = {
             x = -827.65,
             y = 9412.00,
             z = 606.00,
-            radius = 12000,
+            radius = 500,
             z_tolerance = 1200
         },
         retry_ms = 8000,
@@ -13815,7 +14111,7 @@ M.ROUTE_POINT_ACTIONS = {
             "\u{53F9}\u{606F}\u{4E4B}\u{5899}"
         },
         task_detail_patterns = {
-            "\u{7EE7}\u{7EED}\u{524D}\u{8FDB}\u{FF0C}\u{7A7F}\u{8D8A}\u{610F}\u{5FD7}\u{9AD8}\u{5899}"
+            "\u{7A7F}\u{8D8A}\u{610F}\u{5FD7}\u{9AD8}\u{5899}"
         },
         constraint_mode = "all",
         trigger = {
@@ -14300,52 +14596,6 @@ M.OBJECTIVE_POINT_CONFIGS = {
             "\u{4EA4}\u{8C08}",
             "\u{5BF9}\u{8BDD}"
         }
-    }),
-    Actions.make_clear_room_point({
-        key = "wall_of_sighs_final_mechanism_guard_loop",
-        x = 17832.21,
-        y = -2009.37,
-        z = 405.00,
-        radius = 1900,
-        trigger_distance = 900,
-        immediate_kite_on_reached = true,
-        allow_no_task_target_force_kite = true,
-        seamless_kite = true,
-        kite_switch_ms = 1800,
-        kite_arrive_distance = 360,
-        kite_move_interval_ms = 120,
-        defer_followup_until_clear = true,
-        boss_clear_settle_ms = 3000,
-        generic_followup_refresh_ms = 3500,
-        generic_followup_requires_task_pos_only = true,
-        generic_followup_require_no_special = true,
-        ignore_terminal_text_change_when_objective_same = true,
-        allow_nearby_text_task_change_exit = true,
-        nearby_text_task_change_confirm_ms = 1200,
-        nearby_text_task_change_confirm_count = 2,
-        kite_points = {
-            { x = 17820.00, y = -1551.00, z = 405.00 },
-            { x = 18070.56, y = -1139.69, z = 403.00 },
-            { x = 18406.62, y = -1067.46, z = 403.00 },
-            { x = 18965.71, y = -1216.23, z = 403.00 },
-            { x = 19252.46, y = -1612.01, z = 403.00 },
-            { x = 19311.52, y = -2050.16, z = 403.00 },
-            { x = 19186.79, y = -2472.19, z = 403.00 },
-            { x = 18871.83, y = -2808.62, z = 403.00 },
-            { x = 18126.66, y = -2686.86, z = 403.00 },
-            { x = 17643.00, y = -1858.00, z = 407.00 }
-        },
-        task_patterns = {
-            "\u{53F9}\u{606F}\u{4E4B}\u{5899}"
-        },
-        task_detail_patterns = {
-            "\u{6D88}\u{706D}\u{5B88}\u{536B}\u{FF0C}\u{5173}\u{95ED}\u{6700}\u{7EC8}\u{673A}\u{5173}"
-        },
-        exclude_task_detail_patterns = {
-            "\u{4EA4}\u{8C08}",
-            "\u{5BF9}\u{8BDD}"
-        },
-        constraint_mode = "all"
     }),
     Actions.make_clear_room_point({
         key = "fire_treader_romel_boss_room",
