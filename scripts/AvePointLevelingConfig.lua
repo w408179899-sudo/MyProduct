@@ -3920,6 +3920,134 @@ do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_54_to_56_trickster_talent_plan(level)
     end
 
+    local function make_level_57_trickster_talent_plan()
+        return make_manual_talent_plan(
+            57,
+            "57级天赋：激活欺诈之神右下天赋节点",
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_57_select_trickster_god_tab",
+                    "欺诈之神按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+                    },
+                    47.726845,
+                    337.195770,
+                    0.033167,
+                    0.374662,
+                    80,
+                    1200
+                ), "level_57_select_trickster_god_tab")
+                steps[#steps].distance_anchor_exact_text = "欺诈之神"
+                steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+                steps[#steps].distance_min = 68.595838
+                steps[#steps].distance_max = 72.838879
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_57_select_trickster_talent_node",
+                    "天赋节点按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    1226.566772,
+                    685.981323,
+                    0.852374,
+                    0.762201,
+                    80,
+                    1200
+                ), "level_57_select_trickster_talent_node")
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_57_activate_trickster_talent_node",
+                    "天赋节点激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+                    },
+                    1056.369263,
+                    672.801453,
+                    0.734100,
+                    0.747557,
+                    80,
+                    650
+                ), "level_57_activate_trickster_talent_node")
+
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[57] = make_level_57_trickster_talent_plan()
+
+    local function make_level_58_to_60_trickster_talent_plan(level)
+        return make_manual_talent_plan(
+            level,
+            tostring(level) .. "级天赋：激活欺诈之神右侧天赋节点",
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_select_trickster_god_tab", current_level),
+                    "欺诈之神按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+                    },
+                    47.726845,
+                    337.195770,
+                    0.033167,
+                    0.374662,
+                    80,
+                    1200
+                ), "select_trickster_god_tab")
+                steps[#steps].distance_anchor_exact_text = "欺诈之神"
+                steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+                steps[#steps].distance_min = 68.595838
+                steps[#steps].distance_max = 72.838879
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_select_trickster_right_talent_node", current_level),
+                    "天赋节点按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    1070.636841,
+                    477.651550,
+                    0.744014,
+                    0.530724,
+                    80,
+                    1200
+                ), "select_trickster_right_talent_node")
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_activate_trickster_right_talent_node", current_level),
+                    "天赋节点激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+                    },
+                    900.439148,
+                    672.801453,
+                    0.625740,
+                    0.747557,
+                    80,
+                    650
+                ), "activate_trickster_right_talent_node")
+
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    for level = 58, 60 do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_58_to_60_trickster_talent_plan(level)
+    end
+
     local function make_select_trickster_god_tab_step(level)
         return make_maintenance_locator_step({
             key = string.format("level_%d_select_trickster_god_tab", tonumber(level) or 0),
@@ -7234,10 +7362,11 @@ M.TREASURE_DUNGEON_CONFIGS = {
         enabled = true,
         name = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{94F6}\u{6C99}\u{8FB9}\u{57CE}",
         route_store_key = "treasure_silver_sand_edge_city_entry_-7886_-4560_v1",
-        target_level = 58,
+        target_level = 57,
         inside_detect_task_panel_text = false,
         allow_when_task_unknown = true,
         startup_recovery_allow_task_mismatch_by_level_gate = true,
+        restart_landing_require_verified = true,
         task_patterns = {
             "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{94F6}\u{6C99}\u{8FB9}\u{57CE}",
             "\u{94F6}\u{6C99}\u{8FB9}\u{57CE}",

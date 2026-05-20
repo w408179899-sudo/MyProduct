@@ -4525,11 +4525,15 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         local clicked, portal_err = try_click_portal(ctx, hooks, portal_cfg, runtime, record)
         runtime.next_retry_at = current_time + math.max(1200, tonumber(portal_cfg and portal_cfg.retry_ms) or 1500)
         if clicked then
+            local after_click_time = now_ms(ctx)
+            if after_click_time <= 0 then
+                after_click_time = current_time
+            end
             record.run_count = (tonumber(record.run_count) or 0) + 1
             -- Exit portal clicks can settle asynchronously; only mark completed after exit_landing is confirmed.
             local save_ok, save_err = save_record(ctx, main_state, cfg)
             runtime.last_save_err = save_ok and nil or save_err
-            runtime.stage_deadline_at = current_time + math.max(4000, tonumber(portal_cfg and portal_cfg.settle_ms) or 5000)
+            runtime.stage_deadline_at = after_click_time + math.max(4000, tonumber(portal_cfg and portal_cfg.settle_ms) or 5000)
             transition_mode(ctx, hooks, cfg, runtime, portal_kind == "restart" and "wait_restart" or "wait_exit",
                 "portal_clicked:" .. tostring(portal_kind))
             settle_treasure_transition(
@@ -4538,7 +4542,7 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                 hooks,
                 cfg,
                 runtime,
-                current_time,
+                after_click_time,
                 tonumber(portal_cfg and portal_cfg.settle_ms) or 5000,
                 "portal_" .. tostring(portal_kind)
             )
@@ -4571,12 +4575,20 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
 
     if mode == "wait_restart" then
         set_treasure_stage(main_state, "treasure_wait_restart")
+        if type(hooks.hold_navigation) == "function" then
+            hooks.hold_navigation(ctx, current_time, "treasure_wait_restart")
+        end
+        if type(hooks.clear_task_target_state) == "function" then
+            hooks.clear_task_target_state()
+        end
         local landing = cfg.restart_landing
-        local has_landing = is_valid_point(landing) and (tonumber(landing.x) ~= 0 or tonumber(landing.y) ~= 0)
+        local require_verified_landing = type(cfg) == "table" and cfg.restart_landing_require_verified == true
+        local has_landing = is_valid_point(landing)
+            and ((tonumber(landing.x) ~= 0 or tonumber(landing.y) ~= 0) or landing.allow_zero == true)
         local deadline_expired = has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0)
         local inside_after_restart = false
         local inside_after_restart_reason = ""
-        if deadline_expired then
+        if deadline_expired and not require_verified_landing then
             local boss_cfg = type(cfg.boss) == "table" and cfg.boss or nil
             local boss_anchor = resolve_boss_anchor(cfg, runtime)
             if type(boss_cfg) == "table" and boss_anchor and within_trigger(player_x, player_y, player_z, boss_anchor) then
@@ -4591,9 +4603,10 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                 end
             end
         end
-        local ready = landing_ready(player_x, player_y, player_z, landing)
-            or (not has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0))
-            or inside_after_restart
+        local ready = cfg_landing_ready(player_x, player_y, player_z, cfg, "restart_landing")
+            or (not require_verified_landing and not has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0))
+            or (not require_verified_landing and inside_after_restart)
+        local settle_until = tonumber(runtime.next_retry_at) or 0
         local target_level_reached = target_level ~= nil
             and type(current_level) == "number"
             and current_level >= target_level
@@ -4628,6 +4641,21 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                     tonumber(player_y) or 0,
                     tonumber(player_z) or 0
                 ))
+            end
+            return true
+        end
+        if not ready and current_time < settle_until then
+            if type(hooks.log_throttled) == "function" then
+                hooks.log_throttled(ctx, "treasure_wait_restart_settle_" .. tostring(cfg.key or ""), "info", 1200,
+                    string.format(
+                        "[Treasure] waiting restart settle before landing retry | key=%s pos=%.2f, %.2f, %.2f settle_in=%dms deadline_in=%dms",
+                        tostring(cfg.key or ""),
+                        tonumber(player_x) or 0,
+                        tonumber(player_y) or 0,
+                        tonumber(player_z) or 0,
+                        math.max(0, settle_until - current_time),
+                        math.max(0, (tonumber(runtime.stage_deadline_at) or 0) - current_time)
+                    ))
             end
             return true
         end
