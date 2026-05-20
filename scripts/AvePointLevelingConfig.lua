@@ -3301,6 +3301,110 @@ do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_39_to_41_second_tab_talent_plan(level)
     end
 
+    local function make_level_42_shadowmancer_talent_plan()
+        return make_manual_talent_plan(
+            42,
+            "42级天赋：激活驭影者并补第二页天赋节点",
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_42_select_shadowmancer_tab",
+                    "42级驭影者按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem3.WidgetTree.TabBtn"
+                    },
+                    42.726845,
+                    444.036713,
+                    0.029692,
+                    0.493374,
+                    80,
+                    650
+                ), "level_42_select_shadowmancer_tab")
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_42_select_shadowmancer_category",
+                    "42级天赋大类按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.UICareerPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    1037.438477,
+                    526.551147,
+                    0.720944,
+                    0.585057,
+                    80,
+                    650
+                ), "level_42_select_shadowmancer_category")
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_42_activate_shadowmancer_category",
+                    "42级天赋大类激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TipCareerItem_C.WidgetTree.ActiveBtn"
+                    },
+                    1238.157104,
+                    491.799255,
+                    0.860429,
+                    0.546444,
+                    80,
+                    650
+                ), "level_42_activate_shadowmancer_category")
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_42_select_second_talent_tab",
+                    "123按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+                    },
+                    42.726845,
+                    388.616241,
+                    0.029692,
+                    0.431796,
+                    80,
+                    650
+                ), "level_42_select_second_talent_tab")
+                steps[#steps].distance_anchor_exact_text = "123"
+                steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+                steps[#steps].distance_min = 67.184104
+                steps[#steps].distance_max = 71.339822
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_42_select_second_tab_talent_node",
+                    "42级天赋节点按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    1221.566772,
+                    404.208282,
+                    0.848900,
+                    0.449120,
+                    80,
+                    1200
+                ), "level_42_select_second_tab_talent_node")
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_42_activate_second_tab_talent_node",
+                    "42级天赋节点激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    1051.369263,
+                    668.801453,
+                    0.730625,
+                    0.743113,
+                    80,
+                    650
+                ), "level_42_activate_second_tab_talent_node")
+
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[42] = make_level_42_shadowmancer_talent_plan()
+
     local function make_select_trickster_god_tab_step(level)
         return make_maintenance_locator_step({
             key = string.format("level_%d_select_trickster_god_tab", tonumber(level) or 0),
@@ -4711,189 +4815,6 @@ do
     level_34_skill_plan.steps = level_34_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[34] = level_34_skill_plan
 
-    local level_40_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
-    level_40_skill_plan.key = "level_40_skill_upgrade_sequence"
-    level_40_skill_plan.label = "40级技能：找图升级并配置侵蚀"
-    level_40_skill_plan.close_with_escape = false
-
-    local level_40_steps = type(level_40_skill_plan.steps) == "table" and level_40_skill_plan.steps or {}
-    if #level_40_steps > 0 and tostring(level_40_steps[#level_40_steps].key or "") == "back_from_skill_panel" then
-        table.remove(level_40_steps, #level_40_steps)
-    end
-    for _, step in ipairs(level_40_steps) do
-        if tostring(step.key or "") == "open_skill_add_panel" then
-            step.key = "level_40_open_skill_add_panel"
-            step.label = "40级技能加点入口按钮"
-            step.missing_target_means_step_done = true
-        elseif tostring(step.key or "") == "click_skill_upgrade_image" then
-            step.key = "level_40_click_skill_upgrade_image"
-            step.label = "40级技能升级找图按钮"
-            step.missing_image_means_done = false
-            step.missing_image_means_step_done = true
-            step.cleanup_back_before_finish = true
-            step.repeat_image_until_missing = true
-            step.repeat_image_until_missing_max_count = 30
-            step.repeat_image_until_missing_interval_ms = 180
-            if type(step.image_preset) == "table" then
-                step.image_preset.click_repeat_count = 1
-                step.image_preset.repeat_until_missing = true
-                step.image_preset.repeat_until_missing_max_count = 30
-                step.image_preset.repeat_until_missing_interval_ms = 180
-            end
-        end
-    end
-
-    level_40_steps[#level_40_steps + 1] = {
-        key = "level_40_open_fast_entrance_menu_after_skill_image",
-        label = "技能天赋菜单按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
-        },
-        hint_client_x = 1383.688110,
-        hint_client_y = 52.706509,
-        hint_ratio_x = 0.961562,
-        hint_ratio_y = 0.058563,
-        hint_max_distance = 100,
-        wait_after_ms = 800
-    }
-    level_40_steps[#level_40_steps + 1] = {
-        key = "level_40_open_skill_panel_after_skill_image",
-        label = "技能按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
-        },
-        hint_client_x = 1249.024658,
-        hint_client_y = 155.104156,
-        hint_ratio_x = 0.867981,
-        hint_ratio_y = 0.172338,
-        hint_max_distance = 90,
-        wait_after_ms = 1000
-    }
-    level_40_steps[#level_40_steps + 1] = fixed_click_step(
-        "level_40_skill_fixed_click_82_531_a",
-        "40级技能固定点击1",
-        82.00,
-        531.00,
-        0.056984,
-        0.590000,
-        350
-    )
-    level_40_steps[#level_40_steps + 1] = fixed_click_step(
-        "level_40_skill_fixed_click_82_531_b",
-        "40级技能固定点击2",
-        82.00,
-        531.00,
-        0.056984,
-        0.590000,
-        350
-    )
-    level_40_steps[#level_40_steps + 1] = fixed_click_step(
-        "level_40_skill_fixed_click_82_531_c",
-        "40级技能固定点击3",
-        82.00,
-        531.00,
-        0.056984,
-        0.590000,
-        350
-    )
-    level_40_steps[#level_40_steps + 1] = fixed_click_step(
-        "level_40_skill_fixed_click_727_455",
-        "40级技能固定点击4",
-        727.00,
-        455.00,
-        0.505212,
-        0.505556,
-        350
-    )
-    level_40_steps[#level_40_steps + 1] = fixed_click_step(
-        "level_40_skill_search_focus",
-        "40级技能搜索输入框",
-        388.00,
-        653.00,
-        0.269632,
-        0.725556,
-        250
-    )
-    level_40_steps[#level_40_steps + 1] = {
-        kind = "type_text",
-        key = "level_40_skill_search_erosion_text",
-        label = "输入侵蚀",
-        text = "侵蚀",
-        input_method = "clipboard",
-        clear_before = true,
-        key_delay_ms = 30,
-        wait_after_ms = 500
-    }
-    level_40_steps[#level_40_steps + 1] = fixed_click_step(
-        "level_40_skill_search_confirm",
-        "40级技能搜索确认",
-        590.00,
-        655.00,
-        0.410007,
-        0.727778,
-        700
-    )
-    level_40_steps[#level_40_steps + 1] = fixed_click_step(
-        "level_40_skill_select_erosion_result",
-        "40级技能选择侵蚀结果",
-        354.00,
-        329.00,
-        0.246004,
-        0.365556,
-        700
-    )
-    level_40_steps[#level_40_steps + 1] = fixed_click_step(
-        "level_40_skill_fixed_click_812_423",
-        "40级技能固定点击5",
-        812.00,
-        423.00,
-        0.564281,
-        0.470000,
-        350
-    )
-    level_40_steps[#level_40_steps + 1] = fixed_click_step(
-        "level_40_skill_fixed_click_711_325",
-        "40级技能固定点击6",
-        711.00,
-        325.00,
-        0.494093,
-        0.361111,
-        350
-    )
-    level_40_steps[#level_40_steps + 1] = fixed_click_step(
-        "level_40_skill_fixed_click_535_421",
-        "40级技能固定点击7",
-        535.00,
-        421.00,
-        0.371786,
-        0.467778,
-        350
-    )
-    level_40_steps[#level_40_steps + 1] = fixed_click_step(
-        "level_40_skill_fixed_click_717_845",
-        "40级技能固定点击8",
-        717.00,
-        845.00,
-        0.498263,
-        0.938889,
-        700
-    )
-    level_40_steps[#level_40_steps + 1] = {
-        key = "back_from_skill_panel_after_erosion_setup",
-        label = "技能返回按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
-        },
-        hint_client_x = 1384.784546,
-        hint_client_y = 52.000000,
-        hint_ratio_x = 0.961656,
-        hint_ratio_y = 0.057778,
-        hint_max_distance = 90,
-        wait_after_ms = 500
-    }
-
-    level_40_skill_plan.steps = level_40_steps
-    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[40] = level_40_skill_plan
 end
 
 do
@@ -6391,7 +6312,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
         },
         path_retry_count = 5,
         path_retry_interval_ms = 1200,
-        min_path_points = 3,
+        min_path_points = 12,
         acquire_path_reject_first_point = {
             x = 3050.00,
             y = 7050.00,
@@ -12226,7 +12147,7 @@ M.ROUTE_POINT_ACTIONS = {
         task_patterns = {
             "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}"
         },
-        task_detail_patterns = {
+        task_detail_names = {
             "\u{8FFD}\u{5BFB}\u{83B1}\u{5B89}\u{7684}\u{8E2A}\u{8FF9}"
         },
         constraint_mode = "all",
