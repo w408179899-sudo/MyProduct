@@ -6010,25 +6010,35 @@ function M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, play
         if after_loot_pending then
             local source_key = tostring(state.auto_equip_after_loot_objective_key or "")
             local result = tostring(state.auto_equip_last_result or "")
+            local auto_equip_summary = type(state.auto_equip_last_summary) == "table"
+                and state.auto_equip_last_summary
+                or nil
             M.clear_auto_equip_after_loot_pending(ctx, current_time, "handled")
             if result == "success" then
-                local recycled, recycle_reason = M.run_recycle_after_auto_equip_now(
-                    ctx,
-                    current_time,
-                    source_key,
-                    player_x,
-                    player_y,
-                    player_z,
-                    hp_ratio,
-                    in_main_interface
-                )
-                if not recycled then
-                    logger(ctx).warn(string.format(
-                        "[Leveling] recycle immediate after auto-equip did not run; fallback to pending | source=%s reason=%s",
-                        tostring(source_key or ""),
-                        tostring(recycle_reason or "")
+                if type(auto_equip_summary) == "table" and auto_equip_summary.empty_bag == true then
+                    logger(ctx).info(string.format(
+                        "[Leveling] recycle not armed because auto-equip found empty bag | source=%s",
+                        tostring(source_key or "")
                     ))
-                    M.mark_recycle_after_auto_equip(ctx, now_ms(ctx), source_key)
+                else
+                    local recycled, recycle_reason = M.run_recycle_after_auto_equip_now(
+                        ctx,
+                        current_time,
+                        source_key,
+                        player_x,
+                        player_y,
+                        player_z,
+                        hp_ratio,
+                        in_main_interface
+                    )
+                    if not recycled then
+                        logger(ctx).warn(string.format(
+                            "[Leveling] recycle immediate after auto-equip did not run; fallback to pending | source=%s reason=%s",
+                            tostring(source_key or ""),
+                            tostring(recycle_reason or "")
+                        ))
+                        M.mark_recycle_after_auto_equip(ctx, now_ms(ctx), source_key)
+                    end
                 end
             else
                 logger(ctx).warn(string.format(

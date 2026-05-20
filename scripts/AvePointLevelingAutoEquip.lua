@@ -1624,6 +1624,37 @@ local function collect_bag_candidates(snapshot, cfg)
     return candidates
 end
 
+local function count_visible_bag_items(snapshot, cfg)
+    local grid = type(cfg) == "table" and type(cfg.bag_grid) == "table" and cfg.bag_grid or {}
+    local min_x = tonumber(grid.min_x) or 0
+    local max_x = tonumber(grid.max_x) or math.huge
+    local min_y = tonumber(grid.min_y) or 0
+    local max_y = tonumber(grid.max_y) or math.huge
+    local count = 0
+
+    if type(snapshot) ~= "table" or type(snapshot.buttons) ~= "table" then
+        return count
+    end
+
+    for _, button in ipairs(snapshot.buttons) do
+        local name = identity_of(button)
+        local is_grid_item = name:find("pcuigridlistviewitem_c.widgettree", 1, true) ~= nil
+            and name:find("pcuibagequipitem", 1, true) == nil
+        local is_occupied = is_grid_item
+            and name:find("selectbtn", 1, true) ~= nil
+            and name:find("nillbtn", 1, true) == nil
+        if is_occupied and is_visible_button(button) then
+            local x = tonumber(button.x or button.X)
+            local y = tonumber(button.y or button.Y)
+            if x ~= nil and y ~= nil and x >= min_x and x <= max_x and y >= min_y and y <= max_y then
+                count = count + 1
+            end
+        end
+    end
+
+    return count
+end
+
 local function move_to_candidate(ctx, nav_mod, hwnd, candidate, cfg)
     return nav_mod.move_mouse_to_client(candidate.x, candidate.y, {
         hwnd = hwnd,
@@ -1925,6 +1956,23 @@ function M.perform_scan(ctx, deps, runtime, cfg, current_time, character_id)
     if not is_bag_open(snapshot) then
         close_if_needed(true)
         return false, "bag ui not detected"
+    end
+
+    local bag_item_count = count_visible_bag_items(snapshot, cfg)
+    if bag_item_count <= 0 then
+        close_if_needed(true)
+        log_line(ctx, deps, "info", string.format(
+            "[Leveling] auto-equip skipped because bag has no visible items | id=%s",
+            tostring(character_id or "")
+        ))
+        return true, {
+            scanned = 0,
+            equipped = 0,
+            skipped = 0,
+            identified_all = 0,
+            reason = "empty_bag",
+            empty_bag = true
+        }
     end
 
     local identified_all = false

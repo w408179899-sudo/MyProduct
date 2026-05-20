@@ -40,6 +40,12 @@ M.DEFAULT_CONFIG = {
             client_y = 609.795044
         }
     },
+    bag_grid = {
+        min_x = 880,
+        max_x = 1395,
+        min_y = 550,
+        max_y = 790
+    },
     random_click_count = 1,
     random_click_rect = {
         min_x = 981,
@@ -153,6 +159,37 @@ local function is_bag_open(snapshot, cfg)
         end
     end
     return false
+end
+
+local function count_visible_bag_items(snapshot, cfg)
+    local grid = type(cfg) == "table" and type(cfg.bag_grid) == "table" and cfg.bag_grid or {}
+    local min_x = tonumber(grid.min_x) or 880
+    local max_x = tonumber(grid.max_x) or 1395
+    local min_y = tonumber(grid.min_y) or 550
+    local max_y = tonumber(grid.max_y) or 790
+    local count = 0
+
+    if type(snapshot) ~= "table" or type(snapshot.buttons) ~= "table" then
+        return count
+    end
+
+    for _, button in ipairs(snapshot.buttons) do
+        local name = identity_of(button)
+        local is_grid_item = name:find("pcuigridlistviewitem_c.widgettree", 1, true) ~= nil
+            and name:find("pcuibagequipitem", 1, true) == nil
+        local is_occupied = is_grid_item
+            and name:find("selectbtn", 1, true) ~= nil
+            and name:find("nillbtn", 1, true) == nil
+        if is_occupied and is_visible_button(button) then
+            local x = tonumber(button.x or button.X)
+            local y = tonumber(button.y or button.Y)
+            if x ~= nil and y ~= nil and x >= min_x and x <= max_x and y >= min_y and y <= max_y then
+                count = count + 1
+            end
+        end
+    end
+
+    return count
 end
 
 local function enum_ui(nav_mod)
@@ -448,6 +485,25 @@ function M.perform_recycle(ctx, deps, runtime, cfg, current_time)
     local opened, snapshot, open_err = ensure_bag_open(ctx, deps, nav_mod, cfg, current_time)
     if not opened then
         return false, open_err or "bag did not open"
+    end
+
+    local bag_item_count = count_visible_bag_items(snapshot, cfg)
+    if bag_item_count <= 0 then
+        local closed, close_err = close_bag(ctx, deps, nav_mod, cfg, current_time)
+        log_line(ctx, deps, "info", string.format(
+            "[Leveling] recycle skipped because bag has no visible items | close_ok=%s",
+            tostring(closed == true)
+        ))
+        if not closed then
+            log_line(ctx, deps, "warn", "[Leveling] recycle close after empty bag skip failed | err=" .. tostring(close_err or ""))
+        end
+        return true, {
+            skipped = true,
+            reason = "empty_bag",
+            item_count = 0,
+            close_ok = closed == true,
+            close_error = closed == true and nil or close_err
+        }
     end
 
     local clicked, err
