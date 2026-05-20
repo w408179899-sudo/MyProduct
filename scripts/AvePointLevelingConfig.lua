@@ -3664,6 +3664,262 @@ do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_46_to_48_second_tab_talent_plan(level)
     end
 
+    local function make_level_49_second_tab_talent_plan()
+        return make_manual_talent_plan(
+            49,
+            "49级天赋：激活第二页中排后续天赋节点",
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_49_select_second_talent_tab",
+                    "123按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+                    },
+                    47.726845,
+                    392.616241,
+                    0.033167,
+                    0.436240,
+                    80,
+                    1200
+                ), "level_49_select_second_talent_tab")
+                steps[#steps].distance_anchor_exact_text = "123"
+                steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+                steps[#steps].distance_min = 67.184104
+                steps[#steps].distance_max = 71.339822
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_49_select_second_tab_talent_node",
+                    "49级天赋节点按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    1070.636841,
+                    547.094788,
+                    0.744014,
+                    0.607883,
+                    80,
+                    1200
+                ), "level_49_select_second_tab_talent_node")
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_49_activate_second_tab_talent_node",
+                    "49级天赋节点激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray",
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                    },
+                    900.439148,
+                    672.801453,
+                    0.625740,
+                    0.747557,
+                    80,
+                    650
+                ), "level_49_activate_second_tab_talent_node")
+
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[49] = make_level_49_second_tab_talent_plan()
+
+    local function make_level_50_to_52_trickster_talent_plan(level)
+        return make_manual_talent_plan(
+            level,
+            tostring(level) .. "级天赋：激活欺诈之神中排天赋节点",
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_select_trickster_god_tab", current_level),
+                    "欺诈之神按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+                    },
+                    47.726845,
+                    337.195770,
+                    0.033167,
+                    0.374662,
+                    80,
+                    1200
+                ), "select_trickster_god_tab")
+                steps[#steps].distance_anchor_exact_text = "欺诈之神"
+                steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+                steps[#steps].distance_min = 68.595838
+                steps[#steps].distance_max = 72.838879
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_select_trickster_talent_node", current_level),
+                    "天赋节点按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    602.84680175781,
+                    408.208282,
+                    0.418935,
+                    0.453565,
+                    80,
+                    1200
+                ), "select_trickster_talent_node")
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_activate_trickster_talent_node", current_level),
+                    tostring(current_level) .. "级天赋节点激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+                    },
+                    813.298279,
+                    672.801453,
+                    0.565183,
+                    0.747557,
+                    80,
+                    650
+                ), "activate_trickster_talent_node")
+
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    for level = 50, 52 do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_50_to_52_trickster_talent_plan(level)
+    end
+
+    local function make_level_53_trickster_talent_plan()
+        return make_manual_talent_plan(
+            53,
+            "53级天赋：激活欺诈之神上排后续天赋节点",
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_53_select_trickster_god_tab",
+                    "欺诈之神按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+                    },
+                    47.726845,
+                    337.195770,
+                    0.033167,
+                    0.374662,
+                    80,
+                    1200
+                ), "level_53_select_trickster_god_tab")
+                steps[#steps].distance_anchor_exact_text = "欺诈之神"
+                steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+                steps[#steps].distance_min = 68.595838
+                steps[#steps].distance_max = 72.838879
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_53_select_trickster_talent_node",
+                    "天赋节点按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    758.776794,
+                    408.208282,
+                    0.527295,
+                    0.453565,
+                    80,
+                    1200
+                ), "level_53_select_trickster_talent_node")
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    "level_53_activate_trickster_talent_node",
+                    "天赋节点激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+                    },
+                    588.579102,
+                    672.801453,
+                    0.409020,
+                    0.747557,
+                    80,
+                    650
+                ), "level_53_activate_trickster_talent_node")
+
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[53] = make_level_53_trickster_talent_plan()
+
+    local function make_level_54_to_56_trickster_talent_plan(level)
+        return make_manual_talent_plan(
+            level,
+            tostring(level) .. "级天赋：激活欺诈之神底排天赋节点",
+            function(steps, current_level)
+                local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
+                    or original_talent_by_level[14]
+                append_shifted_setup(steps, current_level, base_plan)
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_select_trickster_god_tab", current_level),
+                    "欺诈之神按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+                    },
+                    47.726845,
+                    337.195770,
+                    0.033167,
+                    0.374662,
+                    80,
+                    1200
+                ), "select_trickster_god_tab")
+                steps[#steps].distance_anchor_exact_text = "欺诈之神"
+                steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem1.WidgetTree.TabBtn"
+                steps[#steps].distance_min = 68.595838
+                steps[#steps].distance_max = 72.838879
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_select_trickster_bottom_talent_node", current_level),
+                    "天赋节点按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                    },
+                    1070.636841,
+                    685.981323,
+                    0.744014,
+                    0.762201,
+                    80,
+                    1200
+                ), "select_trickster_bottom_talent_node")
+
+                append_shifted_step(steps, current_level, maintenance_locator_step(
+                    string.format("level_%d_activate_trickster_bottom_talent_node", current_level),
+                    "天赋节点激活按钮",
+                    {
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn",
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray"
+                    },
+                    900.439148,
+                    672.801453,
+                    0.625740,
+                    0.747557,
+                    80,
+                    650
+                ), "activate_trickster_bottom_talent_node")
+
+                append_shifted_back(steps, current_level, base_plan)
+            end
+        )
+    end
+
+    for level = 54, 56 do
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_54_to_56_trickster_talent_plan(level)
+    end
+
     local function make_select_trickster_god_tab_step(level)
         return make_maintenance_locator_step({
             key = string.format("level_%d_select_trickster_god_tab", tonumber(level) or 0),
@@ -6981,6 +7237,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
         target_level = 58,
         inside_detect_task_panel_text = false,
         allow_when_task_unknown = true,
+        startup_recovery_allow_task_mismatch_by_level_gate = true,
         task_patterns = {
             "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{94F6}\u{6C99}\u{8FB9}\u{57CE}",
             "\u{94F6}\u{6C99}\u{8FB9}\u{57CE}",
@@ -8321,6 +8578,48 @@ local function make_wasteland_path_longhorn_task_config()
     )
 end
 
+local function make_windbreak_barrier_royal_hunt_boss_task_config(opts)
+    opts = type(opts) == "table" and opts or {}
+    local allow_no_target = opts.allow_no_target == true
+    local detail_pattern = tostring(opts.detail_pattern or "")
+    local detail_patterns = {}
+    if detail_pattern ~= "" then
+        detail_patterns[#detail_patterns + 1] = detail_pattern
+    end
+    return make_boss_kite_task_config(
+        "windbreak_barrier_royal_hunt_kite",
+        {
+            trigger_distance = 900,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = allow_no_target,
+            immediate_no_task_target_kite = allow_no_target,
+            kite_radius = 1260,
+            kite_point_count = 3,
+            kite_switch_ms = 2200,
+            seamless_kite = true,
+            kite_arrive_distance = 420,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 3500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            ignore_terminal_text_change_when_objective_same = true
+        },
+        {
+            task_patterns = {
+                "遮风壁垒"
+            },
+            task_detail_patterns = detail_patterns,
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
+            },
+            constraint_mode = "all"
+        }
+    )
+end
+
 local function make_forgotten_temple_special_experiment_keel_task_config()
     return make_boss_kite_task_config(
         "forgotten_temple_special_experiment_keel_kite",
@@ -9069,6 +9368,13 @@ M.TASK_NAME_CONFIGS = {
     ["突破重围 / 击败王命传讯"] = make_breakthrough_royal_message_boss_task_config({
         key = "breakthrough_defeat_royal_message_no_target_kite",
         detail_pattern = "击败王命传讯",
+        allow_no_target = true
+    }),
+    ["遮风壁垒 / 进入伊吉部族，打听狮心王的下落"] = make_windbreak_barrier_royal_hunt_boss_task_config({
+        detail_pattern = "进入伊吉部族，打听狮心王的下落"
+    }),
+    ["遮风壁垒 / 击败王命巡猎"] = make_windbreak_barrier_royal_hunt_boss_task_config({
+        detail_pattern = "击败王命巡猎",
         allow_no_target = true
     }),
     ["永夜鸣沙 / 向沙漠深处进发，找到伊吉人的聚集地"] = make_boss_kite_task_config(
@@ -12172,8 +12478,13 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_npc_dialogue_route_action({
-        key = "evening_star_elsmerada_dialogue_return_-2196_4643",
-        label = "\u{665A}\u{661F}\u{5F85}\u{660E}_\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}_\u{7EC8}\u{70B9}\u{540E}\u{56DE}\u{62E8}",
+        key = "evening_star_elsmerada_dialogue_direct_-2649_4251",
+        label = "\u{665A}\u{661F}\u{5F85}\u{660E}_\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}_\u{76F4}\u{63A5}\u{5BF9}\u{8BDD}",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
+        direct_when_task_active = true,
+        drop_active_when_task_mismatch = true,
         task_patterns = {
             "\u{665A}\u{661F}\u{5F85}\u{660E}"
         },
@@ -12182,25 +12493,25 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = -1950.00,
-            y = 5230.00,
-            z = 2000.00,
-            radius = 320,
-            z_tolerance = 220
+            x = -2649.00,
+            y = 4251.00,
+            z = 2006.08,
+            radius = 1800,
+            z_tolerance = 420
         },
         retry_ms = 6000,
         dialogue = {
-            x = -2196.00,
-            y = 4643.00,
-            z = 2003.00,
-            radius = 260,
-            interact_radius = 140,
-            move_interval_ms = 180,
-            z_tolerance = 220,
+            x = -2649.00,
+            y = 4251.00,
+            z = 2006.08,
+            radius = 320,
+            interact_radius = 160,
+            move_interval_ms = 220,
+            z_tolerance = 420,
             center_settle_ms = 700,
             interact_retry_ms = 1800,
             timeout_ms = 22000,
-            npc_search_radius = 560,
+            npc_search_radius = 700,
             fallback_interact = true
         }
     }),

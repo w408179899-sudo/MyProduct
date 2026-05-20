@@ -1634,7 +1634,7 @@ local function startup_inside_recovery_match(ctx, cfg, hooks, current_time, play
         then
             return false, "task_pending", task_name, task_detail, match_reason
         end
-        return false, "task_mismatch", task_name, task_detail
+        return false, "task_mismatch", task_name, task_detail, match_reason
     end
 
     return true, match_reason
@@ -1703,6 +1703,34 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
                 end
             end
         end
+        if inside_reason == "task_mismatch"
+            and candidate.startup_recovery_allow_task_mismatch_by_level_gate == true
+            and tostring(match_reason or "") == "inside_landing"
+        then
+            local target_level = configured_target_level(candidate)
+            local mismatch_level = nil
+            if target_level ~= nil then
+                mismatch_level = refresh_player_level(ctx, candidate, runtime, hooks, current_time, runtime.player_level == nil)
+                if type(mismatch_level) == "number" and mismatch_level < target_level then
+                    inside_match = true
+                    inside_reason = "inside_landing_task_mismatch_level_gate"
+                    runtime.startup_recovery_task_pending_since = nil
+                    if type(hooks.log_info) == "function" then
+                        hooks.log_info(ctx, string.format(
+                            "[Treasure] startup inside recovery activated by level gate despite task mismatch | key=%s level=%d target_level=%d task=%s detail=%s pos=%.2f, %.2f, %.2f",
+                            tostring(candidate.key or ""),
+                            mismatch_level,
+                            target_level,
+                            tostring(task_name or ""),
+                            tostring(task_detail or ""),
+                            tonumber(player_x) or 0,
+                            tonumber(player_y) or 0,
+                            tonumber(player_z) or 0
+                        ))
+                    end
+                end
+            end
+        end
         if inside_reason == "task_mismatch" and type(hooks.log_throttled) == "function" then
             hooks.log_throttled(ctx, "treasure_startup_recovery_task_mismatch_" .. tostring(candidate.key or ""), "info", 2500,
                 string.format(
@@ -1749,6 +1777,23 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
                 and not (target_level ~= nil and type(candidate_level) == "number" and candidate_level >= target_level)
             then
                 activate_cfg(ctx, main_state, candidate, hooks, player_x, player_y, player_z)
+                local startup_runtime = ensure_runtime_state(main_state)
+                transition_mode(
+                    ctx,
+                    hooks,
+                    candidate,
+                    startup_runtime,
+                    startup_runtime.route_loaded and "grinding" or "acquire_path",
+                    "startup_inside_recovery:" .. tostring(inside_reason or "")
+                )
+                startup_runtime.next_retry_at = current_time
+                startup_runtime.stage_deadline_at = current_time + math.max(5000, tonumber(candidate.transition_timeout_ms) or 15000)
+                startup_runtime.entry_step_index = 1
+                if type(hooks.clear_task_target_state) == "function" then
+                    hooks.clear_task_target_state()
+                end
+                clear_treasure_combat_kite(ctx, hooks, candidate, startup_runtime, "startup_inside_recovery")
+                log_refresh_block_clear(ctx, hooks, candidate, startup_runtime, "startup_inside_recovery", clear_mainline_refresh_block(main_state))
                 if type(hooks.log_info) == "function" then
                     hooks.log_info(ctx, string.format(
                         "[Treasure] startup inside recovery activated | key=%s reason=%s level=%s target_level=%s pos=%.2f, %.2f, %.2f",

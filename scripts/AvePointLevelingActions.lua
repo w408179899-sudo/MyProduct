@@ -292,11 +292,115 @@ local function contract_fixed_click(key, label, x, y, rx, ry, wait_after_ms)
     })
 end
 
+local function contract_point_entry_step(key, label, extra)
+    local step = M.make_maintenance_locator_step({
+        key = key,
+        label = label or "contract point entry",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Pet_C.WidgetTree.ServantEquipSlot.WidgetTree.ContractPointEntryBtn",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Pet_C.WidgetTree.ServantEquipSlot.WidgetTree.ContractPointEntryBtn"
+        },
+        hint_client_x = 273.851624,
+        hint_client_y = 220.836639,
+        hint_ratio_x = 0.190307,
+        hint_ratio_y = 0.245374,
+        hint_max_distance = 90,
+        wait_after_ms = 900
+    })
+    merge_into(step, extra)
+    return step
+end
+
+local function contract_auto_add_step(key, label, extra)
+    local step = M.make_maintenance_locator_step({
+        key = key,
+        label = label or "contract auto add",
+        distance_anchor_exact_text = "自动加点",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.ContractPoint_C.WidgetTree.AutoAddPointBtn",
+        distance_min = 5.235556,
+        distance_max = 6.235556,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.ContractPoint_C.WidgetTree.AutoAddPointBtn"
+        },
+        hint_client_x = 1263.539795,
+        hint_client_y = 829.802856,
+        hint_ratio_x = 0.878068,
+        hint_ratio_y = 0.922003,
+        hint_max_distance = 90,
+        wait_after_ms = 900
+    })
+    merge_into(step, extra)
+    return step
+end
+
+local function contract_point_back_step(key, label, extra)
+    local step = M.make_maintenance_locator_step({
+        key = key,
+        label = label or "contract point back",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.ContractPoint_C.WidgetTree.UITitleItem.WidgetTree.BackBtn",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.ContractPoint_C.WidgetTree.UITitleItem.WidgetTree.BackBtn"
+        },
+        hint_client_x = 23.411688,
+        hint_client_y = 39.000000,
+        hint_ratio_x = 0.016269,
+        hint_ratio_y = 0.043333,
+        hint_max_distance = 80,
+        wait_after_ms = 700
+    })
+    merge_into(step, extra)
+    return step
+end
+
+local function contract_pet_back_step(key, label, extra)
+    local step = M.make_maintenance_locator_step({
+        key = key,
+        label = label or "pet panel back",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Pet_C.WidgetTree.UITitleItem.WidgetTree.BackBtn",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Pet_C.WidgetTree.UITitleItem.WidgetTree.BackBtn"
+        },
+        hint_client_x = 23.411688,
+        hint_client_y = 39.000000,
+        hint_ratio_x = 0.016269,
+        hint_ratio_y = 0.043333,
+        hint_max_distance = 80,
+        wait_after_ms = 700
+    })
+    merge_into(step, extra)
+    return step
+end
+
 local function numbered_label(prefix, index)
     if prefix == nil then
         return nil
     end
     return tostring(prefix) .. tostring(index)
+end
+
+local function append_contract_auto_add_steps(steps, level, opts, key_suffix)
+    local prefix = "level_" .. tostring(level) .. "_contract_" .. tostring(key_suffix or "auto_add")
+    local label_prefix = tostring(level) .. "级契灵"
+    steps[#steps + 1] = contract_point_entry_step(
+        prefix .. "_entry",
+        label_prefix .. "契约点入口按钮",
+        opts.entry_extra
+    )
+    steps[#steps + 1] = contract_auto_add_step(
+        prefix .. "_auto_add",
+        label_prefix .. "自动加点按钮",
+        opts.auto_add_extra
+    )
+    steps[#steps + 1] = contract_point_back_step(
+        prefix .. "_contract_back",
+        label_prefix .. "契约点返回按钮",
+        opts.contract_back_extra or opts.back_extra
+    )
+    steps[#steps + 1] = contract_pet_back_step(
+        prefix .. "_pet_back",
+        label_prefix .. "契灵返回按钮",
+        opts.pet_back_extra or opts.back_extra
+    )
 end
 
 local function contract_plan_base(opts)
@@ -321,12 +425,9 @@ function M.make_contract_second_setup_plan(opts)
 
     plan.steps = {
         M.make_maintenance_open_menu_step("level_" .. level .. "_contract_open_menu", opts.open_menu_label, opts.open_menu_extra),
-        M.make_contract_panel_step("level_" .. level .. "_contract_open_panel", opts.open_panel_label, opts.open_panel_extra),
-        contract_fixed_click("level_" .. level .. "_contract_second_click_329_256", opts.first_click_label or numbered_label(opts.click_label_prefix, 1), 329.00, 256.00, 0.228631, 0.284444, 500),
-        contract_fixed_click("level_" .. level .. "_contract_second_click_1322_812", opts.second_click_label or numbered_label(opts.click_label_prefix, 2), 1322.00, 812.00, 0.918694, 0.902222, 700),
-        M.make_contract_back_click_step("level_" .. level .. "_contract_back_1", opts.back_label, opts.back_extra),
-        M.make_contract_back_click_step("level_" .. level .. "_contract_back_2", opts.back_label, opts.back_extra)
+        M.make_contract_panel_step("level_" .. level .. "_contract_open_panel", opts.open_panel_label, opts.open_panel_extra)
     }
+    append_contract_auto_add_steps(plan.steps, level, opts, "second")
     return plan
 end
 
@@ -348,12 +449,9 @@ function M.make_contract_initial_and_second_setup_plan(opts)
         M.make_contract_back_click_step("level_" .. level .. "_contract_back_first_1", opts.back_label, opts.back_extra),
         M.make_contract_back_click_step("level_" .. level .. "_contract_back_first_2", opts.back_label, opts.back_extra),
         M.make_maintenance_open_menu_step("level_" .. level .. "_contract_open_menu_second", opts.open_menu_label, opts.open_menu_extra),
-        M.make_contract_panel_step("level_" .. level .. "_contract_open_panel_second", opts.open_panel_label, opts.open_panel_extra),
-        contract_fixed_click("level_" .. level .. "_contract_second_click_329_256", opts.second_sequence_labels and opts.second_sequence_labels[1] or numbered_label(opts.click_label_prefix, 6), 329.00, 256.00, 0.228631, 0.284444, 500),
-        contract_fixed_click("level_" .. level .. "_contract_second_click_1322_812", opts.second_sequence_labels and opts.second_sequence_labels[2] or numbered_label(opts.click_label_prefix, 7), 1322.00, 812.00, 0.918694, 0.902222, 700),
-        M.make_contract_back_click_step("level_" .. level .. "_contract_back_second_1", opts.back_label, opts.back_extra),
-        M.make_contract_back_click_step("level_" .. level .. "_contract_back_second_2", opts.back_label, opts.back_extra)
+        M.make_contract_panel_step("level_" .. level .. "_contract_open_panel_second", opts.open_panel_label, opts.open_panel_extra)
     }
+    append_contract_auto_add_steps(plan.steps, level, opts, "second")
     return plan
 end
 
