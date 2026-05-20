@@ -1555,6 +1555,13 @@ local function reset_state()
     state.dialogue_jump_consumed_at = 0
     state.dialogue_jump_consumed_source = nil
     state.dialogue_jump_consumed_addr = 0
+    state.last_dialogue_completed_at = 0
+    state.last_dialogue_completed_task_name = nil
+    state.last_dialogue_completed_task_detail = nil
+    state.last_dialogue_completed_x = nil
+    state.last_dialogue_completed_y = nil
+    state.last_dialogue_completed_z = nil
+    state.last_dialogue_completed_origin = nil
     state.dialogue_jump_missing_started_at = 0
     state.dialogue_jump_missing_last_err = nil
     state.dialogue_interaction_reopen_key = nil
@@ -2146,6 +2153,54 @@ local function nav_api(ctx)
         return ctx.nav
     end
     return nav
+end
+
+function M.is_task_button_ready_for_escape_guard(ctx, snapshot, reason)
+    local ui = type(snapshot) == "table" and snapshot or nil
+    local enum_err = nil
+    if ui == nil then
+        local nav_mod = nav_api(ctx)
+        if type(nav_mod) ~= "table" or type(nav_mod.enum_ui) ~= "function" then
+            return false, "nav.enum_ui unavailable"
+        end
+        ui, enum_err = nav_mod.enum_ui()
+        if type(ui) ~= "table" then
+            return false, tostring(enum_err or "enum_ui failed")
+        end
+    end
+
+    local task_buttons = 0
+    local callable_task_buttons = 0
+    local samples = {}
+    local buttons = type(ui.buttons) == "table" and ui.buttons or {}
+    for _, item in ipairs(buttons) do
+        local identity = table.concat({
+            tostring(item and (item.Fullname or item.fullname) or ""),
+            tostring(item and item.name or "")
+        }, " "):lower()
+        if identity:find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil then
+            task_buttons = task_buttons + 1
+            local addr = tonumber(item and item.addr)
+            local x = tonumber(item and item.x)
+            local y = tonumber(item and item.y)
+            local has_visible_pos = x ~= nil and y ~= nil and not (math.abs(x) < 0.01 and math.abs(y) < 0.01)
+            if addr ~= nil and addr ~= 0 and has_visible_pos then
+                callable_task_buttons = callable_task_buttons + 1
+                if #samples < 3 then
+                    samples[#samples + 1] = string.format("addr=%s pos=(%.1f,%.1f)", tostring(addr), x, y)
+                end
+            end
+        end
+    end
+
+    local detail = string.format(
+        "reason=%s callable_task_buttons=%d task_buttons=%d samples=%s",
+        tostring(reason or ""),
+        callable_task_buttons,
+        task_buttons,
+        #samples > 0 and table.concat(samples, " | ") or ""
+    )
+    return callable_task_buttons > 0, detail
 end
 
 function M.nav_debug_state_text(ctx)
@@ -4956,18 +5011,89 @@ end
 function M.mark_dialogue_jump_consumed(ctx, current_time, target, source, interaction_origin)
     local consumed_at = tonumber(current_time) or now_ms(ctx)
     local target_addr = type(target) == "table" and tonumber(target.addr) or nil
+    local completed_point = nil
+    if is_valid_world_point(state.task_target) then
+        completed_point = state.task_target
+    elseif is_valid_world_point(state.task_pos) then
+        completed_point = state.task_pos
+    end
     state.dialogue_jump_consumed = true
     state.dialogue_jump_consumed_at = consumed_at
     state.dialogue_jump_consumed_source = tostring(source or "")
     state.dialogue_jump_consumed_addr = target_addr or 0
+    state.last_dialogue_completed_at = consumed_at
+    state.last_dialogue_completed_task_name = state.current_task_name
+    state.last_dialogue_completed_task_detail = state.current_task_detail
+    state.last_dialogue_completed_origin = tostring(interaction_origin or state.pending_interaction_origin or "")
+    if type(completed_point) == "table" then
+        state.last_dialogue_completed_x = tonumber(completed_point.x)
+        state.last_dialogue_completed_y = tonumber(completed_point.y)
+        state.last_dialogue_completed_z = tonumber(completed_point.z)
+    else
+        state.last_dialogue_completed_x = nil
+        state.last_dialogue_completed_y = nil
+        state.last_dialogue_completed_z = nil
+    end
     logger(ctx).info(string.format(
-        "[Leveling] dialogue jump consumed | task=%s origin=%s source=%s addr=%s at=%d",
+        "[Leveling] dialogue jump consumed | task=%s origin=%s source=%s addr=%s at=%d point=%s",
         tostring(state.current_task_name or ""),
         tostring(interaction_origin or state.pending_interaction_origin or ""),
         tostring(source or ""),
         tostring(target_addr or ""),
-        consumed_at
+        consumed_at,
+        type(completed_point) == "table" and M.format_world_point_for_log(completed_point) or "nil"
     ))
+end
+
+function M.is_recent_dialogue_completed_task_pos(current_time, candidate, task_name, task_detail, target_source)
+    current_time = tonumber(current_time) or now_ms(state.log_ctx)
+    local completed_at = tonumber(state.last_dialogue_completed_at) or 0
+    if completed_at <= 0 then
+        return false
+    end
+
+    local guard_ms = tonumber(M.RECENT_DIALOGUE_TASK_POS_GUARD_MS) or 45000
+    if current_time - completed_at > guard_ms then
+        return false
+    end
+    if tostring(target_source or "") ~= "task_pos" then
+        return false
+    end
+    if not is_valid_world_point(candidate) then
+        return false
+    end
+
+    local completed_x = tonumber(state.last_dialogue_completed_x)
+    local completed_y = tonumber(state.last_dialogue_completed_y)
+    if completed_x == nil or completed_y == nil then
+        return false
+    end
+
+    local old_task = M.normalize_task_title_key(state.last_dialogue_completed_task_name)
+    local new_task = M.normalize_task_title_key(task_name or state.current_task_name)
+    local old_detail = normalize_map_name(state.last_dialogue_completed_task_detail)
+    local new_detail = normalize_map_name(task_detail or state.current_task_detail)
+    local task_changed = old_task ~= nil and new_task ~= nil and old_task ~= new_task
+    local detail_changed = old_detail ~= nil and new_detail ~= nil and old_detail ~= new_detail
+    if not task_changed and not detail_changed then
+        return false
+    end
+
+    local distance = distance_2d(tonumber(candidate.x), tonumber(candidate.y), completed_x, completed_y)
+    local radius = tonumber(M.RECENT_DIALOGUE_TASK_POS_RADIUS) or 180
+    if type(distance) ~= "number" or distance > radius then
+        return false
+    end
+
+    return true, {
+        distance = distance,
+        completed_task = old_task or tostring(state.last_dialogue_completed_task_name or ""),
+        completed_detail = old_detail or tostring(state.last_dialogue_completed_task_detail or ""),
+        current_task = new_task or tostring(task_name or state.current_task_name or ""),
+        current_detail = new_detail or tostring(task_detail or state.current_task_detail or ""),
+        completed_at = completed_at,
+        guard_ms = guard_ms
+    }
 end
 
 function M.cache_dialogue_jump_button_target(ctx, target_like, current_time, source, step)
@@ -11725,7 +11851,18 @@ function M.maybe_handle_task_dialogue_flow(ctx, current_time)
         if flow.timeout_close_dialogue_and_refresh == true then
             release_async_combat_inputs(ctx, current_time, true)
             local close_ok, close_err = false, "disabled"
-            if type(press_keyboard_hotkey) == "function" then
+            local suppress_escape, suppress_detail = false, ""
+            if type(M.is_task_button_ready_for_escape_guard) == "function" then
+                suppress_escape, suppress_detail = M.is_task_button_ready_for_escape_guard(
+                    ctx,
+                    nil,
+                    "task dialogue flow timeout close"
+                )
+            end
+            if suppress_escape then
+                close_err = "ESC suppressed because task button is callable: " .. tostring(suppress_detail or "")
+                logger(ctx).info("[Leveling] task dialogue flow timeout ESC suppressed | " .. tostring(suppress_detail or ""))
+            elseif type(press_keyboard_hotkey) == "function" then
                 close_ok, close_err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "task dialogue flow timeout close")
             end
 

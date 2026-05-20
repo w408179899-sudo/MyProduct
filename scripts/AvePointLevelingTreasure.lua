@@ -3412,6 +3412,10 @@ end
 function M.should_suspend_task_refresh(main_state)
     local runtime = ensure_runtime_state(main_state)
     local mode = tostring(runtime.mode or "")
+    local active_key = trim(runtime.active_key or runtime.route_store_key or "")
+    if active_key == "" then
+        return false
+    end
     return mode ~= "" and mode ~= "inactive" and mode ~= "completed" and mode ~= "failed"
 end
 
@@ -3601,6 +3605,7 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                 record.completed = true
                 local save_ok, save_err = save_record(ctx, main_state, cfg)
                 runtime.last_save_err = save_ok and nil or save_err
+                transition_mode(ctx, hooks, cfg, runtime, "completed", "target_level_reached_before_entry")
                 runtime.pending_return_mainline = false
                 runtime.active_key = nil
                 runtime.task_match_confirmed = false

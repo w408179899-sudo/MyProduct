@@ -2886,9 +2886,19 @@ function M.maybe_handle_task_reached(
             or objective_mode == "task_objective_button"
         )
         or sticky_force_boss
+    local recent_dialogue_task_pos, recent_dialogue_meta = false, nil
+    if type(M.is_recent_dialogue_completed_task_pos) == "function" then
+        recent_dialogue_task_pos, recent_dialogue_meta = M.is_recent_dialogue_completed_task_pos(
+            current_time,
+            destination or target,
+            task_name or state.current_task_name,
+            task_detail,
+            target_source
+        )
+    end
 
     log_throttled(ctx, "task_reached_evaluate", "info", LOG_THROTTLE_MS, string.format(
-        "[Leveling] task reached evaluate | map=%s task=%s detail=%s task_cfg_source=%s source=%s goal_distance=%.2f destination_distance=%s objective_source=%s objective_key=%s objective_mode=%s force_boss=%s sticky_boss=%s skip_direct_interact=%s",
+        "[Leveling] task reached evaluate | map=%s task=%s detail=%s task_cfg_source=%s source=%s goal_distance=%.2f destination_distance=%s objective_source=%s objective_key=%s objective_mode=%s force_boss=%s sticky_boss=%s skip_direct_interact=%s recent_dialogue_task_pos=%s",
         tostring(map_name or ""),
         tostring(task_name or state.current_task_name or ""),
         tostring(task_detail or ""),
@@ -2901,7 +2911,8 @@ function M.maybe_handle_task_reached(
         objective_mode,
         force_boss_objective and "true" or "false",
         sticky_force_boss and "true" or "false",
-        skip_direct_interact and "true" or "false"
+        skip_direct_interact and "true" or "false",
+        recent_dialogue_task_pos and "true" or "false"
     ))
 
     local task_reached_intent = M.resolve_current_task_intent(ctx, current_time, player_x, player_y, player_z, {
@@ -3008,6 +3019,28 @@ function M.maybe_handle_task_reached(
     if not recent_combat_gate_active
         and M.maybe_handle_task_reached_prompt_or_portal(ctx, current_time, goal_distance, target_source, player_x, player_y)
     then
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    if recent_dialogue_task_pos then
+        state.task_reached_unresolved_since = 0
+        schedule_task_refresh_after_transition(ctx, current_time, "recent_dialogue_same_task_pos", TASK_BUTTON_SETTLE_MS, {
+            force_task_call = true,
+            task_pos_reject_extra_ms = 2500,
+            force_task_path_reacquire_ms = 7000
+        })
+        log_throttled(ctx, "recent_dialogue_same_task_pos", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] stale post-dialogue task_pos suppressed, refresh task path instead of reopening dialogue | old_task=%s old_detail=%s new_task=%s new_detail=%s target=%.2f, %.2f distance=%.2f age_ms=%d",
+            tostring(type(recent_dialogue_meta) == "table" and recent_dialogue_meta.completed_task or ""),
+            tostring(type(recent_dialogue_meta) == "table" and recent_dialogue_meta.completed_detail or ""),
+            tostring(type(recent_dialogue_meta) == "table" and recent_dialogue_meta.current_task or ""),
+            tostring(type(recent_dialogue_meta) == "table" and recent_dialogue_meta.current_detail or ""),
+            tonumber((destination or target).x) or 0,
+            tonumber((destination or target).y) or 0,
+            tonumber(type(recent_dialogue_meta) == "table" and recent_dialogue_meta.distance) or 0,
+            current_time - (tonumber(type(recent_dialogue_meta) == "table" and recent_dialogue_meta.completed_at) or current_time)
+        ))
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
@@ -4509,11 +4542,23 @@ function M.fail_level_up_maintenance_executor(ctx, current_time, err)
         and (tonumber(state.level_up_maintenance_executor_step_index) or 1) > 1
     then
         if not cleanup_clicked then
-            local ok, close_err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "level-up maintenance cleanup")
-            if not ok then
-                logger(ctx).warn("[Leveling] level-up maintenance cleanup ESC failed: " .. tostring(close_err or ""))
+            local suppress_escape, suppress_detail = false, ""
+            if type(M.is_task_button_ready_for_escape_guard) == "function" then
+                suppress_escape, suppress_detail = M.is_task_button_ready_for_escape_guard(
+                    ctx,
+                    nil,
+                    "level-up maintenance cleanup"
+                )
+            end
+            if suppress_escape then
+                logger(ctx).info("[Leveling] level-up maintenance cleanup ESC suppressed | " .. tostring(suppress_detail or ""))
             else
-                logger(ctx).info("[Leveling] level-up maintenance cleanup ESC pressed")
+                local ok, close_err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "level-up maintenance cleanup")
+                if not ok then
+                    logger(ctx).warn("[Leveling] level-up maintenance cleanup ESC failed: " .. tostring(close_err or ""))
+                else
+                    logger(ctx).info("[Leveling] level-up maintenance cleanup ESC pressed")
+                end
             end
         end
     end
@@ -4573,7 +4618,17 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
     if state.level_up_maintenance_executor_close_pending == true then
         local attempts = tonumber(state.level_up_maintenance_executor_close_attempts) or 0
         local ok, err = true, nil
-        if type(press_keyboard_hotkey) == "function" then
+        local suppress_escape, suppress_detail = false, ""
+        if type(M.is_task_button_ready_for_escape_guard) == "function" then
+            suppress_escape, suppress_detail = M.is_task_button_ready_for_escape_guard(
+                ctx,
+                nil,
+                "level-up maintenance close"
+            )
+        end
+        if suppress_escape then
+            logger(ctx).info("[Leveling] level-up maintenance close ESC suppressed | " .. tostring(suppress_detail or ""))
+        elseif type(press_keyboard_hotkey) == "function" then
             ok, err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "level-up maintenance close")
         end
         if ok then
@@ -8890,10 +8945,14 @@ schedule_task_refresh_after_transition = function(ctx, current_time, reason, wai
     if opts.force_task_call == true then
         local force_reason = "force_task_call_after_transition:" .. reason_text
         local reject_extra_ms = math.max(0, tonumber(opts.task_pos_reject_extra_ms) or 2500)
+        local configured_reacquire_ms = tonumber(opts.force_task_path_reacquire_ms)
+        local force_reacquire_ms = configured_reacquire_ms ~= nil
+            and math.max(TASK_BUTTON_SETTLE_MS + TASK_BUTTON_PATH_FETCH_TIMEOUT_MS, configured_reacquire_ms)
+            or math.max(18000, TASK_BUTTON_PATH_FETCH_TIMEOUT_MS * 3 + reject_extra_ms)
         state.require_task_button_refresh_reason = force_reason
         state.force_task_path_reacquire_until = math.max(
             tonumber(state.force_task_path_reacquire_until) or 0,
-            current_time + math.max(18000, TASK_BUTTON_PATH_FETCH_TIMEOUT_MS * 3 + reject_extra_ms)
+            current_time + force_reacquire_ms
         )
         state.force_task_path_reacquire_reason = force_reason
         state.force_task_path_reacquire_extra_ms = reject_extra_ms
@@ -11904,6 +11963,28 @@ end
                 or zero_ratio >= 0.50
             )
         if animation_like then
+            local suppress_escape, suppress_detail = false, ""
+            if type(M.is_task_button_ready_for_escape_guard) == "function" then
+                suppress_escape, suppress_detail = M.is_task_button_ready_for_escape_guard(
+                    ctx,
+                    ui_snapshot,
+                    "skip level sequence"
+                )
+            end
+            if suppress_escape then
+                log_throttled(ctx, "skip_level_sequence_escape_suppressed_task_ready", "info", 800, string.format(
+                    "[Leveling] level sequence skip ESC suppressed because task button is callable; continue main task call | skip_buttons=%d visible=%d zero=%d total=%d zero_ratio=%.2f task_zero=%d/%d detail=%s",
+                    ui_state.skip_buttons,
+                    ui_state.visible_buttons,
+                    ui_state.zero_buttons,
+                    ui_state.total_buttons,
+                    zero_ratio,
+                    ui_state.zero_task_buttons,
+                    ui_state.task_buttons,
+                    tostring(suppress_detail or "")
+                ))
+                return false, nil
+            end
             local retry_ms = math.max(800, tonumber(MAIN_TASK_BUTTON_STEP.sequence_skip_retry_ms) or 1200)
             state.next_task_button_click_at = current_time + retry_ms
             if type(hold_navigation) == "function" then

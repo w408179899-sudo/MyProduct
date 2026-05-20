@@ -9020,6 +9020,41 @@ M.TASK_NAME_CONFIGS = {
             constraint_mode = "all"
         }
     ),
+    ["坠星 / 击退伊吉王军，解放坠星集市"] = make_boss_kite_task_config(
+        "falling_star_liberate_market_route_kite",
+        {
+            trigger_distance = 1200,
+            immediate_kite_on_reached = true,
+            seamless_kite = true,
+            kite_switch_ms = 2000,
+            kite_arrive_distance = 420,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 3500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            ignore_terminal_text_change_when_objective_same = true,
+            kite_points = {
+                { x = -310.62, y = -643.57, z = 2017.94 },
+                { x = 912.80, y = -1200.78, z = 2028.81 },
+                { x = -271.99, y = -1793.04, z = 2015.48 }
+            }
+        },
+        {
+            task_patterns = {
+                "坠星"
+            },
+            task_detail_patterns = {
+                "击退伊吉王军，解放坠星集市"
+            },
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
+            },
+            constraint_mode = "all"
+        }
+    ),
     ["晚星待明 / 跟随艾丝梅拉达，前往营救晚星战俘"] = make_late_star_royal_encirclement_boss_task_config({
         detail_pattern = "跟随艾丝梅拉达，前往营救晚星战俘"
     }),
@@ -9323,10 +9358,11 @@ M.TASK_NAME_CONFIGS = {
                 fallback_interact = true
             }),
             kite_points = {
-                { x = 155.47, y = 2093.02, z = 1281.00 },
-                { x = 1450.77, y = 3179.78, z = 1281.00 },
-                { x = -452.57, y = 4007.07, z = 1281.00 },
-                { x = -800.64, y = 2554.34, z = 1281.00 }
+                { x = 587.00, y = 2682.00, z = 1281.00 },
+                { x = 319.00, y = 3083.00, z = 1281.00 },
+                { x = -81.00, y = 2730.00, z = 1281.00 },
+                { x = 129.00, y = 2337.00, z = 1281.00 },
+                { x = 601.00, y = 2363.00, z = 1281.00 }
             }
         },
         {
@@ -12169,7 +12205,7 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_npc_dialogue_route_action({
-        key = "late_star_talk_to_esmeralda_npc_-679_-735",
+        key = "late_star_talk_to_esmeralda_npc_395_-1730",
         label = "late_star_talk_to_esmeralda_npc",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
@@ -12184,16 +12220,16 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = -679.00,
-            y = -735.00,
-            z = 2009.27,
+            x = 395.00,
+            y = -1730.00,
+            z = 2020.00,
             radius = 1800,
             z_tolerance = 420
         },
         dialogue = {
-            x = -679.00,
-            y = -735.00,
-            z = 2009.27,
+            x = 395.00,
+            y = -1730.00,
+            z = 2020.00,
             radius = 320,
             interact_radius = 160,
             move_interval_ms = 220,
@@ -12808,7 +12844,7 @@ M.ROUTE_POINT_ACTIONS = {
         label = "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}_\u{7B2C}\u{56DB}\u{85CF}\u{5B9D}\u{5730}\u{5165}\u{53E3}\u{5F15}\u{5BFC}",
         mode = "recorded_route_point",
         skip_when_treasure_completed_key = "treasure_fourth_entry_5643_-530_v1",
-        skip_when_player_level_at_least = 60,
+        skip_when_player_level_at_least = 46,
         task_patterns = {
             "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}"
         },
@@ -12831,6 +12867,38 @@ M.ROUTE_POINT_ACTIONS = {
         reacquire_retry_ms = 1200,
         waypoints = {
             { x = 5642.69, y = -530.40, z = 503.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "abyss_below_level_46_lai_an_reacquire_5546_-583",
+        label = "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}_46\u{7EA7}_\u{7EE7}\u{7EED}\u{8FFD}\u{5BFB}\u{83B1}\u{5B89}_\u{5361}\u{70B9}\u{7EA0}\u{504F}",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
+        skip_when_player_level_at_least = 47,
+        task_patterns = {
+            "\u{6DF1}\u{6E0A}\u{4EE5}\u{4E0B}"
+        },
+        task_detail_patterns = {
+            "\u{7EE7}\u{7EED}\u{8FFD}\u{5BFB}\u{83B1}\u{5B89}\u{7684}\u{8E2A}\u{8FF9}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 5546.00,
+            y = -583.00,
+            z = 503.00,
+            radius = 420,
+            z_tolerance = 520
+        },
+        retry_ms = 600000,
+        timeout_ms = 25000,
+        waypoint_reach_radius = 120,
+        waypoint_z_tolerance = 520,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 5055.00, y = -246.00, z = 503.00 }
         }
     }),
     make_route_point_action({
@@ -14736,6 +14804,92 @@ M.ROUTE_POINT_ACTIONS = {
             hover_capture_client_top = 685.0,
             hover_capture_client_right = 745.0,
             hover_capture_client_bottom = 730.0,
+            hover_capture_retry_ms = 700,
+            settle_ms = 1800,
+            task_pos_reject_extra_ms = 3500
+        }
+    }),
+    make_route_point_action({
+        key = "eternal_sand_edge_land_route_-1983_4106",
+        label = "永夜鸣沙_探索边陲之地_固定路径到Gather",
+        mode = "recorded_route_point",
+        task_patterns = {
+            "永夜鸣沙"
+        },
+        task_detail_patterns = {
+            "探索边陲之地",
+            "沿途打听火种的下落"
+        },
+        constraint_mode = "all",
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "eternal_sand_edge_land_gather_-2681_4179",
+        trigger = {
+            x = -1983.25,
+            y = 4105.58,
+            z = 32.00,
+            radius = 700,
+            z_tolerance = 220
+        },
+        retry_ms = 600000,
+        timeout_ms = 90000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 220,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = -1983.25, y = 4105.58, z = 32.00 },
+            { x = -2342.64, y = 4697.89, z = 32.00 },
+            { x = -2985.04, y = 4253.98, z = 32.00 },
+            { x = -2681.46, y = 4179.09, z = 32.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "eternal_sand_edge_land_gather_-2681_4179",
+        label = "永夜鸣沙_探索边陲之地_终点Gather",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        task_patterns = {
+            "永夜鸣沙"
+        },
+        task_detail_patterns = {
+            "探索边陲之地",
+            "沿途打听火种的下落"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -2681.46,
+            y = 4179.09,
+            z = 32.00,
+            radius = 520,
+            z_tolerance = 220
+        },
+        interact_radius = 320,
+        probe_retry_ms = 700,
+        retry_ms = 2500,
+        settle_ms = 2200,
+        timeout_ms = 18000,
+        force_task_call_after_transition = false,
+        step = {
+            key = "eternal_sand_edge_land_gather_btn",
+            label = "边陲之地GatherBtn",
+            distance_anchor_exact_text = "阿瑞娅",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn",
+            distance_min = 137.437046,
+            distance_max = 142.437046,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn"
+            },
+            hint_client_x = 693.528564,
+            hint_client_y = 699.631531,
+            hint_ratio_x = 0.481617,
+            hint_ratio_y = 0.777368,
+            hint_max_distance = 80.000,
+            prefer_hint_fallback = true,
+            hover_capture_enabled = true,
+            hover_capture_client_left = 680.0,
+            hover_capture_client_top = 675.0,
+            hover_capture_client_right = 750.0,
+            hover_capture_client_bottom = 735.0,
             hover_capture_retry_ms = 700,
             settle_ms = 1800,
             task_pos_reject_extra_ms = 3500
