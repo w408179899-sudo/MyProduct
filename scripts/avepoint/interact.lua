@@ -532,7 +532,10 @@ local function resolve_step_target_by_image(step, opts, image_preset)
     local match_mode = "color"
     local match_threshold = threshold
 
-    if (not x or not y) and type(vision.to_gray) == "function" then
+    if (not x or not y)
+        and image_preset.allow_gray_fallback ~= false
+        and type(vision.to_gray) == "function"
+    then
         local gray_capture = vision.to_gray(capture)
         local gray_template = vision.to_gray(template)
         if gray_capture and gray_template then

@@ -1640,6 +1640,14 @@ local function startup_inside_recovery_match(ctx, cfg, hooks, current_time, play
     return true, match_reason
 end
 
+local function startup_level_gate_accepts_task_mismatch_reason(reason)
+    local value = tostring(reason or "")
+    return value == "inside_landing"
+        or value == "restart_landing"
+        or value == "inside_map_pattern"
+        or value == "map_name"
+end
+
 local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, current_time, player_x, player_y, player_z)
     if type(configs) ~= "table" then
         return nil
@@ -1705,7 +1713,7 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
         end
         if inside_reason == "task_mismatch"
             and candidate.startup_recovery_allow_task_mismatch_by_level_gate == true
-            and tostring(match_reason or "") == "inside_landing"
+            and startup_level_gate_accepts_task_mismatch_reason(match_reason)
         then
             local target_level = configured_target_level(candidate)
             local mismatch_level = nil

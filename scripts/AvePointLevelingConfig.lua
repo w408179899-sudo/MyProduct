@@ -189,6 +189,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                         click_center = false,
                         click_offset_x = 20,
                         click_offset_y = 0,
+                        allow_gray_fallback = false,
                         capture_set_foreground = true,
                         capture_foreground_delay_ms = 80
                     },
@@ -7120,6 +7121,11 @@ M.TREASURE_DUNGEON_CONFIGS = {
         route_store_key = "treasure_new_sprout_hill_entry_v2",
         target_level = 15,
         inside_detect_task_panel_text = false,
+        startup_recovery_wait_for_task_panel = true,
+        startup_recovery_activate_by_level_gate = true,
+        startup_recovery_allow_task_mismatch_by_level_gate = true,
+        startup_recovery_task_panel_wait_ms = 1800,
+        startup_recovery_task_panel_wait_cap_ms = 9000,
         task_patterns = {
             "\u{9F99}\u{9668}\u{4E4B}\u{91CE}",
             "\u{85CF}\u{5B9D}\u{5730}",
@@ -9088,16 +9094,38 @@ local function make_mountain_heart_dwarf_king_reentry_config()
         key = "mountain_heart_dwarf_king_endpoint_reentry_4529_13974",
         label = "群山之心_矮人王Boss重进房",
         anchor = {
-            x = 4529.50,
-            y = 13974.92,
-            z = 58.25,
+            x = 4526.00,
+            y = 13974.00,
+            z = 57.44,
             radius = 560
         },
         interact_distance = 280,
         retry_ms = 1200,
         settle_ms = 1400,
         timeout_ms = 20000,
-        post_transition_boss_engage_ms = 16000
+        post_transition_boss_engage_ms = 16000,
+        fallback_interact = true,
+        skip_post_revive_task_path_reacquire = true
+    })
+end
+
+local function make_plateau_dragonbone_beast_reentry_config()
+    return make_revive_reentry_config({
+        key = "plateau_dragonbone_beast_reentry_8069_23367",
+        label = "龙陨之野_地行异兽Boss重进房",
+        anchor = {
+            x = 8069.00,
+            y = 23367.00,
+            z = 5214.00,
+            radius = 560
+        },
+        interact_distance = 280,
+        retry_ms = 900,
+        settle_ms = 1000,
+        timeout_ms = 22000,
+        post_transition_boss_engage_ms = 18000,
+        fallback_interact = true,
+        skip_post_revive_task_path_reacquire = true
     })
 end
 
@@ -9505,7 +9533,8 @@ M.TASK_NAME_CONFIGS = {
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
-            ignore_terminal_text_change_when_objective_same = true
+            ignore_terminal_text_change_when_objective_same = true,
+            revive_reentry = make_plateau_dragonbone_beast_reentry_config()
         },
         {
             task_patterns = {
@@ -9533,7 +9562,8 @@ M.TASK_NAME_CONFIGS = {
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
-            ignore_terminal_text_change_when_objective_same = true
+            ignore_terminal_text_change_when_objective_same = true,
+            revive_reentry = make_plateau_dragonbone_beast_reentry_config()
         },
         {
             task_patterns = {
@@ -9552,7 +9582,8 @@ M.TASK_NAME_CONFIGS = {
             trigger_distance = 420,
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
-            generic_followup_require_no_special = true
+            generic_followup_require_no_special = true,
+            revive_reentry = make_plateau_dragonbone_beast_reentry_config()
         }
     ),
     ["\u{524D}\u{5F80}\u{5931}\u{843D}\u{77FF}\u{9053}\u{6DF1}\u{5904}"] = make_boss_kite_task_config(
@@ -11581,9 +11612,9 @@ M.COMMON_REVIVE_REENTRY_PORTALS = {
     {
         key = "mountain_heart_dwarf_king_reentry_portal_4529_13974",
         label = "群山之心矮人王复活进门",
-        x = 4529.50,
-        y = 13974.92,
-        z = 58.25,
+        x = 4526.00,
+        y = 13974.00,
+        z = 57.44,
         path_match_radius = 900,
         portal_match_radius = 1800,
         player_radius = 1400,
@@ -12679,8 +12710,10 @@ M.ROUTE_POINT_ACTIONS = {
             "群山之心"
         },
         task_detail_patterns = {
-            "聆听科里",
-            "矮人王"
+            "聆听科里"
+        },
+        exclude_task_detail_patterns = {
+            "击败矮人王多加尔"
         },
         constraint_mode = "all",
         trigger = {
@@ -16625,6 +16658,7 @@ M.OBJECTIVE_POINT_CONFIGS = {
         generic_followup_require_no_special = true,
         ignore_terminal_text_change_when_objective_same = true,
         allow_when_task_unknown = true,
+        revive_reentry = make_plateau_dragonbone_beast_reentry_config(),
         task_patterns = {
             "\u{9F99}\u{9668}\u{4E4B}\u{91CE}",
             "\u{4E3B}\u{7EBF} \u{9F99}\u{9668}\u{4E4B}\u{91CE}"

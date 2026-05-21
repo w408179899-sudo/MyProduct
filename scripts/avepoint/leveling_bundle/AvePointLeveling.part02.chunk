@@ -1846,6 +1846,40 @@ function M.click_window_client_point(ctx, current_time, label, ratio_x, ratio_y,
     return false, "window center click API is unavailable."
 end
 
+function M.click_current_mouse_position(ctx, current_time, label, opts)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    opts = type(opts) == "table" and opts or {}
+
+    release_async_combat_inputs(ctx, current_time, true)
+
+    local prepared, prepare_err = prepare_inputs(ctx, current_time, {
+        need_mouse = true
+    })
+    if not prepared then
+        return false, prepare_err or "mouse input prepare failed."
+    end
+
+    local mouse_api = select(2, input_apis(ctx))
+    if type(mouse_api) ~= "table" then
+        return false, "mouse api unavailable."
+    end
+
+    local click_button = tostring(opts.button or opts.click_button or "left")
+    local click_delay_ms = tonumber(opts.delay_ms or opts.click_delay_ms) or 50
+    if type(mouse_api.click) == "function" then
+        local ok, result = safe_call(mouse_api.click, click_button, click_delay_ms)
+        if ok and result ~= false then
+            logger(ctx).info(string.format(
+                "[Leveling] current mouse position clicked | label=%s route=mouse_click_current",
+                tostring(label or "")
+            ))
+            return true
+        end
+    end
+
+    return false, string.format("mouse.click(%s) failed.", click_button)
+end
+
 function M.task_entry_action_hotkey_vk(entry_action)
     if type(entry_action) ~= "table" then
         return nil
@@ -8764,17 +8798,22 @@ function M.maybe_click_common_revive_reentry_portal(ctx, current_time, player_x,
 end
 
 local function maybe_handle_map_specific_transition(ctx, current_time, player_x, player_y)
-    local common_clicked, common_defer = M.maybe_click_common_revive_reentry_portal(
-        ctx,
-        current_time,
-        player_x,
-        player_y
-    )
-    if common_clicked then
-        return true
-    end
-    if common_defer then
-        return false
+    local explicit_revive_reentry_active =
+        state.revive_reentry_pending == true
+        and type(state.revive_reentry_cfg) == "table"
+    if not explicit_revive_reentry_active then
+        local common_clicked, common_defer = M.maybe_click_common_revive_reentry_portal(
+            ctx,
+            current_time,
+            player_x,
+            player_y
+        )
+        if common_clicked then
+            return true
+        end
+        if common_defer then
+            return false
+        end
     end
 
     if state.revive_reentry_pending == true and type(state.revive_reentry_cfg) == "table" then
@@ -9537,10 +9576,16 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
     local boss_objective_active = (type(objective_cfg) == "table" and tostring(objective_cfg.mode or "") == "boss_kite")
         or state.task_combat_force_kite == true
         or type(revive_reentry_cfg) == "table"
+    local explicit_revive_reentry_handles_path =
+        type(revive_reentry_cfg) == "table"
+        and revive_reentry_cfg.skip_post_revive_task_path_reacquire == true
     local post_revive_force_task_path_reacquire =
-        three_point_kite_reentry
-        or (type(objective_cfg) == "table" and objective_cfg.post_revive_force_task_path_reacquire == true)
-        or (type(task_cfg) == "table" and task_cfg.post_revive_force_task_path_reacquire == true)
+        not explicit_revive_reentry_handles_path
+        and (
+            three_point_kite_reentry
+            or (type(objective_cfg) == "table" and objective_cfg.post_revive_force_task_path_reacquire == true)
+            or (type(task_cfg) == "table" and task_cfg.post_revive_force_task_path_reacquire == true)
+        )
 
     if three_point_kite_reentry and type(M.COMMON_REVIVE_REENTRY_PORTALS) == "table" and #M.COMMON_REVIVE_REENTRY_PORTALS > 0 then
         local timeout_ms = 45000
@@ -12241,16 +12286,13 @@ end
             if current_time >= esc_due then
                 state.skip_level_sequence_next_escape_at = current_time + math.max(1200, retry_ms)
                 local click_ok, click_err = false, nil
-                if type(M.click_window_client_point) == "function" then
-                    click_ok, click_err = M.click_window_client_point(ctx, current_time, "skip level sequence pre-esc click", 0.5, 0.5, {
-                        center_use_human_mouse = true,
-                        center_mouse_mode = "api",
-                        center_click_button = "left",
-                        center_click_delay_ms = 50,
-                        center_hover_delay_ms = 0
+                if type(M.click_current_mouse_position) == "function" then
+                    click_ok, click_err = M.click_current_mouse_position(ctx, current_time, "skip level sequence pre-esc click", {
+                        click_button = "left",
+                        click_delay_ms = 50
                     })
                 else
-                    click_err = "click_window_client_point unavailable"
+                    click_err = "click_current_mouse_position unavailable"
                 end
                 local ok, err = true, nil
                 if type(press_keyboard_hotkey) == "function" then
