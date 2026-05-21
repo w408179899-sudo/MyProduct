@@ -2945,27 +2945,6 @@ function M.maybe_handle_task_reached(
         return true
     end
 
-    if M.current_task_detail_completed_status_active(current_time, task_name or state.current_task_name) then
-        state.task_reached_unresolved_since = 0
-        M.clear_current_task_detail_completed_status()
-        schedule_task_refresh_after_transition(ctx, current_time, "task_detail_completed_status", TASK_BUTTON_SETTLE_MS, {
-            force_task_call = true,
-            task_pos_reject_extra_ms = 2500,
-            force_task_path_reacquire_ms = 7000,
-            previous_task_name = task_name or state.current_task_name,
-            previous_task_detail = task_detail,
-            task_info_change_observed = true
-        })
-        log_throttled(ctx, "task_detail_completed_status_refresh", "info", LOG_THROTTLE_MS, string.format(
-            "[Leveling] completed task-panel status consumed, refresh main task instead of reopening interaction | task=%s detail=%s source=%s",
-            tostring(task_name or state.current_task_name or ""),
-            tostring(task_detail or ""),
-            tostring(target_source or "")
-        ))
-        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-        return true
-    end
-
     if force_boss_objective
         and type(objective_cfg) == "table"
         and objective_cfg.immediate_kite_on_reached == true
@@ -3072,17 +3051,13 @@ function M.maybe_handle_task_reached(
         and type(player_z) == "number"
         and math.abs((tonumber(state.task_pos.z) or 0) - tonumber(player_z)) >= 300
     then
-        local task_pos_x = tonumber(state.task_pos.x) or 0
-        local task_pos_y = tonumber(state.task_pos.y) or 0
-        local task_pos_z = tonumber(state.task_pos.z) or 0
-        local task_pos_z_gap = math.abs(task_pos_z - tonumber(player_z))
         schedule_task_refresh_after_transition(ctx, current_time, "task_pos_vertical_mismatch", TASK_BUTTON_SETTLE_MS)
         log_throttled(ctx, "task_pos_vertical_mismatch", "info", LOG_THROTTLE_MS, string.format(
             "[Leveling] task objective appears completed/unreachable after map update, refresh next task | z_gap=%.2f target=%.2f, %.2f, %.2f",
-            task_pos_z_gap,
-            task_pos_x,
-            task_pos_y,
-            task_pos_z
+            math.abs((tonumber(state.task_pos.z) or 0) - tonumber(player_z)),
+            tonumber(state.task_pos.x) or 0,
+            tonumber(state.task_pos.y) or 0,
+            tonumber(state.task_pos.z) or 0
         ))
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
@@ -4435,6 +4410,229 @@ function M.level_up_maintenance_available_points(ctx, cfg, kind, step)
     return best.value, nil, best
 end
 
+function M.clear_level_up_maintenance_point_decrement_state()
+    state.level_up_maintenance_point_decrement_step_key = nil
+    state.level_up_maintenance_point_decrement_successes = nil
+    state.level_up_maintenance_point_decrement_attempts = nil
+    state.level_up_maintenance_point_decrement_verify_pending = nil
+    state.level_up_maintenance_point_decrement_verify_attempts = nil
+    state.level_up_maintenance_point_decrement_before = nil
+end
+
+function M.level_up_maintenance_step_requires_point_decrement(step)
+    if tostring(state.level_up_maintenance_executor_kind or "") ~= "talent" then
+        return false
+    end
+    if type(step) ~= "table" or step.verify_point_decrement == false then
+        return false
+    end
+    if step.verify_point_decrement == true then
+        return true
+    end
+    for _, pattern in ipairs(type(step.include_patterns) == "table" and step.include_patterns or {}) do
+        local text = tostring(pattern or "")
+        if text:find("TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn", 1, true) ~= nil
+            or text:find("TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray", 1, true) ~= nil
+        then
+            return true
+        end
+    end
+    return false
+end
+
+function M.advance_level_up_maintenance_verified_point_step(ctx, current_time, steps, index, step, desired_count, after_points, before_points, point_meta)
+    local successes = (tonumber(state.level_up_maintenance_point_decrement_successes) or 0) + 1
+    state.level_up_maintenance_point_decrement_successes = successes
+    state.level_up_maintenance_point_decrement_attempts = 0
+    state.level_up_maintenance_point_decrement_verify_pending = false
+    state.level_up_maintenance_point_decrement_verify_attempts = 0
+    logger(ctx).info(string.format(
+        "[Leveling] level-up maintenance talent point decrement confirmed | level=%s plan=%s step=%d/%d key=%s success=%d/%d before=%s after=%s text=%s",
+        tostring(state.level_up_maintenance_executor_level or ""),
+        tostring(state.level_up_maintenance_executor_plan_label or ""),
+        index,
+        #steps,
+        tostring(step.key or ""),
+        successes,
+        desired_count,
+        tostring(before_points),
+        tostring(after_points),
+        type(point_meta) == "table" and tostring(point_meta.text or "") or ""
+    ))
+    if successes >= desired_count then
+        M.clear_level_up_maintenance_point_decrement_state()
+        state.level_up_maintenance_executor_step_index = index + 1
+        local cfg = M.level_up_maintenance_config()
+        state.level_up_maintenance_executor_next_step_at = current_time
+            + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+    else
+        local retry_wait_ms = math.max(100, tonumber(step.point_decrement_success_wait_ms) or 180)
+        state.level_up_maintenance_executor_next_step_at = current_time + retry_wait_ms
+    end
+    return true
+end
+
+function M.progress_level_up_maintenance_point_decrement_step(ctx, current_time, steps, index, step)
+    local cfg = M.level_up_maintenance_config()
+    local step_key = table.concat({
+        tostring(state.level_up_maintenance_executor_plan_key or ""),
+        tostring(state.level_up_maintenance_executor_level or ""),
+        tostring(index),
+        tostring(step.key or "")
+    }, ":")
+    if tostring(state.level_up_maintenance_point_decrement_step_key or "") ~= step_key then
+        M.clear_level_up_maintenance_point_decrement_state()
+        state.level_up_maintenance_point_decrement_step_key = step_key
+    end
+
+    local desired_count = math.max(1, math.floor(tonumber(step.click_repeat_count or step.repeat_count) or 1))
+    local retry_count = math.max(1, math.floor(tonumber(step.point_decrement_retry_count) or tonumber(cfg.point_decrement_retry_count) or 10))
+    local retry_wait_ms = math.max(100, tonumber(step.point_decrement_retry_wait_ms) or tonumber(cfg.point_decrement_retry_wait_ms) or 250)
+    local verify_retry_count = math.max(1, math.floor(tonumber(step.point_decrement_verify_retry_count) or tonumber(cfg.point_decrement_verify_retry_count) or 8))
+    local verify_wait_ms = math.max(100, tonumber(step.point_decrement_verify_wait_ms) or tonumber(cfg.point_decrement_verify_wait_ms) or 220)
+
+    if state.level_up_maintenance_point_decrement_verify_pending == true then
+        local before_points = tonumber(state.level_up_maintenance_point_decrement_before)
+        local after_points, point_err, point_meta = M.level_up_maintenance_available_points(ctx, cfg, "talent", step)
+        if type(after_points) == "number" and before_points ~= nil and after_points <= before_points - 1 then
+            return M.advance_level_up_maintenance_verified_point_step(
+                ctx,
+                current_time,
+                steps,
+                index,
+                step,
+                desired_count,
+                after_points,
+                before_points,
+                point_meta
+            )
+        end
+
+        local verify_attempts = tonumber(state.level_up_maintenance_point_decrement_verify_attempts) or 0
+        if verify_attempts < verify_retry_count then
+            state.level_up_maintenance_point_decrement_verify_attempts = verify_attempts + 1
+            state.level_up_maintenance_executor_next_step_at = current_time + verify_wait_ms
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance waiting talent point decrement | level=%s plan=%s step=%d/%d key=%s verify=%d/%d before=%s after=%s err=%s",
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                index,
+                #steps,
+                tostring(step.key or ""),
+                verify_attempts + 1,
+                verify_retry_count,
+                tostring(before_points or ""),
+                tostring(after_points or ""),
+                tostring(point_err or "")
+            ))
+            return true
+        end
+
+        state.level_up_maintenance_point_decrement_verify_pending = false
+        state.level_up_maintenance_point_decrement_verify_attempts = 0
+    end
+
+    local before_points, point_err, point_meta = M.level_up_maintenance_available_points(ctx, cfg, "talent", step)
+    if type(before_points) ~= "number" then
+        local attempts = tonumber(state.level_up_maintenance_point_decrement_attempts) or 0
+        if attempts < retry_count then
+            state.level_up_maintenance_point_decrement_attempts = attempts + 1
+            state.level_up_maintenance_executor_next_step_at = current_time + retry_wait_ms
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance talent point read retry before click | level=%s plan=%s step=%d/%d key=%s attempts=%d/%d err=%s",
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                index,
+                #steps,
+                tostring(step.key or ""),
+                attempts + 1,
+                retry_count,
+                tostring(point_err or "")
+            ))
+            return true
+        end
+        return M.fail_level_up_maintenance_executor(ctx, current_time, "talent point read failed before click: " .. tostring(point_err or ""))
+    end
+
+    if before_points < 1 then
+        logger(ctx).info(string.format(
+            "[Leveling] level-up maintenance no talent points before activation; finish plan | level=%s plan=%s step=%d/%d key=%s points=%s text=%s",
+            tostring(state.level_up_maintenance_executor_level or ""),
+            tostring(state.level_up_maintenance_executor_plan_label or ""),
+            index,
+            #steps,
+            tostring(step.key or ""),
+            tostring(before_points),
+            type(point_meta) == "table" and tostring(point_meta.text or "") or ""
+        ))
+        return M.finish_level_up_maintenance_executor(ctx, current_time)
+    end
+
+    local target, fetch_err = fetch_locator_button_target(ctx, step)
+    if not target then
+        local attempts = tonumber(state.level_up_maintenance_point_decrement_attempts) or 0
+        if attempts < retry_count then
+            state.level_up_maintenance_point_decrement_attempts = attempts + 1
+            state.level_up_maintenance_executor_next_step_at = current_time + retry_wait_ms
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance talent activation target retry | level=%s plan=%s step=%d/%d key=%s attempts=%d/%d err=%s",
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                index,
+                #steps,
+                tostring(step.key or ""),
+                attempts + 1,
+                retry_count,
+                tostring(fetch_err or "")
+            ))
+            return true
+        end
+        return M.fail_level_up_maintenance_executor(ctx, current_time, "talent activation target fetch failed: " .. tostring(fetch_err or ""))
+    end
+
+    local clicked, click_err = click_locator_button_target(ctx, step, target)
+    if not clicked then
+        local attempts = tonumber(state.level_up_maintenance_point_decrement_attempts) or 0
+        if attempts < retry_count then
+            state.level_up_maintenance_point_decrement_attempts = attempts + 1
+            state.level_up_maintenance_executor_next_step_at = current_time + retry_wait_ms
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance talent activation click retry | level=%s plan=%s step=%d/%d key=%s attempts=%d/%d err=%s",
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                index,
+                #steps,
+                tostring(step.key or ""),
+                attempts + 1,
+                retry_count,
+                tostring(click_err or "")
+            ))
+            return true
+        end
+        return M.fail_level_up_maintenance_executor(ctx, current_time, "talent activation click failed: " .. tostring(click_err or ""))
+    end
+
+    logger(ctx).info(string.format(
+        "[Leveling] level-up maintenance talent activation clicked; awaiting point decrement | level=%s plan=%s step=%d/%d key=%s success=%d/%d before=%s addr=%s pos=(%s,%s)",
+        tostring(state.level_up_maintenance_executor_level or ""),
+        tostring(state.level_up_maintenance_executor_plan_label or ""),
+        index,
+        #steps,
+        tostring(step.key or ""),
+        tonumber(state.level_up_maintenance_point_decrement_successes) or 0,
+        desired_count,
+        tostring(before_points),
+        tostring(type(target) == "table" and target.addr or ""),
+        tostring(type(target) == "table" and target.x or ""),
+        tostring(type(target) == "table" and target.y or "")
+    ))
+    state.level_up_maintenance_point_decrement_verify_pending = true
+    state.level_up_maintenance_point_decrement_verify_attempts = 0
+    state.level_up_maintenance_point_decrement_before = before_points
+    state.level_up_maintenance_executor_next_step_at = current_time + verify_wait_ms
+    return true
+end
+
 function M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_executor_active = false
     state.level_up_maintenance_executor_started_at = nil
@@ -4450,19 +4648,7 @@ function M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_executor_close_pending = nil
     state.level_up_maintenance_executor_close_attempts = nil
     state.level_up_maintenance_executor_point_check_miss_count = nil
-    state.level_up_maintenance_executor_missing_target_step_index = nil
-    state.level_up_maintenance_executor_missing_target_retry_count = nil
-    state.level_up_maintenance_executor_talent_point_step_index = nil
-    state.level_up_maintenance_executor_talent_point_before = nil
-    state.level_up_maintenance_executor_talent_point_verified_drops = nil
-    state.level_up_maintenance_executor_talent_point_click_count = nil
-    state.level_up_maintenance_executor_talent_point_awaiting_verify = nil
-    state.level_up_maintenance_executor_talent_point_read_miss_count = nil
-end
-
-function M.clear_level_up_maintenance_missing_target_retry_state()
-    state.level_up_maintenance_executor_missing_target_step_index = nil
-    state.level_up_maintenance_executor_missing_target_retry_count = nil
+    M.clear_level_up_maintenance_point_decrement_state()
 end
 
 function M.try_click_level_up_maintenance_back_button(ctx, reason)
@@ -4551,66 +4737,13 @@ function M.start_level_up_maintenance_executor(ctx, current_time, plan_info)
     state.level_up_maintenance_executor_close_pending = false
     state.level_up_maintenance_executor_close_attempts = 0
     state.level_up_maintenance_executor_point_check_miss_count = 0
-    state.level_up_maintenance_executor_missing_target_step_index = nil
-    state.level_up_maintenance_executor_missing_target_retry_count = nil
+    M.clear_level_up_maintenance_point_decrement_state()
     logger(ctx).info(string.format(
         "[Leveling] level-up maintenance executor started | kind=%s level=%d plan=%s steps=%d",
         tostring(state.level_up_maintenance_executor_kind or ""),
         tonumber(state.level_up_maintenance_executor_level) or 0,
         tostring(state.level_up_maintenance_executor_plan_label or ""),
         #plan_info.steps
-    ))
-    return true
-end
-
-function M.retry_level_up_maintenance_missing_target(ctx, current_time, step, index, total_steps, fetch_err, context)
-    if type(step) ~= "table" then
-        return false
-    end
-    local cfg = M.level_up_maintenance_config()
-    local max_attempts = math.max(1, math.floor(
-        tonumber(step.missing_target_retry_count)
-            or tonumber(step.locator_missing_retry_count)
-            or tonumber(cfg.missing_target_retry_count)
-            or tonumber(cfg.locator_missing_retry_count)
-            or 1
-    ))
-    if max_attempts <= 1 then
-        return false
-    end
-    local wait_ms = math.max(0,
-        tonumber(step.missing_target_retry_wait_ms)
-            or tonumber(step.locator_missing_retry_wait_ms)
-            or tonumber(cfg.missing_target_retry_wait_ms)
-            or tonumber(cfg.locator_missing_retry_wait_ms)
-            or 100)
-    local previous_index = math.floor(tonumber(state.level_up_maintenance_executor_missing_target_step_index) or -1)
-    local previous_attempts = 0
-    if previous_index == index then
-        previous_attempts = math.max(0, math.floor(tonumber(state.level_up_maintenance_executor_missing_target_retry_count) or 0))
-    end
-    local attempt = previous_attempts + 1
-    state.level_up_maintenance_executor_missing_target_step_index = index
-    state.level_up_maintenance_executor_missing_target_retry_count = attempt
-    if attempt >= max_attempts then
-        M.clear_level_up_maintenance_missing_target_retry_state()
-        return false
-    end
-    state.level_up_maintenance_executor_next_step_at = current_time + wait_ms
-    logger(ctx).info(string.format(
-        "[Leveling] level-up maintenance target absent; retry | kind=%s level=%s plan=%s step=%d/%d key=%s label=%s attempt=%d/%d wait_ms=%d context=%s err=%s",
-        tostring(state.level_up_maintenance_executor_kind or ""),
-        tostring(state.level_up_maintenance_executor_level or ""),
-        tostring(state.level_up_maintenance_executor_plan_label or ""),
-        index,
-        total_steps,
-        tostring(step.key or ""),
-        tostring(step.label or ""),
-        attempt,
-        max_attempts,
-        wait_ms,
-        tostring(context or "locator"),
-        tostring(fetch_err or "")
     ))
     return true
 end
@@ -4694,271 +4827,6 @@ function M.finish_level_up_maintenance_executor(ctx, current_time)
             force_task_call = true
         })
     end
-    return true
-end
-
-function M.clear_level_up_maintenance_talent_point_verify_state()
-    state.level_up_maintenance_executor_talent_point_step_index = nil
-    state.level_up_maintenance_executor_talent_point_before = nil
-    state.level_up_maintenance_executor_talent_point_verified_drops = nil
-    state.level_up_maintenance_executor_talent_point_click_count = nil
-    state.level_up_maintenance_executor_talent_point_awaiting_verify = nil
-    state.level_up_maintenance_executor_talent_point_read_miss_count = nil
-end
-
-function M.level_up_maintenance_step_requires_talent_point_drop(step)
-    if type(step) ~= "table" then
-        return false
-    end
-    if step.verify_talent_point_drop == false then
-        return false
-    end
-    local cfg = M.level_up_maintenance_config()
-    if step.verify_talent_point_drop ~= true and cfg.talent_point_drop_verify_enabled == false then
-        return false
-    end
-    if step.verify_talent_point_drop == true then
-        return true
-    end
-    local kind = tostring(state.level_up_maintenance_executor_kind or "")
-    if kind ~= "talent" and kind ~= "talent_extra" then
-        return false
-    end
-
-    local needle = "TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
-    local function contains_active_button(value)
-        return tostring(value or ""):find(needle, 1, true) ~= nil
-    end
-    if contains_active_button(step.distance_button_name)
-        or contains_active_button(step.button_name)
-        or contains_active_button(step.name)
-    then
-        return true
-    end
-    for _, pattern in ipairs(type(step.include_patterns) == "table" and step.include_patterns or {}) do
-        if contains_active_button(pattern) then
-            return true
-        end
-    end
-    return false
-end
-
-function M.handle_level_up_maintenance_talent_point_drop_step(ctx, current_time, step, index, total_steps)
-    local cfg = M.level_up_maintenance_config()
-    current_time = tonumber(current_time) or now_ms(ctx)
-    local required_drops = math.max(1, math.floor(
-        tonumber(step.point_drop_count)
-            or tonumber(step.click_repeat_count or step.repeat_count)
-            or 1
-    ))
-    local max_clicks = math.max(1, math.floor(
-        tonumber(step.point_drop_verify_max_clicks)
-            or tonumber(cfg.talent_point_drop_verify_max_clicks)
-            or 5
-    ))
-    local verify_wait_ms = math.max(100,
-        tonumber(step.point_drop_verify_wait_ms)
-            or tonumber(cfg.talent_point_drop_verify_wait_ms)
-            or 450)
-    local retry_wait_ms = math.max(100,
-        tonumber(step.point_drop_verify_retry_wait_ms)
-            or tonumber(cfg.talent_point_drop_verify_retry_wait_ms)
-            or 350)
-    local read_retries = math.max(0, math.floor(
-        tonumber(step.point_drop_verify_read_retries)
-            or tonumber(cfg.talent_point_drop_verify_read_retries)
-            or 3
-    ))
-
-    if math.floor(tonumber(state.level_up_maintenance_executor_talent_point_step_index) or -1) ~= index then
-        M.clear_level_up_maintenance_talent_point_verify_state()
-        state.level_up_maintenance_executor_talent_point_step_index = index
-        state.level_up_maintenance_executor_talent_point_verified_drops = 0
-        state.level_up_maintenance_executor_talent_point_click_count = 0
-        state.level_up_maintenance_executor_talent_point_read_miss_count = 0
-    end
-
-    local verified_drops = math.max(0, math.floor(tonumber(state.level_up_maintenance_executor_talent_point_verified_drops) or 0))
-    local before_points = tonumber(state.level_up_maintenance_executor_talent_point_before)
-    local click_count = math.max(0, math.floor(tonumber(state.level_up_maintenance_executor_talent_point_click_count) or 0))
-    local awaiting_verify = state.level_up_maintenance_executor_talent_point_awaiting_verify == true
-
-    local function read_points()
-        local points, point_err, point_meta = M.level_up_maintenance_available_points(ctx, cfg, "talent", step)
-        return points, point_err, point_meta
-    end
-
-    if before_points == nil then
-        local points, point_err, point_meta = read_points()
-        if type(points) ~= "number" then
-            local misses = math.max(0, math.floor(tonumber(state.level_up_maintenance_executor_talent_point_read_miss_count) or 0))
-            if misses < read_retries then
-                state.level_up_maintenance_executor_talent_point_read_miss_count = misses + 1
-                state.level_up_maintenance_executor_next_step_at = current_time + retry_wait_ms
-                logger(ctx).info(string.format(
-                    "[Leveling] talent point drop baseline retry | level=%s plan=%s step=%d/%d key=%s retry=%d/%d err=%s",
-                    tostring(state.level_up_maintenance_executor_level or ""),
-                    tostring(state.level_up_maintenance_executor_plan_label or ""),
-                    index,
-                    total_steps,
-                    tostring(step.key or ""),
-                    misses + 1,
-                    read_retries,
-                    tostring(point_err or "")
-                ))
-                return true
-            end
-            return M.fail_level_up_maintenance_executor(ctx, current_time, "talent point baseline failed: " .. tostring(point_err or ""))
-        end
-        if points <= 0 then
-            return M.fail_level_up_maintenance_executor(ctx, current_time, "talent point baseline is zero before activation")
-        end
-        state.level_up_maintenance_executor_talent_point_before = points
-        state.level_up_maintenance_executor_talent_point_read_miss_count = 0
-        before_points = points
-        logger(ctx).info(string.format(
-            "[Leveling] talent point drop baseline | level=%s plan=%s step=%d/%d key=%s drop=%d/%d points=%s text=%s pos=(%s,%s)",
-            tostring(state.level_up_maintenance_executor_level or ""),
-            tostring(state.level_up_maintenance_executor_plan_label or ""),
-            index,
-            total_steps,
-            tostring(step.key or ""),
-            verified_drops + 1,
-            required_drops,
-            tostring(points),
-            type(point_meta) == "table" and tostring(point_meta.text or "") or "",
-            type(point_meta) == "table" and tostring(point_meta.x or "") or "",
-            type(point_meta) == "table" and tostring(point_meta.y or "") or ""
-        ))
-    end
-
-    if awaiting_verify then
-        local points, point_err, point_meta = read_points()
-        if type(points) ~= "number" then
-            local misses = math.max(0, math.floor(tonumber(state.level_up_maintenance_executor_talent_point_read_miss_count) or 0))
-            if misses < read_retries then
-                state.level_up_maintenance_executor_talent_point_read_miss_count = misses + 1
-                state.level_up_maintenance_executor_next_step_at = current_time + retry_wait_ms
-                logger(ctx).info(string.format(
-                    "[Leveling] talent point drop verify retry | level=%s plan=%s step=%d/%d key=%s drop=%d/%d retry=%d/%d err=%s",
-                    tostring(state.level_up_maintenance_executor_level or ""),
-                    tostring(state.level_up_maintenance_executor_plan_label or ""),
-                    index,
-                    total_steps,
-                    tostring(step.key or ""),
-                    verified_drops + 1,
-                    required_drops,
-                    misses + 1,
-                    read_retries,
-                    tostring(point_err or "")
-                ))
-                return true
-            end
-            return M.fail_level_up_maintenance_executor(ctx, current_time, "talent point verify failed: " .. tostring(point_err or ""))
-        end
-
-        state.level_up_maintenance_executor_talent_point_read_miss_count = 0
-        if points <= before_points - 1 then
-            verified_drops = verified_drops + 1
-            logger(ctx).info(string.format(
-                "[Leveling] talent point drop verified | level=%s plan=%s step=%d/%d key=%s drop=%d/%d before=%s after=%s clicks=%d text=%s pos=(%s,%s)",
-                tostring(state.level_up_maintenance_executor_level or ""),
-                tostring(state.level_up_maintenance_executor_plan_label or ""),
-                index,
-                total_steps,
-                tostring(step.key or ""),
-                verified_drops,
-                required_drops,
-                tostring(before_points),
-                tostring(points),
-                click_count,
-                type(point_meta) == "table" and tostring(point_meta.text or "") or "",
-                type(point_meta) == "table" and tostring(point_meta.x or "") or "",
-                type(point_meta) == "table" and tostring(point_meta.y or "") or ""
-            ))
-            if verified_drops >= required_drops then
-                M.clear_level_up_maintenance_talent_point_verify_state()
-                state.level_up_maintenance_executor_step_index = index + 1
-                state.level_up_maintenance_executor_next_step_at = current_time
-                    + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
-                return true
-            end
-            state.level_up_maintenance_executor_talent_point_verified_drops = verified_drops
-            state.level_up_maintenance_executor_talent_point_before = points
-            state.level_up_maintenance_executor_talent_point_click_count = 0
-            state.level_up_maintenance_executor_talent_point_awaiting_verify = false
-            state.level_up_maintenance_executor_next_step_at = current_time
-                + math.max(0, tonumber(step.click_repeat_interval_ms or step.repeat_interval_ms) or 120)
-            return true
-        end
-
-        if click_count >= max_clicks then
-            return M.fail_level_up_maintenance_executor(ctx, current_time, string.format(
-                "talent point did not decrease after %d click(s): before=%s after=%s",
-                click_count,
-                tostring(before_points),
-                tostring(points)
-            ))
-        end
-        state.level_up_maintenance_executor_talent_point_awaiting_verify = false
-        logger(ctx).info(string.format(
-            "[Leveling] talent point drop not changed; retry click | level=%s plan=%s step=%d/%d key=%s drop=%d/%d before=%s after=%s click=%d/%d",
-            tostring(state.level_up_maintenance_executor_level or ""),
-            tostring(state.level_up_maintenance_executor_plan_label or ""),
-            index,
-            total_steps,
-            tostring(step.key or ""),
-            verified_drops + 1,
-            required_drops,
-            tostring(before_points),
-            tostring(points),
-            click_count,
-            max_clicks
-        ))
-    end
-
-    local target, fetch_err = fetch_locator_button_target(ctx, step)
-    if not target then
-        if M.retry_level_up_maintenance_missing_target(
-            ctx,
-            current_time,
-            step,
-            index,
-            total_steps,
-            fetch_err,
-            "talent_activation"
-        ) then
-            return true
-        end
-        return M.fail_level_up_maintenance_executor(ctx, current_time, "talent activation fetch failed: " .. tostring(fetch_err or ""))
-    end
-    M.clear_level_up_maintenance_missing_target_retry_state()
-    local clicked, click_err = click_locator_button_target(ctx, step, target)
-    if not clicked then
-        return M.fail_level_up_maintenance_executor(ctx, current_time, "talent activation click failed: " .. tostring(click_err or ""))
-    end
-    click_count = click_count + 1
-    state.level_up_maintenance_executor_talent_point_click_count = click_count
-    state.level_up_maintenance_executor_talent_point_awaiting_verify = true
-    state.level_up_maintenance_executor_talent_point_read_miss_count = 0
-    state.level_up_maintenance_executor_next_step_at = current_time + verify_wait_ms
-    logger(ctx).info(string.format(
-        "[Leveling] talent activation click issued; waiting point drop | level=%s plan=%s step=%d/%d key=%s label=%s drop=%d/%d click=%d/%d before=%s addr=%s pos=(%s,%s)",
-        tostring(state.level_up_maintenance_executor_level or ""),
-        tostring(state.level_up_maintenance_executor_plan_label or ""),
-        index,
-        total_steps,
-        tostring(step.key or ""),
-        tostring(step.label or ""),
-        verified_drops + 1,
-        required_drops,
-        click_count,
-        max_clicks,
-        tostring(before_points),
-        tostring(type(target) == "table" and target.addr or ""),
-        tostring(type(target) == "table" and target.x or ""),
-        tostring(type(target) == "table" and target.y or "")
-    ))
     return true
 end
 
@@ -5337,8 +5205,8 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         return true
     end
 
-    if M.level_up_maintenance_step_requires_talent_point_drop(step) then
-        return M.handle_level_up_maintenance_talent_point_drop_step(ctx, current_time, step, index, #steps)
+    if M.level_up_maintenance_step_requires_point_decrement(step) then
+        return M.progress_level_up_maintenance_point_decrement_step(ctx, current_time, steps, index, step)
     end
 
     local target, fetch_err = fetch_locator_button_target(ctx, step)
@@ -5412,21 +5280,8 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
                 + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
             return true
         end
-        if M.retry_level_up_maintenance_missing_target(
-            ctx,
-            current_time,
-            step,
-            index,
-            #steps,
-            fetch_err,
-            "locator"
-        ) then
-            return true
-        end
         return M.fail_level_up_maintenance_executor(ctx, current_time, "fetch failed: " .. tostring(fetch_err or ""))
     end
-    M.clear_level_up_maintenance_missing_target_retry_state()
-
     local repeat_count = math.max(1, math.floor(tonumber(step.click_repeat_count or step.repeat_count) or 1))
     local repeat_interval_ms = math.max(0, tonumber(step.click_repeat_interval_ms or step.repeat_interval_ms) or 120)
     for repeat_index = 1, repeat_count do
@@ -10291,29 +10146,6 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         local raw_detail = trim(type(entry) == "table" and entry.detail or "")
         local next_detail = raw_detail
         local detail_source = tostring(source or "task_panel")
-        if M.is_task_detail_completed_status(raw_detail) then
-            M.mark_current_task_detail_completed_status(
-                current_time,
-                preferred_task_name or state.current_task_name,
-                raw_detail,
-                detail_source
-            )
-            state.current_task_detail = nil
-            state.current_task_detail_source = detail_source .. "_completed_status"
-            state.current_task_detail_updated_at = current_time
-            _G.AVEPOINT_LAST_TASK_DETAIL = nil
-            M.publish_current_task_name()
-            log_throttled(ctx, "task_detail_completed_status_observed", "info", LOG_THROTTLE_MS, string.format(
-                "[Leveling] task detail completed status observed; suppress nearby-detail recovery | task=%s raw_detail=%s source=%s",
-                tostring(state.current_task_name or preferred_task_name or ""),
-                tostring(raw_detail or ""),
-                tostring(source or "task_panel")
-            ))
-            return
-        end
-        if (tonumber(state.current_task_detail_completed_status_at) or 0) > 0 then
-            M.clear_current_task_detail_completed_status()
-        end
         if M.is_task_detail_noise(next_detail) then
             local recovered_detail, recovered_score, recovered_dx, recovered_dy = find_nearby_subtask_detail(preferred_task_name, raw_detail)
             if recovered_detail ~= nil then
@@ -12198,66 +12030,6 @@ function M.click_treasure_task_panel_entry_with_cache(ctx, query)
     return ok, item_or_err
 end
 
-function M.main_task_click_interaction_lock_reason(current_time, opts)
-    opts = type(opts) == "table" and opts or {}
-    if opts.allow_during_interaction == true then
-        return nil
-    end
-
-    current_time = tonumber(current_time) or 0
-
-    local pending_origin = trim(state.pending_interaction_origin)
-    if pending_origin ~= "" then
-        return "pending_interaction:" .. pending_origin
-    end
-
-    local interaction_guard_key = trim(state.interaction_combat_guard_key)
-    if interaction_guard_key ~= "" then
-        return "interaction_guard:" .. interaction_guard_key
-    end
-
-    local jump_window_origin = trim(state.dialogue_jump_window_origin)
-    if jump_window_origin ~= ""
-        and current_time < (tonumber(state.dialogue_jump_window_until) or 0)
-    then
-        return "dialogue_jump_window:" .. jump_window_origin
-    end
-
-    if state.dialogue_ui_confirmed == true then
-        local match = trim(state.dialogue_ui_match)
-        return match ~= "" and ("dialogue_ui:" .. match) or "dialogue_ui"
-    end
-
-    local task_dialogue_key = trim(state.task_dialogue_flow_key)
-    if task_dialogue_key ~= "" then
-        return "task_dialogue_flow:" .. task_dialogue_key
-    end
-
-    local post_dialogue_key = trim(state.post_dialogue_flow_key)
-    if post_dialogue_key ~= "" then
-        return "post_dialogue_flow:" .. post_dialogue_key
-    end
-
-    if type(state.task_entry_action_locked_cfg) == "table" then
-        local entry_key = trim(state.task_entry_action_locked_key)
-        return entry_key ~= "" and ("task_entry_action:" .. entry_key) or "task_entry_action"
-    end
-
-    for _, key in ipairs({
-        state.route_point_action_active_key,
-        state.route_point_action_dialogue_active_key,
-        state.route_point_action_objective_active_key,
-        state.route_point_action_route_active_key
-    }) do
-        local route_key = trim(key)
-        if route_key ~= "" then
-            return "route_point_action:" .. route_key
-        end
-    end
-
-    return nil
-end
-
 click_main_task_button = function(ctx, current_time, opts)
     opts = opts or {}
     local preserve_target = opts.preserve_target == true
@@ -12285,45 +12057,7 @@ click_main_task_button = function(ctx, current_time, opts)
     add_explicit_panel_query(opts.panel_query)
     if M.should_suspend_treasure_task_refresh() then
         return false, "treasure dungeon suppresses main task refresh."
-    end
-    if trim(state.pending_interaction_origin) ~= ""
-        and type(M.pending_interaction_task_changed) == "function"
-    then
-        local task_changed, pending_task, pending_detail, current_task, current_detail =
-            M.pending_interaction_task_changed()
-        if task_changed then
-            local pending_origin = tostring(state.pending_interaction_origin or "")
-            clear_pending_interaction()
-            if type(M.clear_interaction_combat_guard) == "function" then
-                M.clear_interaction_combat_guard()
-            end
-            logger(ctx).info(string.format(
-                "[Leveling] stale pending interaction released before main task click | origin=%s old_task=%s old_detail=%s new_task=%s new_detail=%s",
-                pending_origin,
-                tostring(pending_task or ""),
-                tostring(pending_detail or ""),
-                tostring(current_task or ""),
-                tostring(current_detail or "")
-            ))
-        end
-    end
-    local interaction_lock_reason = M.main_task_click_interaction_lock_reason(current_time, opts)
-    if interaction_lock_reason ~= nil then
-        local retry_ms = math.max(250, tonumber(opts.interaction_lock_retry_ms) or 800)
-        state.next_task_button_click_at = math.max(
-            tonumber(state.next_task_button_click_at) or 0,
-            (tonumber(current_time) or now_ms(ctx)) + retry_ms
-        )
-        log_throttled(ctx, "main_task_click_interaction_locked", "info", 800, string.format(
-            "[Leveling] main task click suppressed by active interaction | stage=%s reason=%s task=%s detail=%s retry_ms=%d",
-            tostring(state.stage or ""),
-            tostring(interaction_lock_reason or ""),
-            tostring(M.current_task_log_name() or state.current_task_name or ""),
-            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
-            retry_ms
-        ))
-        return false, "main task click suppressed by active interaction: " .. tostring(interaction_lock_reason)
-    end
+end
     if current_time < (tonumber(state.next_task_button_click_at) or 0) then
         return false, "task button click cooldown."
     end

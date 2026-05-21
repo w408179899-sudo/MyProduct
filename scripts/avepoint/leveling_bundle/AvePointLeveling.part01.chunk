@@ -769,11 +769,6 @@ function M.is_task_detail_noise(value)
     return text == "新" or text == "完成"
 end
 
-function M.is_task_detail_completed_status(value)
-    local text = trim(tostring(value or ""))
-    return text == "\229\174\140\230\136\144" or text == "\229\183\178\229\174\140\230\136\144"
-end
-
 function M.is_task_detail_transition(value)
     local text = trim(tostring(value or ""))
     return text == "新" or text == "完成"
@@ -841,49 +836,6 @@ function M.current_task_log_detail()
     end
     return task_detail
 end
-
-function M.mark_current_task_detail_completed_status(current_time, task_name, raw_detail, source)
-    state.current_task_detail_completed_status = trim(tostring(raw_detail or ""))
-    state.current_task_detail_completed_status_task_name = task_name
-    state.current_task_detail_completed_status_source = tostring(source or "")
-    state.current_task_detail_completed_status_at = tonumber(current_time) or 0
-end
-
-function M.clear_current_task_detail_completed_status()
-    state.current_task_detail_completed_status = nil
-    state.current_task_detail_completed_status_task_name = nil
-    state.current_task_detail_completed_status_source = nil
-    state.current_task_detail_completed_status_at = 0
-end
-
-function M.current_task_detail_completed_status_active(current_time, task_name)
-    local observed_at = tonumber(state.current_task_detail_completed_status_at) or 0
-    if observed_at <= 0 then
-        return false
-    end
-    current_time = tonumber(current_time) or 0
-    if current_time - observed_at > 8000 then
-        M.clear_current_task_detail_completed_status()
-        return false
-    end
-
-    local observed_task = trim(tostring(state.current_task_detail_completed_status_task_name or ""))
-    local expected_task = trim(tostring(task_name or state.current_task_name or ""))
-    if observed_task ~= "" and expected_task ~= "" then
-        local observed_key = type(M.normalize_task_title_key) == "function"
-            and M.normalize_task_title_key(observed_task)
-            or normalize_map_name(observed_task)
-        local expected_key = type(M.normalize_task_title_key) == "function"
-            and M.normalize_task_title_key(expected_task)
-            or normalize_map_name(expected_task)
-        if observed_key ~= nil and expected_key ~= nil and observed_key ~= expected_key then
-            return false
-        end
-    end
-
-    return true
-end
-
 local now_ms
 local log_heartbeat
 local clear_task_combat_state
@@ -1681,10 +1633,6 @@ local function reset_state()
     state.current_task_detail_source = nil
     state.current_task_name_updated_at = 0
     state.current_task_detail_updated_at = 0
-    state.current_task_detail_completed_status = nil
-    state.current_task_detail_completed_status_task_name = nil
-    state.current_task_detail_completed_status_source = nil
-    state.current_task_detail_completed_status_at = 0
     state.last_task_panel_task_name = nil
     state.last_task_panel_task_detail = nil
     state.last_task_panel_updated_at = 0
@@ -1921,6 +1869,12 @@ local function reset_state()
     state.level_up_maintenance_executor_close_pending = nil
     state.level_up_maintenance_executor_close_attempts = nil
     state.level_up_maintenance_executor_point_check_miss_count = nil
+    state.level_up_maintenance_point_decrement_step_key = nil
+    state.level_up_maintenance_point_decrement_successes = nil
+    state.level_up_maintenance_point_decrement_attempts = nil
+    state.level_up_maintenance_point_decrement_verify_pending = nil
+    state.level_up_maintenance_point_decrement_verify_attempts = nil
+    state.level_up_maintenance_point_decrement_before = nil
     state.auto_equip_next_scan_at = 0
     state.auto_equip_safe_since = 0
     state.auto_equip_last_block_reason = nil

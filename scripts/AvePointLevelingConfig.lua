@@ -103,13 +103,6 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     allow_position_available_without_main_interface = true,
     step_wait_ms = 650,
     retry_ms = 5000,
-    missing_target_retry_count = 20,
-    missing_target_retry_wait_ms = 100,
-    talent_point_drop_verify_enabled = true,
-    talent_point_drop_verify_wait_ms = 450,
-    talent_point_drop_verify_retry_wait_ms = 350,
-    talent_point_drop_verify_max_clicks = 5,
-    talent_point_drop_verify_read_retries = 3,
     available_point_probe = {
         min_value = 1,
         min_x = 1180,
@@ -777,7 +770,6 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
     trigger_after_post_combat_loot = true,
     priority_over_level_up = true,
     periodic_scan_enabled = false,
-    hard_mount_after_loot_chain = true,
     after_loot_timeout_ms = 30000,
     scan_interval_ms = 45000,
     retry_ms = 12000,
@@ -923,7 +915,6 @@ M.EQUIP_RECYCLE_MAINTENANCE_CONFIG = {
     execute_ui = true,
     trigger_after_auto_equip = true,
     priority_over_level_up = true,
-    hard_mount_after_auto_equip_chain = true,
     after_auto_equip_timeout_ms = 12000,
     open_bag_key_vk = 0x42,
     close_bag_key_vk = 0x42,
@@ -4574,8 +4565,6 @@ do
         end
     end
 
-    -- Disabled for now: level 6 "复苏战吼" add/install sequence.
-    --[[
     level_6_steps[#level_6_steps + 1] = {
         key = "level_6_open_fast_entrance_menu_after_skill_image",
         label = "技能天赋菜单按钮",
@@ -4701,7 +4690,6 @@ do
         hint_max_distance = 90,
         wait_after_ms = 500
     }
-    ]]
 
     level_6_skill_plan.steps = level_6_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[6] = level_6_skill_plan
