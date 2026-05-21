@@ -5422,6 +5422,14 @@ function M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player
         M.level_up_maintenance_clear_pending_if_done(ctx)
         return false
     end
+    if tostring(state.level_up_maintenance_last_observe_error or ""):find("player level text not found", 1, true) ~= nil then
+        log_throttled(ctx, "level_up_maintenance_wait_level_text", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] level-up maintenance pending, waiting player level text before executor | err=%s %s",
+            tostring(state.level_up_maintenance_last_observe_error or ""),
+            M.level_up_maintenance_pending_summary()
+        ))
+        return false
+    end
     local next_plan = type(next_plan_info) == "table" and type(next_plan_info.plan) == "table" and next_plan_info.plan or nil
     local default_skill_nonblocking = type(next_plan_info) == "table"
         and tostring(next_plan_info.kind or "") == "skill"

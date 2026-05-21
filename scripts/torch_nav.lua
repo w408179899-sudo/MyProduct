@@ -1402,6 +1402,7 @@ function nav.get_task_panel_info(snapshot)
                         and raw_text ~= ""
                         and normalized_raw ~= normalize_text(best.raw_text or "")
                         and not looks_numeric_only
+                        and not looks_like_task_status_text(raw_text)
                         and not detail_seen[normalized_raw]
                     then
                         if not looks_like_title or math.abs(dy) >= 20 then

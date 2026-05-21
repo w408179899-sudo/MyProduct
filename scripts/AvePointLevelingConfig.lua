@@ -87,7 +87,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     execute_ui = true,
     run_current_level_plan_on_baseline = true,
     catch_up_missing_plans_on_baseline = true,
-    seed_next_missing_level_when_level_text_missing = true,
+    seed_next_missing_level_when_level_text_missing = false,
     probe_ms = 1200,
     safe_no_monster_ms = 1800,
     monster_guard_enabled = false,
@@ -978,6 +978,53 @@ local function clone_plain_table(value)
     end
     return copy
 end
+
+local function make_skill_add_panel_step()
+    return {
+        key = "open_skill_add_panel",
+        label = "技能升级入口按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.HomePointItem.WidgetTree.AddPanelBtn"
+        },
+        hint_client_x = 1274.171631,
+        hint_client_y = 42.707001,
+        hint_ratio_x = 0.884841,
+        hint_ratio_y = 0.047452,
+        hint_max_distance = 80,
+        wait_after_ms = 800
+    }
+end
+
+local function strip_skill_image_plan_panel_steps(plan)
+    if type(plan) ~= "table" or type(plan.steps) ~= "table" then
+        return
+    end
+
+    local stripped_steps = {}
+    local inserted_add_panel = false
+    for _, step in ipairs(plan.steps) do
+        local key = tostring(type(step) == "table" and step.key or "")
+        if key ~= "open_skill_fast_entrance_menu"
+            and key ~= "open_skill_panel"
+            and key ~= "back_from_skill_panel"
+        then
+            if key == "click_skill_upgrade_image" and not inserted_add_panel then
+                stripped_steps[#stripped_steps + 1] = make_skill_add_panel_step()
+                inserted_add_panel = true
+            end
+            stripped_steps[#stripped_steps + 1] = step
+        end
+    end
+    plan.steps = stripped_steps
+
+    for _, step in ipairs(plan.steps) do
+        if tostring(type(step) == "table" and step.key or "") == "click_skill_upgrade_image" then
+            step.cleanup_back_before_finish = false
+        end
+    end
+end
+
+strip_skill_image_plan_panel_steps(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
 
 do
     local default_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
@@ -4141,7 +4188,7 @@ end
 do
     local level_5_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
     level_5_skill_plan.key = "level_5_skill_upgrade_sequence"
-    level_5_skill_plan.label = "5级技能：找图升级并配置痛楚"
+    level_5_skill_plan.label = "5级技能：找图升级并配置法术控制"
     level_5_skill_plan.close_with_escape = false
 
     local steps = type(level_5_skill_plan.steps) == "table" and level_5_skill_plan.steps or {}
@@ -4194,7 +4241,7 @@ do
     end
 
     steps[#steps + 1] = {
-        key = "open_fast_entrance_menu_after_skill_image",
+        key = "level_5_open_fast_entrance_menu_after_skill_image",
         label = "技能天赋菜单按钮",
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
@@ -4207,7 +4254,7 @@ do
         wait_after_ms = 800
     }
     steps[#steps + 1] = {
-        key = "open_skill_panel_after_skill_image",
+        key = "level_5_open_skill_panel_after_skill_image",
         label = "技能按钮",
         distance_anchor_exact_text = "技能",
         distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
@@ -4223,90 +4270,254 @@ do
         hint_max_distance = 90,
         wait_after_ms = 1000
     }
-    steps[#steps + 1] = fixed_click_step(
-        "level_5_skill_panel_click_726_304",
-        "5级技能面板固定点击1",
-        726.00,
-        304.00,
-        0.504517,
-        0.337778,
-        500
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_tab_spell_control",
+        "技能页标签按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexTabItem.WidgetTree.ClickBtn"
+        },
+        698.986267,
+        454.986206,
+        0.485407,
+        0.505540,
+        80,
+        700
     )
     steps[#steps + 1] = fixed_click_step(
         "level_5_skill_search_focus",
         "5级技能搜索输入框",
-        333.00,
-        654.00,
-        0.231411,
-        0.726667,
+        385.00,
+        650.00,
+        0.267361,
+        0.722222,
         250
     )
     steps[#steps + 1] = {
         kind = "type_text",
-        key = "level_5_skill_search_pain_text",
-        label = "输入痛楚",
-        text = "痛楚",
+        key = "level_5_skill_search_spell_control_text",
+        label = "输入法术控制",
+        text = "法术控制",
         input_method = "clipboard",
         clear_before = true,
         key_delay_ms = 30,
         wait_after_ms = 500
     }
-    steps[#steps + 1] = fixed_click_step(
-        "level_5_skill_search_confirm",
-        "5级技能搜索确认",
-        593.00,
-        658.00,
-        0.412092,
-        0.731111,
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_search_spell_control_button",
+        "法术控制搜索按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
+        },
+        562.635376,
+        678.889282,
+        0.390719,
+        0.754321,
+        80,
         700
     )
-    steps[#steps + 1] = fixed_click_step(
-        "level_5_skill_select_pain_result",
-        "5级技能选择痛楚结果",
-        359.00,
-        338.00,
-        0.249479,
-        0.375556,
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_select_spell_control_store_item",
+        "法术控制商店结果按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn"
+        },
+        325.013367,
+        310.333282,
+        0.225704,
+        0.344815,
+        80,
         700
     )
-    steps[#steps + 1] = fixed_click_step(
-        "level_5_skill_extra_click_824_334",
-        "5级技能额外配置点击1",
-        824.00,
-        334.00,
-        0.572620,
-        0.371111,
-        350
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_get_spell_control",
+        "法术控制获取按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        755.427124,
+        401.386749,
+        0.524602,
+        0.445985,
+        80,
+        700
     )
-    steps[#steps + 1] = fixed_click_step(
-        "level_5_skill_extra_click_715_337",
-        "5级技能额外配置点击2",
-        715.00,
-        337.00,
-        0.496873,
-        0.374444,
-        350
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_select_spell_control_bag_item",
+        "法术控制背包结果按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
+        },
+        683.952698,
+        310.499054,
+        0.474967,
+        0.344999,
+        80,
+        700
     )
-    steps[#steps + 1] = fixed_click_step(
-        "level_5_skill_extra_click_532_335",
-        "5级技能额外配置点击3",
-        532.00,
-        335.00,
-        0.369701,
-        0.372222,
-        500
-    )
-    steps[#steps + 1] = fixed_click_step(
-        "level_5_skill_confirm_pain_slot",
-        "5级技能确认痛楚配置",
-        1161.00,
-        252.00,
-        0.806810,
-        0.280000,
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_install_spell_control",
+        "法术控制安装按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        472.682312,
+        401.386749,
+        0.328252,
+        0.445985,
+        80,
         700
     )
     steps[#steps + 1] = {
-        key = "back_from_skill_panel_after_pain_setup",
+        key = "back_from_skill_panel_after_spell_control_setup",
+        label = "技能返回按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+        },
+        hint_client_x = 1384.784546,
+        hint_client_y = 52.000000,
+        hint_ratio_x = 0.961656,
+        hint_ratio_y = 0.057778,
+        hint_max_distance = 90,
+        wait_after_ms = 700
+    }
+    steps[#steps + 1] = {
+        key = "level_5_life_potion_open_fast_entrance_menu",
+        label = "技能天赋菜单按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+        },
+        hint_client_x = 1383.688110,
+        hint_client_y = 52.706509,
+        hint_ratio_x = 0.961562,
+        hint_ratio_y = 0.058563,
+        hint_max_distance = 100,
+        wait_after_ms = 800
+    }
+    steps[#steps + 1] = {
+        key = "level_5_life_potion_open_skill_panel",
+        label = "技能按钮",
+        distance_anchor_exact_text = "技能",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
+        distance_min = 49.048348,
+        distance_max = 52.082267,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 1249.024658,
+        hint_client_y = 155.104156,
+        hint_ratio_x = 0.867981,
+        hint_ratio_y = 0.172338,
+        hint_max_distance = 90,
+        wait_after_ms = 1000
+    }
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_select_life_potion_slot",
+        "生命药水技能列表项按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexViewItem.WidgetTree.ClickBtn"
+        },
+        67.580856,
+        425.839417,
+        0.046931,
+        0.473155,
+        80,
+        700
+    )
+    steps[#steps + 1] = fixed_click_step(
+        "level_5_skill_tab_life_potion",
+        "生命药水技能页标签按钮",
+        698.99,
+        454.99,
+        0.485407,
+        0.505540,
+        700
+    )
+    steps[#steps + 1] = fixed_click_step(
+        "level_5_skill_life_potion_search_focus",
+        "生命药水搜索输入框",
+        371.00,
+        653.00,
+        0.257639,
+        0.725556,
+        250
+    )
+    steps[#steps + 1] = {
+        kind = "type_text",
+        key = "level_5_skill_search_life_potion_text",
+        label = "输入生命药水",
+        text = "生命药水",
+        input_method = "clipboard",
+        clear_before = true,
+        key_delay_ms = 30,
+        wait_after_ms = 500
+    }
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_search_life_potion_button",
+        "生命药水搜索按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
+        },
+        562.635376,
+        678.889282,
+        0.390719,
+        0.754321,
+        80,
+        700
+    )
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_select_life_potion_store_item",
+        "生命药水商店结果按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn"
+        },
+        325.013367,
+        310.333282,
+        0.225704,
+        0.344815,
+        80,
+        700
+    )
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_get_life_potion",
+        "生命药水获取按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        755.427124,
+        433.257416,
+        0.524602,
+        0.481397,
+        80,
+        700
+    )
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_select_life_potion_bag_item",
+        "生命药水背包结果按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
+        },
+        683.952698,
+        310.499054,
+        0.474967,
+        0.344999,
+        80,
+        700
+    )
+    steps[#steps + 1] = maintenance_locator_step(
+        "level_5_skill_install_life_potion",
+        "生命药水安装按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        472.682312,
+        433.257416,
+        0.328252,
+        0.481397,
+        80,
+        700
+    )
+    steps[#steps + 1] = {
+        key = "back_from_skill_panel_after_life_potion_setup",
         label = "技能返回按钮",
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
