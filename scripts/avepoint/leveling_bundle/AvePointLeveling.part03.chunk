@@ -6949,6 +6949,24 @@ function M.update(now, ctx)
         and M._leveling_policy.objective_ready_distance(TARGET_REACHED_DISTANCE, objective_cfg)
         or TARGET_REACHED_DISTANCE
 
+    -- Active task combat owns completion/task-change checks before follow-ready
+    -- boss kite can re-arm itself, otherwise a refreshed task may be starved.
+    if M.maybe_handle_task_combat_completion(
+        ctx,
+        current_time,
+        player_x,
+        player_y,
+        player_z,
+        hp_ratio,
+        target,
+        destination,
+        destination_distance,
+        goal_distance,
+        objective_ready_distance
+    ) then
+        return true
+    end
+
     local immediate_boss_kite = type(objective_cfg) == "table"
         and tostring(objective_cfg.mode or "") == "boss_kite"
         and (
@@ -7032,22 +7050,6 @@ function M.update(now, ctx)
         state.stage = "global_task_portal"
         M.log_execution_trace(ctx, current_time, "global_task_portal_clicked", target, destination, goal_distance, objective_cfg and objective_cfg.mode, player_x, player_y, player_z)
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-        return true
-    end
-
-    if M.maybe_handle_task_combat_completion(
-        ctx,
-        current_time,
-        player_x,
-        player_y,
-        player_z,
-        hp_ratio,
-        target,
-        destination,
-        destination_distance,
-        goal_distance,
-        objective_ready_distance
-    ) then
         return true
     end
 
