@@ -2945,6 +2945,27 @@ function M.maybe_handle_task_reached(
         return true
     end
 
+    if M.current_task_detail_completed_status_active(current_time, task_name or state.current_task_name) then
+        state.task_reached_unresolved_since = 0
+        M.clear_current_task_detail_completed_status()
+        schedule_task_refresh_after_transition(ctx, current_time, "task_detail_completed_status", TASK_BUTTON_SETTLE_MS, {
+            force_task_call = true,
+            task_pos_reject_extra_ms = 2500,
+            force_task_path_reacquire_ms = 7000,
+            previous_task_name = task_name or state.current_task_name,
+            previous_task_detail = task_detail,
+            task_info_change_observed = true
+        })
+        log_throttled(ctx, "task_detail_completed_status_refresh", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] completed task-panel status consumed, refresh main task instead of reopening interaction | task=%s detail=%s source=%s",
+            tostring(task_name or state.current_task_name or ""),
+            tostring(task_detail or ""),
+            tostring(target_source or "")
+        ))
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
     if force_boss_objective
         and type(objective_cfg) == "table"
         and objective_cfg.immediate_kite_on_reached == true
@@ -3051,13 +3072,17 @@ function M.maybe_handle_task_reached(
         and type(player_z) == "number"
         and math.abs((tonumber(state.task_pos.z) or 0) - tonumber(player_z)) >= 300
     then
+        local task_pos_x = tonumber(state.task_pos.x) or 0
+        local task_pos_y = tonumber(state.task_pos.y) or 0
+        local task_pos_z = tonumber(state.task_pos.z) or 0
+        local task_pos_z_gap = math.abs(task_pos_z - tonumber(player_z))
         schedule_task_refresh_after_transition(ctx, current_time, "task_pos_vertical_mismatch", TASK_BUTTON_SETTLE_MS)
         log_throttled(ctx, "task_pos_vertical_mismatch", "info", LOG_THROTTLE_MS, string.format(
             "[Leveling] task objective appears completed/unreachable after map update, refresh next task | z_gap=%.2f target=%.2f, %.2f, %.2f",
-            math.abs((tonumber(state.task_pos.z) or 0) - tonumber(player_z)),
-            tonumber(state.task_pos.x) or 0,
-            tonumber(state.task_pos.y) or 0,
-            tonumber(state.task_pos.z) or 0
+            task_pos_z_gap,
+            task_pos_x,
+            task_pos_y,
+            task_pos_z
         ))
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
@@ -9917,6 +9942,29 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         local raw_detail = trim(type(entry) == "table" and entry.detail or "")
         local next_detail = raw_detail
         local detail_source = tostring(source or "task_panel")
+        if M.is_task_detail_completed_status(raw_detail) then
+            M.mark_current_task_detail_completed_status(
+                current_time,
+                preferred_task_name or state.current_task_name,
+                raw_detail,
+                detail_source
+            )
+            state.current_task_detail = nil
+            state.current_task_detail_source = detail_source .. "_completed_status"
+            state.current_task_detail_updated_at = current_time
+            _G.AVEPOINT_LAST_TASK_DETAIL = nil
+            M.publish_current_task_name()
+            log_throttled(ctx, "task_detail_completed_status_observed", "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] task detail completed status observed; suppress nearby-detail recovery | task=%s raw_detail=%s source=%s",
+                tostring(state.current_task_name or preferred_task_name or ""),
+                tostring(raw_detail or ""),
+                tostring(source or "task_panel")
+            ))
+            return
+        end
+        if (tonumber(state.current_task_detail_completed_status_at) or 0) > 0 then
+            M.clear_current_task_detail_completed_status()
+        end
         if M.is_task_detail_noise(next_detail) then
             local recovered_detail, recovered_score, recovered_dx, recovered_dy = find_nearby_subtask_detail(preferred_task_name, raw_detail)
             if recovered_detail ~= nil then

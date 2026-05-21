@@ -2176,8 +2176,8 @@ function nav.control_click(addr)
 
     local sleep_delay_ms = nil
     if type(human_mouse) == "table" and type(human_mouse.sleep_random) == "function" then
-        record_api_event("control_click", true, nil, string.format("phase=sleep addr=0x%X range=400-2000", addr))
-        sleep_delay_ms = human_mouse.sleep_random(400, 2000)
+        record_api_event("control_click", true, nil, string.format("phase=sleep addr=0x%X range=100-500", addr))
+        sleep_delay_ms = human_mouse.sleep_random(100, 500)
     end
 
     record_api_event("control_click", true, nil, string.format(
