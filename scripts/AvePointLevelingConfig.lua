@@ -135,17 +135,34 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
             close_with_escape = false,
             steps = {
                 {
-                    key = "open_skill_add_panel",
-                    label = "技能加点入口按钮",
+                    key = "open_skill_fast_entrance_menu",
+                    label = "技能天赋菜单按钮",
                     include_patterns = {
-                        "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.HomePointItem.WidgetTree.AddPanelBtn"
+                        "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
                     },
-                    hint_client_x = 1281.297729,
-                    hint_client_y = 56.706509,
-                    hint_ratio_x = 0.890408,
-                    hint_ratio_y = 0.063007,
+                    hint_client_x = 1383.688110,
+                    hint_client_y = 52.706509,
+                    hint_ratio_x = 0.961562,
+                    hint_ratio_y = 0.058563,
+                    hint_max_distance = 100,
+                    wait_after_ms = 800
+                },
+                {
+                    key = "open_skill_panel",
+                    label = "技能按钮",
+                    distance_anchor_exact_text = "技能",
+                    distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
+                    distance_min = 49.048348,
+                    distance_max = 52.082267,
+                    include_patterns = {
+                        "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+                    },
+                    hint_client_x = 1249.024658,
+                    hint_client_y = 155.104156,
+                    hint_ratio_x = 0.867981,
+                    hint_ratio_y = 0.172338,
                     hint_max_distance = 90,
-                    wait_after_ms = 900
+                    wait_after_ms = 1000
                 },
                 {
                     key = "click_skill_upgrade_image",
