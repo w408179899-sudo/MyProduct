@@ -12198,6 +12198,66 @@ function M.click_treasure_task_panel_entry_with_cache(ctx, query)
     return ok, item_or_err
 end
 
+function M.main_task_click_interaction_lock_reason(current_time, opts)
+    opts = type(opts) == "table" and opts or {}
+    if opts.allow_during_interaction == true then
+        return nil
+    end
+
+    current_time = tonumber(current_time) or 0
+
+    local pending_origin = trim(state.pending_interaction_origin)
+    if pending_origin ~= "" then
+        return "pending_interaction:" .. pending_origin
+    end
+
+    local interaction_guard_key = trim(state.interaction_combat_guard_key)
+    if interaction_guard_key ~= "" then
+        return "interaction_guard:" .. interaction_guard_key
+    end
+
+    local jump_window_origin = trim(state.dialogue_jump_window_origin)
+    if jump_window_origin ~= ""
+        and current_time < (tonumber(state.dialogue_jump_window_until) or 0)
+    then
+        return "dialogue_jump_window:" .. jump_window_origin
+    end
+
+    if state.dialogue_ui_confirmed == true then
+        local match = trim(state.dialogue_ui_match)
+        return match ~= "" and ("dialogue_ui:" .. match) or "dialogue_ui"
+    end
+
+    local task_dialogue_key = trim(state.task_dialogue_flow_key)
+    if task_dialogue_key ~= "" then
+        return "task_dialogue_flow:" .. task_dialogue_key
+    end
+
+    local post_dialogue_key = trim(state.post_dialogue_flow_key)
+    if post_dialogue_key ~= "" then
+        return "post_dialogue_flow:" .. post_dialogue_key
+    end
+
+    if type(state.task_entry_action_locked_cfg) == "table" then
+        local entry_key = trim(state.task_entry_action_locked_key)
+        return entry_key ~= "" and ("task_entry_action:" .. entry_key) or "task_entry_action"
+    end
+
+    for _, key in ipairs({
+        state.route_point_action_active_key,
+        state.route_point_action_dialogue_active_key,
+        state.route_point_action_objective_active_key,
+        state.route_point_action_route_active_key
+    }) do
+        local route_key = trim(key)
+        if route_key ~= "" then
+            return "route_point_action:" .. route_key
+        end
+    end
+
+    return nil
+end
+
 click_main_task_button = function(ctx, current_time, opts)
     opts = opts or {}
     local preserve_target = opts.preserve_target == true
@@ -12225,7 +12285,24 @@ click_main_task_button = function(ctx, current_time, opts)
     add_explicit_panel_query(opts.panel_query)
     if M.should_suspend_treasure_task_refresh() then
         return false, "treasure dungeon suppresses main task refresh."
-end
+    end
+    local interaction_lock_reason = M.main_task_click_interaction_lock_reason(current_time, opts)
+    if interaction_lock_reason ~= nil then
+        local retry_ms = math.max(250, tonumber(opts.interaction_lock_retry_ms) or 800)
+        state.next_task_button_click_at = math.max(
+            tonumber(state.next_task_button_click_at) or 0,
+            (tonumber(current_time) or now_ms(ctx)) + retry_ms
+        )
+        log_throttled(ctx, "main_task_click_interaction_locked", "info", 800, string.format(
+            "[Leveling] main task click suppressed by active interaction | stage=%s reason=%s task=%s detail=%s retry_ms=%d",
+            tostring(state.stage or ""),
+            tostring(interaction_lock_reason or ""),
+            tostring(M.current_task_log_name() or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            retry_ms
+        ))
+        return false, "main task click suppressed by active interaction: " .. tostring(interaction_lock_reason)
+    end
     if current_time < (tonumber(state.next_task_button_click_at) or 0) then
         return false, "task button click cooldown."
     end
