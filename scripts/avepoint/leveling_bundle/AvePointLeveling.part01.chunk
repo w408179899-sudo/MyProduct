@@ -10521,9 +10521,14 @@ local function should_issue_follow_move_pulse(current_time, goal_distance, is_st
 end
 
 local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
+    local pulse_opts = type(ignore_move_guard) == "table" and ignore_move_guard or {
+        ignore_move_guard = ignore_move_guard == true
+    }
+    local ignore_combat_pause = pulse_opts.ignore_combat_pause == true
+    ignore_move_guard = pulse_opts.ignore_move_guard == true
     release_async_combat_inputs(ctx, current_time, false)
 
-    if current_time < (tonumber(state.pause_combat_until) or 0) then
+    if not ignore_combat_pause and current_time < (tonumber(state.pause_combat_until) or 0) then
         local wait_ms = (tonumber(state.pause_combat_until) or 0) - current_time
         log_throttled(ctx, "combat_pulse_skipped_pause", "info", 1500, string.format(
             "[Leveling] combat pulse skipped | reason=%s gate=pause wait_ms=%d",
@@ -10805,7 +10810,10 @@ end
 
 function M.run_combat_sidecar_pulse(ctx, current_time, reason, opts)
     opts = type(opts) == "table" and opts or {}
-    return issue_combat_pulse(ctx, current_time, tostring(reason or "combat_sidecar"), opts.ignore_move_guard == true)
+    return issue_combat_pulse(ctx, current_time, tostring(reason or "combat_sidecar"), {
+        ignore_move_guard = opts.ignore_move_guard == true,
+        ignore_combat_pause = opts.ignore_combat_pause == true
+    })
 end
 
 function M.run_task_combat_pulse(ctx, current_time, reason, opts)
@@ -10821,6 +10829,57 @@ function M.run_task_combat_pulse(ctx, current_time, reason, opts)
         state.combat_sidecar_mode = "pulse_blocked:" .. mode .. ":" .. tostring(pulse_err or "")
     end
     return pulse_ok, pulse_err
+end
+
+function M.issue_task_refresh_wait_combat_pulse(ctx, current_time, phase, opts)
+    opts = type(opts) == "table" and opts or {}
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local phase_name = tostring(phase or state.stage or "task_refresh_wait")
+    local action_lock = M.combat_sidecar_action_lock_reason()
+    if action_lock ~= nil and opts.allow_during_action_lock ~= true then
+        state.combat_sidecar_last_tick_at = current_time
+        state.combat_sidecar_last_reason = "task_refresh_wait_" .. phase_name
+        state.combat_sidecar_last_gate = "action_lock:" .. tostring(action_lock or "")
+        state.combat_sidecar_mode = "blocked:" .. tostring(state.combat_sidecar_last_gate or "")
+        log_throttled(ctx, "task_refresh_wait_combat_action_lock_" .. phase_name, "info", MONSTER_SCAN_LOG_INTERVAL_MS, string.format(
+            "[Leveling] task refresh wait combat pulse blocked | phase=%s stage=%s action_lock=%s",
+            phase_name,
+            tostring(state.stage or ""),
+            tostring(action_lock or "")
+        ))
+        return false, state.combat_sidecar_last_gate
+    end
+
+    local reason = "task_refresh_wait_" .. phase_name
+    state.combat_sidecar_last_tick_at = current_time
+    state.combat_sidecar_last_reason = reason
+    state.combat_sidecar_last_gate = "task_refresh_wait_no_monster_gate"
+    state.combat_sidecar_mode = "task_refresh_wait"
+
+    local pulse_ok, pulse_err = M.run_combat_sidecar_pulse(ctx, current_time, reason, {
+        ignore_move_guard = true,
+        ignore_combat_pause = true
+    })
+    if pulse_ok then
+        state.combat_sidecar_mode = "pulse:task_refresh_wait"
+        log_throttled(ctx, "task_refresh_wait_combat_pulse_" .. phase_name, "info", MONSTER_SCAN_LOG_INTERVAL_MS, string.format(
+            "[Leveling] task refresh wait combat pulse issued | phase=%s stage=%s task=%s detail=%s",
+            phase_name,
+            tostring(state.stage or ""),
+            tostring(M.current_task_log_name() or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or "")
+        ))
+        return true, nil
+    end
+
+    state.combat_sidecar_mode = "pulse_blocked:task_refresh_wait:" .. tostring(pulse_err or "")
+    log_throttled(ctx, "task_refresh_wait_combat_pulse_blocked_" .. phase_name, "info", MONSTER_SCAN_LOG_INTERVAL_MS, string.format(
+        "[Leveling] task refresh wait combat pulse blocked | phase=%s stage=%s err=%s",
+        phase_name,
+        tostring(state.stage or ""),
+        tostring(pulse_err or "")
+    ))
+    return false, pulse_err or "pulse_blocked"
 end
 
 function M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, opts)

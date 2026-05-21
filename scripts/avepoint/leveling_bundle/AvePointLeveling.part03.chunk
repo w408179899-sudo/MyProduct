@@ -5638,10 +5638,7 @@ function M.maybe_handle_task_info_stability_gate(ctx, current_time, player_x, pl
         M.log_execution_trace(ctx, current_time, "waiting_task_info_stability_gate", nil, nil, nil, nil, player_x, player_y, player_z)
         release_async_combat_inputs(ctx, current_time, true)
         hold_navigation(ctx, current_time, "wait_task_info_stability_gate")
-        M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
-            phase = "wait_task_info_stability_gate",
-            in_main_interface = in_main_interface
-        })
+        M.issue_task_refresh_wait_combat_pulse(ctx, current_time, "wait_task_info_stability_gate")
         log_throttled(ctx, "task_info_stability_gate_wait", "info", LOG_THROTTLE_MS, string.format(
             "[Leveling] waiting task info stability gate | task=%s detail=%s reason=%s flow_key=%s wait_left=%dms",
             tostring(M.current_task_log_name() or state.current_task_name or ""),
@@ -6686,10 +6683,7 @@ function M.update(now, ctx)
         M.log_execution_trace(ctx, current_time, "waiting_task_update", nil, nil, nil, nil, player_x, player_y, player_z)
         release_async_combat_inputs(ctx, current_time, true)
         hold_navigation(ctx, current_time, "wait_task_update")
-        M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
-            phase = "wait_task_update",
-            in_main_interface = in_main_interface
-        })
+        M.issue_task_refresh_wait_combat_pulse(ctx, current_time, "wait_task_update")
         log_throttled(ctx, "task_update_wait", "info", LOG_THROTTLE_MS,
             "[Leveling] waiting task list update after dialogue/prompt settle.")
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
@@ -6716,18 +6710,12 @@ function M.update(now, ctx)
                 state.require_task_button_refresh = false
                 state.require_task_button_refresh_reason = nil
             else
-                M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
-                    phase = "refresh_task_button_after_dialogue",
-                    in_main_interface = in_main_interface
-                })
+                M.issue_task_refresh_wait_combat_pulse(ctx, current_time, "refresh_task_button_after_dialogue")
                 log_throttled(ctx, "refresh_task_button_wait", "info", LOG_THROTTLE_MS,
                     "[Leveling] waiting to reacquire refreshed main task button after dialogue.")
             end
         else
-            M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
-                phase = "refresh_task_button_after_dialogue_cooldown",
-                in_main_interface = in_main_interface
-            })
+            M.issue_task_refresh_wait_combat_pulse(ctx, current_time, "refresh_task_button_after_dialogue_cooldown")
         end
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
@@ -6845,10 +6833,7 @@ function M.update(now, ctx)
         M.log_execution_trace(ctx, current_time, "waiting_task_path_after_button", nil, nil, nil, nil, player_x, player_y, player_z)
         release_async_combat_inputs(ctx, current_time, true)
         hold_navigation(ctx, current_time, "wait_task_path_after_button")
-        M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
-            phase = "wait_task_path_after_button",
-            in_main_interface = in_main_interface
-        })
+        M.issue_task_refresh_wait_combat_pulse(ctx, current_time, "wait_task_path_after_button")
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
