@@ -5917,6 +5917,16 @@ function M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, play
         local timeout_ms = math.max(1000, tonumber(cfg.after_loot_timeout_ms) or 12000)
         local started_at = tonumber(state.auto_equip_after_loot_started_at) or current_time
         if current_time - started_at > timeout_ms then
+            if cfg.hard_mount_after_loot_chain ~= false then
+                state.auto_equip_after_loot_started_at = current_time
+                state.auto_equip_safe_since = 0
+                log_throttled(ctx, "auto_equip_after_loot_timeout_retry", "warn", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] auto-equip after-loot timeout reached; keep pending due hard mount | objective=%s timeout_ms=%d",
+                    tostring(state.auto_equip_after_loot_objective_key or ""),
+                    timeout_ms
+                ))
+                return hold_after_loot("timeout_retry")
+            end
             M.clear_auto_equip_after_loot_pending(ctx, current_time, "timeout")
             return false
         end
@@ -5958,6 +5968,21 @@ function M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, play
         state.auto_equip_next_scan_at = 0
     end
 
+    local ignore_completed_loot_combat = after_loot_pending
+        and tostring(state.post_combat_loot_active_key or "") == ""
+        and tostring(state.post_combat_loot_completed_key or "") ~= ""
+        and tostring(state.post_combat_loot_completed_key or "") == tostring(state.auto_equip_after_loot_objective_key or "")
+    if ignore_completed_loot_combat
+        and type(M.is_task_combat_or_post_loot_active) == "function"
+        and M.is_task_combat_or_post_loot_active()
+    then
+        log_throttled(ctx, "auto_equip_after_loot_ignore_completed_combat", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] auto-equip after-loot ignores completed-loot combat gate | objective=%s stage=%s",
+            tostring(state.auto_equip_after_loot_objective_key or ""),
+            tostring(state.stage or "")
+        ))
+    end
+
     local handled = M._leveling_auto_equip.maybe_handle(ctx, {
         runtime = state,
         config = cfg,
@@ -5973,6 +5998,7 @@ function M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, play
         force_scan = after_loot_pending,
         force_open_bag_ignores_hp_and_monsters = after_loot_pending
             and cfg.force_open_bag_after_loot_ignores_hp_and_monsters == true,
+        ignore_task_combat_after_completed_loot = ignore_completed_loot_combat,
         keep_bag_open_after_run = after_loot_pending and M.recycle_after_auto_equip_enabled(),
         press_key = press_keyboard_hotkey,
         release_inputs = release_async_combat_inputs,
@@ -6085,6 +6111,15 @@ function M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_
     local timeout_ms = math.max(1000, tonumber(cfg.after_auto_equip_timeout_ms) or 12000)
     local started_at = tonumber(state.recycle_after_auto_equip_started_at) or current_time
     if current_time - started_at > timeout_ms then
+        if cfg.hard_mount_after_auto_equip_chain ~= false then
+            state.recycle_after_auto_equip_started_at = current_time
+            log_throttled(ctx, "recycle_after_auto_equip_timeout_retry", "warn", LOG_THROTTLE_MS, string.format(
+                "[Leveling] recycle after auto-equip timeout reached; keep pending due hard mount | source=%s timeout_ms=%d",
+                tostring(state.recycle_after_auto_equip_source_key or ""),
+                timeout_ms
+            ))
+            return hold_recycle("timeout_retry")
+        end
         M.clear_recycle_after_auto_equip_pending(ctx, current_time, "timeout")
         return false
     end
@@ -6239,6 +6274,77 @@ function M.maybe_handle_after_loot_maintenance(ctx, current_time, player_x, play
         if M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
             return true
         end
+    end
+
+    return false
+end
+
+function M.maybe_handle_priority_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface, opts)
+    opts = type(opts) == "table" and opts or {}
+    local phase = tostring(opts.phase or "main_flow")
+    local allow_level_up = opts.allow_level_up ~= false
+    local allow_periodic_auto_equip = opts.allow_periodic_auto_equip == true
+
+    local function handle_level_up(reason)
+        if not allow_level_up and state.level_up_maintenance_executor_active ~= true then
+            return false
+        end
+        if state.level_up_maintenance_executor_active ~= true and not M.level_up_maintenance_has_pending() then
+            return false
+        end
+        if not M.ensure_bag_closed_for_flow(ctx, current_time, "priority_level_up_" .. phase) then
+            return true
+        end
+        if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+            return true
+        end
+        if reason == "owner" then
+            log_throttled(ctx, "priority_level_up_owner_wait_" .. phase, "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] maintenance owner waits for level-up executor | phase=%s pending=%s",
+                phase,
+                M.level_up_maintenance_pending_summary()
+            ))
+        end
+        return false
+    end
+
+    -- Priority contract:
+    -- 1. An active UI owner finishes first.
+    -- 2. Post-loot inventory maintenance is hard-mounted: auto-equip, then recycle.
+    -- 3. Level-up maintenance may use safe windows only after post-loot inventory work is clear.
+    -- 4. Periodic auto-equip is last and must not steal post-loot or level-up ownership.
+    if state.level_up_maintenance_executor_active == true then
+        if handle_level_up("owner") then
+            return true
+        end
+        return false
+    end
+
+    if M.after_loot_maintenance_blocks_main_flow() then
+        if M.maybe_handle_after_loot_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+            return true
+        end
+        if type(release_async_combat_inputs) == "function" then
+            release_async_combat_inputs(ctx, current_time, true)
+        end
+        hold_navigation(ctx, current_time, "priority_after_loot_maintenance")
+        log_throttled(ctx, "priority_after_loot_maintenance_wait_" .. phase, "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] after-loot maintenance blocks main flow | phase=%s auto=%s recycle=%s",
+            phase,
+            state.auto_equip_after_loot_pending == true and "true" or "false",
+            state.recycle_after_auto_equip_pending == true and "true" or "false"
+        ))
+        return true
+    end
+
+    if handle_level_up("pending") then
+        return true
+    end
+
+    if allow_periodic_auto_equip
+        and M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface)
+    then
+        return true
     end
 
     return false
@@ -6627,7 +6733,11 @@ function M.update(now, ctx)
         state.level_up_maintenance_treasure_start_retry_clear_key = nil
     end
 
-    if M.maybe_handle_after_loot_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+    if M.maybe_handle_priority_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface, {
+        phase = "pre_treasure",
+        allow_level_up = false,
+        allow_periodic_auto_equip = false
+    }) then
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
@@ -6694,7 +6804,11 @@ function M.update(now, ctx)
         return true
     end
 
-    if M.maybe_handle_after_loot_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+    if M.maybe_handle_priority_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface, {
+        phase = "task_refresh_window",
+        allow_level_up = true,
+        allow_periodic_auto_equip = false
+    }) then
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
@@ -6721,24 +6835,12 @@ function M.update(now, ctx)
         return true
     end
 
-    if M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+    if M.maybe_handle_priority_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface, {
+        phase = "main_flow",
+        allow_level_up = true,
+        allow_periodic_auto_equip = true
+    }) then
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-        return true
-    end
-
-    if M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
-        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-        return true
-    end
-
-    if state.level_up_maintenance_executor_active == true or M.level_up_maintenance_has_pending() then
-        if not M.ensure_bag_closed_for_flow(ctx, current_time, "level_up_maintenance") then
-            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-            return true
-        end
-    end
-
-    if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
         return true
     end
 

@@ -278,6 +278,9 @@ function M.safe_window(ctx, deps, runtime, cfg, current_time, player_x, player_y
     current_time = tonumber(current_time) or now_ms(ctx)
     local force_open_bag = cfg.force_open_bag_ignores_hp_and_monsters == true
         or (type(deps) == "table" and deps.force_open_bag_ignores_hp_and_monsters == true)
+    local ignore_completed_loot_combat = force_open_bag
+        and type(deps) == "table"
+        and deps.ignore_task_combat_after_completed_loot == true
 
     if in_main_interface == false then
         local has_player_position = type(player_x) == "number" and type(player_y) == "number"
@@ -298,6 +301,7 @@ function M.safe_window(ctx, deps, runtime, cfg, current_time, player_x, player_y
         if type(deps) == "table"
             and type(deps.is_task_combat_or_post_loot_active) == "function"
             and deps.is_task_combat_or_post_loot_active()
+            and not ignore_completed_loot_combat
         then
             return block(runtime, "task_combat_or_post_loot")
         end
