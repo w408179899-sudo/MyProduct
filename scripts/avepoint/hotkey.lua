@@ -3244,6 +3244,177 @@ local function avepoint_hotkey_probe_main_task_button_by_coordinate()
     return true
 end
 
+local function avepoint_hotkey_format_raw_extra_fields(item, primary, max_fields)
+    if type(item) ~= "table" then
+        return "{}"
+    end
+    local keys = {}
+    for key, value in pairs(item) do
+        if primary[key] ~= true and type(value) ~= "table" and type(value) ~= "function" then
+            keys[#keys + 1] = key
+        end
+    end
+    table.sort(keys, function(a, b)
+        return tostring(a) < tostring(b)
+    end)
+
+    local parts = {}
+    local limit = math.max(1, tonumber(max_fields) or 16)
+    for index = 1, math.min(#keys, limit) do
+        local key = keys[index]
+        parts[#parts + 1] = tostring(key) .. "=" .. tostring(item[key])
+    end
+    if #keys > limit then
+        parts[#parts + 1] = "_keys=" .. tostring(#keys)
+    end
+    if #parts == 0 then
+        return "{}"
+    end
+    return "{" .. table.concat(parts, " ") .. "}"
+end
+
+local function avepoint_hotkey_extract_entity_position(item)
+    if type(nav) == "table" and type(nav.extract_position) == "function" then
+        local x, y, z = nav.extract_position(item)
+        if x ~= nil and y ~= nil then
+            return x, y, z
+        end
+    end
+    if type(item) ~= "table" then
+        return nil, nil, nil
+    end
+
+    local function pick(tbl, keys)
+        if type(tbl) ~= "table" then
+            return nil
+        end
+        for _, key in ipairs(keys) do
+            local value = tonumber(tbl[key])
+            if value ~= nil then
+                return value
+            end
+        end
+        return nil
+    end
+
+    local x = pick(item, { "x", "X", "posX", "PosX", "worldX", "WorldX" })
+    local y = pick(item, { "y", "Y", "posY", "PosY", "worldY", "WorldY" })
+    local z = pick(item, { "z", "Z", "posZ", "PosZ", "worldZ", "WorldZ" })
+    if x ~= nil and y ~= nil then
+        return x, y, z
+    end
+
+    for _, key in ipairs({ "pos", "position", "coord", "coords", "point", "location", "Location" }) do
+        local nested = item[key]
+        if type(nested) == "table" then
+            x = pick(nested, { "x", "X", "posX", "PosX", "worldX", "WorldX" })
+            y = pick(nested, { "y", "Y", "posY", "PosY", "worldY", "WorldY" })
+            z = pick(nested, { "z", "Z", "posZ", "PosZ", "worldZ", "WorldZ" })
+            if x ~= nil and y ~= nil then
+                return x, y, z
+            end
+        end
+    end
+
+    return nil, nil, nil
+end
+
+local function avepoint_hotkey_entity_label(item)
+    if type(item) ~= "table" then
+        return ""
+    end
+    for _, key in ipairs({
+        "name", "Name", "text", "Text", "fullname", "Fullname",
+        "displayName", "DisplayName", "title", "Title", "label", "Label"
+    }) do
+        local value = trim(item[key])
+        if value ~= "" then
+            return value
+        end
+    end
+    return ""
+end
+
+local function avepoint_hotkey_dump_nearby_npcs()
+    if type(nav.game_api) ~= "table" then
+        return false, "nav.game_api unavailable"
+    end
+    if type(nav.game_api.EnumNPC) ~= "function" then
+        return false, "EnumNPC unavailable"
+    end
+
+    local raw_ok, raw_npcs, raw_err = pcall(nav.game_api.EnumNPC)
+    if not raw_ok or type(raw_npcs) ~= "table" then
+        return false, raw_ok and "EnumNPC returned non-table" or tostring(raw_npcs or raw_err or "")
+    end
+
+    local player_x = nil
+    local player_y = nil
+    local player_z = nil
+    local pos_err = nil
+    if type(nav.player_pos) == "function" then
+        player_x, player_y, player_z, pos_err = nav.player_pos()
+    end
+
+    log.info(string.format(
+        "F5 EnumNPC dump start | total=%d player_pos=(%s,%s,%s) pos_err=%s source=nav.game_api.EnumNPC",
+        #raw_npcs,
+        tostring(player_x or ""),
+        tostring(player_y or ""),
+        tostring(player_z or ""),
+        tostring(pos_err or "")
+    ))
+
+    local primary = {
+        addr = true,
+        classname = true,
+        className = true,
+        ClassName = true,
+        entityId = true,
+        entityID = true,
+        id = true,
+        name = true,
+        Name = true,
+        text = true,
+        Text = true,
+        label = true,
+        Label = true,
+        fullname = true,
+        Fullname = true,
+        x = true,
+        y = true,
+        z = true,
+        X = true,
+        Y = true,
+        Z = true
+    }
+
+    for index, npc in ipairs(raw_npcs) do
+        local x, y, z = avepoint_hotkey_extract_entity_position(npc)
+        local player_distance = ""
+        if type(player_x) == "number" and type(player_y) == "number" and x ~= nil and y ~= nil then
+            player_distance = string.format("%.2f", distance_2d(player_x, player_y, x, y))
+        end
+        log.info(string.format(
+            "F5 EnumNPC npc[%d/%d] | addr=%s classname=%s entityId=%s label=%s x=%s y=%s z=%s player_distance=%s raw_extra=%s",
+            index,
+            #raw_npcs,
+            avepoint_format_addr_hex(type(npc) == "table" and npc.addr or nil),
+            tostring(type(npc) == "table" and (npc.classname or npc.className or npc.ClassName) or ""),
+            tostring(type(npc) == "table" and (npc.entityId or npc.entityID or npc.id) or ""),
+            avepoint_hotkey_entity_label(npc),
+            tostring(x or ""),
+            tostring(y or ""),
+            tostring(z or ""),
+            player_distance,
+            avepoint_hotkey_format_raw_extra_fields(npc, primary, 16)
+        ))
+    end
+
+    log.info(string.format("F5 EnumNPC dump complete | total=%d", #raw_npcs))
+    return true
+end
+
 local function avepoint_hotkey_dump_visible_text_controls()
     if type(nav.game_api) ~= "table" then
         return false, "nav.game_api unavailable"
@@ -4326,9 +4497,9 @@ function main()
         TASK_MODE.configured_name,
         tostring(guard.engine_config)
     ))
-    if TASK_MODE.configured_id == TASK_MODE.GOLD and (HOTKEY_F5_ENABLED == true or HOTKEY_F6_ENABLED == true) then
+    if TASK_MODE.configured_id == TASK_MODE.GOLD and HOTKEY_F6_ENABLED == true then
         log.info(string.format(
-            "Press F5 to run 5-cycle observe flow; F6 to print current player coordinates; Insert or Ctrl+F9 or [ to start AvePoint automation; hold Delete or Ctrl+F10 or ] to stop (%d points, %d random maps)",
+            "Press F6 to print current player coordinates; Insert or Ctrl+F9 or [ to start AvePoint automation; hold Delete or Ctrl+F10 or ] to stop (%d points, %d random maps)",
             #ROUTE_POINTS,
             #RANDOM_MAP_POOL_KEYS
         ))
@@ -4337,6 +4508,7 @@ function main()
     end
     log.info("Press F1 to dump all buttons returned by EnumCButton")
     log.info("Press F2 to dump all texts returned by EnumCText")
+    log.info("Press F5 to dump nearby NPCs returned by EnumNPC")
     log.info("Press F12 to dump raw GetCurrentSelected API output without clicking")
     local f4_preset = HOTKEY_DISTANCE_PREVIEW_PRESETS and HOTKEY_DISTANCE_PREVIEW_PRESETS.current or nil
     log.info(string.format(
@@ -4518,20 +4690,18 @@ function main()
             end
         end
 
-        if HOTKEY_F5_ENABLED == true and pressed_once(HOTKEY_F5) then
-            if state.running and tonumber(state.task_mode_id) ~= nil and tonumber(state.task_mode_id) ~= TASK_MODE.GOLD then
-                log.info("F5 observe flow ignored while custom task mode is running")
-            else
-                TASK_MODE.refresh_config()
-                if TASK_MODE.configured_id ~= TASK_MODE.GOLD then
-                    log.info("F5 observe flow only available when avepointTaskMode=1 (刷金)")
-                elseif state.f6_loop_active == true then
-                    log.info("F6 3-round loop is active; F5 observe flow ignored")
-                else
-                    local flow_ok, err = avepoint_hotkey_two_cycle_observe_flow()
-                    if not flow_ok then
-                        log.error("F5 observe flow failed: " .. tostring(err))
-                    end
+        if pressed_once(HOTKEY_F5) then
+            if not initialized then
+                local attach_target = avepoint_hotkey_attach_target_pid()
+                local init_ok, init_err = avepoint_wait_for_torch_init(3500, attach_target, MODE)
+                if not init_ok then
+                    log.warn("F5 EnumNPC dump unavailable: Torch API init failed: " .. tostring(init_err))
+                end
+            end
+            if initialized then
+                local ok, err = avepoint_hotkey_dump_nearby_npcs()
+                if not ok then
+                    log.error("F5 EnumNPC dump failed: " .. tostring(err))
                 end
             end
         end

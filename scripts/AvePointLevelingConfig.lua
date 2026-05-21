@@ -9506,6 +9506,40 @@ M.TASK_NAME_CONFIGS = {
         detail_pattern = "击败王命巡猎",
         allow_no_target = true
     }),
+    ["狮心 / 击败狮心王"] = make_boss_kite_task_config(
+        "lionheart_defeat_lionheart_king_boss_kite",
+        {
+            trigger_distance = 700,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = true,
+            immediate_no_task_target_kite = true,
+            kite_radius = 1260,
+            kite_point_count = 3,
+            kite_switch_ms = 2200,
+            seamless_kite = true,
+            kite_arrive_distance = 520,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 3500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            ignore_terminal_text_change_when_objective_same = true
+        },
+        {
+            task_patterns = {
+                "狮心"
+            },
+            task_detail_patterns = {
+                "击败狮心王"
+            },
+            exclude_task_detail_patterns = {
+                "交谈",
+                "对话"
+            },
+            constraint_mode = "all"
+        }
+    ),
     ["永夜鸣沙 / 向沙漠深处进发，找到伊吉人的聚集地"] = make_boss_kite_task_config(
         "eternal_sand_find_iji_gathering_kite",
         {
@@ -10800,7 +10834,10 @@ M.TASK_NAME_CONFIGS = {
             trigger_distance = 900,
             immediate_kite_on_reached = true,
             allow_no_task_target_force_kite = true,
+            immediate_no_task_target_kite = true,
+            no_task_target_kite_wait_ms = 900,
             kite_radius = 1800,
+            kite_point_count = 3,
             kite_switch_ms = 2000,
             seamless_kite = true,
             kite_arrive_distance = 480,
@@ -10870,13 +10907,7 @@ M.TASK_NAME_CONFIGS = {
             generic_followup_require_no_special = true,
             allow_nearby_text_task_change_exit = true,
             nearby_text_task_change_confirm_ms = 1200,
-            nearby_text_task_change_confirm_count = 2,
-            kite_points = {
-                { x = 14140.00, y = 820.00, z = 1215.00 },
-                { x = 13125.48, y = 743.95, z = 1215.00 },
-                { x = 12998.45, y = -473.70, z = 1215.00 },
-                { x = 14082.77, y = -669.93, z = 1215.00 }
-            }
+            nearby_text_task_change_confirm_count = 2
         },
         {
             task_patterns = {
@@ -11895,6 +11926,64 @@ M.ROUTE_POINT_ACTIONS = {
         from_point = { x = 1321.54, y = 3029.03, z = 1235.00, radius = 900, z_tolerance = 260 },
         objective_point = { x = 1321.54, y = 3029.03, z = 1235.00 }
     }),
+    make_route_point_action({
+        key = "trial_of_sun_beauty_finish_function_0_4050",
+        label = "太阳的试炼_美欲之试_终点交互",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "美欲之试",
+            "通过美欲试炼",
+            "太阳的试炼",
+            "通过三处试炼"
+        },
+        task_detail_patterns = {
+            "通过美欲试炼",
+            "美欲之瞳",
+            "通过三处试炼",
+            "追击夺走火种",
+            "完成"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 0.00,
+            y = 4050.00,
+            z = 1235.00,
+            radius = 900,
+            z_tolerance = 320
+        },
+        objective_point = {
+            x = 0.00,
+            y = 4050.00,
+            z = 1235.00,
+            radius = 900,
+            z_tolerance = 320
+        },
+        interact_radius = 900,
+        probe_retry_ms = 650,
+        retry_ms = 600000,
+        settle_ms = 1800,
+        timeout_ms = 18000,
+        force_task_call_after_transition = true,
+        task_pos_reject_extra_ms = 3500,
+        step = {
+            key = "trial_of_sun_beauty_finish_function_btn_0_4050",
+            label = "美欲试炼终点交互按钮",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.FunctionBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.FunctionBtn"
+            },
+            hint_client_x = 692.053040,
+            hint_client_y = 700.797668,
+            hint_ratio_x = 0.480926,
+            hint_ratio_y = 0.778664,
+            hint_max_distance = 120.000,
+            prefer_hint_fallback = true,
+            settle_ms = 1200,
+            task_pos_reject_extra_ms = 3500
+        }
+    }),
     make_trial_of_sun_recorded_route_action(TRIAL_OF_SUN_POWER_SIDE_KEY, {
         key = "trial_of_sun_power_side_route_-433_1937",
         label = "太阳的试炼_权力之试_起步录制路线",
@@ -12109,7 +12198,7 @@ M.ROUTE_POINT_ACTIONS = {
             z_tolerance = 260
         },
         retry_ms = 600000,
-        timeout_ms = 140000,
+        timeout_ms = 220000,
         waypoint_reach_radius = 260,
         waypoint_z_tolerance = 260,
         move_interval_ms = 220,
@@ -12130,7 +12219,25 @@ M.ROUTE_POINT_ACTIONS = {
             { x = -9146.37, y = -1265.76, z = 1235.00 },
             { x = -9927.98, y = -1577.26, z = 1235.00 },
             { x = -11807.55, y = -2326.90, z = 1235.00 },
-            { x = -13712.87, y = -1542.04, z = 1235.00 }
+            { x = -13712.87, y = -1542.04, z = 1235.00 },
+            { x = -11949.96, y = -1479.40, z = 1235.00 },
+            { x = -12559.01, y = -1947.71, z = 1235.00 },
+            { x = -13024.72, y = -2439.29, z = 1235.00 },
+            { x = -12978.74, y = -2952.44, z = 1235.00 },
+            { x = -12485.60, y = -3231.15, z = 1235.00 },
+            { x = -11934.37, y = -3041.10, z = 1235.00 },
+            { x = -11611.03, y = -2558.40, z = 1235.00 },
+            { x = -11517.17, y = -2052.34, z = 1235.00 },
+            { x = -11788.23, y = -1626.30, z = 1235.00 },
+            { x = -12328.69, y = -1569.91, z = 1235.00 },
+            { x = -12741.55, y = -1828.70, z = 1235.00 },
+            { x = -13056.75, y = -2262.73, z = 1235.00 },
+            { x = -13093.05, y = -2736.06, z = 1235.00 },
+            { x = -12773.58, y = -2951.50, z = 1235.00 },
+            { x = -12332.28, y = -2840.23, z = 1235.00 },
+            { x = -12095.79, y = -2504.58, z = 1235.00 },
+            { x = -12251.82, y = -2148.72, z = 1235.00 },
+            { x = -13696.00, y = -1408.00, z = 1235.00 }
         }
     }),
     make_trial_of_sun_side_maptrap_action({
@@ -14187,6 +14294,9 @@ M.ROUTE_POINT_ACTIONS = {
         mode = "objective_button_flow_point",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
         task_patterns = {
             "狮心"
         },
@@ -14195,9 +14305,9 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 9054.00,
-            y = -2058.00,
-            z = 1805.00,
+            x = 8916.66,
+            y = -1310.97,
+            z = 1806.00,
             radius = 2600,
             z_tolerance = 700
         },
@@ -14217,6 +14327,9 @@ M.ROUTE_POINT_ACTIONS = {
         label = "狮心_与阿瑞娅对话_NPC对话",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
         task_patterns = {
             "狮心"
         },
@@ -14225,17 +14338,17 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 9054.00,
-            y = -2058.00,
-            z = 1805.00,
+            x = 8916.66,
+            y = -1310.97,
+            z = 1806.00,
             radius = 1900,
             z_tolerance = 520
         },
         retry_ms = 6000,
         dialogue = {
-            x = 9054.00,
-            y = -2058.00,
-            z = 1805.00,
+            x = 8916.66,
+            y = -1310.97,
+            z = 1806.00,
             radius = 260,
             interact_radius = 160,
             move_interval_ms = 180,
@@ -15017,7 +15130,8 @@ M.ROUTE_POINT_ACTIONS = {
             z_tolerance = 260
         },
         retry_ms = 600000,
-        timeout_ms = 150000,
+        timeout_ms = 360000,
+        cooldown_on_timeout = true,
         waypoint_reach_radius = 260,
         waypoint_z_tolerance = 260,
         move_interval_ms = 220,
@@ -15153,6 +15267,146 @@ M.ROUTE_POINT_ACTIONS = {
             hover_capture_client_bottom = 730.0,
             hover_capture_retry_ms = 700,
             settle_ms = 1800
+        }
+    }),
+    make_route_point_action({
+        key = "lionheart_power_facility_1_complete_bridge_route_3880_-1580",
+        label = "狮心_关闭供电设施_第一设施完成后补充路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "狮心"
+        },
+        task_detail_patterns = {
+            "完成"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 3880.00,
+            y = -1580.00,
+            z = 2138.19,
+            radius = 900,
+            z_tolerance = 700
+        },
+        retry_ms = 600000,
+        timeout_ms = 90000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 900,
+        move_interval_ms = 220,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "lionheart_power_facility_2_gather_13442_2735",
+        waypoints = {
+            { x = 4509.32, y = -961.19, z = 2129.90 },
+            { x = 5084.05, y = 212.03, z = 2100.00 },
+            { x = 5145.04, y = 1119.41, z = 2101.00 },
+            { x = 5484.63, y = 2082.42, z = 2148.96 },
+            { x = 6233.38, y = 2721.78, z = 2373.28 },
+            { x = 8294.40, y = 3494.74, z = 2409.79 },
+            { x = 10207.00, y = 3096.69, z = 2629.10 },
+            { x = 11083.28, y = 2941.20, z = 2705.00 },
+            { x = 11897.81, y = 2962.26, z = 2705.00 },
+            { x = 13441.90, y = 2734.86, z = 2712.25 }
+        }
+    }),
+    make_route_point_action({
+        key = "lionheart_power_facility_1_complete_bridge_route_12959_-6252",
+        label = "狮心_关闭供电设施_第一设施完成后补充路线_设施门口",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "狮心"
+        },
+        task_detail_patterns = {
+            "完成"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 12959.00,
+            y = -6252.00,
+            z = 2719.28,
+            radius = 700,
+            z_tolerance = 520
+        },
+        retry_ms = 600000,
+        timeout_ms = 100000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 900,
+        move_interval_ms = 220,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "lionheart_power_facility_2_gather_13442_2735",
+        waypoints = {
+            { x = 11886.77, y = -6484.33, z = 2705.00 },
+            { x = 10817.26, y = -6423.41, z = 2708.67 },
+            { x = 10003.65, y = -6244.42, z = 2496.36 },
+            { x = 9278.71, y = -6390.33, z = 2185.46 },
+            { x = 8508.15, y = -6527.44, z = 2106.00 },
+            { x = 7192.08, y = -6561.55, z = 2100.00 },
+            { x = 4408.65, y = -4921.42, z = 2100.00 },
+            { x = 5288.27, y = -1116.86, z = 2125.23 },
+            { x = 5338.82, y = 2043.77, z = 2132.05 },
+            { x = 7764.00, y = 2976.00, z = 2417.12 },
+            { x = 9644.00, y = 3334.00, z = 2466.84 },
+            { x = 10878.45, y = 2696.54, z = 2706.87 },
+            { x = 13414.00, y = 2644.00, z = 2709.88 }
+        }
+    }),
+    make_route_point_action({
+        key = "lionheart_power_facility_2_gather_13442_2735",
+        label = "狮心_关闭供电设施_第二设施MapTrapBtn_补充路线终点",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "狮心"
+        },
+        task_detail_patterns = {
+            "关闭东北边的供电设施",
+            "完成"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 13441.90,
+            y = 2734.86,
+            z = 2712.25,
+            radius = 760,
+            z_tolerance = 520
+        },
+        interact_radius = 180,
+        probe_retry_ms = 700,
+        retry_ms = 600000,
+        settle_ms = 2600,
+        timeout_ms = 5200,
+        force_task_call_after_transition = false,
+        task_pos_reject_extra_ms = 3500,
+        step = {
+            key = "lionheart_power_facility_2_map_trap_btn_bridge",
+            label = "第二供电设施交互按钮",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.MapTrapBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.MapTrapBtn"
+            },
+            hint_client_x = 704.528564,
+            hint_client_y = 712.631531,
+            hint_ratio_x = 0.489256,
+            hint_ratio_y = 0.791813,
+            hint_max_distance = 100.000,
+            prefer_hint_fallback = true,
+            hover_capture_enabled = true,
+            hover_capture_client_left = 690.0,
+            hover_capture_client_top = 685.0,
+            hover_capture_client_right = 745.0,
+            hover_capture_client_bottom = 730.0,
+            hover_capture_retry_ms = 700,
+            settle_ms = 1800,
+            task_pos_reject_extra_ms = 3500
         }
     }),
     make_route_point_action({

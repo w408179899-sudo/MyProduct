@@ -6829,6 +6829,15 @@ function M.maybe_handle_route_point_action_route(ctx, current_time, player_x, pl
             #waypoints,
             math.max(0, current_time - (tonumber(state.route_point_action_route_started_at) or current_time))
         ))
+        if action.cooldown_on_timeout == true then
+            state.map_transition_triggered[state_key] = current_time
+            logger(ctx).info(string.format(
+                "[Leveling] route point action recorded route timeout cooldown armed | task=%s key=%s retry_ms=%d",
+                tostring(M.current_task_log_name() or state.current_task_name or ""),
+                tostring(active_key),
+                math.max(1000, tonumber(action.retry_ms) or 3000)
+            ))
+        end
         M.clear_route_point_action_route_state()
         return false
     end
