@@ -8774,7 +8774,10 @@ end
 local function confirm_dialogue_ui_visible(ctx, current_time)
     current_time = tonumber(current_time) or now_ms(ctx)
     if state.dialogue_ui_confirmed == true then
-        return true, state.dialogue_ui_match
+        if current_time < (tonumber(state.next_dialogue_probe_at) or 0) then
+            return true, state.dialogue_ui_match
+        end
+        state.dialogue_ui_confirmed = false
     end
     if current_time < (tonumber(state.next_dialogue_probe_at) or 0) then
         return false, state.dialogue_ui_match
