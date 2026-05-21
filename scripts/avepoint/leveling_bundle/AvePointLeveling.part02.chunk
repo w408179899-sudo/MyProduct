@@ -12286,6 +12286,27 @@ click_main_task_button = function(ctx, current_time, opts)
     if M.should_suspend_treasure_task_refresh() then
         return false, "treasure dungeon suppresses main task refresh."
     end
+    if trim(state.pending_interaction_origin) ~= ""
+        and type(M.pending_interaction_task_changed) == "function"
+    then
+        local task_changed, pending_task, pending_detail, current_task, current_detail =
+            M.pending_interaction_task_changed()
+        if task_changed then
+            local pending_origin = tostring(state.pending_interaction_origin or "")
+            clear_pending_interaction()
+            if type(M.clear_interaction_combat_guard) == "function" then
+                M.clear_interaction_combat_guard()
+            end
+            logger(ctx).info(string.format(
+                "[Leveling] stale pending interaction released before main task click | origin=%s old_task=%s old_detail=%s new_task=%s new_detail=%s",
+                pending_origin,
+                tostring(pending_task or ""),
+                tostring(pending_detail or ""),
+                tostring(current_task or ""),
+                tostring(current_detail or "")
+            ))
+        end
+    end
     local interaction_lock_reason = M.main_task_click_interaction_lock_reason(current_time, opts)
     if interaction_lock_reason ~= nil then
         local retry_ms = math.max(250, tonumber(opts.interaction_lock_retry_ms) or 800)
