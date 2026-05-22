@@ -89,6 +89,27 @@ M._leveling_recycle = M.load_leveling_support_module(
     "AvePointLevelingRecycle"
 )
 
+M._leveling_bt = M.load_leveling_support_module(
+    "AvePointLevelingBehaviorTree",
+    "scripts.AvePointLevelingBehaviorTree",
+    "scripts/AvePointLevelingBehaviorTree.lua",
+    "AvePointLevelingBehaviorTree"
+)
+
+M._leveling_blackboard = M.load_leveling_support_module(
+    "AvePointLevelingBlackboard",
+    "scripts.AvePointLevelingBlackboard",
+    "scripts/AvePointLevelingBlackboard.lua",
+    "AvePointLevelingBlackboard"
+)
+
+M._leveling_flow_owner = M.load_leveling_support_module(
+    "AvePointLevelingFlowOwner",
+    "scripts.AvePointLevelingFlowOwner",
+    "scripts/AvePointLevelingFlowOwner.lua",
+    "AvePointLevelingFlowOwner"
+)
+
 M.BUTTON_SESSION_STATE_FILE_PATH = "scripts/avepoint_leveling_button_session.lua"
 M.RECIPE_PROGRESS_STATE_FILE_PATH = "scripts/avepoint_leveling_recipe_state.lua"
 M.LEVEL_UP_MAINTENANCE_STATE_FILE_PATH = "scripts/avepoint_leveling_maintenance_state.lua"
@@ -103,7 +124,7 @@ M.BUTTON_CALL_HOVER_CAPTURE_DISABLED = true
 local UPDATE_INTERVAL_MS = 100
 local HEARTBEAT_INTERVAL_MS = 3000
 local ACTION_INTERVAL_MS = 255
-M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS = 270
+M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS = 530
 M.COMBAT_ALTERNATE_RESET_MS = 10000
 local MOVE_INTERVAL_MS = 900
 local TASK_REFRESH_INTERVAL_MS = 1200
@@ -135,6 +156,7 @@ local TASK_COMBAT_CLEAR_SETTLE_MS = 1800
 
 M.TASK_BUTTON_PATH_EARLY_RETRY_AFTER_MS = 1100
 M.TASK_BUTTON_PATH_EARLY_RETRY_FAILED_MS = 1200
+M.TASK_BUTTON_PATH_WAIT_POLL_INTERVAL_MS = 100
 local TASK_COMBAT_HARD_TRIGGER_MS = 4500
 local TASK_COMBAT_HARD_MONSTER_COUNT = 6
 local TASK_COMBAT_HARD_NEAREST_DISTANCE = 180
@@ -766,6 +788,421 @@ end
 
 local state = {}
 
+function M.refresh_flow_owner_snapshot(current_time, blackboard)
+    blackboard = type(blackboard) == "table" and blackboard or M.current_blackboard(current_time)
+    local owner = nil
+    if type(M._leveling_flow_owner) == "table"
+        and type(M._leveling_flow_owner.evaluate) == "function"
+    then
+        owner = M._leveling_flow_owner.evaluate(blackboard)
+    end
+    if type(owner) ~= "table" then
+        owner = {
+            priority = 900,
+            owner = "idle",
+            node = "idle",
+            reason = "flow_owner_unavailable",
+            blocks_main_task = false,
+            allows_combat_sidecar = true,
+            diagnostic_only = true
+        }
+    end
+    state.current_flow_owner = owner
+    if type(blackboard) == "table" then
+        blackboard.scheduler = owner
+    end
+    return owner
+end
+
+function M.current_flow_owner(current_time)
+    if type(state.current_flow_owner) ~= "table" then
+        M.refresh_flow_owner_snapshot(current_time, state.current_blackboard)
+    end
+    return state.current_flow_owner
+end
+
+function M.current_flow_owner_allows(current_time, owner)
+    local flow_owner = M.current_flow_owner(current_time)
+    if type(M._leveling_flow_owner) == "table"
+        and type(M._leveling_flow_owner.allows) == "function"
+    then
+        return M._leveling_flow_owner.allows(flow_owner, owner)
+    end
+    return true, "flow_owner_gate_unavailable"
+end
+
+function M.bt_infer_selector_owner(key, children)
+    if type(M._leveling_flow_owner) == "table"
+        and type(M._leveling_flow_owner.owner_for_selector_key) == "function"
+    then
+        local owner, source = M._leveling_flow_owner.owner_for_selector_key(key, children)
+        owner = tostring(owner or "")
+        if owner ~= "" then
+            return owner, source
+        end
+    end
+    if type(children) ~= "table" then
+        return "", "ownerless"
+    end
+    for _, child in ipairs(children) do
+        if type(child) == "table" then
+            local owner = tostring(child.owner or "")
+            if owner ~= "" then
+                return owner, "first_child"
+            end
+        end
+    end
+    return "", "ownerless"
+end
+
+function M.bt_observe_owner_gate(current_time, key, owner, opts)
+    opts = type(opts) == "table" and opts or {}
+    owner = tostring(owner or "")
+    key = tostring(key or "")
+    if owner == "" then
+        return true, "ownerless"
+    end
+
+    local allowed, reason = M.current_flow_owner_allows(current_time, owner)
+    local flow_owner = type(state.current_flow_owner) == "table" and state.current_flow_owner or {}
+    local status = {
+        key = key,
+        owner = owner,
+        allowed = allowed == true,
+        reason = tostring(reason or ""),
+        scheduler_owner = tostring(flow_owner.owner or ""),
+        scheduler_node = tostring(flow_owner.node or ""),
+        scheduler_reason = tostring(flow_owner.reason or ""),
+        scheduler_priority = tonumber(flow_owner.priority),
+        source = tostring(opts.source or ""),
+        at = tonumber(current_time) or 0,
+        enforce = opts.enforce == true
+    }
+
+    if type(state.bt_owner_gate_statuses) ~= "table" then
+        state.bt_owner_gate_statuses = {}
+    end
+    state.bt_owner_gate_statuses[key] = status
+    state.bt_owner_gate_last = status
+
+    if allowed ~= true and (opts.enforce == true or opts.count_mismatch == true) then
+        state.bt_owner_gate_mismatch_count = (tonumber(state.bt_owner_gate_mismatch_count) or 0) + 1
+        state.bt_owner_gate_last_mismatch = status
+        if opts.enforce == true then
+            state.bt_owner_gate_blocked_count = (tonumber(state.bt_owner_gate_blocked_count) or 0) + 1
+            M.bt_record_node(current_time, "owner_gate." .. key, owner, "blocked", reason)
+            return false, reason
+        end
+    end
+
+    return true, reason
+end
+
+function M.bt_owner_gate_enforce_enabled(key, owner)
+    key = tostring(key or "")
+    owner = tostring(owner or "")
+    local cfg = type(M._leveling_config) == "table"
+        and M._leveling_config.LEVELING_BT_OWNER_GATE_ENFORCE
+        or nil
+    if cfg == true then
+        return true
+    end
+    if type(cfg) ~= "table" then
+        return false
+    end
+
+    if type(cfg.selectors) == "table" then
+        local selector_value = cfg.selectors[key]
+        if selector_value == false then
+            return false
+        elseif selector_value == true then
+            return true
+        end
+    end
+
+    if type(cfg.owners) == "table" then
+        local owner_value = cfg.owners[owner]
+        if owner_value == false then
+            return false
+        elseif owner_value == true then
+            return true
+        end
+    end
+
+    return cfg.all == true
+end
+
+function M.bt_active_owner_enforce_enabled()
+    return type(M._leveling_config) == "table"
+        and M._leveling_config.LEVELING_BT_ACTIVE_OWNER_ENFORCE == true
+end
+
+function M.bt_execution_enabled(key)
+    key = tostring(key or "")
+    local cfg = type(M._leveling_config) == "table"
+        and M._leveling_config.LEVELING_BT_EXECUTION_ENABLED
+        or nil
+    if cfg == true then
+        return true
+    end
+    if cfg == false or cfg == nil then
+        return false
+    end
+    if type(cfg) ~= "table" then
+        return false
+    end
+
+    if type(cfg.selectors) == "table" then
+        local selector_value = cfg.selectors[key]
+        if selector_value == false then
+            return false
+        elseif selector_value == true then
+            return true
+        end
+    end
+
+    return cfg.all == true
+end
+
+function M.refresh_blackboard_snapshot(current_time, opts)
+    opts = type(opts) == "table" and opts or {}
+    local blackboard = nil
+    if type(M._leveling_blackboard) == "table"
+        and type(M._leveling_blackboard.snapshot) == "function"
+    then
+        blackboard = M._leveling_blackboard.snapshot(state, current_time, opts)
+    end
+    if type(blackboard) ~= "table" then
+        blackboard = {
+            current_time = tonumber(current_time) or 0,
+            now = tonumber(current_time) or 0,
+            stage = tostring(state.stage or ""),
+            state = state
+        }
+    end
+    blackboard.root = state
+    blackboard.bt_active_owner_enforce = M.bt_active_owner_enforce_enabled()
+    state.current_blackboard = blackboard
+    state.current_blackboard_tick = tonumber(current_time) or 0
+    M.refresh_flow_owner_snapshot(current_time, blackboard)
+    return blackboard
+end
+
+function M.current_blackboard(current_time, opts)
+    local tick = tonumber(current_time) or 0
+    if type(state.current_blackboard) ~= "table"
+        or tonumber(state.current_blackboard_tick) ~= tick
+    then
+        M.refresh_blackboard_snapshot(current_time, opts)
+    end
+
+    if type(opts) ~= "table" then
+        return state.current_blackboard
+    end
+
+    local overlay = {}
+    local has_overlay = false
+    for key, value in pairs(opts) do
+        overlay[key] = value
+        has_overlay = true
+    end
+    if not has_overlay then
+        return state.current_blackboard
+    end
+    overlay.current_time = overlay.current_time or tick
+    overlay.now = overlay.now or tick
+    return setmetatable(overlay, { __index = state.current_blackboard })
+end
+
+function M.bt_begin_tick(current_time)
+    if type(M._leveling_bt) == "table" and type(M._leveling_bt.begin_tick) == "function" then
+        return M._leveling_bt.begin_tick(state, current_time)
+    end
+    return nil
+end
+
+function M.bt_record_node(current_time, key, owner, result, reason)
+    if type(M._leveling_bt) == "table" and type(M._leveling_bt.record) == "function" then
+        local flow_owner = type(state.current_flow_owner) == "table" and state.current_flow_owner or {}
+        return M._leveling_bt.record(state, key, result, {
+            owner = owner,
+            current_time = current_time,
+            stage = state.stage,
+            reason = reason,
+            scheduler = flow_owner,
+            scheduler_owner = flow_owner.owner,
+            scheduler_node = flow_owner.node,
+            scheduler_reason = flow_owner.reason,
+            scheduler_priority = flow_owner.priority
+        })
+    end
+    return result
+end
+
+function M.bt_get_legacy_bool_node(key, owner, fn)
+    if type(M._leveling_bt) ~= "table" or type(M._leveling_bt.legacy_bool_node) ~= "function" then
+        return nil
+    end
+    if type(state.bt_node_cache) ~= "table" then
+        state.bt_node_cache = {}
+    end
+
+    local cache_key = tostring(key or "") .. "|" .. tostring(owner or "")
+    local cached = state.bt_node_cache[cache_key]
+    if type(cached) == "table" and cached._legacy_fn == fn then
+        return cached
+    end
+
+    local node = M._leveling_bt.legacy_bool_node({
+        key = key,
+        owner = owner,
+        tick = function(_, blackboard)
+            local args = type(blackboard) == "table" and blackboard.args or nil
+            if type(args) ~= "table" then
+                return false, "missing legacy args"
+            end
+            local unpack_fn = table.unpack or unpack
+            return fn(unpack_fn(args))
+        end
+    })
+    node._legacy_fn = fn
+    state.bt_node_cache[cache_key] = node
+    return node
+end
+
+function M.bt_run_legacy_bool_node(ctx, current_time, key, owner, fn, ...)
+    if type(fn) ~= "function" then
+        M.bt_record_node(current_time, key, owner, "failure", "missing handler")
+        return false
+    end
+    local enforce_owner_gate = M.bt_owner_gate_enforce_enabled(key, owner)
+    local owner_allowed = M.bt_observe_owner_gate(current_time, key, owner, {
+        enforce = enforce_owner_gate,
+        count_mismatch = enforce_owner_gate
+    })
+    if owner_allowed ~= true then
+        return false
+    end
+    if M.bt_execution_enabled(key)
+        and type(M._leveling_bt) == "table"
+        and type(M._leveling_bt.run_node) == "function"
+    then
+        local node = M.bt_get_legacy_bool_node(key, owner, fn)
+        if type(node) == "table" then
+            local result = node:run(state, ctx, M.current_blackboard(current_time, {
+                ctx = ctx,
+                args = { ... }
+            }))
+            return result == M._leveling_bt.RUNNING or result == M._leveling_bt.SUCCESS
+        end
+    end
+    local handled = fn(...)
+    local result = handled
+        and (type(M._leveling_bt) == "table" and M._leveling_bt.RUNNING or "running")
+        or (type(M._leveling_bt) == "table" and M._leveling_bt.SKIPPED or "skipped")
+    M.bt_record_node(current_time, key, owner, result, nil)
+    return handled
+end
+
+function M.bt_run_priority_selector(ctx, current_time, key, children)
+    children = type(children) == "table" and children or {}
+    local selector_owner, selector_owner_source = M.bt_infer_selector_owner(key, children)
+    local enforce_owner_gate = M.bt_owner_gate_enforce_enabled(key, selector_owner)
+    local owner_allowed = M.bt_observe_owner_gate(current_time, key, selector_owner, {
+        enforce = enforce_owner_gate,
+        count_mismatch = enforce_owner_gate,
+        source = selector_owner_source
+    })
+    if owner_allowed ~= true then
+        return false
+    end
+    if M.bt_execution_enabled(key)
+        and type(M._leveling_bt) == "table"
+        and type(M._leveling_bt.priority_selector) == "function"
+        and type(M._leveling_bt.legacy_bool_node) == "function"
+        and type(M._leveling_bt.run_node) == "function"
+    then
+        local child_nodes = {}
+        for index, child in ipairs(children) do
+            if type(child) == "table" and type(child.run) == "function" then
+                local child_def = child
+                child_nodes[#child_nodes + 1] = M._leveling_bt.legacy_bool_node({
+                    key = child_def.key or (tostring(key or "selector") .. "." .. tostring(index)),
+                    owner = child_def.owner,
+                    priority = child_def.priority or index,
+                    transient = child_def.transient == true,
+                    tick = function(_, blackboard)
+                        return child_def.run(ctx, current_time, blackboard)
+                    end
+                })
+            end
+        end
+
+        local selector = M._leveling_bt.priority_selector({
+            key = key,
+            owner = "",
+            children = child_nodes
+        })
+        local result = selector:run(state, ctx, M.current_blackboard(current_time, {
+            ctx = ctx
+        }))
+        return result == M._leveling_bt.RUNNING
+            or result == M._leveling_bt.SUCCESS
+    end
+
+    for _, child in ipairs(children) do
+        if type(child) == "table" and type(child.run) == "function" and child.run(ctx, current_time, M.current_blackboard(current_time, { ctx = ctx })) then
+            M.bt_record_node(current_time, child.key, child.owner, "running", nil)
+            return true
+        end
+    end
+    M.bt_record_node(current_time, key, nil, "skipped", nil)
+    return false
+end
+
+function M.bt_run_service_nodes(ctx, current_time, key, children)
+    children = type(children) == "table" and children or {}
+    if type(M._leveling_bt) == "table"
+        and type(M._leveling_bt.service_selector) == "function"
+        and type(M._leveling_bt.service) == "function"
+    then
+        local child_nodes = {}
+        for index, child in ipairs(children) do
+            if type(child) == "table" and type(child.run) == "function" then
+                local child_def = child
+                child_nodes[#child_nodes + 1] = M._leveling_bt.service({
+                    key = child_def.key or (tostring(key or "service") .. "." .. tostring(index)),
+                    priority = child_def.priority or index,
+                    tick = function(_, blackboard)
+                        local handled, reason = child_def.run(ctx, current_time, blackboard)
+                        if handled then
+                            return M._leveling_bt.SUCCESS, reason
+                        end
+                        return M._leveling_bt.SKIPPED, reason
+                    end
+                })
+            end
+        end
+
+        local selector = M._leveling_bt.service_selector({
+            key = key,
+            children = child_nodes
+        })
+        selector:run(state, ctx, M.current_blackboard(current_time, {
+            ctx = ctx
+        }))
+        return
+    end
+
+    for _, child in ipairs(children) do
+        if type(child) == "table" and type(child.run) == "function" then
+            local handled = child.run(ctx, current_time, M.current_blackboard(current_time, { ctx = ctx }))
+            M.bt_record_node(current_time, child.key, nil, handled and "success" or "skipped", nil)
+        end
+    end
+    M.bt_record_node(current_time, key, nil, "skipped", nil)
+end
+
 function M.is_task_detail_noise(value)
     local text = trim(tostring(value or ""))
     return text == "新" or text == "完成"
@@ -785,6 +1222,9 @@ end
 function M.publish_current_task_name()
     _G.AVEPOINT_CURRENT_TASK_NAME = state.current_task_name
     _G.AVEPOINT_CURRENT_TASK_DETAIL = state.current_task_detail
+    if type(M.maybe_confirm_task_advancing_action_success) == "function" then
+        M.maybe_confirm_task_advancing_action_success(state.log_ctx, nil, "publish_current_task_name")
+    end
     if type(state.current_task_detail) == "string"
         and trim(state.current_task_detail) ~= ""
         and not M.is_task_detail_transition(state.current_task_detail)
@@ -870,12 +1310,21 @@ function M.clear_route_point_action_objective_state()
 end
 
 function M.clear_route_point_action_route_state()
+    if type(M.pause_route_point_recorded_route_worker) == "function" then
+        M.pause_route_point_recorded_route_worker(state.log_ctx)
+    end
     state.route_point_action_route_active_key = nil
     state.route_point_action_route_active_state_key = nil
     state.route_point_action_route_started_at = 0
     state.route_point_action_route_deadline_at = 0
     state.route_point_action_route_index = 0
     state.route_point_action_route_next_retry_at = 0
+    state.route_point_recorded_route_worker_signature = nil
+    state.route_point_recorded_route_worker_active = false
+    state.route_point_recorded_route_worker_window_start = 0
+    state.route_point_recorded_route_worker_window_end = 0
+    state.route_point_recorded_route_worker_action_key = nil
+    state.route_point_recorded_route_worker_path_signature = nil
 end
 
 function M.clear_route_point_action_route_wait_state()
@@ -883,6 +1332,17 @@ function M.clear_route_point_action_route_wait_state()
     state.route_point_action_route_wait_key = nil
     state.route_point_action_route_wait_task_name = nil
     state.route_point_action_route_wait_task_detail = nil
+end
+
+function M.clear_task_advancing_action_confirmation()
+    state.task_advancing_action_pending_key = nil
+    state.task_advancing_action_pending_state_key = nil
+    state.task_advancing_action_pending_mode = nil
+    state.task_advancing_action_pending_source = nil
+    state.task_advancing_action_pending_task_name = nil
+    state.task_advancing_action_pending_task_detail = nil
+    state.task_advancing_action_pending_started_at = 0
+    state.task_advancing_action_pending_deadline_at = 0
 end
 
 function M.clear_task_dialogue_flow_state()
@@ -1091,6 +1551,9 @@ function M.should_arm_task_info_stability_gate(reason_text)
     if reason_text:find("task_objective_button_", 1, true) ~= nil then
         return true
     end
+    if reason_text:find("route_point_action_", 1, true) ~= nil then
+        return true
+    end
     return false
 end
 
@@ -1215,13 +1678,18 @@ function M.clear_post_combat_loot_state()
     state.post_combat_loot_empty_settle_ms = nil
 end
 
-function M.is_task_combat_or_post_loot_active()
+function M.is_task_combat_active()
     local stage_name = tostring(state.stage or "")
     return state.task_combat_force_kite == true
         or stage_name == "task_combat"
         or stage_name == "task_combat_kite"
         or stage_name == "task_combat_settle"
         or stage_name == "task_combat_complete_settle"
+end
+
+function M.is_task_combat_or_post_loot_active()
+    local stage_name = tostring(state.stage or "")
+    return M.is_task_combat_active()
         or (stage_name == "post_combat_loot" and state.post_combat_loot_active_key ~= nil)
 end
 
@@ -1255,6 +1723,9 @@ local function clear_task_target_state()
     state.nav_worker_path_route_window_end = 0
     state.nav_worker_path_route_direction = 1
     state.nav_worker_path_route_path_signature = nil
+    if type(M.pause_route_point_recorded_route_worker) == "function" then
+        M.pause_route_point_recorded_route_worker(state.log_ctx)
+    end
     state.last_move_attempt_at = 0
     state.last_move_failure_at = 0
     state.move_failure_streak = 0
@@ -1276,6 +1747,13 @@ local function clear_task_target_state()
     state.task_combat_kite_route_worker_signature = nil
     state.task_combat_kite_route_worker_version = 0
     state.task_combat_kite_route_worker_active = false
+    state.route_point_recorded_route_worker_signature = nil
+    state.route_point_recorded_route_worker_version = tonumber(state.route_point_recorded_route_worker_version) or 0
+    state.route_point_recorded_route_worker_active = false
+    state.route_point_recorded_route_worker_window_start = 0
+    state.route_point_recorded_route_worker_window_end = 0
+    state.route_point_recorded_route_worker_action_key = nil
+    state.route_point_recorded_route_worker_path_signature = nil
     state.task_combat_kite_arrive_distance = nil
     state.task_combat_kite_move_interval_ms = nil
     state.task_combat_kite_force_move = false
@@ -1498,6 +1976,25 @@ end
 
 local function reset_state()
     state.running = false
+    state.bt_runtime = nil
+    state.bt_node_cache = nil
+    state.current_blackboard = nil
+    state.current_blackboard_tick = nil
+    state.current_flow_owner = nil
+    state.last_scheduler_mismatch_log_count = nil
+    state.last_scheduler_mismatch_log_at = nil
+    state.bt_owner_gate_statuses = nil
+    state.bt_owner_gate_last = nil
+    state.bt_owner_gate_last_mismatch = nil
+    state.bt_owner_gate_mismatch_count = nil
+    state.bt_owner_gate_blocked_count = nil
+    state.task_refresh_bag_pause_open = false
+    state.task_refresh_bag_pause_started_at = 0
+    state.task_refresh_bag_pause_deadline_at = 0
+    state.task_refresh_bag_pause_failed_until = 0
+    state.task_refresh_bag_pause_source_click_at = 0
+    state.task_refresh_bag_pause_phase = nil
+    state.task_refresh_bag_pause_last_log_at = 0
     state.stage = "idle"
     state.next_tick_at = 0
     state.next_move_at = 0
@@ -1553,6 +2050,8 @@ local function reset_state()
     state.dialogue_jump_consumed = false
     state.main_task_button_cache_warmed_this_run = false
     state.completed_blocking_side_tasks = {}
+    state.completed_task_advancing_actions = {}
+    M.clear_task_advancing_action_confirmation()
     state.next_recipe_progress_alignment_at = 0
     state.dialogue_jump_consumed_at = 0
     state.dialogue_jump_consumed_source = nil
@@ -1602,7 +2101,7 @@ local function reset_state()
     state.combat_key_release_at = 0
     state.combat_mouse_down = false
     state.combat_mouse_release_at = 0
-    state.combat_alternate_next_action = "right"
+    state.combat_alternate_next_action = "both"
     state.combat_alternate_last_action_at = 0
     state.cached_nearest_npc = nil
     state.cached_npc_error = nil
@@ -1690,6 +2189,7 @@ local function reset_state()
     state.current_map_name = nil
     state.last_map_info_error = nil
     state.map_transition_triggered = {}
+    state.completed_task_advancing_actions = {}
     state.next_interaction_prompt_scan_at = 0
     state.cached_interaction_prompt_target = nil
     state.cached_interaction_prompt_target_at = 0
@@ -1766,6 +2266,13 @@ local function reset_state()
     state.nav_worker_path_route_window_end = 0
     state.nav_worker_path_route_direction = 1
     state.nav_worker_path_route_path_signature = nil
+    state.route_point_recorded_route_worker_signature = nil
+    state.route_point_recorded_route_worker_version = 0
+    state.route_point_recorded_route_worker_active = false
+    state.route_point_recorded_route_worker_window_start = 0
+    state.route_point_recorded_route_worker_window_end = 0
+    state.route_point_recorded_route_worker_action_key = nil
+    state.route_point_recorded_route_worker_path_signature = nil
     state.last_path_signature = nil
     state.path_direction_sign = nil
     state.last_selected_path_index = nil
@@ -1810,6 +2317,13 @@ local function reset_state()
     state.task_combat_kite_route_worker_signature = nil
     state.task_combat_kite_route_worker_version = 0
     state.task_combat_kite_route_worker_active = false
+    state.route_point_recorded_route_worker_signature = nil
+    state.route_point_recorded_route_worker_version = 0
+    state.route_point_recorded_route_worker_active = false
+    state.route_point_recorded_route_worker_window_start = 0
+    state.route_point_recorded_route_worker_window_end = 0
+    state.route_point_recorded_route_worker_action_key = nil
+    state.route_point_recorded_route_worker_path_signature = nil
     state.task_combat_kite_arrive_distance = nil
     state.task_combat_kite_move_interval_ms = nil
     state.task_combat_kite_force_move = false
@@ -1842,6 +2356,13 @@ local function reset_state()
     state.route_point_action_route_deadline_at = 0
     state.route_point_action_route_index = 0
     state.route_point_action_route_next_retry_at = 0
+    state.route_point_recorded_route_worker_signature = nil
+    state.route_point_recorded_route_worker_version = 0
+    state.route_point_recorded_route_worker_active = false
+    state.route_point_recorded_route_worker_window_start = 0
+    state.route_point_recorded_route_worker_window_end = 0
+    state.route_point_recorded_route_worker_action_key = nil
+    state.route_point_recorded_route_worker_path_signature = nil
     state.next_route_point_action_level_probe_at = 0
     state.cached_route_point_action_player_level = nil
     state.cached_route_point_action_player_level_progress = nil
@@ -1879,6 +2400,11 @@ local function reset_state()
     state.level_up_maintenance_executor_close_pending = nil
     state.level_up_maintenance_executor_close_attempts = nil
     state.level_up_maintenance_executor_point_check_miss_count = nil
+    state.level_up_maintenance_panel_open_death_guard_until = 0
+    state.level_up_maintenance_panel_open_death_guard_wall_until = 0
+    state.level_up_maintenance_panel_open_death_guard_step_key = nil
+    state.level_up_maintenance_panel_open_death_guard_label = nil
+    state.level_up_maintenance_panel_open_death_guard_kind = nil
     state.level_up_maintenance_point_decrement_step_key = nil
     state.level_up_maintenance_point_decrement_successes = nil
     state.level_up_maintenance_point_decrement_attempts = nil
@@ -2014,6 +2540,7 @@ local function nav_worker_clear_shares(ctx)
         "move_interval_ms",
         "mode",
         "route_version",
+        "route_signature",
         "route_count",
         "route_arrive_distance",
         "route_switch_ms",
@@ -2399,6 +2926,13 @@ local function stop_nav_worker(ctx)
     state.nav_worker_path_route_window_end = 0
     state.nav_worker_path_route_direction = 1
     state.nav_worker_path_route_path_signature = nil
+    state.route_point_recorded_route_worker_signature = nil
+    state.route_point_recorded_route_worker_version = 0
+    state.route_point_recorded_route_worker_active = false
+    state.route_point_recorded_route_worker_window_start = 0
+    state.route_point_recorded_route_worker_window_end = 0
+    state.route_point_recorded_route_worker_action_key = nil
+    state.route_point_recorded_route_worker_path_signature = nil
 end
 
 local function ensure_nav_worker_running(ctx, current_time, force_enabled)
@@ -2584,6 +3118,21 @@ function M.pause_task_combat_kite_route_worker(ctx)
     state.nav_worker_paused = true
     state.task_combat_kite_route_worker_active = false
     state.task_combat_kite_route_worker_signature = nil
+end
+
+function M.pause_route_point_recorded_route_worker(ctx)
+    if state.route_point_recorded_route_worker_active ~= true then
+        return
+    end
+    nav_worker_set(ctx, "paused", true)
+    nav_worker_set(ctx, "mode", "target")
+    state.nav_worker_paused = true
+    state.route_point_recorded_route_worker_active = false
+    state.route_point_recorded_route_worker_signature = nil
+    state.route_point_recorded_route_worker_window_start = 0
+    state.route_point_recorded_route_worker_window_end = 0
+    state.route_point_recorded_route_worker_action_key = nil
+    state.route_point_recorded_route_worker_path_signature = nil
 end
 
 local function read_player_pos(ctx)
@@ -7941,6 +8490,9 @@ function M.maybe_handle_boss_task_change(ctx, current_time, objective_cfg, playe
     local current_task_cfg, current_task_name = M.current_task_runtime_config()
     local current_objective = type(current_task_cfg) == "table" and type(current_task_cfg.objective) == "table" and current_task_cfg.objective or nil
     local current_objective_key = normalize_map_name(type(current_objective) == "table" and current_objective.key or nil)
+    if current_objective_key == nil and type(current_task_cfg) == "table" then
+        current_objective_key = normalize_map_name(current_task_cfg.boss_objective_point_key or current_task_cfg.revive_reentry_objective_key)
+    end
     local locked_point_cfg = M.find_objective_point_config_by_key(state.task_combat_locked_objective_key)
     local function post_combat_loot_candidate(candidate)
         if type(candidate) ~= "table" or type(M.normalize_post_combat_loot_cfg) ~= "function" then
@@ -7951,9 +8503,28 @@ function M.maybe_handle_boss_task_change(ctx, current_time, objective_cfg, playe
         end
         return nil
     end
-    local loot_objective_cfg = post_combat_loot_candidate(objective_cfg)
-        or post_combat_loot_candidate(locked_point_cfg)
-        or post_combat_loot_candidate(current_objective)
+    local function post_combat_loot_disabled(candidate)
+        if type(candidate) ~= "table" then
+            return false
+        end
+        local raw = candidate.post_combat_loot
+        if raw == false then
+            return true
+        end
+        if type(raw) == "table" and raw.enabled == false then
+            return true
+        end
+        return false
+    end
+    local post_combat_loot_disabled_by_cfg = post_combat_loot_disabled(objective_cfg)
+        or post_combat_loot_disabled(locked_point_cfg)
+        or post_combat_loot_disabled(current_objective)
+    local loot_objective_cfg = nil
+    if not post_combat_loot_disabled_by_cfg then
+        loot_objective_cfg = post_combat_loot_candidate(objective_cfg)
+            or post_combat_loot_candidate(locked_point_cfg)
+            or post_combat_loot_candidate(current_objective)
+    end
     local loot_objective_key = tostring(
         type(loot_objective_cfg) == "table" and loot_objective_cfg.key
         or locked_objective_key
@@ -8193,7 +8764,41 @@ function M.maybe_handle_boss_task_change(ctx, current_time, objective_cfg, playe
             ))
             return false
         end
+        local current_objective_mode = tostring(type(current_objective) == "table" and current_objective.mode or "")
+        local current_objective_is_boss_like = type(current_objective) == "table"
+            and (
+                current_objective_mode == "boss_kite"
+                or current_objective.force_kite == true
+                or type(current_objective.kite_points) == "table"
+                or tonumber(current_objective.kite_point_count) ~= nil
+            )
+        local task_change_post_loot_min_alive_ms = math.max(
+            0,
+            tonumber(boss_soft_exit_option("task_change_post_loot_min_alive_ms"))
+                or tonumber(boss_soft_exit_option("min_task_change_loot_after_ms"))
+                or 2500
+        )
+        local suppress_post_combat_loot_for_fast_boss_handoff =
+            current_objective_is_boss_like
+            and current_objective_key ~= nil
+            and current_objective_key ~= locked_objective_key
+            and combat_alive_ms < task_change_post_loot_min_alive_ms
+        if suppress_post_combat_loot_for_fast_boss_handoff then
+            logger(ctx).info(string.format(
+                "[Leveling] boss task changed, skip post-combat loot for fast boss handoff | old_task=%s old_detail=%s old_objective=%s new_task=%s new_detail=%s new_objective=%s alive_ms=%d min_alive_ms=%d stage=%s",
+                tostring(locked_task_name or ""),
+                tostring(locked_task_detail or ""),
+                tostring(locked_objective_key or ""),
+                tostring(current_log_task_name or current_task_name or ""),
+                tostring(current_log_task_detail or ""),
+                tostring(current_objective_key or ""),
+                tonumber(combat_alive_ms) or 0,
+                tonumber(task_change_post_loot_min_alive_ms) or 0,
+                tostring(state.stage or "")
+            ))
+        end
         if type(loot_objective_cfg) == "table"
+            and not suppress_post_combat_loot_for_fast_boss_handoff
             and tostring(state.post_combat_loot_completed_key or "") ~= loot_objective_key
         then
             logger(ctx).info(string.format(
@@ -8210,6 +8815,17 @@ function M.maybe_handle_boss_task_change(ctx, current_time, objective_cfg, playe
             if M.maybe_handle_post_combat_loot(ctx, current_time, player_x, player_y, player_z, loot_objective_cfg) then
                 return true
             end
+        elseif post_combat_loot_disabled_by_cfg then
+            log_throttled(ctx, "boss_task_change_post_loot_disabled:" .. tostring(locked_objective_key or ""), "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] boss task changed, post-combat loot disabled by objective config | old_task=%s old_detail=%s old_objective=%s new_task=%s new_detail=%s new_objective=%s stage=%s",
+                tostring(locked_task_name or ""),
+                tostring(locked_task_detail or ""),
+                tostring(locked_objective_key or ""),
+                tostring(current_log_task_name or current_task_name or ""),
+                tostring(current_log_task_detail or ""),
+                tostring(current_objective_key or ""),
+                tostring(state.stage or "")
+            ))
         end
         logger(ctx).info(string.format(
             "[Leveling] boss task changed, exit kite | old_task=%s old_detail=%s old_objective=%s new_task=%s new_detail=%s new_objective=%s stage=%s",
@@ -8349,6 +8965,35 @@ function M.consume_terminal_task_refresh_marker(ctx, current_time, stage_name)
         local current_objective = type(current_task_cfg) == "table" and type(current_task_cfg.objective) == "table"
             and current_task_cfg.objective or nil
         local current_objective_key = normalize_map_name(type(current_objective) == "table" and current_objective.key or nil)
+        local locked_point_cfg = M.find_objective_point_config_by_key(state.terminal_task_locked_objective_key)
+        local function nearby_text_terminal_exit_allowed(candidate)
+            local patterns = nil
+            if type(current_objective) == "table"
+                and type(current_objective.nearby_text_task_change_exit_patterns) == "table"
+            then
+                patterns = current_objective.nearby_text_task_change_exit_patterns
+            elseif type(locked_point_cfg) == "table"
+                and type(locked_point_cfg.nearby_text_task_change_exit_patterns) == "table"
+            then
+                patterns = locked_point_cfg.nearby_text_task_change_exit_patterns
+            elseif type(state.task_combat_locked_nearby_text_task_change_exit_patterns) == "table" then
+                patterns = state.task_combat_locked_nearby_text_task_change_exit_patterns
+            end
+            if type(patterns) ~= "table" or #patterns == 0 then
+                return false
+            end
+            local candidate_text = normalize_map_name(candidate)
+            if candidate_text == nil then
+                return false
+            end
+            for _, pattern in ipairs(patterns) do
+                local pattern_text = normalize_map_name(pattern)
+                if pattern_text ~= nil and candidate_text:find(pattern_text, 1, true) ~= nil then
+                    return true
+                end
+            end
+            return false
+        end
         local previous_detail_key = normalize_map_name(previous_task_detail or state.terminal_task_locked_detail)
         local new_detail_key = normalize_map_name(
             state.terminal_task_refresh_new_task_detail
@@ -8370,6 +9015,7 @@ function M.consume_terminal_task_refresh_marker(ctx, current_time, stage_name)
             and previous_detail_key ~= new_detail_key
             and (current_objective_key == nil or current_objective_key ~= locked_objective_key)
             and tostring(state.current_task_name_source or "") ~= "nearby_text"
+            and nearby_text_terminal_exit_allowed(new_detail_key)
         if confirmed_detail_refresh then
             logger(ctx).info(string.format(
                 "[Leveling] terminal task refresh accepted from confirmed detail refresh | old_task=%s old_detail=%s objective=%s new_task=%s new_detail=%s new_objective=%s source=%s stage=%s",
@@ -9994,16 +10640,18 @@ function M.try_press_right_click_nonintrusive(ctx, label)
     return false, hwnd_err or string.format("%s driver right click failed.", tostring(label or "mouse")), nil
 end
 
-release_async_combat_inputs = function(ctx, current_time, force)
+release_async_combat_inputs = function(ctx, current_time, force, opts)
+    opts = type(opts) == "table" and opts or {}
     current_time = tonumber(current_time) or now_ms(ctx)
+    local preserve_alternate = opts.preserve_alternate == true
 
     local release_key = state.combat_key_down == true
         and (force == true or current_time >= (tonumber(state.combat_key_release_at) or 0))
     local release_mouse = state.combat_mouse_down == true
         and (force == true or current_time >= (tonumber(state.combat_mouse_release_at) or 0))
     if not release_key and not release_mouse then
-        if force == true then
-            state.combat_alternate_next_action = "right"
+        if force == true and not preserve_alternate then
+            state.combat_alternate_next_action = "both"
             state.combat_alternate_last_action_at = 0
         end
         return true
@@ -10075,8 +10723,8 @@ release_async_combat_inputs = function(ctx, current_time, force)
         log_throttled(ctx, "combat_release_failed", "warn", LOG_THROTTLE_MS,
             "[Leveling] release combat inputs failed.")
     end
-    if force == true then
-        state.combat_alternate_next_action = "right"
+    if force == true and not preserve_alternate then
+        state.combat_alternate_next_action = "both"
         state.combat_alternate_last_action_at = 0
     end
     return all_ok
@@ -10087,6 +10735,11 @@ local function issue_move_direct(ctx, current_time, target)
         and tostring(type(target) == "table" and target.source or "") ~= "task_combat_kite"
     then
         M.pause_task_combat_kite_route_worker(ctx)
+    end
+    if state.route_point_recorded_route_worker_active == true
+        and tostring(type(target) == "table" and target.source or "") ~= "route_point_recorded_route"
+    then
+        M.pause_route_point_recorded_route_worker(ctx)
     end
 
     local force_move = type(target) == "table" and target.force_move == true
@@ -10110,6 +10763,8 @@ local function issue_move_direct(ctx, current_time, target)
         move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or MOVE_INTERVAL_MS)
     elseif type(target) == "table" and target.source == "route_point_board" then
         move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 250)
+    elseif type(target) == "table" and target.source == "route_point_recorded_route" then
+        move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 220)
     end
 
     state.next_move_at = current_time + move_interval_ms
@@ -10219,9 +10874,11 @@ function M.publish_nav_worker_task_path_route(ctx, current_time, target, move_in
 
     local worker_status = tostring(nav_worker_get(ctx, "worker_status") or "")
     local worker_route_version = tonumber(nav_worker_get(ctx, "route_version")) or 0
+    local worker_current_source = tostring(nav_worker_get(ctx, "target_source") or "")
     local route_count = math.max(0, window_end - window_start + 1)
     if keep_window
         and worker_route_version > 0
+        and worker_current_source == worker_target_source
         and not (
             worker_status == "path_done"
             and (tonumber(target.current_distance) or 0) > arrive_distance
@@ -10256,6 +10913,7 @@ function M.publish_nav_worker_task_path_route(ctx, current_time, target, move_in
         nav_worker_set(ctx, "route_stuck_skip_ms", stuck_skip_ms)
         nav_worker_set(ctx, "route_progress_reset_distance", progress_reset_distance)
         nav_worker_set(ctx, "target_source", worker_target_source)
+        nav_worker_set(ctx, "route_signature", tostring(state.nav_worker_path_route_signature or ""))
         nav_worker_set(ctx, "target_path_index", tonumber(target.path_index) or 0)
         nav_worker_set(ctx, "move_interval_ms", move_interval_ms)
         nav_worker_set(ctx, "mode", "path_route")
@@ -10306,6 +10964,8 @@ function M.publish_nav_worker_task_path_route(ctx, current_time, target, move_in
     local signature = table.concat(parts, "|")
     local route_changed = signature ~= tostring(state.nav_worker_path_route_signature or "")
         or worker_route_version <= 0
+        or worker_current_source ~= worker_target_source
+        or tostring(nav_worker_get(ctx, "route_signature") or "") ~= signature
         or (worker_status == "path_done"
             and (tonumber(target.current_distance) or 0) > arrive_distance)
     if route_changed then
@@ -10360,6 +11020,7 @@ function M.publish_nav_worker_task_path_route(ctx, current_time, target, move_in
     nav_worker_set(ctx, "route_stuck_skip_ms", stuck_skip_ms)
     nav_worker_set(ctx, "route_progress_reset_distance", progress_reset_distance)
     nav_worker_set(ctx, "target_source", worker_target_source)
+    nav_worker_set(ctx, "route_signature", signature)
     nav_worker_set(ctx, "target_path_index", tonumber(target.path_index) or 0)
     nav_worker_set(ctx, "move_interval_ms", move_interval_ms)
     nav_worker_set(ctx, "mode", "path_route")
@@ -10367,6 +11028,214 @@ function M.publish_nav_worker_task_path_route(ctx, current_time, target, move_in
     nav_worker_set(ctx, "paused", false)
     nav_worker_set(ctx, "stop", false)
     state.nav_worker_paused = false
+    state.next_move_at = current_time + move_interval_ms
+    return true
+end
+
+function M.publish_route_point_recorded_route_worker(ctx, current_time, target, move_interval_ms)
+    local target_source = tostring(type(target) == "table" and target.source or "")
+    if LEVELING_USE_NAV_WORKER ~= true
+        or type(target) ~= "table"
+        or target_source ~= "route_point_recorded_route"
+    then
+        return false, "recorded route worker mode is disabled for source=" .. tostring(target_source)
+    end
+
+    local waypoints = target.route_points
+    if type(waypoints) ~= "table" or #waypoints <= 0 then
+        return false, "recorded route points are unavailable."
+    end
+    if state.task_combat_kite_route_worker_active == true then
+        M.pause_task_combat_kite_route_worker(ctx)
+    end
+
+    local path_count = #waypoints
+    local nearest_index = tonumber(target.path_index) or 1
+    nearest_index = math.max(1, math.min(path_count, math.floor(nearest_index + 0.5)))
+    local route_identity = table.concat({
+        tostring(target.route_key or ""),
+        build_path_signature(waypoints)
+    }, "|")
+    local arrive_distance = math.max(
+        80,
+        tonumber(target.route_arrive_tolerance)
+            or tonumber(target.reach_radius)
+            or 180
+    )
+    local stuck_skip_ms = math.max(
+        1500,
+        tonumber(target.route_stuck_skip_ms)
+            or tonumber(target.stuck_skip_ms)
+            or math.min(TASK_PATH_STUCK_SKIP_MS, 4500)
+    )
+    local progress_reset_distance = math.max(
+        40,
+        tonumber(target.route_progress_reset_distance)
+            or tonumber(target.progress_reset_distance)
+            or TASK_PATH_PROGRESS_RESET_DISTANCE
+    )
+    local max_points = math.min(path_count, M.TASK_PATH_WORKER_MAX_POINTS)
+    local remaining_count = path_count - nearest_index + 1
+    local full_route_available = remaining_count <= max_points
+    local margin = math.max(6, math.floor(max_points * 0.25))
+    local window_start = tonumber(state.route_point_recorded_route_worker_window_start) or 0
+    local window_end = tonumber(state.route_point_recorded_route_worker_window_end) or 0
+    local window_path_signature = tostring(state.route_point_recorded_route_worker_path_signature or "")
+    local keep_window = window_start >= 1
+        and window_end >= window_start
+        and nearest_index >= window_start
+        and nearest_index <= window_end
+        and window_path_signature == route_identity
+
+    if keep_window then
+        if full_route_available then
+            keep_window = window_end >= path_count
+        else
+            keep_window = window_end >= path_count or (window_end - nearest_index) >= margin
+        end
+    end
+
+    local worker_status = tostring(nav_worker_get(ctx, "worker_status") or "")
+    local worker_route_version = tonumber(nav_worker_get(ctx, "route_version")) or 0
+    local worker_current_source = tostring(nav_worker_get(ctx, "target_source") or "")
+    local route_count = math.max(0, window_end - window_start + 1)
+    if keep_window
+        and worker_route_version > 0
+        and worker_current_source == "route_point_recorded_route"
+        and not (
+            worker_status == "path_done"
+            and (tonumber(target.current_distance) or 0) > arrive_distance
+        )
+    then
+        local window_first = waypoints[window_start]
+        local window_last = waypoints[window_end]
+        log_throttled(ctx, "route_point_recorded_route_worker_keep", "info", 1500, string.format(
+            "[Leveling] route point recorded route worker keep | key=%s window=%d-%d/%d target=%d current_distance=%.2f arrive_distance=%.2f first=%.2f, %.2f last=%.2f, %.2f worker_status=%s worker_version=%d",
+            tostring(target.route_key or ""),
+            window_start,
+            window_end,
+            path_count,
+            nearest_index,
+            tonumber(target.current_distance) or 0,
+            tonumber(arrive_distance) or 0,
+            tonumber(window_first and window_first.x) or 0,
+            tonumber(window_first and window_first.y) or 0,
+            tonumber(window_last and window_last.x) or 0,
+            tonumber(window_last and window_last.y) or 0,
+            tostring(worker_status),
+            tonumber(worker_route_version) or 0
+        ))
+        nav_worker_set(ctx, "route_count", route_count)
+        nav_worker_set(ctx, "route_arrive_distance", arrive_distance)
+        nav_worker_set(ctx, "route_direction", 1)
+        nav_worker_set(ctx, "route_stuck_skip_ms", stuck_skip_ms)
+        nav_worker_set(ctx, "route_progress_reset_distance", progress_reset_distance)
+        nav_worker_set(ctx, "target_source", "route_point_recorded_route")
+        nav_worker_set(ctx, "route_signature", tostring(state.route_point_recorded_route_worker_signature or ""))
+        nav_worker_set(ctx, "target_path_index", nearest_index)
+        nav_worker_set(ctx, "move_interval_ms", move_interval_ms)
+        nav_worker_set(ctx, "mode", "path_route")
+        nav_worker_set(ctx, "paused", false)
+        nav_worker_set(ctx, "stop", false)
+        state.nav_worker_paused = false
+        state.route_point_recorded_route_worker_active = true
+        state.route_point_recorded_route_worker_action_key = tostring(target.route_key or "")
+        state.next_move_at = current_time + move_interval_ms
+        return true
+    end
+
+    window_start = nearest_index
+    window_end = full_route_available and path_count or math.min(path_count, window_start + max_points - 1)
+    route_count = math.max(0, window_end - window_start + 1)
+    if route_count <= 0 then
+        return false, "recorded route worker window is empty."
+    end
+
+    local parts = {
+        target_source,
+        route_identity,
+        tostring(window_start),
+        tostring(window_end),
+        tostring(math.floor((tonumber(move_interval_ms) or 0) + 0.5)),
+        tostring(math.floor(arrive_distance + 0.5)),
+        tostring(math.floor(stuck_skip_ms + 0.5)),
+        tostring(math.floor(progress_reset_distance + 0.5)),
+        full_route_available and "full" or "chunk"
+    }
+    for source_index = window_start, window_end do
+        local point = waypoints[source_index]
+        parts[#parts + 1] = string.format(
+            "%d:%.1f:%.1f:%.1f",
+            source_index,
+            tonumber(point and point.x) or 0,
+            tonumber(point and point.y) or 0,
+            tonumber(point and point.z) or 0
+        )
+    end
+    local signature = table.concat(parts, "|")
+    local route_changed = signature ~= tostring(state.route_point_recorded_route_worker_signature or "")
+        or worker_route_version <= 0
+        or worker_current_source ~= "route_point_recorded_route"
+        or tostring(nav_worker_get(ctx, "route_signature") or "") ~= signature
+        or (worker_status == "path_done"
+            and (tonumber(target.current_distance) or 0) > arrive_distance)
+    if route_changed then
+        state.route_point_recorded_route_worker_version =
+            (tonumber(state.route_point_recorded_route_worker_version) or 0) + 1
+        state.route_point_recorded_route_worker_signature = signature
+        state.route_point_recorded_route_worker_window_start = window_start
+        state.route_point_recorded_route_worker_window_end = window_end
+        state.route_point_recorded_route_worker_action_key = tostring(target.route_key or "")
+        state.route_point_recorded_route_worker_path_signature = route_identity
+
+        local output_index = 1
+        for source_index = window_start, window_end do
+            local point = waypoints[source_index]
+            nav_worker_set(ctx, "route_point_" .. output_index .. "_x", tonumber(point and point.x) or 0)
+            nav_worker_set(ctx, "route_point_" .. output_index .. "_y", tonumber(point and point.y) or 0)
+            nav_worker_set(ctx, "route_point_" .. output_index .. "_z", tonumber(point and point.z) or 0)
+            nav_worker_set(ctx, "route_point_" .. output_index .. "_index", source_index)
+            output_index = output_index + 1
+        end
+        local window_first = waypoints[window_start]
+        local window_last = waypoints[window_end]
+        logger(ctx).info(string.format(
+            "[Leveling] route point recorded route worker armed | key=%s range=%d-%d/%d points=%d mode=%s interval_ms=%d arrive_distance=%.2f stuck_skip_ms=%d version=%d target=%d current_distance=%.2f first=%.2f, %.2f last=%.2f, %.2f signature=%s",
+            tostring(target.route_key or ""),
+            window_start,
+            window_end,
+            path_count,
+            route_count,
+            full_route_available and "full_remaining" or "chunked",
+            tonumber(move_interval_ms) or 0,
+            tonumber(arrive_distance) or 0,
+            tonumber(stuck_skip_ms) or 0,
+            tonumber(state.route_point_recorded_route_worker_version) or 0,
+            nearest_index,
+            tonumber(target.current_distance) or 0,
+            tonumber(window_first and window_first.x) or 0,
+            tonumber(window_first and window_first.y) or 0,
+            tonumber(window_last and window_last.x) or 0,
+            tonumber(window_last and window_last.y) or 0,
+            tostring(route_identity)
+        ))
+    end
+
+    nav_worker_set(ctx, "route_count", route_count)
+    nav_worker_set(ctx, "route_arrive_distance", arrive_distance)
+    nav_worker_set(ctx, "route_direction", 1)
+    nav_worker_set(ctx, "route_stuck_skip_ms", stuck_skip_ms)
+    nav_worker_set(ctx, "route_progress_reset_distance", progress_reset_distance)
+    nav_worker_set(ctx, "target_source", "route_point_recorded_route")
+    nav_worker_set(ctx, "route_signature", signature)
+    nav_worker_set(ctx, "target_path_index", nearest_index)
+    nav_worker_set(ctx, "move_interval_ms", move_interval_ms)
+    nav_worker_set(ctx, "mode", "path_route")
+    nav_worker_set(ctx, "route_version", tonumber(state.route_point_recorded_route_worker_version) or 1)
+    nav_worker_set(ctx, "paused", false)
+    nav_worker_set(ctx, "stop", false)
+    state.nav_worker_paused = false
+    state.route_point_recorded_route_worker_active = true
     state.next_move_at = current_time + move_interval_ms
     return true
 end
@@ -10388,6 +11257,11 @@ issue_move = function(ctx, current_time, target)
     end
 
     local target_source = tostring(type(target) == "table" and target.source or "")
+    if state.route_point_recorded_route_worker_active == true
+        and target_source ~= "route_point_recorded_route"
+    then
+        M.pause_route_point_recorded_route_worker(ctx)
+    end
     local move_interval_ms = MOVE_INTERVAL_MS
     if target_source == "task_path" then
         move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or TASK_PATH_REPATH_INTERVAL_MS)
@@ -10404,6 +11278,8 @@ issue_move = function(ctx, current_time, target)
         move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or MOVE_INTERVAL_MS)
     elseif target_source == "route_point_board" then
         move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 250)
+    elseif target_source == "route_point_recorded_route" then
+        move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 220)
     end
 
     if target_source == "task_path" or target_source == "treasure_path" then
@@ -10415,6 +11291,16 @@ issue_move = function(ctx, current_time, target)
             "[Leveling] nav worker path route unavailable, fallback to target MoveTo | source="
                 .. tostring(target_source)
                 .. " err="
+                .. tostring(route_err))
+    end
+
+    if target_source == "route_point_recorded_route" then
+        local route_ok, route_err = M.publish_route_point_recorded_route_worker(ctx, current_time, target, move_interval_ms)
+        if route_ok then
+            return true
+        end
+        log_throttled(ctx, "route_point_recorded_route_worker_fallback", "warn", LOG_THROTTLE_MS,
+            "[Leveling] route point recorded route worker unavailable, fallback to target MoveTo | err="
                 .. tostring(route_err))
     end
 
@@ -10649,51 +11535,34 @@ local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
         return false, "combat cooldown."
     end
 
-    local cooldown_ms = tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS) or 270
+    local cooldown_ms = tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS) or 530
     state.next_action_at = current_time + cooldown_ms
 
-    local last_action_at = tonumber(state.combat_alternate_last_action_at) or 0
-    if last_action_at <= 0 or current_time - last_action_at > (tonumber(M.COMBAT_ALTERNATE_RESET_MS) or 1600) then
-        state.combat_alternate_next_action = "right"
-    end
-
-    local action = tostring(state.combat_alternate_next_action or "")
-    if action ~= "w" and action ~= "right" then
-        action = "right"
-    end
-
-    local ok = false
-    local pulse_mode = ""
-    local post_err = nil
-    local mouse_err = nil
-    if action == "w" then
-        ok, pulse_mode, post_err = M.press_combat_w_key(ctx)
-        if not ok then
-            log_throttled(ctx, "combat_pulse_direct_fallback", "info", LOG_THROTTLE_MS, string.format(
-                "[Leveling] combat pulse W failed | reason=%s err=%s",
-                tostring(reason or ""),
-                tostring(post_err or "")
-            ))
-        end
-    else
-        ok, mouse_err, pulse_mode = M.try_press_right_click_nonintrusive(ctx, "combat pulse")
-        if not ok then
-            log_throttled(ctx, "combat_pulse_mouse_failed", "info", LOG_THROTTLE_MS, string.format(
-                "[Leveling] combat pulse right click failed | reason=%s err=%s",
-                tostring(reason or ""),
-                tostring(mouse_err or "")
-            ))
-        end
-    end
-
-    if not ok then
-        log_throttled(ctx, "combat_pulse_failed", "warn", LOG_THROTTLE_MS, string.format(
-            "[Leveling] combat pulse failed | reason=%s action=%s mode=%s post_err=%s mouse_err=%s",
+    local key_ok, key_mode, post_err = M.press_combat_w_key(ctx)
+    if not key_ok then
+        log_throttled(ctx, "combat_pulse_direct_fallback", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] combat pulse W failed | reason=%s err=%s",
             tostring(reason or ""),
-            tostring(action),
-            tostring(pulse_mode or ""),
             tostring(post_err or "")
-            ,
+        ))
+    end
+
+    local mouse_ok, mouse_err, mouse_mode = M.try_press_right_click_nonintrusive(ctx, "combat pulse")
+    if not mouse_ok then
+        log_throttled(ctx, "combat_pulse_mouse_failed", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] combat pulse right click failed | reason=%s err=%s",
+            tostring(reason or ""),
+            tostring(mouse_err or "")
+        ))
+    end
+
+    if not key_ok or not mouse_ok then
+        log_throttled(ctx, "combat_pulse_failed", "warn", LOG_THROTTLE_MS, string.format(
+            "[Leveling] combat pulse failed | reason=%s action=both key_mode=%s mouse_mode=%s post_err=%s mouse_err=%s",
+            tostring(reason or ""),
+            tostring(key_mode or ""),
+            tostring(mouse_mode or ""),
+            tostring(post_err or ""),
             tostring(mouse_err or "")
         ))
         return false
@@ -10704,16 +11573,15 @@ local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
     end
 
     state.combat_alternate_last_action_at = current_time
-    state.combat_alternate_next_action = action == "right" and "w" or "right"
+    state.combat_alternate_next_action = "both"
 
-    log_throttled(ctx, "combat_pulse_" .. tostring(action), "info", 1000, string.format(
-        "[Leveling] combat pulse issued | reason=%s action=%s mode=%s hold_ms=%d cooldown_ms=%d next=%s",
+    log_throttled(ctx, "combat_pulse_both", "info", 1000, string.format(
+        "[Leveling] combat pulse issued | reason=%s action=both key_mode=%s mouse_mode=%s hold_ms=%d cooldown_ms=%d",
         tostring(reason or ""),
-        tostring(action),
-        tostring(pulse_mode or ""),
+        tostring(key_mode or ""),
+        tostring(mouse_mode or ""),
         ACTION_KEY_HOLD_MS,
-        cooldown_ms,
-        tostring(state.combat_alternate_next_action or "")
+        cooldown_ms
     ))
     return true
 end
@@ -11139,6 +12007,31 @@ function M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, 
     return false, pulse_err or "pulse_blocked"
 end
 
+function M.tick_independent_combat_task(ctx, current_time, player_x, player_y, player_z, hp_ratio, opts)
+    opts = type(opts) == "table" and opts or {}
+    current_time = tonumber(current_time) or now_ms(ctx)
+
+    if opts.enabled == false then
+        state.combat_sidecar_mode = "independent_disabled"
+        return false, "disabled"
+    end
+
+    local stage_name = tostring(state.stage or "")
+    local has_target = type(state.task_target) == "table"
+    local navigation_active = has_target and not M.is_non_navigation_skill_pulse_stage(stage_name)
+    local phase = navigation_active and "independent_navigation" or "independent_non_navigation"
+
+    return M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
+        phase = phase,
+        in_main_interface = opts.in_main_interface,
+        allow_when_main_interface_false = opts.allow_when_main_interface_false == true,
+        allow_during_entry_action = false,
+        allow_during_action_lock = false,
+        force_without_monster_scan = not navigation_active,
+        non_navigation_no_monster_gate = not navigation_active
+    })
+end
+
 function M.clear_interaction_combat_guard(reason)
     if reason ~= nil
         and tostring(reason or "") ~= ""
@@ -11490,20 +12383,7 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         watch = true
     }
 
-    local used_q = maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
-        nonintrusive = common_opts.nonintrusive,
-        force_refresh = common_opts.force_refresh,
-        watch = common_opts.watch,
-        vk = VK_Q,
-        hotkey_name = "Q",
-        threshold_ratio = POTION_THRESHOLD_RATIO,
-        last_used_field = "last_potion_q_at"
-    })
-    if used_q then
-        return true
-    end
-
-    return maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
+    local used_e = maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
         nonintrusive = common_opts.nonintrusive,
         force_refresh = common_opts.force_refresh,
         watch = common_opts.watch,
@@ -11511,6 +12391,19 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         hotkey_name = "E",
         threshold_ratio = 0.45,
         last_used_field = "last_potion_e_at"
+    })
+    if used_e then
+        return true
+    end
+
+    return maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
+        nonintrusive = common_opts.nonintrusive,
+        force_refresh = common_opts.force_refresh,
+        watch = common_opts.watch,
+        vk = VK_Q,
+        hotkey_name = "Q",
+        threshold_ratio = POTION_THRESHOLD_RATIO,
+        last_used_field = "last_potion_q_at"
     })
 end
 
@@ -11605,6 +12498,12 @@ end
 
 function M.maybe_click_guide_skip(ctx, current_time)
     current_time = tonumber(current_time) or now_ms(ctx)
+    if state.task_combat_force_kite == true
+        or tostring(state.stage or "") == "task_combat_kite"
+    then
+        state.next_guide_skip_scan_at = current_time + 1500
+        return false
+    end
     if current_time < (tonumber(state.next_guide_skip_scan_at) or 0) then
         return false
     end
@@ -12436,7 +13335,11 @@ function M.maybe_handle_post_dialogue_flow(ctx, current_time)
                 then
                     local followup_cfg = M.find_route_point_action_by_key(followup_route_action_key)
                     if type(followup_cfg) == "table" and type(state.map_transition_triggered) == "table" then
-                        state.map_transition_triggered[M.route_point_action_state_key(followup_cfg)] = 0
+                        local followup_state_key = M.route_point_action_state_key(followup_cfg)
+                        state.map_transition_triggered[followup_state_key] = 0
+                        if type(state.completed_task_advancing_actions) == "table" then
+                            state.completed_task_advancing_actions[followup_state_key] = nil
+                        end
                     end
                 end
                 local followup_action, followup_err = M.activate_route_point_action(

@@ -1066,6 +1066,14 @@ function nav.get_task_panel_info(snapshot)
                     local normalized_raw = normalize_text(raw_text)
                     local looks_like_task_header = classify_task_kind(raw_text) ~= ""
                     local looks_like_task_status = looks_like_task_status_text(raw_text)
+                    local text_widget = table.concat({
+                        tostring(item and item.name or ""),
+                        tostring(item and (item.Fullname or item.fullname) or "")
+                    }, " "):lower()
+                    local is_world_space_text = text_widget:find("grounditemname_c.widgettree.framename", 1, true) ~= nil
+                        or text_widget:find("touchableheadname_c.widgettree", 1, true) ~= nil
+                        or text_widget:find("fighttextinfoview_c.widgettree", 1, true) ~= nil
+                        or text_widget:find("fightscenenameview_c.widgettree", 1, true) ~= nil
                     local in_detail_band = dx >= -80 and dx <= 620 and dy >= 8 and dy <= 150
                     local before_next_task = next_task_boundary_y == nil or text_y < next_task_boundary_y - 6
                     local looks_numeric_only = raw_text:match("^[%d%s%/%-%:%+]+$") ~= nil
@@ -1076,6 +1084,7 @@ function nav.get_task_panel_info(snapshot)
                         and not looks_numeric_only
                         and not looks_like_task_header
                         and not looks_like_task_status
+                        and not is_world_space_text
                         and not detail_seen[normalized_raw]
                     local near_detail_probe = dx >= -160 and dx <= 720 and dy >= -30 and dy <= 220
                     if near_detail_probe and raw_text ~= "" and #detail_debug_candidates < 12 then
@@ -1396,6 +1405,14 @@ function nav.get_task_panel_info(snapshot)
                     local dy = text_y - button.y
                     local normalized_raw = normalize_text(raw_text)
                     local looks_like_title = normalize_task_title(raw_text) ~= nil
+                    local text_widget = table.concat({
+                        tostring(item and item.name or ""),
+                        tostring(item and (item.Fullname or item.fullname) or "")
+                    }, " "):lower()
+                    local is_world_space_text = text_widget:find("grounditemname_c.widgettree.framename", 1, true) ~= nil
+                        or text_widget:find("touchableheadname_c.widgettree", 1, true) ~= nil
+                        or text_widget:find("fighttextinfoview_c.widgettree", 1, true) ~= nil
+                        or text_widget:find("fightscenenameview_c.widgettree", 1, true) ~= nil
                     local in_detail_band = dx >= -20 and dx <= 520 and dy >= 16 and dy <= 120
                     local looks_numeric_only = raw_text:match("^[%d%s%/%-%:%+]+$") ~= nil
                     if in_detail_band
@@ -1403,6 +1420,7 @@ function nav.get_task_panel_info(snapshot)
                         and normalized_raw ~= normalize_text(best.raw_text or "")
                         and not looks_numeric_only
                         and not looks_like_task_status_text(raw_text)
+                        and not is_world_space_text
                         and not detail_seen[normalized_raw]
                     then
                         if not looks_like_title or math.abs(dy) >= 20 then
@@ -1481,6 +1499,14 @@ function nav.get_task_panel_info(snapshot)
                     local dx = text_x - header.x
                     local dy = text_y - header.y
                     local normalized_raw = normalize_text(raw_text)
+                    local text_widget = table.concat({
+                        tostring(item and item.name or ""),
+                        tostring(item and (item.Fullname or item.fullname) or "")
+                    }, " "):lower()
+                    local is_world_space_text = text_widget:find("grounditemname_c.widgettree.framename", 1, true) ~= nil
+                        or text_widget:find("touchableheadname_c.widgettree", 1, true) ~= nil
+                        or text_widget:find("fighttextinfoview_c.widgettree", 1, true) ~= nil
+                        or text_widget:find("fightscenenameview_c.widgettree", 1, true) ~= nil
                     local in_detail_band = dx >= -40 and dx <= 620 and dy >= 8 and dy <= 150
                     local before_next_task = next_y == nil or text_y < next_y - 6
                     local looks_numeric_only = raw_text:match("^[%d%s%/%-%:%+]+$") ~= nil
@@ -1491,6 +1517,7 @@ function nav.get_task_panel_info(snapshot)
                         and classify_task_kind(raw_text) == ""
                         and not looks_numeric_only
                         and not looks_like_task_status_text(raw_text)
+                        and not is_world_space_text
                         and not detail_seen[normalized_raw]
                     if accepted then
                         detail_seen[normalized_raw] = true

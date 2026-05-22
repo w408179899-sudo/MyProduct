@@ -58,6 +58,46 @@ end
 function M.make_world_map_send_linear_recipe(key, send_step, entry_action)
     local action = type(entry_action) == "table" and entry_action or {}
     local step = apply_world_map_send_step_defaults(clone_table(send_step))
+    local steps = {
+        {
+            kind = "wait_entry_action_elapsed",
+            key = tostring(key or "") .. "_wait_map",
+            duration_ms = tonumber(action.map_open_wait_ms) or 900
+        },
+        {
+            kind = "click_fixed_client_point",
+            key = tostring(key or "") .. "_select_point",
+            label = tostring(key or ""),
+            fixed_client_click = true,
+            fixed_ratio_x = tonumber(action.center_click_ratio_x) or 0.5,
+            fixed_ratio_y = tonumber(action.center_click_ratio_y) or 0.5,
+            fixed_prefer_ratio = true,
+            prefer_screen_click = true,
+            mouse_mode = tostring(action.center_mouse_mode or action.mouse_mode or "api"),
+            click_button = tostring(action.center_click_button or action.click_button or "left"),
+            click_delay_ms = tonumber(action.center_click_delay_ms or action.click_delay_ms) or 50,
+            hover_delay_ms = tonumber(action.center_hover_delay_ms or action.hover_delay_ms) or 80,
+            allow_outside = action.center_allow_outside == true,
+            require_world_map_panel_ready = action.require_world_map_panel_ready ~= false,
+            world_map_panel_retry_ms = math.max(100, tonumber(action.world_map_panel_retry_ms or action.center_ready_retry_ms) or 300),
+            settle_ms = math.max(150, tonumber(action.center_settle_ms) or 450)
+        }
+    }
+
+    if type(action.selection_step) == "table" then
+        local selection_step = clone_table(action.selection_step)
+        selection_step.kind = "call_locator_button"
+        selection_step.key = selection_step.key or (tostring(key or "") .. "_selection")
+        if selection_step.label == nil then
+            selection_step.label = tostring(key or "") .. "_selection"
+        end
+        selection_step.settle_ms = math.max(
+            0,
+            tonumber(selection_step.settle_ms) or tonumber(action.selection_settle_ms) or 600
+        )
+        steps[#steps + 1] = selection_step
+    end
+
     local send_recipe_step = clone_table(step)
     send_recipe_step.kind = "call_button_slot"
     send_recipe_step.slot = "task_entry_send"
@@ -67,6 +107,7 @@ function M.make_world_map_send_linear_recipe(key, send_step, entry_action)
     send_recipe_step.transition_wait_ms = tonumber(action.transition_wait_ms) or 1800
     send_recipe_step.force_task_call = true
     send_recipe_step.task_pos_reject_extra_ms = 3500
+    steps[#steps + 1] = send_recipe_step
 
     return {
         key = tostring(key or "") .. "_linear_recipe",
@@ -75,30 +116,7 @@ function M.make_world_map_send_linear_recipe(key, send_step, entry_action)
         activation = "entry_action_active",
         entry_action_key = key,
         timeout_ms = math.max(5000, tonumber(action.timeout_ms) or 12000),
-        steps = {
-            {
-                kind = "wait_entry_action_elapsed",
-                key = tostring(key or "") .. "_wait_map",
-                duration_ms = tonumber(action.map_open_wait_ms) or 900
-            },
-            {
-                kind = "click_fixed_client_point",
-                key = tostring(key or "") .. "_select_point",
-                label = tostring(key or ""),
-                fixed_client_click = true,
-                fixed_ratio_x = tonumber(action.center_click_ratio_x) or 0.5,
-                fixed_ratio_y = tonumber(action.center_click_ratio_y) or 0.5,
-                fixed_prefer_ratio = true,
-                prefer_screen_click = true,
-                mouse_mode = tostring(action.center_mouse_mode or action.mouse_mode or "api"),
-                click_button = tostring(action.center_click_button or action.click_button or "left"),
-                click_delay_ms = tonumber(action.center_click_delay_ms or action.click_delay_ms) or 50,
-                hover_delay_ms = tonumber(action.center_hover_delay_ms or action.hover_delay_ms) or 80,
-                allow_outside = action.center_allow_outside == true,
-                settle_ms = math.max(150, tonumber(action.center_settle_ms) or 450)
-            },
-            send_recipe_step
-        },
+        steps = steps,
         success = {
             mode = "none"
         }

@@ -653,6 +653,12 @@ local function clear_round_flags(runtime)
     runtime.boss_kite_index = 0
     runtime.boss_kite_next_switch_at = 0
     runtime.portal_kind = nil
+    runtime.portal_click_kind = nil
+    runtime.portal_click_x = nil
+    runtime.portal_click_y = nil
+    runtime.portal_click_z = nil
+    runtime.portal_click_at = 0
+    runtime.portal_click_fallback_interact_at = 0
     runtime.nearby_hold_signature = ""
     runtime.nearby_hold_started_at = 0
 end
@@ -2892,6 +2898,115 @@ cfg_landing_has_point = function(cfg, key)
     return false
 end
 
+local function clear_portal_click_attempt(runtime)
+    if type(runtime) ~= "table" then
+        return
+    end
+    runtime.portal_click_kind = nil
+    runtime.portal_click_x = nil
+    runtime.portal_click_y = nil
+    runtime.portal_click_z = nil
+    runtime.portal_click_at = 0
+    runtime.portal_click_fallback_interact_at = 0
+end
+
+local function record_portal_click_attempt(runtime, portal_kind, player_x, player_y, player_z, current_time)
+    if type(runtime) ~= "table" then
+        return
+    end
+    runtime.portal_click_kind = tostring(portal_kind or "")
+    runtime.portal_click_x = tonumber(player_x)
+    runtime.portal_click_y = tonumber(player_y)
+    runtime.portal_click_z = tonumber(player_z)
+    runtime.portal_click_at = tonumber(current_time) or 0
+    runtime.portal_click_fallback_interact_at = 0
+end
+
+local function portal_click_position_unchanged(runtime, player_x, player_y, player_z, cfg, portal_cfg)
+    if type(runtime) ~= "table" then
+        return false, nil
+    end
+    local click_x = tonumber(runtime.portal_click_x)
+    local click_y = tonumber(runtime.portal_click_y)
+    if click_x == nil or click_y == nil then
+        return false, nil
+    end
+    if not has_reliable_world_pos(player_x, player_y) then
+        return false, nil
+    end
+    local threshold = math.max(
+        80,
+        tonumber(type(portal_cfg) == "table" and portal_cfg.no_move_distance)
+            or tonumber(type(cfg) == "table" and cfg.portal_click_no_move_distance)
+            or 180
+    )
+    local moved = distance_2d(player_x, player_y, click_x, click_y)
+    local click_z = tonumber(runtime.portal_click_z)
+    if click_z ~= nil and player_z ~= nil then
+        local z_threshold = math.max(
+            220,
+            tonumber(type(portal_cfg) == "table" and portal_cfg.no_move_z_tolerance)
+                or tonumber(type(cfg) == "table" and cfg.portal_click_no_move_z_tolerance)
+                or threshold
+        )
+        if math.abs((tonumber(player_z) or 0) - click_z) > z_threshold then
+            return false, moved
+        end
+    end
+    return moved <= threshold, moved
+end
+
+local function handle_failed_portal_transition(ctx, main_state, hooks, cfg, runtime, current_time, portal_kind, portal_cfg, player_x, player_y, player_z, reason)
+    local clicked_at = tonumber(type(runtime) == "table" and runtime.portal_click_at) or 0
+    local no_move, moved = portal_click_position_unchanged(runtime, player_x, player_y, player_z, cfg, portal_cfg)
+    if not no_move then
+        return false
+    end
+
+    local fallback_done = clicked_at > 0 and (tonumber(runtime.portal_click_fallback_interact_at) or 0) >= clicked_at
+    if fallback_done ~= true and type(hooks.press_interact) == "function" then
+        local ok, err = hooks.press_interact(ctx)
+        runtime.portal_click_fallback_interact_at = current_time
+        runtime.stage_deadline_at = current_time + math.max(4000, tonumber(type(portal_cfg) == "table" and portal_cfg.settle_ms) or 5000)
+        runtime.next_retry_at = runtime.stage_deadline_at
+        record_portal_click_attempt(runtime, portal_kind, player_x, player_y, player_z, current_time)
+        runtime.portal_click_fallback_interact_at = current_time
+        if type(hooks.log_info) == "function" then
+            hooks.log_info(ctx, string.format(
+                "[Treasure] portal click produced no position change; fallback interact | key=%s portal=%s reason=%s moved=%.2f ok=%s err=%s",
+                tostring(type(cfg) == "table" and (cfg.key or "") or ""),
+                tostring(portal_kind or ""),
+                tostring(reason or ""),
+                tonumber(moved) or 0,
+                ok and "true" or "false",
+                tostring(err or "")
+            ))
+        end
+        if ok then
+            return true
+        end
+    end
+
+    runtime.next_retry_at = current_time
+    runtime.stage_deadline_at = 0
+    runtime.portal_kind = tostring(portal_kind or "")
+    clear_portal_click_attempt(runtime)
+    if type(hooks.clear_task_target_state) == "function" then
+        hooks.clear_task_target_state()
+    end
+    transition_mode(ctx, hooks, cfg, runtime, "post_boss_portal", tostring(reason or "portal_no_position_change"))
+    log_refresh_block_clear(ctx, hooks, cfg, runtime, tostring(reason or "portal_no_position_change"), clear_mainline_refresh_block(main_state))
+    if type(hooks.log_info) == "function" then
+        hooks.log_info(ctx, string.format(
+            "[Treasure] portal click failed by unchanged position; retry portal phase | key=%s portal=%s moved=%.2f",
+            tostring(type(cfg) == "table" and (cfg.key or "") or ""),
+            tostring(portal_kind or ""),
+            tonumber(moved) or 0
+        ))
+    end
+    return true
+end
+
 local function entry_step_trigger(cfg, step, step_index)
     local trigger = type(step) == "table" and step.trigger or nil
     if is_valid_point(trigger) then
@@ -4537,6 +4652,7 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             if after_click_time <= 0 then
                 after_click_time = current_time
             end
+            record_portal_click_attempt(runtime, portal_kind, player_x, player_y, player_z, after_click_time)
             record.run_count = (tonumber(record.run_count) or 0) + 1
             -- Exit portal clicks can settle asynchronously; only mark completed after exit_landing is confirmed.
             local save_ok, save_err = save_record(ctx, main_state, cfg)
@@ -4590,7 +4706,8 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             hooks.clear_task_target_state()
         end
         local landing = cfg.restart_landing
-        local require_verified_landing = type(cfg) == "table" and cfg.restart_landing_require_verified == true
+        local require_verified_landing = (type(cfg) == "table" and cfg.restart_landing_require_verified == true)
+            or tostring(runtime.portal_click_kind or "") == "restart"
         local has_landing = is_valid_point(landing)
             and ((tonumber(landing.x) ~= 0 or tonumber(landing.y) ~= 0) or landing.allow_zero == true)
         local deadline_expired = has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0)
@@ -4611,7 +4728,8 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                 end
             end
         end
-        local ready = cfg_landing_ready(player_x, player_y, player_z, cfg, "restart_landing")
+        local restart_landing_ready_now = cfg_landing_ready(player_x, player_y, player_z, cfg, "restart_landing")
+        local ready = restart_landing_ready_now
             or (not require_verified_landing and not has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0))
             or (not require_verified_landing and inside_after_restart)
         local settle_until = tonumber(runtime.next_retry_at) or 0
@@ -4667,16 +4785,37 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             end
             return true
         end
+        if deadline_expired and restart_landing_ready_now ~= true
+            and handle_failed_portal_transition(
+                ctx,
+                main_state,
+                hooks,
+                cfg,
+                runtime,
+                current_time,
+                "restart",
+                type(cfg.portals) == "table" and cfg.portals.restart or nil,
+                player_x,
+                player_y,
+                player_z,
+                "restart_portal_no_position_change"
+            )
+        then
+            return true
+        end
         if ready then
             transition_mode(ctx, hooks, cfg, runtime, "grinding",
                 inside_after_restart and ("restart_inside_ready:" .. inside_after_restart_reason) or "restart_landing_ready")
             runtime.next_retry_at = current_time
             runtime.route_cursor = nil
             runtime.route_nearest_index = nil
+            runtime.level_up_maintenance_restart_landing_pending = true
+            runtime.level_up_maintenance_restart_landing_at = current_time
             runtime.loot_ignore_until = 0
             runtime.loot_stuck_reference_count = 0
             runtime.loot_stuck_attempts = 0
             hooks.clear_task_target_state()
+            clear_portal_click_attempt(runtime)
             clear_round_flags(runtime)
             log_refresh_block_clear(ctx, hooks, cfg, runtime, "wait_restart_ready", clear_mainline_refresh_block(main_state))
             if type(hooks.log_info) == "function" then
@@ -4729,6 +4868,24 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         local has_landing = cfg_landing_has_point(cfg, "exit_landing")
         local ready = cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
             or (not has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0))
+        if has_landing and ready ~= true and current_time >= (tonumber(runtime.stage_deadline_at) or 0)
+            and handle_failed_portal_transition(
+                ctx,
+                main_state,
+                hooks,
+                cfg,
+                runtime,
+                current_time,
+                "exit",
+                type(cfg.portals) == "table" and cfg.portals.exit or nil,
+                player_x,
+                player_y,
+                player_z,
+                "exit_portal_no_position_change"
+            )
+        then
+            return true
+        end
         if ready then
             if runtime.pending_return_mainline == true and record.completed ~= true then
                 record.completed = true
@@ -4753,6 +4910,7 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             end
             transition_mode(ctx, hooks, cfg, runtime, "return_mainline", "exit_landing_ready")
             runtime.next_retry_at = current_time
+            clear_portal_click_attempt(runtime)
             hooks.clear_task_target_state()
             log_refresh_block_clear(ctx, hooks, cfg, runtime, "wait_exit_ready", clear_mainline_refresh_block(main_state))
             if type(hooks.log_info) == "function" then

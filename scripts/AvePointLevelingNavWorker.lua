@@ -132,6 +132,9 @@ local route_point_started_at = 0
 local route_point_best_distance = math.huge
 local route_point_track_index = 0
 local last_route_mode = ""
+local last_route_signature = ""
+local last_route_count = -1
+local last_route_source = ""
 
 if type(task) == "table" and type(task.on_stop) == "function" then
     task.on_stop(function()
@@ -325,6 +328,8 @@ while running do
     local mode = tostring(share_get(SHARE_PREFIX, "mode") or "target")
     local version = as_number(share_get(SHARE_PREFIX, "target_version")) or 0
     local route_version = as_number(share_get(SHARE_PREFIX, "route_version")) or 0
+    local route_signature = tostring(share_get(SHARE_PREFIX, "route_signature") or "")
+    local target_source = tostring(share_get(SHARE_PREFIX, "target_source") or "")
     local target_x = as_number(share_get(SHARE_PREFIX, "target_x"))
     local target_y = as_number(share_get(SHARE_PREFIX, "target_y"))
     local move_interval_ms = math.max(80, as_number(share_get(SHARE_PREFIX, "move_interval_ms")) or 900)
@@ -371,12 +376,20 @@ while running do
                 if not running then
                     break
                 end
-                if route_version ~= last_route_version or last_route_mode ~= mode then
+                if route_version ~= last_route_version
+                    or last_route_mode ~= mode
+                    or route_count ~= last_route_count
+                    or route_signature ~= last_route_signature
+                    or target_source ~= last_route_source
+                then
                     route_points = load_route_points(SHARE_PREFIX, route_count)
                     route_index = select_path_route_start_index(route_points, player_x, player_y, arrive_distance, direction)
                     next_move_at = 0
                     last_route_version = route_version
                     last_route_mode = mode
+                    last_route_signature = route_signature
+                    last_route_count = route_count
+                    last_route_source = target_source
                     reset_route_point_tracking(now_ms)
                 end
 
@@ -503,13 +516,21 @@ while running do
                 if not running then
                     break
                 end
-                if route_version ~= last_route_version or last_route_mode ~= mode then
+                if route_version ~= last_route_version
+                    or last_route_mode ~= mode
+                    or route_count ~= last_route_count
+                    or route_signature ~= last_route_signature
+                    or target_source ~= last_route_source
+                then
                     route_points = load_route_points(SHARE_PREFIX, route_count)
                     route_index = select_route_start_index(route_points, player_x, player_y, arrive_distance)
                     route_next_switch_at = now_ms + switch_ms
                     next_move_at = 0
                     last_route_version = route_version
                     last_route_mode = mode
+                    last_route_signature = route_signature
+                    last_route_count = route_count
+                    last_route_source = target_source
                     reset_route_point_tracking(now_ms)
                 end
 
@@ -590,6 +611,9 @@ while running do
     elseif version <= 0 or target_x == nil or target_y == nil then
         share_set(SHARE_PREFIX, "worker_status", paused and "paused" or "idle")
         last_route_mode = mode
+        last_route_signature = route_signature
+        last_route_count = -1
+        last_route_source = target_source
         if version ~= last_version then
             next_move_at = 0
             last_version = version
@@ -601,6 +625,9 @@ while running do
         end
     else
         last_route_mode = mode
+        last_route_signature = route_signature
+        last_route_count = -1
+        last_route_source = target_source
         if version ~= last_version then
             target_x = as_number(share_get(SHARE_PREFIX, "target_x"))
             target_y = as_number(share_get(SHARE_PREFIX, "target_y"))

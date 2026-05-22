@@ -179,6 +179,22 @@ function M.execute_linear_task_recipe_step(ctx, current_time, recipe, step)
     end
 
     if kind == "click_fixed_client_point" then
+        if step.require_world_map_panel_ready == true then
+            local map_ready, map_ready_reason = M.is_task_entry_world_map_panel_ready(ctx, current_time, "task_recipe_fixed_click")
+            if map_ready ~= true then
+                local retry_ms = math.max(100, tonumber(step.world_map_panel_retry_ms or step.ready_retry_ms) or 300)
+                state.task_recipe_next_step_at = current_time + retry_ms
+                log_throttled(ctx, "task_recipe_wait_world_map_panel_" .. tostring(state.task_recipe_active_key or ""), "info", 600, string.format(
+                    "[Leveling] task recipe waiting world map panel before fixed click | key=%s step_key=%s retry=%dms reason=%s",
+                    tostring(state.task_recipe_active_key or ""),
+                    tostring(step.key or ""),
+                    retry_ms,
+                    tostring(map_ready_reason or "")
+                ))
+                return true
+            end
+        end
+
         local click_step = {}
         for k, v in pairs(step) do
             click_step[k] = v
@@ -203,6 +219,34 @@ function M.execute_linear_task_recipe_step(ctx, current_time, recipe, step)
             return false, click_err or "fixed client click failed"
         end
         M.advance_task_recipe_step(ctx, now_ms(ctx), recipe, step, "fixed_client_clicked")
+        return true
+    end
+
+    if kind == "call_locator_button" then
+        local target, target_err, source, click_step = M.fetch_locator_button_target_with_configured_fallback(
+            ctx,
+            step,
+            current_time,
+            "task_recipe_locator"
+        )
+        if type(target) ~= "table" then
+            return false, target_err or "locator button target unavailable"
+        end
+        local clicked, click_err = click_locator_button_target(ctx, click_step or step, target)
+        if clicked ~= true then
+            return false, click_err or "locator button click failed"
+        end
+        logger(ctx).info(string.format(
+            "[Leveling] task recipe locator button clicked | key=%s step_key=%s label=%s source=%s addr=%s pos=(%s,%s)",
+            tostring(state.task_recipe_active_key or ""),
+            tostring(step.key or ""),
+            tostring(step.label or ""),
+            tostring(source or ""),
+            tostring(target.addr or ""),
+            tostring(target.x or ""),
+            tostring(target.y or "")
+        ))
+        M.advance_task_recipe_step(ctx, now_ms(ctx), recipe, step, "locator_button_clicked:" .. tostring(source or ""))
         return true
     end
 
@@ -269,6 +313,17 @@ function M.maybe_handle_linear_task_recipe(ctx, current_time, player_x, player_y
     end
     current_time = tonumber(current_time) or now_ms(ctx)
     M.arm_linear_task_recipe(ctx, current_time, recipe)
+
+    if M.maybe_block_task_entry_for_skip_sequence(ctx, current_time, "task_recipe") then
+        state.task_recipe_deadline_at = math.max(
+            tonumber(state.task_recipe_deadline_at) or 0,
+            current_time + math.max(5000, tonumber(recipe.timeout_ms) or 12000)
+        )
+        state.task_recipe_next_step_at = current_time + 250
+        hold_navigation(ctx, current_time, "task_recipe_skip_sequence")
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
 
     if current_time >= (tonumber(state.task_recipe_deadline_at) or 0) then
         M.fail_task_recipe_step(ctx, current_time, recipe, nil, "recipe timeout")
@@ -865,6 +920,98 @@ function fetch_locator_button_target(ctx, step)
         return hint_target
     end
     return try_hover_capture_if_enabled(hint_err)
+end
+
+function M.fetch_locator_button_target_with_configured_fallback(ctx, step, current_time, reason)
+    if type(step) ~= "table" then
+        return nil, "locator step unavailable.", "missing_step", step
+    end
+
+    local retry_count = math.max(
+        1,
+        math.floor(
+            tonumber(step.poll_retry_count)
+                or tonumber(step.target_poll_retry_count)
+                or tonumber(step.locator_poll_retry_count)
+                or 1
+        )
+    )
+    local poll_interval_ms = math.max(
+        0,
+        math.floor(
+            tonumber(step.poll_interval_ms)
+                or tonumber(step.target_poll_interval_ms)
+                or tonumber(step.locator_poll_interval_ms)
+                or 0
+        )
+    )
+    local last_err = nil
+    local poll_started_at = tonumber(current_time) or now_ms(ctx)
+
+    for attempt = 1, retry_count do
+        local target, fetch_err = fetch_locator_button_target(ctx, step)
+        if type(target) == "table" then
+            if attempt > 1 then
+                logger(ctx).info(string.format(
+                    "[Leveling] locator button found after poll | reason=%s label=%s attempt=%d/%d elapsed=%dms",
+                    tostring(reason or ""),
+                    tostring(step.label or ""),
+                    attempt,
+                    retry_count,
+                    math.max(0, now_ms(ctx) - poll_started_at)
+                ))
+            end
+            return target, nil, attempt > 1 and "live_poll" or "live", step
+        end
+        last_err = fetch_err
+        if attempt < retry_count and poll_interval_ms > 0 then
+            sleep_ms(ctx, poll_interval_ms)
+        end
+    end
+
+    local fixed_client_x = tonumber(step.fixed_fallback_client_x or step.fallback_fixed_client_x)
+    local fixed_client_y = tonumber(step.fixed_fallback_client_y or step.fallback_fixed_client_y)
+    local fixed_ratio_x = tonumber(step.fixed_fallback_ratio_x or step.fallback_fixed_ratio_x)
+    local fixed_ratio_y = tonumber(step.fixed_fallback_ratio_y or step.fallback_fixed_ratio_y)
+    if (fixed_client_x ~= nil and fixed_client_y ~= nil) or (fixed_ratio_x ~= nil and fixed_ratio_y ~= nil) then
+        local fixed_step = {}
+        for k, v in pairs(step) do
+            fixed_step[k] = v
+        end
+        fixed_step.fixed_client_click = true
+        fixed_step.fixed_client_x = fixed_client_x
+        fixed_step.fixed_client_y = fixed_client_y
+        fixed_step.fixed_ratio_x = fixed_ratio_x
+        fixed_step.fixed_ratio_y = fixed_ratio_y
+        fixed_step.fixed_prefer_ratio = step.fixed_fallback_prefer_ratio ~= false
+        fixed_step.prefer_screen_click = step.fixed_fallback_prefer_screen_click ~= false
+        fixed_step.mouse_mode = tostring(step.fixed_fallback_mouse_mode or step.mouse_mode or step.click_mode or "api")
+        fixed_step.click_button = tostring(step.fixed_fallback_click_button or step.click_button or "left")
+        fixed_step.click_delay_ms = tonumber(step.fixed_fallback_click_delay_ms or step.click_delay_ms) or 50
+        fixed_step.hover_delay_ms = tonumber(step.fixed_fallback_hover_delay_ms or step.hover_delay_ms) or 80
+
+        local fixed_target, fixed_err = M.resolve_fixed_client_click_target(ctx, fixed_step)
+        if type(fixed_target) == "table" then
+            logger(ctx).warn(string.format(
+                "[Leveling] locator button poll exhausted, using fixed client fallback | reason=%s label=%s attempts=%d interval=%dms client=(%.2f, %.2f) err=%s",
+                tostring(reason or ""),
+                tostring(step.label or ""),
+                retry_count,
+                poll_interval_ms,
+                tonumber(fixed_target.x) or 0,
+                tonumber(fixed_target.y) or 0,
+                tostring(last_err or "")
+            ))
+            return fixed_target, nil, "fixed_fallback", fixed_step
+        end
+        return nil, string.format(
+            "%s; fixed fallback failed: %s",
+            tostring(last_err or "locator target unavailable"),
+            tostring(fixed_err or "")
+        ), "missing", step
+    end
+
+    return nil, last_err or "locator target unavailable.", "missing", step
 end
 
 function click_locator_button_target(ctx, step, target)
@@ -1880,6 +2027,147 @@ function M.click_current_mouse_position(ctx, current_time, label, opts)
     return false, string.format("mouse.click(%s) failed.", click_button)
 end
 
+function M.maybe_block_task_entry_for_skip_sequence(ctx, current_time, source)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local nav_mod = nav_api(ctx)
+    if type(nav_mod) ~= "table" or type(nav_mod.enum_ui) ~= "function" then
+        return false
+    end
+
+    local ui, ui_err = nav_mod.enum_ui()
+    if type(ui) ~= "table" then
+        log_throttled(ctx, "task_entry_skip_enum_failed", "info", LOG_THROTTLE_MS,
+            "[Leveling] task entry skip guard enum failed: " .. tostring(ui_err or ""))
+        return false
+    end
+
+    local skip_target = nil
+    local skip_match = nil
+    local skip_layer_seen = false
+    local function scan(items, kind)
+        for _, item in ipairs(items or {}) do
+            local identity = ui_item_text(item)
+            if identity ~= "" then
+                local is_skip_button = identity:find("skiplevelsequence_c.widgettree.skipbutton", 1, true) ~= nil
+                    or identity:find("noviceguidemainui_c.widgettree.c_skipbutton", 1, true) ~= nil
+                local is_skip_layer = is_skip_button
+                    or identity:find("skiplevelsequence_c", 1, true) ~= nil
+                    or identity:find("cinematic", 1, true) ~= nil
+                    or identity:find("movie", 1, true) ~= nil
+                if is_skip_layer then
+                    skip_layer_seen = true
+                    skip_match = skip_match or string.format("%s:%s", tostring(kind or "ui"), identity)
+                end
+                if is_skip_button and skip_target == nil then
+                    local addr = tonumber(item and item.addr)
+                    if addr ~= nil and addr ~= 0 then
+                        skip_target = {
+                            addr = addr,
+                            x = as_number(item and item.x),
+                            y = as_number(item and item.y),
+                            identity = identity
+                        }
+                    end
+                end
+            end
+        end
+    end
+
+    scan(ui.buttons, "button")
+    scan(ui.images, "image")
+    scan(ui.texts, "text")
+
+    if skip_layer_seen ~= true then
+        return false
+    end
+
+    state.stage = tostring(source or "task_entry_skip_sequence")
+    release_async_combat_inputs(ctx, current_time, true)
+    hold_navigation(ctx, current_time, "skip_level_sequence")
+    state.next_task_button_click_at = math.max(tonumber(state.next_task_button_click_at) or 0, current_time + 500)
+    state.task_path_wait_until = math.max(tonumber(state.task_path_wait_until) or 0, current_time + 500)
+
+    if current_time < (tonumber(state.next_guide_skip_click_at) or 0) then
+        log_throttled(ctx, "task_entry_skip_sequence_wait", "info", 600, string.format(
+            "[Leveling] task entry action blocked by skip sequence | source=%s match=%s retry_in=%dms",
+            tostring(source or ""),
+            tostring(skip_match or ""),
+            math.max(0, (tonumber(state.next_guide_skip_click_at) or current_time) - current_time)
+        ))
+        return true
+    end
+
+    if skip_target ~= nil and type(nav_mod.control_click) == "function" then
+        local ok, err = nav_mod.control_click(skip_target.addr)
+        state.next_guide_skip_click_at = current_time + 800
+        state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, current_time + POST_UI_PAUSE_MS)
+        logger(ctx)[ok and "info" or "warn"](string.format(
+            "[Leveling] task entry skip sequence control_click %s | source=%s addr=%s pos=(%s,%s) match=%s err=%s",
+            ok and "sent" or "failed",
+            tostring(source or ""),
+            tostring(skip_target.addr or ""),
+            tostring(skip_target.x or ""),
+            tostring(skip_target.y or ""),
+            tostring(skip_match or skip_target.identity or ""),
+            tostring(err or "")
+        ))
+        return true
+    end
+
+    state.next_guide_skip_click_at = current_time + 350
+    log_throttled(ctx, "task_entry_skip_sequence_no_button", "info", 600, string.format(
+        "[Leveling] task entry action blocked by skip sequence, waiting skip button | source=%s match=%s",
+        tostring(source or ""),
+        tostring(skip_match or "")
+    ))
+    return true
+end
+
+function M.is_task_entry_world_map_panel_ready(ctx, current_time, source)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local nav_mod = nav_api(ctx)
+    if type(nav_mod) ~= "table" or type(nav_mod.enum_ui) ~= "function" then
+        return true, "nav.enum_ui unavailable; allow legacy world map entry"
+    end
+
+    local ui, ui_err = nav_mod.enum_ui()
+    if type(ui) ~= "table" then
+        return true, "enum_ui failed; allow legacy world map entry: " .. tostring(ui_err or "")
+    end
+
+    local found = nil
+    local function scan(items, kind)
+        for _, item in ipairs(items or {}) do
+            local x = as_number(item and item.x)
+            local y = as_number(item and item.y)
+            local visible = x ~= nil and y ~= nil and not (math.abs(x) < 0.01 and math.abs(y) < 0.01)
+            if visible then
+                local identity = ui_item_text(item)
+                if identity ~= ""
+                    and identity:find("minimap", 1, true) == nil
+                    and (
+                        identity:find("worldmap", 1, true) ~= nil
+                        or identity:find("world_map", 1, true) ~= nil
+                    )
+                then
+                    found = string.format("%s:%s", tostring(kind or "ui"), identity)
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    if scan(ui.buttons, "button")
+        or scan(ui.images, "image")
+        or scan(ui.texts, "text")
+    then
+        return true, found
+    end
+
+    return false, "world map panel not visible for " .. tostring(source or "task_entry")
+end
+
 function M.task_entry_action_hotkey_vk(entry_action)
     if type(entry_action) ~= "table" then
         return nil
@@ -2077,6 +2365,15 @@ function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y,
         ))
     end
 
+    if M.maybe_block_task_entry_for_skip_sequence(ctx, effective_time, "task_entry_action") then
+        state.task_entry_action_button_click_at = effective_time
+        state.task_entry_action_center_clicked_at = 0
+        state.task_entry_action_next_center_click_at = effective_time + map_open_wait_ms
+        state.task_entry_action_pre_clicked_at = 0
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
     if action_elapsed_ms > timeout_ms then
         M.clear_task_entry_action_state()
         log_throttled(ctx, "task_entry_action_timeout", "warn", LOG_THROTTLE_MS, string.format(
@@ -2123,6 +2420,23 @@ function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y,
     if (tonumber(state.task_entry_action_center_clicked_at) or 0) <= 0
         and effective_time >= (tonumber(state.task_entry_action_next_center_click_at) or 0)
     then
+        if entry_action.require_world_map_panel_ready ~= false then
+            local map_ready, map_ready_reason = M.is_task_entry_world_map_panel_ready(ctx, effective_time, "task_entry_center")
+            if map_ready ~= true then
+                local retry_ms = math.max(100, tonumber(entry_action.world_map_panel_retry_ms or entry_action.center_ready_retry_ms) or 300)
+                state.task_entry_action_next_center_click_at = effective_time + retry_ms
+                log_throttled(ctx, "task_entry_action_wait_world_map_panel", "info", 600, string.format(
+                    "[Leveling] task entry action waiting world map panel before fixed click | task=%s key=%s retry=%dms reason=%s",
+                    tostring(task_name or state.current_task_name or ""),
+                    tostring(entry_action.key or ""),
+                    retry_ms,
+                    tostring(map_ready_reason or "")
+                ))
+                log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+                return true
+            end
+        end
+
         local clicked_center, center_err = M.click_window_client_point(
             ctx,
             effective_time,
@@ -2159,7 +2473,13 @@ function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y,
     local selection_step = type(entry_action.selection_step) == "table" and entry_action.selection_step or nil
     local selection_settle_ms = math.max(150, tonumber(entry_action.selection_settle_ms) or 600)
     if type(selection_step) == "table" and (tonumber(state.task_entry_action_pre_clicked_at) or 0) <= 0 then
-        local selection_target, selection_fetch_err = fetch_locator_button_target(ctx, selection_step)
+        local selection_target, selection_fetch_err, selection_source, selection_click_step =
+            M.fetch_locator_button_target_with_configured_fallback(
+                ctx,
+                selection_step,
+                effective_time,
+                "task_entry_selection"
+            )
         if type(selection_target) ~= "table" then
             log_throttled(ctx, "task_entry_action_selection_missing", "info", LOG_THROTTLE_MS, string.format(
                 "[Leveling] task entry selection button not visible yet | task=%s label=%s err=%s",
@@ -2171,7 +2491,8 @@ function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y,
             return true
         end
 
-        local selection_clicked, selection_click_err, selection_retryable = click_locator_button_target(ctx, selection_step, selection_target)
+        local selection_clicked, selection_click_err, selection_retryable =
+            click_locator_button_target(ctx, selection_click_step or selection_step, selection_target)
         if not selection_clicked then
             log_throttled(ctx,
                 selection_retryable and "task_entry_action_selection_retry" or "task_entry_action_selection_failed",
@@ -2184,9 +2505,10 @@ function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y,
 
         state.task_entry_action_pre_clicked_at = effective_time
         logger(ctx).info(string.format(
-            "[Leveling] task entry selection clicked | task=%s label=%s addr=%s pos=(%s,%s)",
+            "[Leveling] task entry selection clicked | task=%s label=%s source=%s addr=%s pos=(%s,%s)",
             tostring(task_name or state.current_task_name or ""),
             tostring(selection_step.label or ""),
+            tostring(selection_source or ""),
             tostring(selection_target.addr or ""),
             tostring(selection_target.x or ""),
             tostring(selection_target.y or "")
@@ -2671,6 +2993,27 @@ function M.try_click_task_objective_button(ctx, current_time, objective_button, 
 end
 
 function M.maybe_handle_task_objective_button(ctx, current_time, goal_distance, target_source, objective_cfg, player_x, player_y)
+    local objective_mode = tostring(type(objective_cfg) == "table" and objective_cfg.mode or "")
+    local boss_kite_active = state.task_combat_force_kite == true
+        or tostring(state.stage or "") == "task_combat_kite"
+    local allow_boss_kite_objective_button = type(objective_cfg) == "table"
+        and (
+            objective_cfg.allow_boss_kite_objective_button == true
+            or objective_cfg.allow_boss_combat_followup == true
+        )
+    if boss_kite_active
+        and (objective_mode == "boss_kite" or state.task_combat_force_kite == true)
+        and allow_boss_kite_objective_button ~= true
+    then
+        log_throttled(ctx, "task_objective_button_suppressed_boss_kite", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] task objective button scan suppressed during boss kite | objective=%s stage=%s goal_distance=%s",
+            tostring(type(objective_cfg) == "table" and objective_cfg.key or ""),
+            tostring(state.stage or ""),
+            type(goal_distance) == "number" and string.format("%.2f", goal_distance) or "nil"
+        ))
+        return false
+    end
+
     local objective_button = M.find_task_objective_button(ctx, current_time, objective_cfg)
     if not objective_button then
         return false
@@ -3564,6 +3907,136 @@ function M.route_point_action_state_key(action)
         tostring(normalize_map_name(M.current_task_log_name()) or ""),
         tostring(type(action) == "table" and (action.key or action.label) or "")
     }, "|")
+end
+
+function M.route_point_action_advances_task(action)
+    if type(action) ~= "table" then
+        return false
+    end
+    if action.task_refresh_confirms_success == false
+        or action.complete_on_task_refresh == false
+    then
+        return false
+    end
+    if action.task_refresh_confirms_success == true
+        or action.complete_on_task_refresh == true
+    then
+        return true
+    end
+    local mode = tostring(action.mode or "")
+    return mode == "npc_dialogue_point"
+        or mode == "objective_button_flow_point"
+        or mode == "lift_transition"
+        or (mode == "" and (type(action.step) == "table" or action.fallback_interact == true))
+end
+
+function M.route_point_action_completed_by_task_refresh(action)
+    if not M.route_point_action_advances_task(action) then
+        return false, nil
+    end
+    if type(action) == "table"
+        and (action.allow_repeat_after_task_refresh == true or action.repeat_after_task_refresh == true)
+    then
+        return false, nil
+    end
+    local state_key = M.route_point_action_state_key(action)
+    if type(state.completed_task_advancing_actions) == "table"
+        and state.completed_task_advancing_actions[state_key] ~= nil
+    then
+        return true, state_key
+    end
+    return false, state_key
+end
+
+function M.arm_task_advancing_action_confirmation(ctx, current_time, action, state_key, source)
+    if not M.route_point_action_advances_task(action) then
+        return false
+    end
+    if type(state.completed_task_advancing_actions) ~= "table" then
+        state.completed_task_advancing_actions = {}
+    end
+    local action_key = tostring(type(action) == "table" and (action.key or action.label) or "")
+    if action_key == "" then
+        return false
+    end
+    local completion_key = tostring(state_key or "")
+    if completion_key == "" then
+        completion_key = M.route_point_action_state_key(action)
+    end
+    state.task_advancing_action_pending_key = action_key
+    state.task_advancing_action_pending_state_key = completion_key
+    state.task_advancing_action_pending_mode = tostring(type(action) == "table" and action.mode or "")
+    state.task_advancing_action_pending_source = tostring(source or "")
+    state.task_advancing_action_pending_task_name = tostring(M.current_task_log_name() or state.current_task_name or "")
+    state.task_advancing_action_pending_task_detail = tostring(M.current_task_log_detail() or state.current_task_detail or "")
+    state.task_advancing_action_pending_started_at = tonumber(current_time) or now_ms(ctx)
+    state.task_advancing_action_pending_deadline_at =
+        (tonumber(current_time) or now_ms(ctx)) + math.max(8000, tonumber(action.task_refresh_success_timeout_ms) or 25000)
+    logger(ctx).info(string.format(
+        "[Leveling] task-advancing route action awaiting task refresh | task=%s detail=%s key=%s mode=%s state_key=%s source=%s",
+        tostring(state.task_advancing_action_pending_task_name or ""),
+        tostring(state.task_advancing_action_pending_task_detail or ""),
+        action_key,
+        tostring(state.task_advancing_action_pending_mode or ""),
+        completion_key,
+        tostring(source or "")
+    ))
+    return true
+end
+
+function M.maybe_confirm_task_advancing_action_success(ctx, current_time, source)
+    local pending_key = tostring(state.task_advancing_action_pending_key or "")
+    local pending_state_key = tostring(state.task_advancing_action_pending_state_key or "")
+    if pending_key == "" or pending_state_key == "" then
+        return false
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local old_task = M.normalize_task_title_key(state.task_advancing_action_pending_task_name)
+    local old_detail = normalize_map_name(state.task_advancing_action_pending_task_detail)
+    local current_task = M.normalize_task_title_key(state.current_task_name or M.current_task_log_name())
+    local current_detail = normalize_map_name(state.current_task_detail or M.current_task_log_detail())
+    local task_changed = old_task ~= nil and current_task ~= nil and old_task ~= current_task
+    local detail_changed = old_detail ~= nil and current_detail ~= nil and old_detail ~= current_detail
+
+    if task_changed or detail_changed then
+        if type(state.completed_task_advancing_actions) ~= "table" then
+            state.completed_task_advancing_actions = {}
+        end
+        state.completed_task_advancing_actions[pending_state_key] = current_time
+        local action = M.find_route_point_action_by_key(pending_key)
+        if type(action) == "table" then
+            M.mark_recipe_action_completed(ctx, current_time, action, "task_refresh_confirmed")
+        end
+        logger(ctx).info(string.format(
+            "[Leveling] task-advancing route action confirmed by task refresh | key=%s state_key=%s old_task=%s old_detail=%s new_task=%s new_detail=%s source=%s changed=%s/%s",
+            pending_key,
+            pending_state_key,
+            tostring(old_task or ""),
+            tostring(old_detail or ""),
+            tostring(current_task or ""),
+            tostring(current_detail or ""),
+            tostring(source or ""),
+            task_changed and "task" or "",
+            detail_changed and "detail" or ""
+        ))
+        M.clear_task_advancing_action_confirmation()
+        return true
+    end
+
+    local deadline_at = tonumber(state.task_advancing_action_pending_deadline_at) or 0
+    if deadline_at > 0 and current_time > deadline_at then
+        logger(ctx).warn(string.format(
+            "[Leveling] task-advancing route action refresh confirmation expired | key=%s state_key=%s task=%s detail=%s source=%s",
+            pending_key,
+            pending_state_key,
+            tostring(state.task_advancing_action_pending_task_name or ""),
+            tostring(state.task_advancing_action_pending_task_detail or ""),
+            tostring(source or "")
+        ))
+        M.clear_task_advancing_action_confirmation()
+    end
+    return false
 end
 
 function M.find_route_point_action_by_key(action_key)
@@ -4786,7 +5259,115 @@ function M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_executor_close_pending = nil
     state.level_up_maintenance_executor_close_attempts = nil
     state.level_up_maintenance_executor_point_check_miss_count = nil
+    state.level_up_maintenance_panel_open_death_guard_until = 0
+    state.level_up_maintenance_panel_open_death_guard_wall_until = 0
+    state.level_up_maintenance_panel_open_death_guard_step_key = nil
+    state.level_up_maintenance_panel_open_death_guard_label = nil
+    state.level_up_maintenance_panel_open_death_guard_kind = nil
     M.clear_level_up_maintenance_point_decrement_state()
+end
+
+function M.level_up_maintenance_step_opens_talent_panel(step)
+    if type(step) ~= "table" then
+        return false
+    end
+    local key = tostring(step.key or ""):lower()
+    if key:find("open_talent_panel", 1, true) ~= nil then
+        return true
+    end
+    if key:find("open_talent", 1, true) ~= nil then
+        return true
+    end
+    local button_name = tostring(step.distance_button_name or ""):lower()
+    if button_name:find("homebtnitem_c.widgettree.clickbtn", 1, true) ~= nil then
+        local label = tostring(step.label or ""):lower()
+        if label:find("talent", 1, true) ~= nil or label:find("天赋", 1, true) ~= nil then
+            return true
+        end
+    end
+    return false
+end
+
+function M.arm_level_up_maintenance_panel_open_death_guard(ctx, current_time, step, index, total_steps)
+    if not M.level_up_maintenance_step_opens_talent_panel(step) then
+        return false
+    end
+    local cfg = M.level_up_maintenance_config()
+    local guard_ms = math.max(
+        0,
+        tonumber(step.panel_open_death_guard_ms)
+            or tonumber(cfg.panel_open_death_guard_ms)
+            or 0
+    )
+    if guard_ms <= 0 then
+        return false
+    end
+    local event_now = tonumber(current_time) or now_ms(ctx)
+    local wall_now = now_ms(ctx)
+    state.level_up_maintenance_panel_open_death_guard_until = event_now + guard_ms
+    state.level_up_maintenance_panel_open_death_guard_wall_until = wall_now + guard_ms
+    state.level_up_maintenance_panel_open_death_guard_step_key = tostring(step.key or "")
+    state.level_up_maintenance_panel_open_death_guard_label = tostring(step.label or "")
+    state.level_up_maintenance_panel_open_death_guard_kind = tostring(state.level_up_maintenance_executor_kind or "")
+    logger(ctx).info(string.format(
+        "[Leveling] level-up maintenance panel-open death guard armed | kind=%s level=%s plan=%s step=%d/%d key=%s guard_ms=%d event_now=%d wall_now=%d",
+        tostring(state.level_up_maintenance_executor_kind or ""),
+        tostring(state.level_up_maintenance_executor_level or ""),
+        tostring(state.level_up_maintenance_executor_plan_label or ""),
+        tonumber(index) or 0,
+        tonumber(total_steps) or 0,
+        tostring(step.key or ""),
+        guard_ms,
+        event_now,
+        wall_now
+    ))
+    return true
+end
+
+function M.level_up_maintenance_revive_panel_visible(ctx)
+    local nav_mod = nav_api(ctx)
+    if type(nav_mod) ~= "table" or type(nav_mod.enum_ui) ~= "function" then
+        return false, "nav.enum_ui unavailable"
+    end
+    local ui, enum_err = nav_mod.enum_ui()
+    if type(ui) ~= "table" then
+        return false, tostring(enum_err or "enum_ui failed")
+    end
+
+    local matches = 0
+    local zero_matches = 0
+    local buttons = type(ui.buttons) == "table" and ui.buttons or {}
+    for _, item in ipairs(buttons) do
+        local identity = table.concat({
+            tostring(item and (item.Fullname or item.fullname) or ""),
+            tostring(item and item.name or "")
+        }, " "):lower()
+        local is_revive_button = identity:find("fightfailure_c.widgettree.reenterrebornbtn", 1, true) ~= nil
+            or identity:find("fightfailure_c.widgettree.insiderebornbtn", 1, true) ~= nil
+        if is_revive_button then
+            matches = matches + 1
+            local addr = tonumber(item and item.addr)
+            local x = tonumber(item and item.x)
+            local y = tonumber(item and item.y)
+            local has_visible_pos = x ~= nil and y ~= nil and not (math.abs(x) < 0.01 and math.abs(y) < 0.01)
+            if addr ~= nil and addr ~= 0 and has_visible_pos then
+                return true, string.format(
+                    "revive_button_visible addr=%s pos=(%.1f,%.1f)",
+                    tostring(addr),
+                    x,
+                    y
+                )
+            end
+            zero_matches = zero_matches + 1
+        end
+    end
+
+    return false, string.format(
+        "revive_button_not_visible matches=%d zero=%d total_buttons=%d",
+        matches,
+        zero_matches,
+        #buttons
+    )
 end
 
 function M.level_up_maintenance_persisted_max_completed_level()
@@ -5529,6 +6110,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
             tostring(type(target) == "table" and target.y or "")
         ))
     end
+    M.arm_level_up_maintenance_panel_open_death_guard(ctx, current_time, step, index, #steps)
     state.level_up_maintenance_executor_step_index = index + 1
     state.level_up_maintenance_executor_next_step_at = current_time
         + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
@@ -6219,6 +6801,11 @@ end
 function M.route_point_action_skip_reason(ctx, action, current_time)
     if type(action) ~= "table" then
         return nil
+    end
+
+    local task_refresh_completed, completed_state_key = M.route_point_action_completed_by_task_refresh(action)
+    if task_refresh_completed then
+        return "task_refresh_confirmed", completed_state_key
     end
 
     local recipe_package_key = trim(action.recipe_package_key or "")
@@ -7145,6 +7732,7 @@ function M.maybe_handle_route_point_action_boarding(ctx, current_time, player_x,
     local completed_state_key = tostring(state.route_point_action_active_state_key or active_key)
     local settle_ms = math.max(TASK_BUTTON_SETTLE_MS, tonumber(board.settle_ms) or 4500)
     state.map_transition_triggered[completed_state_key] = current_time
+    M.arm_task_advancing_action_confirmation(ctx, current_time, action, completed_state_key, "route_point_board_interact")
     logger(ctx).info(string.format(
         "[Leveling] route point action board interact | task=%s key=%s distance=%.2f z_gap=%.2f wait=%dms",
         tostring(M.current_task_log_name() or state.current_task_name or ""),
@@ -7372,6 +7960,7 @@ function M.maybe_handle_route_point_action_npc_dialogue(ctx, current_time, playe
         state.route_point_action_dialogue_next_interact_at = current_time + interact_retry_ms
         if ok then
             state.map_transition_triggered[state_key] = current_time
+            M.arm_task_advancing_action_confirmation(ctx, current_time, action, state_key, "route_point_npc_dialogue")
             M.clear_route_point_action_npc_dialogue_state()
             logger(ctx).info(string.format(
                 "[Leveling] route point action npc dialogue interact | task=%s key=%s npc=%s point_distance=%.2f player_distance=%.2f",
@@ -7398,6 +7987,7 @@ function M.maybe_handle_route_point_action_npc_dialogue(ctx, current_time, playe
         state.route_point_action_dialogue_next_interact_at = current_time + interact_retry_ms
         if prompt_ok then
             state.map_transition_triggered[state_key] = current_time
+            M.arm_task_advancing_action_confirmation(ctx, current_time, action, state_key, "route_point_npc_dialogue_fallback")
             M.clear_route_point_action_npc_dialogue_state()
             logger(ctx).info(string.format(
                 "[Leveling] route point action npc dialogue fallback interact | task=%s key=%s point=%.2f, %.2f",
@@ -7506,6 +8096,74 @@ function M.maybe_handle_route_point_action_route(ctx, current_time, player_x, pl
         ))
         index = index + 1
         state.route_point_action_route_index = index
+    end
+
+    if index <= #waypoints
+        and state.route_point_recorded_route_worker_active == true
+        and tostring(state.route_point_recorded_route_worker_action_key or "") == active_key
+        and tostring(nav_worker_get(ctx, "target_source") or "") == "route_point_recorded_route"
+        and tostring(nav_worker_get(ctx, "worker_status") or "") == "path_done"
+    then
+        local window_end = math.min(
+            #waypoints,
+            math.max(0, tonumber(state.route_point_recorded_route_worker_window_end) or 0)
+        )
+        if window_end >= index then
+            local completed_point = waypoints[window_end]
+            local completed_x = tonumber(type(completed_point) == "table" and completed_point.x)
+            local completed_y = tonumber(type(completed_point) == "table" and completed_point.y)
+            local completed_z = tonumber(type(completed_point) == "table" and completed_point.z)
+            local completed_distance = completed_x ~= nil and completed_y ~= nil
+                and distance_2d(player_x, player_y, completed_x, completed_y)
+                or nil
+            local completed_reach = math.max(
+                120,
+                tonumber(nav_worker_get(ctx, "route_arrive_distance"))
+                    or tonumber(type(completed_point) == "table" and completed_point.reach_radius)
+                    or tonumber(action.waypoint_reach_radius)
+                    or tonumber(action.route_arrive_tolerance)
+                    or 180
+            )
+            local completed_z_tolerance = math.max(
+                0,
+                tonumber(type(completed_point) == "table" and completed_point.z_tolerance)
+                    or tonumber(action.waypoint_z_tolerance)
+                    or 260
+            )
+            local completed_z_gap = completed_z ~= nil and type(player_z) == "number"
+                and math.abs((tonumber(player_z) or 0) - completed_z)
+                or 0
+            if completed_distance ~= nil
+                and completed_distance <= completed_reach
+                and completed_z_gap <= completed_z_tolerance
+            then
+                state.route_point_action_route_index = window_end + 1
+                state.route_point_action_route_next_retry_at = current_time
+                state.route_point_recorded_route_worker_signature = nil
+                logger(ctx).info(string.format(
+                    "[Leveling] route point action recorded route worker window completed | task=%s key=%s index=%d/%d distance=%.2f z_gap=%.2f",
+                    tostring(M.current_task_log_name() or state.current_task_name or ""),
+                    tostring(active_key),
+                    window_end,
+                    #waypoints,
+                    tonumber(completed_distance) or 0,
+                    tonumber(completed_z_gap) or 0
+                ))
+                return M.maybe_handle_route_point_action_route(ctx, current_time, player_x, player_y, player_z)
+            else
+                log_throttled(ctx, "route_point_recorded_route_worker_path_done_far_" .. tostring(active_key), "warn", 900, string.format(
+                    "[Leveling] route point action recorded route worker path_done ignored; player is not near completed window | task=%s key=%s index=%d/%d distance=%s reach=%.2f z_gap=%.2f z_tolerance=%.2f",
+                    tostring(M.current_task_log_name() or state.current_task_name or ""),
+                    tostring(active_key),
+                    window_end,
+                    #waypoints,
+                    completed_distance ~= nil and string.format("%.2f", completed_distance) or "nil",
+                    tonumber(completed_reach) or 0,
+                    tonumber(completed_z_gap) or 0,
+                    tonumber(completed_z_tolerance) or 0
+                ))
+            end
+        end
     end
 
     if index > #waypoints then
@@ -7747,7 +8405,6 @@ function M.maybe_handle_route_point_action_route(ctx, current_time, player_x, pl
         or 0
 
     state.stage = "route_point_action_route_move"
-    hold_navigation(ctx, current_time, "route_point_action_route_move")
     release_async_combat_inputs(ctx, current_time, true)
 
     local move_interval_ms = math.max(120, tonumber(point.move_interval_ms) or tonumber(action.move_interval_ms) or 220)
@@ -7759,7 +8416,18 @@ function M.maybe_handle_route_point_action_route(ctx, current_time, player_x, pl
             source = "route_point_recorded_route",
             path_index = index,
             path_points = #waypoints,
-            move_interval_ms = move_interval_ms
+            move_interval_ms = move_interval_ms,
+            route_points = waypoints,
+            route_key = active_key,
+            route_state_key = state_key,
+            route_arrive_tolerance = reach_radius,
+            route_stuck_skip_ms = tonumber(point.route_stuck_skip_ms)
+                or tonumber(action.route_stuck_skip_ms)
+                or tonumber(action.waypoint_stuck_skip_ms),
+            route_progress_reset_distance = tonumber(point.route_progress_reset_distance)
+                or tonumber(action.route_progress_reset_distance)
+                or tonumber(action.waypoint_progress_reset_distance),
+            current_distance = point_distance
         })
         state.route_point_action_route_next_retry_at = current_time + move_interval_ms
     end
@@ -8077,6 +8745,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
         local after_hotkey_time = now_ms(ctx)
         if last_err == nil then
             state.map_transition_triggered[state_key] = after_hotkey_time
+            M.arm_task_advancing_action_confirmation(ctx, after_hotkey_time, action, state_key, "route_point_objective_hotkey")
             M.mark_recipe_action_completed(ctx, after_hotkey_time, action, "objective_hotkey")
             M.clear_route_point_action_objective_state()
             local followup_route_action_key = trim(action.followup_route_action_key or action.next_route_point_action_key or "")
@@ -8186,6 +8855,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
         if clicked then
             local state_key = tostring(state.route_point_action_objective_active_state_key or active_key)
             state.map_transition_triggered[state_key] = current_time
+            M.arm_task_advancing_action_confirmation(ctx, current_time, action, state_key, "route_point_objective_clicked")
             M.mark_recipe_action_completed(ctx, current_time, action, "objective_clicked")
             M.clear_route_point_action_objective_state()
             local armed_entry_action = false
@@ -8314,6 +8984,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
             local state_key = tostring(state.route_point_action_objective_active_state_key or active_key)
             if missing_button_followup_key ~= "" then
                 state.map_transition_triggered[state_key] = current_time
+                M.arm_task_advancing_action_confirmation(ctx, current_time, action, state_key, "route_point_objective_missing_followup")
                 M.mark_recipe_action_completed(ctx, current_time, action, "objective_button_missing_skipped")
                 M.clear_route_point_action_objective_state()
                 local followup_action, followup_err = M.activate_route_point_action(
@@ -8352,6 +9023,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
             end
             if missing_button_complete_side_task or missing_button_complete_action then
                 state.map_transition_triggered[state_key] = current_time
+                M.arm_task_advancing_action_confirmation(ctx, current_time, action, state_key, "route_point_objective_missing_completed")
                 if missing_button_complete_side_task then
                     M.mark_recipe_action_completed(ctx, current_time, action, "objective_button_missing_completed")
                 end
@@ -8386,6 +9058,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
             local ok, err = press_keyboard_hotkey(ctx, current_time, VK_D, "leveling route point objective")
             if ok then
                 state.map_transition_triggered[state_key] = current_time
+                M.arm_task_advancing_action_confirmation(ctx, current_time, action, state_key, "route_point_objective_interact")
                 M.clear_route_point_action_objective_state()
                 schedule_task_refresh_after_transition(
                     ctx,
@@ -8683,6 +9356,7 @@ function M.maybe_handle_route_point_action(ctx, current_time, player_x, player_y
                             if type(action.board) == "table" then
                                 M.arm_route_point_action_board(ctx, action, state_key, current_time, "button_click")
                             else
+                                M.arm_task_advancing_action_confirmation(ctx, current_time, action, state_key, "route_point_action_clicked")
                                 schedule_task_refresh_after_transition(
                                     ctx,
                                     current_time,
@@ -8760,6 +9434,7 @@ function M.maybe_handle_route_point_action(ctx, current_time, player_x, player_y
                             if type(action.board) == "table" then
                                 M.arm_route_point_action_board(ctx, action, state_key, current_time, "interact_fallback")
                             else
+                                M.arm_task_advancing_action_confirmation(ctx, current_time, action, state_key, "route_point_action_interact")
                                 schedule_task_refresh_after_transition(
                                     ctx,
                                     current_time,
@@ -10195,9 +10870,60 @@ function M.should_defer_revive_for_treasure_entry(current_time, in_main_interfac
     return false, nil
 end
 
-function M.should_defer_revive_for_level_up_maintenance(current_time, in_main_interface)
+function M.should_defer_revive_for_level_up_maintenance(ctx, current_time, in_main_interface)
     if state.level_up_maintenance_executor_active ~= true then
         return false, nil
+    end
+
+    local now = tonumber(current_time) or 0
+    local wall_now = now_ms(ctx)
+    local panel_guard_until = tonumber(state.level_up_maintenance_panel_open_death_guard_until) or 0
+    local panel_guard_wall_until = tonumber(state.level_up_maintenance_panel_open_death_guard_wall_until) or 0
+    local panel_guard_active = (panel_guard_until > 0 and now > 0 and panel_guard_until > now)
+        or (panel_guard_wall_until > 0 and panel_guard_wall_until > wall_now)
+    if panel_guard_active then
+        return true, {
+            reason = "panel_open_guard",
+            kind = tostring(state.level_up_maintenance_executor_kind or ""),
+            level = tonumber(state.level_up_maintenance_executor_level) or 0,
+            plan = tostring(state.level_up_maintenance_executor_plan_label or ""),
+            step = tonumber(state.level_up_maintenance_executor_step_index) or 0,
+            step_key = tostring(state.level_up_maintenance_panel_open_death_guard_step_key or ""),
+            panel_err = "guard_active",
+            next_step_at = tonumber(state.level_up_maintenance_executor_next_step_at) or 0,
+            active_until = panel_guard_until,
+            active_left_ms = math.max(
+                math.max(0, panel_guard_until - now),
+                math.max(0, panel_guard_wall_until - wall_now)
+            )
+        }
+    elseif panel_guard_until > 0 or panel_guard_wall_until > 0 then
+        state.level_up_maintenance_panel_open_death_guard_until = 0
+        state.level_up_maintenance_panel_open_death_guard_wall_until = 0
+        state.level_up_maintenance_panel_open_death_guard_step_key = nil
+        state.level_up_maintenance_panel_open_death_guard_label = nil
+        state.level_up_maintenance_panel_open_death_guard_kind = nil
+    end
+
+    local started_at = tonumber(state.level_up_maintenance_executor_started_at) or 0
+    local next_step_at = tonumber(state.level_up_maintenance_executor_next_step_at) or 0
+    local active_until = math.max(started_at + 30000, next_step_at + 8000)
+    if active_until > 0 and now <= active_until then
+        local revive_panel_visible, revive_panel_err = M.level_up_maintenance_revive_panel_visible(ctx)
+        if revive_panel_visible ~= true then
+            return true, {
+                reason = "maintenance_no_revive_panel",
+                kind = tostring(state.level_up_maintenance_executor_kind or ""),
+                level = tonumber(state.level_up_maintenance_executor_level) or 0,
+                plan = tostring(state.level_up_maintenance_executor_plan_label or ""),
+                step = tonumber(state.level_up_maintenance_executor_step_index) or 0,
+                step_key = tostring(state.level_up_maintenance_panel_open_death_guard_step_key or ""),
+                panel_err = tostring(revive_panel_err or ""),
+                next_step_at = next_step_at,
+                active_until = active_until,
+                active_left_ms = math.max(0, active_until - now)
+            }
+        end
     end
 
     local cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
@@ -10211,10 +10937,6 @@ function M.should_defer_revive_for_level_up_maintenance(current_time, in_main_in
         return false, nil
     end
 
-    local now = tonumber(current_time) or 0
-    local started_at = tonumber(state.level_up_maintenance_executor_started_at) or 0
-    local next_step_at = tonumber(state.level_up_maintenance_executor_next_step_at) or 0
-    local active_until = math.max(started_at + 30000, next_step_at + 8000)
     if active_until <= 0 or now > active_until then
         return false, nil
     end
@@ -10261,16 +10983,20 @@ local function maybe_handle_revive(ctx, current_time, hp, player_x, player_y, pl
             return false
         end
         local defer_maintenance_revive, maintenance_runtime =
-            M.should_defer_revive_for_level_up_maintenance(current_time, in_main_interface)
+            M.should_defer_revive_for_level_up_maintenance(ctx, current_time, in_main_interface)
         if defer_maintenance_revive then
             log_throttled(ctx, "revive_deferred_by_level_up_maintenance", "info", LOG_THROTTLE_MS, string.format(
-                "[Leveling] hp=0 ignored during level-up maintenance | kind=%s level=%s plan=%s step=%d next_step_in=%dms active_until=%dms",
+                "[Leveling] hp=0 ignored during level-up maintenance | reason=%s kind=%s level=%s plan=%s step=%d key=%s next_step_in=%dms active_until=%dms panel_err=%s",
+                tostring(maintenance_runtime and maintenance_runtime.reason or "maintenance"),
                 tostring(maintenance_runtime and maintenance_runtime.kind or ""),
                 tostring(maintenance_runtime and maintenance_runtime.level or ""),
                 tostring(maintenance_runtime and maintenance_runtime.plan or ""),
                 tonumber(maintenance_runtime and maintenance_runtime.step) or 0,
+                tostring(maintenance_runtime and maintenance_runtime.step_key or ""),
                 math.max(0, (tonumber(maintenance_runtime and maintenance_runtime.next_step_at) or current_time) - current_time),
-                math.max(0, (tonumber(maintenance_runtime and maintenance_runtime.active_until) or current_time) - current_time)
+                tonumber(maintenance_runtime and maintenance_runtime.active_left_ms)
+                    or math.max(0, (tonumber(maintenance_runtime and maintenance_runtime.active_until) or current_time) - current_time),
+                tostring(maintenance_runtime and maintenance_runtime.panel_err or "")
             ))
             return false
         end
@@ -10613,6 +11339,9 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         local raw_detail = trim(type(entry) == "table" and entry.detail or "")
         local next_detail = raw_detail
         local detail_source = tostring(source or "task_panel")
+        if type(entry) == "table" and detail_source == "nearby_text" then
+            detail_source = "task_panel_confirmed"
+        end
         if M.is_task_detail_noise(next_detail) then
             local recovered_detail, recovered_score, recovered_dx, recovered_dy = find_nearby_subtask_detail(preferred_task_name, raw_detail)
             if recovered_detail ~= nil then
@@ -10923,10 +11652,14 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
     elseif best_text ~= nil then
         local old_task = state.current_task_name
         local old_detail = state.current_task_detail
+        local candidate_panel_entry = select_task_panel_entry(best_text)
+        local detail_source = type(candidate_panel_entry) == "table" and "task_panel_confirmed" or "nearby_text"
         state.current_task_name = best_text
+        state.current_task_name_source = detail_source
+        state.current_task_name_updated_at = current_time
         M.publish_current_task_name()
-        sync_task_detail_from_panel(best_text, "nearby_text")
-        M.mark_terminal_task_refresh(ctx, current_time, old_task, old_detail, "nearby_text")
+        sync_task_detail_from_panel(best_text, detail_source)
+        M.mark_terminal_task_refresh(ctx, current_time, old_task, old_detail, detail_source)
     elseif state.current_task_name ~= nil then
         sync_task_detail_from_panel(state.current_task_name, "task_panel_fallback")
     end

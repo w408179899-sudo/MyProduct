@@ -108,6 +108,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     defer_revive_during_maintenance = false,
     preserve_executor_on_death = true,
     restart_executor_step_after_revive = true,
+    panel_open_death_guard_ms = 2500,
     allow_position_available_without_main_interface = true,
     step_wait_ms = 180,
     adaptive_step_wait_enabled = true,
@@ -4397,8 +4398,19 @@ do
         hint_max_distance = 90,
         wait_after_ms = 700
     }
-    steps[#steps + 1] = {
-        key = "level_4_life_potion_open_fast_entrance_menu",
+    level_4_skill_plan.steps = steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[4] = level_4_skill_plan
+
+    local level_5_skill_plan = {
+        key = "level_5_skill_life_potion_sequence",
+        label = "5级技能：添加生命药水",
+        require_available_points = false,
+        close_with_escape = false,
+        steps = {}
+    }
+    local level_5_steps = level_5_skill_plan.steps
+    level_5_steps[#level_5_steps + 1] = {
+        key = "level_5_life_potion_open_fast_entrance_menu",
         label = "技能天赋菜单按钮",
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
@@ -4410,8 +4422,8 @@ do
         hint_max_distance = 100,
         wait_after_ms = 800
     }
-    steps[#steps + 1] = {
-        key = "level_4_life_potion_open_skill_panel",
+    level_5_steps[#level_5_steps + 1] = {
+        key = "level_5_life_potion_open_skill_panel",
         label = "技能按钮",
         distance_anchor_exact_text = "技能",
         distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
@@ -4427,8 +4439,8 @@ do
         hint_max_distance = 90,
         wait_after_ms = 1000
     }
-    steps[#steps + 1] = maintenance_locator_step(
-        "level_4_skill_select_life_potion_slot",
+    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+        "level_5_skill_select_life_potion_slot",
         "生命药水技能列表项按钮",
         {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexViewItem.WidgetTree.ClickBtn"
@@ -4440,8 +4452,8 @@ do
         80,
         700
     )
-    steps[#steps + 1] = fixed_click_step(
-        "level_4_skill_tab_life_potion",
+    level_5_steps[#level_5_steps + 1] = fixed_click_step(
+        "level_5_skill_tab_life_potion",
         "生命药水技能页标签按钮",
         698.99,
         454.99,
@@ -4449,8 +4461,8 @@ do
         0.505540,
         700
     )
-    steps[#steps + 1] = fixed_click_step(
-        "level_4_skill_life_potion_search_focus",
+    level_5_steps[#level_5_steps + 1] = fixed_click_step(
+        "level_5_skill_life_potion_search_focus",
         "生命药水搜索输入框",
         371.00,
         653.00,
@@ -4458,9 +4470,9 @@ do
         0.725556,
         250
     )
-    steps[#steps + 1] = {
+    level_5_steps[#level_5_steps + 1] = {
         kind = "type_text",
-        key = "level_4_skill_search_life_potion_text",
+        key = "level_5_skill_search_life_potion_text",
         label = "输入生命药水",
         text = "生命药水",
         input_method = "clipboard",
@@ -4468,8 +4480,8 @@ do
         key_delay_ms = 30,
         wait_after_ms = 500
     }
-    steps[#steps + 1] = maintenance_locator_step(
-        "level_4_skill_search_life_potion_button",
+    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+        "level_5_skill_search_life_potion_button",
         "生命药水搜索按钮",
         {
             "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
@@ -4481,8 +4493,8 @@ do
         80,
         700
     )
-    steps[#steps + 1] = maintenance_locator_step(
-        "level_4_skill_select_life_potion_store_item",
+    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+        "level_5_skill_select_life_potion_store_item",
         "生命药水商店结果按钮",
         {
             "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn"
@@ -4494,8 +4506,8 @@ do
         80,
         700
     )
-    steps[#steps + 1] = maintenance_locator_step(
-        "level_4_skill_get_life_potion",
+    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+        "level_5_skill_get_life_potion",
         "生命药水获取按钮",
         {
             "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
@@ -4507,8 +4519,8 @@ do
         80,
         700
     )
-    steps[#steps + 1] = maintenance_locator_step(
-        "level_4_skill_select_life_potion_bag_item",
+    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+        "level_5_skill_select_life_potion_bag_item",
         "生命药水背包结果按钮",
         {
             "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
@@ -4520,8 +4532,8 @@ do
         80,
         700
     )
-    steps[#steps + 1] = maintenance_locator_step(
-        "level_4_skill_install_life_potion",
+    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+        "level_5_skill_install_life_potion",
         "生命药水安装按钮",
         {
             "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
@@ -4533,7 +4545,7 @@ do
         80,
         700
     )
-    steps[#steps + 1] = {
+    level_5_steps[#level_5_steps + 1] = {
         key = "back_from_skill_panel_after_life_potion_setup",
         label = "技能返回按钮",
         include_patterns = {
@@ -4546,170 +4558,7 @@ do
         hint_max_distance = 90,
         wait_after_ms = 500
     }
-
-    level_4_skill_plan.steps = steps
-    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[4] = level_4_skill_plan
-
-    local level_6_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
-    level_6_skill_plan.key = "level_6_skill_add_revival_warcry_sequence"
-    level_6_skill_plan.label = "6级技能：添加复苏战吼"
-    level_6_skill_plan.close_with_escape = false
-
-    local level_6_steps = type(level_6_skill_plan.steps) == "table" and level_6_skill_plan.steps or {}
-    if #level_6_steps > 0 and tostring(level_6_steps[#level_6_steps].key or "") == "back_from_skill_panel" then
-        table.remove(level_6_steps, #level_6_steps)
-    end
-    for _, step in ipairs(level_6_steps) do
-        if tostring(step.key or "") == "open_skill_add_panel" then
-            step.key = "level_6_open_skill_add_panel"
-            step.label = "6级技能加点入口按钮"
-            step.missing_target_means_step_done = true
-        elseif tostring(step.key or "") == "click_skill_upgrade_image" then
-            step.key = "level_6_click_skill_upgrade_image"
-            step.label = "6级技能升级找图按钮"
-            step.missing_image_means_done = false
-            step.missing_image_means_step_done = true
-            step.cleanup_back_before_finish = true
-            step.repeat_image_until_missing = true
-            step.repeat_image_until_missing_max_count = 30
-            step.repeat_image_until_missing_interval_ms = 180
-            if type(step.image_preset) == "table" then
-                step.image_preset.click_repeat_count = 1
-                step.image_preset.repeat_until_missing = true
-                step.image_preset.repeat_until_missing_max_count = 30
-                step.image_preset.repeat_until_missing_interval_ms = 180
-            end
-        end
-    end
-
-    level_6_steps[#level_6_steps + 1] = {
-        key = "level_6_open_fast_entrance_menu_after_skill_image",
-        label = "技能天赋菜单按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
-        },
-        hint_client_x = 1383.688110,
-        hint_client_y = 52.706509,
-        hint_ratio_x = 0.961562,
-        hint_ratio_y = 0.058563,
-        hint_max_distance = 100,
-        wait_after_ms = 800
-    }
-    level_6_steps[#level_6_steps + 1] = {
-        key = "level_6_open_skill_panel_after_skill_image",
-        label = "技能按钮",
-        distance_anchor_exact_text = "技能",
-        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
-        distance_min = 49.048348,
-        distance_max = 52.082267,
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
-        },
-        hint_client_x = 1249.024658,
-        hint_client_y = 155.104156,
-        hint_ratio_x = 0.867981,
-        hint_ratio_y = 0.172338,
-        hint_max_distance = 90,
-        wait_after_ms = 1000
-    }
-    level_6_steps[#level_6_steps + 1] = fixed_click_step(
-        "level_6_skill_fixed_click_80_412",
-        "6级技能固定点击1",
-        80.00,
-        412.00,
-        0.055594,
-        0.457778,
-        500
-    )
-    level_6_steps[#level_6_steps + 1] = fixed_click_step(
-        "level_6_skill_fixed_click_725_456",
-        "6级技能固定点击2",
-        725.00,
-        456.00,
-        0.503822,
-        0.506667,
-        500
-    )
-    level_6_steps[#level_6_steps + 1] = fixed_click_step(
-        "level_6_skill_search_focus",
-        "6级技能搜索输入框",
-        381.00,
-        654.00,
-        0.264767,
-        0.726667,
-        250
-    )
-    level_6_steps[#level_6_steps + 1] = {
-        kind = "type_text",
-        key = "level_6_skill_search_revival_warcry_text",
-        label = "输入复苏战吼",
-        text = "复苏战吼",
-        input_method = "clipboard",
-        clear_before = true,
-        key_delay_ms = 30,
-        wait_after_ms = 500
-    }
-    level_6_steps[#level_6_steps + 1] = fixed_click_step(
-        "level_6_skill_search_confirm",
-        "6级技能搜索确认",
-        594.00,
-        657.00,
-        0.412787,
-        0.730000,
-        700
-    )
-    level_6_steps[#level_6_steps + 1] = fixed_click_step(
-        "level_6_skill_select_revival_warcry_result",
-        "6级技能选择复苏战吼结果",
-        354.00,
-        330.00,
-        0.246004,
-        0.366667,
-        700
-    )
-    level_6_steps[#level_6_steps + 1] = fixed_click_step(
-        "level_6_skill_fixed_click_816_398",
-        "6级技能固定点击3",
-        816.00,
-        398.00,
-        0.567060,
-        0.442222,
-        350
-    )
-    level_6_steps[#level_6_steps + 1] = fixed_click_step(
-        "level_6_skill_fixed_click_799_331",
-        "6级技能固定点击4",
-        799.00,
-        331.00,
-        0.555247,
-        0.367778,
-        350
-    )
-    level_6_steps[#level_6_steps + 1] = fixed_click_step(
-        "level_6_skill_fixed_click_536_401",
-        "6级技能固定点击5",
-        536.00,
-        401.00,
-        0.372481,
-        0.445556,
-        700
-    )
-    level_6_steps[#level_6_steps + 1] = {
-        key = "back_from_skill_panel_after_revival_warcry_setup",
-        label = "技能返回按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
-        },
-        hint_client_x = 1384.784546,
-        hint_client_y = 52.000000,
-        hint_ratio_x = 0.961656,
-        hint_ratio_y = 0.057778,
-        hint_max_distance = 90,
-        wait_after_ms = 500
-    }
-
-    level_6_skill_plan.steps = level_6_steps
-    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[6] = level_6_skill_plan
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[5] = level_5_skill_plan
 
     local level_12_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
     level_12_skill_plan.key = "level_12_skill_add_emergency_sequence"
@@ -6656,6 +6505,17 @@ end
 
 M.ENABLE_MAP_RUNTIME_DETECTION = false
 M.LEVELING_USE_NAV_WORKER = true
+-- Keep the legacy state machine authoritative. BT wrappers are opt-in for local
+-- execution groups only, so testing does not depend on scheduler ownership.
+M.LEVELING_BT_EXECUTION_ENABLED = false
+M.LEVELING_BT_OWNER_GATE_ENFORCE = false
+M.LEVELING_BT_ACTIVE_OWNER_ENFORCE = false
+M.TASK_REFRESH_BAG_PAUSE_ENABLED = true
+M.TASK_REFRESH_BAG_PAUSE_KEY_VK = 0x42
+M.TASK_REFRESH_BAG_PAUSE_VERIFY_ATTEMPTS = 5
+M.TASK_REFRESH_BAG_PAUSE_VERIFY_INTERVAL_MS = 100
+M.TASK_REFRESH_BAG_PAUSE_RETRY_MS = 900
+M.TASK_REFRESH_BAG_PAUSE_MAX_MS = 12000
 M.TASK_PATH_WORKER_ROUTE_MODE = true
 M.TASK_PATH_USE_RAW_PATH = true
 M.TASK_PATH_WORKER_MAX_POINTS = 1024
@@ -7338,6 +7198,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             radius = 2400,
             z_tolerance = 700
         },
+        restart_landing_require_verified = true,
         exit_landing = {
             x = 13463.00,
             y = 15847.00,
@@ -7345,6 +7206,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             radius = 2200,
             z_tolerance = 900
         },
+        portal_click_no_move_distance = 220,
         transition_timeout_ms = 15000,
         notes = {
             "Known mainline text: 龙陨之野 -> 寻找矮人国度入口",
@@ -7356,7 +7218,8 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "Configured boss center/kite points, restart portal, exit portal, restart landing, and exit landing from measured F6/F7 data",
             "Exit landing updated after latest F6 sample to 13463,15847,5214; wait_exit should resume mainline from this outside point",
             "Persisted route_acquired is still false until this treasure completes its first path capture",
-            "Restart landing updated to -1708,746,5929; still need F7 restart EPortal data if restart door matching drifts"
+            "Restart landing updated to -1708,746,5929; restart clicks must verify this landing instead of accepting boss-anchor fallback",
+            "Portal click success is now verified by position change; unchanged position falls back to D/retry before continuing"
         }
     },
     {
@@ -9495,21 +9358,33 @@ M.TASK_NAME_CONFIGS = {
         },
         {
             selection_step = {
-                label = "\u{9F99}\u{9AA8}\u{5C71}\u{810A}\u{6309}\u{94AE}",
-                distance_anchor_exact_text = "\u{9F99}\u{9AA8}\u{5C71}\u{810A}",
+                label = "\u{9F99}\u{9AA8}\u{5C71}\u{810A}\u{5730}\u{56FE}\u{9879}\u{6309}\u{94AE}",
                 distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
-                distance_min = 128.003496,
-                distance_max = 133.003496,
                 include_patterns = {
                     "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
                 },
-                hint_client_x = 688.675232,
-                hint_client_y = 427.335968,
-                hint_ratio_x = 0.478247,
-                hint_ratio_y = 0.474818,
-                hint_max_distance = 80.000
+                hint_client_x = 685.359619,
+                hint_client_y = 409.743622,
+                hint_ratio_x = 0.475944,
+                hint_ratio_y = 0.455271,
+                hint_max_distance = 120.000,
+                prefer_hint_fallback = true,
+                poll_retry_count = 30,
+                poll_interval_ms = 100,
+                fixed_fallback_client_x = 727.00,
+                fixed_fallback_client_y = 453.00,
+                fixed_fallback_ratio_x = 0.504861,
+                fixed_fallback_ratio_y = 0.503333,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_click_delay_ms = 50,
+                fixed_fallback_hover_delay_ms = 80
             },
-            selection_settle_ms = 700
+            selection_settle_ms = 250,
+            timeout_ms = 22000
+        },
+        {
+            enable_linear_recipe = true
         }
     ),
     ["\u{524D}\u{5F80}\u{9F99}\u{9AA8}\u{5E73}\u{539F}"] = make_world_map_send_task_config(
@@ -11637,14 +11512,14 @@ M.GLOBAL_TASK_PORTAL_STEP = {
 
 M.COMMON_REVIVE_REENTRY_PORTALS = {
     {
-        key = "ancient_battlefield_reentry_portal_10237_-7284",
+        key = "ancient_battlefield_reentry_portal_10296_-7295",
         label = "上古战场复活进门",
-        x = 10237.00,
-        y = -7284.00,
+        x = 10296.00,
+        y = -7295.00,
         z = 566.00,
         path_match_radius = 900,
         portal_match_radius = 1800,
-        player_radius = 1300,
+        player_radius = 1600,
         z_tolerance = 260,
         require_enum_portal = true,
         retry_ms = 1200,
@@ -16895,6 +16770,12 @@ M.OBJECTIVE_POINT_CONFIGS = {
         radius = 1200,
         kite_radius = 3600,
         trigger_distance = 900,
+        allow_nearby_text_task_change_exit = true,
+        nearby_text_task_change_confirm_ms = 300,
+        nearby_text_task_change_confirm_count = 1,
+        nearby_text_task_change_exit_patterns = {
+            "\u{7A7F}\u{8D8A}\u{5931}\u{843D}\u{77FF}\u{9053}"
+        },
         task_patterns = {
             "\u{524D}\u{5F80}\u{5931}\u{843D}\u{77FF}\u{9053}\u{6DF1}\u{5904}",
             "\u{51FB}\u{8D25}\u{5730}\u{9B54}\u{9996}\u{9886}",

@@ -106,6 +106,8 @@ M.DEFAULT_CONFIG = {
     allow_damage_upgrade_when_survival_equal = true,
     min_survival_gain = 0,
     min_damage_gain = 0,
+    natural_regen_priority_enabled = true,
+    natural_regen_text_patterns = { "每秒自然回复" },
     bag_grid = {
         center_scan = true,
         first_center_x = 958,
@@ -495,6 +497,25 @@ local function configured_patterns(cfg, key)
     return M.DEFAULT_CONFIG[key]
 end
 
+local function parse_natural_regen_value(text, cfg)
+    if text_contains_any(text, configured_patterns(cfg, "natural_regen_text_patterns")) ~= true then
+        return nil
+    end
+
+    local raw = trim(text)
+    local fallback = nil
+    for value in raw:gmatch("([%+%-]?%d+%.?%d*)") do
+        local parsed = tonumber(value)
+        if parsed ~= nil then
+            if parsed > 0 then
+                return parsed
+            end
+            fallback = fallback or parsed
+        end
+    end
+    return fallback
+end
+
 local function is_weapon_type(item_type, cfg)
     return text_contains_any(item_type, configured_patterns(cfg, "weapon_type_patterns"))
 end
@@ -663,6 +684,28 @@ local function parse_equipped_item_names(texts, cfg)
         end
     end
     return equipped
+end
+
+local function equipped_panel_max_x(cfg)
+    return tonumber(type(cfg) == "table" and cfg.keep_equipped_panel_max_x)
+        or tonumber(M.DEFAULT_CONFIG.keep_equipped_panel_max_x)
+        or 650
+end
+
+local function text_item_is_equipped_panel(item, cfg)
+    local x = item_x(item)
+    return x ~= nil and x > 0 and x <= equipped_panel_max_x(cfg)
+end
+
+local function assign_max_number(container, key, value)
+    local parsed = tonumber(value)
+    if type(container) ~= "table" or parsed == nil then
+        return
+    end
+    local current = tonumber(container[key])
+    if current == nil or parsed > current then
+        container[key] = parsed
+    end
 end
 
 local function item_type_matches_rule(item_type, rule)
@@ -1240,6 +1283,8 @@ local function parse_compare(snapshot, cfg)
     local result = {
         damage = nil,
         survival = nil,
+        natural_regen = nil,
+        equipped_natural_regen = nil,
         item_name = nil,
         item_type = nil,
         compare_slot = nil,
@@ -1258,6 +1303,16 @@ local function parse_compare(snapshot, cfg)
         local name = identity_of(item)
         local text = text_of(item)
         collect_ring_compare_row(ring_rows, name, text)
+        if cfg.natural_regen_priority_enabled ~= false then
+            local natural_regen = parse_natural_regen_value(text, cfg)
+            if natural_regen ~= nil then
+                if text_item_is_equipped_panel(item, cfg) then
+                    assign_max_number(result, "equipped_natural_regen", natural_regen)
+                else
+                    assign_max_number(result, "natural_regen", natural_regen)
+                end
+            end
+        end
         if name:find("tipweaponitem_c.widgettree.uitextblock", 1, true) ~= nil
             and result.item_name == nil
             and text ~= ""
@@ -1329,6 +1384,8 @@ end
 local function should_equip(compare, cfg)
     local survival = tonumber(type(compare) == "table" and compare.survival)
     local damage = tonumber(type(compare) == "table" and compare.damage)
+    local natural_regen = tonumber(type(compare) == "table" and compare.natural_regen)
+    local equipped_natural_regen = tonumber(type(compare) == "table" and compare.equipped_natural_regen)
     local min_survival = tonumber(cfg.min_survival_gain) or 0
     local min_damage = tonumber(cfg.min_damage_gain) or 0
     if cfg.ring_slot_selection_enabled ~= false
@@ -1350,6 +1407,19 @@ local function should_equip(compare, cfg)
     local keep_reason = equipment_keep_skip_reason(compare, cfg)
     if keep_reason ~= nil then
         return false, keep_reason
+    end
+
+    if cfg.natural_regen_priority_enabled ~= false then
+        if natural_regen ~= nil and natural_regen > 0 then
+            if equipped_natural_regen == nil or natural_regen > equipped_natural_regen then
+                return true, "natural_regen_gain"
+            end
+            if equipped_natural_regen ~= nil and natural_regen < equipped_natural_regen then
+                return false, "natural_regen_loss"
+            end
+        elseif equipped_natural_regen ~= nil and equipped_natural_regen > 0 then
+            return false, "natural_regen_loss"
+        end
     end
 
     if survival == nil and damage == nil then
@@ -2092,7 +2162,7 @@ function M.perform_scan(ctx, deps, runtime, cfg, current_time, character_id)
                         reason = forced_ring_reason
                     end
                     log_line(ctx, deps, "info", string.format(
-                        "[Leveling] auto-equip candidate | id=%s cell=(%.1f, %.1f) name=%s type=%s slot=%s equipped_rings=%s/%s equipped_items=%s survival=%s damage=%s decision=%s unidentified=%s",
+                        "[Leveling] auto-equip candidate | id=%s cell=(%.1f, %.1f) name=%s type=%s slot=%s equipped_rings=%s/%s equipped_items=%s survival=%s damage=%s natural_regen=%s equipped_natural_regen=%s decision=%s unidentified=%s",
                         tostring(character_id or ""),
                         tonumber(candidate.x) or 0,
                         tonumber(candidate.y) or 0,
@@ -2104,6 +2174,8 @@ function M.perform_scan(ctx, deps, runtime, cfg, current_time, character_id)
                         joined_names(compare.equipped_item_names),
                         tostring(compare.survival),
                         tostring(compare.damage),
+                        tostring(compare.natural_regen),
+                        tostring(compare.equipped_natural_regen),
                         tostring(reason or ""),
                         has_unidentified_text(hover_snapshot) and "true" or "false"
                     ))

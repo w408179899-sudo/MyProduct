@@ -150,6 +150,10 @@ local function Getdistance(Buttonaddr, verbose)
     end
 end
 
+
+
+
+
 local init_ok, init_err = nav.init(PROCESS_NAME, MODE)
 if not init_ok then
     error("Torch API init failed: " .. tostring(init_err))
