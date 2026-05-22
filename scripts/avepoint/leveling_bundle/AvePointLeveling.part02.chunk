@@ -4089,6 +4089,10 @@ function M.level_up_maintenance_plan_done(kind, level, plan)
         end
     end
 
+    if state.level_up_maintenance_ignore_persisted_completed_after_level_reset == true then
+        return false
+    end
+
     if type(M.ensure_level_up_maintenance_state) == "function" then
         local persisted = M.ensure_level_up_maintenance_state()
         local completed = type(persisted) == "table" and persisted.completed_plans or nil
@@ -4474,6 +4478,91 @@ function M.level_up_maintenance_step_requires_point_decrement(step)
     return false
 end
 
+function M.level_up_maintenance_retry_wait_ms(cfg, step, field_name, fallback_ms)
+    cfg = type(cfg) == "table" and cfg or {}
+    step = type(step) == "table" and step or {}
+    local wait_ms = tonumber(step[field_name])
+        or tonumber(cfg[field_name])
+        or tonumber(fallback_ms)
+        or 100
+    local cap_ms = tonumber(step.retry_wait_cap_ms) or tonumber(cfg.retry_wait_cap_ms)
+    if type(cap_ms) == "number" and cap_ms > 0 and wait_ms > cap_ms then
+        wait_ms = cap_ms
+    end
+    return math.max(100, wait_ms)
+end
+
+function M.level_up_maintenance_step_wait_ms(cfg, step, next_step)
+    cfg = type(cfg) == "table" and cfg or {}
+    step = type(step) == "table" and step or {}
+    local wait_ms = tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650
+    if cfg.adaptive_step_wait_enabled == true
+        and step.enforce_wait_after_ms ~= true
+        and step.keep_wait_after_ms ~= true
+    then
+        local cap_ms = tonumber(step.adaptive_wait_after_ms) or tonumber(cfg.adaptive_step_wait_ms) or 120
+        local next_action = tostring(type(next_step) == "table" and (next_step.kind or next_step.action) or "")
+        if next_action == "type_text" then
+            cap_ms = tonumber(step.adaptive_text_input_wait_ms)
+                or tonumber(cfg.adaptive_text_input_wait_ms)
+                or cap_ms
+        end
+        if wait_ms > cap_ms then
+            wait_ms = cap_ms
+        end
+    end
+    return math.max(100, wait_ms)
+end
+
+function M.level_up_maintenance_should_poll_target(step)
+    if type(step) ~= "table" or step.disable_target_poll == true then
+        return false
+    end
+    if step.missing_image_means_done == true
+        or step.missing_image_means_step_done == true
+        or step.missing_target_means_plan_done == true
+        or step.missing_target_means_step_done == true
+    then
+        return false
+    end
+    return true
+end
+
+function M.fetch_level_up_maintenance_step_target(ctx, step, cfg)
+    cfg = type(cfg) == "table" and cfg or M.level_up_maintenance_config()
+    local target, fetch_err = fetch_locator_button_target(ctx, step)
+    if target or not M.level_up_maintenance_should_poll_target(step) then
+        return target, fetch_err
+    end
+    local step_poll_count = type(step) == "table" and tonumber(step.target_poll_count) or nil
+    local step_poll_interval_ms = type(step) == "table" and tonumber(step.target_poll_interval_ms) or nil
+    local poll_count = math.max(0, math.floor(step_poll_count or tonumber(cfg.target_poll_count) or 30))
+    local interval_ms = math.max(50,
+        step_poll_interval_ms or tonumber(cfg.target_poll_interval_ms) or 100
+    )
+    for attempt = 1, poll_count do
+        if type(sys) == "table" and type(sys.sleep) == "function" then
+            sys.sleep(interval_ms)
+        end
+        target, fetch_err = fetch_locator_button_target(ctx, step)
+        if target then
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance target appeared during poll | kind=%s level=%s plan=%s key=%s attempt=%d/%d interval_ms=%d",
+                tostring(state.level_up_maintenance_executor_kind or ""),
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                tostring(type(step) == "table" and step.key or ""),
+                attempt,
+                poll_count,
+                interval_ms
+            ))
+            return target, fetch_err
+        end
+    end
+
+    return nil, fetch_err
+end
+
 function M.advance_level_up_maintenance_verified_point_step(ctx, current_time, steps, index, step, desired_count, after_points, before_points, point_meta)
     local successes = (tonumber(state.level_up_maintenance_point_decrement_successes) or 0) + 1
     state.level_up_maintenance_point_decrement_successes = successes
@@ -4498,9 +4587,10 @@ function M.advance_level_up_maintenance_verified_point_step(ctx, current_time, s
         state.level_up_maintenance_executor_step_index = index + 1
         local cfg = M.level_up_maintenance_config()
         state.level_up_maintenance_executor_next_step_at = current_time
-            + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+            + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
     else
-        local retry_wait_ms = math.max(100, tonumber(step.point_decrement_success_wait_ms) or 180)
+        local cfg = M.level_up_maintenance_config()
+        local retry_wait_ms = M.level_up_maintenance_retry_wait_ms(cfg, step, "point_decrement_success_wait_ms", 180)
         state.level_up_maintenance_executor_next_step_at = current_time + retry_wait_ms
     end
     return true
@@ -4520,10 +4610,22 @@ function M.progress_level_up_maintenance_point_decrement_step(ctx, current_time,
     end
 
     local desired_count = math.max(1, math.floor(tonumber(step.click_repeat_count or step.repeat_count) or 1))
-    local retry_count = math.max(1, math.floor(tonumber(step.point_decrement_retry_count) or tonumber(cfg.point_decrement_retry_count) or 10))
-    local retry_wait_ms = math.max(100, tonumber(step.point_decrement_retry_wait_ms) or tonumber(cfg.point_decrement_retry_wait_ms) or 250)
-    local verify_retry_count = math.max(1, math.floor(tonumber(step.point_decrement_verify_retry_count) or tonumber(cfg.point_decrement_verify_retry_count) or 8))
-    local verify_wait_ms = math.max(100, tonumber(step.point_decrement_verify_wait_ms) or tonumber(cfg.point_decrement_verify_wait_ms) or 220)
+    local retry_count = math.max(
+        1,
+        math.floor(math.max(
+            tonumber(step.point_decrement_retry_count) or 0,
+            tonumber(cfg.point_decrement_retry_count) or 10
+        ))
+    )
+    local retry_wait_ms = M.level_up_maintenance_retry_wait_ms(cfg, step, "point_decrement_retry_wait_ms", 250)
+    local verify_retry_count = math.max(
+        1,
+        math.floor(math.max(
+            tonumber(step.point_decrement_verify_retry_count) or 0,
+            tonumber(cfg.point_decrement_verify_retry_count) or 8
+        ))
+    )
+    local verify_wait_ms = M.level_up_maintenance_retry_wait_ms(cfg, step, "point_decrement_verify_wait_ms", 220)
 
     if state.level_up_maintenance_point_decrement_verify_pending == true then
         local before_points = tonumber(state.level_up_maintenance_point_decrement_before)
@@ -4602,7 +4704,7 @@ function M.progress_level_up_maintenance_point_decrement_step(ctx, current_time,
         return M.finish_level_up_maintenance_executor(ctx, current_time)
     end
 
-    local target, fetch_err = fetch_locator_button_target(ctx, step)
+    local target, fetch_err = M.fetch_level_up_maintenance_step_target(ctx, step, cfg)
     if not target then
         local attempts = tonumber(state.level_up_maintenance_point_decrement_attempts) or 0
         if attempts < retry_count then
@@ -4670,6 +4772,8 @@ end
 function M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_executor_active = false
     state.level_up_maintenance_executor_started_at = nil
+    state.level_up_maintenance_executor_paused_by_death_at = nil
+    state.level_up_maintenance_executor_resume_after_revive = nil
     state.level_up_maintenance_treasure_start_executor_active = nil
     state.level_up_maintenance_executor_kind = nil
     state.level_up_maintenance_executor_level = nil
@@ -4683,6 +4787,57 @@ function M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_executor_close_attempts = nil
     state.level_up_maintenance_executor_point_check_miss_count = nil
     M.clear_level_up_maintenance_point_decrement_state()
+end
+
+function M.level_up_maintenance_persisted_max_completed_level()
+    if type(M.ensure_level_up_maintenance_state) ~= "function"
+        or type(M.max_completed_plan_level) ~= "function"
+    then
+        return nil
+    end
+    local ok, persisted = pcall(M.ensure_level_up_maintenance_state)
+    if not ok or type(persisted) ~= "table" then
+        return nil
+    end
+    return M.max_completed_plan_level(persisted)
+end
+
+function M.reset_level_up_maintenance_runtime_boundary(ctx, current_time, reason, observed_level, progress, text)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local normalized_reason = tostring(reason or "")
+    M.clear_level_up_maintenance_executor_state()
+    state.level_up_maintenance_pending_levels = nil
+    M.level_up_maintenance_clear_pending_kinds()
+    state.level_up_maintenance_pending_since = 0
+    state.level_up_maintenance_safe_since = 0
+    state.level_up_maintenance_next_retry_at = 0
+    state.level_up_maintenance_last_block_reason = nil
+    state.level_up_maintenance_nearby_block_since = nil
+    state.level_up_maintenance_default_skill_min_pending_level = nil
+    state.level_up_maintenance_completed_plans = nil
+    state.level_up_maintenance_last_level = math.floor(tonumber(observed_level) or 0)
+    state.level_up_maintenance_last_progress = progress
+    state.level_up_maintenance_last_level_text = text
+    state.level_up_maintenance_boundary_reset_at = current_time
+    state.level_up_maintenance_boundary_reset_reason = normalized_reason
+    if normalized_reason == "level_below_persisted_completed"
+        or normalized_reason == "identity_level_drop"
+        or normalized_reason == "observed_level_decreased"
+    then
+        state.level_up_maintenance_ignore_persisted_completed_after_level_reset = true
+        state.level_up_maintenance_ignore_persisted_completed_reason = normalized_reason
+        state.level_up_maintenance_level_reset_persisted_max_level =
+            M.level_up_maintenance_persisted_max_completed_level()
+    end
+    logger(ctx).info(string.format(
+        "[Leveling] level-up maintenance runtime reset at character boundary | reason=%s level=%s progress=%s text=%s character_id=%s",
+        tostring(reason or ""),
+        tostring(observed_level or ""),
+        progress ~= nil and tostring(progress) or "",
+        tostring(text or ""),
+        tostring(type(M.current_persistence_character_id) == "function" and M.current_persistence_character_id() or "")
+    ))
+    return true
 end
 
 function M.try_click_level_up_maintenance_back_button(ctx, reason)
@@ -4993,7 +5148,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         state.level_up_maintenance_executor_step_index = index + 1
         local cfg = M.level_up_maintenance_config()
         state.level_up_maintenance_executor_next_step_at = current_time
-            + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+            + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
         return true
     end
 
@@ -5005,11 +5160,17 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         local min_value = math.max(1, tonumber(step.min_value) or tonumber(probe.min_value) or 1)
         if type(points) ~= "number" then
             local attempts = tonumber(state.level_up_maintenance_executor_point_check_miss_count) or 0
-            local retry_count = math.max(0, tonumber(step.retry_count) or 3)
+            local retry_count = math.max(
+                0,
+                math.floor(math.max(
+                    tonumber(step.retry_count) or 0,
+                    tonumber(cfg.point_check_retry_count) or 3
+                ))
+            )
             if attempts < retry_count then
                 state.level_up_maintenance_executor_point_check_miss_count = attempts + 1
                 state.level_up_maintenance_executor_next_step_at = current_time
-                    + math.max(100, tonumber(step.retry_wait_ms) or 500)
+                    + M.level_up_maintenance_retry_wait_ms(cfg, step, "point_check_retry_wait_ms", tonumber(step.retry_wait_ms) or 500)
                 logger(ctx).info(string.format(
                     "[Leveling] level-up maintenance point check retry | kind=%s level=%s plan=%s step=%d/%d key=%s attempts=%d/%d err=%s",
                     point_kind,
@@ -5067,7 +5228,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         ))
         state.level_up_maintenance_executor_step_index = index + 1
         state.level_up_maintenance_executor_next_step_at = current_time
-            + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+            + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
         return true
     end
 
@@ -5162,7 +5323,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
                         state.level_up_maintenance_executor_step_index = index + 1
                         local cfg = M.level_up_maintenance_config()
                         state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
-                            + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+                            + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
                         return true
                     end
                     if clicked_count > 0 then
@@ -5180,7 +5341,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
                         state.level_up_maintenance_executor_step_index = index + 1
                         local cfg = M.level_up_maintenance_config()
                         state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
-                            + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+                            + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
                         return true
                     end
                     return M.fail_level_up_maintenance_executor(
@@ -5235,7 +5396,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         state.level_up_maintenance_executor_step_index = index + 1
         local cfg = M.level_up_maintenance_config()
         state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
-            + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+            + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
         return true
     end
 
@@ -5243,7 +5404,8 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         return M.progress_level_up_maintenance_point_decrement_step(ctx, current_time, steps, index, step)
     end
 
-    local target, fetch_err = fetch_locator_button_target(ctx, step)
+    local cfg = M.level_up_maintenance_config()
+    local target, fetch_err = M.fetch_level_up_maintenance_step_target(ctx, step, cfg)
     if not target then
         if type(step) == "table"
             and type(step.image_preset) == "table"
@@ -5281,7 +5443,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
             state.level_up_maintenance_executor_step_index = index + 1
             local cfg = M.level_up_maintenance_config()
             state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
-                + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+                + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
             return true
         end
         if type(step) == "table" and step.missing_target_means_plan_done == true then
@@ -5311,7 +5473,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
             state.level_up_maintenance_executor_step_index = index + 1
             local cfg = M.level_up_maintenance_config()
             state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
-                + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+                + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
             return true
         end
         return M.fail_level_up_maintenance_executor(ctx, current_time, "fetch failed: " .. tostring(fetch_err or ""))
@@ -5368,9 +5530,8 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         ))
     end
     state.level_up_maintenance_executor_step_index = index + 1
-    local cfg = M.level_up_maintenance_config()
     state.level_up_maintenance_executor_next_step_at = current_time
-        + math.max(100, tonumber(step.wait_after_ms) or tonumber(cfg.step_wait_ms) or 650)
+        + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
     return true
 end
 
@@ -5385,12 +5546,93 @@ function M.record_level_up_maintenance_observation(ctx, current_time, level, pro
     end
 
     current_time = tonumber(current_time) or now_ms(ctx)
+    local cfg = M.level_up_maintenance_config()
+    local character_id = nil
+    if type(M.refresh_persistence_character_identity) == "function" then
+        character_id = M.refresh_persistence_character_identity(ctx, true)
+    elseif type(M.current_persistence_character_id) == "function" then
+        character_id = M.current_persistence_character_id()
+    end
+    if type(character_id) ~= "string" or character_id == "" then
+        character_id = nil
+    end
+    local previous_character_id = tostring(state.level_up_maintenance_observed_character_id or "")
+    if character_id ~= nil then
+        if previous_character_id ~= ""
+            and previous_character_id ~= character_id
+            and cfg.suppress_baseline_on_identity_change ~= false
+        then
+            state.level_up_maintenance_observed_character_id = character_id
+            M.reset_level_up_maintenance_runtime_boundary(
+                ctx,
+                current_time,
+                "character_identity_changed",
+                observed_level,
+                progress,
+                text
+            )
+            return false
+        end
+        state.level_up_maintenance_observed_character_id = character_id
+    end
+
     local previous_level = tonumber(state.level_up_maintenance_last_level)
     if previous_level == nil or previous_level <= 0 then
         state.level_up_maintenance_last_level = observed_level
         state.level_up_maintenance_last_progress = progress
         state.level_up_maintenance_last_level_text = text
-        local cfg = M.level_up_maintenance_config()
+        local low_new_max_level = math.max(
+            1,
+            math.floor(tonumber(cfg.new_character_baseline_suppress_max_level) or 3)
+        )
+        local suppress_reason = nil
+        local prepared_id = tostring(state.persistence_character_cache_prepared_id or "")
+        local prepared_level = tonumber(state.persistence_character_cache_prepared_level)
+        if cfg.suppress_baseline_on_low_new_character ~= false
+            and observed_level <= low_new_max_level
+            and character_id ~= nil
+            and prepared_id == character_id
+            and state.persistence_character_cache_prepared_known ~= true
+            and (prepared_level == nil or prepared_level == observed_level)
+        then
+            suppress_reason = "new_low_level_character"
+        end
+        local identity_drop_current = tonumber(state.persistence_character_identity_level_drop_current)
+        if suppress_reason == nil
+            and cfg.suppress_baseline_on_level_drop ~= false
+            and identity_drop_current ~= nil
+            and identity_drop_current == observed_level
+        then
+            suppress_reason = "identity_level_drop"
+        end
+        local persisted_max_level = nil
+        if suppress_reason == nil and cfg.suppress_baseline_when_level_below_persisted ~= false then
+            persisted_max_level = M.level_up_maintenance_persisted_max_completed_level()
+            if persisted_max_level ~= nil
+                and persisted_max_level > observed_level
+                and observed_level <= low_new_max_level
+            then
+                suppress_reason = "level_below_persisted_completed"
+            end
+        end
+        if suppress_reason ~= nil then
+            M.reset_level_up_maintenance_runtime_boundary(
+                ctx,
+                current_time,
+                suppress_reason,
+                observed_level,
+                progress,
+                text
+            )
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance baseline suppressed | reason=%s level=%d persisted_max=%s known=%s",
+                tostring(suppress_reason),
+                observed_level,
+                tostring(persisted_max_level or ""),
+                tostring(state.persistence_character_cache_prepared_known == true)
+            ))
+            return false
+        end
         if cfg.run_current_level_plan_on_baseline == true then
             local pending_levels, has_skill, has_talent, pending_count, has_contract, kind_flags =
                 M.level_up_maintenance_collect_baseline_pending_levels(cfg, observed_level)
@@ -5423,12 +5665,27 @@ function M.record_level_up_maintenance_observation(ctx, current_time, level, pro
     state.level_up_maintenance_last_progress = progress
     state.level_up_maintenance_last_level_text = text
 
-    if observed_level <= previous_level then
+    if observed_level < previous_level then
+        if cfg.suppress_baseline_on_level_drop ~= false then
+            M.reset_level_up_maintenance_runtime_boundary(
+                ctx,
+                current_time,
+                "observed_level_decreased",
+                observed_level,
+                progress,
+                text
+            )
+        else
+            state.level_up_maintenance_last_level = observed_level
+        end
+        return false
+    end
+
+    if observed_level == previous_level then
         state.level_up_maintenance_last_level = observed_level
         return false
     end
 
-    local cfg = M.level_up_maintenance_config()
     local pending_levels = type(state.level_up_maintenance_pending_levels) == "table"
         and state.level_up_maintenance_pending_levels
         or {}
@@ -5528,10 +5785,116 @@ function M.clear_level_up_maintenance_soft_monster_observe()
     state.level_up_maintenance_soft_monster_distance = nil
 end
 
+function M.level_up_maintenance_flow_block_reason(current_time)
+    current_time = tonumber(current_time) or now_ms()
+
+    if (tonumber(state.startup_state_resolve_until) or 0) > current_time
+        and not (
+            type(M.has_active_treasure_runtime) == "function"
+            and M.has_active_treasure_runtime()
+        )
+    then
+        return "startup_task_reacquire"
+    end
+
+    if state.require_task_button_refresh == true then
+        return "task_button_refresh"
+    end
+    if current_time < (tonumber(state.task_update_wait_until) or 0) then
+        return "task_update_wait"
+    end
+    if state.task_info_stability_gate_active == true then
+        return "task_info_stability_gate"
+    end
+    if state.loading_transition_reacquire_pending == true then
+        return "loading_transition_reacquire"
+    end
+    if type(M.is_task_entry_action_active) == "function" and M.is_task_entry_action_active(current_time) then
+        return "task_entry_action"
+    end
+    if M.is_task_combat_or_post_loot_active() then
+        return "task_combat_or_post_loot"
+    end
+    if type(state.task_target) == "table" then
+        return "task_navigation_active"
+    end
+    if state.pending_interaction_origin ~= nil then
+        return "pending_interaction"
+    end
+    if state.route_point_action_dialogue_active_key ~= nil
+        or state.route_point_action_objective_active_key ~= nil
+        or state.route_point_action_route_active_key ~= nil
+    then
+        return "route_point_action_active"
+    end
+    if state.task_recipe_active_key ~= nil then
+        return "task_recipe_active"
+    end
+
+    local stage_name = tostring(state.stage or "")
+    if stage_name == "wait_task_path_after_button"
+        or stage_name == "wait_task_path_early_reclick"
+        or stage_name == "refresh_task_button_after_dialogue"
+        or stage_name == "wait_task_update"
+        or stage_name == "startup_task_reacquire"
+    then
+        return stage_name
+    end
+
+    local last_task_click_at = tonumber(state.last_task_button_click_at) or 0
+    if last_task_click_at > 0 and type(state.task_target) ~= "table" then
+        local settle_ms = tonumber(TASK_BUTTON_SETTLE_MS) or 0
+        local path_wait_until = math.max(
+            last_task_click_at + settle_ms,
+            tonumber(state.task_path_wait_until) or 0
+        )
+        if current_time < path_wait_until then
+            return "wait_task_path_after_button"
+        end
+    end
+
+    return nil
+end
+
+function M.level_up_maintenance_preemptible_flow_block(reason)
+    reason = tostring(reason or "")
+    return reason == "task_navigation_active"
+        or reason == "wait_task_path_after_button"
+        or reason == "wait_task_path_early_reclick"
+        or reason == "refresh_task_button_after_dialogue"
+        or reason == "task_button_refresh"
+end
+
+function M.prepare_level_up_maintenance_preempt_flow(ctx, current_time, reason)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    reason = tostring(reason or "")
+    if type(state.task_target) == "table" then
+        clear_task_target_state()
+        logger(ctx).info(string.format(
+            "[Leveling] level-up maintenance preempts active navigation | reason=%s %s",
+            reason,
+            M.level_up_maintenance_pending_summary()
+        ))
+    end
+    state.last_task_button_click_at = 0
+    state.task_path_wait_until = 0
+    state.task_path_early_retry_at = 0
+    state.task_path_early_retry_count = 0
+    state.next_task_button_click_at = math.min(tonumber(state.next_task_button_click_at) or current_time, current_time)
+    release_async_combat_inputs(ctx, current_time, true)
+    hold_navigation(ctx, current_time, "level_up_maintenance_preempt:" .. reason)
+    log_throttled(ctx, "level_up_maintenance_preempt_" .. reason, "info", LOG_THROTTLE_MS, string.format(
+        "[Leveling] level-up maintenance takes priority over main-flow wait | reason=%s %s",
+        reason,
+        M.level_up_maintenance_pending_summary()
+    ))
+end
+
 function M.level_up_maintenance_safe_window(ctx, current_time, player_x, player_y, hp_ratio, in_main_interface, plan_info)
     current_time = tonumber(current_time) or now_ms(ctx)
     local cfg = M.level_up_maintenance_config()
     local plan = type(plan_info) == "table" and type(plan_info.plan) == "table" and plan_info.plan or {}
+    local skip_safe_window = cfg.skip_safe_window == true and plan.skip_safe_window ~= false
     local function block(reason)
         state.level_up_maintenance_safe_since = 0
         M.clear_level_up_maintenance_soft_monster_observe()
@@ -5545,7 +5908,7 @@ function M.level_up_maintenance_safe_window(ctx, current_time, player_x, player_
         end
     end
     local low_hp_passthrough = false
-    if type(hp_ratio) == "number" and hp_ratio < (tonumber(cfg.min_hp_ratio) or 0.72) then
+    if not skip_safe_window and type(hp_ratio) == "number" and hp_ratio < (tonumber(cfg.min_hp_ratio) or 0.72) then
         if cfg.allow_low_hp_maintenance ~= true then
             return block(string.format("low_hp:%.2f", hp_ratio))
         end
@@ -5555,6 +5918,14 @@ function M.level_up_maintenance_safe_window(ctx, current_time, player_x, player_
             hp_ratio,
             M.level_up_maintenance_pending_summary()
         ))
+    end
+    local flow_block_reason = M.level_up_maintenance_flow_block_reason(current_time)
+    if flow_block_reason ~= nil then
+        if skip_safe_window and M.level_up_maintenance_preemptible_flow_block(flow_block_reason) then
+            M.prepare_level_up_maintenance_preempt_flow(ctx, current_time, flow_block_reason)
+        else
+            return block(flow_block_reason)
+        end
     end
     if state.task_info_stability_gate_active == true then
         return block("task_info_stability_gate")
@@ -5591,6 +5962,11 @@ function M.level_up_maintenance_safe_window(ctx, current_time, player_x, player_
         if dialogue_reason ~= nil then
             return block(tostring(dialogue_reason))
         end
+    end
+    if skip_safe_window then
+        state.level_up_maintenance_safe_since = current_time
+        M.clear_level_up_maintenance_soft_monster_observe()
+        return true, "ready_skip_safe_window"
     end
 
     local monster_guard_enabled = cfg.monster_guard_enabled ~= false
@@ -5706,7 +6082,7 @@ function M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player
         if tostring(reason or "") ~= tostring(state.level_up_maintenance_last_block_reason or "") then
             state.level_up_maintenance_last_block_reason = tostring(reason or "")
             log_throttled(ctx, "level_up_maintenance_wait_" .. tostring(reason or ""), "info", LOG_THROTTLE_MS, string.format(
-                "[Leveling] level-up maintenance pending, waiting safe window | reason=%s %s",
+                "[Leveling] level-up maintenance pending, waiting flow/safe window | reason=%s %s",
                 tostring(reason or ""),
                 M.level_up_maintenance_pending_summary()
             ))
@@ -9513,13 +9889,25 @@ local function enter_revive_state(ctx, current_time, hp)
         return
     end
 
-    if state.level_up_maintenance_executor_active == true
-        and type(M.clear_level_up_maintenance_executor_state) == "function"
-    then
-        M.clear_level_up_maintenance_executor_state()
+    if state.level_up_maintenance_executor_active == true then
         local cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
-        state.level_up_maintenance_next_retry_at = current_time + math.max(1000, tonumber(cfg.retry_ms) or 5000)
-        logger(ctx).info("[Leveling] level-up maintenance executor cleared by death; pending preserved for retry.")
+        if type(cfg) == "table" and cfg.preserve_executor_on_death ~= false then
+            state.level_up_maintenance_executor_paused_by_death_at = current_time
+            state.level_up_maintenance_executor_resume_after_revive = true
+            state.level_up_maintenance_executor_next_step_at = current_time
+            state.level_up_maintenance_next_retry_at = current_time
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance executor paused by death; will resume after revive | kind=%s level=%s plan=%s step=%s",
+                tostring(state.level_up_maintenance_executor_kind or ""),
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                tostring(state.level_up_maintenance_executor_step_index or "")
+            ))
+        elseif type(M.clear_level_up_maintenance_executor_state) == "function" then
+            M.clear_level_up_maintenance_executor_state()
+            state.level_up_maintenance_next_retry_at = current_time + math.max(1000, tonumber(cfg.retry_ms) or 5000)
+            logger(ctx).info("[Leveling] level-up maintenance executor cleared by death; pending preserved for retry.")
+        end
     end
 
     state.revive_started_at = current_time
@@ -9554,6 +9942,8 @@ local function enter_revive_state(ctx, current_time, hp)
 end
 
 local function resume_after_revive(ctx, current_time, hp, player_x, player_y, player_z)
+    local resume_level_up_maintenance = state.level_up_maintenance_executor_active == true
+        and state.level_up_maintenance_executor_resume_after_revive == true
     reset_revive_state()
     clear_task_target_state()
     clear_runtime_objective_caches()
@@ -9568,6 +9958,36 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
     state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, current_time + POST_UI_PAUSE_MS)
     state.post_revive_boss_engage_until = 0
     state.startup_state_resolve_until = 0
+    if resume_level_up_maintenance then
+        local cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
+        state.level_up_maintenance_executor_resume_after_revive = nil
+        state.level_up_maintenance_executor_paused_by_death_at = nil
+        state.level_up_maintenance_executor_next_step_at = current_time
+        state.level_up_maintenance_next_retry_at = current_time
+        state.level_up_maintenance_safe_since = 0
+        state.level_up_maintenance_last_block_reason = nil
+        state.level_up_maintenance_nearby_block_since = nil
+        if type(cfg) ~= "table" or cfg.restart_executor_step_after_revive ~= false then
+            state.level_up_maintenance_executor_step_index = 1
+            state.level_up_maintenance_executor_close_pending = false
+            state.level_up_maintenance_executor_close_attempts = 0
+            state.level_up_maintenance_executor_point_check_miss_count = 0
+            if type(M.clear_level_up_maintenance_point_decrement_state) == "function" then
+                M.clear_level_up_maintenance_point_decrement_state()
+            end
+        end
+        logger(ctx).info(string.format(
+            "[Leveling] revive completed; resume level-up maintenance executor | kind=%s level=%s plan=%s restart_step=%s pos=%.2f, %.2f, %.2f",
+            tostring(state.level_up_maintenance_executor_kind or ""),
+            tostring(state.level_up_maintenance_executor_level or ""),
+            tostring(state.level_up_maintenance_executor_plan_label or ""),
+            (type(cfg) ~= "table" or cfg.restart_executor_step_after_revive ~= false) and "true" or "false",
+            tonumber(player_x) or 0,
+            tonumber(player_y) or 0,
+            tonumber(player_z) or 0
+        ))
+        return
+    end
     local map_cfg, map_name = current_map_task_config()
     local task_cfg, task_name = M.current_task_runtime_config()
     local objective_cfg = type(task_cfg) == "table" and type(task_cfg.objective) == "table" and task_cfg.objective or nil
@@ -9781,7 +10201,9 @@ function M.should_defer_revive_for_level_up_maintenance(current_time, in_main_in
     end
 
     local cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
-    if type(cfg) == "table" and cfg.defer_revive_during_maintenance == false then
+    if type(cfg) == "table"
+        and (cfg.defer_revive_during_maintenance == false or cfg.preserve_executor_on_death ~= false)
+    then
         return false, nil
     end
 
@@ -12179,7 +12601,10 @@ end
             visible_fast_entrance_buttons = 0,
             skip_buttons = 0,
             skip_visible = 0,
-            skip_name = ""
+            skip_name = "",
+            skip_addr = nil,
+            skip_x = nil,
+            skip_y = nil
         }
         if type(snapshot) ~= "table" or type(snapshot.buttons) ~= "table" then
             return result
@@ -12225,6 +12650,11 @@ end
                 if has_visible_pos then
                     result.skip_visible = result.skip_visible + 1
                 end
+                if result.skip_addr == nil then
+                    result.skip_addr = item and item.addr or nil
+                    result.skip_x = x
+                    result.skip_y = y
+                end
                 if result.skip_name == "" then
                     result.skip_name = trim(item and (item.Fullname or item.fullname) or "") ~= ""
                         and tostring(item.Fullname or item.fullname)
@@ -12254,17 +12684,17 @@ end
                 or zero_ratio >= 0.50
             )
         if animation_like then
-            local suppress_escape, suppress_detail = false, ""
+            local suppress_skip, suppress_detail = false, ""
             if type(M.is_task_button_ready_for_escape_guard) == "function" then
-                suppress_escape, suppress_detail = M.is_task_button_ready_for_escape_guard(
+                suppress_skip, suppress_detail = M.is_task_button_ready_for_escape_guard(
                     ctx,
                     ui_snapshot,
                     "skip level sequence"
                 )
             end
-            if suppress_escape then
-                log_throttled(ctx, "skip_level_sequence_escape_suppressed_task_ready", "info", 800, string.format(
-                    "[Leveling] level sequence skip ESC suppressed because task button is callable; continue main task call | skip_buttons=%d visible=%d zero=%d total=%d zero_ratio=%.2f task_zero=%d/%d detail=%s",
+            if suppress_skip then
+                log_throttled(ctx, "skip_level_sequence_click_suppressed_task_ready", "info", 800, string.format(
+                    "[Leveling] level sequence skip click suppressed because task button is callable; continue main task call | skip_buttons=%d visible=%d zero=%d total=%d zero_ratio=%.2f task_zero=%d/%d detail=%s",
                     ui_state.skip_buttons,
                     ui_state.visible_buttons,
                     ui_state.zero_buttons,
@@ -12285,25 +12715,16 @@ end
             local esc_due = tonumber(state.skip_level_sequence_next_escape_at) or 0
             if current_time >= esc_due then
                 state.skip_level_sequence_next_escape_at = current_time + math.max(1200, retry_ms)
-                local click_ok, click_err = false, nil
-                if type(M.click_current_mouse_position) == "function" then
-                    click_ok, click_err = M.click_current_mouse_position(ctx, current_time, "skip level sequence pre-esc click", {
-                        click_button = "left",
-                        click_delay_ms = 50
-                    })
+                local skip_addr = tonumber(ui_state.skip_addr)
+                local ok, err = false, nil
+                if skip_addr ~= nil and skip_addr ~= 0 and type(nav_mod.control_click) == "function" then
+                    ok, err = nav_mod.control_click(skip_addr)
                 else
-                    click_err = "click_current_mouse_position unavailable"
-                end
-                local ok, err = true, nil
-                if type(press_keyboard_hotkey) == "function" then
-                    ok, err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "skip level sequence")
-                else
-                    ok, err = false, "press_keyboard_hotkey unavailable"
+                    err = "skip button address unavailable"
                 end
                 local log_fn = ok and logger(ctx).info or logger(ctx).warn
                 log_fn(string.format(
-                    "[Leveling] level sequence skip detected; pre_click=%s ESC %s | skip_buttons=%d visible=%d zero=%d total=%d zero_ratio=%.2f task_zero=%d/%d fight_zero=%d/%d name=%s click_err=%s err=%s",
-                    click_ok and "sent" or "failed",
+                    "[Leveling] level sequence skip detected; control_click %s | skip_buttons=%d visible=%d zero=%d total=%d zero_ratio=%.2f task_zero=%d/%d fight_zero=%d/%d name=%s addr=%s pos=(%s,%s) err=%s",
                     ok and "sent" or "failed",
                     ui_state.skip_buttons,
                     ui_state.visible_buttons,
@@ -12315,7 +12736,9 @@ end
                     ui_state.zero_fight_interactive_buttons,
                     ui_state.fight_interactive_buttons,
                     tostring(ui_state.skip_name or ""),
-                    tostring(click_err or ""),
+                    tostring(ui_state.skip_addr or ""),
+                    tostring(ui_state.skip_x or ""),
+                    tostring(ui_state.skip_y or ""),
                     tostring(err or "")
                 ))
             else

@@ -6162,33 +6162,7 @@ function M.level_up_maintenance_should_preempt_after_loot()
     if state.level_up_maintenance_executor_active == true then
         return true
     end
-    if M.after_loot_maintenance_has_priority_over_level_up() then
-        return false
-    end
-    if type(M.level_up_maintenance_has_pending) ~= "function"
-        or not M.level_up_maintenance_has_pending()
-    then
-        return false
-    end
-    if type(M.level_up_maintenance_config) ~= "function"
-        or type(M.level_up_maintenance_find_next_plan) ~= "function"
-    then
-        return false
-    end
-
-    local cfg = M.level_up_maintenance_config()
-    local next_plan_info = M.level_up_maintenance_find_next_plan(cfg)
-    if type(next_plan_info) ~= "table" then
-        return false
-    end
-
-    local plan = type(next_plan_info.plan) == "table" and next_plan_info.plan or {}
-    local default_skill_nonblocking = tostring(next_plan_info.kind or "") == "skill"
-        and plan.default_skill_plan == true
-        and type(cfg) == "table"
-        and cfg.default_skill_block_main_flow == false
-        and state.level_up_maintenance_force_block_default_skill ~= true
-    return not default_skill_nonblocking
+    return false
 end
 
 function M.after_loot_maintenance_blocks_main_flow()
@@ -6699,6 +6673,27 @@ function M.update(now, ctx)
         return true
     end
 
+    if M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    if M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    if state.level_up_maintenance_executor_active == true or M.level_up_maintenance_has_pending() then
+        if not M.ensure_bag_closed_for_flow(ctx, current_time, "level_up_maintenance_priority") then
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
+        end
+        if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
+        end
+    end
+
     if state.require_task_button_refresh == true then
         state.stage = "refresh_task_button_after_dialogue"
         M.log_execution_trace(ctx, current_time, "require_task_button_refresh", nil, nil, nil, nil, player_x, player_y, player_z)
@@ -6717,16 +6712,6 @@ function M.update(now, ctx)
         else
             M.issue_task_refresh_wait_combat_pulse(ctx, current_time, "refresh_task_button_after_dialogue_cooldown")
         end
-        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-        return true
-    end
-
-    if M.maybe_handle_recycle_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
-        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-        return true
-    end
-
-    if M.maybe_handle_auto_equip_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end

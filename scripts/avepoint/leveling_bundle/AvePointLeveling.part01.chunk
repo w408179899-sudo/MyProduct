@@ -103,6 +103,8 @@ M.BUTTON_CALL_HOVER_CAPTURE_DISABLED = true
 local UPDATE_INTERVAL_MS = 100
 local HEARTBEAT_INTERVAL_MS = 3000
 local ACTION_INTERVAL_MS = 255
+M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS = 270
+M.COMBAT_ALTERNATE_RESET_MS = 10000
 local MOVE_INTERVAL_MS = 900
 local TASK_REFRESH_INTERVAL_MS = 1200
 local TASK_PATH_FETCH_POLL_INTERVAL_MS = 300
@@ -1600,6 +1602,8 @@ local function reset_state()
     state.combat_key_release_at = 0
     state.combat_mouse_down = false
     state.combat_mouse_release_at = 0
+    state.combat_alternate_next_action = "right"
+    state.combat_alternate_last_action_at = 0
     state.cached_nearest_npc = nil
     state.cached_npc_error = nil
     state.cached_task_monsters = nil
@@ -1846,6 +1850,12 @@ local function reset_state()
     state.level_up_maintenance_last_level = nil
     state.level_up_maintenance_last_level_text = nil
     state.level_up_maintenance_last_progress = nil
+    state.level_up_maintenance_observed_character_id = nil
+    state.level_up_maintenance_boundary_reset_at = nil
+    state.level_up_maintenance_boundary_reset_reason = nil
+    state.level_up_maintenance_ignore_persisted_completed_after_level_reset = nil
+    state.level_up_maintenance_ignore_persisted_completed_reason = nil
+    state.level_up_maintenance_level_reset_persisted_max_level = nil
     state.level_up_maintenance_pending_skill = false
     state.level_up_maintenance_pending_talent = false
     state.level_up_maintenance_pending_contract = false
@@ -1875,6 +1885,20 @@ local function reset_state()
     state.level_up_maintenance_point_decrement_verify_pending = nil
     state.level_up_maintenance_point_decrement_verify_attempts = nil
     state.level_up_maintenance_point_decrement_before = nil
+    state.persistence_character_identity_changed_at = nil
+    state.persistence_character_identity_changed_id = nil
+    state.persistence_character_identity_changed_previous_id = nil
+    state.persistence_character_identity_changed_level = nil
+    state.persistence_character_identity_level_drop_at = nil
+    state.persistence_character_identity_level_drop_id = nil
+    state.persistence_character_identity_level_drop_previous = nil
+    state.persistence_character_identity_level_drop_current = nil
+    state.persistence_character_cache_prepared_id = nil
+    state.persistence_character_cache_prepared_label = nil
+    state.persistence_character_cache_prepared_level = nil
+    state.persistence_character_cache_prepared_known = nil
+    state.persistence_character_cache_prepared_hygiene_version = nil
+    state.persistence_character_cache_prepared_at = nil
     state.auto_equip_next_scan_at = 0
     state.auto_equip_safe_since = 0
     state.auto_equip_last_block_reason = nil
@@ -3063,13 +3087,19 @@ function M.refresh_persistence_character_identity(ctx, force)
     local id, label, level, text = M.extract_persistence_identity_from_snapshot(snapshot)
     if id ~= nil and id ~= "" then
         local previous_id = M._persistence_character_id
+        local previous_level = tonumber(M._persistence_character_level)
+        local resolved_level = tonumber(level)
         M._persistence_character_id = tostring(id)
         M._persistence_character_label = tostring(label or "")
-        M._persistence_character_level = tonumber(level)
+        M._persistence_character_level = resolved_level
         M._persistence_character_text = tostring(text or "")
         _G.AVEPOINT_PERSISTENCE_CHARACTER_ID = M._persistence_character_id
         _G.AVEPOINT_PERSISTENCE_CHARACTER_LABEL = M._persistence_character_label
         if previous_id ~= M._persistence_character_id then
+            state.persistence_character_identity_changed_at = now_ms(ctx)
+            state.persistence_character_identity_changed_id = M._persistence_character_id
+            state.persistence_character_identity_changed_previous_id = previous_id
+            state.persistence_character_identity_changed_level = resolved_level
             logger(ctx).info(string.format(
                 "[Leveling] character persistence identity resolved | id=%s label=%s level=%s text=%s",
                 tostring(M._persistence_character_id or ""),
@@ -3085,6 +3115,22 @@ function M.refresh_persistence_character_identity(ctx, force)
                     M._persistence_character_level
                 )
             end
+        elseif previous_level ~= nil
+            and resolved_level ~= nil
+            and resolved_level > 0
+            and resolved_level < previous_level
+        then
+            state.persistence_character_identity_level_drop_at = now_ms(ctx)
+            state.persistence_character_identity_level_drop_id = M._persistence_character_id
+            state.persistence_character_identity_level_drop_previous = previous_level
+            state.persistence_character_identity_level_drop_current = resolved_level
+            logger(ctx).info(string.format(
+                "[Leveling] character persistence level decreased | id=%s previous_level=%s current_level=%s text=%s",
+                tostring(M._persistence_character_id or ""),
+                tostring(previous_level or ""),
+                tostring(resolved_level or ""),
+                tostring(M._persistence_character_text or "")
+            ))
         end
         return M._persistence_character_id, M._persistence_character_label, M._persistence_character_level
     end
@@ -3309,6 +3355,12 @@ function M.clear_caches_for_new_persistence_character(ctx, character_id, label, 
 
     local known_character = M.is_known_persistence_character(character_id)
     local hygiene_version = M.character_cache_hygiene_version(character_id)
+    state.persistence_character_cache_prepared_id = character_id
+    state.persistence_character_cache_prepared_label = tostring(label or "")
+    state.persistence_character_cache_prepared_level = tonumber(level)
+    state.persistence_character_cache_prepared_known = known_character == true
+    state.persistence_character_cache_prepared_hygiene_version = hygiene_version
+    state.persistence_character_cache_prepared_at = now_ms(ctx)
     if known_character and hygiene_version >= M.CHARACTER_CACHE_HYGIENE_VERSION then
         return false, "known character"
     end
@@ -8815,7 +8867,10 @@ local function confirm_dialogue_ui_visible(ctx, current_time)
 
     local function scan(items, kind, patterns)
         for _, item in ipairs(items or {}) do
-            local text = ui_item_text(item)
+            local x = as_number(item and item.x)
+            local y = as_number(item and item.y)
+            local has_visible_pos = x ~= nil and y ~= nil and not (math.abs(x) < 0.01 and math.abs(y) < 0.01)
+            local text = has_visible_pos and ui_item_text(item) or ""
             if text ~= "" then
                 local excluded = false
                 for _, pattern in ipairs(DIALOGUE_UI_EXCLUDE_PATTERNS) do
@@ -9918,46 +9973,13 @@ function M.try_press_right_click_nonintrusive(ctx, label)
         return false, hwnd_err, nil
     end
 
-    local nav_mod = nav_api(ctx)
     local mouse_api = select(2, input_apis(ctx))
-    if type(mouse_api) == "table"
-        and type(mouse_api.post_click) == "function"
-        and type(nav_mod) == "table"
-        and type(nav_mod.cursor_client_pos) == "function"
-    then
-        local cursor, cursor_err = nav_mod.cursor_client_pos()
-        if type(cursor) == "table"
-            and type(cursor.client_x) == "number"
-            and type(cursor.client_y) == "number"
-        then
-            local ok, result = safe_call(
-                mouse_api.post_click,
-                hwnd,
-                math.floor((tonumber(cursor.client_x) or 0) + 0.5),
-                math.floor((tonumber(cursor.client_y) or 0) + 0.5),
-                "right",
-                ACTION_MOUSE_HOLD_MS
-            )
-            if ok and result ~= false then
-                return true, nil, "mouse_post_click"
-            end
-        elseif cursor_err then
-            hwnd_err = cursor_err
-        end
-    end
-
     if type(mouse_api) ~= "table" then
         return false, hwnd_err or "mouse api unavailable.", nil
     end
 
-    local preferred_mode = type(ctx) == "table" and ctx.runtime_mode or "driver"
-    preferred_mode = preferred_mode == "api" and "api" or "driver"
     if type(mouse_api.set_mode) == "function" then
-        local fallback_mode = preferred_mode == "api" and "driver" or "api"
-        local ok, result = safe_call(mouse_api.set_mode, preferred_mode)
-        if not ok or result == false then
-            safe_call(mouse_api.set_mode, fallback_mode)
-        end
+        safe_call(mouse_api.set_mode, "driver")
     end
     if type(mouse_api.set_window) == "function" then
         safe_call(mouse_api.set_window, hwnd)
@@ -9965,11 +9987,11 @@ function M.try_press_right_click_nonintrusive(ctx, label)
     if type(mouse_api.click) == "function" then
         local ok, result = safe_call(mouse_api.click, "right", ACTION_MOUSE_HOLD_MS)
         if ok and result ~= false then
-            return true, nil, "mouse_click"
+            return true, nil, "mouse_click_driver"
         end
     end
 
-    return false, hwnd_err or string.format("%s right click failed.", tostring(label or "mouse")), nil
+    return false, hwnd_err or string.format("%s driver right click failed.", tostring(label or "mouse")), nil
 end
 
 release_async_combat_inputs = function(ctx, current_time, force)
@@ -9980,6 +10002,10 @@ release_async_combat_inputs = function(ctx, current_time, force)
     local release_mouse = state.combat_mouse_down == true
         and (force == true or current_time >= (tonumber(state.combat_mouse_release_at) or 0))
     if not release_key and not release_mouse then
+        if force == true then
+            state.combat_alternate_next_action = "right"
+            state.combat_alternate_last_action_at = 0
+        end
         return true
     end
 
@@ -9996,23 +10022,18 @@ release_async_combat_inputs = function(ctx, current_time, force)
                 released = true
             end
         end
-        local post_ok = false
         if not released then
-            post_ok = try_background_key_state(ctx, VK_W, false, "combat release")
-        end
-        if released or post_ok then
-            released = true
-        else
             need_fallback_prepare = true
         end
         if not released and need_fallback_prepare then
-            local prepared, prepare_err = prepare_inputs(ctx, current_time, {
-                need_mouse = release_mouse
-            })
-            if not prepared then
-                log_throttled(ctx, "combat_release_prepare_failed", "warn", LOG_THROTTLE_MS,
-                    "[Leveling] release combat inputs prepare failed: " .. tostring(prepare_err))
-                return false, prepare_err
+            if type(keybd_api) == "table" and type(keybd_api.set_mode) == "function" then
+                safe_call(keybd_api.set_mode, "driver")
+            end
+            if type(keybd_api) == "table" and type(keybd_api.set_window) == "function" then
+                local hwnd = resolve_input_hwnd(ctx)
+                if hwnd then
+                    safe_call(keybd_api.set_window, hwnd)
+                end
             end
 
             if type(keybd_api) == "table" and type(keybd_api.up) == "function" then
@@ -10030,13 +10051,14 @@ release_async_combat_inputs = function(ctx, current_time, force)
     end
 
     if release_mouse then
-        local prepared, prepare_err = prepare_inputs(ctx, current_time, {
-            need_mouse = true
-        })
-        if not prepared then
-            log_throttled(ctx, "combat_release_prepare_failed", "warn", LOG_THROTTLE_MS,
-                "[Leveling] release combat inputs prepare failed: " .. tostring(prepare_err))
-            return false, prepare_err
+        if type(mouse_api) == "table" and type(mouse_api.set_mode) == "function" then
+            safe_call(mouse_api.set_mode, "driver")
+        end
+        if type(mouse_api) == "table" and type(mouse_api.set_window) == "function" then
+            local hwnd = resolve_input_hwnd(ctx)
+            if hwnd then
+                safe_call(mouse_api.set_window, hwnd)
+            end
         end
 
         if type(mouse_api) == "table" and type(mouse_api.up) == "function" then
@@ -10052,6 +10074,10 @@ release_async_combat_inputs = function(ctx, current_time, force)
     if not all_ok then
         log_throttled(ctx, "combat_release_failed", "warn", LOG_THROTTLE_MS,
             "[Leveling] release combat inputs failed.")
+    end
+    if force == true then
+        state.combat_alternate_next_action = "right"
+        state.combat_alternate_last_action_at = 0
     end
     return all_ok
 end
@@ -10529,6 +10555,64 @@ local function should_issue_follow_move_pulse(current_time, goal_distance, is_st
     return true, "follow_move"
 end
 
+function M.press_combat_w_key(ctx)
+    local keybd_api = select(1, input_apis(ctx))
+
+    local key_ok = false
+    local pulse_mode = "driver_click"
+    local post_err = nil
+
+    local driver_api = type(ctx) == "table" and ctx.driver or driver
+    if type(driver_api) == "table" and type(driver_api.keybd_click) == "function" then
+        local ok, result = safe_call(driver_api.keybd_click, VK_W)
+        key_ok = ok and result ~= false
+        if key_ok then
+            pulse_mode = "driver_click"
+        end
+    end
+    if not key_ok and type(keybd_api) == "table" then
+        local current_key_mode = nil
+        if type(keybd_api.get_mode) == "function" then
+            local mode_ok, mode_result = safe_call(keybd_api.get_mode)
+            if mode_ok and type(mode_result) == "string" and mode_result ~= "" then
+                current_key_mode = mode_result
+            end
+        end
+        local key_mode_is_driver = current_key_mode == "driver"
+        if current_key_mode ~= "driver" and type(keybd_api.set_mode) == "function" then
+            local set_ok, set_result = safe_call(keybd_api.set_mode, "driver")
+            if set_ok and set_result ~= false then
+                current_key_mode = "driver"
+                key_mode_is_driver = true
+            end
+        end
+        if key_mode_is_driver and type(keybd_api.click) == "function" then
+            local ok, result = safe_call(keybd_api.click, VK_W)
+            key_ok = ok and result ~= false
+            if key_ok then
+                pulse_mode = "key_click_driver"
+            end
+        else
+            key_ok = false
+        end
+    end
+    if not key_ok and type(driver_api) == "table" and type(driver_api.keybd_down) == "function" then
+        local ok, result = safe_call(driver_api.keybd_down, VK_W)
+        key_ok = ok and result ~= false
+        if key_ok then
+            pulse_mode = "driver_down"
+            state.combat_key_down = true
+            state.combat_key_release_at = now_ms(ctx) + ACTION_KEY_HOLD_MS
+        end
+    end
+
+    if not key_ok then
+        post_err = "combat W driver input failed."
+    end
+
+    return key_ok, pulse_mode, post_err
+end
+
 local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
     local pulse_opts = type(ignore_move_guard) == "table" and ignore_move_guard or {
         ignore_move_guard = ignore_move_guard == true
@@ -10565,91 +10649,49 @@ local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
         return false, "combat cooldown."
     end
 
-    local cooldown_ms = ACTION_INTERVAL_MS
+    local cooldown_ms = tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS) or 270
     state.next_action_at = current_time + cooldown_ms
 
-    local keybd_api = select(1, input_apis(ctx))
-
-    local key_ok = true
-    local pulse_mode = "driver_click"
-    local post_err = nil
-
-    local driver_api = type(ctx) == "table" and ctx.driver or driver
-    if type(driver_api) == "table" and type(driver_api.keybd_click) == "function" then
-        local ok, result = safe_call(driver_api.keybd_click, VK_W)
-        key_ok = ok and result ~= false
-        if key_ok then
-            pulse_mode = "driver_click"
-        end
-    elseif type(keybd_api) == "table" and type(keybd_api.get_mode) == "function" then
-        local current_key_mode = nil
-        local mode_ok, mode_result = safe_call(keybd_api.get_mode)
-        if mode_ok and type(mode_result) == "string" and mode_result ~= "" then
-            current_key_mode = mode_result
-        end
-        if current_key_mode ~= "driver" and type(keybd_api.set_mode) == "function" then
-            local set_ok, set_result = safe_call(keybd_api.set_mode, "driver")
-            if set_ok and set_result ~= false then
-                current_key_mode = "driver"
-            end
-        end
-        if type(keybd_api.click) == "function" then
-            local ok, result = safe_call(keybd_api.click, VK_W)
-            key_ok = ok and result ~= false
-            if key_ok then
-                pulse_mode = current_key_mode == "driver" and "key_click_driver" or "key_click"
-            end
-        else
-            key_ok = false
-        end
-    elseif type(driver_api) == "table" and type(driver_api.keybd_down) == "function" then
-        local ok, result = safe_call(driver_api.keybd_down, VK_W)
-        key_ok = ok and result ~= false
-        if key_ok then
-            pulse_mode = "driver_down"
-            state.combat_key_down = true
-            state.combat_key_release_at = current_time + ACTION_KEY_HOLD_MS
-        end
-    else
-        key_ok = false
+    local last_action_at = tonumber(state.combat_alternate_last_action_at) or 0
+    if last_action_at <= 0 or current_time - last_action_at > (tonumber(M.COMBAT_ALTERNATE_RESET_MS) or 1600) then
+        state.combat_alternate_next_action = "right"
     end
 
-    if not key_ok then
-        local click_ok, click_err = try_background_key_click(ctx, VK_W, "combat pulse")
-        post_err = click_err
-        pulse_mode = "post_click"
-        if click_ok then
-            key_ok = true
-        else
+    local action = tostring(state.combat_alternate_next_action or "")
+    if action ~= "w" and action ~= "right" then
+        action = "right"
+    end
+
+    local ok = false
+    local pulse_mode = ""
+    local post_err = nil
+    local mouse_err = nil
+    if action == "w" then
+        ok, pulse_mode, post_err = M.press_combat_w_key(ctx)
+        if not ok then
             log_throttled(ctx, "combat_pulse_direct_fallback", "info", LOG_THROTTLE_MS, string.format(
-                "[Leveling] combat pulse direct key send failed, background click fallback also failed | reason=%s err=%s",
+                "[Leveling] combat pulse W failed | reason=%s err=%s",
                 tostring(reason or ""),
-                tostring(click_err or "")
+                tostring(post_err or "")
+            ))
+        end
+    else
+        ok, mouse_err, pulse_mode = M.try_press_right_click_nonintrusive(ctx, "combat pulse")
+        if not ok then
+            log_throttled(ctx, "combat_pulse_mouse_failed", "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] combat pulse right click failed | reason=%s err=%s",
+                tostring(reason or ""),
+                tostring(mouse_err or "")
             ))
         end
     end
 
-    local mouse_ok = true
-    local mouse_mode = "mouse_post_click"
-    local mouse_err = nil
-
-    mouse_ok, mouse_err, mouse_mode = M.try_press_right_click_nonintrusive(ctx, "combat pulse")
-    if not mouse_ok then
-        log_throttled(ctx, "combat_pulse_mouse_failed", "info", LOG_THROTTLE_MS, string.format(
-            "[Leveling] combat pulse right click failed | reason=%s err=%s",
-            tostring(reason or ""),
-            tostring(mouse_err or "")
-        ))
-    end
-
-    if not key_ok or not mouse_ok then
+    if not ok then
         log_throttled(ctx, "combat_pulse_failed", "warn", LOG_THROTTLE_MS, string.format(
-            "[Leveling] combat pulse failed | reason=%s key_ok=%s mouse_ok=%s mode=%s mouse_mode=%s post_err=%s mouse_err=%s",
+            "[Leveling] combat pulse failed | reason=%s action=%s mode=%s post_err=%s mouse_err=%s",
             tostring(reason or ""),
-            tostring(key_ok),
-            tostring(mouse_ok),
+            tostring(action),
             tostring(pulse_mode or ""),
-            tostring(mouse_mode or ""),
             tostring(post_err or "")
             ,
             tostring(mouse_err or "")
@@ -10661,13 +10703,17 @@ local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
         state.next_follow_move_pulse_at = current_time + FOLLOW_MOVE_PULSE_INTERVAL_MS
     end
 
-    log_throttled(ctx, "combat_pulse", "info", LOG_THROTTLE_MS, string.format(
-        "[Leveling] combat pulse issued | reason=%s mode=%s mouse_mode=%s hold_ms=%d cooldown_ms=%d",
+    state.combat_alternate_last_action_at = current_time
+    state.combat_alternate_next_action = action == "right" and "w" or "right"
+
+    log_throttled(ctx, "combat_pulse_" .. tostring(action), "info", 1000, string.format(
+        "[Leveling] combat pulse issued | reason=%s action=%s mode=%s hold_ms=%d cooldown_ms=%d next=%s",
         tostring(reason or ""),
+        tostring(action),
         tostring(pulse_mode or ""),
-        tostring(mouse_mode or ""),
         ACTION_KEY_HOLD_MS,
-        cooldown_ms
+        cooldown_ms,
+        tostring(state.combat_alternate_next_action or "")
     ))
     return true
 end
@@ -10697,6 +10743,32 @@ function M.combat_sidecar_action_lock_reason()
         return "interaction_guard:" .. tostring(state.interaction_combat_guard_key or "")
     end
     return nil
+end
+
+function M.is_non_navigation_skill_pulse_stage(stage_name)
+    stage_name = tostring(stage_name or "")
+    if stage_name == ""
+        or stage_name == "idle"
+        or stage_name == "bootstrap"
+        or stage_name == "startup_task_reacquire"
+        or stage_name == "wait_task"
+        or stage_name == "wait_task_update"
+        or stage_name == "wait_task_info_stability_gate"
+        or stage_name == "wait_task_path_after_button"
+        or stage_name == "wait_task_path_early_reclick"
+        or stage_name == "refresh_task_button_after_dialogue"
+        or stage_name == "refresh_task_button_follow"
+        or stage_name == "refresh_task_button_route_deviation"
+        or stage_name == "refresh_task_button_path_loss"
+        or stage_name == "refresh_task_button_follow_idle"
+        or stage_name == "level_up_maintenance_wait_safe"
+        or stage_name == "auto_equip_after_loot_wait"
+        or stage_name == "interaction_combat_guard"
+        or stage_name == "task_spawn_wait"
+    then
+        return true
+    end
+    return false
 end
 
 function M.evaluate_combat_sidecar_intent(ctx, current_time, player_x, player_y, reason, opts)
@@ -10759,6 +10831,38 @@ function M.evaluate_combat_sidecar_intent(ctx, current_time, player_x, player_y,
         intent.gate = "ambient_skipped"
         return intent
     end
+
+    local no_monster_gate = opts.force_without_monster_scan == true
+        or (
+            opts.non_navigation_no_monster_gate ~= false
+            and M.is_non_navigation_skill_pulse_stage(stage_name)
+        )
+    if no_monster_gate then
+        local should_pulse, pulse_reason = should_issue_nearby_monster_pulse(current_time)
+        if not should_pulse then
+            intent.gate = pulse_reason or "pulse_deferred"
+            log_throttled(ctx, "combat_sidecar_non_navigation_deferred_" .. tostring(reason or ""), "info", MONSTER_SCAN_LOG_INTERVAL_MS, string.format(
+                "[Leveling] combat sidecar non-navigation pulse deferred | reason=%s gate=%s stage=%s action_lock=%s",
+                tostring(intent.reason or ""),
+                tostring(intent.gate or ""),
+                tostring(stage_name or ""),
+                tostring(intent.action_lock or "")
+            ))
+            return intent
+        end
+        intent.allowed = true
+        intent.gate = "non_navigation_no_monster_gate"
+        intent.no_monster_gate = true
+        log_throttled(ctx, "combat_sidecar_non_navigation_allowed_" .. tostring(reason or ""), "info", MONSTER_SCAN_LOG_INTERVAL_MS, string.format(
+            "[Leveling] combat sidecar non-navigation pulse allowed | reason=%s stage=%s has_target=%s action_lock=%s",
+            tostring(intent.reason or ""),
+            tostring(stage_name or ""),
+            intent.has_target and "true" or "false",
+            tostring(intent.action_lock or "")
+        ))
+        return intent
+    end
+
     if current_time < (tonumber(state.next_ambient_combat_scan_at) or 0) then
         intent.gate = "ambient_scan_cooldown"
         return intent
@@ -10907,7 +11011,9 @@ function M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, 
         allow_when_main_interface_false = opts.allow_when_main_interface_false == true,
         allow_during_entry_action = opts.allow_during_entry_action == true,
         allow_during_action_lock = opts.allow_during_action_lock == true,
-        skip_ambient = opts.skip_ambient == true
+        skip_ambient = opts.skip_ambient == true,
+        force_without_monster_scan = opts.force_without_monster_scan == true,
+        non_navigation_no_monster_gate = opts.non_navigation_no_monster_gate
     })
 
     state.combat_sidecar_last_tick_at = current_time
@@ -10995,18 +11101,21 @@ function M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, 
         return false, follow_err or state.combat_sidecar_last_gate or "blocked"
     end
 
-    state.combat_sidecar_mode = "ambient"
+    state.combat_sidecar_mode = intent.no_monster_gate == true and "non_navigation" or "ambient"
     local nearby_monsters = intent.monsters
     local nearest_monster = nearby_monsters and nearby_monsters.nearest or {}
-    local pulse_ok, pulse_err = M.run_combat_sidecar_pulse(ctx, current_time, "sidecar_" .. reason, {
+    local pulse_ok, pulse_err = M.run_combat_sidecar_pulse(ctx, current_time, (
+        intent.no_monster_gate == true and "non_navigation_" or "sidecar_"
+    ) .. reason, {
         ignore_move_guard = true
     })
     if pulse_ok then
-        state.combat_sidecar_mode = "pulse"
+        state.combat_sidecar_mode = intent.no_monster_gate == true and "pulse:non_navigation" or "pulse"
         log_throttled(ctx, "combat_sidecar_tick_pulse_" .. reason, "info", MONSTER_SCAN_LOG_INTERVAL_MS, string.format(
-            "[Leveling] combat sidecar tick pulse | reason=%s stage=%s task=%s detail=%s nearest_distance=%.2f count=%d hp_ratio=%s",
+            "[Leveling] combat sidecar tick pulse | reason=%s stage=%s gate=%s task=%s detail=%s nearest_distance=%.2f count=%d hp_ratio=%s",
             reason,
             stage_name,
+            tostring(intent.gate or ""),
             tostring(M.current_task_log_name() or state.current_task_name or ""),
             tostring(M.current_task_log_detail() or state.current_task_detail or ""),
             tonumber(nearest_monster.distance) or 0,
@@ -11528,6 +11637,104 @@ function M.maybe_click_guide_skip(ctx, current_time)
         }
     )
     if type(target) ~= "table" then
+        if type(nav_mod.enum_ui) == "function" then
+            local ui = nil
+            local enum_err = nil
+            ui, enum_err = nav_mod.enum_ui()
+            if type(ui) == "table" then
+                local include = type(step.include_patterns) == "table" and step.include_patterns or {}
+                local best = nil
+                local best_distance = nil
+                local hint_x = tonumber(step.hint_client_x) or 0
+                local hint_y = tonumber(step.hint_client_y) or 0
+                for _, item in ipairs(ui.buttons or {}) do
+                    local text = ui_item_text(item)
+                    local matched = #include == 0
+                    for _, pattern in ipairs(include) do
+                        if pattern ~= "" and text:find(tostring(pattern):lower(), 1, true) then
+                            matched = true
+                            break
+                        end
+                    end
+                    local x = as_number(item and item.x)
+                    local y = as_number(item and item.y)
+                    local addr = tonumber(item and item.addr)
+                    local visible = x ~= nil and y ~= nil and not (math.abs(x) < 0.01 and math.abs(y) < 0.01)
+                    if matched and visible and addr ~= nil and addr ~= 0 then
+                        local distance = math.sqrt((x - hint_x) * (x - hint_x) + (y - hint_y) * (y - hint_y))
+                        if best == nil or distance < best_distance then
+                            best = {
+                                kind = "button",
+                                addr = addr,
+                                name = tostring(item.name or ""),
+                                text = tostring(item.text or ""),
+                                fullname = tostring(item.Fullname or item.fullname or ""),
+                                x = x,
+                                y = y,
+                                distance = distance
+                            }
+                            best_distance = distance
+                        end
+                    end
+                end
+                if best ~= nil then
+                    target = best
+                    logger(ctx).info(string.format(
+                        "[Leveling] guide skip button matched by visible class fallback | label=%s addr=%s pos=(%.2f,%.2f) hint_distance=%.2f",
+                        tostring(step.label or ""),
+                        tostring(best.addr or ""),
+                        tonumber(best.x) or 0,
+                        tonumber(best.y) or 0,
+                        tonumber(best.distance) or 0
+                    ))
+                else
+                    fetch_err = tostring(fetch_err or enum_err or "visible guide skip button not found.")
+                end
+            else
+                fetch_err = tostring(fetch_err or enum_err or "enum_ui failed.")
+            end
+        end
+    end
+    if type(target) ~= "table" then
+        local visible, visible_reason = confirm_dialogue_ui_visible(ctx, current_time)
+        local reason_text = tostring(visible_reason or ""):lower()
+        local escape_safe = visible == true and (
+            reason_text:find("skipbutton", 1, true)
+            or reason_text:find("noviceguidemainui_c.widgettree.c_skipbutton", 1, true)
+            or reason_text:find("cinematic", 1, true)
+            or reason_text:find("movie", 1, true)
+        )
+        if escape_safe then
+            local suppress_escape, suppress_detail = false, ""
+            if type(M.is_task_button_ready_for_escape_guard) == "function" then
+                suppress_escape, suppress_detail = M.is_task_button_ready_for_escape_guard(
+                    ctx,
+                    nil,
+                    "guide skip escape fallback"
+                )
+            end
+            if not suppress_escape and current_time >= (tonumber(state.next_guide_skip_click_at) or 0) then
+                release_async_combat_inputs(ctx, current_time, true)
+                local ok, err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "guide skip escape fallback")
+                state.next_guide_skip_click_at = current_time + 1200
+                state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, current_time + POST_UI_PAUSE_MS)
+                state.next_move_at = math.max(tonumber(state.next_move_at) or 0, current_time + 120)
+                logger(ctx)[ok and "info" or "warn"](string.format(
+                    "[Leveling] guide skip ESC fallback %s | ui=%s err=%s",
+                    ok and "sent" or "failed",
+                    tostring(visible_reason or ""),
+                    tostring(err or "")
+                ))
+                return ok == true
+            end
+            if suppress_escape then
+                log_throttled(ctx, "guide_skip_escape_suppressed_task_ready", "info", LOG_THROTTLE_MS, string.format(
+                    "[Leveling] guide skip ESC fallback suppressed because task button is callable | ui=%s detail=%s",
+                    tostring(visible_reason or ""),
+                    tostring(suppress_detail or "")
+                ))
+            end
+        end
         if fetch_err then
             log_throttled(ctx, "guide_skip_missing", "info", LOG_THROTTLE_MS,
                 "[Leveling] guide skip button not visible: " .. tostring(fetch_err))
@@ -11543,6 +11750,26 @@ function M.maybe_click_guide_skip(ctx, current_time)
     end
 
     release_async_combat_inputs(ctx, current_time, true)
+    if step.escape_first ~= false then
+        local escape_ok, escape_err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "guide skip")
+        if escape_ok then
+            state.next_guide_skip_click_at = current_time + 1200
+            state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, current_time + POST_UI_PAUSE_MS)
+            state.next_move_at = math.max(tonumber(state.next_move_at) or 0, current_time + 120)
+            clear_runtime_objective_caches()
+            logger(ctx).info(string.format(
+                "[Leveling] guide skip ESC sent | label=%s addr=%s pos=(%s,%s)",
+                tostring(step.label or ""),
+                tostring(target.addr or ""),
+                tostring(target.x or ""),
+                tostring(target.y or "")
+            ))
+            return true
+        end
+        log_throttled(ctx, "guide_skip_escape_failed", "warn", LOG_THROTTLE_MS,
+            "[Leveling] guide skip ESC failed, fallback to control_click: " .. tostring(escape_err or ""))
+    end
+
     local clicked, click_err = nav_mod.control_click(target.addr)
     if not clicked then
         log_throttled(ctx, "guide_skip_click_failed", "warn", LOG_THROTTLE_MS,

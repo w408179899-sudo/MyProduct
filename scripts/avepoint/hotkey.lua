@@ -3522,6 +3522,139 @@ local function avepoint_hotkey_dump_visible_text_controls()
     return true
 end
 
+local function avepoint_hotkey_dump_visible_image_controls()
+    if type(nav.game_api) ~= "table" then
+        return false, "nav.game_api unavailable"
+    end
+    if type(nav.game_api.EnumCImage) ~= "function" then
+        return false, "EnumCImage unavailable"
+    end
+
+    local raw_ok, raw_images, raw_err = pcall(nav.game_api.EnumCImage)
+    if not raw_ok or type(raw_images) ~= "table" then
+        return false, raw_ok and "EnumCImage returned non-table" or tostring(raw_images or raw_err or "")
+    end
+
+    local client_w = nil
+    local client_h = nil
+    local cursor_client_x = nil
+    local cursor_client_y = nil
+    local hwnd = nil
+
+    if type(nav.cursor_client_pos) == "function" then
+        local cursor = select(1, nav.cursor_client_pos({
+            allow_outside = true
+        }))
+        if type(cursor) == "table" then
+            client_w = tonumber(cursor.client_w)
+            client_h = tonumber(cursor.client_h)
+            cursor_client_x = tonumber(cursor.client_x)
+            cursor_client_y = tonumber(cursor.client_y)
+            hwnd = cursor.hwnd
+        end
+    end
+
+    local function format_dump_value(value)
+        local text = tostring(value or "")
+        text = text:gsub("\\", "\\\\")
+        text = text:gsub("\r", "\\r")
+        text = text:gsub("\n", "\\n")
+        text = text:gsub("\t", "\\t")
+        return text
+    end
+
+    local function first_field(item, ...)
+        if type(item) ~= "table" then
+            return ""
+        end
+        for index = 1, select("#", ...) do
+            local key = select(index, ...)
+            local value = item[key]
+            if value ~= nil then
+                return value
+            end
+        end
+        return ""
+    end
+
+    local function format_extra_fields(item)
+        if type(item) ~= "table" then
+            return "{}"
+        end
+        local primary = {
+            addr = true,
+            name = true,
+            text = true,
+            fullname = true,
+            Fullname = true,
+            x = true,
+            y = true,
+            w = true,
+            h = true,
+            width = true,
+            height = true,
+            Width = true,
+            Height = true
+        }
+        local keys = {}
+        for key, value in pairs(item) do
+            if primary[key] ~= true and type(value) ~= "function" then
+                keys[#keys + 1] = key
+            end
+        end
+        table.sort(keys, function(a, b)
+            return tostring(a) < tostring(b)
+        end)
+        local parts = {}
+        for index = 1, math.min(#keys, 24) do
+            local key = keys[index]
+            local value = item[key]
+            if type(value) == "table" then
+                value = "<table>"
+            end
+            parts[#parts + 1] = tostring(key) .. "=" .. format_dump_value(value)
+        end
+        if #keys > 24 then
+            parts[#parts + 1] = "_keys=" .. tostring(#keys)
+        end
+        if #parts == 0 then
+            return "{}"
+        end
+        return "{" .. table.concat(parts, " ") .. "}"
+    end
+
+    log.info(string.format(
+        "F2 EnumCImage dump start | total=%d cursor=(%s,%s) client_size=(%s,%s) hwnd=%s source=nav.game_api.EnumCImage",
+        #raw_images,
+        tostring(cursor_client_x or ""),
+        tostring(cursor_client_y or ""),
+        tostring(client_w or ""),
+        tostring(client_h or ""),
+        avepoint_format_addr_hex(hwnd)
+    ))
+
+    for index, item in ipairs(raw_images) do
+        log.info(string.format(
+            "F2 EnumCImage image[%d/%d] | addr=%s name=%s text=%s fullname=%s x=%s y=%s w=%s h=%s raw_extra=%s",
+            index,
+            #raw_images,
+            avepoint_format_addr_hex(type(item) == "table" and item.addr or nil),
+            format_dump_value(type(item) == "table" and item.name or ""),
+            format_dump_value(type(item) == "table" and item.text or ""),
+            format_dump_value(type(item) == "table" and (item.Fullname or item.fullname) or ""),
+            tostring(type(item) == "table" and item.x or ""),
+            tostring(type(item) == "table" and item.y or ""),
+            tostring(first_field(item, "w", "width", "Width")),
+            tostring(first_field(item, "h", "height", "Height")),
+            format_extra_fields(item)
+        ))
+    end
+
+    log.info(string.format("F2 EnumCImage dump complete | total=%d", #raw_images))
+
+    return true
+end
+
 local function avepoint_hotkey_click_skill_add_panel_button()
     local step = {
         label = "技能加点入口按钮",
@@ -4507,7 +4640,7 @@ function main()
         log.info("Press Insert or Ctrl+F9 or [ to start current task mode; hold Delete or Ctrl+F10 or ] to stop")
     end
     log.info("Press F1 to dump all buttons returned by EnumCButton")
-    log.info("Press F2 to dump all texts returned by EnumCText")
+    log.info("Press F2 to dump all images returned by EnumCImage")
     log.info("Press F5 to dump nearby NPCs returned by EnumNPC")
     log.info("Press F12 to dump raw GetCurrentSelected API output without clicking")
     local f4_preset = HOTKEY_DISTANCE_PREVIEW_PRESETS and HOTKEY_DISTANCE_PREVIEW_PRESETS.current or nil
@@ -4679,13 +4812,13 @@ function main()
                 local attach_target = avepoint_hotkey_attach_target_pid()
                 local init_ok, init_err = avepoint_wait_for_torch_init(3500, attach_target, MODE)
                 if not init_ok then
-                    log.warn("F2 EnumCText dump unavailable: Torch API init failed: " .. tostring(init_err))
+                    log.warn("F2 EnumCImage dump unavailable: Torch API init failed: " .. tostring(init_err))
                 end
             end
             if initialized then
-                local ok, err = avepoint_hotkey_dump_visible_text_controls()
+                local ok, err = avepoint_hotkey_dump_visible_image_controls()
                 if not ok then
-                    log.error("F2 EnumCText dump failed: " .. tostring(err))
+                    log.error("F2 EnumCImage dump failed: " .. tostring(err))
                 end
             end
         end
