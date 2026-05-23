@@ -2210,6 +2210,119 @@ function M.click_main_task_button(ctx, current_time, opts)
     return click_main_task_button(ctx, current_time, opts)
 end
 
+function M.maybe_handle_level_sequence_skip_gate(ctx, current_time, opts)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    opts = type(opts) == "table" and opts or {}
+
+    local nav_mod = nav_api(ctx)
+    if type(nav_mod) ~= "table" or type(nav_mod.enum_ui) ~= "function" then
+        return false
+    end
+
+    local ok, snapshot_or_err = safe_call(nav_mod.enum_ui)
+    if not ok or type(snapshot_or_err) ~= "table" then
+        log_throttled(ctx, "skip_level_sequence_gate_enum_failed", "warn", LOG_THROTTLE_MS,
+            "[Leveling] level sequence skip gate enum_ui failed: " .. tostring(snapshot_or_err))
+        return false
+    end
+
+    local snapshot = snapshot_or_err
+    local total_buttons = 0
+    local visible_buttons = 0
+    local zero_buttons = 0
+    local skip_buttons = 0
+    local skip_visible = 0
+    local skip_addr = nil
+    local skip_x = nil
+    local skip_y = nil
+    local skip_name = ""
+    for _, item in ipairs(snapshot.buttons or {}) do
+        total_buttons = total_buttons + 1
+        local x = tonumber(item and item.x)
+        local y = tonumber(item and item.y)
+        local has_visible_pos = x ~= nil and y ~= nil and not (math.abs(x) < 0.01 and math.abs(y) < 0.01)
+        if has_visible_pos then
+            visible_buttons = visible_buttons + 1
+        else
+            zero_buttons = zero_buttons + 1
+        end
+
+        local identity = table.concat({
+            tostring(item and (item.Fullname or item.fullname) or ""),
+            tostring(item and item.name or "")
+        }, " "):lower()
+        if identity:find("skiplevelsequence_c.widgettree.skipbutton", 1, true) ~= nil then
+            skip_buttons = skip_buttons + 1
+            if has_visible_pos then
+                skip_visible = skip_visible + 1
+            end
+            if skip_addr == nil then
+                skip_addr = item and item.addr or nil
+                skip_x = x
+                skip_y = y
+            end
+            if skip_name == "" then
+                skip_name = tostring(item and (item.Fullname or item.fullname or item.name) or "")
+            end
+        end
+    end
+
+    if skip_buttons <= 0 then
+        return false
+    end
+
+    local retry_ms = math.max(800, tonumber(MAIN_TASK_BUTTON_STEP.sequence_skip_retry_ms) or 1200)
+    state.stage = "skip_level_sequence"
+    state.next_task_button_click_at = current_time + retry_ms
+    state.next_task_refresh_at = math.max(tonumber(state.next_task_refresh_at) or 0, current_time + retry_ms)
+    state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, current_time + POST_UI_PAUSE_MS)
+    if type(release_async_combat_inputs) == "function" then
+        release_async_combat_inputs(ctx, current_time, true)
+    end
+    if type(hold_navigation) == "function" then
+        hold_navigation(ctx, current_time, "skip_level_sequence_gate")
+    end
+
+    local click_due = tonumber(state.skip_level_sequence_next_escape_at) or 0
+    if current_time < click_due then
+        log_throttled(ctx, "skip_level_sequence_gate_wait", "info", 600, string.format(
+            "[Leveling] level sequence skip gate active; waiting UI recovery | skip_buttons=%d visible=%d zero=%d total=%d retry_in=%dms",
+            skip_buttons,
+            visible_buttons,
+            zero_buttons,
+            total_buttons,
+            math.max(0, click_due - current_time)
+        ))
+        return true, "level sequence skip UI active"
+    end
+
+    state.skip_level_sequence_next_escape_at = current_time + math.max(1200, retry_ms)
+    local numeric_addr = tonumber(skip_addr)
+    local clicked = false
+    local click_err = nil
+    if numeric_addr ~= nil and numeric_addr ~= 0 and type(nav_mod.control_click) == "function" then
+        clicked, click_err = nav_mod.control_click(numeric_addr)
+    else
+        click_err = "skip button address unavailable"
+    end
+
+    local log_fn = clicked and logger(ctx).info or logger(ctx).warn
+    log_fn(string.format(
+        "[Leveling] level sequence skip gate detected; control_click %s | skip_buttons=%d visible=%d zero=%d total=%d name=%s addr=%s pos=(%s,%s) err=%s",
+        clicked and "sent" or "failed",
+        skip_buttons,
+        visible_buttons,
+        zero_buttons,
+        total_buttons,
+        tostring(skip_name or ""),
+        tostring(skip_addr or ""),
+        tostring(skip_x or ""),
+        tostring(skip_y or ""),
+        tostring(click_err or "")
+    ))
+    return true, "level sequence skip UI active"
+end
+
 function M.build_treasure_hooks(ctx)
     return {
         current_task_name = function()
@@ -5874,14 +5987,15 @@ function M.maybe_handle_no_task_target_immediate_boss_kite(ctx, current_time, pl
         return false
     end
 
-    local wait_ms = math.max(
-        TASK_BUTTON_SETTLE_MS,
-        tonumber(objective_cfg.no_task_target_kite_wait_ms) or TASK_BUTTON_SETTLE_MS
-    )
-    local ready_at = math.max(
-        last_task_click_at + wait_ms,
-        tonumber(state.task_path_wait_until) or 0
-    )
+    local ignore_path_wait = objective_cfg.no_task_target_ignore_path_wait == true
+    local configured_wait_ms = tonumber(objective_cfg.no_task_target_kite_wait_ms)
+    local wait_ms = (ignore_path_wait and configured_wait_ms ~= nil)
+        and math.max(0, configured_wait_ms)
+        or math.max(TASK_BUTTON_SETTLE_MS, configured_wait_ms or TASK_BUTTON_SETTLE_MS)
+    local ready_at = last_task_click_at + wait_ms
+    if not ignore_path_wait then
+        ready_at = math.max(ready_at, tonumber(state.task_path_wait_until) or 0)
+    end
     if current_time < ready_at then
         log_throttled(ctx, "no_task_target_boss_kite_wait_click", "info", LOG_THROTTLE_MS, string.format(
             "[Leveling] no-target boss kite waiting task button settle | task=%s detail=%s objective=%s wait_left=%dms",
@@ -6837,6 +6951,25 @@ function M.update(now, ctx)
         task_log_name = M.current_task_log_name(),
         task_log_detail = M.current_task_log_detail()
     })
+    if M.bt_run_priority_selector(ctx, current_time, "interaction.sequence_skip_gate", {
+        {
+            key = "interaction.sequence_skip_gate.skip_button",
+            owner = "interaction",
+            priority = 10,
+            run = function()
+                if M.maybe_handle_level_sequence_skip_gate(ctx, current_time, {
+                    in_main_interface = in_main_interface
+                }) then
+                    M.log_execution_trace(ctx, current_time, "skip_level_sequence_gate", nil, nil, nil, nil, player_x, player_y, player_z)
+                    log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+                    return true
+                end
+                return false
+            end
+        }
+    }) then
+        return true
+    end
     if M.bt_run_priority_selector(ctx, current_time, "runtime.guard.position", {
         {
             key = "recovery.revive_without_pos",
@@ -7279,7 +7412,7 @@ function M.update(now, ctx)
             priority = 10,
             run = function()
                 return state.revive_reentry_pending == true
-                    and maybe_handle_map_specific_transition(ctx, current_time, player_x, player_y)
+                    and maybe_handle_map_specific_transition(ctx, current_time, player_x, player_y, player_z)
             end
         }
     }) then
@@ -7706,6 +7839,17 @@ function M.update(now, ctx)
                     if M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y, player_z) then
                         return true
                     end
+                    local wait_task_cfg = select(1, M.current_task_runtime_config())
+                    if type(wait_task_cfg) == "table"
+                        and wait_task_cfg.allow_wait_task_path_route_action_recover == true
+                        and M.maybe_handle_route_point_action(ctx, current_time, player_x, player_y, player_z, {
+                            require_allow_without_task_target = true,
+                            require_wait_task_path_recover = true
+                        })
+                    then
+                        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+                        return true
+                    end
                     local early_retry_at = tonumber(state.task_path_early_retry_at) or 0
                     if task_entry_action_active ~= true
                         and early_retry_at > 0
@@ -7909,7 +8053,7 @@ function M.update(now, ctx)
                 owner = "task_no_target",
                 priority = 30,
                 run = function()
-                    if maybe_handle_map_specific_transition(ctx, current_time, player_x, player_y) then
+                    if maybe_handle_map_specific_transition(ctx, current_time, player_x, player_y, player_z) then
                         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
                         return true
                     end
@@ -8081,7 +8225,7 @@ function M.update(now, ctx)
                 if type(M.is_task_combat_active) == "function" and M.is_task_combat_active() then
                     return false
                 end
-                if maybe_handle_map_specific_transition(ctx, current_time, player_x, player_y) then
+                if maybe_handle_map_specific_transition(ctx, current_time, player_x, player_y, player_z) then
                     M.log_execution_trace(ctx, current_time, "map_specific_transition", target, destination, goal_distance, objective_cfg and objective_cfg.mode, player_x, player_y, player_z)
                     log_heartbeat(ctx, current_time, player_x, player_y, player_z)
                     return true

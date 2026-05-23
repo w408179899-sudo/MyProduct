@@ -4314,7 +4314,7 @@ function avepoint_hotkey_dump_cursor_api_raw()
     })
 end
 
-local function avepoint_hotkey_print_cursor_client_pos()
+local function avepoint_hotkey_print_cursor_client_pos(label)
     if type(nav) ~= "table" or type(nav.cursor_client_pos) ~= "function" then
         return false, "nav.cursor_client_pos is unavailable."
     end
@@ -4333,9 +4333,11 @@ local function avepoint_hotkey_print_cursor_client_pos()
     local ratio_x = client_w > 0 and client_x / client_w or 0
     local ratio_y = client_h > 0 and client_y / client_h or 0
     local outside = client_x < 0 or client_y < 0 or client_x > client_w or client_y > client_h
+    local hotkey_label = tostring(label or "F8")
 
     log.info(string.format(
-        "F8 cursor pos: client=(%.2f, %.2f) ratio=(%.6f, %.6f) screen=(%.2f, %.2f) origin=(%.2f, %.2f) client_size=(%.2f, %.2f) hwnd=%s outside=%s",
+        "%s cursor pos: client=(%.2f, %.2f) ratio=(%.6f, %.6f) screen=(%.2f, %.2f) origin=(%.2f, %.2f) client_size=(%.2f, %.2f) hwnd=%s outside=%s",
+        hotkey_label,
         client_x,
         client_y,
         ratio_x,
@@ -5592,6 +5594,10 @@ function main()
             elseif not initialized then
                 log.warn("Torch API not ready yet")
             else
+                local cursor_ok, cursor_err = avepoint_hotkey_print_cursor_client_pos("F10")
+                if not cursor_ok then
+                    log.warn("F10 cursor pos unavailable: " .. tostring(cursor_err))
+                end
                 local f10_ok, result = avepoint_hotkey_preview_cursor_probe_target()
                 if f10_ok then
                     log.info(string.format(
@@ -5624,6 +5630,10 @@ function main()
             elseif not initialized then
                 log.warn("Torch API not ready yet")
             else
+                local cursor_ok, cursor_err = avepoint_hotkey_print_cursor_client_pos("F11")
+                if not cursor_ok then
+                    log.warn("F11 cursor pos unavailable: " .. tostring(cursor_err))
+                end
                 local f11_ok, result = avepoint_hotkey_click_cursor_probe_target()
                 if f11_ok then
                     log.info(string.format(

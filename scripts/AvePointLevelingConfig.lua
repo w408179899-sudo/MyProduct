@@ -3312,18 +3312,26 @@ do
                     {
                         "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
                     },
-                    913.706848,
-                    407.208282,
-                    0.634960,
-                    0.452454,
-                    80,
+                    918.336914,
+                    407.152130,
+                    0.637734,
+                    0.452391,
+                    25,
                     1200
                 ), string.format("level_%d_select_second_tab_talent_node", current_level))
+                steps[#steps].target_poll_count = 30
+                steps[#steps].target_poll_interval_ms = 100
+                steps[#steps].fixed_fallback_client_x = 954.00
+                steps[#steps].fixed_fallback_client_y = 411.00
+                steps[#steps].fixed_fallback_ratio_x = 0.662500
+                steps[#steps].fixed_fallback_ratio_y = 0.456667
+                steps[#steps].fixed_fallback_prefer_ratio = true
+                steps[#steps].fixed_fallback_mouse_mode = "api"
+                steps[#steps].fixed_fallback_click_delay_ms = 50
                 append_shifted_step(steps, current_level, maintenance_locator_step(
                     string.format("level_%d_activate_second_tab_talent_node", current_level),
                     string.format("%d级天赋节点激活按钮", current_level),
                     {
-                        "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtnGray",
                         "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
                     },
                     743.509155,
@@ -5330,31 +5338,33 @@ do
         {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexViewItem.WidgetTree.ClickBtn"
         },
-        58.545029,
-        538.211487,
-        0.040685,
-        0.598013,
-        25,
+        62.580853,
+        538.246399,
+        0.043459,
+        0.598052,
+        80,
         650
     )
-    level_34_steps[#level_34_steps + 1] = fixed_click_step(
-        "level_34_select_skill_page_tab_fixed_click",
-        "34级技能页标签固定点击",
-        725.00,
-        456.00,
-        0.503822,
-        0.506667,
+    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
+        "level_34_select_skill_page_tab",
+        "34级技能页标签按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexTabItem.WidgetTree.ClickBtn"
+        },
+        693.986267,
+        450.986237,
+        0.481935,
+        0.501096,
+        80,
         650
     )
-    level_34_steps[#level_34_steps].click_repeat_count = 2
-    level_34_steps[#level_34_steps].click_repeat_interval_ms = 180
     level_34_steps[#level_34_steps + 1] = fixed_click_step(
         "level_34_skill_erosion_infusion_search_focus",
         "34级侵蚀贯注搜索输入框",
-        405.00,
-        653.00,
-        0.281445,
-        0.725556,
+        376.00,
+        658.00,
+        0.261111,
+        0.731111,
         250
     )
     level_34_steps[#level_34_steps + 1] = {
@@ -5373,20 +5383,24 @@ do
         {
             "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
         },
-        553.255676,
-        674.759521,
-        0.384472,
-        0.749733,
+        557.635376,
+        674.889282,
+        0.387247,
+        0.749877,
         80,
         700
     )
-    level_34_steps[#level_34_steps + 1] = fixed_click_step(
-        "level_34_select_store_skill_fixed_click",
-        "34级商店技能固定点击",
-        357.00,
-        327.00,
-        0.248089,
-        0.363333,
+    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
+        "level_34_select_store_skill",
+        "34级商店技能按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn"
+        },
+        320.013367,
+        306.333282,
+        0.222232,
+        0.340370,
+        80,
         700
     )
     level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
@@ -5395,27 +5409,27 @@ do
         {
             "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
         },
-        745.913513,
-        468.309784,
-        0.518355,
-        0.520344,
+        750.427124,
+        468.584473,
+        0.521130,
+        0.520649,
         80,
         700
     )
     level_34_steps[#level_34_steps].distance_anchor_exact_text = "获取"
     level_34_steps[#level_34_steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
-    level_34_steps[#level_34_steps].distance_min = 10.572878
-    level_34_steps[#level_34_steps].distance_max = 11.572878
+    level_34_steps[#level_34_steps].distance_min = 10.583838
+    level_34_steps[#level_34_steps].distance_max = 11.583838
     level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
         "level_34_select_bag_skill",
         "34级背包技能按钮",
         {
             "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
         },
-        674.488770,
-        306.625092,
-        0.468720,
-        0.340695,
+        678.952698,
+        306.499054,
+        0.471495,
+        0.340555,
         80,
         700
     )
@@ -5425,137 +5439,27 @@ do
         {
             "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
         },
-        463.365143,
-        468.309784,
-        0.322005,
-        0.520344,
+        467.682312,
+        468.584473,
+        0.324779,
+        0.520649,
         80,
         700
     )
     level_34_steps[#level_34_steps].distance_anchor_exact_text = "安装"
     level_34_steps[#level_34_steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
-    level_34_steps[#level_34_steps].distance_min = 10.572878
-    level_34_steps[#level_34_steps].distance_max = 11.572878
+    level_34_steps[#level_34_steps].distance_min = 10.583863
+    level_34_steps[#level_34_steps].distance_max = 11.583863
     level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
         "level_34_activate_all_skills",
         "34级技能启用全部按钮",
         {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.ActiveAll"
         },
-        615.131897,
-        864.738708,
-        0.427472,
-        0.960821,
-        80,
-        700
-    )
-    level_34_steps[#level_34_steps + 1] = fixed_click_step(
-        "level_34_skill_spell_control_slot_click",
-        "34级法术控制固定点击1",
-        581.00,
-        417.00,
-        0.403753,
-        0.463333,
-        350
-    )
-    level_34_steps[#level_34_steps + 1] = fixed_click_step(
-        "level_34_skill_spell_control_search_focus",
-        "34级法术控制搜索输入框",
-        403.00,
-        654.00,
-        0.280056,
-        0.726667,
-        250
-    )
-    level_34_steps[#level_34_steps + 1] = {
-        kind = "type_text",
-        key = "level_34_skill_search_spell_control_text",
-        label = "输入法术控制",
-        text = "法术控制",
-        input_method = "clipboard",
-        clear_before = true,
-        key_delay_ms = 30,
-        wait_after_ms = 500
-    }
-    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
-        "level_34_spell_control_search_button",
-        "34级法术控制搜索按钮",
-        {
-            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
-        },
-        553.255676,
-        674.759521,
-        0.384472,
-        0.749733,
-        80,
-        700
-    )
-    level_34_steps[#level_34_steps + 1] = fixed_click_step(
-        "level_34_select_spell_control_store_skill_fixed_click",
-        "34级法术控制商店技能固定点击",
-        357.00,
-        327.00,
-        0.248089,
-        0.363333,
-        700
-    )
-    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
-        "level_34_get_spell_control_skill",
-        "34级法术控制获取按钮",
-        {
-            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
-        },
-        745.913513,
-        361.406097,
-        0.518355,
-        0.401562,
-        80,
-        700
-    )
-    level_34_steps[#level_34_steps].distance_anchor_exact_text = "获取"
-    level_34_steps[#level_34_steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
-    level_34_steps[#level_34_steps].distance_min = 10.572878
-    level_34_steps[#level_34_steps].distance_max = 11.572878
-    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
-        "level_34_select_spell_control_bag_skill",
-        "34级法术控制背包技能按钮",
-        {
-            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
-        },
-        674.488770,
-        306.625092,
-        0.468720,
-        0.340695,
-        80,
-        700
-    )
-    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
-        "level_34_install_spell_control_skill",
-        "34级法术控制安装按钮",
-        {
-            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
-        },
-        463.365143,
-        342.206085,
-        0.322005,
-        0.380229,
-        80,
-        700
-    )
-    level_34_steps[#level_34_steps].distance_anchor_exact_text = "安装"
-    level_34_steps[#level_34_steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
-    level_34_steps[#level_34_steps].distance_min = 10.572878
-    level_34_steps[#level_34_steps].distance_max = 11.572878
-    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
-        "level_34_activate_all_skills_after_spell_control",
-        "34级法术控制后启用全部按钮",
-        {
-            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.ActiveAll"
-        },
-        615.131897,
-        864.738708,
-        0.427472,
-        0.960821,
+        619.554565,
+        864.687805,
+        0.430246,
+        0.960764,
         80,
         700
     )
@@ -5576,143 +5480,7 @@ do
     level_34_skill_plan.steps = level_34_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[34] = level_34_skill_plan
 
-    local level_43_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
-    level_43_skill_plan.key = "level_43_skill_fixed_click_sequence"
-    level_43_skill_plan.label = "43级技能：固定点击配置"
-    level_43_skill_plan.close_with_escape = false
-
-    local level_43_steps = type(level_43_skill_plan.steps) == "table" and level_43_skill_plan.steps or {}
-    if #level_43_steps > 0 and tostring(level_43_steps[#level_43_steps].key or "") == "back_from_skill_panel" then
-        table.remove(level_43_steps, #level_43_steps)
-    end
-    for _, step in ipairs(level_43_steps) do
-        if tostring(step.key or "") == "open_skill_add_panel" then
-            step.key = "level_43_open_skill_add_panel"
-            step.label = "43级技能加点入口按钮"
-            step.missing_target_means_step_done = true
-        elseif tostring(step.key or "") == "click_skill_upgrade_image" then
-            step.key = "level_43_click_skill_upgrade_image"
-            step.label = "43级技能升级找图按钮"
-            step.missing_image_means_done = false
-            step.missing_image_means_step_done = true
-            step.cleanup_back_before_finish = true
-            step.repeat_image_until_missing = true
-            step.repeat_image_until_missing_max_count = 30
-            step.repeat_image_until_missing_interval_ms = 180
-            if type(step.image_preset) == "table" then
-                step.image_preset.click_repeat_count = 1
-                step.image_preset.repeat_until_missing = true
-                step.image_preset.repeat_until_missing_max_count = 30
-                step.image_preset.repeat_until_missing_interval_ms = 180
-            end
-        end
-    end
-
-    level_43_steps[#level_43_steps + 1] = {
-        key = "level_43_open_fast_entrance_menu_after_skill_image",
-        label = "技能天赋菜单按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
-        },
-        hint_client_x = 1383.688110,
-        hint_client_y = 52.706509,
-        hint_ratio_x = 0.961562,
-        hint_ratio_y = 0.058563,
-        hint_max_distance = 100,
-        wait_after_ms = 800
-    }
-    level_43_steps[#level_43_steps + 1] = {
-        key = "level_43_open_skill_panel_after_skill_image",
-        label = "技能按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
-        },
-        hint_client_x = 1249.024658,
-        hint_client_y = 155.104156,
-        hint_ratio_x = 0.867981,
-        hint_ratio_y = 0.172338,
-        hint_max_distance = 90,
-        wait_after_ms = 1000
-    }
-    level_43_steps[#level_43_steps + 1] = fixed_click_step(
-        "level_43_skill_fixed_click_79_412",
-        "43级技能固定点击1",
-        79.00,
-        412.00,
-        0.054899,
-        0.457778,
-        350
-    )
-    level_43_steps[#level_43_steps + 1] = fixed_click_step(
-        "level_43_skill_fixed_click_727_303_a",
-        "43级技能固定点击2",
-        727.00,
-        303.00,
-        0.505212,
-        0.336667,
-        350
-    )
-    level_43_steps[#level_43_steps + 1] = fixed_click_step(
-        "level_43_skill_fixed_click_727_303_b",
-        "43级技能固定点击3",
-        727.00,
-        303.00,
-        0.505212,
-        0.336667,
-        350
-    )
-    level_43_steps[#level_43_steps + 1] = fixed_click_step(
-        "level_43_skill_fixed_click_354_330",
-        "43级技能固定点击4",
-        354.00,
-        330.00,
-        0.246004,
-        0.366667,
-        500
-    )
-    level_43_steps[#level_43_steps + 1] = fixed_click_step(
-        "level_43_skill_fixed_click_819_367",
-        "43级技能固定点击5",
-        819.00,
-        367.00,
-        0.569145,
-        0.407778,
-        350
-    )
-    level_43_steps[#level_43_steps + 1] = fixed_click_step(
-        "level_43_skill_fixed_click_713_335",
-        "43级技能固定点击6",
-        713.00,
-        335.00,
-        0.495483,
-        0.372222,
-        350
-    )
-    level_43_steps[#level_43_steps + 1] = fixed_click_step(
-        "level_43_skill_fixed_click_536_364",
-        "43级技能固定点击7",
-        536.00,
-        364.00,
-        0.372481,
-        0.404444,
-        700
-    )
-    level_43_steps[#level_43_steps + 1] = {
-        key = "back_from_skill_panel_after_level_43_setup",
-        label = "技能返回按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
-        },
-        hint_client_x = 1384.784546,
-        hint_client_y = 52.000000,
-        hint_ratio_x = 0.961656,
-        hint_ratio_y = 0.057778,
-        hint_max_distance = 90,
-        wait_after_ms = 500
-    }
-
-    level_43_skill_plan.steps = level_43_steps
-    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[43] = level_43_skill_plan
+    -- Level 43 fixed-click add-skill plan is disabled; this level falls back to the default skill upgrade flow.
 
 end
 
@@ -6547,7 +6315,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             x = 4167.00,
             y = 3949.00,
             z = 1603.89,
-            radius = 320,
+            radius = 1200,
             z_tolerance = 260
         },
         entry_steps = {
@@ -6566,6 +6334,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
                 hint_ratio_x = 0.485559,
                 hint_ratio_y = 0.804933,
                 hint_max_distance = 80.000,
+                interact_distance = 340,
                 settle_ms = 1500,
                 retry_ms = 2500
             },
@@ -6749,7 +6518,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
         enabled = true,
         name = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{5F85}\u{786E}\u{8BA4}(\u{5E1D}\u{56FD}\u{4F59}\u{7130})",
         route_store_key = "treasure_empire_ashes_wolf_ambush_entry",
-        target_level = 38,
+        target_level = 36,
         inside_detect_task_panel_text = false,
         startup_recovery_restart_landing = false,
         startup_recovery_wait_for_task_panel = true,
@@ -6766,10 +6535,10 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "\u{524D}\u{5F80}\u{7FA4}\u{72FC}\u{8857}\u{5DF7}"
         },
         entry_trigger = {
-            x = -827.65,
-            y = 9412.00,
+            x = -908.56,
+            y = 9365.29,
             z = 606.00,
-            radius = 320,
+            radius = 500,
             z_tolerance = 260
         },
         entry_steps = {
@@ -6795,10 +6564,10 @@ M.TREASURE_DUNGEON_CONFIGS = {
                 key = "treasure_empire_ashes_wolf_ambush_send",
                 label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
                 trigger = {
-                    x = -827.65,
-                    y = 9412.00,
+                    x = -908.56,
+                    y = 9365.29,
                     z = 606.00,
-                    radius = 160,
+                    radius = 500,
                     z_tolerance = 260
                 },
                 interact_distance = 60,
@@ -6979,11 +6748,11 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "Known entrance button behavior: same as previous treasure entrance button",
             "Verified inside boss anchor / kite points / exit portal from latest measured run; exit trigger moved to user F6 door anchor 16509,-12043,105 and restart trigger to 17066,-12015,105, but button F8 and real restart_landing still need verification",
             "Verified inside_landing after entry at -1800,2700,105; verified exit_landing near -827,9412,606; restart_landing still needs F7 after a real 求生之欲 restart click, so startup recovery must not use restart_landing yet",
-            "Observed exit portal landing at -7064,-3717,507 after level 38 exit; accept it as extra_exit_landing to avoid retrying the inside exit portal after a successful transition",
-            "Confirmed target_level=38 for return-to-mainline gate",
+            "Observed exit portal landing at -7064,-3717,507 after level-gated exit; accept it as extra_exit_landing to avoid retrying the inside exit portal after a successful transition",
+            "Confirmed target_level=36 for return-to-mainline gate",
             "Restart/exit triggers are intentionally separated now; keep 16457.17,-12098.53 as exit-only data unless F7 proves otherwise",
             "Restart/exit portal probe now prefers hint fallback when distance-anchor locator drifts",
-            "Before target_level=38 the restart portal must not fallback_interact; if the 求生之欲 MapTrapBtn cannot be located, wait for better button data instead of pressing E on the exit portal",
+            "Before target_level=36 the restart portal must not fallback_interact; if the 求生之欲 MapTrapBtn cannot be located, wait for better button data instead of pressing E on the exit portal",
             "Final boss loot is intentionally capped at two pickup pulses",
             "Verify boss name_patterns / panel_query and dedicated portal button locator logs on next real run"
         }
@@ -7230,8 +6999,11 @@ M.TREASURE_DUNGEON_CONFIGS = {
         enabled = true,
         name = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{9690}\u{4E16}\u{91D1}\u{9601}",
         route_store_key = "treasure_fourth_entry_5643_-530_v1",
-        target_level = 46,
+        target_level = 43,
         inside_detect_task_panel_text = false,
+        startup_recovery_wait_for_task_panel = true,
+        startup_recovery_activate_by_level_gate = true,
+        startup_recovery_allow_task_mismatch_by_level_gate = true,
         startup_recovery_restart_landing = false,
         inside_detect_restart_landing = false,
         discard_terminal_route_nearby_resume = true,
@@ -7346,6 +7118,13 @@ M.TREASURE_DUNGEON_CONFIGS = {
             enabled = true,
             loot_enabled = true,
             loot_anchor_distance = 320,
+            loot_anchor = {
+                x = 10763.00,
+                y = 18809.00,
+                z = -664.00,
+                radius = 320,
+                z_tolerance = 260
+            },
             trigger = {
                 x = 10670.88,
                 y = 18175.38,
@@ -7883,6 +7662,8 @@ local function make_empire_ashes_head_wolf_dodge_boss_task_config()
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true,
+            defer_followup_until_clear = true,
+            ignore_terminal_text_change_when_objective_same = true,
             kite_points = {
                 { x = 13536.51, y = 15323.40, z = 906.00 },
                 { x = 13201.13, y = 16535.58, z = 906.00 },
@@ -9554,6 +9335,32 @@ M.TASK_NAME_CONFIGS = {
             center_click_ratio_x = 0.503472,
             center_click_ratio_y = 0.495556,
             center_use_human_mouse = true,
+            center_selection_step = {
+                label = "\u{5723}\u{5FB7}\u{5170}\u{9B54}\u{6CD5}\u{5B66}\u{9662}\u{6309}\u{94AE}",
+                distance_anchor_exact_text = "\u{5723}\u{5FB7}\u{5170}\u{9B54}\u{6CD5}\u{5B66}\u{9662}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
+                distance_min = 143.092981,
+                distance_max = 148.092981,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
+                },
+                hint_client_x = 689.359497,
+                hint_client_y = 410.743591,
+                hint_ratio_x = 0.478722,
+                hint_ratio_y = 0.456382,
+                hint_max_distance = 80.000,
+                prefer_hint_fallback = true,
+                poll_retry_count = 30,
+                poll_interval_ms = 100,
+                fixed_fallback_client_x = 689.359497,
+                fixed_fallback_client_y = 410.743591,
+                fixed_fallback_ratio_x = 0.478722,
+                fixed_fallback_ratio_y = 0.456382,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_click_delay_ms = 50,
+                fixed_fallback_hover_delay_ms = 80
+            },
             center_mouse_mode = "api",
             center_hover_delay_ms = 90,
             center_click_delay_ms = 60,
@@ -9662,6 +9469,26 @@ M.TASK_NAME_CONFIGS = {
     ["晚星待明 / 跟随艾丝梅拉达，前往营救晚星战俘"] = make_late_star_royal_encirclement_boss_task_config({
         detail_pattern = "跟随艾丝梅拉达，前往营救晚星战俘"
     }),
+    ["晚星待明 / 与艾丝梅拉达对话"] = {
+        task_patterns = {
+            "晚星待明"
+        },
+        task_detail_patterns = {
+            "与艾丝梅拉达对话"
+        },
+        constraint_mode = "all",
+        allow_wait_task_path_route_action_recover = true
+    },
+    ["晚星领袖 / 与艾丝梅拉达对话"] = {
+        task_patterns = {
+            "晚星领袖"
+        },
+        task_detail_patterns = {
+            "与艾丝梅拉达对话"
+        },
+        constraint_mode = "all",
+        allow_wait_task_path_route_action_recover = true
+    },
     ["晚星待明 / 击败王命围捕"] = make_late_star_royal_encirclement_boss_task_config({
         detail_pattern = "击败王命围捕",
         allow_no_target = true
@@ -9914,6 +9741,8 @@ M.TASK_NAME_CONFIGS = {
             generic_followup_require_no_special = true,
             allow_no_task_target_force_kite = true,
             immediate_no_task_target_kite = true,
+            no_task_target_kite_wait_ms = 900,
+            no_task_target_ignore_path_wait = true,
             kite_points = {
                 { x = -1549.53, y = 25388.33, z = 503.00 },
                 { x = -116.72, y = 24092.46, z = 503.00 },
@@ -10003,11 +9832,9 @@ M.TASK_NAME_CONFIGS = {
                 fallback_interact = true
             }),
             kite_points = {
-                { x = 587.00, y = 2682.00, z = 1281.00 },
-                { x = 319.00, y = 3083.00, z = 1281.00 },
-                { x = -81.00, y = 2730.00, z = 1281.00 },
-                { x = 129.00, y = 2337.00, z = 1281.00 },
-                { x = 601.00, y = 2363.00, z = 1281.00 }
+                { x = 716.00, y = 2728.00, z = 1281.00 },
+                { x = 7.00, y = 2732.00, z = 1281.00 },
+                { x = 322.00, y = 2089.00, z = 1281.00 }
             }
         },
         {
@@ -10056,6 +9883,32 @@ M.TASK_NAME_CONFIGS = {
             center_click_ratio_x = 0.503822,
             center_click_ratio_y = 0.495556,
             center_use_human_mouse = true,
+            center_selection_step = {
+                label = "\u{907F}\u{96BE}\u{6240}-\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{6309}\u{94AE}",
+                distance_anchor_exact_text = "\u{907F}\u{96BE}\u{6240}-\u{4F59}\u{70EC}\u{4E4B}\u{606F}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
+                distance_min = 143.092951,
+                distance_max = 148.092951,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
+                },
+                hint_client_x = 689.359497,
+                hint_client_y = 409.743622,
+                hint_ratio_x = 0.478722,
+                hint_ratio_y = 0.455271,
+                hint_max_distance = 80.000,
+                prefer_hint_fallback = true,
+                poll_retry_count = 30,
+                poll_interval_ms = 100,
+                fixed_fallback_client_x = 725.00,
+                fixed_fallback_client_y = 449.00,
+                fixed_fallback_ratio_x = 0.503472,
+                fixed_fallback_ratio_y = 0.498889,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_click_delay_ms = 50,
+                fixed_fallback_hover_delay_ms = 80
+            },
             center_mouse_mode = "api",
             center_hover_delay_ms = 90,
             center_click_delay_ms = 60,
@@ -10098,8 +9951,34 @@ M.TASK_NAME_CONFIGS = {
         {
             map_open_wait_ms = 1900,
             center_click_ratio_x = 0.456250,
-            center_click_ratio_y = 0.498889,
+            center_click_ratio_y = 0.502222,
             center_use_human_mouse = true,
+            center_selection_step = {
+                label = "\u{6C89}\u{6CA1}\u{6C99}\u{4E18}\u{6309}\u{94AE}",
+                distance_anchor_exact_text = "\u{6C89}\u{6CA1}\u{6C99}\u{4E18}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
+                distance_min = 143.092978,
+                distance_max = 148.092978,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
+                },
+                hint_client_x = 622.359558,
+                hint_client_y = 410.743591,
+                hint_ratio_x = 0.432194,
+                hint_ratio_y = 0.456382,
+                hint_max_distance = 80.000,
+                prefer_hint_fallback = true,
+                poll_retry_count = 30,
+                poll_interval_ms = 100,
+                fixed_fallback_client_x = 657.00,
+                fixed_fallback_client_y = 452.00,
+                fixed_fallback_ratio_x = 0.456250,
+                fixed_fallback_ratio_y = 0.502222,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_click_delay_ms = 50,
+                fixed_fallback_hover_delay_ms = 80
+            },
             center_mouse_mode = "api",
             center_hover_delay_ms = 90,
             center_click_delay_ms = 60,
@@ -10118,6 +9997,16 @@ M.TASK_NAME_CONFIGS = {
             constraint_mode = "all"
         }
     ),
+    ["长夜明星 / 感谢伊吉女孩的相助"] = {
+        task_patterns = {
+            "长夜明星"
+        },
+        task_detail_patterns = {
+            "感谢伊吉女孩的相助"
+        },
+        constraint_mode = "all",
+        allow_wait_task_path_route_action_recover = true
+    },
     ["\u{5BFC}\u{5E08}\u{9988}\u{8D60}"] = make_dialogue_locator_flow_task_config(
         "mentor_gift_task_detail_before_antonio_jump",
         {
@@ -10476,9 +10365,35 @@ M.TASK_NAME_CONFIGS = {
         },
         {
             map_open_wait_ms = 1900,
-            center_click_ratio_x = 0.490972,
-            center_click_ratio_y = 0.381111,
+            center_click_ratio_x = 0.462055,
+            center_click_ratio_y = 0.345271,
             center_use_human_mouse = true,
+            center_selection_step = {
+                label = "\u{906E}\u{98CE}\u{58C1}\u{969C}\u{6309}\u{94AE}",
+                distance_anchor_exact_text = "\u{906E}\u{98CE}\u{58C1}\u{969C}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
+                distance_min = 143.092981,
+                distance_max = 148.092981,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
+                },
+                hint_client_x = 665.359497,
+                hint_client_y = 310.743591,
+                hint_ratio_x = 0.462055,
+                hint_ratio_y = 0.345271,
+                hint_max_distance = 80.000,
+                prefer_hint_fallback = true,
+                poll_retry_count = 30,
+                poll_interval_ms = 100,
+                fixed_fallback_client_x = 665.359497,
+                fixed_fallback_client_y = 310.743591,
+                fixed_fallback_ratio_x = 0.462055,
+                fixed_fallback_ratio_y = 0.345271,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_click_delay_ms = 50,
+                fixed_fallback_hover_delay_ms = 80
+            },
             center_mouse_mode = "api",
             center_hover_delay_ms = 90,
             center_click_delay_ms = 60,
@@ -10524,6 +10439,32 @@ M.TASK_NAME_CONFIGS = {
             center_click_ratio_x = 0.503472,
             center_click_ratio_y = 0.438889,
             center_use_human_mouse = true,
+            center_selection_step = {
+                label = "\u{4F0A}\u{5409}\u{805A}\u{843D}\u{6309}\u{94AE}",
+                distance_anchor_exact_text = "\u{4F0A}\u{5409}\u{805A}\u{843D}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
+                distance_min = 143.092978,
+                distance_max = 148.092978,
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
+                },
+                hint_client_x = 685.359619,
+                hint_client_y = 353.743591,
+                hint_ratio_x = 0.475944,
+                hint_ratio_y = 0.393048,
+                hint_max_distance = 80.000,
+                prefer_hint_fallback = true,
+                poll_retry_count = 30,
+                poll_interval_ms = 100,
+                fixed_fallback_client_x = 723.00,
+                fixed_fallback_client_y = 395.00,
+                fixed_fallback_ratio_x = 0.502083,
+                fixed_fallback_ratio_y = 0.438889,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_click_delay_ms = 50,
+                fixed_fallback_hover_delay_ms = 80
+            },
             center_mouse_mode = "api",
             center_hover_delay_ms = 90,
             center_click_delay_ms = 60,
@@ -11459,6 +11400,32 @@ M.TASK_NAME_CONFIGS["\u{5723}\u{8BEB}\u{4E4B}\u{672B}"] = make_world_map_send_ta
         center_click_ratio_x = 0.503822,
         center_click_ratio_y = 0.495556,
         center_use_human_mouse = true,
+        center_selection_step = {
+            label = "\u{907F}\u{96BE}\u{6240}-\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{6309}\u{94AE}",
+            distance_anchor_exact_text = "\u{907F}\u{96BE}\u{6240}-\u{4F59}\u{70EC}\u{4E4B}\u{606F}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
+            distance_min = 143.092951,
+            distance_max = 148.092951,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
+            },
+            hint_client_x = 689.359497,
+            hint_client_y = 409.743622,
+            hint_ratio_x = 0.478722,
+            hint_ratio_y = 0.455271,
+            hint_max_distance = 80.000,
+            prefer_hint_fallback = true,
+            poll_retry_count = 30,
+            poll_interval_ms = 100,
+            fixed_fallback_client_x = 725.00,
+            fixed_fallback_client_y = 449.00,
+            fixed_fallback_ratio_x = 0.503472,
+            fixed_fallback_ratio_y = 0.498889,
+            fixed_fallback_prefer_ratio = true,
+            fixed_fallback_mouse_mode = "api",
+            fixed_fallback_click_delay_ms = 50,
+            fixed_fallback_hover_delay_ms = 80
+        },
         center_mouse_mode = "api",
         center_hover_delay_ms = 90,
         center_click_delay_ms = 60,
@@ -11475,6 +11442,13 @@ M.TASK_NAME_CONFIGS["\u{5723}\u{8BEB}\u{4E4B}\u{672B}"] = make_world_map_send_ta
         task_patterns = {
             "\u{5723}\u{8BEB}\u{4E4B}\u{672B}"
         },
+        task_detail_names = {
+            "\u{524D}\u{5F80}\u{4F59}\u{70EC}\u{4E4B}\u{606F}"
+        },
+        task_detail_patterns = {
+            "\u{524D}\u{5F80}\u{4F59}\u{70EC}\u{4E4B}\u{606F}"
+        },
+        constraint_mode = "all",
         main_task_call = {
             allow_anchor_click_fallback = true
         },
@@ -12766,7 +12740,9 @@ M.ROUTE_POINT_ACTIONS = {
             timeout_ms = 22000,
             npc_search_radius = 700,
             fallback_interact = true
-        }
+        },
+        jump_followup_route_action_key = "wall_of_sighs_aria_dialogue_after_jump_route_19797_-2126",
+        jump_followup_route_action_source = "wall_of_sighs_aria_dialogue_jump_followup"
     }),
     make_route_point_action({
         key = "wall_of_sighs_aria_dialogue_after_jump_route_19797_-2126",
@@ -12893,32 +12869,33 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_npc_dialogue_route_action({
-        key = "evening_star_elsmerada_dialogue_direct_-2649_4251",
+        key = "evening_star_elsmerada_dialogue_anchor_0_-1048_to_465_-1072",
         label = "\u{665A}\u{661F}\u{5F85}\u{660E}_\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}_\u{76F4}\u{63A5}\u{5BF9}\u{8BDD}",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
         allow_during_task_button_refresh = true,
-        direct_when_task_active = true,
+        direct_without_task_target_only = true,
         drop_active_when_task_mismatch = true,
         task_patterns = {
-            "\u{665A}\u{661F}\u{5F85}\u{660E}"
+            "\u{665A}\u{661F}\u{5F85}\u{660E}",
+            "\u{665A}\u{661F}\u{9886}\u{8896}"
         },
         task_detail_patterns = {
             "\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}"
         },
         constraint_mode = "all",
         trigger = {
-            x = -2649.00,
-            y = 4251.00,
-            z = 2006.08,
-            radius = 1800,
+            x = 0.00,
+            y = -1048.00,
+            z = 2004.25,
+            radius = 1300,
             z_tolerance = 420
         },
         retry_ms = 6000,
         dialogue = {
-            x = -2649.00,
-            y = 4251.00,
-            z = 2006.08,
+            x = 321.00,
+            y = -1145.00,
+            z = 2011.67,
             radius = 320,
             interact_radius = 160,
             move_interval_ms = 220,
@@ -12931,31 +12908,33 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_npc_dialogue_route_action({
-        key = "late_star_talk_to_esmeralda_npc_395_-1730",
-        label = "late_star_talk_to_esmeralda_npc",
+        key = "evening_star_elsmerada_dialogue_anchor_-2242_5024_to_-2649_4251",
+        label = "\u{665A}\u{661F}\u{5F85}\u{660E}_\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}_\u{7B2C}\u{4E8C}\u{6BB5}\u{5BF9}\u{8BDD}",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
         direct_without_task_target_only = true,
         drop_active_when_task_mismatch = true,
-        retry_ms = 600000,
+        retry_ms = 6000,
         task_patterns = {
-            "\u{665A}\u{661F}\u{5F85}\u{660E}"
+            "\u{665A}\u{661F}\u{5F85}\u{660E}",
+            "\u{665A}\u{661F}\u{9886}\u{8896}"
         },
         task_detail_patterns = {
             "\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}"
         },
         constraint_mode = "all",
         trigger = {
-            x = 395.00,
-            y = -1730.00,
-            z = 2020.00,
-            radius = 1800,
+            x = -2242.00,
+            y = 5024.00,
+            z = 2002.00,
+            radius = 1300,
             z_tolerance = 420
         },
         dialogue = {
-            x = 395.00,
-            y = -1730.00,
-            z = 2020.00,
+            x = -2259.00,
+            y = 4510.00,
+            z = 2004.00,
             radius = 320,
             interact_radius = 160,
             move_interval_ms = 220,
@@ -13554,15 +13533,64 @@ M.ROUTE_POINT_ACTIONS = {
             z_tolerance = 420
         },
         retry_ms = 600000,
-        timeout_ms = 45000,
+        timeout_ms = 120000,
         waypoint_reach_radius = 180,
         waypoint_z_tolerance = 420,
         move_interval_ms = 220,
         reacquire_retry_ms = 1200,
         waypoints = {
-            { x = -398.00, y = 25165.00, z = 509.41 },
-            { x = 101.82, y = 24799.29, z = 503.00 },
-            { x = 1681.99, y = 25614.40, z = 503.00 }
+            { x = -447.82, y = 25070.35, z = 505.90 },
+            { x = 145.70, y = 25218.96, z = 503.00 },
+            { x = 618.58, y = 25278.51, z = 503.00 },
+            { x = 970.96, y = 25430.05, z = 503.00 },
+            { x = 1340.18, y = 25482.23, z = 503.00 },
+            { x = 1204.13, y = 25119.46, z = 503.00 },
+            { x = 1035.22, y = 24839.87, z = 503.00 },
+            { x = 830.58, y = 24503.98, z = 503.00 },
+            { x = 667.46, y = 24221.13, z = 503.00 },
+            { x = 499.50, y = 23926.39, z = 503.00 },
+            { x = 331.92, y = 23631.02, z = 503.00 },
+            { x = 41.99, y = 23237.83, z = 503.00 },
+            { x = -193.82, y = 23059.09, z = 503.00 },
+            { x = -577.51, y = 23038.10, z = 503.00 },
+            { x = -901.93, y = 23176.72, z = 503.00 },
+            { x = -1135.16, y = 23400.54, z = 503.00 },
+            { x = -1378.11, y = 23660.57, z = 503.00 },
+            { x = -1568.38, y = 23891.84, z = 503.00 },
+            { x = -1736.04, y = 24258.89, z = 503.00 },
+            { x = -1726.02, y = 24584.57, z = 503.00 },
+            { x = -1592.40, y = 24906.53, z = 503.00 },
+            { x = -1377.27, y = 25062.20, z = 503.00 },
+            { x = -1123.37, y = 24907.05, z = 503.00 },
+            { x = -975.57, y = 24748.35, z = 503.00 },
+            { x = -831.52, y = 24518.91, z = 503.00 },
+            { x = -793.47, y = 24232.23, z = 503.00 },
+            { x = -937.56, y = 23972.47, z = 503.00 },
+            { x = -1147.39, y = 23870.49, z = 503.00 },
+            { x = -1373.72, y = 24032.56, z = 503.00 },
+            { x = -1496.56, y = 24287.95, z = 503.00 },
+            { x = -1483.80, y = 24521.47, z = 503.00 },
+            { x = -1313.65, y = 24674.29, z = 503.00 },
+            { x = -1076.58, y = 24806.83, z = 503.00 },
+            { x = -866.20, y = 24833.44, z = 503.00 },
+            { x = -603.49, y = 24696.22, z = 503.00 },
+            { x = -434.41, y = 24518.79, z = 503.00 },
+            { x = -318.21, y = 24323.46, z = 503.00 },
+            { x = -204.33, y = 24123.02, z = 503.00 },
+            { x = -238.34, y = 23901.42, z = 503.00 },
+            { x = -414.60, y = 23785.28, z = 503.00 },
+            { x = -681.11, y = 23806.91, z = 503.00 },
+            { x = -920.52, y = 23932.00, z = 503.00 },
+            { x = -1029.10, y = 24073.59, z = 503.00 },
+            { x = -1074.98, y = 24311.68, z = 503.00 },
+            { x = -981.61, y = 24526.16, z = 503.00 },
+            { x = -783.71, y = 24667.32, z = 503.00 },
+            { x = -536.82, y = 24778.44, z = 503.00 },
+            { x = -316.80, y = 24847.04, z = 503.00 },
+            { x = 33.39, y = 24864.92, z = 503.00 },
+            { x = 326.71, y = 24913.46, z = 503.00 },
+            { x = 576.80, y = 25015.63, z = 503.00 },
+            { x = 1017.00, y = 25001.00, z = 503.00 }
         }
     }),
     make_route_point_action({
@@ -13657,11 +13685,11 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
-        key = "empire_ashes_treasure_entry_-828_9412",
+        key = "empire_ashes_treasure_entry_-1466_8040",
         label = "\u{5E1D}\u{56FD}\u{4F59}\u{7130}_\u{85CF}\u{5B9D}\u{5730}\u{5165}\u{53E3}\u{5F15}\u{5BFC}",
         mode = "recorded_route_point",
         skip_when_treasure_completed_key = "treasure_empire_ashes_wolf_ambush_entry",
-        skip_when_player_level_at_least = 38,
+        skip_when_player_level_at_least = 36,
         task_patterns = {
             "\u{5E1D}\u{56FD}\u{4F59}\u{7130}"
         },
@@ -13671,8 +13699,8 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = -827.65,
-            y = 9412.00,
+            x = -1466.00,
+            y = 8040.00,
             z = 606.00,
             radius = 500,
             z_tolerance = 1200
@@ -13684,7 +13712,7 @@ M.ROUTE_POINT_ACTIONS = {
         move_interval_ms = 220,
         reacquire_retry_ms = 1200,
         waypoints = {
-            { x = -827.65, y = 9412.00, z = 606.00 }
+            { x = -908.56, y = 9365.29, z = 606.00 }
         }
     }),
     make_route_point_action({
@@ -14310,9 +14338,10 @@ M.ROUTE_POINT_ACTIONS = {
         interact_radius = 60,
         probe_retry_ms = 800,
         retry_ms = 2500,
-        settle_ms = 2200,
+        settle_ms = 1500,
         timeout_ms = 18000,
         force_task_call_after_transition = true,
+        skip_task_info_stability_gate_after_click = true,
         task_pos_reject_extra_ms = 3500,
         step = {
             key = "fallen_city_holy_tower_1_map_trap_btn",
@@ -14360,9 +14389,10 @@ M.ROUTE_POINT_ACTIONS = {
         interact_radius = 60,
         probe_retry_ms = 800,
         retry_ms = 2500,
-        settle_ms = 2200,
+        settle_ms = 1500,
         timeout_ms = 18000,
         force_task_call_after_transition = true,
+        skip_task_info_stability_gate_after_click = true,
         task_pos_reject_extra_ms = 3500,
         step = {
             key = "fallen_city_holy_tower_2_map_trap_btn",
@@ -14465,6 +14495,120 @@ M.ROUTE_POINT_ACTIONS = {
             { x = 2066.83, y = 163.33, z = 214.00 },
             { x = 2485.26, y = 76.59, z = 214.00 },
             { x = 2960.00, y = -32.00, z = 214.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "fallen_city_meet_responder_fixed_route_-7429_-3143",
+        label = "陷落圣城_与接应者会合_固定路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "fallen_city_meet_responder_npc_dialogue_-6489_-3359",
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "陷落圣城"
+        },
+        task_detail_patterns = {
+            "与接应者会合"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -7429.00,
+            y = -3143.00,
+            z = -670.00,
+            radius = 1200,
+            z_tolerance = 320
+        },
+        retry_ms = 600000,
+        timeout_ms = 140000,
+        waypoint_reach_radius = 240,
+        waypoint_z_tolerance = 320,
+        move_interval_ms = 180,
+        reacquire_retry_ms = 1000,
+        waypoints = {
+            { x = -7732.59, y = -3241.48, z = -670.00 },
+            { x = -8048.41, y = -3890.47, z = -670.00 },
+            { x = -8458.09, y = -3537.63, z = -670.00 },
+            { x = -8453.02, y = -2969.25, z = -670.00 },
+            { x = -8398.98, y = -2479.49, z = -670.00 },
+            { x = -7968.41, y = -2216.02, z = -670.00 },
+            { x = -7512.76, y = -2182.41, z = -670.00 },
+            { x = -7171.42, y = -2521.39, z = -670.00 },
+            { x = -7132.87, y = -2900.41, z = -670.00 },
+            { x = -7216.63, y = -3377.06, z = -670.00 },
+            { x = -7561.80, y = -3730.39, z = -670.00 },
+            { x = -7977.74, y = -3615.29, z = -670.00 },
+            { x = -8310.91, y = -3287.58, z = -670.00 },
+            { x = -8405.78, y = -2864.77, z = -670.00 },
+            { x = -8259.70, y = -2425.25, z = -670.00 },
+            { x = -7934.01, y = -2136.53, z = -670.00 },
+            { x = -7522.45, y = -1977.10, z = -670.00 },
+            { x = -7103.09, y = -2123.54, z = -670.00 },
+            { x = -6923.05, y = -2512.17, z = -670.00 },
+            { x = -6959.89, y = -2938.17, z = -670.00 },
+            { x = -7171.14, y = -3349.14, z = -670.00 },
+            { x = -7514.75, y = -3641.04, z = -670.00 },
+            { x = -7983.21, y = -3638.90, z = -670.00 },
+            { x = -8186.56, y = -3292.58, z = -670.00 },
+            { x = -7918.10, y = -2922.90, z = -670.00 },
+            { x = -7539.51, y = -2725.02, z = -670.00 },
+            { x = -7092.53, y = -2685.82, z = -670.00 },
+            { x = -6676.33, y = -2730.96, z = -670.00 },
+            { x = -6238.89, y = -2762.66, z = -670.00 },
+            { x = -5936.40, y = -2523.82, z = -670.00 },
+            { x = -5995.83, y = -2143.26, z = -670.00 },
+            { x = -6320.91, y = -1952.57, z = -670.00 },
+            { x = -6759.71, y = -2057.25, z = -670.00 },
+            { x = -6968.89, y = -2333.66, z = -670.00 },
+            { x = -6977.06, y = -2769.00, z = -670.00 },
+            { x = -6835.47, y = -3058.91, z = -670.00 },
+            { x = -6473.98, y = -3137.52, z = -670.00 },
+            { x = -6245.50, y = -2737.84, z = -670.00 },
+            { x = -6306.63, y = -2455.87, z = -670.00 },
+            { x = -6675.95, y = -2318.11, z = -670.00 },
+            { x = -6511.64, y = -2998.08, z = -670.00 },
+            { x = -6488.79, y = -3358.99, z = -670.00 }
+        }
+    }),
+    make_npc_dialogue_route_action({
+        key = "fallen_city_meet_responder_npc_dialogue_-6489_-3359",
+        label = "陷落圣城_与接应者会合_NPC对话",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
+        drop_active_when_task_mismatch = true,
+        pre_action_combat_guard = false,
+        task_refresh_success_timeout_ms = 30000,
+        task_patterns = {
+            "陷落圣城"
+        },
+        task_detail_patterns = {
+            "与接应者会合"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -6488.79,
+            y = -3358.99,
+            z = -670.00,
+            radius = 900,
+            z_tolerance = 320
+        },
+        retry_ms = 6000,
+        dialogue = {
+            x = -6488.79,
+            y = -3358.99,
+            z = -670.00,
+            radius = 420,
+            interact_radius = 190,
+            move_interval_ms = 180,
+            z_tolerance = 320,
+            center_settle_ms = 500,
+            interact_retry_ms = 1200,
+            timeout_ms = 22000,
+            npc_search_radius = 1000,
+            fallback_interact = true
         }
     }),
     make_route_point_action({
@@ -15938,6 +16082,44 @@ M.ROUTE_POINT_ACTIONS = {
             { x = 16910.00, y = -5549.00, z = 2491.00 }
         }
     }),
+    make_npc_dialogue_route_action({
+        key = "long_night_star_thank_yiji_girl_dialogue_16895_-6254",
+        label = "长夜明星_感谢伊吉女孩的相助_NPC对话",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        retry_ms = 600000,
+        task_patterns = {
+            "长夜明星"
+        },
+        task_detail_patterns = {
+            "感谢伊吉女孩的相助"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 16895.03,
+            y = -6253.81,
+            z = 2491.00,
+            radius = 1200,
+            z_tolerance = 320
+        },
+        dialogue = {
+            x = 16895.03,
+            y = -6253.81,
+            z = 2491.00,
+            radius = 360,
+            interact_radius = 180,
+            move_interval_ms = 220,
+            z_tolerance = 320,
+            center_settle_ms = 600,
+            interact_retry_ms = 1400,
+            timeout_ms = 22000,
+            npc_search_radius = 900,
+            fallback_interact = true
+        }
+    }),
     make_route_point_action({
         key = "sand_sea_find_iji_fire_seed_route_10975_8556",
         label = "狂沙地海_找到伊吉部族追寻火种_固定路线后重call主线",
@@ -16018,6 +16200,42 @@ M.ROUTE_POINT_ACTIONS = {
             { x = 10390.41, y = 7768.57, z = 16.00 },
             { x = 10549.25, y = 7337.20, z = 16.00 },
             { x = 10847.97, y = 6971.20, z = 16.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "wind_night_follow_iji_trace_highfreq_route_-5794_-4616",
+        label = "永夜之风_跟随伊吉人的踪迹_高频固定路线后重call主线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "永夜之风"
+        },
+        task_detail_patterns = {
+            "跟随伊吉人的踪迹，找到伊吉部族"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -5794.00,
+            y = -4616.00,
+            z = 1610.00,
+            radius = 900,
+            z_tolerance = 420
+        },
+        retry_ms = 600000,
+        timeout_ms = 120000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 420,
+        move_interval_ms = 30,
+        move_interval_floor_ms = 30,
+        reacquire_retry_ms = 800,
+        route_stuck_skip_ms = 30000,
+        waypoints = {
+            { x = -1367.66, y = -3464.22, z = 1603.00, move_interval_ms = 30, move_interval_floor_ms = 30 },
+            { x = -1450.49, y = -1325.49, z = 1606.00, move_interval_ms = 30, move_interval_floor_ms = 30 },
+            { x = 343.48, y = 261.42, z = 1603.00, move_interval_ms = 30, move_interval_floor_ms = 30 },
+            { x = 3578.59, y = -1141.58, z = 1613.66, move_interval_ms = 30, move_interval_floor_ms = 30 }
         }
     }),
     make_route_point_action({
@@ -16601,6 +16819,8 @@ M.OBJECTIVE_POINT_CONFIGS = {
         kite_radius = 2600,
         kite_switch_ms = 2800,
         boss_clear_settle_ms = 3000,
+        defer_followup_until_clear = true,
+        ignore_terminal_text_change_when_objective_same = true,
         kite_points = {
             { x = 13536.51, y = 15323.40, z = 906.00 },
             { x = 13201.13, y = 16535.58, z = 906.00 },

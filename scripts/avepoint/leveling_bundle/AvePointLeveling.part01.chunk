@@ -124,7 +124,9 @@ M.BUTTON_CALL_HOVER_CAPTURE_DISABLED = true
 local UPDATE_INTERVAL_MS = 100
 local HEARTBEAT_INTERVAL_MS = 3000
 local ACTION_INTERVAL_MS = 255
-M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS = 530
+M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS = 150
+M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS = 175
+M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS
 M.COMBAT_ALTERNATE_RESET_MS = 10000
 local MOVE_INTERVAL_MS = 900
 local TASK_REFRESH_INTERVAL_MS = 1200
@@ -230,7 +232,7 @@ M.TASK_INFO_STABILITY_AFTER_CHANGE_DEADLINE_PAD_MS = 1500
 M.TASK_INFO_STABILITY_RUNTIME_PROBE_MS = 600
 M.TASK_INFO_STABILITY_RUNTIME_READY_COUNT = 1
 local POST_UI_PAUSE_MS = 900
-local FOLLOW_MOVE_PULSE_INTERVAL_MS = 255
+local FOLLOW_MOVE_PULSE_INTERVAL_MS = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS
 local FOLLOW_MOVE_PULSE_MIN_DISTANCE = 260
 M.AMBIENT_COMBAT_WAIT_SCAN_INTERVAL_MS = 250
 M.INTERACTION_COMBAT_GUARD_MAX_MS = 1800
@@ -1268,7 +1270,7 @@ end
 function M.current_task_log_detail()
     local task_detail = trim(tostring(state.current_task_detail or ""))
     if M.is_task_detail_noise(task_detail) then
-        task_detail = ""
+        return ""
     end
     if task_detail == "" then
         task_detail = trim(tostring(_G.AVEPOINT_LAST_TASK_DETAIL or ""))
@@ -2538,6 +2540,7 @@ local function nav_worker_clear_shares(ctx)
         "target_source",
         "target_path_index",
         "move_interval_ms",
+        "move_interval_floor_ms",
         "mode",
         "route_version",
         "route_signature",
@@ -10764,7 +10767,8 @@ local function issue_move_direct(ctx, current_time, target)
     elseif type(target) == "table" and target.source == "route_point_board" then
         move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 250)
     elseif type(target) == "table" and target.source == "route_point_recorded_route" then
-        move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 220)
+        local move_interval_floor_ms = math.max(30, tonumber(target.move_interval_floor_ms) or 120)
+        move_interval_ms = math.max(move_interval_floor_ms, tonumber(target.move_interval_ms) or 220)
     end
 
     state.next_move_at = current_time + move_interval_ms
@@ -11045,6 +11049,7 @@ function M.publish_route_point_recorded_route_worker(ctx, current_time, target, 
     if type(waypoints) ~= "table" or #waypoints <= 0 then
         return false, "recorded route points are unavailable."
     end
+    local move_interval_floor_ms = math.max(30, tonumber(target.move_interval_floor_ms) or 80)
     if state.task_combat_kite_route_worker_active == true then
         M.pause_task_combat_kite_route_worker(ctx)
     end
@@ -11134,6 +11139,7 @@ function M.publish_route_point_recorded_route_worker(ctx, current_time, target, 
         nav_worker_set(ctx, "route_signature", tostring(state.route_point_recorded_route_worker_signature or ""))
         nav_worker_set(ctx, "target_path_index", nearest_index)
         nav_worker_set(ctx, "move_interval_ms", move_interval_ms)
+        nav_worker_set(ctx, "move_interval_floor_ms", move_interval_floor_ms)
         nav_worker_set(ctx, "mode", "path_route")
         nav_worker_set(ctx, "paused", false)
         nav_worker_set(ctx, "stop", false)
@@ -11230,6 +11236,7 @@ function M.publish_route_point_recorded_route_worker(ctx, current_time, target, 
     nav_worker_set(ctx, "route_signature", signature)
     nav_worker_set(ctx, "target_path_index", nearest_index)
     nav_worker_set(ctx, "move_interval_ms", move_interval_ms)
+    nav_worker_set(ctx, "move_interval_floor_ms", move_interval_floor_ms)
     nav_worker_set(ctx, "mode", "path_route")
     nav_worker_set(ctx, "route_version", tonumber(state.route_point_recorded_route_worker_version) or 1)
     nav_worker_set(ctx, "paused", false)
@@ -11279,7 +11286,8 @@ issue_move = function(ctx, current_time, target)
     elseif target_source == "route_point_board" then
         move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 250)
     elseif target_source == "route_point_recorded_route" then
-        move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 220)
+        local move_interval_floor_ms = math.max(30, tonumber(target.move_interval_floor_ms) or 120)
+        move_interval_ms = math.max(move_interval_floor_ms, tonumber(target.move_interval_ms) or 220)
     end
 
     if target_source == "task_path" or target_source == "treasure_path" then
@@ -11535,7 +11543,22 @@ local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
         return false, "combat cooldown."
     end
 
-    local cooldown_ms = tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS) or 530
+    local cooldown_min_ms = math.max(
+        1,
+        math.floor(
+            tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS)
+                or tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS)
+                or 150
+        )
+    )
+    local cooldown_max_ms = math.max(
+        cooldown_min_ms,
+        math.floor(tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS) or cooldown_min_ms)
+    )
+    local cooldown_ms = cooldown_min_ms
+    if cooldown_max_ms > cooldown_min_ms then
+        cooldown_ms = math.random(cooldown_min_ms, cooldown_max_ms)
+    end
     state.next_action_at = current_time + cooldown_ms
 
     local key_ok, key_mode, post_err = M.press_combat_w_key(ctx)
@@ -12429,6 +12452,11 @@ M.clear_revive_reentry_state = function()
     state.revive_reentry_source = nil
     state.revive_reentry_objective_key = nil
     state.revive_reentry_deadline_at = 0
+    state.revive_reentry_clicked_at = 0
+    state.revive_reentry_next_click_at = 0
+    state.revive_reentry_last_anchor_x = nil
+    state.revive_reentry_last_anchor_y = nil
+    state.revive_reentry_last_anchor_z = nil
 end
 
 clear_task_combat_state = function()
@@ -13539,6 +13567,108 @@ function M.evaluate_dialogue_jump_intent(ctx, current_time)
     }
 end
 
+function M.pending_task_advancing_jump_followup_route_key()
+    local pending_key = tostring(state.task_advancing_action_pending_key or "")
+    if pending_key == "" or type(M.find_route_point_action_by_key) ~= "function" then
+        return ""
+    end
+
+    local action = M.find_route_point_action_by_key(pending_key)
+    if type(action) ~= "table" then
+        return ""
+    end
+
+    return trim(action.jump_followup_route_action_key or action.dialogue_jump_followup_route_action_key or "")
+end
+
+function M.arm_pending_task_advancing_jump_followup_route(ctx, current_time, source)
+    local pending_key = tostring(state.task_advancing_action_pending_key or "")
+    local pending_state_key = tostring(state.task_advancing_action_pending_state_key or "")
+    if pending_key == "" or pending_state_key == "" or type(M.find_route_point_action_by_key) ~= "function" then
+        return false
+    end
+
+    local action = M.find_route_point_action_by_key(pending_key)
+    if type(action) ~= "table" then
+        return false
+    end
+
+    local followup_key = trim(action.jump_followup_route_action_key or action.dialogue_jump_followup_route_action_key or "")
+    if followup_key == "" then
+        return false
+    end
+
+    local pending_task_key = M.normalize_task_title_key(state.task_advancing_action_pending_task_name)
+    local pending_detail_key = normalize_map_name(state.task_advancing_action_pending_task_detail)
+    local current_task_key = M.normalize_task_title_key(M.current_task_log_name() or state.current_task_name)
+    local current_detail_key = normalize_map_name(M.current_task_log_detail() or state.current_task_detail)
+    if (pending_task_key ~= nil and current_task_key ~= nil and pending_task_key ~= current_task_key)
+        or (pending_detail_key ~= nil and current_detail_key ~= nil and pending_detail_key ~= current_detail_key)
+    then
+        logger(ctx).info(string.format(
+            "[Leveling] dialogue jump follow-up skipped; task already changed | key=%s followup=%s old_task=%s old_detail=%s new_task=%s new_detail=%s",
+            pending_key,
+            followup_key,
+            tostring(pending_task_key or ""),
+            tostring(pending_detail_key or ""),
+            tostring(current_task_key or ""),
+            tostring(current_detail_key or "")
+        ))
+        return false
+    end
+
+    local followup_cfg = M.find_route_point_action_by_key(followup_key)
+    if type(followup_cfg) ~= "table" or type(M.activate_route_point_action) ~= "function" then
+        logger(ctx).warn(string.format(
+            "[Leveling] dialogue jump follow-up route unavailable | key=%s followup=%s",
+            pending_key,
+            followup_key
+        ))
+        return false
+    end
+
+    if type(M.route_point_action_state_key) == "function" then
+        local followup_state_key = M.route_point_action_state_key(followup_cfg)
+        if type(state.map_transition_triggered) == "table" then
+            state.map_transition_triggered[followup_state_key] = 0
+        end
+        if type(state.completed_task_advancing_actions) == "table" then
+            state.completed_task_advancing_actions[followup_state_key] = nil
+        end
+    end
+
+    local followup_action, followup_err = M.activate_route_point_action(
+        ctx,
+        current_time,
+        followup_key,
+        trim(source or "") ~= "" and tostring(source) or "dialogue_jump_followup_route"
+    )
+    if type(followup_action) ~= "table" then
+        logger(ctx).warn(string.format(
+            "[Leveling] dialogue jump follow-up route arm failed | key=%s followup=%s err=%s",
+            pending_key,
+            followup_key,
+            tostring(followup_err or "")
+        ))
+        return false
+    end
+
+    if type(state.completed_task_advancing_actions) ~= "table" then
+        state.completed_task_advancing_actions = {}
+    end
+    state.completed_task_advancing_actions[pending_state_key] = current_time
+    M.mark_recipe_action_completed(ctx, current_time, action, "dialogue_jump_followup_route")
+    M.clear_task_advancing_action_confirmation()
+    logger(ctx).info(string.format(
+        "[Leveling] dialogue jump follow-up route armed | key=%s completed_state=%s followup=%s mode=%s",
+        pending_key,
+        pending_state_key,
+        followup_key,
+        tostring(followup_action.mode or "")
+    ))
+    return true
+end
+
 function M.maybe_click_dialogue_jump_button(ctx, current_time)
     current_time = tonumber(current_time) or now_ms(ctx)
     local jump_allowed, jump_reason, jump_meta = M.evaluate_dialogue_jump_intent(ctx, current_time)
@@ -13590,13 +13720,17 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
         state.dialogue_ui_match = nil
         local post_flow, post_task_name = M.current_task_post_dialogue_flow_config()
         local armed_post_dialogue_flow = false
+        local jump_followup_route_key = M.pending_task_advancing_jump_followup_route_key()
         local wait_task_info_refresh_after_jump = type(post_flow) == "table"
             and post_flow.wait_task_info_refresh_after_jump == true
         local task_info_refresh_timeout_ms = math.max(
             2000,
             tonumber(type(post_flow) == "table" and post_flow.task_info_refresh_timeout_ms) or 6500
         )
-        if type(post_flow) == "table" and post_flow.arm_after_objective_button ~= true then
+        if jump_followup_route_key == ""
+            and type(post_flow) == "table"
+            and post_flow.arm_after_objective_button ~= true
+        then
             armed_post_dialogue_flow = M.arm_post_dialogue_flow(ctx, after_click_time, post_flow, post_task_name, interaction_origin) == true
         end
         local consumed_origin = interaction_origin
@@ -13608,11 +13742,35 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
         M.clear_dialogue_jump_window_state()
         clear_pending_interaction(false, true)
         M.clear_task_info_refresh_wait_state()
-        state.task_update_wait_until = math.max(
-            tonumber(state.task_update_wait_until) or 0,
-            after_click_time + settle_ms
-        )
-        if armed_post_dialogue_flow then
+        local armed_jump_followup_route = false
+        if jump_followup_route_key ~= "" then
+            armed_jump_followup_route = M.arm_pending_task_advancing_jump_followup_route(
+                ctx,
+                after_click_time,
+                "dialogue_jump_followup_route"
+            ) == true
+        end
+        if armed_jump_followup_route then
+            state.task_update_wait_until = 0
+            state.require_task_button_refresh = false
+            state.require_task_button_refresh_reason = nil
+            state.next_task_button_click_at = math.max(
+                tonumber(state.next_task_button_click_at) or 0,
+                after_click_time + 1200
+            )
+            state.next_task_refresh_at = after_click_time + 250
+        else
+            state.task_update_wait_until = math.max(
+                tonumber(state.task_update_wait_until) or 0,
+                after_click_time + settle_ms
+            )
+        end
+        if armed_jump_followup_route then
+            logger(ctx).info(string.format(
+                "[Leveling] dialogue jump refresh deferred by route follow-up | followup=%s",
+                tostring(jump_followup_route_key or "")
+            ))
+        elseif armed_post_dialogue_flow then
             state.require_task_button_refresh = false
             state.require_task_button_refresh_reason = nil
             state.next_task_button_click_at = math.max(

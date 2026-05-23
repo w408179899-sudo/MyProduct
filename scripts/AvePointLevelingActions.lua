@@ -63,8 +63,45 @@ function M.make_world_map_send_linear_recipe(key, send_step, entry_action)
             kind = "wait_entry_action_elapsed",
             key = tostring(key or "") .. "_wait_map",
             duration_ms = tonumber(action.map_open_wait_ms) or 900
-        },
-        {
+        }
+    }
+
+    if type(action.center_selection_step) == "table" then
+        local center_step = clone_table(action.center_selection_step)
+        center_step.kind = "call_locator_button"
+        center_step.key = center_step.key or (tostring(key or "") .. "_select_point")
+        if center_step.label == nil then
+            center_step.label = tostring(key or "") .. "_select_point"
+        end
+        center_step.settle_ms = math.max(
+            0,
+            tonumber(center_step.settle_ms) or tonumber(action.center_settle_ms) or 450
+        )
+        center_step.fixed_fallback_ratio_x = tonumber(center_step.fixed_fallback_ratio_x)
+            or tonumber(center_step.fallback_fixed_ratio_x)
+            or tonumber(action.center_click_ratio_x)
+            or 0.5
+        center_step.fixed_fallback_ratio_y = tonumber(center_step.fixed_fallback_ratio_y)
+            or tonumber(center_step.fallback_fixed_ratio_y)
+            or tonumber(action.center_click_ratio_y)
+            or 0.5
+        center_step.fixed_fallback_mouse_mode = center_step.fixed_fallback_mouse_mode
+            or action.center_mouse_mode
+            or action.mouse_mode
+            or "api"
+        center_step.fixed_fallback_click_button = center_step.fixed_fallback_click_button
+            or action.center_click_button
+            or action.click_button
+            or "left"
+        center_step.fixed_fallback_click_delay_ms = tonumber(center_step.fixed_fallback_click_delay_ms)
+            or tonumber(action.center_click_delay_ms or action.click_delay_ms)
+            or 50
+        center_step.fixed_fallback_hover_delay_ms = tonumber(center_step.fixed_fallback_hover_delay_ms)
+            or tonumber(action.center_hover_delay_ms or action.hover_delay_ms)
+            or 80
+        steps[#steps + 1] = center_step
+    else
+        steps[#steps + 1] = {
             kind = "click_fixed_client_point",
             key = tostring(key or "") .. "_select_point",
             label = tostring(key or ""),
@@ -82,7 +119,7 @@ function M.make_world_map_send_linear_recipe(key, send_step, entry_action)
             world_map_panel_retry_ms = math.max(100, tonumber(action.world_map_panel_retry_ms or action.center_ready_retry_ms) or 300),
             settle_ms = math.max(150, tonumber(action.center_settle_ms) or 450)
         }
-    }
+    end
 
     if type(action.selection_step) == "table" then
         local selection_step = clone_table(action.selection_step)

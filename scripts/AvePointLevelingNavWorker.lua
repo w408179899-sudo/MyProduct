@@ -332,7 +332,11 @@ while running do
     local target_source = tostring(share_get(SHARE_PREFIX, "target_source") or "")
     local target_x = as_number(share_get(SHARE_PREFIX, "target_x"))
     local target_y = as_number(share_get(SHARE_PREFIX, "target_y"))
-    local move_interval_ms = math.max(80, as_number(share_get(SHARE_PREFIX, "move_interval_ms")) or 900)
+    local move_interval_floor_ms = math.max(30, as_number(share_get(SHARE_PREFIX, "move_interval_floor_ms")) or 80)
+    local move_interval_ms = math.max(
+        move_interval_floor_ms,
+        as_number(share_get(SHARE_PREFIX, "move_interval_ms")) or 900
+    )
     if not running then
         break
     end
@@ -631,7 +635,14 @@ while running do
         if version ~= last_version then
             target_x = as_number(share_get(SHARE_PREFIX, "target_x"))
             target_y = as_number(share_get(SHARE_PREFIX, "target_y"))
-            move_interval_ms = math.max(80, as_number(share_get(SHARE_PREFIX, "move_interval_ms")) or 900)
+            move_interval_floor_ms = math.max(
+                30,
+                as_number(share_get(SHARE_PREFIX, "move_interval_floor_ms")) or 80
+            )
+            move_interval_ms = math.max(
+                move_interval_floor_ms,
+                as_number(share_get(SHARE_PREFIX, "move_interval_ms")) or 900
+            )
             last_version = version
             next_move_at = 0
         end
