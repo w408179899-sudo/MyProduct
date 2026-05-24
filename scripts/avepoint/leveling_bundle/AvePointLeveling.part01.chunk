@@ -11089,7 +11089,11 @@ function M.publish_route_point_recorded_route_worker(ctx, current_time, target, 
             or tonumber(target.progress_reset_distance)
             or TASK_PATH_PROGRESS_RESET_DISTANCE
     )
+    local configured_max_points = tonumber(target.route_worker_max_points)
     local max_points = math.min(path_count, M.TASK_PATH_WORKER_MAX_POINTS)
+    if configured_max_points ~= nil and configured_max_points > 0 then
+        max_points = math.max(1, math.min(max_points, math.floor(configured_max_points)))
+    end
     local remaining_count = path_count - nearest_index + 1
     local full_route_available = remaining_count <= max_points
     local margin = math.max(6, math.floor(max_points * 0.25))
@@ -12432,21 +12436,7 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         watch = true
     }
 
-    local used_e = maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
-        nonintrusive = common_opts.nonintrusive,
-        force_refresh = common_opts.force_refresh,
-        watch = common_opts.watch,
-        vk = 0x45,
-        hotkey_name = "E",
-        threshold_ratio = 0.45,
-        cooldown_ms = 100,
-        last_used_field = "last_potion_e_at"
-    })
-    if used_e then
-        return true
-    end
-
-    return maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
+    local used_q = maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
         nonintrusive = common_opts.nonintrusive,
         force_refresh = common_opts.force_refresh,
         watch = common_opts.watch,
@@ -12455,6 +12445,20 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         threshold_ratio = POTION_THRESHOLD_RATIO,
         cooldown_ms = 100,
         last_used_field = "last_potion_q_at"
+    })
+    if used_q then
+        return true
+    end
+
+    return maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
+        nonintrusive = common_opts.nonintrusive,
+        force_refresh = common_opts.force_refresh,
+        watch = common_opts.watch,
+        vk = 0x45,
+        hotkey_name = "E",
+        threshold_ratio = 0.45,
+        cooldown_ms = 100,
+        last_used_field = "last_potion_e_at"
     })
 end
 

@@ -6747,9 +6747,12 @@ function M.level_up_maintenance_flow_block_reason(current_time)
 end
 
 function M.level_up_maintenance_preemptible_flow_block(reason)
-    -- Level-up maintenance must not clear an active main-flow target or path wait.
-    -- It should run only when no flow owner is blocking it.
-    return false
+    reason = tostring(reason or "")
+    return reason == "task_button_refresh"
+        or reason == "refresh_task_button_after_dialogue"
+        or reason == "wait_task_path_after_button"
+        or reason == "wait_task_path_early_reclick"
+        or reason == "task_navigation_active"
 end
 
 function M.prepare_level_up_maintenance_preempt_flow(ctx, current_time, reason)
@@ -8400,7 +8403,9 @@ function M.maybe_handle_route_point_action_route(ctx, current_time, player_x, pl
         return false
     end
 
-    if not M.route_point_action_matches_task(action) then
+    if action.keep_active_on_task_mismatch ~= true
+        and not M.route_point_action_matches_task(action)
+    then
         logger(ctx).info(string.format(
             "[Leveling] route point action recorded route cleared: task mismatch | task=%s key=%s",
             tostring(M.current_task_log_name() or state.current_task_name or ""),
@@ -8487,6 +8492,24 @@ function M.maybe_handle_route_point_action_route(ctx, current_time, player_x, pl
             local completed_z_gap = completed_z ~= nil and type(player_z) == "number"
                 and math.abs((tonumber(player_z) or 0) - completed_z)
                 or 0
+            local complete_on_path_done = action.route_worker_complete_on_path_done == true
+            if complete_on_path_done == true and window_end >= #waypoints then
+                state.route_point_action_route_index = window_end + 1
+                state.route_point_action_route_next_retry_at = current_time
+                state.route_point_recorded_route_worker_signature = nil
+                logger(ctx).info(string.format(
+                    "[Leveling] route point action recorded route worker path_done accepted | task=%s key=%s index=%d/%d distance=%s reach=%.2f z_gap=%.2f z_tolerance=%.2f",
+                    tostring(M.current_task_log_name() or state.current_task_name or ""),
+                    tostring(active_key),
+                    window_end,
+                    #waypoints,
+                    completed_distance ~= nil and string.format("%.2f", completed_distance) or "nil",
+                    tonumber(completed_reach) or 0,
+                    tonumber(completed_z_gap) or 0,
+                    tonumber(completed_z_tolerance) or 0
+                ))
+                return M.maybe_handle_route_point_action_route(ctx, current_time, player_x, player_y, player_z)
+            end
             if completed_distance ~= nil
                 and completed_distance <= completed_reach
                 and completed_z_gap <= completed_z_tolerance
@@ -8532,6 +8555,16 @@ function M.maybe_handle_route_point_action_route(ctx, current_time, player_x, pl
             state.next_route_point_action_scan_at = 0
             local followup_route_action_key = trim(action.followup_route_action_key or action.next_route_point_action_key or "")
             if followup_route_action_key ~= "" then
+                if action.followup_route_action_ignore_retry == true then
+                    local followup_cfg = M.find_route_point_action_by_key(followup_route_action_key)
+                    if type(followup_cfg) == "table" and type(state.map_transition_triggered) == "table" then
+                        local followup_state_key = M.route_point_action_state_key(followup_cfg)
+                        state.map_transition_triggered[followup_state_key] = 0
+                        if type(state.completed_task_advancing_actions) == "table" then
+                            state.completed_task_advancing_actions[followup_state_key] = nil
+                        end
+                    end
+                end
                 local followup_action, followup_err = M.activate_route_point_action(
                     ctx,
                     current_time,
@@ -8784,6 +8817,8 @@ function M.maybe_handle_route_point_action_route(ctx, current_time, player_x, pl
             route_points = waypoints,
             route_key = active_key,
             route_state_key = state_key,
+            route_worker_max_points = tonumber(point.route_worker_max_points)
+                or tonumber(action.route_worker_max_points),
             route_arrive_tolerance = reach_radius,
             route_stuck_skip_ms = tonumber(point.route_stuck_skip_ms)
                 or tonumber(action.route_stuck_skip_ms)
@@ -11182,10 +11217,39 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
     local task_cfg, task_name = M.current_task_runtime_config()
     local objective_cfg = type(task_cfg) == "table" and type(task_cfg.objective) == "table" and task_cfg.objective or nil
     local revive_reentry_cfg, revive_reentry_source, revive_reentry_objective_key = M.resolve_revive_reentry_config()
-    local three_point_kite_reentry = M.task_uses_three_point_kite(task_cfg, objective_cfg)
-    local boss_objective_active = (type(objective_cfg) == "table" and tostring(objective_cfg.mode or "") == "boss_kite")
-        or state.task_combat_force_kite == true
-        or type(revive_reentry_cfg) == "table"
+    local death_in_boss_combat_context =
+        state.task_combat_force_kite == true
+        or tostring(state.stage or "") == "task_combat"
+        or tostring(state.stage or "") == "task_combat_kite"
+        or tostring(state.stage or "") == "post_combat_loot"
+        or type(state.task_combat_locked_reentry_cfg) == "table"
+        or (tonumber(state.task_combat_started_at) or 0) > 0
+    if type(revive_reentry_cfg) == "table"
+        and death_in_boss_combat_context ~= true
+        and revive_reentry_cfg.allow_non_boss_revive_reentry ~= true
+    then
+        logger(ctx).info(string.format(
+            "[Leveling] revive reentry skipped; death was outside boss combat | source=%s objective_key=%s label=%s task=%s detail=%s",
+            tostring(revive_reentry_source or ""),
+            tostring(revive_reentry_objective_key or ""),
+            tostring(revive_reentry_cfg.label or revive_reentry_cfg.key or ""),
+            tostring(task_name or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or "")
+        ))
+        revive_reentry_cfg = nil
+        revive_reentry_source = nil
+        revive_reentry_objective_key = nil
+    end
+    local three_point_kite_reentry =
+        death_in_boss_combat_context == true
+        and M.task_uses_three_point_kite(task_cfg, objective_cfg)
+    local boss_objective_active =
+        death_in_boss_combat_context == true
+        and (
+            (type(objective_cfg) == "table" and tostring(objective_cfg.mode or "") == "boss_kite")
+            or state.task_combat_force_kite == true
+            or type(revive_reentry_cfg) == "table"
+        )
     local explicit_revive_reentry_handles_path =
         type(revive_reentry_cfg) == "table"
         and revive_reentry_cfg.skip_post_revive_task_path_reacquire ~= false
@@ -11291,13 +11355,21 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
             math.max(8000, tonumber(revive_reentry_cfg.timeout_ms) or 18000)
         ))
     elseif type(map_cfg) == "table" and type(map_cfg.revive_reentry) == "table" then
-        state.revive_reentry_pending = true
-        state.revive_reentry_map_name = map_name
-        logger(ctx).info(string.format(
-            "[Leveling] revive map reentry armed | map=%s label=%s",
-            tostring(map_name or ""),
-            tostring(map_cfg.revive_reentry.label or map_cfg.revive_reentry.key or "")
-        ))
+        if death_in_boss_combat_context == true or map_cfg.revive_reentry.allow_non_boss_revive_reentry == true then
+            state.revive_reentry_pending = true
+            state.revive_reentry_map_name = map_name
+            logger(ctx).info(string.format(
+                "[Leveling] revive map reentry armed | map=%s label=%s",
+                tostring(map_name or ""),
+                tostring(map_cfg.revive_reentry.label or map_cfg.revive_reentry.key or "")
+            ))
+        else
+            logger(ctx).info(string.format(
+                "[Leveling] revive map reentry skipped; death was outside boss combat | map=%s label=%s",
+                tostring(map_name or ""),
+                tostring(map_cfg.revive_reentry.label or map_cfg.revive_reentry.key or "")
+            ))
+        end
     elseif type(revive_reentry_cfg) == "table" and already_inside_locked_room then
         logger(ctx).info(string.format(
             "[Leveling] revive boss reentry skipped | already inside boss room objective_key=%s pos=%.2f, %.2f",
