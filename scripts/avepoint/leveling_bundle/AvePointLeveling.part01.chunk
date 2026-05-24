@@ -124,8 +124,8 @@ M.BUTTON_CALL_HOVER_CAPTURE_DISABLED = true
 local UPDATE_INTERVAL_MS = 100
 local HEARTBEAT_INTERVAL_MS = 3000
 local ACTION_INTERVAL_MS = 255
-M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS = 150
-M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS = 175
+M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS = 550
+M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS = 550
 M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS
 M.COMBAT_ALTERNATE_RESET_MS = 10000
 local MOVE_INTERVAL_MS = 900
@@ -253,8 +253,8 @@ M.EQUIP_RECYCLE_MAINTENANCE_CONFIG = type(M._leveling_config) == "table"
     and type(M._leveling_config.EQUIP_RECYCLE_MAINTENANCE_CONFIG) == "table"
     and M._leveling_config.EQUIP_RECYCLE_MAINTENANCE_CONFIG
     or {}
-local POTION_THRESHOLD_RATIO = 0.60
-local POTION_COOLDOWN_MS = 2500
+local POTION_THRESHOLD_RATIO = 0.65
+local POTION_COOLDOWN_MS = 100
 local LOG_THROTTLE_MS = 3000
 local MONSTER_SCAN_LOG_INTERVAL_MS = 2000
 local REVIVE_CLICK_RETRY_INTERVAL_MS = 3000
@@ -2207,6 +2207,9 @@ local function reset_state()
     state.pending_interaction_task_name = nil
     state.pending_interaction_task_detail = nil
     state.pending_interaction_refresh_on_timeout = false
+    state.pending_interaction_started_at = 0
+    state.pending_interaction_deadline_at = 0
+    state.task_dialogue_flow_waiting_jump_until = 0
     state.npc_dialogue_combat_retry_active = false
     state.npc_dialogue_combat_retry_source = nil
     state.npc_dialogue_combat_retry_task_name = nil
@@ -10766,6 +10769,13 @@ local function issue_move_direct(ctx, current_time, target)
         move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or MOVE_INTERVAL_MS)
     elseif type(target) == "table" and target.source == "route_point_board" then
         move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 250)
+    elseif type(target) == "table"
+        and (
+            target.source == "route_point_npc_dialogue"
+            or target.source == "route_point_npc_dialogue_dynamic_npc"
+        )
+    then
+        move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 220)
     elseif type(target) == "table" and target.source == "route_point_recorded_route" then
         local move_interval_floor_ms = math.max(30, tonumber(target.move_interval_floor_ms) or 120)
         move_interval_ms = math.max(move_interval_floor_ms, tonumber(target.move_interval_ms) or 220)
@@ -11285,6 +11295,10 @@ issue_move = function(ctx, current_time, target)
         move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or MOVE_INTERVAL_MS)
     elseif target_source == "route_point_board" then
         move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 250)
+    elseif target_source == "route_point_npc_dialogue"
+        or target_source == "route_point_npc_dialogue_dynamic_npc"
+    then
+        move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 220)
     elseif target_source == "route_point_recorded_route" then
         local move_interval_floor_ms = math.max(30, tonumber(target.move_interval_floor_ms) or 120)
         move_interval_ms = math.max(move_interval_floor_ms, tonumber(target.move_interval_ms) or 220)
@@ -12343,11 +12357,23 @@ local function maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, opt
         or (hotkey_vk == 0x45 and 0.45 or POTION_THRESHOLD_RATIO)
     local last_used_field = tostring(opts.last_used_field or (hotkey_vk == 0x45 and "last_potion_e_at" or "last_potion_q_at"))
 
-    local potion_cooldown_ms = POTION_COOLDOWN_MS
+    local potion_cooldown_ms = math.max(0, math.floor(tonumber(opts.cooldown_ms) or POTION_COOLDOWN_MS))
     if type(hp_ratio) == "number" and hp_ratio <= 0.40 then
-        potion_cooldown_ms = 900
+        potion_cooldown_ms = math.min(potion_cooldown_ms, 600)
     end
-    if current_time - (tonumber(state[last_used_field]) or 0) < potion_cooldown_ms then
+    local cooldown_left_ms = potion_cooldown_ms - (current_time - (tonumber(state[last_used_field]) or 0))
+    if cooldown_left_ms > 0 then
+        if type(hp_ratio) == "number" and hp_ratio <= threshold_ratio then
+            log_throttled(ctx, "potion_cooldown_" .. hotkey_name, "info", 800, string.format(
+                "[Leveling] low hp potion %s deferred | hp=%s max_hp=%s ratio=%.2f threshold=%.2f cooldown_left_ms=%d",
+                hotkey_name,
+                hp ~= nil and string.format("%.2f", tonumber(hp) or 0) or "nil",
+                max_hp ~= nil and string.format("%.2f", tonumber(max_hp) or 0) or "nil",
+                tonumber(hp_ratio) or 0,
+                tonumber(threshold_ratio) or 0,
+                math.max(0, math.floor(cooldown_left_ms))
+            ))
+        end
         return false
     end
 
@@ -12390,14 +12416,14 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         return false
     end
 
-    state.next_potion_watch_at = current_time + 120
+    state.next_potion_watch_at = current_time + 60
 
     local last_info_at = tonumber(state.last_player_info_at) or 0
     local info_age_ms = last_info_at > 0 and math.max(0, current_time - last_info_at) or math.huge
     local force_refresh = hp == nil
         or max_hp == nil
         or hp_ratio == nil
-        or info_age_ms >= 160
+        or info_age_ms >= 80
         or (type(hp_ratio) == "number" and hp_ratio <= 0.72)
 
     local common_opts = {
@@ -12413,6 +12439,7 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         vk = 0x45,
         hotkey_name = "E",
         threshold_ratio = 0.45,
+        cooldown_ms = 100,
         last_used_field = "last_potion_e_at"
     })
     if used_e then
@@ -12426,6 +12453,7 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         vk = VK_Q,
         hotkey_name = "Q",
         threshold_ratio = POTION_THRESHOLD_RATIO,
+        cooldown_ms = 100,
         last_used_field = "last_potion_q_at"
     })
 end
@@ -12725,6 +12753,9 @@ local function clear_pending_interaction(keep_npc_dialogue_retry_state, preserve
     state.pending_interaction_task_name = nil
     state.pending_interaction_task_detail = nil
     state.pending_interaction_refresh_on_timeout = false
+    state.pending_interaction_started_at = 0
+    state.pending_interaction_deadline_at = 0
+    state.task_dialogue_flow_waiting_jump_until = 0
     M.clear_dialogue_jump_window_state()
     if preserve_jump_session ~= true then
         M.clear_dialogue_jump_session_state()
@@ -12744,6 +12775,50 @@ function M.pending_interaction_task_changed()
     local task_changed = pending_task ~= nil and current_task ~= nil and pending_task ~= current_task
     local detail_changed = pending_detail ~= nil and current_detail ~= nil and pending_detail ~= current_detail
     return task_changed or detail_changed, pending_task, pending_detail, current_task, current_detail
+end
+
+function M.maybe_release_stale_pending_interaction(ctx, current_time, source)
+    local origin = trim(state.pending_interaction_origin)
+    if origin == "" then
+        return false
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local task_changed, pending_task, pending_detail, current_task, current_detail = M.pending_interaction_task_changed()
+    local deadline_at = tonumber(state.pending_interaction_deadline_at) or 0
+    if not task_changed and (deadline_at <= 0 or current_time < deadline_at) then
+        return false
+    end
+
+    local refresh_on_timeout = state.pending_interaction_refresh_on_timeout == true
+    local reason = task_changed and "task_changed" or "timeout"
+    local elapsed_ms = math.max(0, current_time - (tonumber(state.pending_interaction_started_at) or current_time))
+    clear_pending_interaction(false)
+    state.task_update_wait_until = 0
+    if task_changed or refresh_on_timeout then
+        state.require_task_button_refresh = true
+        state.require_task_button_refresh_reason = "pending_interaction_" .. reason
+        state.next_task_button_click_at = current_time
+        state.next_task_refresh_at = current_time
+    end
+    state.next_dialogue_jump_scan_at = 0
+    state.next_dialogue_jump_click_at = 0
+    if type(M.reset_dialogue_jump_missing_probe) == "function" then
+        M.reset_dialogue_jump_missing_probe(true)
+    end
+    logger(ctx).warn(string.format(
+        "[Leveling] stale pending interaction released | reason=%s source=%s origin=%s elapsed_ms=%d refresh=%s old_task=%s old_detail=%s new_task=%s new_detail=%s",
+        reason,
+        tostring(source or ""),
+        origin,
+        elapsed_ms,
+        (task_changed or refresh_on_timeout) and "true" or "false",
+        tostring(pending_task or ""),
+        tostring(pending_detail or ""),
+        tostring(current_task or ""),
+        tostring(current_detail or "")
+    ))
+    return true
 end
 
 function M.dialogue_interaction_reopen_state_key(interaction_origin)
@@ -12980,9 +13055,14 @@ function M.fetch_locator_candidate_target(ctx, step)
             local candidate = step.locator_candidates[index]
             local candidate_step = M.build_locator_candidate_step(step, candidate, index)
             candidate_step.locator_candidate_sequence_runtime_key = sequence_key
-            local target, fetch_err = fetch_locator_button_target(ctx, candidate_step)
+            local target, fetch_err, _fallback_source, effective_step = M.fetch_locator_button_target_with_configured_fallback(
+                ctx,
+                candidate_step,
+                now_ms(ctx),
+                "locator_candidate:" .. tostring(candidate_step.key or candidate_step.label or index)
+            )
             if type(target) == "table" then
-                return target, nil, candidate_step, index
+                return target, nil, effective_step or candidate_step, index
             end
             if #miss_parts < 6 then
                 miss_parts[#miss_parts + 1] = string.format(
@@ -12996,8 +13076,13 @@ function M.fetch_locator_candidate_target(ctx, step)
         return nil, table.concat(miss_parts, " | "), nil, nil
     end
 
-    local target, fetch_err = fetch_locator_button_target(ctx, step)
-    return target, fetch_err, step, nil
+    local target, fetch_err, _fallback_source, effective_step = M.fetch_locator_button_target_with_configured_fallback(
+        ctx,
+        step,
+        now_ms(ctx),
+        "locator_step:" .. tostring(type(step) == "table" and (step.key or step.label) or "")
+    )
+    return target, fetch_err, effective_step or step, nil
 end
 
 function M.advance_locator_candidate_sequence(ctx, step, candidate_index)
@@ -13023,6 +13108,13 @@ end
 
 function M.maybe_handle_task_dialogue_flow(ctx, current_time)
     current_time = tonumber(current_time) or now_ms(ctx)
+
+    local waiting_jump_until = tonumber(state.task_dialogue_flow_waiting_jump_until) or 0
+    if waiting_jump_until > current_time then
+        return false
+    elseif waiting_jump_until > 0 then
+        state.task_dialogue_flow_waiting_jump_until = 0
+    end
 
     local interaction_origin = trim(state.pending_interaction_origin)
     if interaction_origin == "" then
@@ -13243,6 +13335,62 @@ function M.maybe_handle_task_dialogue_flow(ctx, current_time)
         tostring(target.y or ""),
         settle_ms
     ))
+    local jump_after_step = flow.jump_after_step == true
+        or flow.jump_after_click == true
+        or step.jump_after_step == true
+        or step.jump_after_click == true
+        or dispatch_step.jump_after_step == true
+        or dispatch_step.jump_after_click == true
+    if jump_after_step then
+        local jump_delay_ms = math.max(0,
+            tonumber(dispatch_step.jump_after_step_delay_ms)
+            or tonumber(step.jump_after_step_delay_ms)
+            or tonumber(flow.jump_after_step_delay_ms)
+            or 200
+        )
+        local jump_window_ms = math.max(1500,
+            tonumber(dispatch_step.jump_after_step_window_ms)
+            or tonumber(step.jump_after_step_window_ms)
+            or tonumber(flow.jump_after_step_window_ms)
+            or 5000
+        )
+        local wait_ms = math.max(TASK_BUTTON_SETTLE_MS,
+            tonumber(dispatch_step.jump_after_step_wait_ms)
+            or tonumber(step.jump_after_step_wait_ms)
+            or tonumber(flow.jump_after_step_wait_ms)
+            or settle_ms
+        )
+        M.clear_task_dialogue_flow_state()
+        M.clear_route_point_action_npc_dialogue_state()
+        state.task_update_wait_until = math.max(
+            tonumber(state.task_update_wait_until) or 0,
+            after_click_time + wait_ms
+        )
+        state.dialogue_jump_window_until = math.max(
+            tonumber(state.dialogue_jump_window_until) or 0,
+            after_click_time + jump_window_ms
+        )
+        state.dialogue_jump_window_origin = interaction_origin
+        state.task_dialogue_flow_waiting_jump_until = after_click_time + jump_window_ms
+        state.next_dialogue_jump_scan_at = after_click_time + jump_delay_ms
+        state.next_dialogue_jump_click_at = 0
+        state.require_task_button_refresh = false
+        state.require_task_button_refresh_reason = nil
+        if type(M.reset_dialogue_jump_missing_probe) == "function" then
+            M.reset_dialogue_jump_missing_probe(false)
+        end
+        logger(ctx).info(string.format(
+            "[Leveling] task dialogue flow step requires Jump before follow-up | task=%s key=%s step_key=%s origin=%s candidate=%s delay=%dms wait=%dms window=%dms",
+            tostring(task_name or state.current_task_name or ""),
+            flow_key,
+            tostring(dispatch_step.key or step.key or ""),
+            interaction_origin,
+            tostring(candidate_index or ""),
+            jump_delay_ms,
+            wait_ms,
+            jump_window_ms
+        ))
+    end
     return true
 end
 

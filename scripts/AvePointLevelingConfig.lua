@@ -123,6 +123,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
     point_decrement_retry_wait_ms = 100,
     point_decrement_verify_retry_count = 30,
     point_decrement_verify_wait_ms = 100,
+    executor_timeout_ms = 90000,
     retry_ms = 5000,
     available_point_probe = {
         min_value = 1,
@@ -7291,6 +7292,22 @@ M.TREASURE_DUNGEON_CONFIGS = {
             z_tolerance = 260,
             allow_zero = true
         },
+        extra_restart_landings = {
+            {
+                x = 341.65,
+                y = 265.78,
+                z = 1662.00,
+                radius = 620,
+                z_tolerance = 260
+            },
+            {
+                x = 689.36,
+                y = 536.27,
+                z = 1662.00,
+                radius = 720,
+                z_tolerance = 260
+            }
+        },
         entry_trigger = {
             x = -7886.00,
             y = -4560.00,
@@ -7490,6 +7507,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "Known mainline around trigger: 群星之辉 -> 帮助晚星击溃伊吉王军，找到狮心王",
             "Outside entrance measured at -7886,-4560,1921.62",
             "Inside landing and restart landing verified at 0,0,1662; allow_zero is intentionally scoped to this dungeon landing",
+            "Restart landing also observed after the latest restart click at 341.65,265.78 and 689.36,536.27; accept both as restart landing so the portal phase does not walk back to the old restart door",
             "Restart portal trigger measured at 27603,21473,1662; exit portal trigger measured at 28042,22383,1662",
             "Exit landing reuses the same first-entry landing at 0,0,1662; runtime only treats it as exit while in exit/return flow",
             "Boss room center is the acquired treasure route destination; kite points verified at 26898.02,22608.14 / 25794.32,21898.75 / 26792.32,21265.38",
@@ -10507,9 +10525,32 @@ M.TASK_NAME_CONFIGS = {
         },
         {
             map_open_wait_ms = 1200,
-            center_click_ratio_x = 0.502778,
-            center_click_ratio_y = 0.381111,
+            center_click_ratio_x = 0.503472,
+            center_click_ratio_y = 0.384444,
             center_use_human_mouse = true,
+            center_selection_step = {
+                label = "\u{9884}\u{8A00}\u{5723}\u{5730}\u{5730}\u{56FE}\u{6309}\u{94AE}",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
+                },
+                hint_client_x = 687.359497,
+                hint_client_y = 302.743561,
+                hint_ratio_x = 0.477333,
+                hint_ratio_y = 0.336382,
+                hint_max_distance = 80.000,
+                prefer_hint_fallback = true,
+                poll_retry_count = 30,
+                poll_interval_ms = 100,
+                fixed_fallback_client_x = 725.00,
+                fixed_fallback_client_y = 346.00,
+                fixed_fallback_ratio_x = 0.503472,
+                fixed_fallback_ratio_y = 0.384444,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_click_delay_ms = 50,
+                fixed_fallback_hover_delay_ms = 80
+            },
             center_mouse_mode = "api",
             center_hover_delay_ms = 90,
             center_click_delay_ms = 60,
@@ -11053,11 +11094,21 @@ M.TASK_NAME_CONFIGS = {
                 include_patterns = {
                     "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button"
                 },
-                hint_client_x = 609.029968,
-                hint_client_y = 348.017120,
-                hint_ratio_x = 0.422937,
-                hint_ratio_y = 0.386686,
+                hint_client_x = 611.029968,
+                hint_client_y = 346.017120,
+                hint_ratio_x = 0.424326,
+                hint_ratio_y = 0.384463,
                 hint_max_distance = 80.000,
+                poll_retry_count = 30,
+                poll_interval_ms = 100,
+                fixed_fallback_client_x = 611.029968,
+                fixed_fallback_client_y = 346.017120,
+                fixed_fallback_ratio_x = 0.424326,
+                fixed_fallback_ratio_y = 0.384463,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_click_delay_ms = 50,
+                fixed_fallback_hover_delay_ms = 80,
                 retry_ms = 600,
                 settle_ms = 1200
             }
@@ -11069,6 +11120,10 @@ M.TASK_NAME_CONFIGS = {
                 "npc",
                 "interaction_prompt"
             },
+            jump_after_step = true,
+            jump_after_step_delay_ms = 200,
+            jump_after_step_wait_ms = 1200,
+            jump_after_step_window_ms = 5000,
             settle_ms = 1200
         },
         {
@@ -11224,6 +11279,10 @@ M.TASK_NAME_CONFIGS = {
             timeout_ms = 9000,
             timeout_close_dialogue_and_refresh = true,
             timeout_refresh_wait_ms = 1200,
+            jump_after_step = true,
+            jump_after_step_delay_ms = 200,
+            jump_after_step_wait_ms = 1200,
+            jump_after_step_window_ms = 5000,
             origins = {
                 "npc",
                 "interaction_prompt"
@@ -12098,20 +12157,21 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 0.00,
-            y = 4050.00,
-            z = 1235.00,
+            x = 336.00,
+            y = 3808.00,
+            z = 1230.00,
             radius = 900,
             z_tolerance = 320
         },
         objective_point = {
-            x = 0.00,
-            y = 4050.00,
-            z = 1235.00,
+            x = 336.00,
+            y = 3808.00,
+            z = 1230.00,
             radius = 900,
             z_tolerance = 320
         },
         interact_radius = 900,
+        pre_action_combat_guard = false,
         probe_retry_ms = 650,
         retry_ms = 600000,
         settle_ms = 1800,
@@ -12120,16 +12180,16 @@ M.ROUTE_POINT_ACTIONS = {
         task_pos_reject_extra_ms = 3500,
         step = {
             key = "trial_of_sun_beauty_finish_function_btn_0_4050",
-            label = "美欲试炼终点交互按钮",
-            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.FunctionBtn",
+            label = "美欲试炼终点过图按钮",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.LiftBtn",
             include_patterns = {
-                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.FunctionBtn"
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.LiftBtn"
             },
-            hint_client_x = 692.053040,
-            hint_client_y = 700.797668,
-            hint_ratio_x = 0.480926,
-            hint_ratio_y = 0.778664,
-            hint_max_distance = 120.000,
+            hint_client_x = 693.528564,
+            hint_client_y = 695.631531,
+            hint_ratio_x = 0.481617,
+            hint_ratio_y = 0.772924,
+            hint_max_distance = 100.000,
             prefer_hint_fallback = true,
             settle_ms = 1200,
             task_pos_reject_extra_ms = 3500

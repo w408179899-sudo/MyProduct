@@ -2956,6 +2956,44 @@ local function portal_click_position_unchanged(runtime, player_x, player_y, play
     return moved <= threshold, moved
 end
 
+local function portal_click_position_changed(runtime, player_x, player_y, player_z, cfg, portal_cfg)
+    if type(runtime) ~= "table" then
+        return false, nil
+    end
+    local click_x = tonumber(runtime.portal_click_x)
+    local click_y = tonumber(runtime.portal_click_y)
+    if click_x == nil or click_y == nil then
+        return false, nil
+    end
+    if not has_reliable_world_pos(player_x, player_y) then
+        return false, nil
+    end
+    local threshold = math.max(
+        80,
+        tonumber(type(portal_cfg) == "table" and portal_cfg.no_move_distance)
+            or tonumber(type(cfg) == "table" and cfg.portal_click_no_move_distance)
+            or 180
+    )
+    local moved = distance_2d(player_x, player_y, click_x, click_y)
+    if moved > threshold then
+        return true, moved
+    end
+
+    local click_z = tonumber(runtime.portal_click_z)
+    if click_z ~= nil and player_z ~= nil then
+        local z_threshold = math.max(
+            220,
+            tonumber(type(portal_cfg) == "table" and portal_cfg.no_move_z_tolerance)
+                or tonumber(type(cfg) == "table" and cfg.portal_click_no_move_z_tolerance)
+                or threshold
+        )
+        if math.abs((tonumber(player_z) or 0) - click_z) > z_threshold then
+            return true, moved
+        end
+    end
+    return false, moved
+end
+
 local function handle_failed_portal_transition(ctx, main_state, hooks, cfg, runtime, current_time, portal_kind, portal_cfg, player_x, player_y, player_z, reason)
     local clicked_at = tonumber(type(runtime) == "table" and runtime.portal_click_at) or 0
     local no_move, moved = portal_click_position_unchanged(runtime, player_x, player_y, player_z, cfg, portal_cfg)
@@ -4729,7 +4767,11 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             end
         end
         local restart_landing_ready_now = cfg_landing_ready(player_x, player_y, player_z, cfg, "restart_landing")
+        local restart_portal_cfg = type(cfg.portals) == "table" and cfg.portals.restart or nil
+        local restart_position_changed, restart_position_moved =
+            portal_click_position_changed(runtime, player_x, player_y, player_z, cfg, restart_portal_cfg)
         local ready = restart_landing_ready_now
+            or restart_position_changed
             or (not require_verified_landing and not has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0))
             or (not require_verified_landing and inside_after_restart)
         local settle_until = tonumber(runtime.next_retry_at) or 0
@@ -4805,7 +4847,9 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         end
         if ready then
             transition_mode(ctx, hooks, cfg, runtime, "grinding",
-                inside_after_restart and ("restart_inside_ready:" .. inside_after_restart_reason) or "restart_landing_ready")
+                restart_position_changed and "restart_position_changed"
+                    or inside_after_restart and ("restart_inside_ready:" .. inside_after_restart_reason)
+                    or "restart_landing_ready")
             runtime.next_retry_at = current_time
             runtime.route_cursor = nil
             runtime.route_nearest_index = nil
@@ -4825,7 +4869,9 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                     tonumber(player_x) or 0,
                     tonumber(player_y) or 0,
                     tonumber(player_z) or 0,
-                    inside_after_restart_reason ~= "" and inside_after_restart_reason or "landing"
+                    restart_position_changed
+                        and string.format("position_changed:%.2f", tonumber(restart_position_moved) or 0)
+                        or inside_after_restart_reason ~= "" and inside_after_restart_reason or "landing"
                 ))
             end
         elseif deadline_expired then
@@ -4866,7 +4912,11 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
     if mode == "wait_exit" then
         set_treasure_stage(main_state, "treasure_wait_exit")
         local has_landing = cfg_landing_has_point(cfg, "exit_landing")
+        local exit_portal_cfg = type(cfg.portals) == "table" and cfg.portals.exit or nil
+        local exit_position_changed, exit_position_moved =
+            portal_click_position_changed(runtime, player_x, player_y, player_z, cfg, exit_portal_cfg)
         local ready = cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
+            or exit_position_changed
             or (not has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0))
         if has_landing and ready ~= true and current_time >= (tonumber(runtime.stage_deadline_at) or 0)
             and handle_failed_portal_transition(
@@ -4915,11 +4965,14 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             log_refresh_block_clear(ctx, hooks, cfg, runtime, "wait_exit_ready", clear_mainline_refresh_block(main_state))
             if type(hooks.log_info) == "function" then
                 hooks.log_info(ctx, string.format(
-                    "[Treasure] exit landing ready, resume mainline immediately | key=%s pos=%.2f, %.2f, %.2f",
+                    "[Treasure] exit landing ready, resume mainline immediately | key=%s pos=%.2f, %.2f, %.2f reason=%s",
                     tostring(cfg.key or ""),
                     tonumber(player_x) or 0,
                     tonumber(player_y) or 0,
-                    tonumber(player_z) or 0
+                    tonumber(player_z) or 0,
+                    exit_position_changed
+                        and string.format("position_changed:%.2f", tonumber(exit_position_moved) or 0)
+                        or "landing"
                 ))
             end
         elseif has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0) then

@@ -5272,8 +5272,48 @@ function M.progress_level_up_maintenance_point_decrement_step(ctx, current_time,
             return true
         end
 
-        state.level_up_maintenance_point_decrement_verify_pending = false
-        state.level_up_maintenance_point_decrement_verify_attempts = 0
+        if type(after_points) ~= "number" then
+            return M.fail_level_up_maintenance_executor(
+                ctx,
+                current_time,
+                "talent point decrement verify failed after click: before="
+                    .. tostring(before_points or "")
+                    .. " after="
+                    .. tostring(after_points or "")
+                    .. " err="
+                    .. tostring(point_err or "")
+            )
+        end
+
+        local attempts = tonumber(state.level_up_maintenance_point_decrement_attempts) or 0
+        if attempts < retry_count then
+            state.level_up_maintenance_point_decrement_attempts = attempts + 1
+            state.level_up_maintenance_point_decrement_verify_pending = false
+            state.level_up_maintenance_point_decrement_verify_attempts = 0
+            state.level_up_maintenance_executor_next_step_at = current_time + retry_wait_ms
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance talent point decrement not confirmed; retry activation | level=%s plan=%s step=%d/%d key=%s attempts=%d/%d before=%s after=%s",
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                index,
+                #steps,
+                tostring(step.key or ""),
+                attempts + 1,
+                retry_count,
+                tostring(before_points or ""),
+                tostring(after_points or "")
+            ))
+            return true
+        end
+
+        return M.fail_level_up_maintenance_executor(
+            ctx,
+            current_time,
+            "talent point decrement was not confirmed after activation retries: before="
+                .. tostring(before_points or "")
+                .. " after="
+                .. tostring(after_points or "")
+        )
     end
 
     local before_points, point_err, point_meta = M.level_up_maintenance_available_points(ctx, cfg, "talent", step)
@@ -5781,7 +5821,17 @@ function M.fail_level_up_maintenance_executor(ctx, current_time, err)
     end
     M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_next_retry_at = current_time + 500
-    M.level_up_maintenance_clear_pending_if_done(ctx)
+    local all_done = M.level_up_maintenance_clear_pending_if_done(ctx)
+    if all_done and type(schedule_task_refresh_after_transition) == "function" then
+        state.stage = "level_up_maintenance_failed_reacquire_task"
+        state.level_up_maintenance_safe_since = 0
+        state.level_up_maintenance_last_block_reason = nil
+        state.level_up_maintenance_nearby_block_since = nil
+        release_async_combat_inputs(ctx, current_time, true)
+        schedule_task_refresh_after_transition(ctx, current_time, "level_up_maintenance_failed", TASK_BUTTON_SETTLE_MS, {
+            force_task_call = true
+        })
+    end
     return true
 end
 
@@ -5829,6 +5879,26 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         return false
     end
     current_time = tonumber(current_time) or now_ms(ctx)
+    local executor_cfg = M.level_up_maintenance_config()
+    local started_at = tonumber(state.level_up_maintenance_executor_started_at) or 0
+    local executor_timeout_ms = tonumber(executor_cfg.executor_timeout_ms) or 90000
+    if executor_timeout_ms > 0
+        and started_at > 0
+        and current_time - started_at > executor_timeout_ms
+    then
+        return M.fail_level_up_maintenance_executor(
+            ctx,
+            current_time,
+            string.format(
+                "executor timeout after %dms; kind=%s level=%s plan=%s step=%s",
+                math.floor(current_time - started_at),
+                tostring(state.level_up_maintenance_executor_kind or ""),
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                tostring(state.level_up_maintenance_executor_step_index or "")
+            )
+        )
+    end
     state.stage = "level_up_maintenance"
     if current_time < (tonumber(state.level_up_maintenance_executor_next_step_at) or 0) then
         return true
@@ -7211,6 +7281,7 @@ function M.find_route_point_intent_candidate(ctx, current_time, player_x, player
     end
     if (state.require_task_button_refresh == true and not allow_during_task_button_refresh)
         or current_time < (tonumber(state.task_update_wait_until) or 0)
+        or current_time < (tonumber(state.task_dialogue_flow_waiting_jump_until) or 0)
         or (tonumber(state.dialogue_escape_due_at) or 0) > 0
     then
         return nil
@@ -8115,9 +8186,52 @@ function M.maybe_handle_route_point_action_npc_dialogue(ctx, current_time, playe
     local z_gap = point_z ~= nil and type(player_z) == "number"
         and math.abs((tonumber(player_z) or 0) - point_z)
         or 0
+    local nearest_npc, npc_err = M.find_npc_near_point(ctx, point_x, point_y, npc_search_radius, player_x, player_y)
+    local npc_x = type(nearest_npc) == "table" and tonumber(nearest_npc.x) or nil
+    local npc_y = type(nearest_npc) == "table" and tonumber(nearest_npc.y) or nil
+    local npc_z = type(nearest_npc) == "table" and tonumber(nearest_npc.z) or point_z
+    local npc_player_distance = type(nearest_npc) == "table" and tonumber(nearest_npc.distance) or nil
 
-    if point_distance > interact_radius or z_gap > z_tolerance then
+    if npc_x ~= nil
+        and npc_y ~= nil
+        and type(npc_player_distance) == "number"
+        and npc_player_distance > interact_radius
+    then
         state.stage = "route_point_action_npc_dialogue_move"
+        state.route_point_action_dialogue_entered_at = 0
+        hold_navigation(ctx, current_time, "route_point_action_npc_dialogue_move")
+        if current_time >= (tonumber(state.next_move_at) or 0) then
+            issue_move(ctx, current_time, {
+                x = npc_x,
+                y = npc_y,
+                z = npc_z,
+                source = "route_point_npc_dialogue_dynamic_npc",
+                path_index = 0,
+                path_points = 0,
+                move_interval_ms = math.max(120, tonumber(dialogue.move_interval_ms) or 220)
+            })
+        end
+        log_throttled(ctx, "route_point_action_npc_dynamic_move_" .. tostring(state_key), "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] route point action moving to dynamic npc | task=%s key=%s npc=%s player_distance=%.2f interact_radius=%.2f anchor_distance=%.2f npc_pos=%.2f, %.2f, %.2f anchor=%.2f, %.2f, %.2f",
+            tostring(M.current_task_log_name() or state.current_task_name or ""),
+            tostring(action.key or action.label or ""),
+            tostring(nearest_npc.label or ""),
+            tonumber(npc_player_distance) or 0,
+            tonumber(interact_radius) or 0,
+            tonumber(nearest_npc.point_distance) or 0,
+            tonumber(npc_x) or 0,
+            tonumber(npc_y) or 0,
+            tonumber(npc_z) or 0,
+            tonumber(point_x) or 0,
+            tonumber(point_y) or 0,
+            tonumber(point_z) or 0
+        ))
+        return true
+    end
+
+    if (npc_x == nil or npc_y == nil) and (point_distance > interact_radius or z_gap > z_tolerance) then
+        state.stage = "route_point_action_npc_dialogue_move"
+        state.route_point_action_dialogue_entered_at = 0
         hold_navigation(ctx, current_time, "route_point_action_npc_dialogue_move")
         if current_time >= (tonumber(state.next_move_at) or 0) then
             issue_move(ctx, current_time, {
@@ -8184,7 +8298,6 @@ function M.maybe_handle_route_point_action_npc_dialogue(ctx, current_time, playe
         return true
     end
 
-    local nearest_npc, npc_err = M.find_npc_near_point(ctx, point_x, point_y, npc_search_radius, player_x, player_y)
     if type(nearest_npc) == "table" then
         local ok, err = M.interact_with_npc(ctx, current_time, nearest_npc, {
             combat_retry_source = "route_point_action_npc_dialogue",

@@ -3298,6 +3298,8 @@ local function arm_dialogue_followup(current_time, origin, label, refresh_on_tim
     state.pending_interaction_task_name = tostring(M.current_task_log_name() or state.current_task_name or "")
     state.pending_interaction_task_detail = tostring(M.current_task_log_detail() or state.current_task_detail or "")
     state.pending_interaction_refresh_on_timeout = refresh_on_timeout == true
+    state.pending_interaction_started_at = current_time
+    state.pending_interaction_deadline_at = current_time + math.max(3000, tonumber(M.PENDING_INTERACTION_TIMEOUT_MS) or 12000)
     local reopen_key = type(M.dialogue_interaction_reopen_state_key) == "function"
         and M.dialogue_interaction_reopen_state_key(origin)
         or ""
@@ -7088,6 +7090,16 @@ function M.update(now, ctx)
             priority = 20,
             run = function()
                 return M.maybe_observe_level_up_maintenance(ctx, current_time)
+            end
+        },
+        {
+            key = "service.pending_interaction_timeout",
+            priority = 30,
+            run = function()
+                if type(M.maybe_release_stale_pending_interaction) == "function" then
+                    return M.maybe_release_stale_pending_interaction(ctx, current_time, "pre_interaction_service")
+                end
+                return false
             end
         }
     })
