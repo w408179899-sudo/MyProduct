@@ -11546,6 +11546,39 @@ local function maybe_handle_revive(ctx, current_time, hp, player_x, player_y, pl
     end
 
     if is_dead and not revive_active then
+        local x = tonumber(player_x)
+        local y = tonumber(player_y)
+        local z = tonumber(player_z)
+        local transition_placeholder_position = x ~= nil
+            and y ~= nil
+            and math.abs(x) <= 64
+            and math.abs(y) <= 64
+            and (z == nil or z <= 0)
+        if in_main_interface == false and transition_placeholder_position then
+            release_async_combat_inputs(ctx, current_time, true)
+            state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, current_time + 800)
+            log_throttled(ctx, "revive_deferred_by_transition_placeholder", "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] hp=0 ignored during transition placeholder | task=%s detail=%s pos=%.2f, %.2f, %.2f main_interface=%s",
+                tostring(M.current_task_log_name() or state.current_task_name or ""),
+                tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                x or 0,
+                y or 0,
+                z or 0,
+                tostring(in_main_interface)
+            ))
+            local task_entry_action_active = type(M.is_task_entry_action_active) == "function"
+                and M.is_task_entry_action_active(current_time) == true
+            local task_waiting = state.require_task_button_refresh == true
+                or current_time < (tonumber(state.task_update_wait_until) or 0)
+                or current_time < (tonumber(state.task_path_wait_until) or 0)
+            if task_entry_action_active or task_waiting then
+                return false
+            end
+            state.stage = "loading_transition_placeholder"
+            hold_navigation(ctx, current_time, "loading_transition_placeholder")
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
+        end
         local defer_revive, entry_action, task_name = M.should_defer_revive_for_task_entry_action(current_time, in_main_interface)
         if defer_revive then
             log_throttled(ctx, "revive_deferred_by_task_entry_action", "info", LOG_THROTTLE_MS, string.format(
@@ -13764,6 +13797,48 @@ function M.click_treasure_task_panel_entry_with_cache(ctx, query)
     local nav_mod = nav_api(ctx)
     if type(nav_mod) ~= "table" then
         return false, "nav api unavailable."
+    end
+
+    local query_text = trim(query or "")
+    if query_text ~= "" then
+        if type(nav_mod.click_task_panel_entry) ~= "function" then
+            return false, "nav.click_task_panel_entry is unavailable."
+        end
+
+        local ok, item_or_err = nav_mod.click_task_panel_entry(query_text, nil, {
+            exact = false
+        })
+        if ok and not M.treasure_task_target_matches_query(query_text, item_or_err) then
+            log_throttled(ctx, "treasure_task_panel_query_rejected", "warn", LOG_THROTTLE_MS,
+                "[Leveling] treasure task panel query rejected non-treasure/non-matching entry | query="
+                    .. tostring(query_text or "")
+                    .. " raw=" .. tostring(type(item_or_err) == "table" and (item_or_err.raw_text or item_or_err.title or "") or "")
+                    .. " detail=" .. tostring(type(item_or_err) == "table" and (item_or_err.detail or "") or ""))
+            return false, "treasure task panel query returned non-matching entry."
+        end
+        if ok and type(item_or_err) == "table" then
+            local cached = M.cache_treasure_task_button_target(
+                ctx,
+                item_or_err,
+                current_time,
+                query_text,
+                "panel_query"
+            )
+            if type(cached) == "table" then
+                logger(ctx).info(string.format(
+                    "[Leveling] treasure task panel query cached addr | query=%s target=%s",
+                    tostring(query_text or ""),
+                    M.format_main_task_click_target_brief(cached)
+                ))
+            end
+            return true, item_or_err
+        end
+
+        log_throttled(ctx, "treasure_task_panel_query_miss", "info", LOG_THROTTLE_MS,
+            "[Leveling] treasure task panel query miss; refusing blind TaskBtn locator | query="
+                .. tostring(query_text or "")
+                .. " err=" .. tostring(item_or_err or ""))
+        return false, "treasure task panel query miss; blind TaskBtn locator disabled."
     end
 
     local treasure_step = M.apply_treasure_task_button_step_defaults(
