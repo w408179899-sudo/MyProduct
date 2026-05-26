@@ -353,7 +353,7 @@ while running do
         local arrive_distance = math.max(80, as_number(share_get(SHARE_PREFIX, "route_arrive_distance")) or 120)
         local direction = as_number(share_get(SHARE_PREFIX, "route_direction")) or 1
         direction = direction == -1 and -1 or 1
-        local stuck_skip_ms = math.max(3000, as_number(share_get(SHARE_PREFIX, "route_stuck_skip_ms")) or 10000)
+        local stuck_skip_ms = math.max(2000, as_number(share_get(SHARE_PREFIX, "route_stuck_skip_ms")) or 2000)
         local progress_reset_distance = math.max(40, as_number(share_get(SHARE_PREFIX, "route_progress_reset_distance")) or 80)
         if not running then
             break

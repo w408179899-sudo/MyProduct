@@ -2354,6 +2354,7 @@ function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y,
         state.task_entry_action_next_center_click_at = button_click_at + map_open_wait_ms
         state.task_entry_action_pre_clicked_at = 0
         state.task_entry_action_send_clicked_at = 0
+        state.task_entry_action_world_map_panel_missing_since = 0
         logger(ctx).info(string.format(
             "[Leveling] task entry action armed | task=%s mode=%s key=%s timeout=%dms map_wait=%dms jitter_max=%dms",
             tostring(task_name or state.current_task_name or ""),
@@ -2370,6 +2371,7 @@ function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y,
         state.task_entry_action_center_clicked_at = 0
         state.task_entry_action_next_center_click_at = effective_time + map_open_wait_ms
         state.task_entry_action_pre_clicked_at = 0
+        state.task_entry_action_world_map_panel_missing_since = 0
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
@@ -2423,6 +2425,44 @@ function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y,
         if entry_action.require_world_map_panel_ready ~= false then
             local map_ready, map_ready_reason = M.is_task_entry_world_map_panel_ready(ctx, effective_time, "task_entry_center")
             if map_ready ~= true then
+                local missing_since = tonumber(state.task_entry_action_world_map_panel_missing_since) or 0
+                if missing_since <= 0 then
+                    missing_since = effective_time
+                    state.task_entry_action_world_map_panel_missing_since = missing_since
+                end
+                local panel_missing_fallback_ms = tonumber(
+                    entry_action.world_map_panel_missing_fallback_ms
+                        or entry_action.map_panel_missing_fallback_ms
+                ) or 0
+                if panel_missing_fallback_ms > 0
+                    and effective_time - missing_since >= panel_missing_fallback_ms
+                then
+                    local entry_key = tostring(entry_action.key or entry_action.mode or "")
+                    state.task_entry_action_suppressed_key = entry_key
+                    state.task_entry_action_suppressed_task_name =
+                        normalize_map_name(M.current_task_log_name()) or normalize_map_name(state.current_task_name)
+                    state.task_entry_action_suppressed_task_detail =
+                        normalize_map_name(M.current_task_log_detail()) or normalize_map_name(state.current_task_detail)
+                    state.task_entry_action_suppressed_reason = "world_map_panel_missing"
+                    M.clear_task_entry_action_state()
+                    if type(M.clear_task_recipe_state) == "function" then
+                        M.clear_task_recipe_state()
+                    end
+                    state.require_task_button_refresh = true
+                    state.require_task_button_refresh_reason = "task_entry_world_map_panel_missing:" .. entry_key
+                    state.next_task_button_click_at = effective_time + 200
+                    state.task_path_wait_until = 0
+                    logger(ctx).warn(string.format(
+                        "[Leveling] task entry action released after world map panel missing | task=%s detail=%s key=%s missing_ms=%d fallback_ms=%d reason=%s",
+                        tostring(M.current_task_log_name() or state.current_task_name or ""),
+                        tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                        entry_key,
+                        math.max(0, effective_time - missing_since),
+                        panel_missing_fallback_ms,
+                        tostring(map_ready_reason or "")
+                    ))
+                    return false
+                end
                 local retry_ms = math.max(100, tonumber(entry_action.world_map_panel_retry_ms or entry_action.center_ready_retry_ms) or 300)
                 state.task_entry_action_next_center_click_at = effective_time + retry_ms
                 log_throttled(ctx, "task_entry_action_wait_world_map_panel", "info", 600, string.format(
@@ -2435,6 +2475,7 @@ function M.maybe_handle_task_entry_action(ctx, current_time, player_x, player_y,
                 log_heartbeat(ctx, current_time, player_x, player_y, player_z)
                 return true
             end
+            state.task_entry_action_world_map_panel_missing_since = 0
         end
 
         local center_selection_step = type(entry_action.center_selection_step) == "table"
@@ -4011,6 +4052,7 @@ function M.arm_task_advancing_action_confirmation(ctx, current_time, action, sta
     state.task_advancing_action_pending_started_at = tonumber(current_time) or now_ms(ctx)
     state.task_advancing_action_pending_deadline_at =
         (tonumber(current_time) or now_ms(ctx)) + math.max(8000, tonumber(action.task_refresh_success_timeout_ms) or 25000)
+    state.task_advancing_action_pending_expire_deferred_at = 0
     logger(ctx).info(string.format(
         "[Leveling] task-advancing route action awaiting task refresh | task=%s detail=%s key=%s mode=%s state_key=%s source=%s",
         tostring(state.task_advancing_action_pending_task_name or ""),
@@ -4037,18 +4079,63 @@ function M.maybe_confirm_task_advancing_action_success(ctx, current_time, source
     local current_detail = normalize_map_name(state.current_task_detail or M.current_task_log_detail())
     local task_changed = old_task ~= nil and current_task ~= nil and old_task ~= current_task
     local detail_changed = old_detail ~= nil and current_detail ~= nil and old_detail ~= current_detail
+    local transition_marker = type(M.is_task_detail_transition) == "function"
+        and M.is_task_detail_transition(state.current_task_detail)
+        or false
 
-    if task_changed or detail_changed then
+    if task_changed or detail_changed or transition_marker then
         if type(state.completed_task_advancing_actions) ~= "table" then
             state.completed_task_advancing_actions = {}
         end
         state.completed_task_advancing_actions[pending_state_key] = current_time
         local action = M.find_route_point_action_by_key(pending_key)
         if type(action) == "table" then
-            M.mark_recipe_action_completed(ctx, current_time, action, "task_refresh_confirmed")
+            M.mark_recipe_action_completed(
+                ctx,
+                current_time,
+                action,
+                transition_marker and "task_transition_confirmed" or "task_refresh_confirmed"
+            )
+        end
+        if transition_marker then
+            if type(schedule_task_refresh_after_transition) == "function" then
+                schedule_task_refresh_after_transition(
+                    ctx,
+                    current_time,
+                    "task_advancing_action_transition_marker_" .. pending_state_key,
+                    100,
+                    {
+                        force_task_call = true,
+                        task_pos_reject_extra_ms = 3500,
+                        force_task_path_reacquire_ms = 10000,
+                        task_info_change_observed = true,
+                        skip_task_info_stability_gate = true,
+                        previous_task_name = state.task_advancing_action_pending_task_name,
+                        previous_task_detail = state.task_advancing_action_pending_task_detail
+                    }
+                )
+                state.next_task_button_click_at = state.task_update_wait_until
+                state.next_task_refresh_at = state.task_update_wait_until
+            else
+                state.require_task_button_refresh = true
+                state.require_task_button_refresh_reason =
+                    "task_advancing_action_transition_marker:" .. pending_state_key
+                state.next_task_button_click_at = current_time
+                state.next_task_refresh_at = current_time
+                state.task_pos_reject_until = math.max(
+                    tonumber(state.task_pos_reject_until) or 0,
+                    current_time + 8000
+                )
+                state.task_pos_reject_reason = state.require_task_button_refresh_reason
+                state.force_task_path_reacquire_until = math.max(
+                    tonumber(state.force_task_path_reacquire_until) or 0,
+                    current_time + 10000
+                )
+                state.force_task_path_reacquire_reason = state.require_task_button_refresh_reason
+            end
         end
         logger(ctx).info(string.format(
-            "[Leveling] task-advancing route action confirmed by task refresh | key=%s state_key=%s old_task=%s old_detail=%s new_task=%s new_detail=%s source=%s changed=%s/%s",
+            "[Leveling] task-advancing route action confirmed by task refresh | key=%s state_key=%s old_task=%s old_detail=%s new_task=%s new_detail=%s source=%s changed=%s/%s transition=%s",
             pending_key,
             pending_state_key,
             tostring(old_task or ""),
@@ -4057,7 +4144,8 @@ function M.maybe_confirm_task_advancing_action_success(ctx, current_time, source
             tostring(current_detail or ""),
             tostring(source or ""),
             task_changed and "task" or "",
-            detail_changed and "detail" or ""
+            detail_changed and "detail" or "",
+            transition_marker and "true" or "false"
         ))
         M.clear_task_advancing_action_confirmation()
         return true
@@ -4065,6 +4153,21 @@ function M.maybe_confirm_task_advancing_action_success(ctx, current_time, source
 
     local deadline_at = tonumber(state.task_advancing_action_pending_deadline_at) or 0
     if deadline_at > 0 and current_time > deadline_at then
+        if tostring(source or "") == "publish_current_task_name"
+            and (tonumber(state.task_advancing_action_pending_expire_deferred_at) or 0) <= 0
+        then
+            state.task_advancing_action_pending_expire_deferred_at = current_time
+            state.task_advancing_action_pending_deadline_at = current_time + 1200
+            logger(ctx).info(string.format(
+                "[Leveling] task-advancing route action expiration deferred for detail sync | key=%s state_key=%s task=%s detail=%s source=%s",
+                pending_key,
+                pending_state_key,
+                tostring(state.task_advancing_action_pending_task_name or ""),
+                tostring(state.task_advancing_action_pending_task_detail or ""),
+                tostring(source or "")
+            ))
+            return false
+        end
         logger(ctx).warn(string.format(
             "[Leveling] task-advancing route action refresh confirmation expired | key=%s state_key=%s task=%s detail=%s source=%s",
             pending_key,
@@ -5468,6 +5571,10 @@ function M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_panel_open_death_guard_label = nil
     state.level_up_maintenance_panel_open_death_guard_kind = nil
     M.clear_level_up_maintenance_point_decrement_state()
+end
+
+function M.level_up_maintenance_executor_is_active()
+    return state.level_up_maintenance_executor_active == true
 end
 
 function M.level_up_maintenance_step_opens_talent_panel(step)
@@ -7116,6 +7223,14 @@ function M.route_point_action_skip_reason(ctx, action, current_time)
         return "task_refresh_confirmed", completed_state_key
     end
 
+    local pending_key = tostring(state.task_advancing_action_pending_key or "")
+    local action_key = tostring(action.key or action.label or "")
+    if pending_key ~= "" and action_key ~= "" and pending_key == action_key
+        and M.route_point_action_advances_task(action)
+    then
+        return "task_refresh_pending", pending_key
+    end
+
     local recipe_package_key = trim(action.recipe_package_key or "")
     local recipe_side_task_key = trim(action.recipe_side_task_key or "")
     if recipe_package_key ~= "" and recipe_side_task_key ~= ""
@@ -7641,6 +7756,11 @@ end
 
 function M.maybe_handle_route_point_action_route_wait(ctx, current_time, player_x, player_y, player_z)
     current_time = tonumber(current_time) or now_ms(ctx)
+    if type(M.is_task_transition_active) == "function"
+        and M.is_task_transition_active(current_time)
+    then
+        return false
+    end
     local wait_until = tonumber(state.route_point_action_route_wait_reacquire_until) or 0
     if wait_until <= 0 then
         return false
@@ -7834,6 +7954,11 @@ function M.activate_route_point_action(ctx, current_time, action_key, source)
 end
 
 function M.maybe_handle_route_point_action_boarding(ctx, current_time, player_x, player_y, player_z)
+    if type(M.is_task_transition_active) == "function"
+        and M.is_task_transition_active(current_time)
+    then
+        return false
+    end
     local active_key = tostring(state.route_point_action_active_key or "")
     if active_key == "" and type(M.ROUTE_POINT_ACTIONS) == "table" then
         if M.is_task_combat_or_post_loot_active() then
@@ -8093,6 +8218,11 @@ function M.maybe_handle_route_point_action_boarding(ctx, current_time, player_x,
 end
 
 function M.maybe_handle_route_point_action_npc_dialogue(ctx, current_time, player_x, player_y, player_z)
+    if type(M.is_task_transition_active) == "function"
+        and M.is_task_transition_active(current_time)
+    then
+        return false
+    end
     local active_key = tostring(state.route_point_action_dialogue_active_key or "")
     if active_key == "" and type(M.ROUTE_POINT_ACTIONS) == "table" then
         if M.is_task_combat_or_post_loot_active() then
@@ -8371,6 +8501,11 @@ function M.maybe_handle_route_point_action_npc_dialogue(ctx, current_time, playe
 end
 
 function M.maybe_handle_route_point_action_route(ctx, current_time, player_x, player_y, player_z)
+    if type(M.is_task_transition_active) == "function"
+        and M.is_task_transition_active(current_time)
+    then
+        return false
+    end
     local active_key = tostring(state.route_point_action_route_active_key or "")
     if active_key == "" then
         return false
@@ -8880,6 +9015,11 @@ function M.route_point_action_hotkey_vk(action)
 end
 
 function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x, player_y, player_z)
+    if type(M.is_task_transition_active) == "function"
+        and M.is_task_transition_active(current_time)
+    then
+        return false
+    end
     local active_key = tostring(state.route_point_action_objective_active_key or "")
     if active_key == "" then
         return false
@@ -9523,6 +9663,17 @@ function M.maybe_handle_route_point_action(ctx, current_time, player_x, player_y
     local has_task_target = opts.has_target == true
         or type(state.task_target) == "table"
     if M.is_task_combat_or_post_loot_active() then
+        return false
+    end
+    if type(M.is_task_transition_active) == "function"
+        and M.is_task_transition_active(current_time)
+    then
+        log_throttled(ctx, "route_point_action_skip_task_transition", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] route-point action skipped during task transition | task=%s detail=%s reason=%s",
+            tostring(M.current_task_log_name() or state.current_task_name or ""),
+            tostring(state.current_task_detail or ""),
+            tostring(state.task_transition_reason or "")
+        ))
         return false
     end
     if M.maybe_handle_route_point_action_route(ctx, current_time, player_x, player_y, player_z) then
@@ -10780,11 +10931,11 @@ schedule_task_refresh_after_transition = function(ctx, current_time, reason, wai
     state.next_follow_task_button_refresh_at = state.task_update_wait_until + TASK_BUTTON_KEEPALIVE_INTERVAL_MS
     state.next_task_button_soft_refresh_at = state.task_update_wait_until + TASK_BUTTON_SOFT_REFRESH_INTERVAL_MS
     local reason_text = tostring(reason or "")
-    if reason_text == "global_task_portal"
+    local transition_refresh = reason_text == "global_task_portal"
         or reason_text == "exit_portal"
         or reason_text:find("map_transition_", 1, true) ~= nil
         or reason_text:find("revive_reentry_", 1, true) ~= nil
-    then
+    if transition_refresh then
         state.global_task_portal_guard_until = math.max(
             tonumber(state.global_task_portal_guard_until) or 0,
             state.task_update_wait_until + 4500
@@ -10808,6 +10959,13 @@ schedule_task_refresh_after_transition = function(ctx, current_time, reason, wai
         end
     end
     clear_task_target_state()
+    if transition_refresh then
+        if type(M.clear_nav_worker_target) == "function" then
+            M.clear_nav_worker_target(ctx, current_time, reason_text)
+        else
+            hold_navigation(ctx, current_time, reason_text)
+        end
+    end
     clear_runtime_objective_caches()
     if M.should_arm_task_info_stability_gate(reason_text) then
         if opts.skip_task_info_stability_gate == true then
@@ -11008,6 +11166,11 @@ function M.maybe_click_global_task_portal(ctx, current_time, opts)
     end
 
     release_async_combat_inputs(ctx, current_time, true)
+    if type(M.clear_nav_worker_target) == "function" then
+        M.clear_nav_worker_target(ctx, current_time, "global_task_portal_pre_click")
+    else
+        hold_navigation(ctx, current_time, "global_task_portal_pre_click")
+    end
     local clicked, click_err, retryable = click_locator_button_target(ctx, step, target)
     if not clicked then
         log_throttled(ctx, retryable and "global_task_portal_click_retry" or "global_task_portal_click_failed",
@@ -11166,6 +11329,28 @@ local function enter_revive_state(ctx, current_time, hp)
     ))
 end
 
+function M.revive_reentry_matches_current_task(revive_cfg, task_name, task_detail)
+    if type(revive_cfg) ~= "table" then
+        return true
+    end
+
+    local has_constraints =
+        type(revive_cfg.task_names) == "table"
+        or type(revive_cfg.task_patterns) == "table"
+        or type(revive_cfg.task_detail_names) == "table"
+        or type(revive_cfg.task_detail_patterns) == "table"
+        or type(revive_cfg.exclude_task_patterns) == "table"
+        or type(revive_cfg.exclude_task_detail_patterns) == "table"
+    if not has_constraints then
+        return true
+    end
+
+    return M.matches_task_constraints(revive_cfg, {
+        task_name = task_name,
+        task_detail = task_detail
+    })
+end
+
 local function resume_after_revive(ctx, current_time, hp, player_x, player_y, player_z)
     local resume_level_up_maintenance = state.level_up_maintenance_executor_active == true
         and state.level_up_maintenance_executor_resume_after_revive == true
@@ -11215,15 +11400,24 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
     end
     local map_cfg, map_name = current_map_task_config()
     local task_cfg, task_name = M.current_task_runtime_config()
+    local task_detail = M.current_task_log_detail() or state.current_task_detail
     local objective_cfg = type(task_cfg) == "table" and type(task_cfg.objective) == "table" and task_cfg.objective or nil
     local revive_reentry_cfg, revive_reentry_source, revive_reentry_objective_key = M.resolve_revive_reentry_config()
+    local stage_name = tostring(state.stage or "")
+    local recent_boss_seen =
+        (tonumber(state.task_combat_last_seen_at) or 0) > 0
+        and current_time - (tonumber(state.task_combat_last_seen_at) or 0) <= math.max(1500, TASK_COMBAT_CLEAR_SETTLE_MS)
     local death_in_boss_combat_context =
-        state.task_combat_force_kite == true
-        or tostring(state.stage or "") == "task_combat"
-        or tostring(state.stage or "") == "task_combat_kite"
-        or tostring(state.stage or "") == "post_combat_loot"
-        or type(state.task_combat_locked_reentry_cfg) == "table"
-        or (tonumber(state.task_combat_started_at) or 0) > 0
+        stage_name == "task_combat"
+        or stage_name == "task_combat_kite"
+        or stage_name == "post_combat_loot"
+        or (
+            state.task_combat_force_kite == true
+            and (
+                recent_boss_seen == true
+                or state.task_combat_kite_route_worker_active == true
+            )
+        )
     if type(revive_reentry_cfg) == "table"
         and death_in_boss_combat_context ~= true
         and revive_reentry_cfg.allow_non_boss_revive_reentry ~= true
@@ -11234,7 +11428,23 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
             tostring(revive_reentry_objective_key or ""),
             tostring(revive_reentry_cfg.label or revive_reentry_cfg.key or ""),
             tostring(task_name or state.current_task_name or ""),
-            tostring(M.current_task_log_detail() or state.current_task_detail or "")
+            tostring(task_detail or "")
+        ))
+        revive_reentry_cfg = nil
+        revive_reentry_source = nil
+        revive_reentry_objective_key = nil
+    end
+    if type(revive_reentry_cfg) == "table"
+        and not M.revive_reentry_matches_current_task(revive_reentry_cfg, task_name or state.current_task_name, task_detail)
+        and revive_reentry_cfg.allow_task_mismatch_revive_reentry ~= true
+    then
+        logger(ctx).info(string.format(
+            "[Leveling] revive reentry skipped; current task/detail does not match reentry constraints | source=%s objective_key=%s label=%s task=%s detail=%s",
+            tostring(revive_reentry_source or ""),
+            tostring(revive_reentry_objective_key or ""),
+            tostring(revive_reentry_cfg.label or revive_reentry_cfg.key or ""),
+            tostring(task_name or state.current_task_name or ""),
+            tostring(task_detail or "")
         ))
         revive_reentry_cfg = nil
         revive_reentry_source = nil
@@ -11545,6 +11755,28 @@ local function maybe_handle_revive(ctx, current_time, hp, player_x, player_y, pl
         return false
     end
 
+    local function defer_level_up_maintenance_revive()
+        local defer_maintenance_revive, maintenance_runtime =
+            M.should_defer_revive_for_level_up_maintenance(ctx, current_time, in_main_interface)
+        if not defer_maintenance_revive then
+            return false
+        end
+        log_throttled(ctx, "revive_deferred_by_level_up_maintenance", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] hp=0 ignored during level-up maintenance | reason=%s kind=%s level=%s plan=%s step=%d key=%s next_step_in=%dms active_until=%dms panel_err=%s",
+            tostring(maintenance_runtime and maintenance_runtime.reason or "maintenance"),
+            tostring(maintenance_runtime and maintenance_runtime.kind or ""),
+            tostring(maintenance_runtime and maintenance_runtime.level or ""),
+            tostring(maintenance_runtime and maintenance_runtime.plan or ""),
+            tonumber(maintenance_runtime and maintenance_runtime.step) or 0,
+            tostring(maintenance_runtime and maintenance_runtime.step_key or ""),
+            math.max(0, (tonumber(maintenance_runtime and maintenance_runtime.next_step_at) or current_time) - current_time),
+            tonumber(maintenance_runtime and maintenance_runtime.active_left_ms)
+                or math.max(0, (tonumber(maintenance_runtime and maintenance_runtime.active_until) or current_time) - current_time),
+            tostring(maintenance_runtime and maintenance_runtime.panel_err or "")
+        ))
+        return true
+    end
+
     if is_dead and not revive_active then
         local x = tonumber(player_x)
         local y = tonumber(player_y)
@@ -11554,6 +11786,9 @@ local function maybe_handle_revive(ctx, current_time, hp, player_x, player_y, pl
             and math.abs(x) <= 64
             and math.abs(y) <= 64
             and (z == nil or z <= 0)
+        if defer_level_up_maintenance_revive() then
+            return false
+        end
         if in_main_interface == false and transition_placeholder_position then
             release_async_combat_inputs(ctx, current_time, true)
             state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, current_time + 800)
@@ -11599,24 +11834,6 @@ local function maybe_handle_revive(ctx, current_time, hp, player_x, player_y, pl
                 tonumber(treasure_runtime and treasure_runtime.entry_step_index) or 0,
                 math.max(0, (tonumber(treasure_runtime and treasure_runtime.next_retry_at) or current_time) - current_time),
                 math.max(0, (tonumber(treasure_runtime and treasure_runtime.stage_deadline_at) or current_time) - current_time)
-            ))
-            return false
-        end
-        local defer_maintenance_revive, maintenance_runtime =
-            M.should_defer_revive_for_level_up_maintenance(ctx, current_time, in_main_interface)
-        if defer_maintenance_revive then
-            log_throttled(ctx, "revive_deferred_by_level_up_maintenance", "info", LOG_THROTTLE_MS, string.format(
-                "[Leveling] hp=0 ignored during level-up maintenance | reason=%s kind=%s level=%s plan=%s step=%d key=%s next_step_in=%dms active_until=%dms panel_err=%s",
-                tostring(maintenance_runtime and maintenance_runtime.reason or "maintenance"),
-                tostring(maintenance_runtime and maintenance_runtime.kind or ""),
-                tostring(maintenance_runtime and maintenance_runtime.level or ""),
-                tostring(maintenance_runtime and maintenance_runtime.plan or ""),
-                tonumber(maintenance_runtime and maintenance_runtime.step) or 0,
-                tostring(maintenance_runtime and maintenance_runtime.step_key or ""),
-                math.max(0, (tonumber(maintenance_runtime and maintenance_runtime.next_step_at) or current_time) - current_time),
-                tonumber(maintenance_runtime and maintenance_runtime.active_left_ms)
-                    or math.max(0, (tonumber(maintenance_runtime and maintenance_runtime.active_until) or current_time) - current_time),
-                tostring(maintenance_runtime and maintenance_runtime.panel_err or "")
             ))
             return false
         end
@@ -11962,6 +12179,9 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         if type(entry) == "table" and detail_source == "nearby_text" then
             detail_source = "task_panel_confirmed"
         end
+        local raw_detail_is_transition = type(M.is_task_detail_transition) == "function"
+            and M.is_task_detail_transition(raw_detail)
+            or false
         if raw_detail == "完成" then
             next_detail = raw_detail
             detail_source = detail_source .. "_transition"
@@ -11988,14 +12208,25 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
                     tonumber(recovered_score) or 0
                 ))
             else
-                next_detail = ""
                 _G.AVEPOINT_LAST_TASK_DETAIL = nil
-                log_throttled(ctx, "task_detail_noise_ignored", "info", LOG_THROTTLE_MS, string.format(
-                    "[Leveling] task detail noise ignored | task=%s raw_detail=%s source=%s",
-                    tostring(state.current_task_name or preferred_task_name or ""),
-                    tostring(raw_detail or ""),
-                    tostring(source or "task_panel")
-                ))
+                if raw_detail_is_transition then
+                    next_detail = raw_detail
+                    detail_source = detail_source .. "_transition"
+                    log_throttled(ctx, "task_detail_transition_marker", "info", LOG_THROTTLE_MS, string.format(
+                        "[Leveling] task detail transition marker observed | task=%s raw_detail=%s source=%s",
+                        tostring(state.current_task_name or preferred_task_name or ""),
+                        tostring(raw_detail or ""),
+                        tostring(source or "task_panel")
+                    ))
+                else
+                    next_detail = ""
+                    log_throttled(ctx, "task_detail_noise_ignored", "info", LOG_THROTTLE_MS, string.format(
+                        "[Leveling] task detail noise ignored | task=%s raw_detail=%s source=%s",
+                        tostring(state.current_task_name or preferred_task_name or ""),
+                        tostring(raw_detail or ""),
+                        tostring(source or "task_panel")
+                    ))
+                end
             end
         elseif next_detail == "" then
             local recovered_detail, recovered_score, recovered_dx, recovered_dy = find_nearby_subtask_detail(preferred_task_name, raw_detail)
@@ -12015,6 +12246,12 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         end
         local previous_detail = trim(state.current_task_detail or "")
         if next_detail == previous_detail then
+            if type(M.arm_task_detail_transition) == "function"
+                and raw_detail_is_transition
+                and next_detail ~= ""
+            then
+                M.arm_task_detail_transition(ctx, current_time, next_detail, detail_source)
+            end
             if next_detail == "" and state.current_task_detail ~= nil then
                 state.current_task_detail = nil
                 state.current_task_detail_source = detail_source
@@ -12027,6 +12264,12 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         state.current_task_detail_source = detail_source
         state.current_task_detail_updated_at = current_time
         M.publish_current_task_name()
+        if type(M.arm_task_detail_transition) == "function"
+            and type(M.is_task_detail_transition) == "function"
+            and M.is_task_detail_transition(state.current_task_detail)
+        then
+            M.arm_task_detail_transition(ctx, current_time, state.current_task_detail, detail_source)
+        end
         logger(ctx).info(string.format(
             "[Leveling] current task detail updated | task=%s detail=%s source=%s",
             tostring(state.current_task_name or preferred_task_name or ""),

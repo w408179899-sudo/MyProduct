@@ -2334,6 +2334,29 @@ function M.build_treasure_hooks(ctx)
         current_map_name = function()
             return state.current_map_name or ""
         end,
+        allow_startup_task_mismatch_level_gate = function(inner_ctx, cfg, match_reason, task_name, task_detail)
+            local reason = tostring(match_reason or "")
+            if reason == "map_name"
+                or reason == "inside_map_pattern"
+                or reason == "route_nearby"
+                or reason == "landing_config"
+                or reason == "inside_landing_config"
+            then
+                return true, reason
+            end
+            local raw_task_name = trim(tostring(state.current_task_name or ""))
+            local raw_task_detail = trim(tostring(state.current_task_detail or ""))
+            local log_detail = trim(tostring(M.current_task_log_detail() or ""))
+            local stable_detail = raw_task_detail ~= ""
+                and not M.is_task_detail_transition(raw_task_detail)
+                and log_detail ~= ""
+            local stable_mainline = raw_task_name:match("^涓荤嚎%s+") ~= nil
+                or raw_task_name:match("^主线%s+") ~= nil
+            if stable_mainline and stable_detail then
+                return false, "stable_mainline_task"
+            end
+            return true, "allowed"
+        end,
         refresh_current_task_name = function(inner_ctx, current_time)
             local hint_x, hint_y = resolve_main_task_button_hint(inner_ctx)
             if hint_x == nil or hint_y == nil then
@@ -2374,6 +2397,12 @@ function M.build_treasure_hooks(ctx)
         end,
         hold_navigation = function(inner_ctx, current_time, reason)
             return hold_navigation(inner_ctx, current_time, reason)
+        end,
+        clear_nav_worker_target = function(inner_ctx, current_time, reason)
+            if type(M.clear_nav_worker_target) == "function" then
+                return M.clear_nav_worker_target(inner_ctx, current_time, reason)
+            end
+            return false
         end,
         issue_combat_pulse = function(inner_ctx, current_time, reason, ignore_move_guard)
             return issue_combat_pulse(inner_ctx, current_time, reason, ignore_move_guard)
@@ -2461,6 +2490,16 @@ function M.maybe_handle_treasure_dungeon(ctx, current_time, player_x, player_y, 
     then
         return false
     end
+    if type(M.is_task_transition_active) == "function"
+        and M.is_task_transition_active(current_time)
+    then
+        log_throttled(ctx, "treasure_skip_task_transition", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] treasure runtime skipped during task transition | detail=%s reason=%s",
+            tostring(state.current_task_detail or ""),
+            tostring(state.task_transition_reason or "")
+        ))
+        return false
+    end
     return M._leveling_treasure.maybe_handle(
         ctx,
         state,
@@ -2479,6 +2518,16 @@ function M.maybe_recover_treasure_inside_startup(ctx, current_time, player_x, pl
         or type(M.TREASURE_DUNGEON_CONFIGS) ~= "table"
         or #M.TREASURE_DUNGEON_CONFIGS == 0
     then
+        return false
+    end
+    if type(M.is_task_transition_active) == "function"
+        and M.is_task_transition_active(current_time)
+    then
+        log_throttled(ctx, "treasure_startup_recovery_skip_task_transition", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] treasure startup recovery skipped during task transition | detail=%s reason=%s",
+            tostring(state.current_task_detail or ""),
+            tostring(state.task_transition_reason or "")
+        ))
         return false
     end
     return M._leveling_treasure.maybe_recover_inside_startup(
@@ -3035,6 +3084,17 @@ local function maybe_soft_refresh_task_button_during_follow(ctx, current_time, t
 end
 
 local function update_task_target(ctx, current_time, player_x, player_y)
+    if type(M.is_task_transition_active) == "function"
+        and M.is_task_transition_active(current_time)
+    then
+        state.next_task_refresh_at = current_time + math.max(80, tonumber(M.TASK_BUTTON_PATH_WAIT_POLL_INTERVAL_MS) or 100)
+        log_throttled(ctx, "task_target_skip_task_transition", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] task target update skipped during task transition | detail=%s reason=%s",
+            tostring(state.current_task_detail or ""),
+            tostring(state.task_transition_reason or "")
+        ))
+        return false, "task detail transition"
+    end
     if M.maybe_override_treasure_task_target(ctx, current_time, player_x, player_y) then
         state.next_task_refresh_at = current_time + TASK_REFRESH_INTERVAL_MS
         return true
@@ -4374,6 +4434,23 @@ function M.start(ctx)
             tonumber(M.TASK_FOLLOW_MOVE_INTERVAL_MS) or 0,
             tonumber(M.TASK_POS_MOVE_INTERVAL_MS) or 0
         ))
+    end
+
+    if M.LEVELING_USE_COMBAT_WORKER == true then
+        local combat_worker_ok, combat_worker_err = M.start_combat_worker(ctx, current_time)
+        if not combat_worker_ok then
+            log_throttled(ctx, "combat_worker_start_failed", "warn", LOG_THROTTLE_MS,
+                "[Leveling] combat worker start failed, direct combat pulse fallback enabled: " .. tostring(combat_worker_err))
+        else
+            logger(ctx).info(string.format(
+                "[Leveling] combat mode | async combat worker | interval=%dms lease=%dms",
+                tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS) or 0,
+                tonumber(M.COMBAT_WORKER_LEASE_MS) or 0
+            ))
+        end
+    else
+        state.combat_worker_force_direct = true
+        logger(ctx).info("[Leveling] combat mode | direct runner pulse")
     end
 
     state.running = true
@@ -6014,6 +6091,45 @@ function M.maybe_handle_no_task_target_immediate_boss_kite(ctx, current_time, pl
         return false
     end
 
+    if objective_cfg.no_task_target_require_near_kite_point == true then
+        local max_distance = math.max(
+            600,
+            tonumber(objective_cfg.no_task_target_kite_point_distance)
+                or tonumber(objective_cfg.no_task_target_near_kite_distance)
+                or ((tonumber(objective_cfg.kite_radius) or 0) + (tonumber(objective_cfg.trigger_distance) or 0) + 500)
+                or 2200
+        )
+        local nearest_distance = nil
+        local points = type(objective_cfg.kite_points) == "table" and objective_cfg.kite_points or nil
+        if points ~= nil then
+            for _, point in ipairs(points) do
+                local kx = tonumber(type(point) == "table" and point.x)
+                local ky = tonumber(type(point) == "table" and point.y)
+                if kx ~= nil and ky ~= nil then
+                    local dist = distance_2d(player_x, player_y, kx, ky)
+                    nearest_distance = nearest_distance == nil and dist or math.min(nearest_distance, dist)
+                end
+            end
+        end
+        local boss_x = tonumber(objective_cfg.x)
+        local boss_y = tonumber(objective_cfg.y)
+        if boss_x ~= nil and boss_y ~= nil then
+            local dist = distance_2d(player_x, player_y, boss_x, boss_y)
+            nearest_distance = nearest_distance == nil and dist or math.min(nearest_distance, dist)
+        end
+        if nearest_distance == nil or nearest_distance > max_distance then
+            log_throttled(ctx, "no_task_target_boss_kite_wait_near_point_" .. tostring(objective_cfg.key or ""), "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] no-target boss kite waits for boss-room proximity | task=%s detail=%s objective=%s nearest_distance=%s max_distance=%.2f",
+                tostring(task_name or state.current_task_name or ""),
+                tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                tostring(objective_cfg.key or ""),
+                nearest_distance ~= nil and string.format("%.2f", nearest_distance) or "nil",
+                max_distance
+            ))
+            return false
+        end
+    end
+
     if M.arm_immediate_task_boss_kite(
         ctx,
         current_time,
@@ -6850,6 +6966,37 @@ function M.ensure_bag_closed_for_flow(ctx, current_time, reason)
     return false
 end
 
+function M.maybe_stop_for_current_task_config(ctx, current_time, player_x, player_y, player_z)
+    local task_cfg, task_name, task_cfg_source = M.current_task_runtime_config()
+    if type(task_cfg) ~= "table" or task_cfg.stop_script ~= true then
+        return false
+    end
+
+    local reason = tostring(task_cfg.stop_reason or task_cfg.key or "task_config_stop")
+    local task_detail = tostring(M.current_task_log_detail() or state.current_task_detail or "")
+    state.stage = "task_config_stop"
+    release_async_combat_inputs(ctx, current_time, true)
+    hold_navigation(ctx, current_time, "task_config_stop")
+    logger(ctx).info(string.format(
+        "[Leveling] stopping script by task config | task=%s detail=%s source=%s key=%s reason=%s pos=%s",
+        tostring(task_name or M.current_task_log_name() or state.current_task_name or ""),
+        task_detail,
+        tostring(task_cfg_source or ""),
+        tostring(task_cfg.key or ""),
+        reason,
+        player_x ~= nil and player_y ~= nil
+            and string.format("%.2f, %.2f, %.2f", tonumber(player_x) or 0, tonumber(player_y) or 0, tonumber(player_z) or 0)
+            or "nil"
+    ))
+
+    if type(stop_automation) == "function" then
+        stop_automation("AvePoint automation stopped by task config: " .. reason)
+    else
+        M.stop(ctx)
+    end
+    return true
+end
+
 function M.update(now, ctx)
     if state.running ~= true then
         return false, "Leveling runner is not started."
@@ -7457,6 +7604,8 @@ function M.update(now, ctx)
             priority = 10,
             run = function()
                 if not M.is_task_combat_or_post_loot_active()
+                    and not (type(M.is_task_transition_active) == "function"
+                        and M.is_task_transition_active(current_time))
                     and M.maybe_handle_task_dialogue_flow(ctx, current_time)
                 then
                     M.log_execution_trace(ctx, current_time, "task_dialogue_flow", state.task_target, nil, nil, nil, player_x, player_y, player_z)
@@ -7472,6 +7621,16 @@ function M.update(now, ctx)
             priority = 20,
             run = function()
                 if type(M.is_task_combat_active) == "function" and M.is_task_combat_active() then
+                    return false
+                end
+                if type(M.is_task_transition_active) == "function"
+                    and M.is_task_transition_active(current_time)
+                then
+                    log_throttled(ctx, "task_intent_skip_task_transition", "info", LOG_THROTTLE_MS, string.format(
+                        "[Leveling] task intent skipped during task transition | detail=%s reason=%s",
+                        tostring(state.current_task_detail or ""),
+                        tostring(state.task_transition_reason or "")
+                    ))
                     return false
                 end
                 return M.maybe_dispatch_explicit_task_intent(ctx, current_time, player_x, player_y, player_z, {
@@ -7523,6 +7682,10 @@ function M.update(now, ctx)
         }
     }) then
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    if M.maybe_stop_for_current_task_config(ctx, current_time, player_x, player_y, player_z) then
         return true
     end
 
@@ -8524,6 +8687,7 @@ end
 
 function M.stop(ctx)
     release_async_combat_inputs(ctx, now_ms(ctx), true)
+    M.stop_combat_worker(ctx)
     stop_nav_worker(ctx)
     if state.running == true then
         logger(ctx).info("[Leveling] runner stopped")

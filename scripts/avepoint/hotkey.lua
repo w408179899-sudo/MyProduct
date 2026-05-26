@@ -3415,7 +3415,8 @@ local function avepoint_hotkey_dump_nearby_npcs()
     return true
 end
 
-local function avepoint_hotkey_dump_visible_text_controls()
+local function avepoint_hotkey_dump_visible_text_controls(hotkey_label)
+    hotkey_label = tostring(hotkey_label or "F2")
     if type(nav.game_api) ~= "table" then
         return false, "nav.game_api unavailable"
     end
@@ -3493,7 +3494,8 @@ local function avepoint_hotkey_dump_visible_text_controls()
     end
 
     log.info(string.format(
-        "F2 EnumCText dump start | total=%d cursor=(%s,%s) client_size=(%s,%s) hwnd=%s source=nav.game_api.EnumCText",
+        "%s EnumCText dump start | total=%d cursor=(%s,%s) client_size=(%s,%s) hwnd=%s source=nav.game_api.EnumCText",
+        hotkey_label,
         #raw_texts,
         tostring(cursor_client_x or ""),
         tostring(cursor_client_y or ""),
@@ -3504,7 +3506,8 @@ local function avepoint_hotkey_dump_visible_text_controls()
 
     for index, item in ipairs(raw_texts) do
         log.info(string.format(
-            "F2 EnumCText text[%d/%d] | addr=%s name=%s text=%s fullname=%s x=%s y=%s raw_extra=%s",
+            "%s EnumCText text[%d/%d] | addr=%s name=%s text=%s fullname=%s x=%s y=%s raw_extra=%s",
+            hotkey_label,
             index,
             #raw_texts,
             avepoint_format_addr_hex(type(item) == "table" and item.addr or nil),
@@ -3517,12 +3520,13 @@ local function avepoint_hotkey_dump_visible_text_controls()
         ))
     end
 
-    log.info(string.format("F2 EnumCText dump complete | total=%d", #raw_texts))
+    log.info(string.format("%s EnumCText dump complete | total=%d", hotkey_label, #raw_texts))
 
     return true
 end
 
-local function avepoint_hotkey_dump_visible_image_controls()
+local function avepoint_hotkey_dump_visible_image_controls(hotkey_label)
+    hotkey_label = tostring(hotkey_label or "F3")
     if type(nav.game_api) ~= "table" then
         return false, "nav.game_api unavailable"
     end
@@ -3624,7 +3628,8 @@ local function avepoint_hotkey_dump_visible_image_controls()
     end
 
     log.info(string.format(
-        "F2 EnumCImage dump start | total=%d cursor=(%s,%s) client_size=(%s,%s) hwnd=%s source=nav.game_api.EnumCImage",
+        "%s EnumCImage dump start | total=%d cursor=(%s,%s) client_size=(%s,%s) hwnd=%s source=nav.game_api.EnumCImage",
+        hotkey_label,
         #raw_images,
         tostring(cursor_client_x or ""),
         tostring(cursor_client_y or ""),
@@ -3635,7 +3640,8 @@ local function avepoint_hotkey_dump_visible_image_controls()
 
     for index, item in ipairs(raw_images) do
         log.info(string.format(
-            "F2 EnumCImage image[%d/%d] | addr=%s name=%s text=%s fullname=%s x=%s y=%s w=%s h=%s raw_extra=%s",
+            "%s EnumCImage image[%d/%d] | addr=%s name=%s text=%s fullname=%s x=%s y=%s w=%s h=%s raw_extra=%s",
+            hotkey_label,
             index,
             #raw_images,
             avepoint_format_addr_hex(type(item) == "table" and item.addr or nil),
@@ -3650,7 +3656,7 @@ local function avepoint_hotkey_dump_visible_image_controls()
         ))
     end
 
-    log.info(string.format("F2 EnumCImage dump complete | total=%d", #raw_images))
+    log.info(string.format("%s EnumCImage dump complete | total=%d", hotkey_label, #raw_images))
 
     return true
 end
@@ -4605,6 +4611,220 @@ function avepoint_hotkey_test_data_api()
     return fail_count == 0
 end
 
+local F9_LEVEL_UP_MAINTENANCE_TEST = {
+    kind = "skill",
+    level = 4,
+    tick_ms = 50,
+    timeout_ms = 120000,
+    active = false
+}
+
+local function avepoint_hotkey_level_up_test_plan_label(kind, level, plan)
+    if type(plan) == "table" then
+        local label = tostring(plan.label or plan.key or "")
+        if label ~= "" then
+            return label
+        end
+    end
+    return string.format("%s level %d", tostring(kind or ""), tonumber(level) or 0)
+end
+
+local function avepoint_hotkey_stop_level_up_maintenance_test(reason)
+    if F9_LEVEL_UP_MAINTENANCE_TEST.active ~= true then
+        return
+    end
+
+    local runner = F9_LEVEL_UP_MAINTENANCE_TEST.runner
+    if type(runner) == "table" and type(runner.clear_level_up_maintenance_executor_state) == "function" then
+        pcall(runner.clear_level_up_maintenance_executor_state)
+    end
+
+    log.info(string.format(
+        "F9 level-up maintenance test stopped | kind=%s level=%s plan=%s reason=%s",
+        tostring(F9_LEVEL_UP_MAINTENANCE_TEST.kind or ""),
+        tostring(F9_LEVEL_UP_MAINTENANCE_TEST.level or ""),
+        tostring(F9_LEVEL_UP_MAINTENANCE_TEST.plan_label or ""),
+        tostring(reason or "")
+    ))
+
+    F9_LEVEL_UP_MAINTENANCE_TEST.active = false
+    F9_LEVEL_UP_MAINTENANCE_TEST.runner = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.ctx = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.plan = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.plan_label = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.started_at = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.next_tick_at = nil
+end
+
+local function avepoint_hotkey_start_level_up_maintenance_test(kind, level)
+    kind = tostring(kind or F9_LEVEL_UP_MAINTENANCE_TEST.kind or "skill")
+    level = math.floor(tonumber(level) or tonumber(F9_LEVEL_UP_MAINTENANCE_TEST.level) or 0)
+    if kind == "" or level <= 0 then
+        return false, "invalid F9 level-up maintenance test target"
+    end
+    if state.running == true then
+        return false, "automation is running"
+    end
+    if state.f6_loop_active == true then
+        return false, "F6 3-round loop is active"
+    end
+    if F9_LEVEL_UP_MAINTENANCE_TEST.active == true then
+        return false, "F9 level-up maintenance test is already running"
+    end
+
+    if not initialized then
+        local attach_target = avepoint_hotkey_attach_target_pid()
+        local init_ok, init_err = avepoint_wait_for_torch_init(3500, attach_target, MODE)
+        if not init_ok then
+            return false, "Torch API init failed: " .. tostring(init_err)
+        end
+    end
+    if not initialized then
+        return false, "Torch API not ready"
+    end
+
+    local runner, load_err = TASK_MODE.load_runner(TASK_MODE.LEVELING)
+    if type(runner) ~= "table" then
+        return false, tostring(load_err or "load AvePointLeveling runner failed")
+    end
+    if type(runner.level_up_maintenance_config) ~= "function"
+        or type(runner.level_up_maintenance_get_level_plan) ~= "function"
+        or type(runner.level_up_maintenance_plan_steps) ~= "function"
+        or type(runner.start_level_up_maintenance_executor) ~= "function"
+        or type(runner.progress_level_up_maintenance_executor) ~= "function"
+    then
+        return false, "AvePointLeveling runner lacks level-up maintenance test APIs"
+    end
+
+    local cfg = runner.level_up_maintenance_config()
+    local plan = runner.level_up_maintenance_get_level_plan(cfg, kind, level)
+    local steps = runner.level_up_maintenance_plan_steps(plan)
+    if type(plan) ~= "table" or type(steps) ~= "table" or #steps <= 0 then
+        return false, string.format("missing %s_by_level[%d] maintenance plan", kind, level)
+    end
+
+    local plan_id = tostring(plan.key or "")
+    if plan_id == "" and type(runner.level_up_maintenance_plan_id) == "function" then
+        plan_id = runner.level_up_maintenance_plan_id(kind, level, plan)
+    end
+    local ctx = TASK_MODE.build_context()
+    if type(runner.refresh_persistence_character_identity) == "function" then
+        pcall(runner.refresh_persistence_character_identity, ctx, true)
+    end
+
+    local now = sys.time()
+    local started, start_err = runner.start_level_up_maintenance_executor(ctx, now, {
+        kind = kind,
+        level = level,
+        plan = plan,
+        steps = steps,
+        id = plan_id
+    })
+    if not started then
+        return false, tostring(start_err or "executor start failed")
+    end
+
+    F9_LEVEL_UP_MAINTENANCE_TEST.kind = kind
+    F9_LEVEL_UP_MAINTENANCE_TEST.level = level
+    F9_LEVEL_UP_MAINTENANCE_TEST.runner = runner
+    F9_LEVEL_UP_MAINTENANCE_TEST.ctx = ctx
+    F9_LEVEL_UP_MAINTENANCE_TEST.plan = plan
+    F9_LEVEL_UP_MAINTENANCE_TEST.plan_label = avepoint_hotkey_level_up_test_plan_label(kind, level, plan)
+    F9_LEVEL_UP_MAINTENANCE_TEST.started_at = now
+    F9_LEVEL_UP_MAINTENANCE_TEST.next_tick_at = now
+    F9_LEVEL_UP_MAINTENANCE_TEST.active = true
+
+    log.info(string.format(
+        "F9 level-up maintenance test started | kind=%s level=%d plan=%s steps=%d",
+        kind,
+        level,
+        tostring(F9_LEVEL_UP_MAINTENANCE_TEST.plan_label or ""),
+        #steps
+    ))
+    return true
+end
+
+local function avepoint_hotkey_update_level_up_maintenance_test(current_time)
+    if F9_LEVEL_UP_MAINTENANCE_TEST.active ~= true then
+        return
+    end
+
+    current_time = tonumber(current_time) or sys.time()
+    if current_time < (tonumber(F9_LEVEL_UP_MAINTENANCE_TEST.next_tick_at) or 0) then
+        return
+    end
+
+    if state.running == true then
+        avepoint_hotkey_stop_level_up_maintenance_test("automation started")
+        return
+    end
+
+    local started_at = tonumber(F9_LEVEL_UP_MAINTENANCE_TEST.started_at) or current_time
+    local timeout_ms = tonumber(F9_LEVEL_UP_MAINTENANCE_TEST.timeout_ms) or 120000
+    if timeout_ms > 0 and current_time - started_at > timeout_ms then
+        avepoint_hotkey_stop_level_up_maintenance_test("timeout")
+        return
+    end
+
+    local runner = F9_LEVEL_UP_MAINTENANCE_TEST.runner
+    local ctx = F9_LEVEL_UP_MAINTENANCE_TEST.ctx
+    if type(runner) ~= "table" or type(runner.progress_level_up_maintenance_executor) ~= "function" then
+        avepoint_hotkey_stop_level_up_maintenance_test("runner unavailable")
+        return
+    end
+
+    local ok, step_ok = pcall(runner.progress_level_up_maintenance_executor, ctx, current_time)
+    if not ok then
+        log.error("F9 level-up maintenance test failed: " .. tostring(step_ok))
+        avepoint_hotkey_stop_level_up_maintenance_test("progress error")
+        return
+    end
+    if step_ok == false then
+        avepoint_hotkey_stop_level_up_maintenance_test("executor inactive")
+        return
+    end
+
+    if type(runner.level_up_maintenance_executor_is_active) == "function"
+        and runner.level_up_maintenance_executor_is_active() ~= true
+    then
+        local done = false
+        if type(runner.level_up_maintenance_plan_done) == "function" then
+            done = runner.level_up_maintenance_plan_done(
+                F9_LEVEL_UP_MAINTENANCE_TEST.kind,
+                F9_LEVEL_UP_MAINTENANCE_TEST.level,
+                F9_LEVEL_UP_MAINTENANCE_TEST.plan
+            ) == true
+        end
+        if done then
+            log.info(string.format(
+                "F9 level-up maintenance test completed | kind=%s level=%s plan=%s elapsed=%dms",
+                tostring(F9_LEVEL_UP_MAINTENANCE_TEST.kind or ""),
+                tostring(F9_LEVEL_UP_MAINTENANCE_TEST.level or ""),
+                tostring(F9_LEVEL_UP_MAINTENANCE_TEST.plan_label or ""),
+                math.max(0, current_time - started_at)
+            ))
+        else
+            log.warn(string.format(
+                "F9 level-up maintenance test ended without completion mark | kind=%s level=%s plan=%s elapsed=%dms",
+                tostring(F9_LEVEL_UP_MAINTENANCE_TEST.kind or ""),
+                tostring(F9_LEVEL_UP_MAINTENANCE_TEST.level or ""),
+                tostring(F9_LEVEL_UP_MAINTENANCE_TEST.plan_label or ""),
+                math.max(0, current_time - started_at)
+            ))
+        end
+        F9_LEVEL_UP_MAINTENANCE_TEST.active = false
+        F9_LEVEL_UP_MAINTENANCE_TEST.runner = nil
+        F9_LEVEL_UP_MAINTENANCE_TEST.ctx = nil
+        F9_LEVEL_UP_MAINTENANCE_TEST.plan = nil
+        F9_LEVEL_UP_MAINTENANCE_TEST.plan_label = nil
+        F9_LEVEL_UP_MAINTENANCE_TEST.started_at = nil
+        F9_LEVEL_UP_MAINTENANCE_TEST.next_tick_at = nil
+        return
+    end
+
+    F9_LEVEL_UP_MAINTENANCE_TEST.next_tick_at = sys.time() + math.max(10, tonumber(F9_LEVEL_UP_MAINTENANCE_TEST.tick_ms) or 50)
+end
+
 function main()
     write_hotkey_owner_lock()
 
@@ -4642,7 +4862,7 @@ function main()
         log.info("Press Insert or Ctrl+F9 or [ to start current task mode; hold Delete or Ctrl+F10 or ] to stop")
     end
     log.info("Press F1 to dump all buttons returned by EnumCButton")
-    log.info("Press F2 to dump all images returned by EnumCImage")
+    log.info("Press F2 to dump all text controls returned by EnumCText")
     log.info("Press F5 to dump nearby NPCs returned by EnumNPC")
     log.info("Press F12 to dump raw GetCurrentSelected API output without clicking")
     local f4_preset = HOTKEY_DISTANCE_PREVIEW_PRESETS and HOTKEY_DISTANCE_PREVIEW_PRESETS.current or nil
@@ -4650,11 +4870,7 @@ function main()
         "Press F4 to preview the configured target for %s without clicking",
         tostring(f4_preset and f4_preset.label or "preview target")
     ))
-    local f3_preset = HOTKEY_BUTTON_ENUM_PRESETS and HOTKEY_BUTTON_ENUM_PRESETS.current or nil
-    log.info(string.format(
-        "Press F3 to dump mouse-nearby button candidates plus full button snapshot for %s",
-        tostring(f3_preset and f3_preset.label or "current page")
-    ))
+    log.info("Press F3 to dump all images returned by EnumCImage")
     local f11_preset = HOTKEY_CURSOR_CLICK_PRESETS and HOTKEY_CURSOR_CLICK_PRESETS.current or nil
     log.info(string.format(
         "Press F10 to inspect the same uniquely matched mouse target for %s without clicking",
@@ -4667,7 +4883,7 @@ function main()
     log.info("Press F6 to print current player coordinates")
     log.info("Press F7 to print current player position and nearby portals")
     log.info("Press F8 to print current mouse client coordinates")
-    log.info("Press F9 to run read-only Data API diagnostics")
+    log.info("Press F9 to test level 4 skill maintenance plan")
     log.info("Press Ctrl+F12 to exit")
     log.info("Waiting for torchlight API/game init...")
 
@@ -4786,6 +5002,9 @@ function main()
                 if state.running then
                     stop_automation("AvePoint automation stopped")
                 end
+                if F9_LEVEL_UP_MAINTENANCE_TEST.active == true then
+                    avepoint_hotkey_stop_level_up_maintenance_test("stop hotkey")
+                end
                 if state.f6_loop_active == true then
                     stop_f6_loop("F6 3-round loop stopped")
                 end
@@ -4814,13 +5033,13 @@ function main()
                 local attach_target = avepoint_hotkey_attach_target_pid()
                 local init_ok, init_err = avepoint_wait_for_torch_init(3500, attach_target, MODE)
                 if not init_ok then
-                    log.warn("F2 EnumCImage dump unavailable: Torch API init failed: " .. tostring(init_err))
+                    log.warn("F2 EnumCText dump unavailable: Torch API init failed: " .. tostring(init_err))
                 end
             end
             if initialized then
-                local ok, err = avepoint_hotkey_dump_visible_image_controls()
+                local ok, err = avepoint_hotkey_dump_visible_text_controls("F2")
                 if not ok then
-                    log.error("F2 EnumCImage dump failed: " .. tostring(err))
+                    log.error("F2 EnumCText dump failed: " .. tostring(err))
                 end
             end
         end
@@ -5512,23 +5731,24 @@ function main()
         end
 
         if pressed_once(HOTKEY_F9) then
-            local ok, err = avepoint_hotkey_test_data_api()
+            local ok, err = avepoint_hotkey_start_level_up_maintenance_test("skill", 4)
             if not ok then
-                log.warn("F9 Data API diagnostics finished with failures: " .. tostring(err or "see F9 Data API lines above"))
+                log.warn("F9 level-up maintenance test unavailable: " .. tostring(err))
             end
         end
 
         if pressed_once(HOTKEY_F3) then
-            if state.running then
-                log.info("F3 button dump ignored while automation is running")
-            elseif state.f6_loop_active == true then
-                log.info("F3 button dump ignored while F6 3-round loop is active")
-            elseif not initialized then
-                log.warn("Torch API not ready yet")
-            else
-                local dump_ok, dump_err = avepoint_hotkey_dump_visible_buttons()
+            if not initialized then
+                local attach_target = avepoint_hotkey_attach_target_pid()
+                local init_ok, init_err = avepoint_wait_for_torch_init(3500, attach_target, MODE)
+                if not init_ok then
+                    log.warn("F3 EnumCImage dump unavailable: Torch API init failed: " .. tostring(init_err))
+                end
+            end
+            if initialized then
+                local dump_ok, dump_err = avepoint_hotkey_dump_visible_image_controls("F3")
                 if not dump_ok then
-                    log.error("F3 button dump failed: " .. tostring(dump_err))
+                    log.error("F3 EnumCImage dump failed: " .. tostring(dump_err))
                 end
             end
         end
@@ -5721,6 +5941,8 @@ function main()
         then
             if state.f6_loop_active == true then
                 log.info("F6 3-round loop is active; start hotkey ignored")
+            elseif F9_LEVEL_UP_MAINTENANCE_TEST.active == true then
+                log.info("F9 level-up maintenance test is active; start hotkey ignored")
             elseif not initialized then
                 log.warn("Torch API not ready yet")
             elseif state.running then
@@ -5746,6 +5968,8 @@ function main()
         end
 
         local loop_now = sys.time()
+        avepoint_hotkey_update_level_up_maintenance_test(loop_now)
+
         if state.f6_loop_active == true then
             local f6_ok, f6_err = update_f6_loop(loop_now)
             if not f6_ok then
@@ -5775,6 +5999,7 @@ function main()
         sys.sleep(POLL_INTERVAL_MS)
     end
 
+    avepoint_hotkey_stop_level_up_maintenance_test("hotkey exit")
     stop_automation()
 
     if started_hotkey and hotkey.is_running() then

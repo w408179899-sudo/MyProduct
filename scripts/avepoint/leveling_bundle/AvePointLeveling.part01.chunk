@@ -159,6 +159,7 @@ local TASK_COMBAT_CLEAR_SETTLE_MS = 1800
 M.TASK_BUTTON_PATH_EARLY_RETRY_AFTER_MS = 1100
 M.TASK_BUTTON_PATH_EARLY_RETRY_FAILED_MS = 1200
 M.TASK_BUTTON_PATH_WAIT_POLL_INTERVAL_MS = 100
+M.TASK_DETAIL_TRANSITION_MAX_HOLD_MS = 6000
 local TASK_COMBAT_HARD_TRIGGER_MS = 4500
 local TASK_COMBAT_HARD_MONSTER_COUNT = 6
 local TASK_COMBAT_HARD_NEAREST_DISTANCE = 180
@@ -170,7 +171,7 @@ local TASK_COMBAT_KITE_ANCHOR_REBUILD_DISTANCE = 80
 local TASK_PATH_POINT_ARRIVE_TOLERANCE = math.max(80, tonumber(ARRIVE_TOLERANCE) or 120)
 local TASK_PATH_REPATH_INTERVAL_MS = math.max(500, tonumber(REPATH_INTERVAL_MS) or 1500)
 local TASK_PATH_PROGRESS_RESET_DISTANCE = math.max(40, tonumber(MAP_ROUTE_STUCK_PROGRESS_RESET_DISTANCE) or 80)
-local TASK_PATH_STUCK_SKIP_MS = math.max(3000, tonumber(MAP_ROUTE_STUCK_SKIP_MS) or 10000)
+local TASK_PATH_STUCK_SKIP_MS = math.max(2000, tonumber(MAP_ROUTE_STUCK_SKIP_MS) or 2000)
 
 local release_async_combat_inputs
 M.TASK_PATH_SIDESTEP_DISTANCE = 220
@@ -201,6 +202,15 @@ local NAV_WORKER_HEARTBEAT_STALE_MS = 3000
 M.NAV_WORKER_ROUTE_POINT_SHARE_LIMIT = 1024
 local LEVELING_USE_NAV_WORKER = M._leveling_config
     and M._leveling_config.LEVELING_USE_NAV_WORKER == true
+M.COMBAT_WORKER_DEFAULT_LEASE_MS = 4000
+M.LEVELING_USE_COMBAT_WORKER = not (
+    M._leveling_config and M._leveling_config.LEVELING_USE_COMBAT_WORKER == false
+)
+M.COMBAT_WORKER_LEASE_MS = math.max(
+    M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS,
+    tonumber(M._leveling_config and M._leveling_config.COMBAT_WORKER_LEASE_MS)
+        or M.COMBAT_WORKER_DEFAULT_LEASE_MS
+)
 M.TASK_PATH_WORKER_ROUTE_MODE = not (
     M._leveling_config and M._leveling_config.TASK_PATH_WORKER_ROUTE_MODE == false
 )
@@ -260,6 +270,9 @@ local MONSTER_SCAN_LOG_INTERVAL_MS = 2000
 local REVIVE_CLICK_RETRY_INTERVAL_MS = 3000
 local REVIVE_READY_STABLE_MS = 1000
 local NAV_WORKER_SHARE_PREFIX_BASE = "avepoint_leveling_nav"
+M.COMBAT_WORKER_SHARE_PREFIX_BASE = "avepoint_leveling_combat"
+M.COMBAT_WORKER_CHECK_INTERVAL_MS = 500
+M.COMBAT_WORKER_HEARTBEAT_STALE_MS = 1500
 M.TASK_FOLLOW_MOVE_INTERVAL_MS = math.max(120, tonumber(M._leveling_config and M._leveling_config.TASK_FOLLOW_MOVE_INTERVAL_MS) or 220)
 M.TASK_POS_MOVE_INTERVAL_MS = math.max(120, tonumber(M._leveling_config and M._leveling_config.TASK_POS_MOVE_INTERVAL_MS) or 250)
 M.TASK_COMBAT_KITE_ASYNC_ROUTE_WORKER = not (
@@ -1232,6 +1245,10 @@ function M.publish_current_task_name()
         and not M.is_task_detail_transition(state.current_task_detail)
     then
         _G.AVEPOINT_LAST_TASK_DETAIL = state.current_task_detail
+        state.task_transition_active_until = 0
+        state.task_transition_marker = nil
+        state.task_transition_reason = nil
+        state.task_transition_started_at = 0
     end
     if type(state.current_task_name) == "string" and state.current_task_name ~= "" then
         local normalized = trim(tostring(state.current_task_name or ""))
@@ -1345,6 +1362,7 @@ function M.clear_task_advancing_action_confirmation()
     state.task_advancing_action_pending_task_detail = nil
     state.task_advancing_action_pending_started_at = 0
     state.task_advancing_action_pending_deadline_at = 0
+    state.task_advancing_action_pending_expire_deferred_at = 0
 end
 
 function M.clear_task_dialogue_flow_state()
@@ -1802,6 +1820,7 @@ function M.clear_task_entry_action_state()
     state.task_entry_action_map_open_wait_ms = 0
     state.task_entry_action_pre_clicked_at = 0
     state.task_entry_action_send_clicked_at = 0
+    state.task_entry_action_world_map_panel_missing_since = 0
     state.task_entry_action_locked_cfg = nil
     state.task_entry_action_locked_task_name = nil
     state.task_entry_action_locked_key = nil
@@ -2018,6 +2037,16 @@ local function reset_state()
     state.combat_sidecar_last_tick_at = 0
     state.combat_sidecar_last_gate = nil
     state.combat_sidecar_last_reason = nil
+    state.combat_worker_task_id = 0
+    state.combat_worker_share_prefix = nil
+    state.combat_worker_force_direct = false
+    state.combat_worker_next_check_at = 0
+    state.combat_worker_last_status = nil
+    state.combat_worker_last_error = nil
+    state.combat_worker_last_publish_at = 0
+    state.combat_worker_lease_version = 0
+    state.combat_worker_last_pulse_at = 0
+    state.combat_worker_last_pulse_count = 0
     state.interaction_combat_guard_key = nil
     state.interaction_combat_guard_started_at = 0
     state.interaction_combat_guard_skip_key = nil
@@ -2092,6 +2121,10 @@ local function reset_state()
     state.task_info_stability_gate_observed_task_name = nil
     state.task_info_stability_gate_observed_task_detail = nil
     state.task_info_stability_gate_flow_key = nil
+    state.task_transition_active_until = 0
+    state.task_transition_started_at = 0
+    state.task_transition_marker = nil
+    state.task_transition_reason = nil
     state.task_pos_reject_until = 0
     state.task_pos_reject_reason = nil
     state.force_task_path_reacquire_until = 0
@@ -2574,6 +2607,65 @@ local function nav_worker_clear_shares(ctx)
     end
 end
 
+function M.combat_worker_key(suffix)
+    if type(state.combat_worker_share_prefix) ~= "string" or state.combat_worker_share_prefix == "" then
+        return nil
+    end
+    return state.combat_worker_share_prefix .. ":" .. tostring(suffix or "")
+end
+
+function M.combat_worker_set(ctx, suffix, value)
+    local sys_api = share_api(ctx)
+    local key = M.combat_worker_key(suffix)
+    if not sys_api or not key then
+        return false
+    end
+    sys_api.set_share(key, value)
+    return true
+end
+
+function M.combat_worker_get(ctx, suffix)
+    local sys_api = share_api(ctx)
+    local key = M.combat_worker_key(suffix)
+    if not sys_api or not key then
+        return nil
+    end
+    return sys_api.get_share(key)
+end
+
+function M.combat_worker_clear_shares(ctx)
+    local sys_api = share_api(ctx)
+    if not sys_api or type(state.combat_worker_share_prefix) ~= "string" or state.combat_worker_share_prefix == "" then
+        return
+    end
+
+    local suffixes = {
+        "stop",
+        "paused",
+        "enabled",
+        "allow_until",
+        "interval_ms",
+        "retry_ms",
+        "reason",
+        "stage",
+        "lease_version",
+        "worker_status",
+        "last_error",
+        "last_pulse_at",
+        "last_pulse_interval_ms",
+        "last_reason",
+        "last_key_mode",
+        "last_mouse_mode",
+        "pulse_count",
+        "heartbeat_at",
+        "status_changed_at"
+    }
+
+    for _, suffix in ipairs(suffixes) do
+        sys_api.set_share(state.combat_worker_share_prefix .. ":" .. suffix, nil)
+    end
+end
+
 local function nav_worker_target_signature(target)
     if type(target) ~= "table" then
         return nil
@@ -2941,6 +3033,225 @@ local function stop_nav_worker(ctx)
     state.route_point_recorded_route_worker_path_signature = nil
 end
 
+function M.start_combat_worker(ctx, current_time)
+    if M.LEVELING_USE_COMBAT_WORKER ~= true then
+        state.combat_worker_force_direct = true
+        return false, "leveling combat worker disabled."
+    end
+
+    local task_mod = task_api()
+    local sys_api = share_api(ctx)
+    if type(task_mod) ~= "table" or type(task_mod.run) ~= "function" or not sys_api then
+        state.combat_worker_force_direct = true
+        return false, "task.run or sys share API is unavailable."
+    end
+
+    if tonumber(state.combat_worker_task_id) and tonumber(state.combat_worker_task_id) > 0 then
+        return true
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local current_task_id = type(task_mod.id) == "function" and tonumber(task_mod.id()) or 0
+    state.combat_worker_share_prefix = string.format(
+        "%s_%d_%d",
+        M.COMBAT_WORKER_SHARE_PREFIX_BASE,
+        tonumber(current_time) or 0,
+        tonumber(current_task_id) or 0
+    )
+    state.combat_worker_force_direct = false
+    state.combat_worker_next_check_at = current_time + M.COMBAT_WORKER_CHECK_INTERVAL_MS
+    state.combat_worker_last_status = nil
+    state.combat_worker_last_error = nil
+    state.combat_worker_last_publish_at = 0
+    state.combat_worker_lease_version = 0
+    state.combat_worker_last_pulse_at = 0
+    state.combat_worker_last_pulse_count = 0
+    M.combat_worker_clear_shares(ctx)
+    M.combat_worker_set(ctx, "stop", false)
+    M.combat_worker_set(ctx, "paused", true)
+    M.combat_worker_set(ctx, "enabled", false)
+    M.combat_worker_set(ctx, "allow_until", 0)
+    M.combat_worker_set(ctx, "interval_ms", M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS)
+    M.combat_worker_set(ctx, "retry_ms", 100)
+
+    local worker_id = task_mod.run("scripts/AvePointLevelingCombatWorker.lua", {
+        name = "AvePointLevelingCombatWorker",
+        priority = "high",
+        share_prefix = tostring(state.combat_worker_share_prefix),
+        process_name = tostring(type(ctx) == "table" and ctx.process_name or ""),
+        runtime_mode = tostring(type(ctx) == "table" and ctx.runtime_mode or ""),
+        update_interval_ms = 40,
+        interval_ms = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS,
+        retry_ms = 100,
+        mouse_hold_ms = ACTION_MOUSE_HOLD_MS
+    })
+    if type(worker_id) ~= "number" or worker_id <= 0 then
+        state.combat_worker_share_prefix = nil
+        state.combat_worker_force_direct = true
+        return false, "task.run returned invalid combat worker id."
+    end
+
+    state.combat_worker_task_id = worker_id
+    logger(ctx).info(string.format(
+        "[Leveling] combat worker started | task_id=%d share=%s interval_ms=%d lease_ms=%d",
+        worker_id,
+        tostring(state.combat_worker_share_prefix),
+        tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS) or 0,
+        tonumber(M.COMBAT_WORKER_LEASE_MS) or 0
+    ))
+    return true
+end
+
+function M.pause_combat_worker(ctx, current_time, reason)
+    if type(state.combat_worker_share_prefix) ~= "string" or state.combat_worker_share_prefix == "" then
+        return false
+    end
+    current_time = tonumber(current_time) or now_ms(ctx)
+    M.combat_worker_set(ctx, "enabled", false)
+    M.combat_worker_set(ctx, "paused", true)
+    M.combat_worker_set(ctx, "allow_until", current_time)
+    M.combat_worker_set(ctx, "reason", tostring(reason or "pause"))
+    return true
+end
+
+function M.stop_combat_worker(ctx)
+    M.pause_combat_worker(ctx, now_ms(ctx), "stop")
+    M.combat_worker_set(ctx, "stop", true)
+
+    local task_mod = task_api()
+    local worker_id = tonumber(state.combat_worker_task_id) or 0
+    if worker_id > 0 and type(task_mod) == "table" and type(task_mod.stop) == "function" then
+        pcall(task_mod.stop, worker_id)
+    end
+
+    M.combat_worker_clear_shares(ctx)
+    state.combat_worker_task_id = 0
+    state.combat_worker_share_prefix = nil
+    state.combat_worker_force_direct = false
+    state.combat_worker_next_check_at = 0
+    state.combat_worker_last_status = nil
+    state.combat_worker_last_error = nil
+    state.combat_worker_last_publish_at = 0
+    state.combat_worker_lease_version = 0
+    state.combat_worker_last_pulse_at = 0
+    state.combat_worker_last_pulse_count = 0
+end
+
+function M.ensure_combat_worker_running(ctx, current_time)
+    if M.LEVELING_USE_COMBAT_WORKER ~= true or state.combat_worker_force_direct == true then
+        return false, "combat worker direct fallback is enabled."
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    if current_time < (tonumber(state.combat_worker_next_check_at) or 0)
+        and tonumber(state.combat_worker_task_id) and tonumber(state.combat_worker_task_id) > 0
+    then
+        return true
+    end
+
+    state.combat_worker_next_check_at = current_time + M.COMBAT_WORKER_CHECK_INTERVAL_MS
+    local task_mod = task_api()
+    local worker_id = tonumber(state.combat_worker_task_id) or 0
+    if worker_id <= 0 then
+        return M.start_combat_worker(ctx, current_time)
+    end
+
+    if type(task_mod) == "table" and type(task_mod.status) == "function" then
+        local status = task_mod.status(worker_id)
+        if status ~= nil
+            and status ~= "running"
+            and status ~= "pending"
+            and status ~= "paused"
+        then
+            logger(ctx).warn("[Leveling] combat worker stopped unexpectedly, restarting: " .. tostring(status))
+            M.stop_combat_worker(ctx)
+            return M.start_combat_worker(ctx, current_time)
+        end
+    end
+
+    local heartbeat_at = tonumber(M.combat_worker_get(ctx, "heartbeat_at")) or 0
+    if heartbeat_at > 0 and current_time - heartbeat_at > M.COMBAT_WORKER_HEARTBEAT_STALE_MS then
+        logger(ctx).warn(string.format(
+            "[Leveling] combat worker heartbeat stale, restarting | age_ms=%d status=%s",
+            math.max(0, current_time - heartbeat_at),
+            tostring(M.combat_worker_get(ctx, "worker_status") or "")
+        ))
+        M.stop_combat_worker(ctx)
+        return M.start_combat_worker(ctx, current_time)
+    end
+
+    state.combat_worker_last_status = tostring(M.combat_worker_get(ctx, "worker_status") or "")
+    state.combat_worker_last_error = M.combat_worker_get(ctx, "last_error")
+    state.combat_worker_last_pulse_at = tonumber(M.combat_worker_get(ctx, "last_pulse_at")) or 0
+    state.combat_worker_last_pulse_count = tonumber(M.combat_worker_get(ctx, "pulse_count")) or 0
+    return true
+end
+
+function M.combat_worker_available(ctx, current_time)
+    if M.LEVELING_USE_COMBAT_WORKER ~= true or state.combat_worker_force_direct == true then
+        return false
+    end
+    if tonumber(state.combat_worker_task_id) and tonumber(state.combat_worker_task_id) > 0 then
+        return true
+    end
+    local ok = M.ensure_combat_worker_running(ctx, current_time)
+    return ok == true
+end
+
+function M.combat_worker_active()
+    return M.LEVELING_USE_COMBAT_WORKER == true
+        and state.combat_worker_force_direct ~= true
+        and tonumber(state.combat_worker_task_id) ~= nil
+        and tonumber(state.combat_worker_task_id) > 0
+end
+
+function M.publish_combat_worker_lease(ctx, current_time, reason, opts)
+    opts = type(opts) == "table" and opts or {}
+    if M.LEVELING_USE_COMBAT_WORKER ~= true or state.combat_worker_force_direct == true then
+        return false, "combat worker disabled."
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local worker_ok, worker_err = M.ensure_combat_worker_running(ctx, current_time)
+    if not worker_ok then
+        return false, worker_err
+    end
+
+    local interval_ms = math.max(
+        100,
+        math.floor(
+            tonumber(opts.interval_ms)
+                or tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS)
+                or tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS)
+                or 550
+        )
+    )
+    local lease_ms = math.max(interval_ms, math.floor(tonumber(opts.lease_ms) or tonumber(M.COMBAT_WORKER_LEASE_MS) or M.COMBAT_WORKER_DEFAULT_LEASE_MS))
+    local retry_ms = math.max(50, math.floor(tonumber(opts.retry_ms) or 100))
+
+    state.combat_worker_lease_version = (tonumber(state.combat_worker_lease_version) or 0) + 1
+    state.combat_worker_last_publish_at = current_time
+    M.combat_worker_set(ctx, "stop", false)
+    M.combat_worker_set(ctx, "paused", false)
+    M.combat_worker_set(ctx, "enabled", true)
+    M.combat_worker_set(ctx, "allow_until", current_time + lease_ms)
+    M.combat_worker_set(ctx, "interval_ms", interval_ms)
+    M.combat_worker_set(ctx, "retry_ms", retry_ms)
+    M.combat_worker_set(ctx, "reason", tostring(reason or "combat_worker"))
+    M.combat_worker_set(ctx, "stage", tostring(state.stage or ""))
+    M.combat_worker_set(ctx, "lease_version", tonumber(state.combat_worker_lease_version) or 0)
+
+    log_throttled(ctx, "combat_worker_lease", "info", 1000, string.format(
+        "[Leveling] combat worker lease armed | reason=%s stage=%s interval_ms=%d lease_ms=%d status=%s",
+        tostring(reason or ""),
+        tostring(state.stage or ""),
+        interval_ms,
+        lease_ms,
+        tostring(M.combat_worker_get(ctx, "worker_status") or "")
+    ))
+    return true
+end
+
 local function ensure_nav_worker_running(ctx, current_time, force_enabled)
     if state.nav_worker_force_direct == true and force_enabled ~= true then
         return false, "nav worker direct fallback is enabled."
@@ -3057,6 +3368,198 @@ local function hold_navigation(ctx, current_time, reason)
         log_throttled(ctx, "nav_hold_" .. tostring(reason), "info", LOG_THROTTLE_MS,
             "[Leveling] navigation hold | reason=" .. tostring(reason))
     end
+end
+
+function M.clear_nav_worker_target(ctx, current_time, reason)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    if tonumber(state.nav_worker_task_id) and tonumber(state.nav_worker_task_id) > 0 then
+        local shared_target_version = tonumber(nav_worker_get(ctx, "target_version")) or 0
+        local shared_target_source = tostring(nav_worker_get(ctx, "target_source") or "")
+        local shared_route_count = tonumber(nav_worker_get(ctx, "route_count")) or 0
+        local needs_clear = (tonumber(state.nav_worker_target_version) or 0) > 0
+            or state.nav_worker_target_signature ~= nil
+            or shared_target_version > 0
+            or shared_target_source ~= ""
+            or shared_route_count > 0
+        nav_worker_set(ctx, "paused", true)
+        nav_worker_set(ctx, "mode", "target")
+        if needs_clear then
+            nav_worker_set(ctx, "target_version", 0)
+            nav_worker_set(ctx, "target_x", nil)
+            nav_worker_set(ctx, "target_y", nil)
+            nav_worker_set(ctx, "target_source", nil)
+            nav_worker_set(ctx, "target_path_index", 0)
+            nav_worker_set(ctx, "route_version", 0)
+            nav_worker_set(ctx, "route_signature", nil)
+            nav_worker_set(ctx, "route_count", 0)
+            nav_worker_set(ctx, "last_issue_at", nil)
+            nav_worker_set(ctx, "last_target_x", nil)
+            nav_worker_set(ctx, "last_target_y", nil)
+            nav_worker_set(ctx, "last_target_path_index", nil)
+            nav_worker_set(ctx, "last_target_version", nil)
+            for index = 1, M.NAV_WORKER_ROUTE_POINT_SHARE_LIMIT do
+                nav_worker_set(ctx, "route_point_" .. index .. "_x", nil)
+                nav_worker_set(ctx, "route_point_" .. index .. "_y", nil)
+                nav_worker_set(ctx, "route_point_" .. index .. "_z", nil)
+                nav_worker_set(ctx, "route_point_" .. index .. "_index", nil)
+            end
+        end
+    end
+    state.nav_worker_paused = true
+    state.nav_worker_target_version = 0
+    state.nav_worker_target_signature = nil
+    state.nav_worker_target_published_at = 0
+    state.nav_worker_target_path_index = 0
+    state.nav_worker_path_route_signature = nil
+    state.nav_worker_path_route_version = 0
+    state.nav_worker_path_route_window_start = 0
+    state.nav_worker_path_route_window_end = 0
+    state.nav_worker_path_route_direction = 1
+    state.nav_worker_path_route_path_signature = nil
+    state.nav_worker_last_issue_at = 0
+    state.next_move_at = current_time
+    state.last_move_call_at = 0
+    if reason then
+        log_throttled(ctx, "nav_worker_target_clear_" .. tostring(reason), "info", LOG_THROTTLE_MS,
+            "[Leveling] nav worker target cleared | reason=" .. tostring(reason))
+    end
+    return true
+end
+
+function M.is_task_transition_active(current_time)
+    current_time = tonumber(current_time) or now_ms(state.log_ctx)
+    local detail = trim(tostring(state.current_task_detail or ""))
+    if detail ~= "" then
+        if M.is_task_detail_transition(detail) then
+            local started_at = tonumber(state.task_transition_started_at) or 0
+            local max_hold_ms = math.max(1500, tonumber(M.TASK_DETAIL_TRANSITION_MAX_HOLD_MS) or 6000)
+            if started_at > 0 and current_time - started_at >= max_hold_ms then
+                return false
+            end
+            return (tonumber(state.task_transition_active_until) or 0) > current_time
+                or started_at <= 0
+        end
+        return false
+    end
+    return (tonumber(state.task_transition_active_until) or 0) > current_time
+end
+
+function M.arm_task_detail_transition(ctx, current_time, marker, reason)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local marker_text = trim(tostring(marker or state.current_task_detail or ""))
+    if marker_text == "" or not M.is_task_detail_transition(marker_text) then
+        return false
+    end
+
+    local reason_text = trim(tostring(reason or "task_detail_transition"))
+    if reason_text == "" then
+        reason_text = "task_detail_transition"
+    end
+    local transition_reason = reason_text .. ":" .. marker_text
+    local refresh_at = current_time + 150
+    local started_at = tonumber(state.task_transition_started_at) or 0
+    local max_hold_ms = math.max(1500, tonumber(M.TASK_DETAIL_TRANSITION_MAX_HOLD_MS) or 6000)
+    if started_at > 0
+        and tostring(state.task_transition_marker or "") == marker_text
+        and current_time - started_at >= max_hold_ms
+    then
+        state.task_transition_active_until = 0
+        if tostring(state.require_task_button_refresh_reason or ""):find("transition", 1, true) ~= nil then
+            state.require_task_button_refresh = false
+            state.require_task_button_refresh_reason = nil
+        end
+        state.task_update_wait_until = 0
+        state.next_task_button_click_at = math.min(tonumber(state.next_task_button_click_at) or current_time, current_time)
+        state.next_task_refresh_at = math.min(tonumber(state.next_task_refresh_at) or current_time, current_time)
+        if tostring(state.task_pos_reject_reason or ""):find("transition", 1, true) ~= nil then
+            state.task_pos_reject_until = 0
+            state.task_pos_reject_reason = nil
+        end
+        if tostring(state.force_task_path_reacquire_reason or ""):find("transition", 1, true) ~= nil then
+            state.force_task_path_reacquire_until = 0
+            state.force_task_path_reacquire_reason = nil
+            state.force_task_path_reacquire_extra_ms = 0
+        end
+        log_throttled(ctx, "task_detail_transition_stale_release_" .. marker_text, "warn", 1200, string.format(
+            "[Leveling] task detail transition stale, stop rearming | marker=%s elapsed=%dms max=%dms reason=%s",
+            tostring(marker_text),
+            math.floor(math.max(0, current_time - started_at)),
+            math.floor(max_hold_ms),
+            tostring(reason_text)
+        ))
+        return false
+    end
+
+    state.task_transition_active_until = math.max(
+        tonumber(state.task_transition_active_until) or 0,
+        current_time + 2500
+    )
+    if (tonumber(state.task_transition_started_at) or 0) <= 0 then
+        state.task_transition_started_at = current_time
+    end
+    state.task_transition_marker = marker_text
+    state.task_transition_reason = transition_reason
+
+    clear_task_target_state()
+    state.require_task_button_refresh = true
+    state.require_task_button_refresh_reason = transition_reason
+    state.task_update_wait_until = math.max(tonumber(state.task_update_wait_until) or 0, refresh_at)
+    state.next_task_button_click_at = refresh_at
+    state.next_task_refresh_at = refresh_at
+    state.task_path_wait_until = 0
+    state.task_path_early_retry_at = 0
+    state.task_path_early_retry_count = 0
+    state.task_pos_reject_until = math.max(
+        tonumber(state.task_pos_reject_until) or 0,
+        current_time + 8000
+    )
+    state.task_pos_reject_reason = transition_reason
+    state.force_task_path_reacquire_until = math.max(
+        tonumber(state.force_task_path_reacquire_until) or 0,
+        current_time + 10000
+    )
+    state.force_task_path_reacquire_reason = transition_reason
+
+    if type(schedule_task_refresh_after_transition) == "function" then
+        schedule_task_refresh_after_transition(ctx, current_time, transition_reason, 100, {
+            force_task_call = true,
+            task_pos_reject_extra_ms = 3500,
+            force_task_path_reacquire_ms = 10000,
+            skip_task_info_stability_gate = true,
+            task_info_change_observed = true
+        })
+        state.next_task_button_click_at = math.min(
+            tonumber(state.next_task_button_click_at) or refresh_at,
+            tonumber(state.task_update_wait_until) or refresh_at
+        )
+        state.next_task_refresh_at = math.min(
+            tonumber(state.next_task_refresh_at) or refresh_at,
+            tonumber(state.task_update_wait_until) or refresh_at
+        )
+    end
+
+    if type(M.clear_nav_worker_target) == "function" then
+        M.clear_nav_worker_target(ctx, current_time, transition_reason)
+    end
+
+    log_throttled(ctx, "task_detail_transition_armed_" .. marker_text, "info", 800, string.format(
+        "[Leveling] task detail transition armed | marker=%s reason=%s refresh_in=%dms",
+        tostring(marker_text),
+        tostring(reason_text),
+        math.max(0, (tonumber(state.next_task_button_click_at) or current_time) - current_time)
+    ))
+    return true
+end
+
+function M.clear_task_path_nav_worker_target(ctx, current_time, reason)
+    if tonumber(state.nav_worker_task_id) == nil or tonumber(state.nav_worker_task_id) <= 0 then
+        return false
+    end
+    local shared_target_source = tostring(nav_worker_get(ctx, "target_source") or "")
+    if shared_target_source:find("^task_path") ~= 1 then
+        return false
+    end
+    return M.clear_nav_worker_target(ctx, current_time, reason or "task_path_target_clear")
 end
 
 function M.stabilize_navigation_for_interaction(ctx, current_time, reason, player_x, player_y)
@@ -7287,18 +7790,32 @@ function M.treasure_task_target_matches_query(query, target_like)
         return false
     end
 
-    local candidates = {
-        target_like.query,
-        target_like.related_text,
-        target_like.text,
-        target_like.title,
-        target_like.raw_text,
-        target_like.detail
+    local candidate_fields = {
+        "query",
+        "related_text",
+        "text",
+        "title",
+        "raw_text",
+        "detail",
+        "task_name",
+        "task_detail",
+        "name",
+        "fullname",
+        "full_name",
+        "button_text"
     }
 
-    for _, candidate in ipairs(candidates) do
-        if M.treasure_query_matches_text(query, candidate) then
+    for _, field in ipairs(candidate_fields) do
+        if M.treasure_query_matches_text(query, target_like[field]) then
             return true
+        end
+    end
+
+    if type(target_like.detail_texts) == "table" then
+        for _, candidate in ipairs(target_like.detail_texts) do
+            if M.treasure_query_matches_text(query, candidate) then
+                return true
+            end
         end
     end
 
@@ -7317,6 +7834,10 @@ function M.extract_treasure_task_button_target(target_like, query)
         if not ok then
             return nil
         end
+    end
+
+    if (tonumber(target.y) or 0) < 120 then
+        return nil
     end
 
     if not M.treasure_task_target_matches_query(query, target_like)
@@ -7874,6 +8395,21 @@ function M.current_task_entry_action_config(opts)
     local task_detail_key = normalize_map_name(M.current_task_log_detail()) or normalize_map_name(state.current_task_detail)
     local function entry_action_for_cfg(cfg, matched_name)
         if type(cfg) ~= "table" or type(cfg.entry_action) ~= "table" then
+            return nil, matched_name
+        end
+        local entry_key = tostring(cfg.entry_action.key or cfg.entry_action.mode or "")
+        if entry_key ~= ""
+            and entry_key == tostring(state.task_entry_action_suppressed_key or "")
+            and task_name_key == state.task_entry_action_suppressed_task_name
+            and task_detail_key == state.task_entry_action_suppressed_task_detail
+        then
+            log_throttled(state.log_ctx, "entry_action_suppressed_" .. entry_key, "info", 1200, string.format(
+                "[Leveling] entry action suppressed for current task after fallback | task=%s detail=%s key=%s reason=%s",
+                tostring(M.current_task_log_name() or state.current_task_name or ""),
+                tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                entry_key,
+                tostring(state.task_entry_action_suppressed_reason or "")
+            ))
             return nil, matched_name
         end
         if not M.matches_task_constraints(cfg, {
@@ -9095,6 +9631,13 @@ function M.consume_terminal_task_refresh_marker(ctx, current_time, stage_name)
     ))
     clear_task_combat_state()
     clear_runtime_objective_caches()
+    state.task_entry_action_suppressed_key = nil
+    state.task_entry_action_suppressed_task_name = nil
+    state.task_entry_action_suppressed_task_detail = nil
+    state.task_entry_action_suppressed_reason = nil
+    if type(M.clear_task_path_nav_worker_target) == "function" then
+        M.clear_task_path_nav_worker_target(ctx, current_time, "task_changed_task_path_target")
+    end
     M.mark_blocking_side_task_completed(
         ctx,
         current_time,
@@ -9252,6 +9795,13 @@ function M.maybe_handle_terminal_task_change(ctx, current_time)
     ))
     clear_task_combat_state()
     clear_runtime_objective_caches()
+    state.task_entry_action_suppressed_key = nil
+    state.task_entry_action_suppressed_task_name = nil
+    state.task_entry_action_suppressed_task_detail = nil
+    state.task_entry_action_suppressed_reason = nil
+    if type(M.clear_task_path_nav_worker_target) == "function" then
+        M.clear_task_path_nav_worker_target(ctx, current_time, "task_changed_task_path_target")
+    end
     M.mark_blocking_side_task_completed(
         ctx,
         current_time,
@@ -10651,6 +11201,10 @@ release_async_combat_inputs = function(ctx, current_time, force, opts)
     current_time = tonumber(current_time) or now_ms(ctx)
     local preserve_alternate = opts.preserve_alternate == true
 
+    if force == true and type(M.pause_combat_worker) == "function" then
+        M.pause_combat_worker(ctx, current_time, tostring(opts.reason or "release_async_combat_inputs"))
+    end
+
     local release_key = state.combat_key_down == true
         and (force == true or current_time >= (tonumber(state.combat_key_release_at) or 0))
     local release_mouse = state.combat_mouse_down == true
@@ -10847,7 +11401,7 @@ function M.publish_nav_worker_task_path_route(ctx, current_time, target, move_in
         direction = 1
     end
     local arrive_distance = math.max(80, tonumber(target.route_arrive_tolerance) or TASK_PATH_POINT_ARRIVE_TOLERANCE)
-    local stuck_skip_ms = math.max(3000, tonumber(target.route_stuck_skip_ms) or TASK_PATH_STUCK_SKIP_MS)
+    local stuck_skip_ms = math.max(2000, tonumber(target.route_stuck_skip_ms) or TASK_PATH_STUCK_SKIP_MS)
     local progress_reset_distance = math.max(
         40,
         tonumber(target.route_progress_reset_distance) or TASK_PATH_PROGRESS_RESET_DISTANCE
@@ -11396,7 +11950,9 @@ local function should_issue_combat_pulse(current_time, target_distance, is_stall
     if current_time < (tonumber(state.move_guard_until) or 0) then
         return false, "move guard."
     end
-    if current_time < (tonumber(state.next_action_at) or 0) then
+    if not M.combat_worker_active()
+        and current_time < (tonumber(state.next_action_at) or 0)
+    then
         return false, "combat cooldown."
     end
 
@@ -11411,7 +11967,9 @@ local function should_issue_nearby_monster_pulse(current_time)
     if current_time < (tonumber(state.pause_combat_until) or 0) then
         return false, "combat pause."
     end
-    if current_time < (tonumber(state.next_action_at) or 0) then
+    if not M.combat_worker_active()
+        and current_time < (tonumber(state.next_action_at) or 0)
+    then
         return false, "combat cooldown."
     end
 
@@ -11551,6 +12109,29 @@ local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
         ))
         return false, "move guard."
     end
+
+    if M.LEVELING_USE_COMBAT_WORKER == true and state.combat_worker_force_direct ~= true then
+        local worker_ok, worker_err = M.publish_combat_worker_lease(ctx, current_time, reason, {
+            interval_ms = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS,
+            lease_ms = M.COMBAT_WORKER_LEASE_MS,
+            retry_ms = 100
+        })
+        if worker_ok then
+            if tostring(reason or "") == "follow_move" then
+                state.next_follow_move_pulse_at = current_time + FOLLOW_MOVE_PULSE_INTERVAL_MS
+            end
+            state.combat_alternate_last_action_at = current_time
+            state.combat_alternate_next_action = "both"
+            return true
+        end
+
+        log_throttled(ctx, "combat_worker_publish_failed", "warn", LOG_THROTTLE_MS, string.format(
+            "[Leveling] combat worker lease failed, direct pulse fallback | reason=%s err=%s",
+            tostring(reason or ""),
+            tostring(worker_err or "")
+        ))
+    end
+
     if current_time < (tonumber(state.next_action_at) or 0) then
         local wait_ms = (tonumber(state.next_action_at) or 0) - current_time
         log_throttled(ctx, "combat_pulse_skipped_cooldown", "info", 1500, string.format(
@@ -11577,7 +12158,6 @@ local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
     if cooldown_max_ms > cooldown_min_ms then
         cooldown_ms = math.random(cooldown_min_ms, cooldown_max_ms)
     end
-    state.next_action_at = current_time + cooldown_ms
 
     local key_ok, key_mode, post_err = M.press_combat_w_key(ctx)
     if not key_ok then
@@ -11606,14 +12186,18 @@ local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
             tostring(post_err or ""),
             tostring(mouse_err or "")
         ))
+        state.next_action_at = (tonumber(now_ms(ctx)) or current_time) + 100
         return false
     end
 
+    local pulse_time = tonumber(now_ms(ctx)) or current_time
+    state.next_action_at = pulse_time + cooldown_ms
+
     if tostring(reason or "") == "follow_move" then
-        state.next_follow_move_pulse_at = current_time + FOLLOW_MOVE_PULSE_INTERVAL_MS
+        state.next_follow_move_pulse_at = pulse_time + FOLLOW_MOVE_PULSE_INTERVAL_MS
     end
 
-    state.combat_alternate_last_action_at = current_time
+    state.combat_alternate_last_action_at = pulse_time
     state.combat_alternate_next_action = "both"
 
     log_throttled(ctx, "combat_pulse_both", "info", 1000, string.format(
@@ -12436,6 +13020,7 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         watch = true
     }
 
+    local emergency_e = type(hp_ratio) == "number" and hp_ratio <= 0.45
     local used_q = maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
         nonintrusive = common_opts.nonintrusive,
         force_refresh = common_opts.force_refresh,
@@ -12446,11 +13031,11 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         cooldown_ms = 100,
         last_used_field = "last_potion_q_at"
     })
-    if used_q then
-        return true
+    if not emergency_e then
+        return used_q == true
     end
 
-    return maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
+    local used_e = maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
         nonintrusive = common_opts.nonintrusive,
         force_refresh = common_opts.force_refresh,
         watch = common_opts.watch,
@@ -12460,6 +13045,7 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         cooldown_ms = 100,
         last_used_field = "last_potion_e_at"
     })
+    return used_q == true or used_e == true
 end
 
 local function reset_revive_state()
@@ -12664,35 +13250,11 @@ function M.maybe_click_guide_skip(ctx, current_time)
             or reason_text:find("movie", 1, true)
         )
         if escape_safe then
-            local suppress_escape, suppress_detail = false, ""
-            if type(M.is_task_button_ready_for_escape_guard) == "function" then
-                suppress_escape, suppress_detail = M.is_task_button_ready_for_escape_guard(
-                    ctx,
-                    nil,
-                    "guide skip escape fallback"
-                )
-            end
-            if not suppress_escape and current_time >= (tonumber(state.next_guide_skip_click_at) or 0) then
-                release_async_combat_inputs(ctx, current_time, true)
-                local ok, err = press_keyboard_hotkey(ctx, current_time, VK_ESCAPE, "guide skip escape fallback")
-                state.next_guide_skip_click_at = current_time + 1200
-                state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, current_time + POST_UI_PAUSE_MS)
-                state.next_move_at = math.max(tonumber(state.next_move_at) or 0, current_time + 120)
-                logger(ctx)[ok and "info" or "warn"](string.format(
-                    "[Leveling] guide skip ESC fallback %s | ui=%s err=%s",
-                    ok and "sent" or "failed",
-                    tostring(visible_reason or ""),
-                    tostring(err or "")
-                ))
-                return ok == true
-            end
-            if suppress_escape then
-                log_throttled(ctx, "guide_skip_escape_suppressed_task_ready", "info", LOG_THROTTLE_MS, string.format(
-                    "[Leveling] guide skip ESC fallback suppressed because task button is callable | ui=%s detail=%s",
-                    tostring(visible_reason or ""),
-                    tostring(suppress_detail or "")
-                ))
-            end
+            log_throttled(ctx, "guide_skip_escape_fallback_disabled", "info", LOG_THROTTLE_MS, string.format(
+                "[Leveling] guide skip ESC fallback disabled; skip UI visible but no callable button | ui=%s fetch_err=%s",
+                tostring(visible_reason or ""),
+                tostring(fetch_err or "")
+            ))
         end
         if fetch_err then
             log_throttled(ctx, "guide_skip_missing", "info", LOG_THROTTLE_MS,

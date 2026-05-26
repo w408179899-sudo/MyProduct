@@ -1394,6 +1394,22 @@ do
         })
     end
 
+    local function apply_locator_fixed_fallback(step, client_x, client_y, ratio_x, ratio_y)
+        if type(step) ~= "table" then
+            return step
+        end
+        step.target_poll_count = 30
+        step.target_poll_interval_ms = 100
+        step.fixed_fallback_client_x = client_x
+        step.fixed_fallback_client_y = client_y
+        step.fixed_fallback_ratio_x = ratio_x
+        step.fixed_fallback_ratio_y = ratio_y
+        step.fixed_fallback_prefer_ratio = true
+        step.fixed_fallback_mouse_mode = "api"
+        step.fixed_fallback_click_delay_ms = 50
+        return step
+    end
+
     local level_20_plan = make_level_18_to_20_talent_plan(20)
     local level_20_base_steps = type(level_20_plan.steps) == "table" and level_20_plan.steps or {}
     local open_menu_step = find_plan_step(level_20_base_steps, "open_fast_entrance_menu")
@@ -1757,6 +1773,19 @@ do
     )
     level_41_activate_node_step.click_repeat_count = 3
     level_41_activate_node_step.click_repeat_interval_ms = 180
+    local level_41_select_node_step = apply_locator_fixed_fallback(maintenance_locator_step(
+        "select_level_41_talent_node",
+        "41级天赋：选择天赋节点",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+        },
+        1073.375366,
+        616.626709,
+        0.745400,
+        0.685141,
+        35,
+        1200
+    ), 1073.375366, 616.626709, 0.745400, 0.685141)
 
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[41] = {
         key = "level_41_talent_category_tab_and_node_activate",
@@ -1782,19 +1811,7 @@ do
                 80,
                 900
             ),
-            maintenance_locator_step(
-                "select_level_41_talent_node",
-                "41级天赋：选择天赋节点",
-                {
-                    "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
-                },
-                1070.636841,
-                616.538025,
-                0.744014,
-                0.685042,
-                80,
-                1200
-            ),
+            level_41_select_node_step,
             level_41_activate_node_step,
             clone_step_with_key(back_step, "level_41_back_from_talent_panel", "41级天赋：返回")
         }
@@ -3406,7 +3423,7 @@ do
         )
     end
 
-    for _, level in ipairs({ 39, 40, 41 }) do
+    for _, level in ipairs({ 39, 40 }) do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_39_to_41_second_tab_talent_plan(level)
     end
 
@@ -3505,13 +3522,14 @@ do
                     {
                         "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
                     },
-                    1065.636841,
-                    612.538025,
-                    0.740540,
-                    0.680598,
-                    80,
+                    1073.375366,
+                    616.626709,
+                    0.745400,
+                    0.685141,
+                    35,
                     1200
                 ), "level_43_select_second_tab_talent_node")
+                apply_locator_fixed_fallback(steps[#steps], 1073.375366, 616.626709, 0.745400, 0.685141)
 
                 local activate_step = maintenance_locator_step(
                     "level_43_activate_second_tab_talent_node_twice",
@@ -3570,13 +3588,14 @@ do
                     {
                         "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
                     },
-                    1065.636841,
-                    612.538025,
-                    0.740540,
-                    0.680598,
-                    80,
+                    1073.375366,
+                    616.626709,
+                    0.745400,
+                    0.685141,
+                    35,
                     1200
                 ), "level_44_select_second_tab_talent_node")
+                apply_locator_fixed_fallback(steps[#steps], 1073.375366, 616.626709, 0.745400, 0.685141)
 
                 append_shifted_step(steps, current_level, maintenance_locator_step(
                     "level_44_activate_second_tab_talent_node",
@@ -4156,6 +4175,8 @@ do
     for level = 58, 60 do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_58_to_60_trickster_talent_plan(level)
     end
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[59] = nil
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[60] = nil
 
     local function make_select_trickster_god_tab_step(level)
         return make_maintenance_locator_step({
@@ -4232,7 +4253,7 @@ end
 
 do
     local level_4_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
-    level_4_skill_plan.key = "level_4_skill_upgrade_sequence"
+    level_4_skill_plan.key = "level_4_skill_upgrade_range_sequence"
     level_4_skill_plan.label = "4级技能：找图升级并配置范围扩大"
     level_4_skill_plan.close_with_escape = false
 
@@ -4421,18 +4442,15 @@ do
         hint_max_distance = 90,
         wait_after_ms = 700
     }
-    level_4_skill_plan.steps = steps
-    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[4] = level_4_skill_plan
-
-    local level_5_skill_plan = {
+    local level_5_life_potion_plan = {
         key = "level_5_skill_life_potion_sequence",
         label = "5级技能：添加生命药水",
         require_available_points = false,
         close_with_escape = false,
         steps = {}
     }
-    local level_5_steps = level_5_skill_plan.steps
-    level_5_steps[#level_5_steps + 1] = {
+    local level_5_life_potion_steps = level_5_life_potion_plan.steps
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = {
         key = "level_5_life_potion_open_fast_entrance_menu",
         label = "技能天赋菜单按钮",
         include_patterns = {
@@ -4445,7 +4463,7 @@ do
         hint_max_distance = 100,
         wait_after_ms = 800
     }
-    level_5_steps[#level_5_steps + 1] = {
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = {
         key = "level_5_life_potion_open_skill_panel",
         label = "技能按钮",
         distance_anchor_exact_text = "技能",
@@ -4462,7 +4480,7 @@ do
         hint_max_distance = 90,
         wait_after_ms = 1000
     }
-    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = maintenance_locator_step(
         "level_5_skill_select_life_potion_slot",
         "生命药水技能列表项按钮",
         {
@@ -4475,7 +4493,7 @@ do
         80,
         700
     )
-    level_5_steps[#level_5_steps + 1] = fixed_click_step(
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = fixed_click_step(
         "level_5_skill_tab_life_potion",
         "生命药水技能页标签按钮",
         698.99,
@@ -4484,7 +4502,7 @@ do
         0.505540,
         700
     )
-    level_5_steps[#level_5_steps + 1] = fixed_click_step(
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = fixed_click_step(
         "level_5_skill_life_potion_search_focus",
         "生命药水搜索输入框",
         371.00,
@@ -4493,7 +4511,7 @@ do
         0.725556,
         250
     )
-    level_5_steps[#level_5_steps + 1] = {
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = {
         kind = "type_text",
         key = "level_5_skill_search_life_potion_text",
         label = "输入生命药水",
@@ -4503,7 +4521,7 @@ do
         key_delay_ms = 30,
         wait_after_ms = 500
     }
-    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = maintenance_locator_step(
         "level_5_skill_search_life_potion_button",
         "生命药水搜索按钮",
         {
@@ -4516,7 +4534,7 @@ do
         80,
         700
     )
-    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = maintenance_locator_step(
         "level_5_skill_select_life_potion_store_item",
         "生命药水商店结果按钮",
         {
@@ -4529,7 +4547,7 @@ do
         80,
         700
     )
-    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = maintenance_locator_step(
         "level_5_skill_get_life_potion",
         "生命药水获取按钮",
         {
@@ -4542,7 +4560,7 @@ do
         80,
         700
     )
-    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = maintenance_locator_step(
         "level_5_skill_select_life_potion_bag_item",
         "生命药水背包结果按钮",
         {
@@ -4555,7 +4573,7 @@ do
         80,
         700
     )
-    level_5_steps[#level_5_steps + 1] = maintenance_locator_step(
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = maintenance_locator_step(
         "level_5_skill_install_life_potion",
         "生命药水安装按钮",
         {
@@ -4568,8 +4586,8 @@ do
         80,
         700
     )
-    level_5_steps[#level_5_steps + 1] = {
-        key = "back_from_skill_panel_after_life_potion_setup",
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = {
+        key = "level_5_back_from_skill_panel_after_life_potion_setup",
         label = "技能返回按钮",
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
@@ -4581,7 +4599,9 @@ do
         hint_max_distance = 90,
         wait_after_ms = 500
     }
-    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[5] = level_5_skill_plan
+    level_4_skill_plan.steps = steps
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[4] = level_4_skill_plan
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[5] = level_5_life_potion_plan
 
     local level_12_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
     level_12_skill_plan.key = "level_12_skill_add_emergency_sequence"
@@ -5762,6 +5782,79 @@ local function make_sun_faction_after_join_route_action()
     })
 end
 
+local function make_sun_faction_no_path_recover_route_action()
+    return make_route_point_action({
+        key = "daylight_rivalry_join_faction_no_path_recover_route_10535_660",
+        label = "与日争辉_选择阵营后无路径固定路线后重call主线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        wait_task_path_recover_only = true,
+        task_patterns = {
+            "与日争辉"
+        },
+        task_detail_patterns = {
+            "与英灵对话",
+            "选择加入繁星或皓月阵营"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 10535.00,
+            y = 660.00,
+            z = 501.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 600000,
+        timeout_ms = 150000,
+        waypoint_reach_radius = 240,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        route_worker_max_points = 80,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 11275.23, y = 531.15, z = 501.00 },
+            { x = 12000.29, y = 549.18, z = 501.00 },
+            { x = 12571.04, y = 592.63, z = 501.00 },
+            { x = 13576.84, y = 599.95, z = 501.00 },
+            { x = 14267.84, y = 578.91, z = 501.00 },
+            { x = 14945.09, y = 575.50, z = 501.00 },
+            { x = 15568.70, y = 590.18, z = 501.00 },
+            { x = 16170.78, y = 604.41, z = 501.00 },
+            { x = 16745.70, y = 651.76, z = 501.00 },
+            { x = 17407.39, y = 773.12, z = 501.00 },
+            { x = 18027.54, y = 692.88, z = 501.00 },
+            { x = 18634.81, y = 461.57, z = 501.00 },
+            { x = 19217.56, y = 190.10, z = 501.00 },
+            { x = 19649.18, y = -136.69, z = 501.00 },
+            { x = 19857.05, y = -717.91, z = 501.00 },
+            { x = 19971.44, y = -1372.03, z = 501.00 },
+            { x = 20223.55, y = -1656.49, z = 501.00 },
+            { x = 20861.26, y = -1665.68, z = 501.00 },
+            { x = 21602.59, y = -1534.13, z = 501.00 },
+            { x = 22004.75, y = -1197.44, z = 501.00 },
+            { x = 22119.27, y = -527.76, z = 501.00 },
+            { x = 22291.34, y = 98.64, z = 501.00 },
+            { x = 22379.01, y = 635.19, z = 501.00 },
+            { x = 22347.01, y = 1167.51, z = 501.00 },
+            { x = 22308.27, y = 1768.19, z = 501.00 },
+            { x = 22298.63, y = 2386.58, z = 501.00 },
+            { x = 22121.23, y = 2821.39, z = 501.00 },
+            { x = 21458.59, y = 2918.05, z = 501.00 },
+            { x = 20764.04, y = 2946.69, z = 501.00 },
+            { x = 20159.45, y = 3035.30, z = 501.00 },
+            { x = 19634.49, y = 3413.17, z = 501.00 },
+            { x = 19592.93, y = 4039.61, z = 501.00 },
+            { x = 19693.56, y = 4559.10, z = 501.00 },
+            { x = 19717.76, y = 5137.32, z = 501.00 },
+            { x = 19728.65, y = 5379.02, z = 501.00 },
+            { x = 19749.26, y = 5724.12, z = 501.00 },
+            { x = 19787.39, y = 6303.33, z = 501.00 },
+            { x = 19931.00, y = 8692.00, z = 501.00 }
+        }
+    })
+end
+
 local function make_daylight_rivalry_arena_hero_route_action()
     return make_route_point_action({
         key = "daylight_rivalry_arena_hero_route_19913_9021",
@@ -5872,45 +5965,44 @@ local function make_daylight_rivalry_baptism_anchor_route_action()
     })
 end
 
-local function make_daylight_rivalry_grand_arena_loop_route_action()
-    return make_route_point_action({
-        key = "daylight_rivalry_grand_arena_loop_route",
-        label = "与日争辉_挑战大竞技场_四点循环跑打直到任务完成",
-        mode = "recorded_route_point",
-        allow_without_task_target = true,
-        allow_wait_task_path_recover = true,
-        direct_when_task_active = true,
-        complete_without_task_reacquire = true,
-        followup_route_action_key = "daylight_rivalry_grand_arena_loop_route",
-        followup_route_action_ignore_retry = true,
-        task_patterns = {
-            "与日争辉"
+local function make_daylight_rivalry_grand_arena_kite_task_config()
+    return make_boss_kite_task_config(
+        "daylight_rivalry_grand_arena_kite",
+        {
+            trigger_distance = 1800,
+            immediate_kite_on_reached = true,
+            allow_no_task_target_force_kite = true,
+            immediate_no_task_target_kite = true,
+            no_task_target_kite_wait_ms = 900,
+            seamless_kite = true,
+            kite_point_count = 4,
+            kite_switch_ms = 1800,
+            kite_arrive_distance = 260,
+            kite_move_interval_ms = 120,
+            defer_followup_until_clear = true,
+            boss_clear_settle_ms = 3000,
+            generic_followup_refresh_ms = 3500,
+            generic_followup_requires_task_pos_only = true,
+            generic_followup_require_no_special = true,
+            ignore_terminal_text_change_when_objective_same = true,
+            kite_points = {
+                { x = 44712.00, y = 12618.58, z = 406.00 },
+                { x = 45814.29, y = 12799.64, z = 406.00 },
+                { x = 45936.27, y = 11663.12, z = 406.00 },
+                { x = 44799.48, y = 11625.30, z = 406.00 }
+            }
         },
-        task_detail_patterns = {
-            "挑战大竞技场",
-            "击败“太阳冠军”杰拉尔德"
-        },
-        constraint_mode = "all",
-        trigger = {
-            x = 43599.45,
-            y = 13004.19,
-            z = 406.00,
-            radius = 1800,
-            z_tolerance = 360
-        },
-        retry_ms = 600000,
-        timeout_ms = 180000,
-        waypoint_reach_radius = 260,
-        waypoint_z_tolerance = 360,
-        move_interval_ms = 220,
-        route_worker_max_points = 4,
-        waypoints = {
-            { x = 44712.00, y = 12618.58, z = 406.00 },
-            { x = 45814.29, y = 12799.64, z = 406.00 },
-            { x = 45936.27, y = 11663.12, z = 406.00 },
-            { x = 44799.48, y = 11625.30, z = 406.00 }
+        {
+            task_patterns = {
+                "与日争辉"
+            },
+            task_detail_patterns = {
+                "挑战大竞技场",
+                "击败“太阳冠军”杰拉尔德"
+            },
+            constraint_mode = "all"
         }
-    })
+    )
 end
 
 local function make_daylight_rivalry_audience_queen_no_path_route_action()
@@ -6163,6 +6255,13 @@ local function make_sun_faction_join_dialogue_flow_task()
                 hint_ratio_x = 0.422937,
                 hint_ratio_y = 0.386686,
                 hint_max_distance = 120.000,
+                poll_retry_count = 30,
+                poll_interval_ms = 100,
+                fixed_fallback_client_x = 609.029968,
+                fixed_fallback_client_y = 348.017120,
+                fixed_fallback_ratio_x = 0.422937,
+                fixed_fallback_ratio_y = 0.386686,
+                fixed_fallback_mouse_mode = "api",
                 retry_ms = 600,
                 settle_ms = 1200
             }
@@ -6184,7 +6283,14 @@ local function make_sun_faction_join_dialogue_flow_task()
                 "与英灵对话",
                 "选择加入繁星或皓月阵营"
             },
-            constraint_mode = "all"
+            constraint_mode = "all",
+            allow_wait_task_path_route_action_recover = true,
+            post_dialogue_flow = {
+                key = is_moon and "daylight_rivalry_join_moon_wait_after_jump"
+                    or "daylight_rivalry_join_star_wait_after_jump",
+                wait_task_info_refresh_after_jump = true,
+                task_info_refresh_timeout_ms = 12000
+            }
         }
     )
 end
@@ -6370,6 +6476,8 @@ end
 
 M.ENABLE_MAP_RUNTIME_DETECTION = false
 M.LEVELING_USE_NAV_WORKER = true
+M.LEVELING_USE_COMBAT_WORKER = true
+M.COMBAT_WORKER_LEASE_MS = 4000
 -- Keep the legacy state machine authoritative. BT wrappers are opt-in for local
 -- execution groups only, so testing does not depend on scheduler ownership.
 M.LEVELING_BT_EXECUTION_ENABLED = false
@@ -6395,6 +6503,14 @@ M.TREASURE_DUNGEON_CONFIGS = {
         name = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{871C}\u{9732}\u{6EAA}\u{8C37}",
         route_store_key = "treasure_milu_creek",
         target_level = 25,
+        inside_detect_task_panel_text = false,
+        startup_recovery_wait_for_task_panel = true,
+        startup_recovery_activate_by_level_gate = true,
+        startup_recovery_allow_task_mismatch_by_level_gate = true,
+        startup_recovery_task_panel_wait_ms = 1800,
+        startup_recovery_task_panel_wait_cap_ms = 9000,
+        entry_far_reacquire_mainline = true,
+        entry_far_reacquire_distance = 1800,
         task_patterns = {
             "\u{71C3}\u{70E7}\u{7684}\u{957F}\u{591C}",
             "\u{85CF}\u{5B9D}\u{5730}",
@@ -6419,6 +6535,8 @@ M.TREASURE_DUNGEON_CONFIGS = {
             {
                 key = "treasure_milu_creek_map_trap",
                 label = "313/313\u{6309}\u{94AE}",
+                direct_interact = true,
+                direct_interact_retry_ms = 1600,
                 distance_anchor_exact_text = "313/313",
                 distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.MapTrapBtn",
                 distance_min = 232.174194,
@@ -6469,6 +6587,23 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "\u{871C}\u{9732}\u{6EAA}\u{8C37}",
             "\u{85CF}\u{5B9D}\u{5730}"
         },
+        panel_button_step = {
+            key = "treasure_milu_creek_task_button",
+            label = "\u{652F}\u{7EBF} \u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{871C}\u{9732}\u{6EAA}\u{8C37}\u{6309}\u{94AE}",
+            distance_anchor_exact_text = "\u{652F}\u{7EBF} \u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{871C}\u{9732}\u{6EAA}\u{8C37}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn",
+            distance_min = 30.635658,
+            distance_max = 32.530647,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn"
+            },
+            hint_client_x = 83.907120,
+            hint_client_y = 292.023743,
+            hint_ratio_x = 0.058269,
+            hint_ratio_y = 0.324471,
+            hint_max_distance = 80.000
+        },
+        panel_button_step_required = true,
         path_retry_count = 5,
         path_retry_interval_ms = 1200,
         min_path_points = 3,
@@ -6613,13 +6748,16 @@ M.TREASURE_DUNGEON_CONFIGS = {
         -- still needs real restart portal / restart landing verification.
         key = "treasure_empire_ashes_wolf_ambush_entry",
         enabled = true,
-        name = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{5F85}\u{786E}\u{8BA4}(\u{5E1D}\u{56FD}\u{4F59}\u{7130})",
+        name = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{66D9}\u{5149}\u{5927}\u{9053}",
         route_store_key = "treasure_empire_ashes_wolf_ambush_entry",
         target_level = 36,
+        entry_far_reacquire_mainline = true,
+        entry_far_reacquire_distance = 1800,
         inside_detect_task_panel_text = false,
         startup_recovery_restart_landing = false,
         startup_recovery_wait_for_task_panel = true,
         startup_recovery_activate_by_level_gate = true,
+        startup_recovery_allow_task_mismatch_by_level_gate = true,
         startup_recovery_task_panel_wait_ms = 1800,
         startup_recovery_task_panel_wait_cap_ms = 9000,
         resume_route_nearby = false,
@@ -6628,6 +6766,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
         },
         task_detail_patterns = {
             "\u{7A81}\u{7834}\u{7FA4}\u{72FC}\u{5E2E}\u{4F0F}\u{51FB}",
+            "\u{63A2}\u{7D22}\u{7FA4}\u{72FC}\u{8857}\u{5DF7}",
             "\u{6DF1}\u{5165}\u{7FA4}\u{72FC}\u{8857}\u{5DF7}",
             "\u{524D}\u{5F80}\u{7FA4}\u{72FC}\u{8857}\u{5DF7}"
         },
@@ -6642,6 +6781,8 @@ M.TREASURE_DUNGEON_CONFIGS = {
             {
                 key = "treasure_empire_ashes_wolf_ambush_map_trap",
                 label = "313/313\u{6309}\u{94AE}",
+                direct_interact = true,
+                direct_interact_retry_ms = 1600,
                 distance_anchor_exact_text = "313/313",
                 distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.MapTrapBtn",
                 distance_min = 232.174194,
@@ -6685,13 +6826,32 @@ M.TREASURE_DUNGEON_CONFIGS = {
             }
         },
         entry_ui_retry_timeout_ms = 6500,
-        panel_query = "\u{85CF}\u{5B9D}\u{5730}",
+        panel_query = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{66D9}\u{5149}\u{5927}\u{9053}",
         panel_query_fallbacks = {
+            "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{66D9}\u{5149}\u{5927}\u{9053}",
+            "\u{66D9}\u{5149}\u{5927}\u{9053}",
             "\u{85CF}\u{5B9D}\u{5730}",
             "\u{5E1D}\u{56FD}\u{4F59}\u{7130}",
             "\u{524D}\u{5F80}\u{7FA4}\u{72FC}\u{8857}\u{5DF7}",
             "\u{7FA4}\u{72FC}\u{8857}\u{5DF7}"
         },
+        panel_button_step = {
+            key = "treasure_empire_ashes_wolf_ambush_task_button",
+            label = "\u{652F}\u{7EBF} \u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{66D9}\u{5149}\u{5927}\u{9053}\u{6309}\u{94AE}",
+            distance_anchor_exact_text = "\u{652F}\u{7EBF} \u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{66D9}\u{5149}\u{5927}\u{9053}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn",
+            distance_min = 30.635658,
+            distance_max = 32.530647,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn"
+            },
+            hint_client_x = 82.907120,
+            hint_client_y = 290.023743,
+            hint_ratio_x = 0.057574,
+            hint_ratio_y = 0.322249,
+            hint_max_distance = 80.000
+        },
+        panel_button_step_required = true,
         path_retry_count = 5,
         path_retry_interval_ms = 1200,
         min_path_points = 3,
@@ -6813,6 +6973,22 @@ M.TREASURE_DUNGEON_CONFIGS = {
             z = 105.00,
             radius = 900,
             z_tolerance = 260
+        },
+        extra_inside_landings = {
+            {
+                x = 10177.00,
+                y = -3602.00,
+                z = 105.00,
+                radius = 1500,
+                z_tolerance = 320
+            },
+            {
+                x = 10332.00,
+                y = -4312.00,
+                z = 105.00,
+                radius = 1500,
+                z_tolerance = 320
+            }
         },
         restart_landing = {
             x = -1800.00,
@@ -7096,12 +7272,15 @@ M.TREASURE_DUNGEON_CONFIGS = {
         enabled = true,
         name = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{9690}\u{4E16}\u{91D1}\u{9601}",
         route_store_key = "treasure_fourth_entry_5643_-530_v1",
-        target_level = 43,
+        target_level = 42,
         inside_detect_task_panel_text = false,
         startup_recovery_wait_for_task_panel = true,
         startup_recovery_activate_by_level_gate = true,
         startup_recovery_allow_task_mismatch_by_level_gate = true,
+        startup_recovery_allow_landing_task_mismatch_by_level_gate = true,
         startup_recovery_restart_landing = false,
+        entry_far_reacquire_mainline = true,
+        entry_far_reacquire_distance = 1500,
         inside_detect_restart_landing = false,
         discard_terminal_route_nearby_resume = true,
         terminal_route_fail_without_boss = true,
@@ -7187,6 +7366,23 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "\u{9690}\u{4E16}\u{91D1}\u{9601}",
             "\u{85CF}\u{5B9D}\u{5730}"
         },
+        panel_button_step = {
+            key = "treasure_fourth_hidden_gold_task_button",
+            label = "\u{652F}\u{7EBF} \u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{9690}\u{4E16}\u{91D1}\u{9601}\u{6309}\u{94AE}",
+            distance_anchor_exact_text = "\u{652F}\u{7EBF} \u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{9690}\u{4E16}\u{91D1}\u{9601}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn",
+            distance_min = 30.635658,
+            distance_max = 32.530647,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn"
+            },
+            hint_client_x = 85.907120,
+            hint_client_y = 292.023743,
+            hint_ratio_x = 0.059658,
+            hint_ratio_y = 0.324471,
+            hint_max_distance = 80.000
+        },
+        panel_button_step_required = true,
         path_retry_count = 5,
         path_retry_interval_ms = 1200,
         min_path_points = 12,
@@ -7354,7 +7550,12 @@ M.TREASURE_DUNGEON_CONFIGS = {
         target_level = 57,
         inside_detect_task_panel_text = false,
         allow_when_task_unknown = true,
+        startup_recovery_wait_for_task_panel = true,
+        startup_recovery_activate_by_level_gate = true,
         startup_recovery_allow_task_mismatch_by_level_gate = true,
+        startup_recovery_allow_inside_landing_task_mismatch_by_level_gate = true,
+        startup_recovery_task_panel_wait_ms = 1800,
+        startup_recovery_task_panel_wait_cap_ms = 9000,
         restart_landing_require_verified = true,
         task_patterns = {
             "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{94F6}\u{6C99}\u{8FB9}\u{57CE}",
@@ -7558,6 +7759,23 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "\u{94F6}\u{6C99}\u{8FB9}\u{57CE}",
             "\u{85CF}\u{5B9D}\u{5730}"
         },
+        panel_button_step = {
+            key = "treasure_silver_sand_edge_city_task_button",
+            label = "\u{652F}\u{7EBF} \u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{94F6}\u{6C99}\u{8FB9}\u{57CE}\u{6309}\u{94AE}",
+            distance_anchor_exact_text = "\u{652F}\u{7EBF} \u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{94F6}\u{6C99}\u{8FB9}\u{57CE}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn",
+            distance_min = 30.635658,
+            distance_max = 32.530647,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn"
+            },
+            hint_client_x = 85.907120,
+            hint_client_y = 292.023743,
+            hint_ratio_x = 0.059658,
+            hint_ratio_y = 0.324111,
+            hint_max_distance = 80.000
+        },
+        panel_button_step_required = true,
         path_retry_count = 5,
         path_retry_interval_ms = 1200,
         min_path_points = 3,
@@ -8957,6 +9175,8 @@ M.TASK_NAME_CONFIGS = {
         constraint_mode = "all",
         allow_wait_task_path_route_action_recover = true
     },
+    ["与日争辉 / 挑战大竞技场"] = make_daylight_rivalry_grand_arena_kite_task_config(),
+    ["与日争辉 / 击败“太阳冠军”杰拉尔德"] = make_daylight_rivalry_grand_arena_kite_task_config(),
     ["与日争辉"] = make_sun_faction_join_dialogue_flow_task(),
     ["尽快找到丽芙"] = {
         objective = {
@@ -9228,6 +9448,7 @@ M.TASK_NAME_CONFIGS = {
             center_click_delay_ms = 60,
             center_settle_ms = 700,
             center_retry_ms = 1400,
+            world_map_panel_missing_fallback_ms = 3500,
             transition_wait_ms = 2500,
             timeout_ms = 16000
         },
@@ -10312,6 +10533,19 @@ M.TASK_NAME_CONFIGS = {
             }
         }
     ),
+    ["\u{5F02}\u{754C}\u{63A2}\u{7D22} / \u{524D}\u{5F80}\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{7684}\u{5F02}\u{754C}\u{88C5}\u{7F6E}"] = {
+        key = "otherworld_exploration_reach_ember_otherworld_device_stop",
+        stop_script = true,
+        stop_reason = "reached_ember_otherworld_device_task",
+        task_patterns = {
+            "\u{5F02}\u{754C}\u{63A2}\u{7D22}"
+        },
+        task_detail_patterns = {
+            "\u{524D}\u{5F80}\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{7684}\u{5F02}\u{754C}\u{88C5}\u{7F6E}",
+            "\u{5230}\u{5F02}\u{754C}\u{88C5}\u{7F6E}"
+        },
+        constraint_mode = "all"
+    },
     ["\u{5723}\u{6D01}\u{4E4B}\u{706B}"] = make_dialogue_locator_flow_task_config(
         "holy_fire_guard_dialogue_flow",
         {
@@ -10908,7 +11142,7 @@ M.TASK_NAME_CONFIGS = {
             enable_linear_recipe = true
         }
     ),
-    ["前往锈蚀深渊"] = make_world_map_send_task_config(
+    ["锈蚀深渊 / 前往锈蚀深渊"] = make_world_map_send_task_config(
         "rust_depth_world_map_send",
         {
             label = "\u{4F20}\u{9001}\u{6309}\u{94AE}",
@@ -11173,6 +11407,8 @@ M.TASK_NAME_CONFIGS = {
             immediate_kite_on_reached = true,
             allow_no_task_target_force_kite = true,
             immediate_no_task_target_kite = true,
+            no_task_target_require_near_kite_point = true,
+            no_task_target_kite_point_distance = 2600,
             no_task_target_kite_wait_ms = 900,
             kite_radius = 1800,
             kite_switch_ms = 2000,
@@ -11201,6 +11437,13 @@ M.TASK_NAME_CONFIGS = {
                 settle_ms = 1400,
                 timeout_ms = 22000,
                 post_transition_boss_engage_ms = 16000,
+                task_patterns = {
+                    "永恒锈蚀"
+                },
+                task_detail_patterns = {
+                    "击败太阳女王"
+                },
+                constraint_mode = "all",
                 fallback_interact = true
             }),
             kite_points = {
@@ -11765,10 +12008,10 @@ M.ROUTE_POINT_ACTIONS = {
         force_task_call_after_transition = false
     }),
     make_sun_faction_choice_action(),
+    make_sun_faction_no_path_recover_route_action(),
     make_sun_faction_after_join_route_action(),
     make_daylight_rivalry_arena_hero_route_action(),
     make_daylight_rivalry_baptism_anchor_route_action(),
-    make_daylight_rivalry_grand_arena_loop_route_action(),
     make_daylight_rivalry_audience_queen_no_path_route_action(),
     make_daylight_rivalry_audience_queen_dialogue_route_action(),
     make_daylight_rivalry_talk_to_ariya_route_action(),
@@ -13899,6 +14142,7 @@ M.ROUTE_POINT_ACTIONS = {
             "\u{5E1D}\u{56FD}\u{4F59}\u{7130}"
         },
         task_detail_patterns = {
+            "\u{63A2}\u{7D22}\u{7FA4}\u{72FC}\u{8857}\u{5DF7}",
             "\u{6DF1}\u{5165}\u{7FA4}\u{72FC}\u{8857}\u{5DF7}",
             "\u{7A81}\u{7834}\u{7FA4}\u{72FC}\u{5E2E}\u{4F0F}\u{51FB}"
         },
@@ -13907,7 +14151,7 @@ M.ROUTE_POINT_ACTIONS = {
             x = -1466.00,
             y = 8040.00,
             z = 606.00,
-            radius = 500,
+            radius = 900,
             z_tolerance = 1200
         },
         retry_ms = 8000,
@@ -14343,8 +14587,8 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 15980.00,
-            y = 22110.00,
+            x = 15205.43,
+            y = 22983.80,
             z = 1010.00,
             radius = 650,
             z_tolerance = 320
@@ -15312,6 +15556,48 @@ M.ROUTE_POINT_ACTIONS = {
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
         complete_without_task_reacquire = true,
+        followup_route_action_key = "loser_badge_star_road_loop_11216_30722_b",
+        followup_route_action_ignore_retry = true,
+        task_patterns = {
+            "败者之证",
+            "败者无名"
+        },
+        task_detail_patterns = {
+            "深入繁星之路",
+            "挑战繁星之路的英灵",
+            "击败“不洁之星·杰拉尔德”，获得败者之证"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 11216.00,
+            y = 30722.00,
+            z = 502.00,
+            radius = 900,
+            z_tolerance = 260
+        },
+        retry_ms = 1000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 260,
+        move_interval_ms = 220,
+        route_worker_max_points = 6,
+        route_worker_complete_on_path_done = true,
+        waypoints = {
+            { x = 12444.96, y = 31111.10, z = 502.00 },
+            { x = 13241.18, y = 31864.84, z = 502.00 },
+            { x = 14123.90, y = 31250.36, z = 502.00 },
+            { x = 14425.36, y = 30325.23, z = 502.00 },
+            { x = 13729.57, y = 29756.64, z = 502.00 },
+            { x = 12917.99, y = 29985.40, z = 502.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "loser_badge_star_road_loop_11216_30722_b",
+        label = "败者之证_繁星之路_终点循环路线B直到杰拉尔德任务完成",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        complete_without_task_reacquire = true,
         followup_route_action_key = "loser_badge_star_road_loop_11216_30722",
         followup_route_action_ignore_retry = true,
         task_patterns = {
@@ -15961,8 +16247,8 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
-        key = "lionheart_power_facility_1_route_3731_-1539",
-        label = "狮心_关闭供电设施_第一设施录制路线",
+        key = "lionheart_power_facility_chain_route_to_first_maptrap_3797_-1628",
+        label = "狮心_关闭供电设施_第一设施固定路线到MapTrap",
         mode = "recorded_route_point",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
@@ -15976,60 +16262,93 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 3730.95,
-            y = -1539.37,
-            z = 2154.22,
-            radius = 2800,
+            x = 3797.00,
+            y = -1628.00,
+            z = 2147.38,
+            radius = 900,
             z_tolerance = 900
         },
         retry_ms = 600000,
-        timeout_ms = 90000,
+        timeout_ms = 120000,
         waypoint_reach_radius = 260,
         waypoint_z_tolerance = 900,
         move_interval_ms = 220,
         complete_without_task_reacquire = true,
+        followup_route_action_key = "lionheart_power_facility_chain_first_maptrap_12949_-6174",
+        followup_route_action_ignore_retry = true,
+        route_worker_max_points = 36,
         waypoints = {
-            { x = 3730.95, y = -1539.37, z = 2154.22 },
-            { x = 4514.11, y = -1969.57, z = 2124.71 },
-            { x = 4646.10, y = -3913.12, z = 2101.00 },
-            { x = 5816.38, y = -5549.06, z = 2100.00 },
-            { x = 7303.81, y = -6336.47, z = 2100.00 },
-            { x = 9112.52, y = -6591.60, z = 2140.36 },
-            { x = 10558.43, y = -6488.54, z = 2664.50 },
-            { x = 12985.86, y = -6069.11, z = 2719.64 }
+            { x = 4549.79, y = -1928.20, z = 2123.51 },
+            { x = 4742.20, y = -3342.08, z = 2102.22 },
+            { x = 4928.76, y = -4338.64, z = 2100.00 },
+            { x = 5348.16, y = -5134.84, z = 2100.00 },
+            { x = 6164.41, y = -6027.86, z = 2100.00 },
+            { x = 6754.14, y = -6375.34, z = 2100.00 },
+            { x = 7557.43, y = -6463.89, z = 2100.00 },
+            { x = 9053.03, y = -6545.70, z = 2126.63 },
+            { x = 9754.41, y = -6589.49, z = 2350.20 },
+            { x = 10361.45, y = -6517.15, z = 2618.85 },
+            { x = 11004.58, y = -6404.42, z = 2705.11 },
+            { x = 11656.45, y = -6367.39, z = 2705.00 },
+            { x = 12295.25, y = -6393.70, z = 2706.23 },
+            { x = 12892.87, y = -6382.52, z = 2715.72 },
+            { x = 12948.68, y = -6173.78, z = 2718.18 },
+            { x = 12445.88, y = -6486.02, z = 2708.43 },
+            { x = 13176.51, y = -6963.53, z = 2705.00 },
+            { x = 13737.16, y = -7054.37, z = 2705.00 },
+            { x = 14247.16, y = -6570.80, z = 2705.00 },
+            { x = 14169.52, y = -5893.46, z = 2705.00 },
+            { x = 13641.65, y = -5491.13, z = 2720.00 },
+            { x = 13034.87, y = -5349.08, z = 2716.16 },
+            { x = 12730.66, y = -5912.78, z = 2711.22 },
+            { x = 12727.24, y = -6606.02, z = 2709.00 },
+            { x = 13113.69, y = -7131.96, z = 2705.00 },
+            { x = 13714.55, y = -7049.67, z = 2705.00 },
+            { x = 14186.54, y = -6753.61, z = 2705.00 },
+            { x = 14277.39, y = -6130.39, z = 2705.00 },
+            { x = 13854.34, y = -5588.22, z = 2718.37 },
+            { x = 13281.61, y = -5490.45, z = 2720.00 },
+            { x = 12859.70, y = -5824.71, z = 2714.88 },
+            { x = 12700.42, y = -6395.87, z = 2710.00 },
+            { x = 12878.57, y = -6999.64, z = 2705.26 },
+            { x = 13047.40, y = -7058.19, z = 2705.00 },
+            { x = 12641.02, y = -6426.89, z = 2710.00 },
+            { x = 12910.87, y = -6327.51, z = 2717.60 }
         }
     }),
     make_route_point_action({
-        key = "lionheart_power_facility_1_gather_12986_-6069",
+        key = "lionheart_power_facility_chain_first_maptrap_12949_-6174",
         label = "狮心_关闭供电设施_第一设施MapTrapBtn",
         mode = "objective_button_flow_point",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
         direct_without_task_target_only = true,
-        drop_active_when_task_mismatch = true,
+        keep_active_on_task_mismatch = true,
         task_patterns = {
             "狮心"
         },
         task_detail_patterns = {
-            "关闭东北边的供电设施"
+            "关闭东北边的供电设施",
+            "完成"
         },
         constraint_mode = "all",
         trigger = {
-            x = 12985.86,
-            y = -6069.11,
-            z = 2719.64,
-            radius = 760,
-            z_tolerance = 520
+            x = 12948.68,
+            y = -6173.78,
+            z = 2718.18,
+            radius = 900,
+            z_tolerance = 620
         },
-        interact_radius = 180,
+        interact_radius = 220,
         probe_retry_ms = 700,
         retry_ms = 600000,
-        settle_ms = 2400,
-        timeout_ms = 5200,
-        timeout_followup_route_action_key = "lionheart_power_facility_2_route_13106_-5386",
+        settle_ms = 900,
+        timeout_ms = 9000,
         force_task_call_after_transition = false,
+        followup_route_action_key = "lionheart_power_facility_chain_route_to_second_maptrap_12949_-6174",
+        followup_route_action_ignore_retry = true,
         step = {
-            key = "lionheart_power_facility_1_map_trap_btn",
+            key = "lionheart_power_facility_chain_first_map_trap_btn",
             label = "第一供电设施交互按钮",
             distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.MapTrapBtn",
             include_patterns = {
@@ -16048,6 +16367,224 @@ M.ROUTE_POINT_ACTIONS = {
             hover_capture_client_bottom = 730.0,
             hover_capture_retry_ms = 700,
             settle_ms = 1800
+        }
+    }),
+    make_route_point_action({
+        key = "lionheart_power_facility_chain_route_to_second_maptrap_12949_-6174",
+        label = "狮心_关闭供电设施_第二设施固定路线到MapTrap",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_without_task_target_only = true,
+        keep_active_on_task_mismatch = true,
+        task_patterns = {
+            "狮心"
+        },
+        task_detail_patterns = {
+            "关闭东北边的供电设施",
+            "完成"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 12948.68,
+            y = -6173.78,
+            z = 2718.18,
+            radius = 1800,
+            z_tolerance = 900
+        },
+        retry_ms = 600000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 900,
+        move_interval_ms = 220,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "lionheart_power_facility_chain_second_maptrap_13907_2886",
+        followup_route_action_ignore_retry = true,
+        route_worker_max_points = 80,
+        waypoints = {
+            { x = 4549.79, y = -1928.20, z = 2123.51 },
+            { x = 4742.20, y = -3342.08, z = 2102.22 },
+            { x = 4928.76, y = -4338.64, z = 2100.00 },
+            { x = 5348.16, y = -5134.84, z = 2100.00 },
+            { x = 6164.41, y = -6027.86, z = 2100.00 },
+            { x = 6754.14, y = -6375.34, z = 2100.00 },
+            { x = 7557.43, y = -6463.89, z = 2100.00 },
+            { x = 9053.03, y = -6545.70, z = 2126.63 },
+            { x = 9754.41, y = -6589.49, z = 2350.20 },
+            { x = 10361.45, y = -6517.15, z = 2618.85 },
+            { x = 11004.58, y = -6404.42, z = 2705.11 },
+            { x = 11656.45, y = -6367.39, z = 2705.00 },
+            { x = 12295.25, y = -6393.70, z = 2706.23 },
+            { x = 12892.87, y = -6382.52, z = 2715.72 },
+            { x = 12948.68, y = -6173.78, z = 2718.18 },
+            { x = 13637.02, y = -4439.06, z = 2720.00 },
+            { x = 13953.30, y = -3456.41, z = 2732.93 },
+            { x = 13925.99, y = -2637.40, z = 2810.00 },
+            { x = 13867.00, y = -1638.48, z = 2810.00 },
+            { x = 13859.05, y = -785.79, z = 2811.44 },
+            { x = 13869.10, y = -85.04, z = 2788.80 },
+            { x = 13910.44, y = 565.38, z = 2715.60 },
+            { x = 13945.91, y = 1113.62, z = 2705.00 },
+            { x = 14131.79, y = 1628.94, z = 2705.00 },
+            { x = 14426.40, y = 2061.02, z = 2705.00 },
+            { x = 14655.59, y = 2555.88, z = 2708.87 },
+            { x = 14619.37, y = 3078.95, z = 2735.00 },
+            { x = 14416.21, y = 3518.76, z = 2729.58 },
+            { x = 13966.02, y = 3635.48, z = 2714.80 },
+            { x = 13496.62, y = 3282.68, z = 2718.31 },
+            { x = 13033.95, y = 2862.56, z = 2722.04 },
+            { x = 12849.45, y = 2365.44, z = 2709.00 },
+            { x = 13180.09, y = 1959.63, z = 2705.00 },
+            { x = 13584.10, y = 1671.43, z = 2705.00 },
+            { x = 14048.86, y = 1638.91, z = 2705.00 },
+            { x = 14460.26, y = 1912.60, z = 2705.00 },
+            { x = 14607.29, y = 2406.92, z = 2705.11 },
+            { x = 14551.45, y = 2991.77, z = 2734.49 },
+            { x = 14342.70, y = 3439.81, z = 2730.43 },
+            { x = 13902.49, y = 3573.40, z = 2713.83 },
+            { x = 13467.09, y = 3246.77, z = 2720.19 },
+            { x = 13102.64, y = 2834.97, z = 2723.35 },
+            { x = 13002.21, y = 2397.51, z = 2709.00 },
+            { x = 13329.97, y = 1924.22, z = 2705.00 },
+            { x = 13704.37, y = 1667.09, z = 2705.00 },
+            { x = 14130.99, y = 1800.90, z = 2705.00 },
+            { x = 14483.14, y = 2116.74, z = 2705.00 },
+            { x = 14669.85, y = 2584.07, z = 2709.82 },
+            { x = 14531.25, y = 2998.15, z = 2734.69 },
+            { x = 14112.99, y = 3329.69, z = 2716.06 },
+            { x = 13631.90, y = 3271.26, z = 2714.12 },
+            { x = 13258.94, y = 3029.08, z = 2727.84 },
+            { x = 12983.20, y = 2702.68, z = 2715.95 },
+            { x = 12987.80, y = 2252.66, z = 2708.00 },
+            { x = 13458.65, y = 1898.36, z = 2705.00 },
+            { x = 14287.80, y = 1894.83, z = 2705.00 },
+            { x = 14562.69, y = 2743.99, z = 2719.50 },
+            { x = 14142.70, y = 3337.38, z = 2717.92 },
+            { x = 13478.41, y = 3355.41, z = 2721.08 },
+            { x = 12961.80, y = 2924.77, z = 2721.76 },
+            { x = 12935.79, y = 2320.33, z = 2708.51 },
+            { x = 13284.36, y = 1893.00, z = 2705.00 },
+            { x = 14054.44, y = 1640.28, z = 2705.00 },
+            { x = 14598.25, y = 2058.70, z = 2705.00 },
+            { x = 14558.44, y = 2785.01, z = 2722.06 },
+            { x = 14079.17, y = 3361.65, z = 2713.95 },
+            { x = 13420.07, y = 3338.80, z = 2721.79 },
+            { x = 13004.42, y = 2841.96, z = 2720.61 },
+            { x = 13210.57, y = 2127.46, z = 2705.24 },
+            { x = 13536.17, y = 1746.65, z = 2705.00 },
+            { x = 14153.67, y = 1845.91, z = 2705.00 },
+            { x = 14510.59, y = 2228.82, z = 2705.00 },
+            { x = 14434.84, y = 2904.32, z = 2729.11 },
+            { x = 13906.56, y = 2885.56, z = 2705.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "lionheart_power_facility_chain_second_maptrap_13907_2886",
+        label = "狮心_关闭供电设施_第二设施MapTrapBtn",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_without_task_target_only = true,
+        task_patterns = {
+            "狮心"
+        },
+        task_detail_patterns = {
+            "关闭东北边的供电设施",
+            "完成"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 13906.56,
+            y = 2885.56,
+            z = 2705.00,
+            radius = 1000,
+            z_tolerance = 650
+        },
+        interact_radius = 220,
+        probe_retry_ms = 700,
+        retry_ms = 600000,
+        settle_ms = 2600,
+        timeout_ms = 9000,
+        force_task_call_after_transition = false,
+        task_pos_reject_extra_ms = 3500,
+        step = {
+            key = "lionheart_power_facility_chain_second_map_trap_btn",
+            label = "第二供电设施交互按钮",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.MapTrapBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.MapTrapBtn"
+            },
+            hint_client_x = 704.528564,
+            hint_client_y = 712.631531,
+            hint_ratio_x = 0.489256,
+            hint_ratio_y = 0.791813,
+            hint_max_distance = 100.000,
+            prefer_hint_fallback = true,
+            hover_capture_enabled = true,
+            hover_capture_client_left = 690.0,
+            hover_capture_client_top = 685.0,
+            hover_capture_client_right = 745.0,
+            hover_capture_client_bottom = 730.0,
+            hover_capture_retry_ms = 700,
+            settle_ms = 1800,
+            task_pos_reject_extra_ms = 3500
+        }
+    }),
+    make_route_point_action({
+        key = "lionheart_complete_no_path_route_6057_-1283",
+        label = "狮心_完成无路径补充路线到第二设施",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        wait_task_path_recover_only = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "狮心"
+        },
+        task_detail_patterns = {
+            "完成"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 6056.99,
+            y = -1282.96,
+            z = 2108.68,
+            radius = 1500,
+            z_tolerance = 700
+        },
+        retry_ms = 600000,
+        timeout_ms = 90000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 900,
+        move_interval_ms = 220,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "lionheart_power_facility_2_gather_13442_2735",
+        followup_route_action_ignore_retry = true,
+        route_worker_max_points = 22,
+        waypoints = {
+            { x = 5364.00, y = -1474.00, z = 2111.88 },
+            { x = 5181.17, y = -76.84, z = 2105.20 },
+            { x = 4945.10, y = 1390.09, z = 2100.00 },
+            { x = 5441.39, y = 2329.67, z = 2174.56 },
+            { x = 7590.21, y = 3340.81, z = 2409.00 },
+            { x = 9879.15, y = 3213.33, z = 2523.47 },
+            { x = 10976.06, y = 2998.48, z = 2705.15 },
+            { x = 11956.47, y = 3007.02, z = 2705.00 },
+            { x = 12875.15, y = 2934.92, z = 2719.21 },
+            { x = 13414.39, y = 2457.55, z = 2706.00 },
+            { x = 13677.33, y = 1728.73, z = 2705.00 },
+            { x = 14681.58, y = 2041.56, z = 2705.00 },
+            { x = 14505.21, y = 2537.92, z = 2708.10 },
+            { x = 14455.46, y = 2867.73, z = 2727.23 },
+            { x = 13977.68, y = 3825.77, z = 2720.33 },
+            { x = 14600.07, y = 4142.84, z = 2709.00 },
+            { x = 14896.42, y = 3355.05, z = 2734.92 },
+            { x = 14690.25, y = 2565.38, z = 2709.17 },
+            { x = 14248.68, y = 1520.65, z = 2705.00 },
+            { x = 13439.20, y = 1906.45, z = 2705.00 },
+            { x = 12923.42, y = 2453.74, z = 2710.00 },
+            { x = 13480.40, y = 2739.16, z = 2709.41 }
         }
     }),
     make_route_point_action({
@@ -16590,8 +17127,8 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 10975.00,
-            y = 8556.00,
+            x = 12657.00,
+            y = 4436.00,
             z = 16.00,
             radius = 900,
             z_tolerance = 260
@@ -16603,61 +17140,260 @@ M.ROUTE_POINT_ACTIONS = {
         move_interval_ms = 220,
         reacquire_retry_ms = 1200,
         waypoints = {
-            { x = 11120.11, y = 8748.14, z = 16.00 },
-            { x = 11711.10, y = 9045.97, z = 16.00 },
-            { x = 12228.95, y = 9155.10, z = 16.00 },
-            { x = 12734.58, y = 9082.60, z = 16.00 },
-            { x = 13204.50, y = 8841.82, z = 16.00 },
-            { x = 13657.60, y = 8517.60, z = 16.00 },
-            { x = 13942.08, y = 8112.83, z = 16.00 },
-            { x = 14115.23, y = 7613.25, z = 16.00 },
-            { x = 14162.61, y = 7030.51, z = 16.00 },
-            { x = 13999.12, y = 6517.34, z = 16.00 },
-            { x = 13662.51, y = 6059.90, z = 16.00 },
-            { x = 13274.36, y = 5698.42, z = 16.00 },
-            { x = 12720.35, y = 5449.76, z = 16.00 },
-            { x = 12211.47, y = 5392.41, z = 16.00 },
-            { x = 11711.42, y = 5568.60, z = 16.00 },
-            { x = 11237.40, y = 5895.88, z = 16.00 },
-            { x = 10950.88, y = 6307.60, z = 16.00 },
-            { x = 10766.11, y = 6799.72, z = 16.00 },
-            { x = 10686.58, y = 7352.39, z = 16.00 },
-            { x = 10737.20, y = 7877.82, z = 16.00 },
-            { x = 10970.83, y = 8352.15, z = 16.00 },
-            { x = 11355.75, y = 8790.32, z = 16.00 },
-            { x = 11828.04, y = 9025.86, z = 16.00 },
-            { x = 12308.97, y = 9161.57, z = 16.00 },
-            { x = 12840.07, y = 9136.53, z = 16.00 },
-            { x = 12420.82, y = 9185.46, z = 16.00 },
-            { x = 11888.22, y = 9041.95, z = 16.00 },
-            { x = 11377.16, y = 8763.87, z = 16.00 },
-            { x = 10998.00, y = 8390.92, z = 16.00 },
-            { x = 10695.82, y = 7956.34, z = 16.00 },
-            { x = 10550.73, y = 7435.02, z = 16.00 },
-            { x = 10614.72, y = 6942.19, z = 16.00 },
-            { x = 10879.39, y = 6428.89, z = 16.00 },
-            { x = 11193.28, y = 6147.65, z = 16.00 },
-            { x = 11635.35, y = 5853.67, z = 16.00 },
-            { x = 12129.34, y = 5632.81, z = 16.00 },
-            { x = 12648.53, y = 5549.57, z = 16.00 },
-            { x = 13137.08, y = 5645.47, z = 16.00 },
-            { x = 13596.85, y = 5933.98, z = 16.00 },
-            { x = 13988.32, y = 6247.21, z = 16.00 },
-            { x = 14314.91, y = 6695.95, z = 16.00 },
-            { x = 14473.11, y = 7224.48, z = 16.00 },
-            { x = 14424.56, y = 7697.47, z = 16.00 },
-            { x = 14243.06, y = 8166.76, z = 16.00 },
-            { x = 13954.11, y = 8573.64, z = 16.00 },
-            { x = 13527.40, y = 8886.95, z = 16.00 },
-            { x = 12978.39, y = 9033.92, z = 16.00 },
-            { x = 12447.24, y = 9075.82, z = 16.00 },
-            { x = 11968.45, y = 8999.07, z = 16.00 },
-            { x = 11470.53, y = 8813.10, z = 16.00 },
-            { x = 11042.63, y = 8557.15, z = 16.00 },
-            { x = 10679.69, y = 8211.42, z = 16.00 },
-            { x = 10390.41, y = 7768.57, z = 16.00 },
-            { x = 10549.25, y = 7337.20, z = 16.00 },
-            { x = 10847.97, y = 6971.20, z = 16.00 }
+            { x = 13110.62, y = 5297.54, z = 16.00 },
+            { x = 13862.75, y = 5945.31, z = 16.00 },
+            { x = 14204.69, y = 6652.66, z = 16.00 },
+            { x = 14303.27, y = 7311.14, z = 16.00 },
+            { x = 14175.41, y = 7859.82, z = 16.00 },
+            { x = 13816.60, y = 8468.64, z = 16.00 },
+            { x = 13250.69, y = 8851.16, z = 16.00 },
+            { x = 12759.21, y = 9010.75, z = 16.00 },
+            { x = 12101.92, y = 9105.89, z = 16.00 },
+            { x = 11374.77, y = 8854.54, z = 16.00 },
+            { x = 10937.05, y = 8281.66, z = 16.00 },
+            { x = 10561.05, y = 7694.61, z = 16.00 },
+            { x = 10521.83, y = 7094.12, z = 16.00 },
+            { x = 10754.11, y = 6490.80, z = 16.00 },
+            { x = 11261.52, y = 5974.11, z = 16.00 },
+            { x = 11951.79, y = 5433.45, z = 16.00 },
+            { x = 13702.00, y = 5689.00, z = 16.00 },
+            { x = 13302.91, y = 5401.28, z = 16.00 },
+            { x = 13197.17, y = 5724.07, z = 16.00 },
+            { x = 13515.47, y = 6025.64, z = 16.00 },
+            { x = 13864.85, y = 6145.72, z = 16.00 },
+            { x = 14191.98, y = 5971.14, z = 16.00 },
+            { x = 14107.10, y = 5660.56, z = 16.00 },
+            { x = 13758.48, y = 5527.55, z = 16.00 },
+            { x = 13553.31, y = 5760.92, z = 16.00 },
+            { x = 13655.32, y = 6093.70, z = 16.00 },
+            { x = 13881.61, y = 6403.38, z = 16.00 },
+            { x = 14084.08, y = 6624.00, z = 16.00 },
+            { x = 14368.51, y = 6879.20, z = 16.00 },
+            { x = 14502.62, y = 7143.80, z = 16.00 },
+            { x = 14495.37, y = 7488.41, z = 16.00 },
+            { x = 14329.52, y = 7803.03, z = 16.00 },
+            { x = 14152.21, y = 8109.07, z = 16.00 },
+            { x = 13955.26, y = 8335.97, z = 16.00 },
+            { x = 13695.58, y = 8579.83, z = 16.00 },
+            { x = 13445.24, y = 8782.64, z = 16.00 },
+            { x = 13189.50, y = 8940.47, z = 16.00 },
+            { x = 12913.19, y = 9087.95, z = 16.00 },
+            { x = 12610.67, y = 9209.16, z = 16.00 },
+            { x = 12351.77, y = 9294.66, z = 16.00 },
+            { x = 12107.95, y = 9369.64, z = 16.00 },
+            { x = 11872.08, y = 9441.42, z = 16.00 },
+            { x = 11580.90, y = 9520.91, z = 16.00 },
+            { x = 11337.96, y = 9545.01, z = 16.00 },
+            { x = 11072.36, y = 9410.41, z = 16.00 },
+            { x = 11045.61, y = 9086.51, z = 16.00 },
+            { x = 11093.75, y = 8764.36, z = 16.00 },
+            { x = 11331.18, y = 8638.39, z = 16.00 },
+            { x = 11649.42, y = 8652.13, z = 16.00 },
+            { x = 11887.64, y = 8791.47, z = 16.00 },
+            { x = 12062.02, y = 8964.25, z = 16.00 },
+            { x = 12188.15, y = 9199.98, z = 16.00 },
+            { x = 12124.75, y = 9430.52, z = 16.00 },
+            { x = 11917.26, y = 9555.37, z = 16.00 },
+            { x = 11674.63, y = 9580.32, z = 16.00 },
+            { x = 11411.23, y = 9510.39, z = 16.00 },
+            { x = 11221.56, y = 9360.46, z = 16.00 },
+            { x = 11055.34, y = 9143.59, z = 16.00 },
+            { x = 10961.68, y = 8953.84, z = 16.00 },
+            { x = 10985.44, y = 8712.51, z = 16.00 },
+            { x = 11154.92, y = 8564.15, z = 16.00 },
+            { x = 11370.87, y = 8584.77, z = 16.00 },
+            { x = 11552.02, y = 8645.64, z = 16.00 },
+            { x = 11815.74, y = 8786.13, z = 16.00 },
+            { x = 11981.17, y = 8962.40, z = 16.00 },
+            { x = 12019.99, y = 9200.21, z = 16.00 },
+            { x = 11901.20, y = 9405.51, z = 16.00 },
+            { x = 11637.66, y = 9418.70, z = 16.00 },
+            { x = 11415.28, y = 9364.53, z = 16.00 },
+            { x = 11224.77, y = 9294.88, z = 16.00 },
+            { x = 11067.19, y = 9183.63, z = 16.00 },
+            { x = 10923.68, y = 9017.78, z = 16.00 },
+            { x = 10821.25, y = 8827.12, z = 16.00 },
+            { x = 10777.11, y = 8643.97, z = 16.00 },
+            { x = 10793.99, y = 8453.50, z = 16.00 },
+            { x = 10874.03, y = 8281.96, z = 16.00 },
+            { x = 11069.10, y = 8213.50, z = 16.00 },
+            { x = 11254.93, y = 8255.11, z = 16.00 },
+            { x = 11427.46, y = 8331.86, z = 16.00 },
+            { x = 11539.40, y = 8509.45, z = 16.00 },
+            { x = 11497.50, y = 8778.53, z = 16.00 },
+            { x = 11355.85, y = 8935.79, z = 16.00 },
+            { x = 11073.70, y = 8951.13, z = 16.00 },
+            { x = 10865.31, y = 8817.84, z = 16.00 },
+            { x = 10703.47, y = 8669.18, z = 16.00 },
+            { x = 10597.56, y = 8510.85, z = 16.00 },
+            { x = 10548.41, y = 8328.57, z = 16.00 },
+            { x = 10518.20, y = 8142.18, z = 16.00 },
+            { x = 10535.87, y = 7950.43, z = 16.00 },
+            { x = 10652.55, y = 7803.39, z = 16.00 },
+            { x = 10803.06, y = 7757.53, z = 16.00 },
+            { x = 10957.33, y = 7858.93, z = 16.00 },
+            { x = 11027.06, y = 8050.48, z = 16.00 },
+            { x = 11065.82, y = 8265.01, z = 16.00 },
+            { x = 10940.48, y = 8414.32, z = 16.00 },
+            { x = 10727.81, y = 8391.80, z = 16.00 },
+            { x = 10525.15, y = 8259.66, z = 16.00 },
+            { x = 10414.51, y = 8073.93, z = 16.00 },
+            { x = 10370.10, y = 7858.92, z = 16.00 },
+            { x = 10355.54, y = 7669.23, z = 16.00 },
+            { x = 10351.86, y = 7451.95, z = 16.00 },
+            { x = 10395.36, y = 7267.17, z = 16.00 },
+            { x = 10516.84, y = 7118.76, z = 16.00 },
+            { x = 10689.52, y = 7058.03, z = 16.00 },
+            { x = 10824.29, y = 7171.35, z = 16.00 },
+            { x = 10874.25, y = 7355.66, z = 16.00 },
+            { x = 10917.27, y = 7539.18, z = 16.00 },
+            { x = 10935.71, y = 7755.56, z = 16.00 },
+            { x = 10819.99, y = 7933.52, z = 16.00 },
+            { x = 10611.98, y = 7992.20, z = 16.00 },
+            { x = 10404.80, y = 7933.46, z = 16.00 },
+            { x = 10242.82, y = 7792.06, z = 16.00 },
+            { x = 10145.97, y = 7597.64, z = 16.00 },
+            { x = 10108.43, y = 7385.81, z = 16.00 },
+            { x = 10113.51, y = 7165.97, z = 16.00 },
+            { x = 10147.03, y = 6950.98, z = 16.00 },
+            { x = 10250.37, y = 6761.32, z = 16.00 },
+            { x = 10399.38, y = 6649.62, z = 16.00 },
+            { x = 10593.91, y = 6546.46, z = 16.00 },
+            { x = 10775.91, y = 6500.91, z = 16.00 },
+            { x = 10985.26, y = 6565.62, z = 16.00 },
+            { x = 11141.16, y = 6670.97, z = 16.00 },
+            { x = 11159.73, y = 6851.98, z = 16.00 },
+            { x = 11021.66, y = 7010.38, z = 16.00 },
+            { x = 10827.45, y = 7069.43, z = 16.00 },
+            { x = 10592.38, y = 7040.07, z = 16.00 },
+            { x = 10568.56, y = 6884.05, z = 16.00 },
+            { x = 10615.19, y = 6672.55, z = 16.00 },
+            { x = 10753.35, y = 6553.74, z = 16.00 },
+            { x = 10863.22, y = 6365.86, z = 16.00 },
+            { x = 10980.70, y = 6179.06, z = 16.00 },
+            { x = 11133.70, y = 6024.36, z = 16.00 },
+            { x = 11270.24, y = 5894.75, z = 16.00 },
+            { x = 11458.52, y = 5779.92, z = 16.00 },
+            { x = 11620.85, y = 5710.78, z = 16.00 },
+            { x = 11955.00, y = 5597.66, z = 16.00 },
+            { x = 12247.71, y = 5543.96, z = 16.00 },
+            { x = 12574.27, y = 5522.98, z = 16.00 },
+            { x = 12857.08, y = 5534.98, z = 16.00 },
+            { x = 13152.76, y = 5586.43, z = 16.00 },
+            { x = 13431.34, y = 5596.81, z = 16.00 },
+            { x = 13487.16, y = 5344.26, z = 16.00 },
+            { x = 13301.61, y = 5199.49, z = 16.00 },
+            { x = 12975.78, y = 5201.12, z = 16.00 },
+            { x = 12819.00, y = 5364.72, z = 16.00 },
+            { x = 12909.72, y = 5554.59, z = 16.00 },
+            { x = 13095.16, y = 5671.71, z = 16.00 },
+            { x = 13294.96, y = 5783.44, z = 16.00 },
+            { x = 13565.91, y = 5938.29, z = 16.00 },
+            { x = 13791.58, y = 6094.21, z = 16.00 },
+            { x = 13994.26, y = 6270.57, z = 16.00 },
+            { x = 14115.36, y = 6451.55, z = 16.00 },
+            { x = 14210.88, y = 6679.38, z = 16.00 },
+            { x = 14261.58, y = 6889.52, z = 16.00 },
+            { x = 14300.80, y = 7105.99, z = 16.00 },
+            { x = 14305.00, y = 7375.29, z = 16.00 },
+            { x = 14242.66, y = 7614.81, z = 16.00 },
+            { x = 14154.78, y = 7847.29, z = 16.00 },
+            { x = 14011.17, y = 8143.33, z = 16.00 },
+            { x = 13886.69, y = 8319.84, z = 16.00 },
+            { x = 13700.65, y = 8515.38, z = 16.00 },
+            { x = 13497.39, y = 8655.91, z = 16.00 },
+            { x = 13248.53, y = 8793.32, z = 16.00 },
+            { x = 13032.50, y = 8909.14, z = 16.00 },
+            { x = 12831.30, y = 8991.79, z = 16.00 },
+            { x = 12574.33, y = 9078.33, z = 16.00 },
+            { x = 12359.28, y = 9124.89, z = 16.00 },
+            { x = 12116.50, y = 9142.35, z = 16.00 },
+            { x = 11846.55, y = 9109.99, z = 16.00 },
+            { x = 11600.46, y = 9030.00, z = 16.00 },
+            { x = 11359.60, y = 8903.94, z = 16.00 },
+            { x = 11170.97, y = 8791.12, z = 16.00 },
+            { x = 11011.20, y = 8695.95, z = 16.00 },
+            { x = 11190.33, y = 8789.18, z = 16.00 },
+            { x = 11404.57, y = 8908.01, z = 16.00 },
+            { x = 11602.66, y = 9006.70, z = 16.00 },
+            { x = 11847.86, y = 9087.03, z = 16.00 },
+            { x = 12114.72, y = 9137.99, z = 16.00 },
+            { x = 12385.60, y = 9158.83, z = 16.00 },
+            { x = 12602.06, y = 9142.80, z = 16.00 },
+            { x = 12870.10, y = 9096.48, z = 16.00 },
+            { x = 13075.51, y = 9022.87, z = 16.00 },
+            { x = 13270.61, y = 8921.06, z = 16.00 },
+            { x = 13449.42, y = 8799.10, z = 16.00 },
+            { x = 13624.63, y = 8648.49, z = 16.00 },
+            { x = 13801.20, y = 8477.36, z = 16.00 },
+            { x = 13941.75, y = 8314.47, z = 16.00 },
+            { x = 14090.71, y = 8083.41, z = 16.00 },
+            { x = 14194.41, y = 7831.87, z = 16.00 },
+            { x = 14262.39, y = 7511.27, z = 16.00 },
+            { x = 14281.89, y = 7268.66, z = 16.00 },
+            { x = 14251.50, y = 6994.93, z = 16.00 },
+            { x = 14194.25, y = 6758.50, z = 16.00 },
+            { x = 14069.19, y = 6486.71, z = 16.00 },
+            { x = 13945.44, y = 6293.41, z = 16.00 },
+            { x = 13797.13, y = 6134.41, z = 16.00 },
+            { x = 13614.48, y = 5973.49, z = 16.00 },
+            { x = 13411.35, y = 5831.06, z = 16.00 },
+            { x = 13197.47, y = 5718.84, z = 16.00 },
+            { x = 12994.42, y = 5627.55, z = 16.00 },
+            { x = 12761.39, y = 5556.80, z = 16.00 },
+            { x = 12518.75, y = 5526.69, z = 16.00 },
+            { x = 12300.70, y = 5533.16, z = 16.00 },
+            { x = 12061.18, y = 5583.38, z = 16.00 },
+            { x = 11829.41, y = 5668.53, z = 16.00 },
+            { x = 11641.77, y = 5778.98, z = 16.00 },
+            { x = 11484.41, y = 5929.51, z = 16.00 },
+            { x = 11334.53, y = 6122.59, z = 16.00 },
+            { x = 11219.01, y = 6308.98, z = 16.00 },
+            { x = 11115.12, y = 6497.08, z = 16.00 },
+            { x = 11016.68, y = 6706.76, z = 16.00 },
+            { x = 10933.37, y = 6936.01, z = 16.00 },
+            { x = 10890.74, y = 7150.54, z = 16.00 },
+            { x = 10870.43, y = 7380.85, z = 16.00 },
+            { x = 10859.34, y = 7627.06, z = 16.00 },
+            { x = 10868.69, y = 7847.24, z = 16.00 },
+            { x = 10900.54, y = 8141.84, z = 16.00 },
+            { x = 10943.98, y = 8358.88, z = 16.00 },
+            { x = 11002.82, y = 8569.00, z = 16.00 },
+            { x = 11115.48, y = 8813.32, z = 16.00 },
+            { x = 11261.51, y = 8972.14, z = 16.00 },
+            { x = 11476.49, y = 9094.41, z = 16.00 },
+            { x = 11735.84, y = 9166.13, z = 16.00 },
+            { x = 11972.59, y = 9115.08, z = 16.00 },
+            { x = 11972.02, y = 8935.74, z = 16.00 },
+            { x = 11784.07, y = 8834.21, z = 16.00 },
+            { x = 11573.02, y = 8781.74, z = 16.00 },
+            { x = 11384.07, y = 8794.11, z = 16.00 },
+            { x = 11217.53, y = 8925.90, z = 16.00 },
+            { x = 11183.71, y = 9159.42, z = 16.00 },
+            { x = 11353.73, y = 9285.39, z = 16.00 },
+            { x = 11540.41, y = 9321.68, z = 16.00 },
+            { x = 11739.95, y = 9260.65, z = 16.00 },
+            { x = 11719.23, y = 9016.02, z = 16.00 },
+            { x = 11543.05, y = 8889.09, z = 16.00 },
+            { x = 11398.18, y = 8805.96, z = 16.00 },
+            { x = 11207.44, y = 8675.68, z = 16.00 },
+            { x = 11073.88, y = 8561.06, z = 16.00 },
+            { x = 10948.56, y = 8436.90, z = 16.00 },
+            { x = 10777.69, y = 8263.61, z = 16.00 },
+            { x = 10619.17, y = 8094.84, z = 16.00 },
+            { x = 10734.46, y = 7333.46, z = 16.00 },
+            { x = 10968.83, y = 6582.03, z = 16.00 },
+            { x = 11364.85, y = 6061.17, z = 16.00 },
+            { x = 11776.40, y = 5609.50, z = 16.00 },
+            { x = 12109.12, y = 5253.26, z = 16.00 },
+            { x = 12455.34, y = 4772.06, z = 16.00 },
+            { x = 12561.06, y = 4208.34, z = 16.00 },
+            { x = 12776.98, y = 3768.09, z = 16.00 },
+            { x = 13065.90, y = 3390.98, z = 16.00 },
+            { x = 13343.12, y = 3021.49, z = 16.00 },
+            { x = 13532.91, y = 2516.67, z = 16.00 },
+            { x = 13577.67, y = 2065.65, z = 16.00 },
+            { x = 13590.39, y = 1633.75, z = 16.00 }
         }
     }),
     make_route_point_action({
@@ -16693,6 +17429,7 @@ M.ROUTE_POINT_ACTIONS = {
             { x = -1367.66, y = -3464.22, z = 1603.00, move_interval_ms = 30, move_interval_floor_ms = 30 },
             { x = -1450.49, y = -1325.49, z = 1606.00, move_interval_ms = 30, move_interval_floor_ms = 30 },
             { x = 343.48, y = 261.42, z = 1603.00, move_interval_ms = 30, move_interval_floor_ms = 30 },
+            { x = 1276.39, y = -677.94, z = 1623.20, move_interval_ms = 30, move_interval_floor_ms = 30 },
             { x = 3578.59, y = -1141.58, z = 1613.66, move_interval_ms = 30, move_interval_floor_ms = 30 }
         }
     }),
@@ -16826,6 +17563,81 @@ M.ROUTE_POINT_ACTIONS = {
         move_interval_ms = 220,
         reacquire_retry_ms = 1200,
         waypoints = {
+            { x = 4562.00, y = -1632.00, z = 83.00 },
+            { x = 3852.37, y = -1422.76, z = 83.00 },
+            { x = 3215.77, y = -1427.42, z = 83.00 },
+            { x = 2682.92, y = -1733.01, z = 83.00 },
+            { x = 2136.58, y = -1803.37, z = 83.00 },
+            { x = 1586.25, y = -1621.91, z = 83.00 },
+            { x = 1000.04, y = -1434.84, z = 83.00 },
+            { x = 1210.01, y = -1523.69, z = 83.00 },
+            { x = 1782.58, y = -1730.36, z = 83.00 },
+            { x = 2213.47, y = -1884.98, z = 83.00 },
+            { x = 2659.34, y = -1781.31, z = 83.00 },
+            { x = 3084.00, y = -1598.84, z = 83.00 },
+            { x = 3482.57, y = -1427.95, z = 83.00 },
+            { x = 3964.45, y = -1347.75, z = 83.00 },
+            { x = 4466.85, y = -1469.11, z = 83.00 },
+            { x = 4769.89, y = -1655.71, z = 83.00 },
+            { x = 4386.54, y = -1628.98, z = 83.00 },
+            { x = 3953.69, y = -1457.27, z = 83.00 },
+            { x = 3566.22, y = -1398.79, z = 83.00 },
+            { x = 3201.30, y = -1584.35, z = 83.00 },
+            { x = 2802.98, y = -1782.33, z = 83.00 },
+            { x = 2431.57, y = -1864.69, z = 83.00 },
+            { x = 1994.73, y = -1832.29, z = 83.00 },
+            { x = 1522.76, y = -1703.82, z = 83.00 },
+            { x = 1126.30, y = -1570.39, z = 83.00 },
+            { x = 1061.03, y = -1540.58, z = 83.00 },
+            { x = 1479.21, y = -1659.69, z = 83.00 },
+            { x = 1868.39, y = -1770.31, z = 83.00 },
+            { x = 2296.70, y = -1842.71, z = 83.00 },
+            { x = 2693.32, y = -1753.30, z = 83.00 },
+            { x = 3040.39, y = -1631.00, z = 83.00 },
+            { x = 3375.20, y = -1521.82, z = 83.00 },
+            { x = 3747.43, y = -1445.38, z = 83.00 },
+            { x = 4140.29, y = -1527.05, z = 83.00 },
+            { x = 4339.51, y = -1616.14, z = 83.00 },
+            { x = 3974.86, y = -1434.32, z = 83.00 },
+            { x = 3633.23, y = -1383.65, z = 83.00 },
+            { x = 3298.84, y = -1498.25, z = 83.00 },
+            { x = 2945.67, y = -1634.29, z = 83.00 },
+            { x = 2610.07, y = -1741.64, z = 83.00 },
+            { x = 2257.78, y = -1781.44, z = 83.00 },
+            { x = 1884.37, y = -1729.73, z = 83.00 },
+            { x = 1511.91, y = -1650.81, z = 83.00 },
+            { x = 1171.05, y = -1567.77, z = 83.00 },
+            { x = 825.95, y = -1480.59, z = 83.00 },
+            { x = 528.97, y = -1491.74, z = 83.00 },
+            { x = 334.60, y = -1387.22, z = 83.00 },
+            { x = 491.23, y = -1172.28, z = 83.00 },
+            { x = 717.24, y = -1089.14, z = 83.00 },
+            { x = 957.88, y = -1127.55, z = 83.00 },
+            { x = 1120.03, y = -1310.11, z = 83.00 },
+            { x = 1125.82, y = -1527.28, z = 83.00 },
+            { x = 1043.60, y = -1722.97, z = 83.00 },
+            { x = 848.92, y = -1806.20, z = 83.00 },
+            { x = 659.96, y = -1779.38, z = 83.00 },
+            { x = 505.13, y = -1639.26, z = 83.00 },
+            { x = 662.69, y = -1560.71, z = 83.00 },
+            { x = 868.51, y = -1576.63, z = 83.00 },
+            { x = 1056.72, y = -1605.86, z = 83.00 },
+            { x = 1270.49, y = -1638.57, z = 83.00 },
+            { x = 1460.19, y = -1666.89, z = 83.00 },
+            { x = 1648.97, y = -1695.47, z = 83.00 },
+            { x = 1890.19, y = -1731.33, z = 83.00 },
+            { x = 2105.93, y = -1759.59, z = 83.00 },
+            { x = 2320.00, y = -1768.80, z = 83.00 },
+            { x = 2537.54, y = -1737.88, z = 83.00 },
+            { x = 2723.78, y = -1696.68, z = 83.00 },
+            { x = 2909.61, y = -1653.73, z = 83.00 },
+            { x = 3122.64, y = -1605.39, z = 83.00 },
+            { x = 3309.43, y = -1576.46, z = 83.00 },
+            { x = 3509.96, y = -1563.57, z = 83.00 },
+            { x = 3702.82, y = -1569.92, z = 83.00 },
+            { x = 3891.44, y = -1589.71, z = 83.00 },
+            { x = 4079.56, y = -1611.45, z = 83.00 },
+            { x = 4395.71, y = -1623.70, z = 83.00 },
             { x = 4174.17, y = -1508.64, z = 83.00 },
             { x = 2695.66, y = -1618.05, z = 83.00 },
             { x = 1923.40, y = -1795.60, z = 83.00 },
