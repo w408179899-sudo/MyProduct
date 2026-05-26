@@ -68,7 +68,7 @@ M.DEFAULT_CONFIG = {
     keep_equipped_panel_max_x = 650,
     keep_equipped_marker_match_max_dx = 180,
     keep_equipped_marker_match_max_dy = 100,
-    skip_non_two_hand_weapons = true,
+    skip_non_two_hand_weapons = false,
     weapon_type_patterns = {
         "单手",
         "双手",

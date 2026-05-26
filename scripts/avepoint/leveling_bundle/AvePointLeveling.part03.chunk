@@ -7223,6 +7223,37 @@ function M.update(now, ctx)
         return true
     end
 
+    if state.level_up_maintenance_executor_active == true then
+        local fast_lane_started_at = tonumber(state.level_up_maintenance_executor_started_at) or 0
+        local fast_lane_key = tostring(state.level_up_maintenance_executor_plan_key or "")
+        if state.level_up_maintenance_fast_lane_started_at ~= fast_lane_started_at
+            or tostring(state.level_up_maintenance_fast_lane_key or "") ~= fast_lane_key
+        then
+            state.level_up_maintenance_fast_lane_started_at = fast_lane_started_at
+            state.level_up_maintenance_fast_lane_key = fast_lane_key
+            release_async_combat_inputs(ctx, current_time, true)
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance fast-lane active | kind=%s level=%s plan=%s",
+                tostring(state.level_up_maintenance_executor_kind or ""),
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or "")
+            ))
+        end
+        hold_navigation(ctx, current_time, "level_up_maintenance_fast_lane")
+        if M.maybe_handle_level_up_maintenance(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface) then
+            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+            return true
+        end
+        log_throttled(ctx, "level_up_maintenance_fast_lane_no_progress", "warn", LOG_THROTTLE_MS, string.format(
+            "[Leveling] level-up maintenance fast-lane held without executor progress | kind=%s level=%s plan=%s",
+            tostring(state.level_up_maintenance_executor_kind or ""),
+            tostring(state.level_up_maintenance_executor_level or ""),
+            tostring(state.level_up_maintenance_executor_plan_label or "")
+        ))
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
     update_progress_anchor(current_time, player_x, player_y)
     M.bt_run_service_nodes(ctx, current_time, "service.pre_interaction", {
         {

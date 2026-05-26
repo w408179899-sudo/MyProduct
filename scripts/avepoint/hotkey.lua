@@ -4613,7 +4613,7 @@ end
 
 local F9_LEVEL_UP_MAINTENANCE_TEST = {
     kind = "skill",
-    level = 4,
+    level = 8,
     tick_ms = 50,
     timeout_ms = 120000,
     active = false
@@ -4883,7 +4883,7 @@ function main()
     log.info("Press F6 to print current player coordinates")
     log.info("Press F7 to print current player position and nearby portals")
     log.info("Press F8 to print current mouse client coordinates")
-    log.info("Press F9 to test level 4 skill maintenance plan")
+    log.info("Press F9 to test level 8 skill maintenance plan")
     log.info("Press Ctrl+F12 to exit")
     log.info("Waiting for torchlight API/game init...")
 
@@ -5731,7 +5731,7 @@ function main()
         end
 
         if pressed_once(HOTKEY_F9) then
-            local ok, err = avepoint_hotkey_start_level_up_maintenance_test("skill", 4)
+            local ok, err = avepoint_hotkey_start_level_up_maintenance_test("skill", 8)
             if not ok then
                 log.warn("F9 level-up maintenance test unavailable: " .. tostring(err))
             end

@@ -330,7 +330,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                     hint_client_y = 560.094788,
                     hint_ratio_x = 0.203604,
                     hint_ratio_y = 0.622328,
-                    hint_max_distance = 35,
+                    hint_max_distance = 20,
                     wait_after_ms = 500
                 },
                 {
@@ -417,7 +417,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                     hint_client_y = 560.094788,
                     hint_ratio_x = 0.203604,
                     hint_ratio_y = 0.622328,
-                    hint_max_distance = 35,
+                    hint_max_distance = 20,
                     wait_after_ms = 500
                 },
                 {
@@ -504,7 +504,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                     hint_client_y = 560.094788,
                     hint_ratio_x = 0.311964,
                     hint_ratio_y = 0.622328,
-                    hint_max_distance = 35,
+                    hint_max_distance = 20,
                     wait_after_ms = 500
                 },
                 {
@@ -591,7 +591,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                     hint_client_y = 560.094788,
                     hint_ratio_x = 0.311964,
                     hint_ratio_y = 0.622328,
-                    hint_max_distance = 35,
+                    hint_max_distance = 20,
                     wait_after_ms = 500
                 },
                 {
@@ -678,7 +678,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                     hint_client_y = 560.094788,
                     hint_ratio_x = 0.311964,
                     hint_ratio_y = 0.622328,
-                    hint_max_distance = 35,
+                    hint_max_distance = 20,
                     wait_after_ms = 500
                 },
                 {
@@ -765,7 +765,7 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                     hint_client_y = 633.538025,
                     hint_ratio_x = 0.321693,
                     hint_ratio_y = 0.703931,
-                    hint_max_distance = 80,
+                    hint_max_distance = 20,
                     wait_after_ms = 1200
                 },
                 {
@@ -893,7 +893,7 @@ M.AUTO_EQUIP_MAINTENANCE_CONFIG = {
     keep_equipped_panel_max_x = 650,
     keep_equipped_marker_match_max_dx = 180,
     keep_equipped_marker_match_max_dy = 100,
-    skip_non_two_hand_weapons = true,
+    skip_non_two_hand_weapons = false,
     weapon_type_patterns = {
         "单手",
         "双手",
@@ -1061,6 +1061,193 @@ local function strip_skill_image_plan_panel_steps(plan)
     end
 end
 
+local SKILL_PRE_BAG_MAIN_TAB_PATTERN = "UIButton Transient.GameEngine.CoreGameInstance.PCBag_C.WidgetTree.PCBagMain.WidgetTree.PCUIGridListView.WidgetTree.PCBagTabButtonItem101.WidgetTree.Button_Tab"
+local SKILL_PRE_BAG_RECYCLE_PATTERN = "UIButton Transient.GameEngine.CoreGameInstance.PCBag_C.WidgetTree.PCBagMain.WidgetTree.PCUIGridListView.WidgetTree.UIButton_Recycle"
+local SKILL_PRE_BAG_RARITY_MAGIC_PATTERN = "UIButton Transient.GameEngine.CoreGameInstance.PCBag_C.WidgetTree.PCBagMain.WidgetTree.PCUIGridListView.WidgetTree.PCBagFilterRarityItem.WidgetTree.SelectBtn0"
+local SKILL_PRE_BAG_CONFIRM_PATTERN = "UIButton Transient.GameEngine.CoreGameInstance.ConfirmV2_C.WidgetTree.ComButtonV2.WidgetTree.Btn"
+
+local function make_skill_pre_bag_press_step(key, label, wait_after_ms)
+    return {
+        key = key,
+        label = label,
+        kind = "press_key",
+        key_vk = 66,
+        wait_after_ms = wait_after_ms or 450,
+        keep_wait_after_ms = true
+    }
+end
+
+local function make_skill_pre_bag_button_step(opts)
+    opts = type(opts) == "table" and opts or {}
+    return make_maintenance_locator_step({
+        key = opts.key,
+        label = opts.label,
+        include_patterns = { opts.pattern },
+        hint_client_x = opts.hint_client_x,
+        hint_client_y = opts.hint_client_y,
+        hint_ratio_x = opts.hint_ratio_x,
+        hint_ratio_y = opts.hint_ratio_y,
+        hint_max_distance = opts.hint_max_distance or 80,
+        target_poll_count = opts.target_poll_count or 15,
+        target_poll_interval_ms = opts.target_poll_interval_ms or 100,
+        missing_target_means_step_done = opts.missing_target_means_step_done,
+        missing_target_means_plan_done = opts.missing_target_means_plan_done,
+        poll_missing_target_before_done = opts.poll_missing_target_before_done,
+        wait_after_ms = opts.wait_after_ms or 320
+    })
+end
+
+local function make_skill_pre_bag_verify_step(opts)
+    local step = make_skill_pre_bag_button_step(opts)
+    step.kind = "verify_target"
+    step.expected_present = opts.expected_present ~= false
+    step.verify_timeout_ms = opts.verify_timeout_ms or 3000
+    step.verify_poll_ms = opts.verify_poll_ms or 100
+    step.disable_target_poll = true
+    step.wait_after_ms = opts.wait_after_ms or 120
+    return step
+end
+
+local function make_skill_pre_add_bag_cleanup_steps(prefix)
+    prefix = tostring(prefix or "skill")
+    return {
+        make_skill_pre_bag_press_step(prefix .. "_pre_bag_open", "skill pre-add bag open", 450),
+        make_skill_pre_bag_verify_step({
+            key = prefix .. "_pre_bag_verify_open",
+            label = "skill pre-add bag verify open",
+            pattern = SKILL_PRE_BAG_MAIN_TAB_PATTERN,
+            hint_client_x = 1001.810425,
+            hint_client_y = 536.453857,
+            hint_ratio_x = 0.695702,
+            hint_ratio_y = 0.595398,
+            verify_timeout_ms = 3500,
+            wait_after_ms = 120
+        }),
+        make_skill_pre_bag_button_step({
+            key = prefix .. "_pre_bag_main_tab",
+            label = "skill pre-add bag main tab",
+            pattern = SKILL_PRE_BAG_MAIN_TAB_PATTERN,
+            hint_client_x = 1001.810425,
+            hint_client_y = 536.453857,
+            hint_ratio_x = 0.695702,
+            hint_ratio_y = 0.595398,
+            wait_after_ms = 260
+        }),
+        make_skill_pre_bag_button_step({
+            key = prefix .. "_pre_bag_recycle_open",
+            label = "skill pre-add bag recycle open",
+            pattern = SKILL_PRE_BAG_RECYCLE_PATTERN,
+            hint_client_x = 1355.754395,
+            hint_client_y = 851.456360,
+            hint_ratio_x = 0.941496,
+            hint_ratio_y = 0.945013,
+            wait_after_ms = 300
+        }),
+        make_skill_pre_bag_button_step({
+            key = prefix .. "_pre_bag_magic_filter",
+            label = "skill pre-add bag magic filter",
+            pattern = SKILL_PRE_BAG_RARITY_MAGIC_PATTERN,
+            hint_client_x = 917.758423,
+            hint_client_y = 849.914124,
+            hint_ratio_x = 0.637332,
+            hint_ratio_y = 0.943301,
+            wait_after_ms = 260
+        }),
+        make_skill_pre_bag_button_step({
+            key = prefix .. "_pre_bag_recycle_execute",
+            label = "skill pre-add bag recycle execute",
+            pattern = SKILL_PRE_BAG_RECYCLE_PATTERN,
+            hint_client_x = 1355.754639,
+            hint_client_y = 849.914124,
+            hint_ratio_x = 0.941496,
+            hint_ratio_y = 0.943301,
+            target_poll_count = 5,
+            target_poll_interval_ms = 100,
+            missing_target_means_step_done = true,
+            poll_missing_target_before_done = true,
+            wait_after_ms = 420
+        }),
+        make_skill_pre_bag_button_step({
+            key = prefix .. "_pre_bag_confirm_recycle",
+            label = "skill pre-add bag confirm recycle",
+            pattern = SKILL_PRE_BAG_CONFIRM_PATTERN,
+            hint_client_x = 741.020325,
+            hint_client_y = 610.376953,
+            hint_ratio_x = 0.514597,
+            hint_ratio_y = 0.677444,
+            hint_max_distance = 90,
+            target_poll_count = 5,
+            target_poll_interval_ms = 100,
+            missing_target_means_step_done = true,
+            poll_missing_target_before_done = true,
+            wait_after_ms = 500
+        }),
+        make_skill_pre_bag_press_step(prefix .. "_pre_bag_close", "skill pre-add bag close", 450),
+        make_skill_pre_bag_verify_step({
+            key = prefix .. "_pre_bag_verify_closed",
+            label = "skill pre-add bag verify closed",
+            pattern = SKILL_PRE_BAG_MAIN_TAB_PATTERN,
+            hint_client_x = 1001.810425,
+            hint_client_y = 536.453857,
+            hint_ratio_x = 0.695702,
+            hint_ratio_y = 0.595398,
+            expected_present = false,
+            verify_timeout_ms = 3500,
+            wait_after_ms = 180
+        })
+    }
+end
+
+local function mark_skill_pre_add_bag_cleanup(plan)
+    if type(plan) == "table" then
+        plan.skill_pre_add_bag_cleanup = true
+    end
+end
+
+local function find_skill_pre_add_bag_cleanup_insert_index(plan)
+    local steps = type(plan) == "table" and type(plan.steps) == "table" and plan.steps or {}
+    for index, step in ipairs(steps) do
+        local key = tostring(type(step) == "table" and step.key or "")
+        if string.find(key, "open_fast_entrance_menu_after_skill_image", 1, true) then
+            return index
+        end
+    end
+    return 1
+end
+
+local function insert_skill_pre_add_bag_cleanup_steps(plan, prefix)
+    if type(plan) ~= "table" or type(plan.steps) ~= "table" then
+        return
+    end
+    local marker_key = tostring(prefix or "skill") .. "_pre_bag_open"
+    for _, step in ipairs(plan.steps) do
+        if tostring(type(step) == "table" and step.key or "") == marker_key then
+            return
+        end
+    end
+
+    local steps = {}
+    local insert_index = find_skill_pre_add_bag_cleanup_insert_index(plan)
+    for i = 1, insert_index - 1 do
+        steps[#steps + 1] = plan.steps[i]
+    end
+    for _, step in ipairs(make_skill_pre_add_bag_cleanup_steps(prefix)) do
+        steps[#steps + 1] = step
+    end
+    for i = insert_index, #plan.steps do
+        steps[#steps + 1] = plan.steps[i]
+    end
+    plan.steps = steps
+end
+
+local function apply_skill_pre_add_bag_cleanup_steps()
+    for level, plan in pairs(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level or {}) do
+        if type(plan) == "table" and plan.skill_pre_add_bag_cleanup == true then
+            insert_skill_pre_add_bag_cleanup_steps(plan, "level_" .. tostring(level))
+        end
+    end
+end
+
 strip_skill_image_plan_panel_steps(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
 
 do
@@ -1176,7 +1363,7 @@ do
             step.hint_client_y = 616.538025
             step.hint_ratio_x = 0.419629
             step.hint_ratio_y = 0.685042
-            step.hint_max_distance = 80
+            step.hint_max_distance = 20
             step.wait_after_ms = 1200
         elseif tostring(step.key or "") == "activate_level_7_talent_node" then
             step.key = "activate_level_10_talent_node"
@@ -1212,7 +1399,7 @@ do
             step.hint_client_y = 477.651550
             step.hint_ratio_x = 0.527989
             step.hint_ratio_y = 0.530724
-            step.hint_max_distance = 80
+            step.hint_max_distance = 20
             step.wait_after_ms = 1200
         elseif tostring(step.key or "") == "activate_level_7_talent_node" then
             step.key = "activate_level_12_talent_node"
@@ -1236,7 +1423,7 @@ do
             step.hint_client_y = 480.651550
             step.hint_ratio_x = 0.528684
             step.hint_ratio_y = 0.534057
-            step.hint_max_distance = 80
+            step.hint_max_distance = 20
         elseif tostring(step.key or "") == "activate_level_12_talent_node" then
             step.key = "activate_level_13_talent_node"
             step.hint_client_x = 590.579102
@@ -1271,7 +1458,7 @@ do
                 step.hint_client_y = 477.651550
                 step.hint_ratio_x = 0.636349
                 step.hint_ratio_y = 0.530724
-                step.hint_max_distance = 80
+                step.hint_max_distance = 20
                 step.wait_after_ms = 1200
             elseif tostring(step.key or "") == "activate_level_7_talent_node" then
                 step.key = string.format("activate_level_%d_talent_node", level)
@@ -1300,7 +1487,7 @@ do
             step.hint_client_y = 480.651550
             step.hint_ratio_x = 0.637044
             step.hint_ratio_y = 0.534057
-            step.hint_max_distance = 80
+            step.hint_max_distance = 20
         elseif tostring(step.key or "") == "activate_level_15_talent_node" then
             step.include_patterns = {
                 "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
@@ -1324,7 +1511,7 @@ do
                 step.hint_client_y = 696.981323
                 step.hint_ratio_x = 0.753049
                 step.hint_ratio_y = 0.774424
-                step.hint_max_distance = 80
+                step.hint_max_distance = 20
                 step.wait_after_ms = 1200
             elseif tostring(step.key or "") == "activate_level_7_talent_node" then
                 step.key = string.format("activate_level_%d_talent_node", level)
@@ -1443,7 +1630,7 @@ do
                 696.981323,
                 0.861408,
                 0.774424,
-                80,
+                20,
                 1200
             )
             level_20_steps[#level_20_steps + 1] = maintenance_locator_step(
@@ -1520,7 +1707,7 @@ do
                 419.208282,
                 0.211249,
                 0.465787,
-                80,
+                20,
                 1200
             ),
             maintenance_locator_step(
@@ -1568,7 +1755,7 @@ do
                     node_y,
                     node_ratio_x,
                     node_ratio_y,
-                    80,
+                    20,
                     1200
                 ),
                 maintenance_locator_step(
@@ -1783,7 +1970,7 @@ do
         616.626709,
         0.745400,
         0.685141,
-        35,
+        20,
         1200
     ), 1073.375366, 616.626709, 0.745400, 0.685141)
 
@@ -2207,7 +2394,7 @@ do
                 hint_client_y = 618.538025,
                 hint_ratio_x = 0.314049,
                 hint_ratio_y = 0.687264,
-                hint_max_distance = 80,
+                hint_max_distance = 20,
                 wait_after_ms = 1200
             }, "select_level_10_first_talent_node")
             append_shifted_step(steps, level, {
@@ -2233,7 +2420,7 @@ do
                 hint_client_y = 618.538025,
                 hint_ratio_x = 0.422409,
                 hint_ratio_y = 0.687264,
-                hint_max_distance = 80,
+                hint_max_distance = 20,
                 wait_after_ms = 1200
             }, "select_level_10_second_talent_node")
             append_shifted_step(steps, level, {
@@ -2270,7 +2457,7 @@ do
                 hint_client_y = 618.538025,
                 hint_ratio_x = 0.422409,
                 hint_ratio_y = 0.687264,
-                hint_max_distance = 80,
+                hint_max_distance = 20,
                 wait_after_ms = 1200
             }, "select_level_11_talent_node")
             append_shifted_step(steps, level, {
@@ -2309,7 +2496,7 @@ do
                     hint_client_y = 479.651550,
                     hint_ratio_x = 0.530769,
                     hint_ratio_y = 0.532946,
-                    hint_max_distance = 80,
+                    hint_max_distance = 20,
                     wait_after_ms = 1200
                 }, string.format("select_level_%d_same_talent_node", tonumber(current_level) or 0))
                 append_shifted_step(steps, current_level, {
@@ -2547,7 +2734,7 @@ do
                     478.651550,
                     0.634960,
                     0.531835,
-                    80,
+                    20,
                     1200
                 ), "select_level_18_inserted_talent_node")
                 append_shifted_step(steps, level, maintenance_locator_step(
@@ -2651,7 +2838,7 @@ do
                     411.208282,
                     0.641909,
                     0.456898,
-                    80,
+                    20,
                     1200
                 ), "select_level_19_manual_talent_node")
 
@@ -2769,7 +2956,7 @@ do
                     479.651550,
                     0.639129,
                     0.532946,
-                    24,
+                    20,
                     1200
                 ), string.format("select_level_%d_resampled_talent_node", current_level))
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -2812,7 +2999,7 @@ do
                     407.208282,
                     0.634960,
                     0.452454,
-                    80,
+                    20,
                     1200
                 ), string.format("select_level_%d_resampled_talent_node", current_level))
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -2855,7 +3042,7 @@ do
                     407.208282,
                     0.743320,
                     0.452454,
-                    80,
+                    20,
                     1200
                 ), string.format("select_level_%d_resampled_talent_node", current_level))
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -2898,7 +3085,7 @@ do
                     407.208282,
                     0.851679,
                     0.452454,
-                    80,
+                    20,
                     1200
                 ), "select_level_24_resampled_talent_node")
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -3025,7 +3212,7 @@ do
                     407.208282,
                     0.203604,
                     0.452454,
-                    80,
+                    20,
                     1200
                 ), "level_25_select_talent_node")
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -3087,7 +3274,7 @@ do
                     408.208282,
                     0.202909,
                     0.453565,
-                    80,
+                    20,
                     1200
                 ), "level_26_select_second_tab_talent_node")
                 local activate_step = maintenance_locator_step(
@@ -3130,7 +3317,7 @@ do
                     408.208282,
                     0.311269,
                     0.453565,
-                    80,
+                    20,
                     1200
                 ), string.format("level_%d_select_second_tab_talent_node", current_level))
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -3195,7 +3382,7 @@ do
                     623.538025,
                     0.311269,
                     0.692820,
-                    80,
+                    20,
                     1200
                 ), string.format("level_%d_select_second_tab_talent_node", current_level))
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -3259,7 +3446,7 @@ do
                     476.651550,
                     0.526600,
                     0.529613,
-                    80,
+                    20,
                     1200
                 ), string.format("level_%d_select_second_tab_talent_node", current_level))
                 local activate_step = maintenance_locator_step(
@@ -3307,7 +3494,7 @@ do
                     476.651550,
                     0.634960,
                     0.529613,
-                    80,
+                    20,
                     1200
                 ), "level_35_select_second_tab_talent_node")
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -3348,7 +3535,7 @@ do
                     407.152130,
                     0.637734,
                     0.452391,
-                    25,
+                    20,
                     1200
                 ), string.format("level_%d_select_second_tab_talent_node", current_level))
                 steps[#steps].target_poll_count = 30
@@ -3401,7 +3588,7 @@ do
                     406.208282,
                     0.744014,
                     0.451343,
-                    80,
+                    20,
                     1200
                 ), string.format("level_%d_select_second_tab_talent_node", current_level))
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -3464,7 +3651,7 @@ do
                     404.208282,
                     0.848900,
                     0.449120,
-                    80,
+                    20,
                     1200
                 ), "level_42_select_second_tab_talent_node")
 
@@ -3526,7 +3713,7 @@ do
                     616.626709,
                     0.745400,
                     0.685141,
-                    35,
+                    20,
                     1200
                 ), "level_43_select_second_tab_talent_node")
                 apply_locator_fixed_fallback(steps[#steps], 1073.375366, 616.626709, 0.745400, 0.685141)
@@ -3592,7 +3779,7 @@ do
                     616.626709,
                     0.745400,
                     0.685141,
-                    35,
+                    20,
                     1200
                 ), "level_44_select_second_tab_talent_node")
                 apply_locator_fixed_fallback(steps[#steps], 1073.375366, 616.626709, 0.745400, 0.685141)
@@ -3655,7 +3842,7 @@ do
                     612.538025,
                     0.848900,
                     0.680598,
-                    80,
+                    20,
                     1200
                 ), "level_45_select_second_tab_talent_node")
 
@@ -3764,7 +3951,7 @@ do
                     547.094788,
                     0.635655,
                     0.607883,
-                    80,
+                    20,
                     1200
                 ), "select_second_tab_talent_node")
 
@@ -3829,7 +4016,7 @@ do
                     547.094788,
                     0.744014,
                     0.607883,
-                    80,
+                    20,
                     1200
                 ), "level_49_select_second_tab_talent_node")
 
@@ -3892,7 +4079,7 @@ do
                     408.208282,
                     0.418935,
                     0.453565,
-                    80,
+                    20,
                     1200
                 ), "select_trickster_talent_node")
 
@@ -3957,7 +4144,7 @@ do
                     408.208282,
                     0.527295,
                     0.453565,
-                    80,
+                    20,
                     1200
                 ), "level_53_select_trickster_talent_node")
 
@@ -4020,7 +4207,7 @@ do
                     685.981323,
                     0.744014,
                     0.762201,
-                    80,
+                    20,
                     1200
                 ), "select_trickster_bottom_talent_node")
 
@@ -4085,7 +4272,7 @@ do
                     685.981323,
                     0.852374,
                     0.762201,
-                    80,
+                    20,
                     1200
                 ), "level_57_select_trickster_talent_node")
 
@@ -4148,7 +4335,7 @@ do
                     477.651550,
                     0.744014,
                     0.530724,
-                    80,
+                    20,
                     1200
                 ), "select_trickster_right_talent_node")
 
@@ -4256,6 +4443,7 @@ do
     level_4_skill_plan.key = "level_4_skill_upgrade_range_sequence"
     level_4_skill_plan.label = "4级技能：找图升级并配置范围扩大"
     level_4_skill_plan.close_with_escape = false
+    mark_skill_pre_add_bag_cleanup(level_4_skill_plan)
 
     local steps = type(level_4_skill_plan.steps) == "table" and level_4_skill_plan.steps or {}
     if #steps > 0 and tostring(steps[#steps].key or "") == "back_from_skill_panel" then
@@ -4336,15 +4524,29 @@ do
         hint_max_distance = 90,
         wait_after_ms = 1000
     }
-    steps[#steps + 1] = fixed_click_step(
-        "level_4_skill_tab_spell_control",
-        "技能页标签固定点击",
-        725.00,
-        300.00,
-        0.503472,
-        0.333333,
-        700
-    )
+    steps[#steps + 1] = {
+        key = "level_4_skill_tab_spell_control",
+        label = "技能页标签按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexTabItem.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 698.986267,
+        hint_client_y = 455.486267,
+        hint_ratio_x = 0.485407,
+        hint_ratio_y = 0.505534,
+        hint_max_distance = 80,
+        target_poll_count = 15,
+        target_poll_interval_ms = 100,
+        fixed_fallback_client_x = 725.00,
+        fixed_fallback_client_y = 302.00,
+        fixed_fallback_ratio_x = 0.503472,
+        fixed_fallback_ratio_y = 0.335183,
+        fixed_fallback_prefer_ratio = true,
+        fixed_fallback_mouse_mode = "api",
+        fixed_fallback_click_delay_ms = 50,
+        fixed_fallback_hover_delay_ms = 80,
+        wait_after_ms = 700
+    }
     steps[#steps + 1] = fixed_click_step(
         "level_4_skill_search_focus",
         "4级技能搜索输入框",
@@ -4449,6 +4651,7 @@ do
         close_with_escape = false,
         steps = {}
     }
+    mark_skill_pre_add_bag_cleanup(level_5_life_potion_plan)
     local level_5_life_potion_steps = level_5_life_potion_plan.steps
     level_5_life_potion_steps[#level_5_life_potion_steps + 1] = {
         key = "level_5_life_potion_open_fast_entrance_menu",
@@ -4480,26 +4683,36 @@ do
         hint_max_distance = 90,
         wait_after_ms = 1000
     }
-    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = maintenance_locator_step(
-        "level_5_skill_select_life_potion_slot",
-        "生命药水技能列表项按钮",
-        {
+    level_5_life_potion_steps[#level_5_life_potion_steps + 1] = {
+        key = "level_5_skill_select_life_potion_slot",
+        label = "生命药水技能列表项按钮",
+        include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexViewItem.WidgetTree.ClickBtn"
         },
-        67.580856,
-        425.839417,
-        0.046931,
-        0.473155,
-        80,
-        700
-    )
+        hint_client_x = 67.580856,
+        hint_client_y = 426.339417,
+        hint_ratio_x = 0.046931,
+        hint_ratio_y = 0.473185,
+        hint_max_distance = 20,
+        target_poll_count = 15,
+        target_poll_interval_ms = 100,
+        fixed_fallback_client_x = 81.00,
+        fixed_fallback_client_y = 414.00,
+        fixed_fallback_ratio_x = 0.056250,
+        fixed_fallback_ratio_y = 0.459489,
+        fixed_fallback_prefer_ratio = true,
+        fixed_fallback_mouse_mode = "api",
+        fixed_fallback_click_delay_ms = 50,
+        fixed_fallback_hover_delay_ms = 80,
+        wait_after_ms = 700
+    }
     level_5_life_potion_steps[#level_5_life_potion_steps + 1] = fixed_click_step(
         "level_5_skill_tab_life_potion",
-        "生命药水技能页标签按钮",
-        698.99,
-        454.99,
-        0.485407,
-        0.505540,
+        "生命药水技能页标签按钮固定点击",
+        725.00,
+        458.00,
+        0.503472,
+        0.508324,
         700
     )
     level_5_life_potion_steps[#level_5_life_potion_steps + 1] = fixed_click_step(
@@ -4607,6 +4820,7 @@ do
     level_12_skill_plan.key = "level_12_skill_add_emergency_sequence"
     level_12_skill_plan.label = "12级技能：添加应急"
     level_12_skill_plan.close_with_escape = false
+    mark_skill_pre_add_bag_cleanup(level_12_skill_plan)
 
     local level_12_steps = type(level_12_skill_plan.steps) == "table" and level_12_skill_plan.steps or {}
     if #level_12_steps > 0 and tostring(level_12_steps[#level_12_steps].key or "") == "back_from_skill_panel" then
@@ -4767,6 +4981,7 @@ do
         close_with_escape = false,
         steps = {}
     }
+    mark_skill_pre_add_bag_cleanup(level_11_skill_plan)
 
     local level_11_steps = level_11_skill_plan.steps
 
@@ -4899,6 +5114,7 @@ do
     level_21_skill_plan.key = "level_21_skill_add_blunt_and_mana_boil_sequence"
     level_21_skill_plan.label = "21级技能：配置钝化并添加魔力沸腾"
     level_21_skill_plan.close_with_escape = false
+    mark_skill_pre_add_bag_cleanup(level_21_skill_plan)
 
     local level_21_steps = type(level_21_skill_plan.steps) == "table" and level_21_skill_plan.steps or {}
     if #level_21_steps > 0 and tostring(level_21_steps[#level_21_steps].key or "") == "back_from_skill_panel" then
@@ -5147,6 +5363,7 @@ do
     level_29_skill_plan.key = "level_29_skill_upgrade_sequence"
     level_29_skill_plan.label = "29级技能：找图升级并配置附加腐蚀"
     level_29_skill_plan.close_with_escape = false
+    mark_skill_pre_add_bag_cleanup(level_29_skill_plan)
 
     local level_29_steps = type(level_29_skill_plan.steps) == "table" and level_29_skill_plan.steps or {}
     if #level_29_steps > 0 and tostring(level_29_steps[#level_29_steps].key or "") == "back_from_skill_panel" then
@@ -5313,6 +5530,7 @@ do
     level_34_skill_plan.key = "level_34_skill_upgrade_and_add_erosion_infusion_sequence"
     level_34_skill_plan.label = "34级技能：找图升级并添加侵蚀贯注"
     level_34_skill_plan.close_with_escape = false
+    mark_skill_pre_add_bag_cleanup(level_34_skill_plan)
 
     local level_34_steps = type(level_34_skill_plan.steps) == "table" and level_34_skill_plan.steps or {}
     if #level_34_steps > 0 and tostring(level_34_steps[#level_34_steps].key or "") == "back_from_skill_panel" then
@@ -5518,6 +5736,8 @@ do
     -- Level 43 fixed-click add-skill plan is disabled; this level falls back to the default skill upgrade flow.
 
 end
+
+apply_skill_pre_add_bag_cleanup_steps()
 
 do
     M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[18] = make_contract_initial_and_second_setup_plan({
@@ -8368,14 +8588,13 @@ local function make_ancient_battlefield_trace_ryan_task_config()
     return make_boss_kite_task_config(
         "ancient_battlefield_trace_ryan_kite",
         {
-            trigger_distance = 1900,
+            trigger_distance = 1550,
             immediate_kite_on_reached = true,
             allow_no_task_target_force_kite = true,
             require_task_path_for_kite = true,
             post_revive_force_task_path_reacquire = true,
             post_revive_task_path_reacquire_wait_ms = 900,
             post_revive_task_pos_reject_extra_ms = 5500,
-            kite_anchor_source = "task_destination",
             kite_radius = 1260,
             kite_point_count = 3,
             kite_switch_ms = 2400,
@@ -8383,9 +8602,9 @@ local function make_ancient_battlefield_trace_ryan_task_config()
             kite_arrive_distance = 520,
             kite_move_interval_ms = 180,
             kite_points = {
-                { x = 1293.00, y = -1507.00, z = 566.00 },
-                { x = 589.09, y = -1007.50, z = 566.00 },
-                { x = 54.00, y = -1925.00, z = 566.00 }
+                { x = 2105.00, y = -1673.00, z = 566.00 },
+                { x = 215.00, y = -581.81, z = 566.00 },
+                { x = 215.00, y = -2764.79, z = 566.00 }
             },
             defer_followup_until_clear = true,
             boss_clear_settle_ms = 3500,
@@ -9935,8 +10154,6 @@ M.TASK_NAME_CONFIGS = {
     ["\u{7A81}\u{7834}\u{89C9}\u{9192}\u{8005}\u{91CD}\u{56F4}"] = make_journey_begin_awakened_leader_task_config(),
     ["\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{5934}\u{76EE}"] = make_journey_begin_awakened_leader_task_config(),
     ["\u{4E0A}\u{53E4}\u{6218}\u{573A} / \u{5E26}\u{4E0A}\u{79D1}\u{91CC}\u{FF0C}\u{7EE7}\u{7EED}\u{8FFD}\u{8E2A}\u{83B1}\u{5B89}"] = make_ancient_battlefield_trace_ryan_task_config(),
-    ["\u{4E0A}\u{53E4}\u{6218}\u{573A} / \u{7B49}\u{5F85}\u{79D1}\u{91CC}\u{5C06}\u{6728}\u{6865}\u{4FEE}\u{597D}"] = make_ancient_battlefield_trace_ryan_task_config(),
-    ["\u{4E0A}\u{53E4}\u{6218}\u{573A} / \u{63A9}\u{62A4}\u{79D1}\u{91CC}\u{4FEE}\u{6865}"] = make_ancient_battlefield_trace_ryan_task_config(),
     ["\u{51FB}\u{8D25}\u{62E6}\u{8DEF}\u{7684}\u{526F}\u{5B98}"] = make_fanmu_blocking_deputy_task_config(),
     ["\u{9003}\u{79BB}\u{5185}\u{57CE}\u{533A} / \u{524D}\u{5F80}\u{5B66}\u{8005}\u{8857}\u{5DF7}\u{7684}\u{51FA}\u{53E3}"] = make_escape_inner_city_exit_hass_kite_task_config({
         "\u{524D}\u{5F80}\u{5B66}\u{8005}\u{8857}\u{5DF7}\u{7684}\u{51FA}\u{53E3}"
@@ -14127,9 +14344,55 @@ M.ROUTE_POINT_ACTIONS = {
         waypoint_reach_radius = 180,
         waypoint_z_tolerance = 320,
         move_interval_ms = 220,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "tianqian_guard_cannon_awakened_reentry_portal_16203_18510",
         reacquire_retry_ms = 1200,
         waypoints = {
             { x = 16203.00, y = 18510.00, z = 108.44 }
+        }
+    }),
+    make_route_point_action({
+        key = "tianqian_guard_cannon_awakened_reentry_portal_16203_18510",
+        label = "\u{5929}\u{5811}\u{6B67}\u{8DEF}_\u{5DE8}\u{70AE}\u{5B88}\u{62A4}\u{8005}_\u{91CD}\u{8FDB}\u{623F}\u{4F20}\u{9001}\u{95E8}",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        task_patterns = {
+            "\u{5929}\u{5811}\u{6B67}\u{8DEF}"
+        },
+        task_detail_patterns = {
+            "\u{51FB}\u{8D25}\u{5B88}\u{62A4}\u{5DE8}\u{70AE}\u{7684}\u{89C9}\u{9192}\u{8005}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 16203.00,
+            y = 18510.00,
+            z = 108.44,
+            radius = 720,
+            z_tolerance = 320
+        },
+        interact_radius = 260,
+        probe_retry_ms = 500,
+        retry_ms = 1200,
+        settle_ms = 2200,
+        timeout_ms = 16000,
+        force_task_call_after_transition = true,
+        task_pos_reject_extra_ms = 3500,
+        fallback_interact = true,
+        fallback_interact_distance = 280,
+        fallback_retry_ms = 1800,
+        step = {
+            key = "tianqian_guard_cannon_awakened_reentry_portal_btn_16203_18510",
+            label = "\u{5929}\u{5811}\u{6B67}\u{8DEF}\u{5DE8}\u{70AE}\u{5B88}\u{62A4}\u{8005}\u{91CD}\u{8FDB}\u{623F}PortalBtn",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn"
+            },
+            hint_client_x = 697.204834,
+            hint_client_y = 724.439941,
+            hint_ratio_x = 0.484170,
+            hint_ratio_y = 0.804933,
+            hint_max_distance = 180.000
         }
     }),
     make_route_point_action({

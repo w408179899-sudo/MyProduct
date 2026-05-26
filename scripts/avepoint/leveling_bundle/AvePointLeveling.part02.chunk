@@ -5188,10 +5188,13 @@ function M.level_up_maintenance_should_poll_target(step)
     end
     if step.missing_image_means_done == true
         or step.missing_image_means_step_done == true
-        or step.missing_target_means_plan_done == true
-        or step.missing_target_means_step_done == true
     then
         return false
+    end
+    if step.missing_target_means_plan_done == true
+        or step.missing_target_means_step_done == true
+    then
+        return step.poll_missing_target_before_done == true
     end
     return true
 end
@@ -6057,6 +6060,100 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
     end
 
     local step_action = tostring(step.kind or step.action or "")
+    if step_action == "press_key" then
+        local key_vk = tonumber(step.key_vk or step.vk or step.hotkey_vk)
+        if key_vk == nil then
+            return M.fail_level_up_maintenance_executor(ctx, current_time, "press_key step missing key_vk")
+        end
+        if type(press_keyboard_hotkey) ~= "function" then
+            return M.fail_level_up_maintenance_executor(ctx, current_time, "press_key unavailable")
+        end
+
+        local label = tostring(step.label or step.key or "level-up maintenance key")
+        local ok, press_err = press_keyboard_hotkey(ctx, current_time, key_vk, label)
+        if not ok then
+            return M.fail_level_up_maintenance_executor(ctx, current_time, "press_key failed: " .. tostring(press_err or ""))
+        end
+
+        logger(ctx).info(string.format(
+            "[Leveling] level-up maintenance key pressed | kind=%s level=%s plan=%s step=%d/%d key=%s vk=%s label=%s",
+            tostring(state.level_up_maintenance_executor_kind or ""),
+            tostring(state.level_up_maintenance_executor_level or ""),
+            tostring(state.level_up_maintenance_executor_plan_label or ""),
+            index,
+            #steps,
+            tostring(step.key or ""),
+            tostring(key_vk),
+            label
+        ))
+        state.level_up_maintenance_executor_step_index = index + 1
+        local cfg = M.level_up_maintenance_config()
+        state.level_up_maintenance_executor_next_step_at = current_time
+            + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
+        return true
+    end
+
+    if step_action == "verify_target" then
+        local expected_present = step.expected_present ~= false
+        local timeout_ms = math.max(0, tonumber(step.verify_timeout_ms or step.timeout_ms) or 3000)
+        local poll_ms = math.max(50, tonumber(step.verify_poll_ms or step.poll_ms) or 100)
+        local deadline = current_time + timeout_ms
+        local cfg = M.level_up_maintenance_config()
+        local last_err = nil
+        local attempts = 0
+
+        while true do
+            attempts = attempts + 1
+            local target, fetch_err = M.fetch_level_up_maintenance_step_target(ctx, step, cfg)
+            last_err = fetch_err
+            local present = type(target) == "table"
+            if (expected_present and present) or ((not expected_present) and not present) then
+                logger(ctx).info(string.format(
+                    "[Leveling] level-up maintenance target verified | kind=%s level=%s plan=%s step=%d/%d key=%s expected_present=%s attempts=%d addr=%s pos=(%s,%s)",
+                    tostring(state.level_up_maintenance_executor_kind or ""),
+                    tostring(state.level_up_maintenance_executor_level or ""),
+                    tostring(state.level_up_maintenance_executor_plan_label or ""),
+                    index,
+                    #steps,
+                    tostring(step.key or ""),
+                    tostring(expected_present),
+                    attempts,
+                    tostring(present and target.addr or ""),
+                    tostring(present and target.x or ""),
+                    tostring(present and target.y or "")
+                ))
+                state.level_up_maintenance_executor_step_index = index + 1
+                state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
+                    + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
+                return true
+            end
+
+            local now = now_ms(ctx)
+            if now >= deadline then
+                return M.fail_level_up_maintenance_executor(
+                    ctx,
+                    current_time,
+                    string.format(
+                        "verify_target timeout: expected_present=%s err=%s",
+                        tostring(expected_present),
+                        tostring(last_err or "")
+                    )
+                )
+            end
+            if type(sys) == "table" and type(sys.sleep) == "function" then
+                sys.sleep(math.min(poll_ms, math.max(50, deadline - now)))
+            else
+                break
+            end
+        end
+
+        return M.fail_level_up_maintenance_executor(
+            ctx,
+            current_time,
+            "verify_target failed: sleep unavailable"
+        )
+    end
+
     if step_action == "type_text" then
         local text = tostring(step.text or step.input_text or "")
         if text == "" then
