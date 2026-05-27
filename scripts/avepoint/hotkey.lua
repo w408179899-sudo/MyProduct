@@ -4612,8 +4612,8 @@ function avepoint_hotkey_test_data_api()
 end
 
 local F9_LEVEL_UP_MAINTENANCE_TEST = {
-    kind = "skill",
-    level = 8,
+    kind = "talent",
+    level = 30,
     tick_ms = 50,
     timeout_ms = 120000,
     active = false
@@ -4627,6 +4627,37 @@ local function avepoint_hotkey_level_up_test_plan_label(kind, level, plan)
         end
     end
     return string.format("%s level %d", tostring(kind or ""), tonumber(level) or 0)
+end
+
+local function avepoint_hotkey_build_level_up_maintenance_test_sequence(kind, first_level, last_level)
+    local targets = {}
+    kind = tostring(kind or "")
+    first_level = math.floor(tonumber(first_level) or 0)
+    last_level = math.floor(tonumber(last_level) or 0)
+    if kind == "" or first_level <= 0 or last_level < first_level then
+        return targets
+    end
+    for level = first_level, last_level do
+        targets[#targets + 1] = {
+            kind = kind,
+            level = level
+        }
+    end
+    return targets
+end
+
+local function avepoint_hotkey_clear_level_up_maintenance_test_state()
+    F9_LEVEL_UP_MAINTENANCE_TEST.active = false
+    F9_LEVEL_UP_MAINTENANCE_TEST.runner = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.ctx = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.plan = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.plan_label = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.started_at = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.next_tick_at = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.sequence = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.sequence_index = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.sequence_total = nil
+    F9_LEVEL_UP_MAINTENANCE_TEST.sequence_label = nil
 end
 
 local function avepoint_hotkey_stop_level_up_maintenance_test(reason)
@@ -4647,18 +4678,83 @@ local function avepoint_hotkey_stop_level_up_maintenance_test(reason)
         tostring(reason or "")
     ))
 
-    F9_LEVEL_UP_MAINTENANCE_TEST.active = false
-    F9_LEVEL_UP_MAINTENANCE_TEST.runner = nil
-    F9_LEVEL_UP_MAINTENANCE_TEST.ctx = nil
-    F9_LEVEL_UP_MAINTENANCE_TEST.plan = nil
-    F9_LEVEL_UP_MAINTENANCE_TEST.plan_label = nil
-    F9_LEVEL_UP_MAINTENANCE_TEST.started_at = nil
-    F9_LEVEL_UP_MAINTENANCE_TEST.next_tick_at = nil
+    avepoint_hotkey_clear_level_up_maintenance_test_state()
 end
 
-local function avepoint_hotkey_start_level_up_maintenance_test(kind, level)
-    kind = tostring(kind or F9_LEVEL_UP_MAINTENANCE_TEST.kind or "skill")
-    level = math.floor(tonumber(level) or tonumber(F9_LEVEL_UP_MAINTENANCE_TEST.level) or 0)
+local function avepoint_hotkey_start_level_up_maintenance_test_target(runner, ctx, kind, level, current_time)
+    kind = tostring(kind or "")
+    level = math.floor(tonumber(level) or 0)
+    if kind == "" or level <= 0 then
+        return false, "invalid F9 level-up maintenance test target"
+    end
+
+    local cfg = runner.level_up_maintenance_config()
+    local plan = runner.level_up_maintenance_get_level_plan(cfg, kind, level)
+    local steps = runner.level_up_maintenance_plan_steps(plan)
+    if type(plan) ~= "table" or type(steps) ~= "table" or #steps <= 0 then
+        return false, string.format("missing %s_by_level[%d] maintenance plan", kind, level)
+    end
+
+    local plan_id = tostring(plan.key or "")
+    if plan_id == "" and type(runner.level_up_maintenance_plan_id) == "function" then
+        plan_id = runner.level_up_maintenance_plan_id(kind, level, plan)
+    end
+
+    local now = tonumber(current_time) or sys.time()
+    local started, start_err = runner.start_level_up_maintenance_executor(ctx, now, {
+        kind = kind,
+        level = level,
+        plan = plan,
+        steps = steps,
+        id = plan_id,
+        no_persist = true
+    })
+    if not started then
+        return false, tostring(start_err or "executor start failed")
+    end
+
+    F9_LEVEL_UP_MAINTENANCE_TEST.kind = kind
+    F9_LEVEL_UP_MAINTENANCE_TEST.level = level
+    F9_LEVEL_UP_MAINTENANCE_TEST.runner = runner
+    F9_LEVEL_UP_MAINTENANCE_TEST.ctx = ctx
+    F9_LEVEL_UP_MAINTENANCE_TEST.plan = plan
+    F9_LEVEL_UP_MAINTENANCE_TEST.plan_label = avepoint_hotkey_level_up_test_plan_label(kind, level, plan)
+    F9_LEVEL_UP_MAINTENANCE_TEST.started_at = now
+    F9_LEVEL_UP_MAINTENANCE_TEST.next_tick_at = now
+    F9_LEVEL_UP_MAINTENANCE_TEST.active = true
+
+    local sequence_suffix = ""
+    local sequence_total = tonumber(F9_LEVEL_UP_MAINTENANCE_TEST.sequence_total) or 0
+    if sequence_total > 0 then
+        sequence_suffix = string.format(
+            " sequence=%d/%d %s",
+            tonumber(F9_LEVEL_UP_MAINTENANCE_TEST.sequence_index) or 1,
+            sequence_total,
+            tostring(F9_LEVEL_UP_MAINTENANCE_TEST.sequence_label or "")
+        )
+    end
+    log.info(string.format(
+        "F9 level-up maintenance test started | kind=%s level=%d plan=%s steps=%d%s",
+        kind,
+        level,
+        tostring(F9_LEVEL_UP_MAINTENANCE_TEST.plan_label or ""),
+        #steps,
+        sequence_suffix
+    ))
+    return true
+end
+
+local function avepoint_hotkey_start_level_up_maintenance_test(kind, level, opts)
+    opts = type(opts) == "table" and opts or {}
+    local sequence = type(opts.sequence) == "table" and opts.sequence or nil
+    if sequence ~= nil then
+        local first_target = sequence[1]
+        kind = tostring(type(first_target) == "table" and first_target.kind or kind or "")
+        level = math.floor(tonumber(type(first_target) == "table" and first_target.level or level) or 0)
+    else
+        kind = tostring(kind or F9_LEVEL_UP_MAINTENANCE_TEST.kind or "skill")
+        level = math.floor(tonumber(level) or tonumber(F9_LEVEL_UP_MAINTENANCE_TEST.level) or 0)
+    end
     if kind == "" or level <= 0 then
         return false, "invalid F9 level-up maintenance test target"
     end
@@ -4696,51 +4792,28 @@ local function avepoint_hotkey_start_level_up_maintenance_test(kind, level)
         return false, "AvePointLeveling runner lacks level-up maintenance test APIs"
     end
 
-    local cfg = runner.level_up_maintenance_config()
-    local plan = runner.level_up_maintenance_get_level_plan(cfg, kind, level)
-    local steps = runner.level_up_maintenance_plan_steps(plan)
-    if type(plan) ~= "table" or type(steps) ~= "table" or #steps <= 0 then
-        return false, string.format("missing %s_by_level[%d] maintenance plan", kind, level)
-    end
-
-    local plan_id = tostring(plan.key or "")
-    if plan_id == "" and type(runner.level_up_maintenance_plan_id) == "function" then
-        plan_id = runner.level_up_maintenance_plan_id(kind, level, plan)
-    end
     local ctx = TASK_MODE.build_context()
+    ctx.level_up_maintenance_no_persist = true
+    ctx.level_up_maintenance_test_hotkey = true
     if type(runner.refresh_persistence_character_identity) == "function" then
         pcall(runner.refresh_persistence_character_identity, ctx, true)
     end
 
-    local now = sys.time()
-    local started, start_err = runner.start_level_up_maintenance_executor(ctx, now, {
-        kind = kind,
-        level = level,
-        plan = plan,
-        steps = steps,
-        id = plan_id
-    })
-    if not started then
-        return false, tostring(start_err or "executor start failed")
+    if sequence ~= nil then
+        if #sequence <= 0 then
+            return false, "empty F9 level-up maintenance test sequence"
+        end
+        F9_LEVEL_UP_MAINTENANCE_TEST.sequence = sequence
+        F9_LEVEL_UP_MAINTENANCE_TEST.sequence_index = 1
+        F9_LEVEL_UP_MAINTENANCE_TEST.sequence_total = #sequence
+        F9_LEVEL_UP_MAINTENANCE_TEST.sequence_label = tostring(opts.sequence_label or "")
     end
 
-    F9_LEVEL_UP_MAINTENANCE_TEST.kind = kind
-    F9_LEVEL_UP_MAINTENANCE_TEST.level = level
-    F9_LEVEL_UP_MAINTENANCE_TEST.runner = runner
-    F9_LEVEL_UP_MAINTENANCE_TEST.ctx = ctx
-    F9_LEVEL_UP_MAINTENANCE_TEST.plan = plan
-    F9_LEVEL_UP_MAINTENANCE_TEST.plan_label = avepoint_hotkey_level_up_test_plan_label(kind, level, plan)
-    F9_LEVEL_UP_MAINTENANCE_TEST.started_at = now
-    F9_LEVEL_UP_MAINTENANCE_TEST.next_tick_at = now
-    F9_LEVEL_UP_MAINTENANCE_TEST.active = true
-
-    log.info(string.format(
-        "F9 level-up maintenance test started | kind=%s level=%d plan=%s steps=%d",
-        kind,
-        level,
-        tostring(F9_LEVEL_UP_MAINTENANCE_TEST.plan_label or ""),
-        #steps
-    ))
+    local ok, err = avepoint_hotkey_start_level_up_maintenance_test_target(runner, ctx, kind, level, sys.time())
+    if not ok then
+        avepoint_hotkey_clear_level_up_maintenance_test_state()
+        return false, err
+    end
     return true
 end
 
@@ -4788,7 +4861,17 @@ local function avepoint_hotkey_update_level_up_maintenance_test(current_time)
         and runner.level_up_maintenance_executor_is_active() ~= true
     then
         local done = false
-        if type(runner.level_up_maintenance_plan_done) == "function" then
+        local last_done = nil
+        if type(runner.level_up_maintenance_last_executor_completed) == "function" then
+            last_done = runner.level_up_maintenance_last_executor_completed(
+                F9_LEVEL_UP_MAINTENANCE_TEST.kind,
+                F9_LEVEL_UP_MAINTENANCE_TEST.level,
+                F9_LEVEL_UP_MAINTENANCE_TEST.plan
+            )
+        end
+        if last_done ~= nil then
+            done = last_done == true
+        elseif type(runner.level_up_maintenance_plan_done) == "function" then
             done = runner.level_up_maintenance_plan_done(
                 F9_LEVEL_UP_MAINTENANCE_TEST.kind,
                 F9_LEVEL_UP_MAINTENANCE_TEST.level,
@@ -4796,13 +4879,48 @@ local function avepoint_hotkey_update_level_up_maintenance_test(current_time)
             ) == true
         end
         if done then
+            local sequence_index = tonumber(F9_LEVEL_UP_MAINTENANCE_TEST.sequence_index) or 0
+            local sequence_total = tonumber(F9_LEVEL_UP_MAINTENANCE_TEST.sequence_total) or 0
             log.info(string.format(
-                "F9 level-up maintenance test completed | kind=%s level=%s plan=%s elapsed=%dms",
+                "F9 level-up maintenance test completed | kind=%s level=%s plan=%s elapsed=%dms persist=false sequence=%s/%s",
                 tostring(F9_LEVEL_UP_MAINTENANCE_TEST.kind or ""),
                 tostring(F9_LEVEL_UP_MAINTENANCE_TEST.level or ""),
                 tostring(F9_LEVEL_UP_MAINTENANCE_TEST.plan_label or ""),
-                math.max(0, current_time - started_at)
+                math.max(0, current_time - started_at),
+                sequence_total > 0 and tostring(sequence_index) or "",
+                sequence_total > 0 and tostring(sequence_total) or ""
             ))
+            if type(runner.level_up_maintenance_clear_transient_plan_done) == "function" then
+                pcall(
+                    runner.level_up_maintenance_clear_transient_plan_done,
+                    F9_LEVEL_UP_MAINTENANCE_TEST.kind,
+                    F9_LEVEL_UP_MAINTENANCE_TEST.level,
+                    F9_LEVEL_UP_MAINTENANCE_TEST.plan
+                )
+            end
+            if sequence_total > 0 and sequence_index > 0 and sequence_index < sequence_total then
+                local sequence = F9_LEVEL_UP_MAINTENANCE_TEST.sequence
+                local next_target = type(sequence) == "table" and sequence[sequence_index + 1] or nil
+                local next_kind = type(next_target) == "table" and next_target.kind or nil
+                local next_level = type(next_target) == "table" and next_target.level or nil
+                F9_LEVEL_UP_MAINTENANCE_TEST.sequence_index = sequence_index + 1
+                local next_ok, next_err = avepoint_hotkey_start_level_up_maintenance_test_target(
+                    runner,
+                    ctx,
+                    next_kind,
+                    next_level,
+                    current_time
+                )
+                if next_ok then
+                    return
+                end
+                log.error(string.format(
+                    "F9 level-up maintenance sequence failed to start next target | next=%s/%s err=%s",
+                    tostring(next_kind or ""),
+                    tostring(next_level or ""),
+                    tostring(next_err or "")
+                ))
+            end
         else
             log.warn(string.format(
                 "F9 level-up maintenance test ended without completion mark | kind=%s level=%s plan=%s elapsed=%dms",
@@ -4812,13 +4930,7 @@ local function avepoint_hotkey_update_level_up_maintenance_test(current_time)
                 math.max(0, current_time - started_at)
             ))
         end
-        F9_LEVEL_UP_MAINTENANCE_TEST.active = false
-        F9_LEVEL_UP_MAINTENANCE_TEST.runner = nil
-        F9_LEVEL_UP_MAINTENANCE_TEST.ctx = nil
-        F9_LEVEL_UP_MAINTENANCE_TEST.plan = nil
-        F9_LEVEL_UP_MAINTENANCE_TEST.plan_label = nil
-        F9_LEVEL_UP_MAINTENANCE_TEST.started_at = nil
-        F9_LEVEL_UP_MAINTENANCE_TEST.next_tick_at = nil
+        avepoint_hotkey_clear_level_up_maintenance_test_state()
         return
     end
 
@@ -4883,7 +4995,7 @@ function main()
     log.info("Press F6 to print current player coordinates")
     log.info("Press F7 to print current player position and nearby portals")
     log.info("Press F8 to print current mouse client coordinates")
-    log.info("Press F9 to test level 8 skill maintenance plan")
+    log.info("Press F9 to test level 30-34 talent maintenance plans")
     log.info("Press Ctrl+F12 to exit")
     log.info("Waiting for torchlight API/game init...")
 
@@ -5731,7 +5843,10 @@ function main()
         end
 
         if pressed_once(HOTKEY_F9) then
-            local ok, err = avepoint_hotkey_start_level_up_maintenance_test("skill", 8)
+            local ok, err = avepoint_hotkey_start_level_up_maintenance_test("talent", 30, {
+                sequence = avepoint_hotkey_build_level_up_maintenance_test_sequence("talent", 30, 34),
+                sequence_label = "30-34 talent"
+            })
             if not ok then
                 log.warn("F9 level-up maintenance test unavailable: " .. tostring(err))
             end

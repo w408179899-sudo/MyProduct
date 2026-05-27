@@ -464,8 +464,8 @@ local REVIVE_AT_CHECKPOINT_STEP = {
 }
 
 local REVIVE_REENTER_STEP = {
-    label = "閲嶆柊鎸戞垬鎸夐挳",
-    distance_anchor_exact_text = "閲嶆柊鎸戞垬",
+    label = "revive reenter button",
+    distance_anchor_exact_text = "\u{91CD}\u{65B0}\u{8FDB}\u{5165}",
     distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightFailure_C.WidgetTree.ReenterRebornBtn.WidgetTree.ClickBtn",
     distance_min = 8.661942,
     distance_max = 9.661942,
@@ -547,7 +547,7 @@ local EXIT_PORTAL_STEP = {
 M.TASK_OBJECTIVE_BUTTON_STEPS = {
     {
         key = "gather_btn",
-        label = "72/115鎸夐挳",
+        label = "gather button",
         distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn",
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.GatherBtn"
@@ -575,8 +575,8 @@ M.TASK_OBJECTIVE_BUTTON_STEPS = {
     },
     {
         key = "jump_btn",
-        label = "5鎸夐挳",
-        distance_anchor_exact_text = "跳过",
+        label = "jump button",
+        distance_anchor_exact_text = "\u{8DF3}\u{8FC7}",
         distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.DialogueTalk_C.WidgetTree.JumpBtn",
         distance_min = 29.408105,
         distance_max = 31.227163,
@@ -1220,12 +1220,12 @@ end
 
 function M.is_task_detail_noise(value)
     local text = trim(tostring(value or ""))
-    return text == "新" or text == "完成"
+    return text == "\u{65B0}" or text == "\u{5B8C}\u{6210}"
 end
 
 function M.is_task_detail_transition(value)
     local text = trim(tostring(value or ""))
-    return text == "新" or text == "完成"
+    return text == "\u{65B0}" or text == "\u{5B8C}\u{6210}"
 end
 
 function M.should_suspend_treasure_task_refresh()
@@ -1252,12 +1252,12 @@ function M.publish_current_task_name()
     end
     if type(state.current_task_name) == "string" and state.current_task_name ~= "" then
         local normalized = trim(tostring(state.current_task_name or ""))
-        local generic_mainline = normalized:match("^主线%s+") ~= nil
-        local side_task = normalized:match("^支线%s+") ~= nil
-            or normalized:find("藏宝地", 1, true) ~= nil
+        local generic_mainline = normalized:match("^涓荤嚎%s+") ~= nil
+        local side_task = normalized:match("^鏀嚎%s+") ~= nil
+            or normalized:find("\u{85CF}\u{5B9D}\u{5730}", 1, true) ~= nil
         local looks_like_known_map = type(M.is_known_map_name) == "function" and M.is_known_map_name(normalized) or false
         if generic_mainline then
-            local stripped = trim(normalized:gsub("^主线%s*", ""))
+            local stripped = trim(normalized:gsub("^涓荤嚎%s*", ""))
             if stripped ~= "" and not M.is_known_map_name(stripped) then
                 _G.AVEPOINT_LAST_TASK_NAME = stripped
             end
@@ -1272,11 +1272,11 @@ end
 
 function M.current_task_log_name()
     local task_name = tostring(state.current_task_name or "")
-    if task_name == "" or task_name:match("^主线%s+") then
+    if task_name == "" or task_name:match("^涓荤嚎%s+") then
         local fallback = tostring(_G.AVEPOINT_LAST_TASK_NAME or "")
         if fallback ~= ""
-            and fallback:match("^支线%s+") == nil
-            and fallback:find("藏宝地", 1, true) == nil
+            and fallback:match("^鏀嚎%s+") == nil
+            and fallback:find("\u{85CF}\u{5B9D}\u{5730}", 1, true) == nil
         then
             task_name = fallback
         end
@@ -1800,6 +1800,11 @@ local function clear_task_target_state()
     state.task_path_sidestep_attempt_count = 0
     state.task_path_sidestep_next_at = 0
     state.task_path_sidestep_last_side = 0
+    state.follow_goal_progress_signature = nil
+    state.follow_goal_progress_started_at = 0
+    state.follow_goal_progress_best_distance = nil
+    state.follow_goal_progress_anchor_x = nil
+    state.follow_goal_progress_anchor_y = nil
     -- Global PortalBtn transition guard must survive task-target clears.
     -- It is reset by reset_state(), not by ordinary main-task reacquire.
     state.route_point_action_board_guard_until = 0
@@ -2063,6 +2068,11 @@ local function reset_state()
     state.last_position_change_at = 0
     state.last_position_change_x = nil
     state.last_position_change_y = nil
+    state.follow_goal_progress_signature = nil
+    state.follow_goal_progress_started_at = 0
+    state.follow_goal_progress_best_distance = nil
+    state.follow_goal_progress_anchor_x = nil
+    state.follow_goal_progress_anchor_y = nil
     state.last_nav_error = nil
     state.last_task_button_click_at = 0
     state.last_task_path_sync_at = 0
@@ -2276,6 +2286,8 @@ local function reset_state()
     state.revive_reentry_source = nil
     state.revive_reentry_objective_key = nil
     state.revive_reentry_deadline_at = 0
+    state.revive_reentry_route_index = 1
+    state.revive_reentry_route_done = false
     state.post_revive_common_reentry_until = 0
     state.post_revive_common_reentry_reason = nil
     state.next_common_revive_reentry_scan_at = 0
@@ -3746,10 +3758,10 @@ function M.normalize_task_title_key(value)
     if text == nil then
         return nil
     end
-    text = trim(text:gsub("^主线%s*", ""))
     text = trim(text:gsub("^涓荤嚎%s*", ""))
-    text = trim(text:gsub("^涓荤窔%s*", ""))
-    text = trim(text:gsub("^Main%s*Quest%s*[:锛?-]*%s*", ""))
+    text = trim(text:gsub("^娑撹崵鍤?s*", ""))
+    text = trim(text:gsub("^娑撹崵绐?s*", ""))
+    text = trim(text:gsub("^Main%s*Quest%s*[:閿?-]*%s*", ""))
     if text == "" then
         return nil
     end
@@ -3833,7 +3845,7 @@ function M.get_cached_task_panel_entry(current_time, preferred_task_name)
         return M.copy_task_panel_entry(cached)
     end
 
-    if kind:find("主线", 1, true) ~= nil or kind:find("涓荤嚎", 1, true) ~= nil then
+    if kind:find("main", 1, true) ~= nil or kind:find("task", 1, true) ~= nil or kind:find("\u{4E3B}\u{7EBF}", 1, true) ~= nil or kind:find("\u{4EFB}\u{52A1}", 1, true) ~= nil then
         return M.copy_task_panel_entry(cached)
     end
 
@@ -4969,7 +4981,7 @@ function M.align_recipe_progress_with_live_task(ctx, current_time, opts)
                                             local entry_status_text = tostring(entry.raw_text or entry.title or "")
                                                 .. " "
                                                 .. tostring(entry.detail or "")
-                                            local entry_looks_completed = entry_status_text:find("完成", 1, true) ~= nil
+                                            local entry_looks_completed = entry_status_text:find("\u{5B8C}\u{6210}", 1, true) ~= nil
                                             if not entry_looks_completed
                                                 and M.recipe_progress_panel_entry_matches_blocker(entry, blocker)
                                             then
@@ -7744,13 +7756,13 @@ function M.normalize_treasure_task_query_key(value)
     if text == "" then
         return nil
     end
-    text = text:gsub("^支线%s*", "")
-    text = text:gsub("^主线%s*", "")
-    text = text:gsub("^藏宝地：%s*", "")
-    text = text:gsub("^藏宝地%s*", "")
+    text = text:gsub("^鏀嚎%s*", "")
+    text = text:gsub("^涓荤嚎%s*", "")
+    text = text:gsub("^\u{85CF}\u{5B9D}\u{5730}\u{FF1A}%s*", "")
+    text = text:gsub("^\u{85CF}\u{5B9D}\u{5730}%s*", "")
     text = trim(text)
     if text == "" then
-        return "藏宝地"
+        return "\u{85CF}\u{5B9D}\u{5730}"
     end
     return M.normalize_task_title_key(text) or text:lower()
 end
@@ -7764,14 +7776,14 @@ function M.treasure_query_matches_text(query, text)
     local query_line = trim(query)
     local query_key = M.normalize_treasure_task_query_key(query_line)
     local text_key = M.normalize_treasure_task_query_key(text_line)
-    local is_treasure_line = text_line:find("藏宝地", 1, true) ~= nil
+    local is_treasure_line = text_line:find("\u{85CF}\u{5B9D}\u{5730}", 1, true) ~= nil
 
     if query_key == nil then
         return is_treasure_line
     end
 
-    if query_key == "藏宝地" then
-        return is_treasure_line or text_key == "藏宝地"
+    if query_key == "\u{85CF}\u{5B9D}\u{5730}" then
+        return is_treasure_line or text_key == "\u{85CF}\u{5B9D}\u{5730}"
     end
 
     if text_key ~= nil and (
@@ -8004,8 +8016,8 @@ function M.resolve_cached_treasure_task_button_target(nav_mod, current_time, que
     local cached_key = M.normalize_treasure_task_query_key(cached.query or cached.related_text or cached.text)
     if requested_key ~= nil
         and cached_key ~= nil
-        and requested_key ~= "藏宝地"
-        and cached_key ~= "藏宝地"
+        and requested_key ~= "\u{85CF}\u{5B9D}\u{5730}"
+        and cached_key ~= "\u{85CF}\u{5B9D}\u{5730}"
         and requested_key ~= cached_key
     then
         M.clear_cached_treasure_task_button_target()
@@ -8844,7 +8856,7 @@ function M.should_preserve_current_task_name(current_time, candidate, source)
         )
     end
 
-    local generic_mainline = candidate_name:match("^主线%s+") ~= nil
+    local generic_mainline = candidate_name:match("^涓荤嚎%s+") ~= nil
     local looks_like_current_map = current_map_name ~= nil and candidate_name == current_map_name
     local looks_like_known_map = M.is_known_map_name(candidate_name)
     if generic_mainline or looks_like_current_map or looks_like_known_map then
@@ -9699,7 +9711,7 @@ function M.maybe_handle_terminal_task_change(ctx, current_time)
         if raw == nil then
             return nil
         end
-        raw = raw:gsub("^主线%s*", "")
+        raw = raw:gsub("^涓荤嚎%s*", "")
         return raw ~= "" and raw or nil
     end
 
@@ -9971,9 +9983,9 @@ function M.monster_special_kind(item, label)
         if lower_text:find("boss", 1, true)
             or lower_text:find("leader", 1, true)
             or lower_text:find("elite", 1, true)
-            or text:find("棣栭", 1, true)
-            or text:find("棰嗕富", 1, true)
-            or text:find("绮捐嫳", 1, true)
+            or text:find("\u{9996}\u{9886}", 1, true)
+            or text:find("\u{7CBE}\u{82F1}", 1, true)
+            or text:find("\u{5934}\u{76EE}", 1, true)
             or text:find("\u{7A00}\u{6709}", 1, true)
         then
             return "named"
@@ -10000,9 +10012,9 @@ function M.monster_special_kind(item, label)
                 or lower_value:find("elite", 1, true)
                 or lower_value:find("rare", 1, true)
                 or lower_value:find("named", 1, true)
-                or value_text:find("棣栭", 1, true)
-                or value_text:find("棰嗕富", 1, true)
-                or value_text:find("绮捐嫳", 1, true)
+                or value_text:find("\u{9996}\u{9886}", 1, true)
+                or value_text:find("\u{7CBE}\u{82F1}", 1, true)
+                or value_text:find("\u{5934}\u{76EE}", 1, true)
                 or value_text:find("\u{7A00}\u{6709}", 1, true)
             then
                 return tostring(key) .. ":" .. value_text
@@ -11333,6 +11345,8 @@ local function issue_move_direct(ctx, current_time, target)
     elseif type(target) == "table" and target.source == "route_point_recorded_route" then
         local move_interval_floor_ms = math.max(30, tonumber(target.move_interval_floor_ms) or 120)
         move_interval_ms = math.max(move_interval_floor_ms, tonumber(target.move_interval_ms) or 220)
+    elseif type(target) == "table" and target.source == "revive_boss_reentry_route" then
+        move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 220)
     end
 
     state.next_move_at = current_time + move_interval_ms
@@ -11860,6 +11874,8 @@ issue_move = function(ctx, current_time, target)
     elseif target_source == "route_point_recorded_route" then
         local move_interval_floor_ms = math.max(30, tonumber(target.move_interval_floor_ms) or 120)
         move_interval_ms = math.max(move_interval_floor_ms, tonumber(target.move_interval_ms) or 220)
+    elseif target_source == "revive_boss_reentry_route" then
+        move_interval_ms = math.max(120, tonumber(target.move_interval_ms) or 220)
     end
 
     if target_source == "task_path" or target_source == "treasure_path" then
@@ -12217,6 +12233,7 @@ function M.combat_sidecar_action_lock_reason()
         or stage_name == "dialogue_jump"
         or stage_name == "post_dialogue_flow"
         or stage_name == "task_entry_action"
+        or stage_name == "task_recipe"
         or stage_name == "world_map_send"
         or stage_name == "interaction_prompt"
         or stage_name == "task_objective_button"
@@ -12228,6 +12245,9 @@ function M.combat_sidecar_action_lock_reason()
     end
     if type(state.task_entry_action_locked_cfg) == "table" then
         return "task_entry_action_active"
+    end
+    if state.task_recipe_active_key ~= nil then
+        return "task_recipe_active"
     end
     if trim(state.pending_interaction_origin) ~= "" then
         return "pending_interaction:" .. tostring(state.pending_interaction_origin or "")
@@ -13075,6 +13095,8 @@ M.clear_revive_reentry_state = function()
     state.revive_reentry_last_anchor_x = nil
     state.revive_reentry_last_anchor_y = nil
     state.revive_reentry_last_anchor_z = nil
+    state.revive_reentry_route_index = 1
+    state.revive_reentry_route_done = false
 end
 
 clear_task_combat_state = function()
@@ -13454,6 +13476,27 @@ function M.maybe_reopen_interaction_after_missing_dialogue_jump(ctx, current_tim
             origin,
             math.max(0, missing_elapsed_ms),
             math.max(0, click_elapsed_ms),
+            tostring(slot_err or "")
+        ))
+        return false
+    end
+
+    local dialogue_visible, dialogue_reason = confirm_dialogue_ui_visible(ctx, current_time)
+    local dialogue_reason_text = tostring(dialogue_reason or ""):lower()
+    if dialogue_visible == true
+        or dialogue_reason_text:find("dialogue ui is not escape-safe", 1, true)
+        or dialogue_reason_text:find("overheaddialogbox", 1, true)
+        or dialogue_reason_text:find("dialogueitem_c", 1, true)
+        or dialogue_reason_text:find("dialoguetalk_c", 1, true)
+        or dialogue_reason_text:find("confirmv2_c", 1, true)
+    then
+        state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, current_time + 500)
+        log_throttled(ctx, "dialogue_jump_missing_visible_wait_" .. key, "info", 1200, string.format(
+            "[Leveling] dialogue jump missing; dialogue UI still visible, keep waiting | origin=%s elapsed_ms=%d click_elapsed_ms=%d match=%s err=%s",
+            origin,
+            math.max(0, missing_elapsed_ms),
+            math.max(0, click_elapsed_ms),
+            tostring(dialogue_reason or ""),
             tostring(slot_err or "")
         ))
         return false
@@ -14623,8 +14666,12 @@ function M.resolve_current_task_intent(ctx, current_time, player_x, player_y, pl
     if type(recipe_cfg) == "table" then
         local recipe_type = tostring(recipe_cfg.recipe_type or "")
         local activation = tostring(recipe_cfg.activation or "")
+        local active_recipe_key = tostring(state.task_recipe_active_key or "")
+        local current_recipe_key = tostring(recipe_key or recipe_cfg.key or recipe_cfg.recipe_key or "")
         local recipe_active = false
-        if recipe_type == "compat_entry_action" or activation == "entry_action_active" then
+        if active_recipe_key ~= "" and (current_recipe_key == "" or current_recipe_key == active_recipe_key) then
+            recipe_active = true
+        elseif recipe_type == "compat_entry_action" or activation == "entry_action_active" then
             recipe_active = entry_action_active == true
         elseif recipe_type == "linear" then
             recipe_active = activation == "task_active"

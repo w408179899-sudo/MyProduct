@@ -1093,6 +1093,9 @@ local function make_skill_pre_bag_button_step(opts)
         missing_target_means_step_done = opts.missing_target_means_step_done,
         missing_target_means_plan_done = opts.missing_target_means_plan_done,
         poll_missing_target_before_done = opts.poll_missing_target_before_done,
+        keep_wait_after_ms = opts.keep_wait_after_ms,
+        enforce_wait_after_ms = opts.enforce_wait_after_ms,
+        post_click_sleep_ms = opts.post_click_sleep_ms,
         wait_after_ms = opts.wait_after_ms or 320
     })
 end
@@ -1171,16 +1174,18 @@ local function make_skill_pre_add_bag_cleanup_steps(prefix)
             key = prefix .. "_pre_bag_confirm_recycle",
             label = "skill pre-add bag confirm recycle",
             pattern = SKILL_PRE_BAG_CONFIRM_PATTERN,
-            hint_client_x = 741.020325,
-            hint_client_y = 610.376953,
-            hint_ratio_x = 0.514597,
-            hint_ratio_y = 0.677444,
-            hint_max_distance = 90,
+            hint_client_x = 733.020325,
+            hint_client_y = 604.376953,
+            hint_ratio_x = 0.509042,
+            hint_ratio_y = 0.670785,
+            hint_max_distance = 40,
             target_poll_count = 5,
             target_poll_interval_ms = 100,
             missing_target_means_step_done = true,
             poll_missing_target_before_done = true,
-            wait_after_ms = 500
+            keep_wait_after_ms = true,
+            post_click_sleep_ms = 1200,
+            wait_after_ms = 1200
         }),
         make_skill_pre_bag_press_step(prefix .. "_pre_bag_close", "skill pre-add bag close", 450),
         make_skill_pre_bag_verify_step({
@@ -1205,13 +1210,9 @@ local function mark_skill_pre_add_bag_cleanup(plan)
 end
 
 local function find_skill_pre_add_bag_cleanup_insert_index(plan)
-    local steps = type(plan) == "table" and type(plan.steps) == "table" and plan.steps or {}
-    for index, step in ipairs(steps) do
-        local key = tostring(type(step) == "table" and step.key or "")
-        if string.find(key, "open_fast_entrance_menu_after_skill_image", 1, true) then
-            return index
-        end
-    end
+    -- This cleanup must run before any skill/talent panel is opened. Several add-skill
+    -- plans also start with ordinary skill-upgrade image steps, so inserting later can
+    -- press B while the skill panel is active and fail the bag-open verification.
     return 1
 end
 
@@ -1310,40 +1311,27 @@ do
 
     local level_8_talent_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[7])
     level_8_talent_plan.key = "level_8_talent_node_activate"
-    level_8_talent_plan.label = "8级天赋：激活天赋节点并点基石"
+    level_8_talent_plan.label = "8级天赋：激活天赋节点"
     local level_8_talent_steps = type(level_8_talent_plan.steps) == "table" and level_8_talent_plan.steps or {}
-    local level_8_back_step = nil
-    if #level_8_talent_steps > 0 and tostring(level_8_talent_steps[#level_8_talent_steps].key or "") == "back_from_talent_detail" then
-        level_8_back_step = table.remove(level_8_talent_steps, #level_8_talent_steps)
-    end
-    level_8_talent_steps[#level_8_talent_steps + 1] = {
-        key = "select_level_8_keystone_tab",
-        label = "8级天赋基石页签按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.KeyStoneItem1.WidgetTree.TabBtn"
-        },
-        hint_client_x = 361.077972,
-        hint_client_y = 250.016342,
-        hint_ratio_x = 0.250923,
-        hint_ratio_y = 0.277796,
-        hint_max_distance = 80,
-        wait_after_ms = 650
-    }
-    level_8_talent_steps[#level_8_talent_steps + 1] = {
-        key = "select_level_8_keystone_option",
-        label = "8级天赋基石选择按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.TabKeyStoneItem_C.WidgetTree.SelectBtn2"
-        },
-        hint_client_x = 647.869873,
-        hint_client_y = 633.373291,
-        hint_ratio_x = 0.450222,
-        hint_ratio_y = 0.703748,
-        hint_max_distance = 80,
-        wait_after_ms = 650
-    }
-    if level_8_back_step ~= nil then
-        level_8_talent_steps[#level_8_talent_steps + 1] = level_8_back_step
+    for _, step in ipairs(level_8_talent_steps) do
+        if tostring(step.key or "") == "select_level_7_talent_node" then
+            step.key = "select_level_8_talent_node"
+            step.hint_client_x = 447.221771
+            step.hint_client_y = 614.126648
+            step.hint_ratio_x = 0.310571
+            step.hint_ratio_y = 0.681606
+            step.hint_max_distance = 20
+            step.fixed_fallback_client_x = 447.221771
+            step.fixed_fallback_client_y = 614.126648
+            step.fixed_fallback_ratio_x = 0.310571
+            step.fixed_fallback_ratio_y = 0.681606
+            step.fixed_fallback_prefer_ratio = true
+            step.fixed_fallback_mouse_mode = "api"
+            step.fixed_fallback_hover_delay_ms = 80
+            step.fixed_fallback_click_delay_ms = 50
+        elseif tostring(step.key or "") == "activate_level_7_talent_node" then
+            step.key = "activate_level_8_talent_node"
+        end
     end
     level_8_talent_plan.steps = level_8_talent_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[8] = level_8_talent_plan
@@ -2368,80 +2356,98 @@ do
     -- the previous point in the original sequence; multi-point levels are split
     -- across the following level when the shifted sequence crosses a boundary.
     -- Before the level-18 insertion below, level 60 has no talent plan after this correction.
+    local explicit_level_8_talent_plan = clone_plain_table(original_talent_by_level[8])
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[4] =
         retarget_shifted_talent_plan(original_talent_by_level[3], 4, 3)
     for level = 5, 31 do
-        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] =
-            retarget_shifted_talent_plan(original_talent_by_level[level - 1], level, level - 1)
+        if level ~= 8 then
+            M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] =
+                retarget_shifted_talent_plan(original_talent_by_level[level - 1], level, level - 1)
+        end
+    end
+    if type(explicit_level_8_talent_plan) == "table" then
+        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[8] = explicit_level_8_talent_plan
     end
 
-    -- The original level-8 plan includes the keystone selection. The generic
-    -- one-level shift would run it at level 9; delay that special plan to 12.
-    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[9] =
-        retarget_shifted_talent_plan(original_talent_by_level[9], 9, 9)
-    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[10] = make_composite_talent_plan(
-        10,
-        "10级天赋：按顺序激活两个天赋节点",
-        original_talent_by_level[10],
-        function(steps, level)
-            append_shifted_step(steps, level, {
-                key = "select_level_10_first_talent_node",
-                label = "10级天赋第一个节点按钮",
-                include_patterns = {
-                    "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
-                },
-                hint_client_x = 451.916748,
-                hint_client_y = 618.538025,
-                hint_ratio_x = 0.314049,
-                hint_ratio_y = 0.687264,
-                hint_max_distance = 20,
-                wait_after_ms = 1200
-            }, "select_level_10_first_talent_node")
-            append_shifted_step(steps, level, {
-                key = "activate_level_10_first_talent_node",
-                label = "10级天赋第一个节点激活按钮",
-                include_patterns = {
-                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
-                },
-                hint_client_x = 662.368225,
-                hint_client_y = 674.801453,
-                hint_ratio_x = 0.460298,
-                hint_ratio_y = 0.749779,
-                hint_max_distance = 80,
-                wait_after_ms = 650
-            }, "activate_level_10_first_talent_node")
-            append_shifted_step(steps, level, {
-                key = "select_level_10_second_talent_node",
-                label = "10级天赋第二个节点按钮",
-                include_patterns = {
-                    "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
-                },
-                hint_client_x = 607.846802,
-                hint_client_y = 618.538025,
-                hint_ratio_x = 0.422409,
-                hint_ratio_y = 0.687264,
-                hint_max_distance = 20,
-                wait_after_ms = 1200
-            }, "select_level_10_second_talent_node")
-            append_shifted_step(steps, level, {
-                key = "activate_level_10_second_talent_node",
-                label = "10级天赋第二个节点激活按钮",
-                include_patterns = {
-                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
-                },
-                hint_client_x = 818.298279,
-                hint_client_y = 674.801453,
-                hint_ratio_x = 0.568658,
-                hint_ratio_y = 0.749779,
-                hint_max_distance = 80,
-                wait_after_ms = 650
-            }, "activate_level_10_second_talent_node")
+    local function clone_level_8_talent_plan_for_level(level)
+        local plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[8])
+        if type(plan) ~= "table" then
+            return nil
         end
-    )
-    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[10].completed_alias_keys = {
-        "level_10_talent_shift_from_level_9",
-        "level_10_talent_node_activate"
-    }
+        plan.key = string.format("level_%d_talent_same_as_level_8_node_activate", tonumber(level) or 0)
+        plan.label = string.format("%d级天赋：复用8级天赋节点配置", tonumber(level) or 0)
+        plan.completed_alias_keys = nil
+        for _, step in ipairs(type(plan.steps) == "table" and plan.steps or {}) do
+            local step_key = tostring(step.key or "")
+            if step_key ~= "" then
+                step.key = step_key:gsub("level_8", "level_" .. tostring(tonumber(level) or 0))
+            end
+        end
+        return plan
+    end
+
+    -- Keep levels 8/9/10 on the same sampled talent node configuration. Each
+    -- level still gets a unique plan key so persistence remains per-level.
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[9] = clone_level_8_talent_plan_for_level(9)
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[10] = clone_level_8_talent_plan_for_level(10)
+    do
+        local level_10_talent_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[10]
+        if type(level_10_talent_plan) == "table" then
+            level_10_talent_plan.key = "level_10_talent_two_node_activate"
+            level_10_talent_plan.label = "10级天赋：激活两个天赋节点"
+            local level_10_steps = type(level_10_talent_plan.steps) == "table" and level_10_talent_plan.steps or {}
+            local insert_at = #level_10_steps + 1
+            for index, step in ipairs(level_10_steps) do
+                if tostring(step.key or ""):find("back_from_talent", 1, true) ~= nil then
+                    insert_at = index
+                    break
+                end
+            end
+            table.insert(level_10_steps, insert_at, clone_shifted_step({
+                key = "select_level_10_second_talent_node",
+                label = "10级第二组天赋节点按钮",
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
+                },
+                hint_client_x = 602.260132,
+                hint_client_y = 615.126648,
+                hint_ratio_x = 0.418236,
+                hint_ratio_y = 0.682715,
+                hint_max_distance = 30,
+                fixed_fallback_client_x = 602.260132,
+                fixed_fallback_client_y = 615.126648,
+                fixed_fallback_ratio_x = 0.418236,
+                fixed_fallback_ratio_y = 0.682715,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_hover_delay_ms = 80,
+                fixed_fallback_click_delay_ms = 50,
+                wait_after_ms = 1200
+            }, 10, insert_at, "select_level_10_second_talent_node"))
+            table.insert(level_10_steps, insert_at + 1, clone_shifted_step({
+                key = "activate_level_10_second_talent_node",
+                label = "10级第二组天赋节点激活按钮",
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.TipTalentItem.WidgetTree.ActiveBtn"
+                },
+                hint_client_x = 812.857910,
+                hint_client_y = 671.429199,
+                hint_ratio_x = 0.564485,
+                hint_ratio_y = 0.745204,
+                hint_max_distance = 30,
+                fixed_fallback_client_x = 812.857910,
+                fixed_fallback_client_y = 671.429199,
+                fixed_fallback_ratio_x = 0.564485,
+                fixed_fallback_ratio_y = 0.745204,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_hover_delay_ms = 80,
+                fixed_fallback_click_delay_ms = 50,
+                wait_after_ms = 650
+            }, 10, insert_at + 1, "activate_level_10_second_talent_node"))
+            level_10_talent_plan.steps = level_10_steps
+        end
+    end
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[11] = make_composite_talent_plan(
         11,
         "11级天赋：激活指定天赋节点",
@@ -2512,6 +2518,50 @@ do
                     hint_max_distance = 80,
                     wait_after_ms = 650
                 }, string.format("activate_level_%d_same_talent_node", tonumber(current_level) or 0))
+                if tonumber(current_level) == 12 then
+                    append_shifted_step(steps, current_level, {
+                        key = "select_level_12_keystone_tab",
+                        label = "12级天赋基石页签按钮",
+                        include_patterns = {
+                            "UIButton Transient.GameEngine.CoreGameInstance.TabTalentItem_C.WidgetTree.KeyStoneItem1.WidgetTree.TabBtn"
+                        },
+                        hint_client_x = 357.321289,
+                        hint_client_y = 250.351654,
+                        hint_ratio_x = 0.248140,
+                        hint_ratio_y = 0.277860,
+                        hint_max_distance = 30,
+                        fixed_fallback_client_x = 357.321289,
+                        fixed_fallback_client_y = 250.351654,
+                        fixed_fallback_ratio_x = 0.248140,
+                        fixed_fallback_ratio_y = 0.277860,
+                        fixed_fallback_prefer_ratio = true,
+                        fixed_fallback_mouse_mode = "api",
+                        fixed_fallback_hover_delay_ms = 80,
+                        fixed_fallback_click_delay_ms = 50,
+                        wait_after_ms = 650
+                    }, "select_level_12_keystone_tab")
+                    append_shifted_step(steps, current_level, {
+                        key = "select_level_12_keystone_option_2",
+                        label = "12级天赋基石2按钮",
+                        include_patterns = {
+                            "UIButton Transient.GameEngine.CoreGameInstance.TabKeyStoneItem_C.WidgetTree.SelectBtn2"
+                        },
+                        hint_client_x = 644.312500,
+                        hint_client_y = 633.974976,
+                        hint_ratio_x = 0.447439,
+                        hint_ratio_y = 0.703635,
+                        hint_max_distance = 30,
+                        fixed_fallback_client_x = 644.312500,
+                        fixed_fallback_client_y = 633.974976,
+                        fixed_fallback_ratio_x = 0.447439,
+                        fixed_fallback_ratio_y = 0.703635,
+                        fixed_fallback_prefer_ratio = true,
+                        fixed_fallback_mouse_mode = "api",
+                        fixed_fallback_hover_delay_ms = 80,
+                        fixed_fallback_click_delay_ms = 50,
+                        wait_after_ms = 650
+                    }, "select_level_12_keystone_option_2")
+                end
             end
         )
         plan.key = string.format("level_%d_talent_fixed_763_593", tonumber(level) or 0)
@@ -2520,64 +2570,6 @@ do
     for _, level in ipairs({ 12, 13, 14 }) do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_12_to_14_same_talent_plan(level)
     end
-    do
-        local level = 13
-        local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] or original_talent_by_level[level]
-        local extra_plan = {
-            key = "level_13_talent_extra_fixed_clicks",
-            label = "13级额外天赋：固定鼠标点击",
-            require_available_points = false,
-            close_with_escape = false,
-            steps = {}
-        }
-        append_shifted_step(
-            extra_plan.steps,
-            level,
-            find_step_by_key_contains(base_plan, "open_fast_entrance_menu"),
-            "level_13_extra_open_fast_entrance_menu"
-        )
-        append_shifted_step(
-            extra_plan.steps,
-            level,
-            find_step_by_key_contains(base_plan, "open_talent_panel"),
-            "level_13_extra_open_talent_panel"
-        )
-        append_shifted_step(extra_plan.steps, level, extra_talent_fixed_click_step(
-            "level_13_extra_talent_tab_click",
-            "13级额外天赋：点击额外页签",
-            385.00,
-            249.00,
-            0.267547,
-            0.276667,
-            650
-        ), "level_13_extra_talent_tab_click")
-        append_shifted_step(extra_plan.steps, level, extra_talent_fixed_click_step(
-            "level_13_extra_talent_node_click",
-            "13级额外天赋：点击额外节点",
-            726.00,
-            618.00,
-            0.504517,
-            0.686667,
-            900
-        ), "level_13_extra_talent_node_click")
-        append_shifted_step(extra_plan.steps, level, extra_talent_fixed_click_step(
-            "level_13_extra_talent_confirm_click",
-            "13级额外天赋：点击额外确认",
-            1203.00,
-            159.00,
-            0.835997,
-            0.176667,
-            650
-        ), "level_13_extra_talent_confirm_click")
-        append_shifted_step(
-            extra_plan.steps,
-            level,
-            find_step_by_key_contains(base_plan, "back_from_talent"),
-            "level_13_extra_back_from_talent_panel"
-        )
-        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_extra_by_level[level] = extra_plan
-    end
-
     M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[20] = make_manual_talent_plan(
         20,
         "20级天赋：补位激活19级节点并执行20级前两段",
@@ -3270,11 +3262,11 @@ do
                     {
                         "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
                     },
-                    291.986755,
-                    408.208282,
-                    0.202909,
-                    0.453565,
-                    20,
+                    313.183411,
+                    412.652100,
+                    0.217488,
+                    0.457993,
+                    30,
                     1200
                 ), "level_26_select_second_tab_talent_node")
                 local activate_step = maintenance_locator_step(
@@ -3313,11 +3305,11 @@ do
                     {
                         "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
                     },
-                    447.916748,
-                    408.208282,
-                    0.311269,
-                    0.453565,
-                    20,
+                    469.221771,
+                    412.652100,
+                    0.325848,
+                    0.457993,
+                    30,
                     1200
                 ), string.format("level_%d_select_second_tab_talent_node", current_level))
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -3378,10 +3370,10 @@ do
                     {
                         "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
                     },
-                    447.916748,
-                    623.538025,
-                    0.311269,
-                    0.692820,
+                    469.221771,
+                    621.126648,
+                    0.325848,
+                    0.689375,
                     20,
                     1200
                 ), string.format("level_%d_select_second_tab_talent_node", current_level))
@@ -3442,10 +3434,10 @@ do
                     {
                         "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
                     },
-                    757.776794,
-                    476.651550,
-                    0.526600,
-                    0.529613,
+                    781.298584,
+                    482.143616,
+                    0.542568,
+                    0.535121,
                     20,
                     1200
                 ), string.format("level_%d_select_second_tab_talent_node", current_level))
@@ -4816,6 +4808,162 @@ do
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[4] = level_4_skill_plan
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[5] = level_5_life_potion_plan
 
+    local level_8_skill_plan = {
+        key = "level_8_skill_add_blunt_sequence",
+        label = "8级技能：添加钝化",
+        require_available_points = false,
+        close_with_escape = false,
+        steps = {}
+    }
+    mark_skill_pre_add_bag_cleanup(level_8_skill_plan)
+    local level_8_steps = level_8_skill_plan.steps
+    level_8_steps[#level_8_steps + 1] = {
+        key = "level_8_open_fast_entrance_menu_for_blunt",
+        label = "技能天赋菜单按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
+        },
+        hint_client_x = 1383.688110,
+        hint_client_y = 52.706509,
+        hint_ratio_x = 0.961562,
+        hint_ratio_y = 0.058563,
+        hint_max_distance = 100,
+        wait_after_ms = 800
+    }
+    level_8_steps[#level_8_steps + 1] = {
+        key = "level_8_open_skill_panel_for_blunt",
+        label = "技能按钮",
+        distance_anchor_exact_text = "技能",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn",
+        distance_min = 49.048348,
+        distance_max = 52.082267,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 1249.024658,
+        hint_client_y = 155.104156,
+        hint_ratio_x = 0.867981,
+        hint_ratio_y = 0.172338,
+        hint_max_distance = 90,
+        wait_after_ms = 1000
+    }
+    level_8_steps[#level_8_steps + 1] = fixed_click_step(
+        "level_8_skill_blunt_fixed_click_587_374_a",
+        "8级钝化固定点击1",
+        587.00,
+        374.00,
+        0.407639,
+        0.415094,
+        350
+    )
+    level_8_steps[#level_8_steps + 1] = fixed_click_step(
+        "level_8_skill_blunt_fixed_click_587_374_b",
+        "8级钝化固定点击2",
+        587.00,
+        374.00,
+        0.407639,
+        0.415094,
+        350
+    )
+    level_8_steps[#level_8_steps + 1] = fixed_click_step(
+        "level_8_skill_blunt_search_focus",
+        "8级钝化搜索输入框",
+        360.00,
+        655.00,
+        0.250000,
+        0.726970,
+        250
+    )
+    level_8_steps[#level_8_steps + 1] = {
+        kind = "type_text",
+        key = "level_8_skill_search_blunt_text",
+        label = "输入钝化",
+        text = "钝化",
+        input_method = "clipboard",
+        clear_before = true,
+        key_delay_ms = 30,
+        wait_after_ms = 500
+    }
+    level_8_steps[#level_8_steps + 1] = maintenance_locator_step(
+        "level_8_skill_search_blunt_button",
+        "钝化搜索按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
+        },
+        554.635376,
+        673.389282,
+        0.385163,
+        0.747380,
+        30,
+        700
+    )
+    level_8_steps[#level_8_steps + 1] = maintenance_locator_step(
+        "level_8_skill_select_blunt_store_item",
+        "钝化商店结果按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn"
+        },
+        317.013367,
+        304.833282,
+        0.220148,
+        0.338328,
+        30,
+        700
+    )
+    level_8_steps[#level_8_steps + 1] = maintenance_locator_step(
+        "level_8_skill_get_blunt",
+        "钝化获取按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        747.427124,
+        378.766510,
+        0.519047,
+        0.420385,
+        30,
+        700
+    )
+    level_8_steps[#level_8_steps + 1] = maintenance_locator_step(
+        "level_8_skill_select_blunt_bag_item",
+        "钝化背包结果按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
+        },
+        675.952698,
+        304.999084,
+        0.469412,
+        0.338512,
+        30,
+        700
+    )
+    level_8_steps[#level_8_steps + 1] = maintenance_locator_step(
+        "level_8_skill_install_blunt",
+        "钝化安装按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        464.682312,
+        378.766510,
+        0.322696,
+        0.420385,
+        30,
+        700
+    )
+    level_8_steps[#level_8_steps + 1] = {
+        key = "level_8_back_from_skill_panel_after_blunt_setup",
+        label = "技能返回按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+        },
+        hint_client_x = 1384.784546,
+        hint_client_y = 52.000000,
+        hint_ratio_x = 0.961656,
+        hint_ratio_y = 0.057778,
+        hint_max_distance = 90,
+        wait_after_ms = 500
+    }
+    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[8] = level_8_skill_plan
+
     local level_12_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
     level_12_skill_plan.key = "level_12_skill_add_emergency_sequence"
     level_12_skill_plan.label = "12级技能：添加应急"
@@ -4875,88 +5023,128 @@ do
         hint_max_distance = 90,
         wait_after_ms = 1000
     }
-    level_12_steps[#level_12_steps + 1] = fixed_click_step(
-        "level_12_skill_fixed_click_78_307",
-        "12级技能固定点击1",
-        78.00,
-        307.00,
-        0.054204,
-        0.341111,
+    level_12_steps[#level_12_steps + 1] = maintenance_locator_step(
+        "level_12_skill_select_list_item",
+        "12级技能列表项按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexViewItem.WidgetTree.ClickBtn"
+        },
+        58.580853,
+        315.438965,
+        0.040681,
+        0.350099,
+        30,
         500
     )
     level_12_steps[#level_12_steps + 1] = fixed_click_step(
-        "level_12_skill_fixed_click_722_297",
-        "12级技能固定点击2",
-        722.00,
-        297.00,
-        0.501737,
-        0.330000,
+        "level_12_skill_fixed_click_725_302",
+        "12级技能固定点击1",
+        725.00,
+        302.00,
+        0.503472,
+        0.335183,
         500
     )
     level_12_steps[#level_12_steps + 1] = fixed_click_step(
         "level_12_skill_search_focus",
         "12级技能搜索输入框",
-        385.00,
-        657.00,
-        0.267547,
-        0.730000,
+        410.00,
+        656.00,
+        0.284722,
+        0.728080,
         250
     )
     level_12_steps[#level_12_steps + 1] = {
         kind = "type_text",
-        key = "level_12_skill_search_emergency_text",
-        label = "输入应急",
-        text = "应急",
+        key = "level_12_skill_search_emergency_reply_text",
+        label = "输入应急回复",
+        text = "应急回复",
         input_method = "clipboard",
         clear_before = true,
         key_delay_ms = 30,
         wait_after_ms = 500
     }
-    level_12_steps[#level_12_steps + 1] = fixed_click_step(
+    level_12_steps[#level_12_steps + 1] = maintenance_locator_step(
         "level_12_skill_search_confirm",
-        "12级技能搜索确认",
-        593.00,
-        658.00,
-        0.412092,
-        0.731111,
+        "12级技能搜索按钮",
+        {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
+        },
+        553.635376,
+        674.389282,
+        0.384469,
+        0.748490,
+        30,
         700
     )
-    level_12_steps[#level_12_steps + 1] = fixed_click_step(
-        "level_12_skill_select_emergency_result",
-        "12级技能选择应急结果",
-        351.00,
-        338.00,
-        0.243919,
-        0.375556,
-        700
-    )
-    level_12_steps[#level_12_steps + 1] = fixed_click_step(
-        "level_12_skill_fixed_click_811_337",
-        "12级技能固定点击3",
-        811.00,
-        337.00,
-        0.563586,
-        0.374444,
-        350
-    )
-    level_12_steps[#level_12_steps + 1] = fixed_click_step(
-        "level_12_skill_fixed_click_715_331",
-        "12级技能固定点击4",
-        715.00,
-        331.00,
-        0.496873,
-        0.367778,
-        350
-    )
-    level_12_steps[#level_12_steps + 1] = fixed_click_step(
-        "level_12_skill_fixed_click_547_335",
-        "12级技能固定点击5",
-        547.00,
-        335.00,
-        0.380125,
-        0.372222,
-        700
-    )
+    level_12_steps[#level_12_steps + 1] = {
+        key = "level_12_skill_select_store_lv4",
+        label = "12级技能商店LV4按钮",
+        distance_anchor_exact_text = "LV4",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn",
+        distance_min = 5.142182,
+        distance_max = 6.142182,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 316.013367,
+        hint_client_y = 305.833282,
+        hint_ratio_x = 0.219454,
+        hint_ratio_y = 0.339438,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_12_steps[#level_12_steps + 1] = {
+        key = "level_12_skill_get_button",
+        label = "12级技能获取按钮",
+        distance_anchor_exact_text = "获取",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn",
+        distance_min = 10.583838,
+        distance_max = 11.583838,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        hint_client_x = 746.427124,
+        hint_client_y = 360.566498,
+        hint_ratio_x = 0.518352,
+        hint_ratio_y = 0.400185,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_12_steps[#level_12_steps + 1] = {
+        key = "level_12_skill_select_bag_lv4",
+        label = "12级技能背包LV4按钮",
+        distance_anchor_exact_text = "LV4",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn",
+        distance_min = 5.321914,
+        distance_max = 6.321914,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 674.952698,
+        hint_client_y = 305.999084,
+        hint_ratio_x = 0.468717,
+        hint_ratio_y = 0.339622,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_12_steps[#level_12_steps + 1] = {
+        key = "level_12_skill_install_button",
+        label = "12级技能安装按钮",
+        distance_anchor_exact_text = "安装",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn",
+        distance_min = 10.583863,
+        distance_max = 11.583863,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        hint_client_x = 463.682312,
+        hint_client_y = 360.566498,
+        hint_ratio_x = 0.322002,
+        hint_ratio_y = 0.400185,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
     level_12_steps[#level_12_steps + 1] = {
         key = "back_from_skill_panel_after_emergency_setup",
         label = "技能返回按钮",
@@ -4974,145 +5162,9 @@ do
     level_12_skill_plan.steps = level_12_steps
     M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[12] = level_12_skill_plan
 
-    local level_11_skill_plan = {
-        key = "level_11_skill_range_setup_sequence",
-        label = "11级技能：配置范围",
-        require_available_points = false,
-        close_with_escape = false,
-        steps = {}
-    }
-    mark_skill_pre_add_bag_cleanup(level_11_skill_plan)
-
-    local level_11_steps = level_11_skill_plan.steps
-
-    level_11_steps[#level_11_steps + 1] = {
-        key = "level_11_open_fast_entrance_menu_for_range_setup",
-        label = "技能天赋菜单按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.FastEntranceView_C.WidgetTree.IconTlBtn"
-        },
-        hint_client_x = 1383.688110,
-        hint_client_y = 52.706509,
-        hint_ratio_x = 0.961562,
-        hint_ratio_y = 0.058563,
-        hint_max_distance = 100,
-        wait_after_ms = 800
-    }
-    level_11_steps[#level_11_steps + 1] = {
-        key = "level_11_open_skill_panel_for_range_setup",
-        label = "技能按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.HomeBtnItem_C.WidgetTree.ClickBtn"
-        },
-        hint_client_x = 1249.024658,
-        hint_client_y = 155.104156,
-        hint_ratio_x = 0.867981,
-        hint_ratio_y = 0.172338,
-        hint_max_distance = 90,
-        wait_after_ms = 1000
-    }
-    level_11_steps[#level_11_steps + 1] = fixed_click_step(
-        "level_11_skill_fixed_click_590_372_a",
-        "11级技能固定点击1",
-        590.00,
-        372.00,
-        0.410007,
-        0.413333,
-        350
-    )
-    level_11_steps[#level_11_steps + 1] = fixed_click_step(
-        "level_11_skill_fixed_click_590_372_b",
-        "11级技能固定点击2",
-        590.00,
-        372.00,
-        0.410007,
-        0.413333,
-        350
-    )
-    level_11_steps[#level_11_steps + 1] = fixed_click_step(
-        "level_11_skill_search_focus",
-        "11级技能搜索输入框",
-        343.00,
-        652.00,
-        0.238360,
-        0.724444,
-        250
-    )
-    level_11_steps[#level_11_steps + 1] = {
-        kind = "type_text",
-        key = "level_11_skill_search_range_text",
-        label = "输入范围",
-        text = "范围",
-        input_method = "clipboard",
-        clear_before = true,
-        key_delay_ms = 30,
-        wait_after_ms = 500
-    }
-    level_11_steps[#level_11_steps + 1] = fixed_click_step(
-        "level_11_skill_search_confirm",
-        "11级技能搜索确认",
-        593.00,
-        657.00,
-        0.412092,
-        0.730000,
-        700
-    )
-    level_11_steps[#level_11_steps + 1] = fixed_click_step(
-        "level_11_skill_select_range_result",
-        "11级技能选择范围结果",
-        356.00,
-        333.00,
-        0.247394,
-        0.370000,
-        700
-    )
-    level_11_steps[#level_11_steps + 1] = fixed_click_step(
-        "level_11_skill_fixed_click_821_365",
-        "11级技能固定点击3",
-        821.00,
-        365.00,
-        0.570535,
-        0.405556,
-        350
-    )
-    level_11_steps[#level_11_steps + 1] = fixed_click_step(
-        "level_11_skill_fixed_click_710_329",
-        "11级技能固定点击4",
-        710.00,
-        329.00,
-        0.493398,
-        0.365556,
-        350
-    )
-    level_11_steps[#level_11_steps + 1] = fixed_click_step(
-        "level_11_skill_fixed_click_535_364",
-        "11级技能固定点击5",
-        535.00,
-        364.00,
-        0.371786,
-        0.404444,
-        700
-    )
-    level_11_steps[#level_11_steps + 1] = {
-        key = "level_11_back_from_skill_panel_after_range_setup",
-        label = "技能返回按钮",
-        include_patterns = {
-            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
-        },
-        hint_client_x = 1384.784546,
-        hint_client_y = 52.000000,
-        hint_ratio_x = 0.961656,
-        hint_ratio_y = 0.057778,
-        hint_max_distance = 90,
-        wait_after_ms = 500
-    }
-
-    level_11_skill_plan.steps = level_11_steps
-    M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[11] = level_11_skill_plan
-
     local level_21_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
-    level_21_skill_plan.key = "level_21_skill_add_blunt_and_mana_boil_sequence"
-    level_21_skill_plan.label = "21级技能：配置钝化并添加魔力沸腾"
+    level_21_skill_plan.key = "level_21_skill_add_element_and_mana_sequence"
+    level_21_skill_plan.label = "21级技能：配置元素并添加秘法阵"
     level_21_skill_plan.close_with_escape = false
     mark_skill_pre_add_bag_cleanup(level_21_skill_plan)
 
@@ -5140,6 +5192,13 @@ do
                 step.image_preset.repeat_until_missing_max_count = 30
                 step.image_preset.repeat_until_missing_interval_ms = 180
             end
+        end
+    end
+    for index = #level_21_steps, 1, -1 do
+        local step = level_21_steps[index]
+        local key = tostring(type(step) == "table" and step.key or "")
+        if key == "level_21_open_skill_add_panel" then
+            table.remove(level_21_steps, index)
         end
     end
 
@@ -5170,126 +5229,161 @@ do
         wait_after_ms = 1000
     }
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_blunt_fixed_click_587_538_a",
-        "21级钝化固定点击1",
-        587.00,
-        538.00,
-        0.407922,
-        0.597778,
+        "level_21_skill_element_fixed_click_588_535_a",
+        "21级元素固定点击1",
+        588.00,
+        535.00,
+        0.408333,
+        0.593785,
         350
     )
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_blunt_fixed_click_587_538_b",
-        "21级钝化固定点击2",
-        587.00,
-        538.00,
-        0.407922,
-        0.597778,
+        "level_21_skill_element_fixed_click_588_535_b",
+        "21级元素固定点击2",
+        588.00,
+        535.00,
+        0.408333,
+        0.593785,
         350
     )
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_blunt_search_focus",
-        "21级钝化搜索输入框",
-        355.00,
+        "level_21_skill_element_search_focus",
+        "21级元素搜索输入框",
+        401.00,
         651.00,
-        0.246699,
-        0.723333,
+        0.278472,
+        0.722531,
         250
     )
     level_21_steps[#level_21_steps + 1] = {
         kind = "type_text",
-        key = "level_21_skill_search_blunt_text",
-        label = "输入钝化",
-        text = "钝化",
+        key = "level_21_skill_search_element_text",
+        label = "输入元素",
+        text = "元素",
         input_method = "clipboard",
         clear_before = true,
         key_delay_ms = 30,
         wait_after_ms = 500
     }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_skill_element_search_button",
+        label = "21级元素搜索LV6按钮",
+        distance_anchor_exact_text = "LV6",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn",
+        distance_min = 65.190702,
+        distance_max = 69.223116,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
+        },
+        hint_client_x = 576.635376,
+        hint_client_y = 680.389282,
+        hint_ratio_x = 0.400441,
+        hint_ratio_y = 0.755149,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_skill_select_element_store_lv6",
+        label = "21级元素商店LV6按钮",
+        distance_anchor_exact_text = "LV6",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn",
+        distance_min = 5.142182,
+        distance_max = 6.142182,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 339.013367,
+        hint_client_y = 311.833282,
+        hint_ratio_x = 0.235426,
+        hint_ratio_y = 0.346097,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_skill_get_element_button",
+        label = "21级元素获取按钮",
+        distance_anchor_exact_text = "获取",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn",
+        distance_min = 10.583838,
+        distance_max = 11.583838,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        hint_client_x = 769.427124,
+        hint_client_y = 387.386719,
+        hint_ratio_x = 0.534324,
+        hint_ratio_y = 0.429952,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_skill_select_element_bag_lv6",
+        label = "21级元素背包LV6按钮",
+        distance_anchor_exact_text = "LV6",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn",
+        distance_min = 5.321914,
+        distance_max = 6.321914,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 697.952698,
+        hint_client_y = 311.999084,
+        hint_ratio_x = 0.484689,
+        hint_ratio_y = 0.346281,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_skill_install_element_button",
+        label = "21级元素安装按钮",
+        distance_anchor_exact_text = "安装",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn",
+        distance_min = 10.583863,
+        distance_max = 11.583863,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        hint_client_x = 486.682312,
+        hint_client_y = 387.386719,
+        hint_ratio_x = 0.337974,
+        hint_ratio_y = 0.429952,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_skill_select_list_item_after_element",
+        label = "21级技能列表项按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexViewItem.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 81.580856,
+        hint_client_y = 480.289673,
+        hint_ratio_x = 0.056653,
+        hint_ratio_y = 0.533063,
+        hint_max_distance = 30,
+        wait_after_ms = 500
+    }
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_blunt_search_confirm",
-        "21级钝化搜索确认",
-        597.00,
-        657.00,
-        0.414871,
-        0.730000,
-        700
-    )
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_select_blunt_result",
-        "21级技能选择钝化结果",
-        352.00,
-        332.00,
-        0.244614,
-        0.368889,
-        700
-    )
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_blunt_fixed_click_812_350",
-        "21级钝化固定点击3",
-        812.00,
-        350.00,
-        0.564281,
-        0.388889,
+        "level_21_skill_mana_fixed_click_727_455",
+        "21级魔力固定点击1",
+        727.00,
+        455.00,
+        0.504861,
+        0.504994,
         350
     )
     level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_blunt_fixed_click_716_324",
-        "21级钝化固定点击4",
-        716.00,
-        324.00,
-        0.497568,
-        0.360000,
-        350
-    )
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_blunt_fixed_click_536_337",
-        "21级钝化固定点击5",
-        536.00,
-        337.00,
-        0.372481,
-        0.374444,
-        500
-    )
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_confirm_blunt_slot",
-        "21级技能确认钝化配置",
-        1156.00,
-        250.00,
-        0.803336,
-        0.277778,
-        700
-    )
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_mana_boil_fixed_click_81_466",
-        "21级魔力沸腾固定点击1",
-        81.00,
-        466.00,
-        0.056289,
-        0.517778,
-        350
-    )
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_mana_boil_fixed_click_722_454",
-        "21级魔力沸腾固定点击2",
-        722.00,
-        454.00,
-        0.501737,
-        0.504444,
-        350
-    )
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_mana_boil_search_focus",
-        "21级魔力沸腾搜索输入框",
-        408.00,
-        654.00,
-        0.283530,
-        0.726667,
+        "level_21_skill_mana_search_focus",
+        "21级魔力搜索输入框",
+        412.00,
+        655.00,
+        0.286111,
+        0.726970,
         250
     )
     level_21_steps[#level_21_steps + 1] = {
         kind = "type_text",
-        key = "level_21_skill_search_mana_boil_text",
+        key = "level_21_skill_search_mana_text",
         label = "输入魔力沸腾",
         text = "魔力沸腾",
         input_method = "clipboard",
@@ -5297,53 +5391,93 @@ do
         key_delay_ms = 30,
         wait_after_ms = 500
     }
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_mana_boil_search_confirm",
-        "21级魔力沸腾搜索确认",
-        600.00,
-        658.00,
-        0.416956,
-        0.731111,
-        700
-    )
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_select_mana_boil_result",
-        "21级技能选择魔力沸腾结果",
-        358.00,
-        331.00,
-        0.248784,
-        0.367778,
-        700
-    )
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_mana_boil_fixed_click_823_334",
-        "21级魔力沸腾固定点击3",
-        823.00,
-        334.00,
-        0.571925,
-        0.371111,
-        350
-    )
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_mana_boil_fixed_click_794_325",
-        "21级魔力沸腾固定点击4",
-        794.00,
-        325.00,
-        0.551772,
-        0.361111,
-        350
-    )
-    level_21_steps[#level_21_steps + 1] = fixed_click_step(
-        "level_21_skill_mana_boil_fixed_click_529_337",
-        "21级魔力沸腾固定点击5",
-        529.00,
-        337.00,
-        0.367616,
-        0.374444,
-        700
-    )
     level_21_steps[#level_21_steps + 1] = {
-        key = "back_from_skill_panel_after_blunt_and_mana_boil_setup",
+        key = "level_21_skill_mana_array_search_button",
+        label = "21级秘法阵搜索按钮",
+        distance_anchor_exact_text = "秘法阵",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn",
+        distance_min = 50.133330,
+        distance_max = 53.234360,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
+        },
+        hint_client_x = 576.635376,
+        hint_client_y = 680.389282,
+        hint_ratio_x = 0.400441,
+        hint_ratio_y = 0.755149,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_skill_select_mana_store_lv6",
+        label = "21级魔力商店LV6按钮",
+        distance_anchor_exact_text = "LV6",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn",
+        distance_min = 5.142182,
+        distance_max = 6.142182,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 339.013367,
+        hint_client_y = 311.833282,
+        hint_ratio_x = 0.235426,
+        hint_ratio_y = 0.346097,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_skill_get_mana_button",
+        label = "21级魔力获取按钮",
+        distance_anchor_exact_text = "获取",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn",
+        distance_min = 10.583838,
+        distance_max = 11.583838,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        hint_client_x = 769.427124,
+        hint_client_y = 366.566498,
+        hint_ratio_x = 0.534324,
+        hint_ratio_y = 0.406844,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_skill_select_mana_bag_lv6",
+        label = "21级魔力背包LV6按钮",
+        distance_anchor_exact_text = "LV6",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn",
+        distance_min = 5.321914,
+        distance_max = 6.321914,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 697.952698,
+        hint_client_y = 311.999084,
+        hint_ratio_x = 0.484689,
+        hint_ratio_y = 0.346281,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "level_21_skill_install_mana_button",
+        label = "21级魔力安装按钮",
+        distance_anchor_exact_text = "安装",
+        distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn",
+        distance_min = 10.583863,
+        distance_max = 11.583863,
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        hint_client_x = 486.682312,
+        hint_client_y = 366.566498,
+        hint_ratio_x = 0.337974,
+        hint_ratio_y = 0.406844,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_21_steps[#level_21_steps + 1] = {
+        key = "back_from_skill_panel_after_element_and_mana_setup",
         label = "技能返回按钮",
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
@@ -5361,7 +5495,7 @@ do
 
     local level_29_skill_plan = clone_plain_table(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level[3])
     level_29_skill_plan.key = "level_29_skill_upgrade_sequence"
-    level_29_skill_plan.label = "29级技能：找图升级并配置附加腐蚀"
+    level_29_skill_plan.label = "29级技能：找图升级并添加法术控制"
     level_29_skill_plan.close_with_escape = false
     mark_skill_pre_add_bag_cleanup(level_29_skill_plan)
 
@@ -5418,99 +5552,114 @@ do
         hint_max_distance = 90,
         wait_after_ms = 1000
     }
+    level_29_steps[#level_29_steps + 1] = {
+        key = "level_29_skill_select_list_item",
+        label = "29级技能列表项按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexViewItem.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 81.580856,
+        hint_client_y = 374.389191,
+        hint_ratio_x = 0.056653,
+        hint_ratio_y = 0.415526,
+        hint_max_distance = 30,
+        wait_after_ms = 500
+    }
     level_29_steps[#level_29_steps + 1] = fixed_click_step(
-        "level_29_skill_fixed_click_82_359",
-        "29级技能固定点击1",
-        82.00,
-        359.00,
-        0.056984,
-        0.398889,
-        350
-    )
-    level_29_steps[#level_29_steps + 1] = fixed_click_step(
-        "level_29_skill_fixed_click_724_299",
+        "level_29_skill_fixed_click_725_300",
         "29级技能固定点击2",
-        724.00,
-        299.00,
-        0.503127,
-        0.332222,
-        350
-    )
-    level_29_steps[#level_29_steps + 1] = fixed_click_step(
-        "level_29_skill_fixed_click_722_300",
-        "29级技能固定点击3",
-        722.00,
+        725.00,
         300.00,
-        0.501737,
-        0.333333,
+        0.503472,
+        0.332963,
         350
     )
     level_29_steps[#level_29_steps + 1] = fixed_click_step(
         "level_29_skill_search_focus",
         "29级技能搜索输入框",
-        382.00,
-        654.00,
-        0.265462,
-        0.726667,
+        404.00,
+        656.00,
+        0.280556,
+        0.728080,
         250
     )
     level_29_steps[#level_29_steps + 1] = {
         kind = "type_text",
-        key = "level_29_skill_search_corrosion_text",
-        label = "输入附加腐蚀",
-        text = "附加腐蚀",
+        key = "level_29_skill_search_spell_control_text",
+        label = "输入法术控制",
+        text = "法术控制",
         input_method = "clipboard",
         clear_before = true,
         key_delay_ms = 30,
         wait_after_ms = 500
     }
-    level_29_steps[#level_29_steps + 1] = fixed_click_step(
-        "level_29_skill_search_confirm",
-        "29级技能搜索确认",
-        594.00,
-        656.00,
-        0.412787,
-        0.728889,
-        700
-    )
-    level_29_steps[#level_29_steps + 1] = fixed_click_step(
-        "level_29_skill_select_corrosion_result",
-        "29级技能选择附加腐蚀结果",
-        350.00,
-        331.00,
-        0.243224,
-        0.367778,
-        700
-    )
-    level_29_steps[#level_29_steps + 1] = fixed_click_step(
-        "level_29_skill_fixed_click_815_351",
-        "29级技能固定点击4",
-        815.00,
-        351.00,
-        0.566366,
-        0.390000,
-        350
-    )
-    level_29_steps[#level_29_steps + 1] = fixed_click_step(
-        "level_29_skill_fixed_click_714_330",
-        "29级技能固定点击5",
-        714.00,
-        330.00,
-        0.496178,
-        0.366667,
-        350
-    )
-    level_29_steps[#level_29_steps + 1] = fixed_click_step(
-        "level_29_skill_fixed_click_536_350",
-        "29级技能固定点击6",
-        536.00,
-        350.00,
-        0.372481,
-        0.388889,
-        700
-    )
     level_29_steps[#level_29_steps + 1] = {
-        key = "back_from_skill_panel_after_corrosion_setup",
+        key = "level_29_skill_spell_control_search_button",
+        label = "29级法术控制搜索按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
+        },
+        hint_client_x = 576.635376,
+        hint_client_y = 680.389282,
+        hint_ratio_x = 0.400441,
+        hint_ratio_y = 0.755149,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_29_steps[#level_29_steps + 1] = {
+        key = "level_29_skill_select_spell_control_store_lv7",
+        label = "29级法术控制商店LV7按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 339.013367,
+        hint_client_y = 311.833282,
+        hint_ratio_x = 0.235426,
+        hint_ratio_y = 0.346097,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_29_steps[#level_29_steps + 1] = {
+        key = "level_29_skill_get_spell_control_button",
+        label = "29级法术控制获取按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        hint_client_x = 769.427124,
+        hint_client_y = 402.386749,
+        hint_ratio_x = 0.534324,
+        hint_ratio_y = 0.446600,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_29_steps[#level_29_steps + 1] = {
+        key = "level_29_skill_select_spell_control_bag_lv7",
+        label = "29级法术控制背包LV7按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
+        },
+        hint_client_x = 697.952698,
+        hint_client_y = 311.999084,
+        hint_ratio_x = 0.484689,
+        hint_ratio_y = 0.346281,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_29_steps[#level_29_steps + 1] = {
+        key = "level_29_skill_install_spell_control_button",
+        label = "29级法术控制安装按钮",
+        include_patterns = {
+            "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
+        },
+        hint_client_x = 486.682312,
+        hint_client_y = 402.386749,
+        hint_ratio_x = 0.337974,
+        hint_ratio_y = 0.446600,
+        hint_max_distance = 30,
+        wait_after_ms = 700
+    }
+    level_29_steps[#level_29_steps + 1] = {
+        key = "back_from_skill_panel_after_spell_control_setup",
         label = "技能返回按钮",
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
@@ -5851,6 +6000,95 @@ do
         )
     }
     M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level[43] = level_43_contract_plan
+end
+
+do
+    local function make_hotkey_panel_open_step(source_step, panel_kind)
+        source_step = type(source_step) == "table" and source_step or {}
+        local key = tostring(source_step.key or "")
+        local is_talent = panel_kind == "talent"
+        local is_contract = panel_kind == "contract"
+        local verify_pattern = "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+        local label = "按K打开技能面板"
+        local key_vk = 75
+        local hint_client_x = 1384.784546
+        local hint_client_y = 52.000000
+        local hint_ratio_x = 0.961656
+        local hint_ratio_y = 0.057778
+        if is_talent then
+            verify_pattern = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.UITitleItem.WidgetTree.BtnBack"
+            label = "按P打开天赋面板"
+            key_vk = 80
+            hint_client_x = 1373.452393
+            hint_ratio_x = 0.954449
+        elseif is_contract then
+            verify_pattern = "UIButton Transient.GameEngine.CoreGameInstance.Pet_C.WidgetTree.UITitleItem.WidgetTree.BackBtn"
+            label = "按O打开契灵面板"
+            key_vk = 79
+            hint_client_x = 23.411688
+            hint_client_y = 39.000000
+            hint_ratio_x = 0.016269
+            hint_ratio_y = 0.043333
+        end
+        return {
+            kind = "ensure_panel_open",
+            key = key ~= "" and key or (is_talent and "open_talent_panel" or (is_contract and "open_contract_panel" or "open_skill_panel")),
+            label = label,
+            key_vk = key_vk,
+            include_patterns = {
+                verify_pattern
+            },
+            hint_client_x = hint_client_x,
+            hint_client_y = hint_client_y,
+            hint_ratio_x = hint_ratio_x,
+            hint_ratio_y = hint_ratio_y,
+            hint_max_distance = 120,
+            target_poll_count = 0,
+            target_poll_interval_ms = 100,
+            open_wait_ms = 180,
+            verify_timeout_ms = 3000,
+            verify_poll_ms = 100,
+            wait_after_ms = math.max(tonumber(source_step.wait_after_ms) or 0, 180)
+        }
+    end
+
+    local function retarget_panel_open_steps(plans, panel_kind)
+        if type(plans) ~= "table" then
+            return
+        end
+        for _, plan in pairs(plans) do
+            local source_steps = type(plan) == "table" and type(plan.steps) == "table" and plan.steps or nil
+            if source_steps ~= nil then
+                local steps = {}
+                for _, step in ipairs(source_steps) do
+                    local key = tostring(type(step) == "table" and step.key or "")
+                    if panel_kind == "talent" and key:find("open_fast_entrance_menu", 1, true) ~= nil then
+                        -- P opens the talent panel directly.
+                    elseif panel_kind == "talent" and key:find("open_talent_panel", 1, true) ~= nil then
+                        steps[#steps + 1] = make_hotkey_panel_open_step(step, "talent")
+                    elseif panel_kind == "skill" and key:find("open_fast_entrance_menu", 1, true) ~= nil then
+                        -- K opens the skill panel directly.
+                    elseif panel_kind == "contract" and key:find("contract_open_menu", 1, true) ~= nil then
+                        -- O opens the contract panel directly.
+                    elseif panel_kind == "contract" and key:find("contract_open_panel", 1, true) ~= nil then
+                        steps[#steps + 1] = make_hotkey_panel_open_step(step, "contract")
+                    elseif panel_kind == "skill"
+                        and (key:find("open_skill_panel", 1, true) ~= nil
+                            or key:find("open_skill_add_panel", 1, true) ~= nil)
+                    then
+                        steps[#steps + 1] = make_hotkey_panel_open_step(step, "skill")
+                    else
+                        steps[#steps + 1] = step
+                    end
+                end
+                plan.steps = steps
+            end
+        end
+    end
+
+    retarget_panel_open_steps(M.LEVEL_UP_MAINTENANCE_CONFIG.skill_by_level, "skill")
+    retarget_panel_open_steps(M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level, "talent")
+    retarget_panel_open_steps(M.LEVEL_UP_MAINTENANCE_CONFIG.contract_by_level, "contract")
 end
 
 local function make_sun_faction_choice_action()
@@ -6980,7 +7218,10 @@ M.TREASURE_DUNGEON_CONFIGS = {
         startup_recovery_allow_task_mismatch_by_level_gate = true,
         startup_recovery_task_panel_wait_ms = 1800,
         startup_recovery_task_panel_wait_cap_ms = 9000,
-        resume_route_nearby = false,
+        startup_recovery_route_nearby = true,
+        startup_recovery_route_distance = 1800,
+        resume_route_nearby = true,
+        resume_route_distance = 1800,
         task_patterns = {
             "\u{5E1D}\u{56FD}\u{4F59}\u{7130}"
         },
@@ -7247,6 +7488,8 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "Restart/exit portal probe now prefers hint fallback when distance-anchor locator drifts",
             "Before target_level=36 the restart portal must not fallback_interact; if the 求生之欲 MapTrapBtn cannot be located, wait for better button data instead of pressing E on the exit portal",
             "Final boss loot is intentionally capped at two pickup pulses",
+            "Resume snapshot may restore from cached route proximity; this prevents a script restart inside the treasure route from falling back to mainline",
+            "Startup recovery may also restore from cached route proximity when the visible task still matches this treasure's mainline task",
             "Verify boss name_patterns / panel_query and dedicated portal button locator logs on next real run"
         }
     },
@@ -7257,11 +7500,13 @@ M.TREASURE_DUNGEON_CONFIGS = {
         enabled = true,
         name = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{65B0}\u{7A57}\u{5C71}\u{4E18}",
         route_store_key = "treasure_new_sprout_hill_entry_v2",
-        target_level = 15,
+        target_level = 14,
         inside_detect_task_panel_text = false,
         startup_recovery_wait_for_task_panel = true,
         startup_recovery_activate_by_level_gate = true,
         startup_recovery_allow_task_mismatch_by_level_gate = true,
+        startup_recovery_allow_inside_landing_task_mismatch_by_level_gate = true,
+        startup_recovery_allow_landing_task_mismatch_by_level_gate = true,
         startup_recovery_task_panel_wait_ms = 1800,
         startup_recovery_task_panel_wait_cap_ms = 9000,
         task_patterns = {
@@ -7279,6 +7524,13 @@ M.TREASURE_DUNGEON_CONFIGS = {
         },
         inside_map_patterns = {
             "\u{65B0}\u{7A57}\u{5C71}\u{4E18}"
+        },
+        inside_landing = {
+            x = -1700.43,
+            y = 1793.72,
+            z = 2857.77,
+            radius = 1800,
+            z_tolerance = 900
         },
         entry_trigger = {
             x = 13597.00,
@@ -7333,14 +7585,30 @@ M.TREASURE_DUNGEON_CONFIGS = {
             }
         },
         entry_ui_retry_timeout_ms = 6500,
+        enter_detect_task_panel_query = false,
         panel_query = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{65B0}\u{7A57}\u{5C71}\u{4E18}",
         panel_query_fallbacks = {
             "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{65B0}\u{7A57}\u{5C71}\u{4E18}",
             "\u{65B0}\u{7A57}\u{5C71}\u{4E18}",
-            "\u{85CF}\u{5B9D}\u{5730}",
-            "\u{9F99}\u{9668}\u{4E4B}\u{91CE}",
-            "\u{5BFB}\u{627E}\u{77EE}\u{4EBA}\u{56FD}\u{5EA6}\u{5165}\u{53E3}"
+            "\u{85CF}\u{5B9D}\u{5730}"
         },
+        panel_button_step = {
+            key = "treasure_new_sprout_hill_task_button",
+            label = "\u{652F}\u{7EBF} \u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{65B0}\u{7A57}\u{5C71}\u{4E18}\u{6309}\u{94AE}",
+            distance_anchor_exact_text = "\u{652F}\u{7EBF} \u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{65B0}\u{7A57}\u{5C71}\u{4E18}",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn",
+            distance_min = 30.635658,
+            distance_max = 32.530647,
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.TaskItem_C.WidgetTree.TaskBtn"
+            },
+            hint_client_x = 85.907120,
+            hint_client_y = 292.023743,
+            hint_ratio_x = 0.059658,
+            hint_ratio_y = 0.324471,
+            hint_max_distance = 80.000
+        },
+        panel_button_step_required = true,
         path_retry_count = 5,
         path_retry_interval_ms = 1200,
         min_path_points = 3,
@@ -7475,13 +7743,15 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "Known side task text: 藏宝地：新穗山丘 -> 通关1次藏宝地：新穗山丘",
             "Known outside entrance: 13597,15915,5214 on 龙骨平原",
             "Entry UI steps temporarily reuse the proven treasure_milu_creek/empire entrance buttons",
-            "Target level is 15; return-to-mainline gate is enabled",
+            "Target level is 14; return-to-mainline gate is enabled",
             "Boss loot uses faster pickup pulses plus empty-list confirmation to avoid leaving drops behind",
             "Configured boss center/kite points, restart portal, exit portal, restart landing, and exit landing from measured F6/F7 data",
             "Exit landing updated after latest F6 sample to 13463,15847,5214; wait_exit should resume mainline from this outside point",
             "Persisted route_acquired is still false until this treasure completes its first path capture",
             "Restart landing updated to -1708,746,5929; restart clicks must verify this landing instead of accepting boss-anchor fallback",
-            "Portal click success is now verified by position change; unchanged position falls back to D/retry before continuing"
+            "Portal click success is now verified by position change; unchanged position falls back to D/retry before continuing",
+            "Entering must not use panel_query detection because mainline 龙陨之野 can remain selected after SendBtn; use inside_landing/map signals and the explicit side-task button only",
+            "Startup at restart_landing while below target_level must be treated as still inside this treasure, even if the visible task panel is still mainline"
         }
     },
     {
@@ -7496,8 +7766,8 @@ M.TREASURE_DUNGEON_CONFIGS = {
         inside_detect_task_panel_text = false,
         startup_recovery_wait_for_task_panel = true,
         startup_recovery_activate_by_level_gate = true,
-        startup_recovery_allow_task_mismatch_by_level_gate = true,
-        startup_recovery_allow_landing_task_mismatch_by_level_gate = true,
+        startup_recovery_allow_task_mismatch_by_level_gate = false,
+        startup_recovery_allow_landing_task_mismatch_by_level_gate = false,
         startup_recovery_restart_landing = false,
         entry_far_reacquire_mainline = true,
         entry_far_reacquire_distance = 1500,
@@ -14432,7 +14702,7 @@ M.ROUTE_POINT_ACTIONS = {
         label = "\u{9F99}\u{9668}\u{4E4B}\u{91CE}_\u{65B0}\u{7A57}\u{5C71}\u{4E18}\u{85CF}\u{5B9D}\u{5730}\u{5165}\u{53E3}\u{5F15}\u{5BFC}",
         mode = "recorded_route_point",
         skip_when_treasure_completed_key = "treasure_new_sprout_hill_entry_v2",
-        skip_when_player_level_at_least = 15,
+        skip_when_player_level_at_least = 14,
         task_patterns = {
             "\u{9F99}\u{9668}\u{4E4B}\u{91CE}"
         },
@@ -17917,6 +18187,99 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
+        key = "wall_of_sighs_forbidden_wall_end_route_31064_21852",
+        label = "叹息之墙_前往禁忌高墙尽头_固定路线后重call主线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "叹息之墙"
+        },
+        task_detail_patterns = {
+            "前往禁忌高墙尽头"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 31064.00,
+            y = 21852.00,
+            z = 5363.75,
+            radius = 700,
+            z_tolerance = 520
+        },
+        retry_ms = 600000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 520,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 31652.79, y = 21901.38, z = 5516.00 },
+            { x = 32026.75, y = 22163.70, z = 5549.58 },
+            { x = 32072.37, y = 22601.09, z = 5652.78 },
+            { x = 31971.28, y = 22928.11, z = 5686.81 },
+            { x = 31805.03, y = 23143.97, z = 5693.00 },
+            { x = 31632.04, y = 23423.87, z = 5693.00 },
+            { x = 31722.75, y = 23698.59, z = 5693.00 },
+            { x = 31979.46, y = 23710.03, z = 5693.00 },
+            { x = 32028.68, y = 23506.60, z = 5693.00 },
+            { x = 32003.71, y = 23286.45, z = 5693.00 },
+            { x = 31978.22, y = 23077.54, z = 5693.00 },
+            { x = 31954.06, y = 22890.86, z = 5683.23 },
+            { x = 31926.17, y = 22674.86, z = 5658.97 },
+            { x = 31895.30, y = 22460.20, z = 5613.33 },
+            { x = 31871.87, y = 22309.21, z = 5571.12 },
+            { x = 31843.88, y = 22129.32, z = 5524.04 },
+            { x = 31822.83, y = 21993.90, z = 5515.00 },
+            { x = 31799.69, y = 21820.75, z = 5513.95 },
+            { x = 31796.65, y = 21737.95, z = 5513.16 },
+            { x = 31920.49, y = 21845.70, z = 5513.00 },
+            { x = 31993.96, y = 22040.21, z = 5521.05 },
+            { x = 31983.06, y = 22237.40, z = 5568.23 },
+            { x = 31966.52, y = 22472.36, z = 5622.47 },
+            { x = 31956.84, y = 22612.31, z = 5649.42 },
+            { x = 31948.07, y = 22739.46, z = 5665.68 },
+            { x = 31939.50, y = 22858.30, z = 5680.07 },
+            { x = 31930.73, y = 22972.26, z = 5692.77 },
+            { x = 31924.50, y = 23096.95, z = 5693.00 },
+            { x = 31925.64, y = 23150.81, z = 5693.00 },
+            { x = 31933.37, y = 23123.67, z = 5693.00 },
+            { x = 31954.58, y = 23017.08, z = 5693.00 },
+            { x = 31970.68, y = 22914.73, z = 5685.17 },
+            { x = 31973.28, y = 22807.69, z = 5671.76 },
+            { x = 31964.34, y = 22656.61, z = 5654.30 },
+            { x = 31955.43, y = 22505.87, z = 5631.99 },
+            { x = 31955.68, y = 22353.66, z = 5592.44 },
+            { x = 31983.93, y = 22193.22, z = 5557.29 },
+            { x = 32010.25, y = 22065.31, z = 5526.91 },
+            { x = 32026.65, y = 21924.25, z = 5513.00 },
+            { x = 32027.47, y = 21917.18, z = 5513.00 },
+            { x = 32035.04, y = 22023.80, z = 5516.58 },
+            { x = 32044.06, y = 22152.29, z = 5544.94 },
+            { x = 32056.40, y = 22303.63, z = 5580.12 },
+            { x = 32066.68, y = 22432.67, z = 5609.84 },
+            { x = 32073.82, y = 22586.24, z = 5651.20 },
+            { x = 32073.79, y = 22726.70, z = 5668.06 },
+            { x = 32064.80, y = 22857.97, z = 5683.17 },
+            { x = 32048.21, y = 23012.46, z = 5693.00 },
+            { x = 32028.06, y = 23141.26, z = 5693.00 },
+            { x = 32016.32, y = 23210.50, z = 5693.00 },
+            { x = 32030.15, y = 23126.68, z = 5693.00 },
+            { x = 32044.27, y = 22972.11, z = 5692.57 },
+            { x = 32030.27, y = 22833.91, z = 5676.30 },
+            { x = 31999.63, y = 22707.71, z = 5658.87 },
+            { x = 31956.82, y = 22558.48, z = 5643.41 },
+            { x = 31917.81, y = 22413.82, z = 5602.40 },
+            { x = 31901.94, y = 22260.13, z = 5562.96 },
+            { x = 31897.26, y = 22083.62, z = 5520.06 },
+            { x = 31872.14, y = 21887.91, z = 5513.99 },
+            { x = 29862.31, y = 22031.38, z = 5328.00 },
+            { x = 29561.44, y = 21710.97, z = 5328.00 },
+            { x = 29004.44, y = 21465.12, z = 5333.00 },
+            { x = 28935.18, y = 20812.87, z = 5410.40 }
+        }
+    }),
+    make_route_point_action({
         key = "wall_of_sighs_will_wall_anchor_-5776_2400",
         label = "\u{53F9}\u{606F}\u{4E4B}\u{5899}_\u{7A7F}\u{8D8A}\u{610F}\u{5FD7}\u{9AD8}\u{5899}_\u{5165}\u{53E3}\u{951A}\u{70B9}",
         mode = "recorded_route_point",
@@ -18234,21 +18597,41 @@ M.OBJECTIVE_POINT_CONFIGS = {
             "\u{5BF9}\u{8BDD}"
         },
         revive_reentry = make_revive_reentry_config({
-            key = "old_dusk_lai_an_boss_room_reentry_14877_23327",
+            key = "old_dusk_lai_an_boss_room_reentry_14887_23313",
             label = "\u{65E7}\u{65E5}\u{7684}\u{9EC4}\u{660F} Boss\u{91CD}\u{8FDB}\u{623F}",
             anchor = {
-                x = 14877.00,
-                y = 23327.00,
+                x = 14887.00,
+                y = 23313.00,
                 z = 1010.00,
                 radius = 620
             },
-            interact_distance = 280,
-            handoff_distance = 980,
-            retry_ms = 1200,
-            settle_ms = 1400,
-            timeout_ms = 22000,
-            post_transition_boss_engage_ms = 16000,
-            fallback_interact = true
+            use_global_portal = false,
+            interact_distance = 360,
+            retry_ms = 900,
+            settle_ms = 900,
+            timeout_ms = 70000,
+            waypoint_reach_radius = 220,
+            waypoint_z_tolerance = 320,
+            move_interval_ms = 220,
+            transition_success_room_radius = 2100,
+            post_transition_boss_engage_ms = 18000,
+            fallback_interact = true,
+            waypoints = {
+                { x = 17663.00, y = 18504.00, z = 1010.00 },
+                { x = 16594.65, y = 18956.69, z = 1010.00 },
+                { x = 15888.39, y = 18935.53, z = 1010.00 },
+                { x = 15288.54, y = 19087.81, z = 1010.00 },
+                { x = 14678.22, y = 19350.15, z = 1010.00 },
+                { x = 14136.93, y = 19662.50, z = 1010.00 },
+                { x = 13711.42, y = 20062.78, z = 1010.00 },
+                { x = 13451.63, y = 20447.29, z = 1010.00 },
+                { x = 13305.72, y = 20841.96, z = 1010.00 },
+                { x = 13258.87, y = 21444.27, z = 1010.00 },
+                { x = 13397.27, y = 21924.85, z = 1010.00 },
+                { x = 13686.35, y = 22410.42, z = 1010.00 },
+                { x = 14053.63, y = 22805.63, z = 1010.00 },
+                { x = 14887.00, y = 23313.00, z = 1010.00 }
+            }
         })
     }),
     Actions.make_objective_point({
@@ -18540,6 +18923,75 @@ M.OBJECTIVE_POINT_CONFIGS = {
         }
     })
 }
+
+local function maintenance_step_has_include_pattern(step, needle)
+    if type(step) ~= "table" or needle == nil then
+        return false
+    end
+    local patterns = step.include_patterns
+    if type(patterns) ~= "table" then
+        return false
+    end
+    for _, pattern in ipairs(patterns) do
+        if tostring(pattern or ""):find(tostring(needle), 1, true) ~= nil then
+            return true
+        end
+    end
+    return false
+end
+
+local function apply_talent_node_click_fallback_defaults()
+    local cfg = type(M.LEVEL_UP_MAINTENANCE_CONFIG) == "table" and M.LEVEL_UP_MAINTENANCE_CONFIG or nil
+    local talent_by_level = type(cfg) == "table" and cfg.talent_by_level or nil
+    if type(talent_by_level) ~= "table" then
+        return
+    end
+
+    for _, plan in pairs(talent_by_level) do
+        local steps = type(plan) == "table" and plan.steps or nil
+        if type(steps) == "table" then
+            for _, step in ipairs(steps) do
+                if maintenance_step_has_include_pattern(step, "TalentPointItem_C.WidgetTree.SelectBtn")
+                    and step.fixed_client_click ~= true
+                then
+                    local max_distance = tonumber(step.hint_max_distance)
+                    if max_distance == nil or max_distance > 20 then
+                        step.hint_max_distance = 20
+                    end
+                    if step.disable_target_poll ~= true then
+                        step.target_poll_count = tonumber(step.target_poll_count) or 15
+                        step.target_poll_interval_ms = tonumber(step.target_poll_interval_ms) or 100
+                    end
+
+                    local hint_client_x = tonumber(step.hint_client_x)
+                    local hint_client_y = tonumber(step.hint_client_y)
+                    if hint_client_x ~= nil and hint_client_y ~= nil
+                        and (step.fixed_fallback_client_x == nil or step.fixed_fallback_client_y == nil)
+                    then
+                        step.fixed_fallback_client_x = hint_client_x
+                        step.fixed_fallback_client_y = hint_client_y
+                    end
+
+                    local hint_ratio_x = tonumber(step.hint_ratio_x)
+                    local hint_ratio_y = tonumber(step.hint_ratio_y)
+                    if hint_ratio_x ~= nil and hint_ratio_y ~= nil
+                        and (step.fixed_fallback_ratio_x == nil or step.fixed_fallback_ratio_y == nil)
+                    then
+                        step.fixed_fallback_ratio_x = hint_ratio_x
+                        step.fixed_fallback_ratio_y = hint_ratio_y
+                    end
+
+                    step.fixed_fallback_prefer_ratio = step.fixed_fallback_prefer_ratio ~= false
+                    step.fixed_fallback_mouse_mode = step.fixed_fallback_mouse_mode or "api"
+                    step.fixed_fallback_hover_delay_ms = tonumber(step.fixed_fallback_hover_delay_ms) or 80
+                    step.fixed_fallback_click_delay_ms = tonumber(step.fixed_fallback_click_delay_ms) or 50
+                end
+            end
+        end
+    end
+end
+
+apply_talent_node_click_fallback_defaults()
 
 function M.validate()
     return Actions.validate_leveling_config(M)

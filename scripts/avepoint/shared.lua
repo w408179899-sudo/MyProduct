@@ -70,11 +70,11 @@ HOTKEY_CURSOR_CLICK_PRESETS = {
         limit = 3,
         include_zero_position = false,
         nearest_text_max_distance = 260,
-        cursor_max_distance = 2,
+        cursor_max_distance = 30,
         distance_tolerance_min = 0.5,
         distance_tolerance_max = 2.5,
         distance_tolerance_ratio = 0.03,
-        hint_max_distance = 80
+        hint_max_distance = 30
     }
 }
 HOTKEY_DISTANCE_PREVIEW_PRESETS = {

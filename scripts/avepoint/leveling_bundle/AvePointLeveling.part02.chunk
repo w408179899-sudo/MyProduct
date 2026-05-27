@@ -1029,8 +1029,17 @@ function click_locator_button_target(ctx, step, target)
         ))
     end
 
+    local click_step = step
+    if type(target) == "table" and tostring(target.kind or "") == "client_point" and type(step) == "table" then
+        click_step = {}
+        for k, v in pairs(step) do
+            click_step[k] = v
+        end
+        click_step.prefer_screen_click = true
+    end
+
     if type(click_fetched_target) == "function" and type(target) == "table" then
-        local ok, clicked, click_err, retryable = safe_call(click_fetched_target, step, target)
+        local ok, clicked, click_err, retryable = safe_call(click_fetched_target, click_step, target)
         if ok then
             if clicked == true
                 and target._hover_capture_return_after_click == true
@@ -1040,7 +1049,7 @@ function click_locator_button_target(ctx, step, target)
                 local returned, return_err = M.return_mouse_to_button_safe_point(
                     ctx,
                     nav_mod,
-                    step,
+                    click_step,
                     tostring(target._hover_capture_namespace or "locator_button"),
                     tostring(target._hover_capture_reason or "post_click")
                 )
@@ -4768,6 +4777,20 @@ function M.level_up_maintenance_mark_plan_done(kind, level, plan, ctx)
     done[plan_id] = true
     state.level_up_maintenance_completed_plans = done
 
+    local no_persist = state.level_up_maintenance_executor_no_persist == true
+        or (ctx ~= nil and ctx.level_up_maintenance_no_persist == true)
+    if no_persist then
+        if ctx ~= nil then
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance completion marked transiently | kind=%s level=%d plan=%s",
+                tostring(kind or ""),
+                math.floor(tonumber(level) or 0),
+                tostring(type(plan) == "table" and (plan.label or plan.key or "") or "")
+            ))
+        end
+        return true
+    end
+
     if type(M.ensure_level_up_maintenance_state) == "function" and type(M.save_level_up_maintenance_state) == "function" then
         local persisted = M.ensure_level_up_maintenance_state()
         if type(persisted.completed_plans) ~= "table" then
@@ -4786,6 +4809,37 @@ function M.level_up_maintenance_mark_plan_done(kind, level, plan, ctx)
             logger(ctx).warn("[Leveling] level-up maintenance state save failed: " .. tostring(save_err or ""))
         end
     end
+end
+
+function M.level_up_maintenance_clear_transient_plan_done(kind, level, plan)
+    if type(state.level_up_maintenance_completed_plans) ~= "table" then
+        return false
+    end
+    local cleared = false
+    for _, plan_id in ipairs(M.level_up_maintenance_plan_ids(kind, level, plan)) do
+        if state.level_up_maintenance_completed_plans[plan_id] ~= nil then
+            state.level_up_maintenance_completed_plans[plan_id] = nil
+            cleared = true
+        end
+    end
+    return cleared
+end
+
+function M.level_up_maintenance_last_executor_completed(kind, level, plan)
+    local result = type(state.level_up_maintenance_executor_last_result) == "table"
+        and state.level_up_maintenance_executor_last_result
+        or nil
+    if result == nil then
+        return nil
+    end
+    local plan_id = M.level_up_maintenance_plan_id(kind, level, plan)
+    if tostring(result.plan_id or "") ~= tostring(plan_id or "")
+        or tostring(result.kind or "") ~= tostring(kind or "")
+        or math.floor(tonumber(result.level) or 0) ~= math.floor(tonumber(level) or 0)
+    then
+        return nil
+    end
+    return result.completed == true
 end
 
 function M.level_up_maintenance_plan_order(cfg)
@@ -5246,6 +5300,7 @@ function M.fetch_level_up_maintenance_step_target(ctx, step, cfg)
         fixed_step.fixed_ratio_x = fixed_ratio_x
         fixed_step.fixed_ratio_y = fixed_ratio_y
         fixed_step.fixed_prefer_ratio = step.fixed_fallback_prefer_ratio ~= false
+        fixed_step.prefer_screen_click = step.fixed_fallback_prefer_screen_click ~= false
         fixed_step.mouse_mode = tostring(step.fixed_fallback_mouse_mode or step.mouse_mode or step.click_mode or "api")
         fixed_step.click_button = tostring(step.fixed_fallback_click_button or step.click_button or "left")
         fixed_step.click_delay_ms = tonumber(step.fixed_fallback_click_delay_ms or step.click_delay_ms) or 50
@@ -5568,6 +5623,7 @@ function M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_executor_close_attempts = nil
     state.level_up_maintenance_executor_plan_done_pre_marked = nil
     state.level_up_maintenance_executor_point_check_miss_count = nil
+    state.level_up_maintenance_executor_no_persist = nil
     state.level_up_maintenance_panel_open_death_guard_until = 0
     state.level_up_maintenance_panel_open_death_guard_wall_until = 0
     state.level_up_maintenance_panel_open_death_guard_step_key = nil
@@ -5742,8 +5798,8 @@ function M.level_up_maintenance_step_is_back_button(step)
     local step_key = tostring(step.key or ""):lower()
     local step_label = tostring(step.label or ""):lower()
     if step_key:find("back", 1, true) ~= nil
-        or step_label:find("back", 1, true) ~= nil
-        or step_label:find("杩斿洖", 1, true) ~= nil
+        or step_label:find("\u{8FD4}\u{56DE}", 1, true) ~= nil
+        or step_label:find("\u{8FD4}\u{56DE}", 1, true) ~= nil
     then
         return true
     end
@@ -5825,7 +5881,9 @@ function M.level_up_maintenance_mark_current_plan_done_early(ctx, reason)
     end
     state.level_up_maintenance_executor_plan_done_pre_marked = true
     logger(ctx).info(string.format(
-        "[Leveling] level-up maintenance plan completion persisted early | reason=%s kind=%s level=%d plan=%s",
+        "[Leveling] level-up maintenance plan completion marked early | persist=%s reason=%s kind=%s level=%d plan=%s",
+        tostring(not (state.level_up_maintenance_executor_no_persist == true
+            or (ctx ~= nil and ctx.level_up_maintenance_no_persist == true))),
         tostring(reason or ""),
         kind,
         level,
@@ -5849,6 +5907,8 @@ function M.level_up_maintenance_clear_pending_if_done(ctx)
     state.level_up_maintenance_safe_since = 0
     state.level_up_maintenance_completed_plans = nil
     state.level_up_maintenance_default_skill_min_pending_level = nil
+    state.level_up_maintenance_treasure_start_sequence_active = nil
+    state.level_up_maintenance_treasure_start_executor_active = nil
     return true
 end
 
@@ -5872,6 +5932,9 @@ function M.start_level_up_maintenance_executor(ctx, current_time, plan_info)
     state.level_up_maintenance_executor_close_attempts = 0
     state.level_up_maintenance_executor_plan_done_pre_marked = nil
     state.level_up_maintenance_executor_point_check_miss_count = 0
+    state.level_up_maintenance_executor_no_persist =
+        plan_info.no_persist == true or (ctx ~= nil and ctx.level_up_maintenance_no_persist == true)
+    state.level_up_maintenance_executor_last_result = nil
     M.clear_level_up_maintenance_point_decrement_state()
     logger(ctx).info(string.format(
         "[Leveling] level-up maintenance executor started | kind=%s level=%d plan=%s steps=%d",
@@ -5900,6 +5963,13 @@ function M.fail_level_up_maintenance_executor(ctx, current_time, err)
         tostring(err or "")
     ))
     M.level_up_maintenance_skip_plan_for_run(kind, level, plan, ctx, err)
+    state.level_up_maintenance_executor_last_result = {
+        completed = false,
+        kind = kind,
+        level = level,
+        plan_id = M.level_up_maintenance_plan_id(kind, level, plan),
+        error = tostring(err or "")
+    }
     local cleanup_clicked = false
     if (tonumber(state.level_up_maintenance_executor_step_index) or 1) > 1 then
         cleanup_clicked = M.try_click_level_up_maintenance_back_button(ctx, "executor_failed") == true
@@ -5957,6 +6027,12 @@ function M.finish_level_up_maintenance_executor(ctx, current_time)
     if state.level_up_maintenance_executor_plan_done_pre_marked ~= true then
         M.level_up_maintenance_mark_plan_done(kind, level, plan, ctx)
     end
+    state.level_up_maintenance_executor_last_result = {
+        completed = true,
+        kind = kind,
+        level = level,
+        plan_id = M.level_up_maintenance_plan_id(kind, level, plan)
+    }
     logger(ctx).info(string.format(
         "[Leveling] level-up maintenance executor completed | kind=%s level=%d plan=%s",
         kind,
@@ -6060,6 +6136,89 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
     end
 
     local step_action = tostring(step.kind or step.action or "")
+    if step_action == "ensure_panel_open" then
+        local key_vk = tonumber(step.key_vk or step.vk or step.hotkey_vk)
+        if key_vk == nil then
+            return M.fail_level_up_maintenance_executor(ctx, current_time, "ensure_panel_open step missing key_vk")
+        end
+        if type(press_keyboard_hotkey) ~= "function" then
+            return M.fail_level_up_maintenance_executor(ctx, current_time, "ensure_panel_open unavailable")
+        end
+
+        local cfg = M.level_up_maintenance_config()
+        local label = tostring(step.label or step.key or "level-up maintenance panel")
+        local target, fetch_err = M.fetch_level_up_maintenance_step_target(ctx, step, cfg)
+        if type(target) ~= "table" then
+            local ok, press_err = press_keyboard_hotkey(ctx, current_time, key_vk, label)
+            if not ok then
+                return M.fail_level_up_maintenance_executor(ctx, current_time, "ensure_panel_open key failed: " .. tostring(press_err or ""))
+            end
+
+            local open_wait_ms = math.max(0, tonumber(step.open_wait_ms) or 180)
+            if open_wait_ms > 0 and type(sys) == "table" and type(sys.sleep) == "function" then
+                sys.sleep(open_wait_ms)
+            end
+
+            local timeout_ms = math.max(0, tonumber(step.verify_timeout_ms or step.timeout_ms) or 2500)
+            local poll_ms = math.max(50, tonumber(step.verify_poll_ms or step.poll_ms) or 100)
+            local deadline = now_ms(ctx) + timeout_ms
+            local attempts = 0
+            while true do
+                attempts = attempts + 1
+                target, fetch_err = M.fetch_level_up_maintenance_step_target(ctx, step, cfg)
+                if type(target) == "table" then
+                    logger(ctx).info(string.format(
+                        "[Leveling] level-up maintenance panel opened by hotkey | kind=%s level=%s plan=%s step=%d/%d key=%s vk=%s attempts=%d addr=%s pos=(%s,%s)",
+                        tostring(state.level_up_maintenance_executor_kind or ""),
+                        tostring(state.level_up_maintenance_executor_level or ""),
+                        tostring(state.level_up_maintenance_executor_plan_label or ""),
+                        index,
+                        #steps,
+                        tostring(step.key or ""),
+                        tostring(key_vk),
+                        attempts,
+                        tostring(target.addr or ""),
+                        tostring(target.x or ""),
+                        tostring(target.y or "")
+                    ))
+                    break
+                end
+
+                local now = now_ms(ctx)
+                if now >= deadline then
+                    return M.fail_level_up_maintenance_executor(
+                        ctx,
+                        current_time,
+                        "ensure_panel_open verify timeout: " .. tostring(fetch_err or "")
+                    )
+                end
+                if type(sys) == "table" and type(sys.sleep) == "function" then
+                    sys.sleep(math.min(poll_ms, math.max(50, deadline - now)))
+                else
+                    return M.fail_level_up_maintenance_executor(ctx, current_time, "ensure_panel_open failed: sleep unavailable")
+                end
+            end
+        else
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance panel already open | kind=%s level=%s plan=%s step=%d/%d key=%s addr=%s pos=(%s,%s)",
+                tostring(state.level_up_maintenance_executor_kind or ""),
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                index,
+                #steps,
+                tostring(step.key or ""),
+                tostring(target.addr or ""),
+                tostring(target.x or ""),
+                tostring(target.y or "")
+            ))
+        end
+
+        state.level_up_maintenance_executor_step_index = index + 1
+        state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
+            + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
+        return true
+    end
+
     if step_action == "press_key" then
         local key_vk = tonumber(step.key_vk or step.vk or step.hotkey_vk)
         if key_vk == nil then
@@ -6623,6 +6782,20 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
         M.level_up_maintenance_mark_current_plan_done_early(ctx, "final_back_clicked")
     end
     M.arm_level_up_maintenance_panel_open_death_guard(ctx, current_time, step, index, #steps)
+    local post_click_sleep_ms = math.max(0, tonumber(step.post_click_sleep_ms or step.post_click_wait_ms) or 0)
+    if post_click_sleep_ms > 0 and type(sys) == "table" and type(sys.sleep) == "function" then
+        logger(ctx).info(string.format(
+            "[Leveling] level-up maintenance post-click wait | kind=%s level=%s plan=%s step=%d/%d key=%s wait_ms=%d",
+            tostring(state.level_up_maintenance_executor_kind or ""),
+            tostring(state.level_up_maintenance_executor_level or ""),
+            tostring(state.level_up_maintenance_executor_plan_label or ""),
+            index,
+            #steps,
+            tostring(step.key or ""),
+            post_click_sleep_ms
+        ))
+        sys.sleep(post_click_sleep_ms)
+    end
     state.level_up_maintenance_executor_step_index = index + 1
     state.level_up_maintenance_executor_next_step_at = current_time
         + M.level_up_maintenance_step_wait_ms(cfg, step, steps[index + 1])
@@ -10667,6 +10840,135 @@ local function maybe_handle_map_specific_transition(ctx, current_time, player_x,
         local step = type(revive_cfg.step) == "table" and revive_cfg.step
             or (revive_cfg.use_global_portal ~= false and M.GLOBAL_TASK_PORTAL_STEP or nil)
 
+        local route_waypoints = type(revive_cfg.waypoints) == "table" and revive_cfg.waypoints or nil
+        if route_waypoints ~= nil
+            and #route_waypoints > 0
+            and state.revive_reentry_route_done ~= true
+        then
+            local route_index = math.max(1, tonumber(state.revive_reentry_route_index) or 1)
+            while route_index <= #route_waypoints do
+                local point = route_waypoints[route_index]
+                local point_x = tonumber(type(point) == "table" and point.x)
+                local point_y = tonumber(type(point) == "table" and point.y)
+                if point_x ~= nil and point_y ~= nil then
+                    break
+                end
+                logger(ctx).warn(string.format(
+                    "[Leveling] revive boss reentry route skipped invalid waypoint | source=%s objective_key=%s index=%d/%d",
+                    tostring(state.revive_reentry_source or ""),
+                    tostring(state.revive_reentry_objective_key or ""),
+                    route_index,
+                    #route_waypoints
+                ))
+                route_index = route_index + 1
+                state.revive_reentry_route_index = route_index
+            end
+
+            if route_index <= #route_waypoints then
+                local point = route_waypoints[route_index]
+                local point_x = tonumber(point.x)
+                local point_y = tonumber(point.y)
+                local point_z = tonumber(point.z)
+                local reach_radius = math.max(
+                    80,
+                    tonumber(point.reach_radius)
+                        or tonumber(revive_cfg.waypoint_reach_radius)
+                        or tonumber(revive_cfg.route_reach_radius)
+                        or 180
+                )
+                local z_tolerance = math.max(
+                    0,
+                    tonumber(point.z_tolerance)
+                        or tonumber(revive_cfg.waypoint_z_tolerance)
+                        or 320
+                )
+                local point_distance = distance_2d(player_x, player_y, point_x, point_y)
+                local z_gap = point_z ~= nil and type(player_z) == "number"
+                    and math.abs((tonumber(player_z) or 0) - point_z)
+                    or 0
+
+                if point_distance <= reach_radius and z_gap <= z_tolerance then
+                    state.revive_reentry_route_index = route_index + 1
+                    logger(ctx).info(string.format(
+                        "[Leveling] revive boss reentry route waypoint reached | source=%s objective_key=%s index=%d/%d distance=%.2f z_gap=%.2f point=%.2f, %.2f, %.2f",
+                        tostring(state.revive_reentry_source or ""),
+                        tostring(state.revive_reentry_objective_key or ""),
+                        route_index,
+                        #route_waypoints,
+                        tonumber(point_distance) or 0,
+                        tonumber(z_gap) or 0,
+                        tonumber(point_x) or 0,
+                        tonumber(point_y) or 0,
+                        tonumber(point_z) or 0
+                    ))
+                    route_index = route_index + 1
+                end
+
+                if route_index <= #route_waypoints then
+                    point = route_waypoints[route_index]
+                    point_x = tonumber(point.x)
+                    point_y = tonumber(point.y)
+                    point_z = tonumber(point.z)
+                    reach_radius = math.max(
+                        80,
+                        tonumber(point.reach_radius)
+                            or tonumber(revive_cfg.waypoint_reach_radius)
+                            or tonumber(revive_cfg.route_reach_radius)
+                            or 180
+                    )
+                    z_tolerance = math.max(
+                        0,
+                        tonumber(point.z_tolerance)
+                            or tonumber(revive_cfg.waypoint_z_tolerance)
+                            or 320
+                    )
+                    point_distance = distance_2d(player_x, player_y, point_x, point_y)
+                    z_gap = point_z ~= nil and type(player_z) == "number"
+                        and math.abs((tonumber(player_z) or 0) - point_z)
+                        or 0
+
+                    state.stage = "revive_boss_reentry_route"
+                    hold_navigation(ctx, current_time, "revive_boss_reentry_route")
+                    issue_move(ctx, current_time, {
+                        x = point_x,
+                        y = point_y,
+                        z = point_z,
+                        source = "revive_boss_reentry_route",
+                        path_index = route_index,
+                        path_points = #route_waypoints,
+                        move_interval_ms = tonumber(point.move_interval_ms)
+                            or tonumber(revive_cfg.move_interval_ms)
+                            or 220,
+                        current_distance = point_distance
+                    })
+                    log_throttled(ctx, "revive_boss_reentry_route_move_" .. tostring(revive_cfg.key or ""), "info", 900, string.format(
+                        "[Leveling] revive boss reentry moving along fixed route | source=%s objective_key=%s index=%d/%d distance=%.2f reach_radius=%.2f z_gap=%.2f point=%.2f, %.2f, %.2f",
+                        tostring(state.revive_reentry_source or ""),
+                        tostring(state.revive_reentry_objective_key or ""),
+                        route_index,
+                        #route_waypoints,
+                        tonumber(point_distance) or 0,
+                        tonumber(reach_radius) or 0,
+                        tonumber(z_gap) or 0,
+                        tonumber(point_x) or 0,
+                        tonumber(point_y) or 0,
+                        tonumber(point_z) or 0
+                    ))
+                    return true
+                end
+            end
+
+            state.revive_reentry_route_done = true
+            state.revive_reentry_route_index = #route_waypoints + 1
+            logger(ctx).info(string.format(
+                "[Leveling] revive boss reentry fixed route completed | source=%s objective_key=%s label=%s points=%d",
+                tostring(state.revive_reentry_source or ""),
+                tostring(state.revive_reentry_objective_key or ""),
+                tostring(revive_cfg.label or revive_cfg.key or ""),
+                #route_waypoints
+            ))
+        end
+
         if follow_task_path_to_anchor and move_distance > portal_scan_distance then
             if type(state.task_target) ~= "table" then
                 if current_time >= (tonumber(state.next_task_button_click_at) or 0) then
@@ -12490,14 +12792,14 @@ function M.refresh_current_task_name(ctx, current_time, button_target, hint_x, h
         then
             local normalized_key = normalize_map_name(normalized)
             local is_generic = normalized == ""
-                or normalized == "涓荤嚎"
-                or normalized == "涓荤窔"
-                or normalized == "鏀嚎"
-                or normalized == "浠诲嫏"
-                or normalized == "浠诲姟"
-                or normalized == "鐩爣"
-                or normalized == "鐩"
-                or normalized == "杩借釜"
+                or normalized == "\u{4E3B}\u{7EBF}"
+                or normalized == "\u{4E3B}\u{7EBF}\u{4EFB}\u{52A1}"
+                or normalized == "\u{652F}\u{7EBF}"
+                or normalized == "\u{652F}\u{7EBF}\u{4EFB}\u{52A1}"
+                or normalized == "\u{5B8C}\u{6210}"
+                or normalized == "\u{65B0}"
+                or normalized == "\u{4EFB}\u{52A1}"
+                or normalized == "\u{5730}\u{56FE}"
                 or normalized == "杩借工"
             local looks_numeric_only = normalized:match("^[%d%s%/%-%:%+]+$") ~= nil
             local looks_like_current_map = normalized_key ~= nil

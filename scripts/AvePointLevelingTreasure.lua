@@ -1867,7 +1867,7 @@ likely_inside_treasure = function(ctx, cfg, hooks, runtime, current_time, player
     return false, nil
 end
 
-local function startup_inside_recovery_match(ctx, cfg, hooks, current_time, player_x, player_y, player_z)
+local function startup_inside_recovery_match(ctx, main_state, runtime, cfg, hooks, current_time, player_x, player_y, player_z)
     if type(cfg) ~= "table" or cfg.enabled == false then
         return false, nil
     end
@@ -1885,6 +1885,18 @@ local function startup_inside_recovery_match(ctx, cfg, hooks, current_time, play
         and cfg_landing_ready(player_x, player_y, player_z, cfg, "restart_landing")
     then
         match_reason = "restart_landing"
+    elseif cfg.startup_recovery_route_nearby == true then
+        local near_route, route_gap, route_threshold = route_nearby_for_cfg(
+            main_state,
+            cfg,
+            runtime,
+            player_x,
+            player_y,
+            tonumber(cfg.startup_recovery_route_distance) or tonumber(cfg.resume_route_distance) or 1800
+        )
+        if near_route then
+            match_reason = string.format("route_nearby:%.0f/%.0f", tonumber(route_gap) or 0, tonumber(route_threshold) or 0)
+        end
     end
 
     if match_reason == nil then
@@ -1954,7 +1966,7 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
 
     local runtime = ensure_runtime_state(main_state)
     for _, candidate in ipairs(configs) do
-        local inside_match, inside_reason, task_name, task_detail, match_reason = startup_inside_recovery_match(ctx, candidate, hooks, current_time, player_x, player_y, player_z)
+        local inside_match, inside_reason, task_name, task_detail, match_reason = startup_inside_recovery_match(ctx, main_state, runtime, candidate, hooks, current_time, player_x, player_y, player_z)
         if inside_reason == "task_pending" then
             local target_level = configured_target_level(candidate)
             local pending_level = nil
@@ -3272,6 +3284,8 @@ local function record_portal_click_attempt(runtime, portal_kind, player_x, playe
     if type(runtime) ~= "table" then
         return
     end
+    runtime.portal_retry_after_failed_kind = nil
+    runtime.portal_retry_after_failed_until = 0
     runtime.portal_click_kind = tostring(portal_kind or "")
     runtime.portal_click_x = tonumber(player_x)
     runtime.portal_click_y = tonumber(player_y)
@@ -3352,6 +3366,32 @@ local function portal_click_position_changed(runtime, player_x, player_y, player
     return false, moved
 end
 
+local function portal_retry_far_from_trigger(runtime, current_time, cfg, portal_kind, portal_cfg, player_x, player_y)
+    if type(runtime) ~= "table" or type(portal_cfg) ~= "table" then
+        return false, nil, nil
+    end
+    local retry_kind = tostring(runtime.portal_retry_after_failed_kind or "")
+    if retry_kind == "" or retry_kind ~= tostring(portal_kind or "") then
+        return false, nil, nil
+    end
+    local retry_until = tonumber(runtime.portal_retry_after_failed_until) or 0
+    if retry_until <= 0 or (tonumber(current_time) or 0) > retry_until then
+        return false, nil, nil
+    end
+    local trigger = type(portal_cfg.trigger) == "table" and portal_cfg.trigger or nil
+    if not is_valid_point(trigger) or not has_reliable_world_pos(player_x, player_y) then
+        return false, nil, nil
+    end
+    local distance = distance_2d(player_x, player_y, tonumber(trigger.x), tonumber(trigger.y))
+    local threshold = math.max(
+        1200,
+        tonumber(portal_cfg.retry_far_distance)
+            or tonumber(type(cfg) == "table" and cfg.portal_retry_far_distance)
+            or ((tonumber(portal_cfg.interact_distance) or 260) * 4)
+    )
+    return distance >= threshold, distance, threshold
+end
+
 local function handle_failed_portal_transition(ctx, main_state, hooks, cfg, runtime, current_time, portal_kind, portal_cfg, player_x, player_y, player_z, reason)
     local clicked_at = tonumber(type(runtime) == "table" and runtime.portal_click_at) or 0
     local no_move, moved = portal_click_position_unchanged(runtime, player_x, player_y, player_z, cfg, portal_cfg)
@@ -3387,6 +3427,13 @@ local function handle_failed_portal_transition(ctx, main_state, hooks, cfg, runt
     runtime.stage_deadline_at = 0
     runtime.portal_kind = tostring(portal_kind or "")
     clear_portal_click_attempt(runtime)
+    runtime.portal_retry_after_failed_kind = tostring(portal_kind or "")
+    runtime.portal_retry_after_failed_until = current_time + math.max(
+        6000,
+        tonumber(type(portal_cfg) == "table" and portal_cfg.retry_far_window_ms)
+            or tonumber(type(cfg) == "table" and cfg.portal_retry_far_window_ms)
+            or 12000
+    )
     if type(hooks.clear_task_target_state) == "function" then
         hooks.clear_task_target_state()
     end
@@ -5151,6 +5198,35 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                     tonumber(player_y) or 0,
                     tonumber(player_z) or 0
                 ))
+        end
+
+        local retry_far, retry_distance, retry_threshold =
+            portal_retry_far_from_trigger(runtime, current_time, cfg, portal_kind, portal_cfg, player_x, player_y)
+        if retry_far then
+            runtime.portal_retry_after_failed_kind = nil
+            runtime.portal_retry_after_failed_until = 0
+            runtime.next_retry_at = current_time
+            runtime.stage_deadline_at = current_time + math.max(4000, tonumber(portal_cfg and portal_cfg.settle_ms) or 5000)
+            transition_mode(ctx, hooks, cfg, runtime, portal_kind == "restart" and "wait_restart" or "wait_exit",
+                "portal_far_after_retry:" .. tostring(portal_kind))
+            if type(hooks.clear_task_target_state) == "function" then
+                hooks.clear_task_target_state()
+            end
+            if type(hooks.clear_nav_worker_target) == "function" then
+                hooks.clear_nav_worker_target(ctx, current_time, "treasure_portal_far_after_retry:" .. tostring(portal_kind))
+            elseif type(hooks.hold_navigation) == "function" then
+                hooks.hold_navigation(ctx, current_time, "treasure_portal_far_after_retry:" .. tostring(portal_kind))
+            end
+            if type(hooks.log_info) == "function" then
+                hooks.log_info(ctx, string.format(
+                    "[Treasure] portal retry appears transitioned by distance; wait landing | key=%s portal=%s distance=%.2f threshold=%.2f",
+                    tostring(cfg.key or ""),
+                    tostring(portal_kind or ""),
+                    tonumber(retry_distance) or 0,
+                    tonumber(retry_threshold) or 0
+                ))
+            end
+            return true
         end
 
         if move_to_portal(ctx, hooks, current_time, player_x, player_y, portal_cfg) then

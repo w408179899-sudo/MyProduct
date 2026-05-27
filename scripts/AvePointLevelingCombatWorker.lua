@@ -155,15 +155,28 @@ local DEFAULT_INTERVAL_MS = math.max(100, tonumber(interval_ms) or 550)
 local DEFAULT_RETRY_MS = math.max(50, tonumber(retry_ms) or 100)
 local ACTION_MOUSE_HOLD_MS = math.max(10, tonumber(mouse_hold_ms) or 34)
 local VK_W = 0x57
+local VK_R = 0x52
+local DEFAULT_R_INTERVAL_MIN_MS = math.max(1000, tonumber(r_interval_min_ms) or 10000)
+local DEFAULT_R_INTERVAL_MAX_MS = math.max(DEFAULT_R_INTERVAL_MIN_MS, tonumber(r_interval_max_ms) or 15000)
 
 if SHARE_PREFIX == "" then
     error("share_prefix is required for AvePointLevelingCombatWorker")
 end
 
+do
+    local seed = now_ms()
+    if seed > 0 then
+        math.randomseed(seed % 2147483647)
+    end
+end
+
 local nav = load_nav_module()
 local next_pulse_at = 0
 local last_pulse_at = 0
+local next_r_at = 0
+local last_r_at = 0
 local pulse_count = 0
+local r_count = 0
 local last_status = ""
 local last_log_at = 0
 
@@ -200,10 +213,28 @@ local function set_status(status, detail)
     end
 end
 
-local function press_w()
+local function random_between(min_value, max_value)
+    min_value = math.floor(tonumber(min_value) or 0)
+    max_value = math.floor(tonumber(max_value) or min_value)
+    if max_value <= min_value then
+        return min_value
+    end
+    return math.random(min_value, max_value)
+end
+
+local function schedule_next_r(base_time)
+    local now = tonumber(base_time) or now_ms()
+    local delay_ms = random_between(DEFAULT_R_INTERVAL_MIN_MS, DEFAULT_R_INTERVAL_MAX_MS)
+    next_r_at = now + delay_ms
+    share_set(SHARE_PREFIX, "next_r_at", next_r_at)
+    share_set(SHARE_PREFIX, "next_r_delay_ms", delay_ms)
+    return delay_ms
+end
+
+local function press_key_vk(vk, label)
     local driver_api = type(driver) == "table" and driver or nil
     if type(driver_api) == "table" and type(driver_api.keybd_click) == "function" then
-        local ok, result = safe_call(driver_api.keybd_click, VK_W)
+        local ok, result = safe_call(driver_api.keybd_click, vk)
         if ok and result ~= false then
             return true, nil, "driver_click"
         end
@@ -225,13 +256,21 @@ local function press_w()
         safe_call(keybd_api.set_window, hwnd)
     end
     if type(keybd_api.click) == "function" then
-        local ok, result = safe_call(keybd_api.click, VK_W)
+        local ok, result = safe_call(keybd_api.click, vk)
         if ok and result ~= false then
             return true, nil, "key_click_driver"
         end
     end
 
-    return false, "combat worker W key failed.", nil
+    return false, "combat worker " .. tostring(label or "key") .. " key failed.", nil
+end
+
+local function press_w()
+    return press_key_vk(VK_W, "W")
+end
+
+local function press_r()
+    return press_key_vk(VK_R, "R")
 end
 
 local function release_right_mouse(mouse_api)
@@ -322,6 +361,40 @@ local function issue_pulse(reason, interval_ms, retry_ms)
     return false, detail
 end
 
+local function issue_r_pulse(reason)
+    local start_at = now_ms()
+    local key_ok, key_err, key_mode = press_r()
+    local finish_at = now_ms()
+
+    if key_ok then
+        local previous = last_r_at
+        last_r_at = finish_at
+        r_count = r_count + 1
+        local next_delay_ms = schedule_next_r(finish_at)
+        share_set(SHARE_PREFIX, "last_r_at", finish_at)
+        share_set(SHARE_PREFIX, "last_r_interval_ms", previous > 0 and math.max(0, finish_at - previous) or 0)
+        share_set(SHARE_PREFIX, "last_r_reason", tostring(reason or ""))
+        share_set(SHARE_PREFIX, "last_r_key_mode", tostring(key_mode or ""))
+        share_set(SHARE_PREFIX, "r_count", r_count)
+        share_set(SHARE_PREFIX, "last_r_error", nil)
+        log_info(string.format(
+            "[Leveling] combat worker R key issued | reason=%s next_delay_ms=%d actual_gap_ms=%d key_mode=%s elapsed_ms=%d",
+            tostring(reason or ""),
+            tonumber(next_delay_ms) or 0,
+            previous > 0 and math.max(0, finish_at - previous) or 0,
+            tostring(key_mode or ""),
+            math.max(0, finish_at - start_at)
+        ))
+        return true
+    end
+
+    next_r_at = finish_at + 1000
+    local detail = "key_ok=false key_err=" .. tostring(key_err or "")
+    share_set(SHARE_PREFIX, "last_r_error", detail)
+    log_warn("[Leveling] combat worker R key failed | reason=" .. tostring(reason or "") .. " " .. detail)
+    return false, detail
+end
+
 if type(task) == "table" and type(task.on_stop) == "function" then
     task.on_stop(function()
         running = false
@@ -366,19 +439,36 @@ while running do
         local retry_ms = math.max(50, as_number(share_get(SHARE_PREFIX, "retry_ms")) or DEFAULT_RETRY_MS)
 
         if paused or not enabled then
+            next_r_at = 0
             set_status(paused and "paused" or "idle")
             if not safe_sleep(UPDATE_INTERVAL_MS) then
                 break
             end
         elseif current_time > allow_until then
+            -- Keep the long R-key cadence across short lease gaps. The main runner
+            -- renews combat leases in small windows, while R is intentionally 10-15s.
             set_status("lease_expired")
             if not safe_sleep(UPDATE_INTERVAL_MS) then
                 break
             end
-        elseif current_time >= next_pulse_at then
-            issue_pulse(reason, interval_ms, retry_ms)
         else
-            local wait_ms = math.min(UPDATE_INTERVAL_MS, math.max(10, next_pulse_at - current_time))
+            if next_r_at <= 0 then
+                schedule_next_r(current_time)
+            end
+            if current_time >= next_pulse_at then
+                issue_pulse(reason, interval_ms, retry_ms)
+                current_time = now_ms()
+            end
+            if current_time >= next_r_at then
+                issue_r_pulse(reason)
+                current_time = now_ms()
+            end
+
+            local next_wait_at = next_pulse_at
+            if next_r_at > 0 then
+                next_wait_at = math.min(next_wait_at, next_r_at)
+            end
+            local wait_ms = math.min(UPDATE_INTERVAL_MS, math.max(10, next_wait_at - current_time))
             if not safe_sleep(wait_ms) then
                 break
             end
