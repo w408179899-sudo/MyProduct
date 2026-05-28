@@ -208,8 +208,21 @@ M.LEVEL_UP_MAINTENANCE_CONFIG = {
                     repeat_image_until_missing = true,
                     repeat_image_until_missing_max_count = 30,
                     repeat_image_until_missing_interval_ms = 180,
-                    missing_image_retry_count = 6,
+                    missing_image_retry_count = 2,
                     missing_image_retry_interval_ms = 300,
+                    post_image_done_mouse_away = {
+                        rect_left = 1171.00,
+                        rect_top = 7.00,
+                        rect_right = 1436.00,
+                        rect_bottom = 127.00,
+                        target_client_x = 1080.00,
+                        target_client_y = 170.00,
+                        target_ratio_x = 0.750000,
+                        target_ratio_y = 0.188679,
+                        move_if_inside_only = true,
+                        mouse_mode = "api",
+                        hover_ms = 80
+                    },
                     image_preset = {
                         template_path = "skill_level_up.bmp",
                         template_threshold = 0.85,
@@ -3482,11 +3495,11 @@ do
                     {
                         "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
                     },
-                    913.706848,
-                    476.651550,
-                    0.634960,
-                    0.529613,
-                    20,
+                    915.336914,
+                    476.143616,
+                    0.635651,
+                    0.528461,
+                    30,
                     1200
                 ), "level_35_select_second_tab_talent_node")
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -3523,19 +3536,19 @@ do
                     {
                         "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
                     },
-                    918.336914,
-                    407.152130,
-                    0.637734,
-                    0.452391,
-                    20,
+                    915.336914,
+                    406.652100,
+                    0.635651,
+                    0.451334,
+                    30,
                     1200
                 ), string.format("level_%d_select_second_tab_talent_node", current_level))
                 steps[#steps].target_poll_count = 30
                 steps[#steps].target_poll_interval_ms = 100
-                steps[#steps].fixed_fallback_client_x = 954.00
-                steps[#steps].fixed_fallback_client_y = 411.00
-                steps[#steps].fixed_fallback_ratio_x = 0.662500
-                steps[#steps].fixed_fallback_ratio_y = 0.456667
+                steps[#steps].fixed_fallback_client_x = 958.00
+                steps[#steps].fixed_fallback_client_y = 415.00
+                steps[#steps].fixed_fallback_ratio_x = 0.665278
+                steps[#steps].fixed_fallback_ratio_y = 0.460599
                 steps[#steps].fixed_fallback_prefer_ratio = true
                 steps[#steps].fixed_fallback_mouse_mode = "api"
                 steps[#steps].fixed_fallback_click_delay_ms = 50
@@ -3562,7 +3575,9 @@ do
         M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_36_to_38_second_tab_talent_plan(level)
     end
 
-    local function make_level_39_to_41_second_tab_talent_plan(level)
+    local function make_level_39_to_41_second_tab_talent_plan(level, node_hint)
+        node_hint = type(node_hint) == "table" and node_hint or {}
+        local second_tab_hint = type(node_hint.second_tab) == "table" and node_hint.second_tab or nil
         return make_manual_talent_plan(
             level,
             string.format("%d级天赋：激活第二页右侧上排后续天赋节点", level),
@@ -3570,17 +3585,36 @@ do
                 local base_plan = M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[14]
                     or original_talent_by_level[14]
                 append_shifted_setup(steps, current_level, base_plan)
+                if second_tab_hint ~= nil then
+                    append_shifted_step(steps, current_level, maintenance_locator_step(
+                        string.format("level_%d_select_second_talent_tab", current_level),
+                        "123按钮",
+                        {
+                            "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+                        },
+                        second_tab_hint.x or 45.754456,
+                        second_tab_hint.y or 389.549255,
+                        second_tab_hint.ratio_x or 0.031774,
+                        second_tab_hint.ratio_y or 0.432833,
+                        second_tab_hint.max_distance or 30,
+                        650
+                    ), string.format("level_%d_select_second_talent_tab", current_level))
+                    steps[#steps].distance_anchor_exact_text = "123"
+                    steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.Talent_C.WidgetTree.TabCareerSelectItem.WidgetTree.TabCardItem2.WidgetTree.TabBtn"
+                    steps[#steps].distance_min = second_tab_hint.distance_min or 67.231408
+                    steps[#steps].distance_max = second_tab_hint.distance_max or 71.390052
+                end
                 append_shifted_step(steps, current_level, maintenance_locator_step(
                     string.format("level_%d_select_second_tab_talent_node", current_level),
                     string.format("%d级天赋节点按钮", current_level),
                     {
                         "UIButton Transient.GameEngine.CoreGameInstance.TalentPointItem_C.WidgetTree.SelectBtn"
                     },
-                    1070.636841,
-                    406.208282,
-                    0.744014,
-                    0.451343,
-                    20,
+                    node_hint.x or 1070.636841,
+                    node_hint.y or 406.208282,
+                    node_hint.ratio_x or 0.744014,
+                    node_hint.ratio_y or 0.451343,
+                    node_hint.max_distance or 20,
                     1200
                 ), string.format("level_%d_select_second_tab_talent_node", current_level))
                 append_shifted_step(steps, current_level, maintenance_locator_step(
@@ -3602,9 +3636,25 @@ do
         )
     end
 
-    for _, level in ipairs({ 39, 40 }) do
-        M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[level] = make_level_39_to_41_second_tab_talent_plan(level)
-    end
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[39] = make_level_39_to_41_second_tab_talent_plan(39, {
+        x = 1071.375366,
+        y = 406.652100,
+        ratio_x = 0.744011,
+        ratio_y = 0.451334,
+        max_distance = 30
+    })
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[40] = make_level_39_to_41_second_tab_talent_plan(40)
+    M.LEVEL_UP_MAINTENANCE_CONFIG.talent_by_level[41] = make_level_39_to_41_second_tab_talent_plan(41, {
+        second_tab = {
+            x = 45.754456,
+            y = 389.549255,
+            ratio_x = 0.031774,
+            ratio_y = 0.432833,
+            max_distance = 30,
+            distance_min = 67.231408,
+            distance_max = 71.390052
+        }
+    })
 
     local function make_level_42_second_tab_talent_plan()
         return make_manual_talent_plan(
@@ -3873,21 +3923,17 @@ do
 
                 append_shifted_step(steps, current_level, maintenance_locator_step(
                     "level_45_select_keystone_choice",
-                    "选择按钮",
+                    "45级基石选择按钮4",
                     {
-                        "UIButton Transient.GameEngine.CoreGameInstance.TabKeyStoneItem_C.WidgetTree.SelectBtn1"
+                        "UIButton Transient.GameEngine.CoreGameInstance.TabKeyStoneItem_C.WidgetTree.SelectBtn4"
                     },
-                    255.328125,
-                    635.373291,
-                    0.177434,
-                    0.705970,
-                    80,
+                    1042.125000,
+                    633.474976,
+                    0.723698,
+                    0.703861,
+                    30,
                     650
                 ), "level_45_select_keystone_choice")
-                steps[#steps].distance_anchor_exact_text = "选择"
-                steps[#steps].distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TabKeyStoneItem_C.WidgetTree.SelectBtn1"
-                steps[#steps].distance_min = 64.712520
-                steps[#steps].distance_max = 68.715356
 
                 append_shifted_step(steps, current_level, make_maintenance_fixed_click_step({
                     key = "level_45_talent_blank_click_after_keystone_choice",
@@ -5740,33 +5786,29 @@ do
         {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexViewItem.WidgetTree.ClickBtn"
         },
-        62.580853,
-        538.246399,
-        0.043459,
-        0.598052,
-        80,
+        59.580853,
+        537.746399,
+        0.041376,
+        0.596833,
+        30,
         650
     )
-    level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
+    level_34_steps[#level_34_steps + 1] = fixed_click_step(
         "level_34_select_skill_page_tab",
-        "34级技能页标签按钮",
-        {
-            "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.SkillexTabItem.WidgetTree.ClickBtn"
-        },
-        693.986267,
-        450.986237,
-        0.481935,
-        0.501096,
-        80,
+        "34级技能页标签固定点击",
+        725.00,
+        457.00,
+        0.503472,
+        0.507214,
         650
     )
     level_34_steps[#level_34_steps + 1] = fixed_click_step(
         "level_34_skill_erosion_infusion_search_focus",
         "34级侵蚀贯注搜索输入框",
-        376.00,
-        658.00,
-        0.261111,
-        0.731111,
+        427.00,
+        656.00,
+        0.296528,
+        0.728080,
         250
     )
     level_34_steps[#level_34_steps + 1] = {
@@ -5785,11 +5827,11 @@ do
         {
             "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.SearchBtn"
         },
-        557.635376,
-        674.889282,
-        0.387247,
-        0.749877,
-        80,
+        554.635376,
+        674.389282,
+        0.385163,
+        0.748490,
+        30,
         700
     )
     level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
@@ -5798,11 +5840,11 @@ do
         {
             "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Store.WidgetTree.SkillBagStoreEquipItem_C.WidgetTree.ClickBtn"
         },
-        320.013367,
-        306.333282,
-        0.222232,
-        0.340370,
-        80,
+        317.013367,
+        305.833282,
+        0.220148,
+        0.339438,
+        30,
         700
     )
     level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
@@ -5811,11 +5853,11 @@ do
         {
             "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
         },
-        750.427124,
-        468.584473,
-        0.521130,
-        0.520649,
-        80,
+        747.427124,
+        467.584473,
+        0.519047,
+        0.518962,
+        30,
         700
     )
     level_34_steps[#level_34_steps].distance_anchor_exact_text = "获取"
@@ -5828,11 +5870,11 @@ do
         {
             "UIButton Transient.GameEngine.CoreGameInstance.SkillBagItem_C.WidgetTree.FilterSkillGoodsItem_Bag.WidgetTree.SkillBagBackpackEquipItem_C.WidgetTree.ClickBtn"
         },
-        678.952698,
-        306.499054,
-        0.471495,
-        0.340555,
-        80,
+        675.952698,
+        305.999084,
+        0.469412,
+        0.339622,
+        30,
         700
     )
     level_34_steps[#level_34_steps + 1] = maintenance_locator_step(
@@ -5841,11 +5883,11 @@ do
         {
             "UIButton Transient.GameEngine.CoreGameInstance.TipSkillHandItem_C.WidgetTree.ChangeBtn"
         },
-        467.682312,
-        468.584473,
-        0.324779,
-        0.520649,
-        80,
+        464.682312,
+        467.584473,
+        0.322696,
+        0.518962,
+        30,
         700
     )
     level_34_steps[#level_34_steps].distance_anchor_exact_text = "安装"
@@ -5858,11 +5900,11 @@ do
         {
             "UIButton Transient.GameEngine.CoreGameInstance.Skill_C.WidgetTree.ActiveAll"
         },
-        619.554565,
+        616.554565,
         864.687805,
-        0.430246,
-        0.960764,
-        80,
+        0.428163,
+        0.959698,
+        30,
         700
     )
     level_34_steps[#level_34_steps + 1] = {
@@ -6072,10 +6114,7 @@ do
                         -- O opens the contract panel directly.
                     elseif panel_kind == "contract" and key:find("contract_open_panel", 1, true) ~= nil then
                         steps[#steps + 1] = make_hotkey_panel_open_step(step, "contract")
-                    elseif panel_kind == "skill"
-                        and (key:find("open_skill_panel", 1, true) ~= nil
-                            or key:find("open_skill_add_panel", 1, true) ~= nil)
-                    then
+                    elseif panel_kind == "skill" and key:find("open_skill_panel", 1, true) ~= nil then
                         steps[#steps + 1] = make_hotkey_panel_open_step(step, "skill")
                     else
                         steps[#steps + 1] = step
@@ -7766,7 +7805,10 @@ M.TREASURE_DUNGEON_CONFIGS = {
         inside_detect_task_panel_text = false,
         startup_recovery_wait_for_task_panel = true,
         startup_recovery_activate_by_level_gate = true,
-        startup_recovery_allow_task_mismatch_by_level_gate = false,
+        startup_recovery_allow_task_mismatch_by_level_gate = true,
+        startup_recovery_allow_route_nearby_task_mismatch_by_level_gate = true,
+        startup_recovery_route_nearby = true,
+        startup_recovery_route_distance = 1800,
         startup_recovery_allow_landing_task_mismatch_by_level_gate = false,
         startup_recovery_restart_landing = false,
         entry_far_reacquire_mainline = true,
@@ -7883,6 +7925,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             radius = 900,
             z_tolerance = 360
         },
+        acquire_path_require_boss_trigger = true,
         route_refresh_ms = 900,
         route_arrive_tolerance = 150,
         route_reanchor_forward_delta = 8,
@@ -13803,6 +13846,85 @@ M.ROUTE_POINT_ACTIONS = {
             fallback_interact = true
         }
     }),
+    make_route_point_action({
+        key = "evening_star_elsmerada_no_path_route_747_453_to_1434_-495",
+        label = "\u{665A}\u{661F}\u{5F85}\u{660E}_\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}_\u{65E0}\u{8DEF}\u{5F84}\u{56FA}\u{5B9A}\u{8DEF}\u{7EBF}",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
+        wait_task_path_recover_only = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "evening_star_elsmerada_no_path_npc_dialogue_1434_-495",
+        followup_route_action_ignore_retry = true,
+        task_patterns = {
+            "\u{665A}\u{661F}\u{5F85}\u{660E}",
+            "\u{665A}\u{661F}\u{9886}\u{8896}"
+        },
+        task_detail_patterns = {
+            "\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 747.00,
+            y = 453.00,
+            z = 2041.80,
+            radius = 1300,
+            z_tolerance = 420
+        },
+        retry_ms = 600000,
+        timeout_ms = 30000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 420,
+        move_interval_ms = 220,
+        route_worker_max_points = 3,
+        waypoints = {
+            { x = 747.00, y = 453.00, z = 2041.80 },
+            { x = 1105.67, y = 228.17, z = 2032.93 },
+            { x = 1434.00, y = -495.00, z = 2034.47 }
+        }
+    }),
+    make_npc_dialogue_route_action({
+        key = "evening_star_elsmerada_no_path_npc_dialogue_1434_-495",
+        label = "\u{665A}\u{661F}\u{5F85}\u{660E}_\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}_\u{56FA}\u{5B9A}\u{8DEF}\u{7EBF}\u{540E}NPC\u{5BF9}\u{8BDD}",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        retry_ms = 6000,
+        task_patterns = {
+            "\u{665A}\u{661F}\u{5F85}\u{660E}",
+            "\u{665A}\u{661F}\u{9886}\u{8896}"
+        },
+        task_detail_patterns = {
+            "\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 1434.00,
+            y = -495.00,
+            z = 2034.47,
+            radius = 900,
+            z_tolerance = 420
+        },
+        dialogue = {
+            x = 1434.00,
+            y = -495.00,
+            z = 2034.47,
+            radius = 320,
+            interact_radius = 160,
+            move_interval_ms = 220,
+            z_tolerance = 420,
+            center_settle_ms = 700,
+            interact_retry_ms = 1800,
+            timeout_ms = 22000,
+            npc_search_radius = 700,
+            fallback_interact = true
+        }
+    }),
     make_npc_dialogue_route_action({
         key = "evening_star_elsmerada_dialogue_anchor_0_-1048_to_465_-1072",
         label = "\u{665A}\u{661F}\u{5F85}\u{660E}_\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}_\u{76F4}\u{63A5}\u{5BF9}\u{8BDD}",
@@ -17649,7 +17771,7 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
-        key = "sand_sea_find_iji_fire_seed_route_10975_8556",
+        key = "sand_sea_find_iji_fire_seed_route_8639_10964",
         label = "狂沙地海_找到伊吉部族追寻火种_固定路线后重call主线",
         mode = "recorded_route_point",
         task_patterns = {
@@ -17660,8 +17782,8 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 12657.00,
-            y = 4436.00,
+            x = 8639.00,
+            y = 10964.00,
             z = 16.00,
             radius = 900,
             z_tolerance = 260
@@ -17673,260 +17795,91 @@ M.ROUTE_POINT_ACTIONS = {
         move_interval_ms = 220,
         reacquire_retry_ms = 1200,
         waypoints = {
-            { x = 13110.62, y = 5297.54, z = 16.00 },
-            { x = 13862.75, y = 5945.31, z = 16.00 },
-            { x = 14204.69, y = 6652.66, z = 16.00 },
-            { x = 14303.27, y = 7311.14, z = 16.00 },
-            { x = 14175.41, y = 7859.82, z = 16.00 },
-            { x = 13816.60, y = 8468.64, z = 16.00 },
-            { x = 13250.69, y = 8851.16, z = 16.00 },
-            { x = 12759.21, y = 9010.75, z = 16.00 },
-            { x = 12101.92, y = 9105.89, z = 16.00 },
-            { x = 11374.77, y = 8854.54, z = 16.00 },
-            { x = 10937.05, y = 8281.66, z = 16.00 },
-            { x = 10561.05, y = 7694.61, z = 16.00 },
-            { x = 10521.83, y = 7094.12, z = 16.00 },
-            { x = 10754.11, y = 6490.80, z = 16.00 },
-            { x = 11261.52, y = 5974.11, z = 16.00 },
-            { x = 11951.79, y = 5433.45, z = 16.00 },
-            { x = 13702.00, y = 5689.00, z = 16.00 },
-            { x = 13302.91, y = 5401.28, z = 16.00 },
-            { x = 13197.17, y = 5724.07, z = 16.00 },
-            { x = 13515.47, y = 6025.64, z = 16.00 },
-            { x = 13864.85, y = 6145.72, z = 16.00 },
-            { x = 14191.98, y = 5971.14, z = 16.00 },
-            { x = 14107.10, y = 5660.56, z = 16.00 },
-            { x = 13758.48, y = 5527.55, z = 16.00 },
-            { x = 13553.31, y = 5760.92, z = 16.00 },
-            { x = 13655.32, y = 6093.70, z = 16.00 },
-            { x = 13881.61, y = 6403.38, z = 16.00 },
-            { x = 14084.08, y = 6624.00, z = 16.00 },
-            { x = 14368.51, y = 6879.20, z = 16.00 },
-            { x = 14502.62, y = 7143.80, z = 16.00 },
-            { x = 14495.37, y = 7488.41, z = 16.00 },
-            { x = 14329.52, y = 7803.03, z = 16.00 },
-            { x = 14152.21, y = 8109.07, z = 16.00 },
-            { x = 13955.26, y = 8335.97, z = 16.00 },
-            { x = 13695.58, y = 8579.83, z = 16.00 },
-            { x = 13445.24, y = 8782.64, z = 16.00 },
-            { x = 13189.50, y = 8940.47, z = 16.00 },
-            { x = 12913.19, y = 9087.95, z = 16.00 },
-            { x = 12610.67, y = 9209.16, z = 16.00 },
-            { x = 12351.77, y = 9294.66, z = 16.00 },
-            { x = 12107.95, y = 9369.64, z = 16.00 },
-            { x = 11872.08, y = 9441.42, z = 16.00 },
-            { x = 11580.90, y = 9520.91, z = 16.00 },
-            { x = 11337.96, y = 9545.01, z = 16.00 },
-            { x = 11072.36, y = 9410.41, z = 16.00 },
-            { x = 11045.61, y = 9086.51, z = 16.00 },
-            { x = 11093.75, y = 8764.36, z = 16.00 },
-            { x = 11331.18, y = 8638.39, z = 16.00 },
-            { x = 11649.42, y = 8652.13, z = 16.00 },
-            { x = 11887.64, y = 8791.47, z = 16.00 },
-            { x = 12062.02, y = 8964.25, z = 16.00 },
-            { x = 12188.15, y = 9199.98, z = 16.00 },
-            { x = 12124.75, y = 9430.52, z = 16.00 },
-            { x = 11917.26, y = 9555.37, z = 16.00 },
-            { x = 11674.63, y = 9580.32, z = 16.00 },
-            { x = 11411.23, y = 9510.39, z = 16.00 },
-            { x = 11221.56, y = 9360.46, z = 16.00 },
-            { x = 11055.34, y = 9143.59, z = 16.00 },
-            { x = 10961.68, y = 8953.84, z = 16.00 },
-            { x = 10985.44, y = 8712.51, z = 16.00 },
-            { x = 11154.92, y = 8564.15, z = 16.00 },
-            { x = 11370.87, y = 8584.77, z = 16.00 },
-            { x = 11552.02, y = 8645.64, z = 16.00 },
-            { x = 11815.74, y = 8786.13, z = 16.00 },
-            { x = 11981.17, y = 8962.40, z = 16.00 },
-            { x = 12019.99, y = 9200.21, z = 16.00 },
-            { x = 11901.20, y = 9405.51, z = 16.00 },
-            { x = 11637.66, y = 9418.70, z = 16.00 },
-            { x = 11415.28, y = 9364.53, z = 16.00 },
-            { x = 11224.77, y = 9294.88, z = 16.00 },
-            { x = 11067.19, y = 9183.63, z = 16.00 },
-            { x = 10923.68, y = 9017.78, z = 16.00 },
-            { x = 10821.25, y = 8827.12, z = 16.00 },
-            { x = 10777.11, y = 8643.97, z = 16.00 },
-            { x = 10793.99, y = 8453.50, z = 16.00 },
-            { x = 10874.03, y = 8281.96, z = 16.00 },
-            { x = 11069.10, y = 8213.50, z = 16.00 },
-            { x = 11254.93, y = 8255.11, z = 16.00 },
-            { x = 11427.46, y = 8331.86, z = 16.00 },
-            { x = 11539.40, y = 8509.45, z = 16.00 },
-            { x = 11497.50, y = 8778.53, z = 16.00 },
-            { x = 11355.85, y = 8935.79, z = 16.00 },
-            { x = 11073.70, y = 8951.13, z = 16.00 },
-            { x = 10865.31, y = 8817.84, z = 16.00 },
-            { x = 10703.47, y = 8669.18, z = 16.00 },
-            { x = 10597.56, y = 8510.85, z = 16.00 },
-            { x = 10548.41, y = 8328.57, z = 16.00 },
-            { x = 10518.20, y = 8142.18, z = 16.00 },
-            { x = 10535.87, y = 7950.43, z = 16.00 },
-            { x = 10652.55, y = 7803.39, z = 16.00 },
-            { x = 10803.06, y = 7757.53, z = 16.00 },
-            { x = 10957.33, y = 7858.93, z = 16.00 },
-            { x = 11027.06, y = 8050.48, z = 16.00 },
-            { x = 11065.82, y = 8265.01, z = 16.00 },
-            { x = 10940.48, y = 8414.32, z = 16.00 },
-            { x = 10727.81, y = 8391.80, z = 16.00 },
-            { x = 10525.15, y = 8259.66, z = 16.00 },
-            { x = 10414.51, y = 8073.93, z = 16.00 },
-            { x = 10370.10, y = 7858.92, z = 16.00 },
-            { x = 10355.54, y = 7669.23, z = 16.00 },
-            { x = 10351.86, y = 7451.95, z = 16.00 },
-            { x = 10395.36, y = 7267.17, z = 16.00 },
-            { x = 10516.84, y = 7118.76, z = 16.00 },
-            { x = 10689.52, y = 7058.03, z = 16.00 },
-            { x = 10824.29, y = 7171.35, z = 16.00 },
-            { x = 10874.25, y = 7355.66, z = 16.00 },
-            { x = 10917.27, y = 7539.18, z = 16.00 },
-            { x = 10935.71, y = 7755.56, z = 16.00 },
-            { x = 10819.99, y = 7933.52, z = 16.00 },
-            { x = 10611.98, y = 7992.20, z = 16.00 },
-            { x = 10404.80, y = 7933.46, z = 16.00 },
-            { x = 10242.82, y = 7792.06, z = 16.00 },
-            { x = 10145.97, y = 7597.64, z = 16.00 },
-            { x = 10108.43, y = 7385.81, z = 16.00 },
-            { x = 10113.51, y = 7165.97, z = 16.00 },
-            { x = 10147.03, y = 6950.98, z = 16.00 },
-            { x = 10250.37, y = 6761.32, z = 16.00 },
-            { x = 10399.38, y = 6649.62, z = 16.00 },
-            { x = 10593.91, y = 6546.46, z = 16.00 },
-            { x = 10775.91, y = 6500.91, z = 16.00 },
-            { x = 10985.26, y = 6565.62, z = 16.00 },
-            { x = 11141.16, y = 6670.97, z = 16.00 },
-            { x = 11159.73, y = 6851.98, z = 16.00 },
-            { x = 11021.66, y = 7010.38, z = 16.00 },
-            { x = 10827.45, y = 7069.43, z = 16.00 },
-            { x = 10592.38, y = 7040.07, z = 16.00 },
-            { x = 10568.56, y = 6884.05, z = 16.00 },
-            { x = 10615.19, y = 6672.55, z = 16.00 },
-            { x = 10753.35, y = 6553.74, z = 16.00 },
-            { x = 10863.22, y = 6365.86, z = 16.00 },
-            { x = 10980.70, y = 6179.06, z = 16.00 },
-            { x = 11133.70, y = 6024.36, z = 16.00 },
-            { x = 11270.24, y = 5894.75, z = 16.00 },
-            { x = 11458.52, y = 5779.92, z = 16.00 },
-            { x = 11620.85, y = 5710.78, z = 16.00 },
-            { x = 11955.00, y = 5597.66, z = 16.00 },
-            { x = 12247.71, y = 5543.96, z = 16.00 },
-            { x = 12574.27, y = 5522.98, z = 16.00 },
-            { x = 12857.08, y = 5534.98, z = 16.00 },
-            { x = 13152.76, y = 5586.43, z = 16.00 },
-            { x = 13431.34, y = 5596.81, z = 16.00 },
-            { x = 13487.16, y = 5344.26, z = 16.00 },
-            { x = 13301.61, y = 5199.49, z = 16.00 },
-            { x = 12975.78, y = 5201.12, z = 16.00 },
-            { x = 12819.00, y = 5364.72, z = 16.00 },
-            { x = 12909.72, y = 5554.59, z = 16.00 },
-            { x = 13095.16, y = 5671.71, z = 16.00 },
-            { x = 13294.96, y = 5783.44, z = 16.00 },
-            { x = 13565.91, y = 5938.29, z = 16.00 },
-            { x = 13791.58, y = 6094.21, z = 16.00 },
-            { x = 13994.26, y = 6270.57, z = 16.00 },
-            { x = 14115.36, y = 6451.55, z = 16.00 },
-            { x = 14210.88, y = 6679.38, z = 16.00 },
-            { x = 14261.58, y = 6889.52, z = 16.00 },
-            { x = 14300.80, y = 7105.99, z = 16.00 },
-            { x = 14305.00, y = 7375.29, z = 16.00 },
-            { x = 14242.66, y = 7614.81, z = 16.00 },
-            { x = 14154.78, y = 7847.29, z = 16.00 },
-            { x = 14011.17, y = 8143.33, z = 16.00 },
-            { x = 13886.69, y = 8319.84, z = 16.00 },
-            { x = 13700.65, y = 8515.38, z = 16.00 },
-            { x = 13497.39, y = 8655.91, z = 16.00 },
-            { x = 13248.53, y = 8793.32, z = 16.00 },
-            { x = 13032.50, y = 8909.14, z = 16.00 },
-            { x = 12831.30, y = 8991.79, z = 16.00 },
-            { x = 12574.33, y = 9078.33, z = 16.00 },
-            { x = 12359.28, y = 9124.89, z = 16.00 },
-            { x = 12116.50, y = 9142.35, z = 16.00 },
-            { x = 11846.55, y = 9109.99, z = 16.00 },
-            { x = 11600.46, y = 9030.00, z = 16.00 },
-            { x = 11359.60, y = 8903.94, z = 16.00 },
-            { x = 11170.97, y = 8791.12, z = 16.00 },
-            { x = 11011.20, y = 8695.95, z = 16.00 },
-            { x = 11190.33, y = 8789.18, z = 16.00 },
-            { x = 11404.57, y = 8908.01, z = 16.00 },
-            { x = 11602.66, y = 9006.70, z = 16.00 },
-            { x = 11847.86, y = 9087.03, z = 16.00 },
-            { x = 12114.72, y = 9137.99, z = 16.00 },
-            { x = 12385.60, y = 9158.83, z = 16.00 },
-            { x = 12602.06, y = 9142.80, z = 16.00 },
-            { x = 12870.10, y = 9096.48, z = 16.00 },
-            { x = 13075.51, y = 9022.87, z = 16.00 },
-            { x = 13270.61, y = 8921.06, z = 16.00 },
-            { x = 13449.42, y = 8799.10, z = 16.00 },
-            { x = 13624.63, y = 8648.49, z = 16.00 },
-            { x = 13801.20, y = 8477.36, z = 16.00 },
-            { x = 13941.75, y = 8314.47, z = 16.00 },
-            { x = 14090.71, y = 8083.41, z = 16.00 },
-            { x = 14194.41, y = 7831.87, z = 16.00 },
-            { x = 14262.39, y = 7511.27, z = 16.00 },
-            { x = 14281.89, y = 7268.66, z = 16.00 },
-            { x = 14251.50, y = 6994.93, z = 16.00 },
-            { x = 14194.25, y = 6758.50, z = 16.00 },
-            { x = 14069.19, y = 6486.71, z = 16.00 },
-            { x = 13945.44, y = 6293.41, z = 16.00 },
-            { x = 13797.13, y = 6134.41, z = 16.00 },
-            { x = 13614.48, y = 5973.49, z = 16.00 },
-            { x = 13411.35, y = 5831.06, z = 16.00 },
-            { x = 13197.47, y = 5718.84, z = 16.00 },
-            { x = 12994.42, y = 5627.55, z = 16.00 },
-            { x = 12761.39, y = 5556.80, z = 16.00 },
-            { x = 12518.75, y = 5526.69, z = 16.00 },
-            { x = 12300.70, y = 5533.16, z = 16.00 },
-            { x = 12061.18, y = 5583.38, z = 16.00 },
-            { x = 11829.41, y = 5668.53, z = 16.00 },
-            { x = 11641.77, y = 5778.98, z = 16.00 },
-            { x = 11484.41, y = 5929.51, z = 16.00 },
-            { x = 11334.53, y = 6122.59, z = 16.00 },
-            { x = 11219.01, y = 6308.98, z = 16.00 },
-            { x = 11115.12, y = 6497.08, z = 16.00 },
-            { x = 11016.68, y = 6706.76, z = 16.00 },
-            { x = 10933.37, y = 6936.01, z = 16.00 },
-            { x = 10890.74, y = 7150.54, z = 16.00 },
-            { x = 10870.43, y = 7380.85, z = 16.00 },
-            { x = 10859.34, y = 7627.06, z = 16.00 },
-            { x = 10868.69, y = 7847.24, z = 16.00 },
-            { x = 10900.54, y = 8141.84, z = 16.00 },
-            { x = 10943.98, y = 8358.88, z = 16.00 },
-            { x = 11002.82, y = 8569.00, z = 16.00 },
-            { x = 11115.48, y = 8813.32, z = 16.00 },
-            { x = 11261.51, y = 8972.14, z = 16.00 },
-            { x = 11476.49, y = 9094.41, z = 16.00 },
-            { x = 11735.84, y = 9166.13, z = 16.00 },
-            { x = 11972.59, y = 9115.08, z = 16.00 },
-            { x = 11972.02, y = 8935.74, z = 16.00 },
-            { x = 11784.07, y = 8834.21, z = 16.00 },
-            { x = 11573.02, y = 8781.74, z = 16.00 },
-            { x = 11384.07, y = 8794.11, z = 16.00 },
-            { x = 11217.53, y = 8925.90, z = 16.00 },
-            { x = 11183.71, y = 9159.42, z = 16.00 },
-            { x = 11353.73, y = 9285.39, z = 16.00 },
-            { x = 11540.41, y = 9321.68, z = 16.00 },
-            { x = 11739.95, y = 9260.65, z = 16.00 },
-            { x = 11719.23, y = 9016.02, z = 16.00 },
-            { x = 11543.05, y = 8889.09, z = 16.00 },
-            { x = 11398.18, y = 8805.96, z = 16.00 },
-            { x = 11207.44, y = 8675.68, z = 16.00 },
-            { x = 11073.88, y = 8561.06, z = 16.00 },
-            { x = 10948.56, y = 8436.90, z = 16.00 },
-            { x = 10777.69, y = 8263.61, z = 16.00 },
-            { x = 10619.17, y = 8094.84, z = 16.00 },
-            { x = 10734.46, y = 7333.46, z = 16.00 },
-            { x = 10968.83, y = 6582.03, z = 16.00 },
-            { x = 11364.85, y = 6061.17, z = 16.00 },
-            { x = 11776.40, y = 5609.50, z = 16.00 },
-            { x = 12109.12, y = 5253.26, z = 16.00 },
-            { x = 12455.34, y = 4772.06, z = 16.00 },
-            { x = 12561.06, y = 4208.34, z = 16.00 },
-            { x = 12776.98, y = 3768.09, z = 16.00 },
-            { x = 13065.90, y = 3390.98, z = 16.00 },
-            { x = 13343.12, y = 3021.49, z = 16.00 },
-            { x = 13532.91, y = 2516.67, z = 16.00 },
-            { x = 13577.67, y = 2065.65, z = 16.00 },
-            { x = 13590.39, y = 1633.75, z = 16.00 }
+            { x = 9960.06, y = 9900.01, z = 16.00 },
+            { x = 10589.10, y = 9544.71, z = 16.00 },
+            { x = 11114.22, y = 9457.03, z = 16.00 },
+            { x = 11729.12, y = 9351.61, z = 16.00 },
+            { x = 12289.04, y = 9286.53, z = 16.00 },
+            { x = 12820.16, y = 9156.35, z = 16.00 },
+            { x = 13209.96, y = 8946.44, z = 16.00 },
+            { x = 13572.89, y = 8677.25, z = 16.00 },
+            { x = 13862.28, y = 8320.23, z = 16.00 },
+            { x = 13996.08, y = 8009.69, z = 16.00 },
+            { x = 13691.73, y = 8359.18, z = 16.00 },
+            { x = 13356.99, y = 8699.21, z = 16.00 },
+            { x = 13008.81, y = 8931.03, z = 16.00 },
+            { x = 12612.87, y = 9087.23, z = 16.00 },
+            { x = 12141.79, y = 9125.95, z = 16.00 },
+            { x = 11779.88, y = 9035.66, z = 16.00 },
+            { x = 11390.12, y = 8817.44, z = 16.00 },
+            { x = 11100.48, y = 8491.29, z = 16.00 },
+            { x = 10885.94, y = 8107.47, z = 16.00 },
+            { x = 10745.57, y = 7724.20, z = 16.00 },
+            { x = 10701.00, y = 7356.44, z = 16.00 },
+            { x = 10785.13, y = 6918.34, z = 16.00 },
+            { x = 10927.73, y = 6596.99, z = 16.00 },
+            { x = 11130.12, y = 6306.59, z = 16.00 },
+            { x = 11504.20, y = 6003.63, z = 16.00 },
+            { x = 11819.20, y = 5767.50, z = 16.00 },
+            { x = 12168.43, y = 5539.80, z = 16.00 },
+            { x = 12551.21, y = 5378.30, z = 16.00 },
+            { x = 12910.34, y = 5356.61, z = 16.00 },
+            { x = 13273.42, y = 5507.64, z = 16.00 },
+            { x = 13586.27, y = 5715.05, z = 16.00 },
+            { x = 13879.31, y = 5978.15, z = 16.00 },
+            { x = 14070.56, y = 6217.92, z = 16.00 },
+            { x = 14256.60, y = 6660.75, z = 16.00 },
+            { x = 14366.12, y = 7044.51, z = 16.00 },
+            { x = 14559.32, y = 6902.52, z = 16.00 },
+            { x = 14386.79, y = 6478.98, z = 16.00 },
+            { x = 14079.17, y = 6078.40, z = 16.00 },
+            { x = 13709.70, y = 5763.94, z = 16.00 },
+            { x = 13404.85, y = 5587.17, z = 16.00 },
+            { x = 13447.09, y = 5919.65, z = 16.00 },
+            { x = 13734.30, y = 6222.14, z = 16.00 },
+            { x = 14021.79, y = 6523.82, z = 16.00 },
+            { x = 14277.79, y = 6792.59, z = 16.00 },
+            { x = 14469.42, y = 7082.99, z = 16.00 },
+            { x = 14449.27, y = 7378.92, z = 16.00 },
+            { x = 14378.38, y = 7126.75, z = 16.00 },
+            { x = 14294.51, y = 6730.63, z = 16.00 },
+            { x = 14138.28, y = 6391.60, z = 16.00 },
+            { x = 13917.24, y = 6090.29, z = 16.00 },
+            { x = 13665.19, y = 5878.91, z = 16.00 },
+            { x = 13388.02, y = 5660.05, z = 16.00 },
+            { x = 13098.80, y = 5460.39, z = 16.00 },
+            { x = 12827.73, y = 5323.72, z = 16.00 },
+            { x = 12486.53, y = 5251.21, z = 16.00 },
+            { x = 12124.99, y = 5290.49, z = 16.00 },
+            { x = 11822.70, y = 5440.45, z = 16.00 },
+            { x = 11557.93, y = 5668.62, z = 16.00 },
+            { x = 11369.30, y = 5926.79, z = 16.00 },
+            { x = 11200.61, y = 6230.54, z = 16.00 },
+            { x = 11061.23, y = 6576.45, z = 16.00 },
+            { x = 10949.99, y = 6901.05, z = 16.00 },
+            { x = 10887.77, y = 7350.03, z = 16.00 },
+            { x = 10897.37, y = 7702.25, z = 16.00 },
+            { x = 10984.08, y = 8006.62, z = 16.00 },
+            { x = 11116.87, y = 8305.91, z = 16.00 },
+            { x = 11291.97, y = 8516.37, z = 16.00 },
+            { x = 11521.58, y = 8720.42, z = 16.00 },
+            { x = 11791.86, y = 8865.57, z = 16.00 },
+            { x = 12075.34, y = 8950.69, z = 16.00 },
+            { x = 12359.36, y = 8997.18, z = 16.00 },
+            { x = 12698.77, y = 9020.04, z = 16.00 },
+            { x = 13026.16, y = 9037.57, z = 16.00 },
+            { x = 13353.08, y = 8993.41, z = 16.00 },
+            { x = 13132.31, y = 9083.48, z = 16.00 },
+            { x = 12841.08, y = 9118.38, z = 16.00 },
+            { x = 12537.50, y = 9086.02, z = 16.00 },
+            { x = 12244.92, y = 9026.75, z = 16.00 },
+            { x = 11927.02, y = 8940.41, z = 16.00 },
+            { x = 11652.34, y = 8806.28, z = 16.00 },
+            { x = 11318.27, y = 8578.70, z = 16.00 },
+            { x = 11042.93, y = 8323.65, z = 16.00 },
+            { x = 10853.66, y = 8097.91, z = 16.00 },
+            { x = 10727.16, y = 7869.04, z = 16.00 },
+            { x = 10616.05, y = 7467.48, z = 16.00 }
         }
     }),
     make_route_point_action({
@@ -17962,7 +17915,7 @@ M.ROUTE_POINT_ACTIONS = {
             { x = -1367.66, y = -3464.22, z = 1603.00, move_interval_ms = 30, move_interval_floor_ms = 30 },
             { x = -1450.49, y = -1325.49, z = 1606.00, move_interval_ms = 30, move_interval_floor_ms = 30 },
             { x = 343.48, y = 261.42, z = 1603.00, move_interval_ms = 30, move_interval_floor_ms = 30 },
-            { x = 1276.39, y = -677.94, z = 1623.20, move_interval_ms = 30, move_interval_floor_ms = 30 },
+            { x = 785.02, y = -402.19, z = 1605.31, move_interval_ms = 30, move_interval_floor_ms = 30 },
             { x = 3578.59, y = -1141.58, z = 1613.66, move_interval_ms = 30, move_interval_floor_ms = 30 }
         }
     }),

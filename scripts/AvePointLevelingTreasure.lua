@@ -1461,7 +1461,10 @@ local function route_nearby_for_cfg(main_state, cfg, runtime, player_x, player_y
         return false, math.huge, 0
     end
 
-    local route = type(runtime) == "table" and runtime.route or nil
+    local route = nil
+    if type(runtime) == "table" and tostring(runtime.active_key or "") == tostring(cfg.key or "") then
+        route = runtime.route
+    end
     if type(route) ~= "table" or #route <= 0 then
         if type(main_state) ~= "table" then
             return false, math.huge, 0
@@ -1612,6 +1615,8 @@ local function maybe_reacquire_mainline_for_far_entry(ctx, main_state, hooks, cf
     return true
 end
 
+local reject_acquired_route
+
 local function activate_cfg(ctx, main_state, cfg, hooks, player_x, player_y, player_z)
     local runtime = ensure_runtime_state(main_state)
     runtime.active_key = tostring(cfg.key or "")
@@ -1632,6 +1637,29 @@ local function activate_cfg(ctx, main_state, cfg, hooks, player_x, player_y, pla
 
     local record = ensure_record(main_state, cfg)
     local cached_route, cache_stats = normalize_route(record.route, cfg)
+    local cached_reject_reason, cached_reject_detail = reject_acquired_route(cfg, cached_route)
+    if type(cached_route) == "table"
+        and #cached_route >= math.max(1, tonumber(cfg.min_path_points) or 3)
+        and cached_reject_reason ~= nil
+    then
+        record.route = nil
+        record.route_acquired = false
+        record.route_cache_clear_reason = tostring(cached_reject_reason)
+        record.route_cache_clear_detail = tostring(cached_reject_detail or "")
+        local save_ok, save_err = save_record(ctx, main_state, cfg)
+        runtime.last_save_err = save_ok and nil or save_err
+        if type(hooks.log_info) == "function" then
+            hooks.log_info(ctx, string.format(
+                "[Treasure] route cache rejected | key=%s points=%d reason=%s detail=%s save_ok=%s",
+                tostring(cfg.key or ""),
+                #cached_route,
+                tostring(cached_reject_reason),
+                tostring(cached_reject_detail or ""),
+                save_ok and "true" or "false"
+            ))
+        end
+        cached_route = nil
+    end
     if type(cached_route) == "table" and #cached_route >= math.max(1, tonumber(cfg.min_path_points) or 3) then
         runtime.route = cached_route
         runtime.route_loaded = true
@@ -1681,7 +1709,7 @@ local function route_destination(cfg, runtime)
     }
 end
 
-local function reject_acquired_route(cfg, route)
+reject_acquired_route = function(cfg, route)
     if type(cfg) ~= "table" or type(route) ~= "table" or #route <= 0 then
         return nil, nil
     end
@@ -1697,6 +1725,34 @@ local function reject_acquired_route(cfg, route)
             tonumber(reject_trigger.y) or 0,
             tonumber(reject_trigger.z) or 0,
             tonumber(reject_trigger.radius) or 0
+        )
+    end
+    if cfg.acquire_path_require_boss_trigger == true then
+        local boss_cfg = type(cfg.boss) == "table" and cfg.boss or nil
+        local boss_trigger = type(boss_cfg) == "table" and boss_cfg.trigger or nil
+        if not is_valid_point(boss_trigger) then
+            return "missing_required_boss_config", "boss trigger unavailable"
+        end
+        local nearest = math.huge
+        for _, point in ipairs(route) do
+            if is_valid_point(point) then
+                local gap = distance_2d(tonumber(point.x), tonumber(point.y), tonumber(boss_trigger.x), tonumber(boss_trigger.y))
+                if gap < nearest then
+                    nearest = gap
+                end
+                if within_trigger(point.x, point.y, point.z, boss_trigger) then
+                    return nil, nil
+                end
+            end
+        end
+        return "missing_required_boss_trigger", string.format(
+            "boss=%.2f, %.2f, %.2f radius=%.2f nearest=%.2f points=%d",
+            tonumber(boss_trigger.x) or 0,
+            tonumber(boss_trigger.y) or 0,
+            tonumber(boss_trigger.z) or 0,
+            tonumber(boss_trigger.radius) or 0,
+            nearest,
+            #route
         )
     end
     return nil, nil
@@ -1932,6 +1988,12 @@ local function startup_level_gate_accepts_task_mismatch_reason(reason, main_stat
     local value = tostring(reason or "")
     if value == "inside_map_pattern" or value == "map_name" then
         return true, value
+    end
+    if value:find("^route_nearby:", 1, false) ~= nil then
+        if type(cfg) == "table" and cfg.startup_recovery_allow_route_nearby_task_mismatch_by_level_gate == true then
+            return true, "route_nearby_config"
+        end
+        return false, "route_nearby_requires_config"
     end
     if value == "inside_landing" or value == "restart_landing" then
         if value == "inside_landing"

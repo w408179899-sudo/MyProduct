@@ -2190,6 +2190,12 @@ function M.build_treasure_hooks(ctx)
             then
                 return true, reason
             end
+            if reason == "route_nearby_config"
+                and type(cfg) == "table"
+                and cfg.startup_recovery_allow_route_nearby_task_mismatch_by_level_gate == true
+            then
+                return true, reason
+            end
             local raw_task_name = trim(tostring(state.current_task_name or ""))
             local raw_task_detail = trim(tostring(state.current_task_detail or ""))
             local log_detail = trim(tostring(M.current_task_log_detail() or ""))

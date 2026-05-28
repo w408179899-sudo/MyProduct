@@ -1831,12 +1831,20 @@ function M.call_button_slot(ctx, current_time, slot, step, opts)
         return false, "button slot call is not migrated yet: " .. slot
     end
 
-    local live_target, live_err = fetch_locator_button_target(ctx, step)
+    local live_target, live_err, live_source, live_step = M.fetch_locator_button_target_with_configured_fallback(
+        ctx,
+        step,
+        current_time,
+        "task_entry_send"
+    )
     local target = nil
     local source = "live_locator"
     if type(live_target) == "table" then
         target = live_target
-        M.cache_task_entry_send_button_target(ctx, live_target, current_time, "live_locator", step)
+        source = tostring(live_source or "live_locator")
+        if tostring(target.kind or "") ~= "client_point" then
+            M.cache_task_entry_send_button_target(ctx, live_target, current_time, source, live_step or step)
+        end
     else
         log_throttled(ctx, "button_slot_task_entry_send_live_miss", "info", LOG_THROTTLE_MS, string.format(
             "[Leveling] button slot live target miss | slot=%s label=%s err=%s",
@@ -1859,8 +1867,9 @@ function M.call_button_slot(ctx, current_time, slot, step, opts)
         source = "hover_capture"
     end
 
-    M.log_button_slot_target_resolved(ctx, slot, source, target, step, "")
-    local clicked, click_err, retryable = click_locator_button_target(ctx, step, target)
+    local click_step = live_step or step
+    M.log_button_slot_target_resolved(ctx, slot, source, target, click_step, "")
+    local clicked, click_err, retryable = click_locator_button_target(ctx, click_step, target)
     if clicked ~= true then
         return false, click_err or "button slot click failed", retryable, "click_failed"
     end
@@ -5862,6 +5871,118 @@ function M.try_click_level_up_maintenance_back_button(ctx, reason)
     return false, "cleanup back button step not found."
 end
 
+function M.maybe_move_mouse_after_level_up_maintenance_image_done(ctx, step, reason)
+    if type(step) ~= "table" then
+        return false, "step unavailable"
+    end
+
+    local opts = step.post_image_done_mouse_away
+    if opts == nil or opts == false then
+        return false, "post image mouse-away disabled"
+    end
+    if opts == true then
+        opts = {}
+    end
+    if type(opts) ~= "table" then
+        return false, "post image mouse-away options invalid"
+    end
+
+    local nav_mod = nav_api(ctx)
+    if type(nav_mod) ~= "table" or type(nav_mod.move_mouse_to_client) ~= "function" then
+        return false, "nav.move_mouse_to_client is unavailable"
+    end
+
+    local wnd_api = type(ctx) == "table" and ctx.wnd or wnd
+    local client_w = nil
+    local client_h = nil
+    if type(nav_mod.window_hwnd) == "function"
+        and type(wnd_api) == "table"
+        and type(wnd_api.client_rect) == "function"
+    then
+        local hwnd = select(1, nav_mod.window_hwnd())
+        if hwnd then
+            local _, _, width, height = wnd_api.client_rect(hwnd)
+            if type(width) == "number" and type(height) == "number" and width > 0 and height > 0 then
+                client_w = width
+                client_h = height
+            end
+        end
+    end
+
+    local left = tonumber(opts.rect_left) or tonumber(opts.left) or 1171
+    local top = tonumber(opts.rect_top) or tonumber(opts.top) or 7
+    local right = tonumber(opts.rect_right) or tonumber(opts.right) or 1436
+    local bottom = tonumber(opts.rect_bottom) or tonumber(opts.bottom) or 127
+    if left > right then
+        left, right = right, left
+    end
+    if top > bottom then
+        top, bottom = bottom, top
+    end
+
+    local should_move = true
+    local cursor_x = nil
+    local cursor_y = nil
+    if opts.move_if_inside_only ~= false and type(nav_mod.cursor_client_pos) == "function" then
+        local cursor = select(1, nav_mod.cursor_client_pos({
+            allow_outside = true
+        }))
+        if type(cursor) == "table" then
+            cursor_x = tonumber(cursor.client_x)
+            cursor_y = tonumber(cursor.client_y)
+            should_move = cursor_x ~= nil
+                and cursor_y ~= nil
+                and cursor_x >= left
+                and cursor_x <= right
+                and cursor_y >= top
+                and cursor_y <= bottom
+        end
+    end
+
+    if not should_move then
+        return false, "cursor outside configured rectangle"
+    end
+
+    local target_x = tonumber(opts.target_client_x) or tonumber(opts.client_x)
+    local target_y = tonumber(opts.target_client_y) or tonumber(opts.client_y)
+    local ratio_x = tonumber(opts.target_ratio_x) or tonumber(opts.ratio_x)
+    local ratio_y = tonumber(opts.target_ratio_y) or tonumber(opts.ratio_y)
+    if client_w ~= nil and client_h ~= nil and ratio_x ~= nil and ratio_y ~= nil then
+        target_x = ratio_x * client_w
+        target_y = ratio_y * client_h
+    end
+    target_x = target_x or math.max(0, left - 90)
+    target_y = target_y or (bottom + 40)
+
+    local moved, move_err = nav_mod.move_mouse_to_client(target_x, target_y, {
+        mouse_mode = tostring(opts.mouse_mode or "api"),
+        min_duration_ms = tonumber(opts.min_duration_ms) or 20,
+        max_duration_ms = tonumber(opts.max_duration_ms) or 60,
+        hover_ms = tonumber(opts.hover_ms) or 60,
+        set_foreground = opts.set_foreground ~= false
+    })
+    if moved then
+        logger(ctx).info(string.format(
+            "[Leveling] level-up maintenance image cleanup moved mouse away | reason=%s step_key=%s from=(%s,%s) rect=(%.2f,%.2f)-(%.2f,%.2f) target=(%.2f,%.2f)",
+            tostring(reason or ""),
+            tostring(step.key or ""),
+            tostring(cursor_x or ""),
+            tostring(cursor_y or ""),
+            tonumber(left) or 0,
+            tonumber(top) or 0,
+            tonumber(right) or 0,
+            tonumber(bottom) or 0,
+            tonumber(target_x) or 0,
+            tonumber(target_y) or 0
+        ))
+        return true
+    end
+
+    log_throttled(ctx, "level_up_image_mouse_away_failed", "info", LOG_THROTTLE_MS,
+        "[Leveling] level-up maintenance image cleanup mouse-away failed: " .. tostring(move_err or ""))
+    return false, move_err
+end
+
 function M.level_up_maintenance_mark_current_plan_done_early(ctx, reason)
     if state.level_up_maintenance_executor_plan_done_pre_marked == true then
         return true
@@ -6555,6 +6676,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
                         if step.cleanup_back_before_finish == true then
                             M.try_click_level_up_maintenance_back_button(ctx, "image_loop_missing_done")
                         end
+                        M.maybe_move_mouse_after_level_up_maintenance_image_done(ctx, step, "image_loop_missing_done")
                         return M.finish_level_up_maintenance_executor(ctx, current_time)
                     end
                     if clicked_count <= 0 and step.missing_image_means_step_done == true then
@@ -6569,6 +6691,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
                             clicked_count,
                             tostring(loop_fetch_err or "")
                         ))
+                        M.maybe_move_mouse_after_level_up_maintenance_image_done(ctx, step, "image_loop_missing_step_done")
                         state.level_up_maintenance_executor_step_index = index + 1
                         local cfg = M.level_up_maintenance_config()
                         state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
@@ -6587,6 +6710,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
                             clicked_count,
                             tostring(loop_fetch_err or "")
                         ))
+                        M.maybe_move_mouse_after_level_up_maintenance_image_done(ctx, step, "image_loop_target_absent")
                         state.level_up_maintenance_executor_step_index = index + 1
                         local cfg = M.level_up_maintenance_config()
                         state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
@@ -6642,6 +6766,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
             tostring(type(last_target) == "table" and last_target.x or ""),
             tostring(type(last_target) == "table" and last_target.y or "")
         ))
+        M.maybe_move_mouse_after_level_up_maintenance_image_done(ctx, step, "image_loop_max_count")
         state.level_up_maintenance_executor_step_index = index + 1
         local cfg = M.level_up_maintenance_config()
         state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
@@ -6673,6 +6798,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
             if step.cleanup_back_before_finish == true then
                 M.try_click_level_up_maintenance_back_button(ctx, "image_missing_done")
             end
+            M.maybe_move_mouse_after_level_up_maintenance_image_done(ctx, step, "image_missing_done")
             return M.finish_level_up_maintenance_executor(ctx, current_time)
         end
         if type(step) == "table"
@@ -6689,6 +6815,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
                 tostring(step.key or ""),
                 tostring(fetch_err or "")
             ))
+            M.maybe_move_mouse_after_level_up_maintenance_image_done(ctx, step, "image_missing_step_done")
             state.level_up_maintenance_executor_step_index = index + 1
             local cfg = M.level_up_maintenance_config()
             state.level_up_maintenance_executor_next_step_at = now_ms(ctx)
@@ -6962,6 +7089,20 @@ function M.record_level_up_maintenance_observation(ctx, current_time, level, pro
     local contract_plan_count = 0
     local kind_plan_counts = {}
     local order = M.level_up_maintenance_plan_order(cfg)
+    local catch_up_count = 0
+    if cfg.catch_up_missing_plans_on_baseline == true then
+        local catch_up_pending_levels, _, _, pending_count, _, catch_up_kind_flags =
+            M.level_up_maintenance_collect_baseline_pending_levels(cfg, observed_level)
+        pending_levels = catch_up_pending_levels
+        catch_up_count = tonumber(pending_count) or 0
+        if type(catch_up_kind_flags) == "table" then
+            for kind, value in pairs(catch_up_kind_flags) do
+                if value == true then
+                    kind_plan_counts[kind] = math.max(tonumber(kind_plan_counts[kind]) or 0, 1)
+                end
+            end
+        end
+    end
     for pending_level = previous_level + 1, observed_level do
         pending_levels[tostring(pending_level)] = true
         level_count = level_count + 1
@@ -7001,7 +7142,7 @@ function M.record_level_up_maintenance_observation(ctx, current_time, level, pro
     state.level_up_maintenance_last_level = observed_level
 
     logger(ctx).info(string.format(
-        "[Leveling] level-up maintenance pending | from=%d to=%d progress=%s text=%s skill_plan_count=%d talent_plan_count=%d contract_plan_count=%d %s",
+        "[Leveling] level-up maintenance pending | from=%d to=%d progress=%s text=%s skill_plan_count=%d talent_plan_count=%d contract_plan_count=%d catch_up=%s catch_up_pending_count=%d %s",
         previous_level,
         observed_level,
         progress ~= nil and tostring(progress) or "",
@@ -7009,6 +7150,8 @@ function M.record_level_up_maintenance_observation(ctx, current_time, level, pro
         skill_plan_count,
         talent_plan_count,
         contract_plan_count,
+        cfg.catch_up_missing_plans_on_baseline == true and "true" or "false",
+        catch_up_count,
         M.level_up_maintenance_pending_summary()
     ))
     return true
@@ -11676,6 +11819,23 @@ local function enter_revive_state(ctx, current_time, hp)
         return
     end
 
+    local death_stage = tostring(state.stage or "")
+    local death_recent_boss_seen =
+        (tonumber(state.task_combat_last_seen_at) or 0) > 0
+        and current_time - (tonumber(state.task_combat_last_seen_at) or 0) <= math.max(1500, TASK_COMBAT_CLEAR_SETTLE_MS)
+    state.revive_death_stage = death_stage
+    state.revive_death_boss_context =
+        death_stage == "task_combat"
+        or death_stage == "task_combat_kite"
+        or death_stage == "post_combat_loot"
+        or (
+            state.task_combat_force_kite == true
+            and (
+                death_recent_boss_seen == true
+                or state.task_combat_kite_route_worker_active == true
+            )
+        )
+
     if state.level_up_maintenance_executor_active == true then
         local cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
         if type(cfg) == "table" and cfg.preserve_executor_on_death ~= false then
@@ -11753,6 +11913,8 @@ end
 local function resume_after_revive(ctx, current_time, hp, player_x, player_y, player_z)
     local resume_level_up_maintenance = state.level_up_maintenance_executor_active == true
         and state.level_up_maintenance_executor_resume_after_revive == true
+    local revive_death_boss_context = state.revive_death_boss_context == true
+    local revive_death_stage = tostring(state.revive_death_stage or "")
     reset_revive_state()
     clear_task_target_state()
     clear_runtime_objective_caches()
@@ -11807,7 +11969,8 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
         (tonumber(state.task_combat_last_seen_at) or 0) > 0
         and current_time - (tonumber(state.task_combat_last_seen_at) or 0) <= math.max(1500, TASK_COMBAT_CLEAR_SETTLE_MS)
     local death_in_boss_combat_context =
-        stage_name == "task_combat"
+        revive_death_boss_context == true
+        or stage_name == "task_combat"
         or stage_name == "task_combat_kite"
         or stage_name == "post_combat_loot"
         or (
@@ -11822,12 +11985,14 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
         and revive_reentry_cfg.allow_non_boss_revive_reentry ~= true
     then
         logger(ctx).info(string.format(
-            "[Leveling] revive reentry skipped; death was outside boss combat | source=%s objective_key=%s label=%s task=%s detail=%s",
+            "[Leveling] revive reentry skipped; death was outside boss combat | source=%s objective_key=%s label=%s task=%s detail=%s death_stage=%s current_stage=%s",
             tostring(revive_reentry_source or ""),
             tostring(revive_reentry_objective_key or ""),
             tostring(revive_reentry_cfg.label or revive_reentry_cfg.key or ""),
             tostring(task_name or state.current_task_name or ""),
-            tostring(task_detail or "")
+            tostring(task_detail or ""),
+            tostring(revive_death_stage or ""),
+            tostring(stage_name or "")
         ))
         revive_reentry_cfg = nil
         revive_reentry_source = nil

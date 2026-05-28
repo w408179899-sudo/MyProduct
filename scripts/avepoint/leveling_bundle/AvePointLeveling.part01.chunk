@@ -1868,6 +1868,33 @@ function M.apply_task_entry_send_step_defaults(step)
     if step.hover_capture_retry_ms == nil then
         step.hover_capture_retry_ms = tonumber(hover_cfg and hover_cfg.retry_ms) or 900
     end
+    if step.target_poll_retry_count == nil then
+        step.target_poll_retry_count = 12
+    end
+    if step.target_poll_interval_ms == nil then
+        step.target_poll_interval_ms = 250
+    end
+    if step.fixed_fallback_ratio_x == nil then
+        step.fixed_fallback_ratio_x = 0.456331
+    end
+    if step.fixed_fallback_ratio_y == nil then
+        step.fixed_fallback_ratio_y = 0.903166
+    end
+    if step.fixed_fallback_client_x == nil then
+        step.fixed_fallback_client_x = 657.116943
+    end
+    if step.fixed_fallback_client_y == nil then
+        step.fixed_fallback_client_y = 812.849670
+    end
+    if step.fixed_fallback_mouse_mode == nil then
+        step.fixed_fallback_mouse_mode = "api"
+    end
+    if step.fixed_fallback_click_delay_ms == nil then
+        step.fixed_fallback_click_delay_ms = 50
+    end
+    if step.fixed_fallback_hover_delay_ms == nil then
+        step.fixed_fallback_hover_delay_ms = 80
+    end
 
     return step
 end
@@ -2279,6 +2306,8 @@ local function reset_state()
     state.revive_click_count = 0
     state.revive_resume_ready_at = 0
     state.next_revive_click_at = 0
+    state.revive_death_boss_context = false
+    state.revive_death_stage = nil
     state.next_task_name_probe_at = 0
     state.revive_reentry_pending = false
     state.revive_reentry_map_name = nil
@@ -3934,6 +3963,7 @@ function M.copy_main_task_button_cache_fields(cached)
         hint_ratio_y = cached.hint_ratio_y,
         pid = cached.pid,
         session_key = cached.session_key,
+        character_id = cached.character_id,
         query = cached.query,
         query_key = cached.query_key,
         cache_context = cached.cache_context
@@ -3943,16 +3973,17 @@ end
 M._button_session_state = nil
 M._button_session_state_loaded = false
 
-function M.default_button_session_state()
+function M.default_button_session_slots(character_id)
     return {
         version = 1,
-        main_task = nil,
-        dialogue_jump = nil,
-        treasure_task = nil,
-        interaction_prompt = nil,
-        task_entry_send = nil,
-        treasure_restart_portal = nil,
-        treasure_exit_portal = nil
+        character_id = character_id
+    }
+end
+
+function M.default_button_session_state()
+    return {
+        version = M.CHARACTER_SCOPED_STATE_VERSION,
+        characters = {}
     }
 end
 
@@ -4002,6 +4033,21 @@ function M.serialize_button_session_lua_table(value, indent)
     return table.concat(lines, "\n")
 end
 
+function M.normalize_button_session_state(data)
+    if type(data) ~= "table" then
+        return M.default_button_session_state()
+    end
+    if type(data.characters) == "table" then
+        data.version = tonumber(data.version) or M.CHARACTER_SCOPED_STATE_VERSION
+        return data
+    end
+    return {
+        version = M.CHARACTER_SCOPED_STATE_VERSION,
+        characters = {},
+        legacy = data
+    }
+end
+
 function M.load_button_session_state()
     local chunk = loadfile(M.BUTTON_SESSION_STATE_FILE_PATH)
     if not chunk then
@@ -4013,29 +4059,7 @@ function M.load_button_session_state()
         return M.default_button_session_state()
     end
 
-    if type(data.main_task) ~= "table" then
-        data.main_task = nil
-    end
-    if type(data.dialogue_jump) ~= "table" then
-        data.dialogue_jump = nil
-    end
-    if type(data.treasure_task) ~= "table" then
-        data.treasure_task = nil
-    end
-    if type(data.interaction_prompt) ~= "table" then
-        data.interaction_prompt = nil
-    end
-    if type(data.task_entry_send) ~= "table" then
-        data.task_entry_send = nil
-    end
-    if type(data.treasure_restart_portal) ~= "table" then
-        data.treasure_restart_portal = nil
-    end
-    if type(data.treasure_exit_portal) ~= "table" then
-        data.treasure_exit_portal = nil
-    end
-    data.version = tonumber(data.version) or 1
-    return data
+    return M.normalize_button_session_state(data)
 end
 
 function M.ensure_button_session_state()
@@ -4046,7 +4070,30 @@ function M.ensure_button_session_state()
     if type(M._button_session_state) ~= "table" then
         M._button_session_state = M.default_button_session_state()
     end
+    M._button_session_state = M.normalize_button_session_state(M._button_session_state)
     return M._button_session_state
+end
+
+function M.ensure_button_session_character_state(character_id, create)
+    character_id = trim(character_id or "")
+    if character_id == "" then
+        return nil, "character id unavailable"
+    end
+
+    local data = M.ensure_button_session_state()
+    if type(data.characters) ~= "table" then
+        data.characters = {}
+    end
+    if type(data.characters[character_id]) ~= "table" then
+        if create ~= true then
+            return nil, "character button session missing"
+        end
+        data.characters[character_id] = M.default_button_session_slots(character_id)
+    end
+    local entry = data.characters[character_id]
+    entry.version = tonumber(entry.version) or 1
+    entry.character_id = character_id
+    return entry
 end
 
 function M.save_button_session_state()
@@ -4063,14 +4110,24 @@ function M.save_button_session_state()
 end
 
 function M.reset_button_session_state(ctx, reason, character_id)
-    M._button_session_state = M.default_button_session_state()
-    M._button_session_state_loaded = true
+    character_id = trim(character_id or M.current_persistence_character_id() or "")
+    if character_id ~= "" then
+        local data = M.ensure_button_session_state()
+        if type(data.characters) ~= "table" then
+            data.characters = {}
+        end
+        data.characters[character_id] = M.default_button_session_slots(character_id)
+    else
+        M._button_session_state = M.default_button_session_state()
+        M._button_session_state_loaded = true
+    end
     local ok, err = M.save_button_session_state()
     if ctx ~= nil then
         local message = string.format(
-            "[Leveling] button session cache reset | reason=%s character_id=%s ok=%s err=%s",
+            "[Leveling] button session cache reset | reason=%s character_id=%s scoped=%s ok=%s err=%s",
             tostring(reason or ""),
             tostring(character_id or ""),
+            tostring(character_id ~= ""),
             tostring(ok == true),
             tostring(err or "")
         )
@@ -5339,19 +5396,31 @@ function M.build_button_session_key(nav_mod)
         hwnd = select(1, nav_mod.window_hwnd())
     end
     local process_path = M.get_button_session_process_path(nav_mod)
+    local character_id = trim(M.current_persistence_character_id() or "")
     return string.format(
-        "pid=%s|hwnd=%s|path=%s",
+        "pid=%s|hwnd=%s|path=%s|character=%s",
         tostring(pid > 0 and pid or ""),
         tostring(hwnd or ""),
-        tostring(process_path or "")
+        tostring(process_path or ""),
+        tostring(character_id or "")
     )
 end
 
 function M.read_button_session_entry(nav_mod, slot)
-    local data = M.ensure_button_session_state()
-    local cached = type(data) == "table" and type(data[slot]) == "table" and data[slot] or nil
+    local character_id = trim(M.current_persistence_character_id() or "")
+    if character_id == "" then
+        return nil, "character id unavailable for session cache."
+    end
+    local character_data = select(1, M.ensure_button_session_character_state(character_id, false))
+    local cached = type(character_data) == "table" and type(character_data[slot]) == "table" and character_data[slot] or nil
     if type(cached) ~= "table" then
         return nil, "session cache missing."
+    end
+
+    if trim(cached.character_id or "") ~= character_id then
+        character_data[slot] = nil
+        M.save_button_session_state()
+        return nil, "session cache character mismatch."
     end
 
     local current_session_key = M.build_button_session_key(nav_mod)
@@ -5363,7 +5432,7 @@ function M.read_button_session_entry(nav_mod, slot)
         session_ok = select(1, M._leveling_buttons.cache_matches_process(cached, current_session_key)) == true
     end
     if not session_ok then
-        data[slot] = nil
+        character_data[slot] = nil
         M.save_button_session_state()
         return nil, "session cache key mismatch."
     end
@@ -5372,8 +5441,20 @@ function M.read_button_session_entry(nav_mod, slot)
 end
 
 function M.persist_button_session_entry(slot, cached)
-    local data = M.ensure_button_session_state()
-    data[slot] = M.copy_main_task_button_cache_fields(cached)
+    local character_id = trim(M.current_persistence_character_id() or "")
+    if character_id == "" then
+        return false, "character id unavailable for session cache"
+    end
+    local character_data, character_err = M.ensure_button_session_character_state(character_id, true)
+    if type(character_data) ~= "table" then
+        return false, character_err
+    end
+    local copy = M.copy_main_task_button_cache_fields(cached)
+    if type(copy) ~= "table" then
+        return false, "button cache entry unavailable"
+    end
+    copy.character_id = character_id
+    character_data[slot] = copy
     return M.save_button_session_state()
 end
 
@@ -5412,8 +5493,15 @@ function M.log_button_slot_addr_change(ctx, slot, previous, current, source)
 end
 
 function M.clear_button_session_entry(slot)
-    local data = M.ensure_button_session_state()
-    data[slot] = nil
+    local character_id = trim(M.current_persistence_character_id() or "")
+    if character_id == "" then
+        return false, "character id unavailable for session cache"
+    end
+    local character_data = select(1, M.ensure_button_session_character_state(character_id, false))
+    if type(character_data) ~= "table" then
+        return false, "character button session missing"
+    end
+    character_data[slot] = nil
     return M.save_button_session_state()
 end
 
@@ -13074,6 +13162,8 @@ local function reset_revive_state()
     state.revive_click_count = 0
     state.revive_resume_ready_at = 0
     state.next_revive_click_at = 0
+    state.revive_death_boss_context = false
+    state.revive_death_stage = nil
     state.post_revive_common_reentry_until = 0
     state.post_revive_common_reentry_reason = nil
     state.next_common_revive_reentry_scan_at = 0

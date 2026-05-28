@@ -4613,7 +4613,7 @@ end
 
 local F9_LEVEL_UP_MAINTENANCE_TEST = {
     kind = "talent",
-    level = 30,
+    level = 35,
     tick_ms = 50,
     timeout_ms = 120000,
     active = false
@@ -5843,9 +5843,9 @@ function main()
         end
 
         if pressed_once(HOTKEY_F9) then
-            local ok, err = avepoint_hotkey_start_level_up_maintenance_test("talent", 30, {
-                sequence = avepoint_hotkey_build_level_up_maintenance_test_sequence("talent", 30, 34),
-                sequence_label = "30-34 talent"
+            local ok, err = avepoint_hotkey_start_level_up_maintenance_test("talent", 45, {
+                sequence = avepoint_hotkey_build_level_up_maintenance_test_sequence("talent", 45, 49),
+                sequence_label = "45-49 talent"
             })
             if not ok then
                 log.warn("F9 level-up maintenance test unavailable: " .. tostring(err))

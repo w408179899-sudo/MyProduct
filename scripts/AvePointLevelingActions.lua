@@ -51,6 +51,33 @@ local function apply_world_map_send_step_defaults(step)
     if step.hover_capture_retry_ms == nil then
         step.hover_capture_retry_ms = 900
     end
+    if step.target_poll_retry_count == nil then
+        step.target_poll_retry_count = 12
+    end
+    if step.target_poll_interval_ms == nil then
+        step.target_poll_interval_ms = 250
+    end
+    if step.fixed_fallback_ratio_x == nil then
+        step.fixed_fallback_ratio_x = 0.456331
+    end
+    if step.fixed_fallback_ratio_y == nil then
+        step.fixed_fallback_ratio_y = 0.903166
+    end
+    if step.fixed_fallback_client_x == nil then
+        step.fixed_fallback_client_x = 657.116943
+    end
+    if step.fixed_fallback_client_y == nil then
+        step.fixed_fallback_client_y = 812.849670
+    end
+    if step.fixed_fallback_mouse_mode == nil then
+        step.fixed_fallback_mouse_mode = "api"
+    end
+    if step.fixed_fallback_click_delay_ms == nil then
+        step.fixed_fallback_click_delay_ms = 50
+    end
+    if step.fixed_fallback_hover_delay_ms == nil then
+        step.fixed_fallback_hover_delay_ms = 80
+    end
 
     return step
 end
