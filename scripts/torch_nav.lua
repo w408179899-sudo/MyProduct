@@ -1729,7 +1729,66 @@ function nav.get_map_ui_info(snapshot)
         return nil
     end
 
+    local function map_text_candidate_ok(info)
+        local text = normalize_text(type(info) == "table" and info.text or "")
+        if text == "" or looks_numeric_text(type(info) == "table" and info.text or "") then
+            return false
+        end
+        return not contains_any(text, {
+            "\u{602A}\u{7269}\u{7B49}\u{7EA7}",
+            "\u{5730}\u{56FE}\u{5185}\u{5269}\u{4F59}\u{654C}\u{4EBA}\u{6570}\u{91CF}",
+            "\u{5269}\u{4F59}\u{654C}\u{4EBA}",
+            "\u{654C}\u{4EBA}\u{6570}\u{91CF}",
+            "\u{5173}\u{5361}\u{7B49}\u{7EA7}",
+            "\u{83B7}\u{53D6}\u{7ECF}\u{9A8C}",
+            "\u{751F}\u{547D}",
+            "\u{6CD5}\u{529B}",
+            "fps",
+            "ms"
+        })
+    end
+
+    local function find_current_map_fallback_text()
+        local best = nil
+        local best_score = nil
+        for _, item in ipairs(snapshot.texts or {}) do
+            local info = make_text_info(item)
+            if map_text_candidate_ok(info) then
+                local name = normalize_text(info.name)
+                local fullname = normalize_text(info.fullname)
+                local score = nil
+                if contains_all(name, { "minimap_c", "uitextblock" })
+                    or contains_all(fullname, { "minimap_c", "uitextblock" })
+                then
+                    score = 300
+                elseif contains_all(name, { "fightscenenameview_c", "uitextblock" })
+                    or contains_all(fullname, { "fightscenenameview_c", "uitextblock" })
+                then
+                    score = 220
+                end
+                if score ~= nil then
+                    local text = normalize_text(info.text)
+                    if text:find("\u{85CF}\u{5B9D}\u{5730}", 1, true) then
+                        score = score + 80
+                    end
+                    local y = as_number(info.y)
+                    if y ~= nil and y <= 180 then
+                        score = score + 20
+                    end
+                    if best_score == nil or score > best_score then
+                        best = info
+                        best_score = score
+                    end
+                end
+            end
+        end
+        return best
+    end
+
     local current_map = find_target_text(MAP_UI_TEXT_TARGETS.current_map)
+    if current_map == nil then
+        current_map = find_current_map_fallback_text()
+    end
     local monster_level = find_target_text(MAP_UI_TEXT_TARGETS.monster_level)
     local remaining_enemies = find_target_text(MAP_UI_TEXT_TARGETS.remaining_enemies)
     local panel_debug_candidates = nil

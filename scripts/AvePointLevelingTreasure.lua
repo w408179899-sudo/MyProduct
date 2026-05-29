@@ -103,6 +103,52 @@ local function match_text_patterns(patterns, value)
     return false
 end
 
+local function strip_treasure_map_prefix(value)
+    local text = trim(value)
+    if text == "" then
+        return ""
+    end
+    local prefix = "\u{85CF}\u{5B9D}\u{5730}"
+    text = trim(text:gsub("^" .. prefix .. "%s*:%s*", ""))
+    text = trim(text:gsub("^" .. prefix .. "%s*\u{FF1A}%s*", ""))
+    return text
+end
+
+local function push_treasure_map_token(tokens, seen, value)
+    local text = trim(value)
+    if text ~= "" and not seen[text] then
+        seen[text] = true
+        tokens[#tokens + 1] = text
+    end
+    local stripped = strip_treasure_map_prefix(text)
+    if stripped ~= "" and not seen[stripped] then
+        seen[stripped] = true
+        tokens[#tokens + 1] = stripped
+    end
+end
+
+local function treasure_map_name_matches(cfg, map_name)
+    local text = trim(map_name)
+    if type(cfg) ~= "table" or text == "" then
+        return false, nil
+    end
+
+    local tokens = {}
+    local seen = {}
+    push_treasure_map_token(tokens, seen, cfg.name)
+    push_treasure_map_token(tokens, seen, cfg.panel_query)
+    for _, item in ipairs(type(cfg.panel_query_fallbacks) == "table" and cfg.panel_query_fallbacks or {}) do
+        push_treasure_map_token(tokens, seen, item)
+    end
+
+    for _, token in ipairs(tokens) do
+        if token ~= "" and text:find(token, 1, true) then
+            return true, token
+        end
+    end
+    return false, nil
+end
+
 local function treasure_task_matches(cfg, task_name, task_detail)
     if type(cfg) ~= "table" then
         return false
@@ -1332,8 +1378,13 @@ local function should_activate(cfg, main_state, hooks, player_x, player_y, playe
         return false
     end
     local target_level = configured_target_level(cfg)
-    if target_level ~= nil and type(current_level) == "number" and current_level >= target_level then
-        return false
+    if target_level ~= nil then
+        if type(current_level) ~= "number" then
+            return false
+        end
+        if current_level >= target_level then
+            return false
+        end
     end
     return true
 end
@@ -1502,7 +1553,7 @@ end
 
 local function startup_level_gate_entry_matches(cfg, match_reason, player_x, player_y, player_z)
     local reason = tostring(match_reason or "")
-    if reason == "map_name" or reason == "inside_map_pattern" then
+    if reason == "map_name" or reason == "map_name_token" or reason == "inside_map_pattern" then
         return true, reason, entry_distance(player_x, player_y, cfg)
     end
     if reason:find("^route_nearby:", 1, false) ~= nil
@@ -1928,22 +1979,81 @@ transition_mode = function(ctx, hooks, cfg, runtime, next_mode, reason)
     end
 end
 
+local function current_treasure_map_match(cfg, hooks)
+    local map_name = trim(type(hooks) == "table" and type(hooks.current_map_name) == "function" and hooks.current_map_name() or "")
+    if map_name == "" then
+        return false, map_name, "map_unknown"
+    end
+
+    local map_name_ok, map_token = treasure_map_name_matches(cfg, map_name)
+    if map_name_ok then
+        return true, map_name, map_token == trim(type(cfg) == "table" and cfg.name or "") and "map_name" or "map_name_token"
+    end
+
+    if match_text_patterns(type(cfg) == "table" and cfg.inside_map_patterns or nil, map_name) then
+        return true, map_name, "inside_map_pattern"
+    end
+
+    return false, map_name, "map_mismatch"
+end
+
+local function allow_treasure_task_mismatch_ownership(cfg, hooks)
+    local map_matches, map_name, map_reason = current_treasure_map_match(cfg, hooks)
+    if map_matches then
+        return true, map_name, map_reason
+    end
+    return false, map_name, map_reason
+end
+
+local function allow_return_mainline_from_treasure(cfg, hooks, current_level, target_level)
+    local map_matches, map_name, map_reason = current_treasure_map_match(cfg, hooks)
+    if map_name == "" then
+        return false, "map_unknown", map_name
+    end
+    if map_matches then
+        return false, map_reason or "still_inside_treasure_map", map_name
+    end
+    if target_level ~= nil then
+        if type(current_level) ~= "number" then
+            return false, "level_unknown", map_name
+        end
+        if current_level < target_level then
+            return false, "below_target_level", map_name
+        end
+    end
+    return true, "outside_treasure_map", map_name
+end
+
 likely_inside_treasure = function(ctx, cfg, hooks, runtime, current_time, player_x, player_y, player_z)
     local map_name = trim(type(hooks.current_map_name) == "function" and hooks.current_map_name() or "")
     local task_name = trim(type(hooks.current_task_name) == "function" and hooks.current_task_name() or "")
     local task_detail = trim(type(hooks.current_task_detail) == "function" and hooks.current_task_detail() or "")
     local queries = choose_panel_queries(cfg)
-    local treasure_name = trim(type(cfg) == "table" and cfg.name or "")
     local pos_reliable = has_reliable_world_pos(player_x, player_y)
     local entry_gap = pos_reliable and entry_distance(player_x, player_y, cfg) or math.huge
     local post_entry_grace_until = tonumber(type(runtime) == "table" and runtime.next_retry_at or 0) or 0
     local task_matches = treasure_task_matches(cfg, task_name, task_detail)
+    local map_matches, _, map_reason = current_treasure_map_match(cfg, hooks)
 
-    if treasure_name ~= "" and map_name:find(treasure_name, 1, true) then
-        return true, "map_name"
+    if map_matches then
+        return true, map_reason
     end
-    if match_text_patterns(type(cfg) == "table" and cfg.inside_map_patterns or nil, map_name) then
-        return true, "inside_map_pattern"
+    if map_name ~= "" and not map_matches then
+        if type(hooks.log_throttled) == "function" then
+            hooks.log_throttled(ctx, "treasure_inside_detect_map_mismatch_" .. tostring(type(cfg) == "table" and (cfg.key or "") or ""), "info", 2500,
+                string.format(
+                    "[Treasure] inside detection skipped by map mismatch | key=%s map=%s reason=%s task=%s detail=%s pos=%.2f, %.2f, %.2f",
+                    tostring(type(cfg) == "table" and (cfg.key or "") or ""),
+                    tostring(map_name or ""),
+                    tostring(map_reason or ""),
+                    tostring(task_name or ""),
+                    tostring(task_detail or ""),
+                    tonumber(player_x) or 0,
+                    tonumber(player_y) or 0,
+                    tonumber(player_z) or 0
+                ))
+        end
+        return false, "map_mismatch"
     end
     if type(cfg) == "table" and cfg_landing_ready(player_x, player_y, player_z, cfg, "inside_landing") then
         if task_matches or cfg.inside_landing_detect_requires_task_match == false then
@@ -2023,13 +2133,13 @@ local function startup_inside_recovery_match(ctx, main_state, runtime, cfg, hook
         return false, nil
     end
 
-    local map_name = trim(type(hooks.current_map_name) == "function" and hooks.current_map_name() or "")
-    local treasure_name = trim(cfg.name or "")
+    local map_matches, map_name, map_reason = current_treasure_map_match(cfg, hooks)
     local match_reason = nil
-    if treasure_name ~= "" and map_name:find(treasure_name, 1, true) then
-        match_reason = "map_name"
-    elseif match_text_patterns(cfg.inside_map_patterns, map_name) then
-        match_reason = "inside_map_pattern"
+    if map_matches then
+        match_reason = map_reason
+    elseif map_name ~= "" then
+        return false, "map_mismatch", nil, nil,
+            "map_gate:" .. tostring(map_reason or "") .. ":" .. tostring(map_name or "")
     elseif cfg_landing_ready(player_x, player_y, player_z, cfg, "inside_landing") then
         match_reason = "inside_landing"
     elseif cfg.startup_recovery_restart_landing ~= false
@@ -2058,24 +2168,11 @@ local function startup_inside_recovery_match(ctx, main_state, runtime, cfg, hook
 
     local task_ok, task_name, task_detail = current_treasure_task_matches(cfg, hooks)
     if not task_ok then
-        if cfg.startup_recovery_wait_for_task_panel == true
-            and trim(task_name or "") == ""
-            and trim(task_detail or "") == ""
-            and type(hooks.refresh_current_task_name) == "function"
-        then
-            hooks.refresh_current_task_name(ctx, current_time)
-            task_ok, task_name, task_detail = current_treasure_task_matches(cfg, hooks)
-            if task_ok then
-                return true, match_reason
-            end
+        if map_matches then
+            return true, tostring(match_reason or "map") .. "_task_mismatch"
         end
-        if cfg.startup_recovery_wait_for_task_panel == true
-            and trim(task_name or "") == ""
-            and trim(task_detail or "") == ""
-        then
-            return false, "task_pending", task_name, task_detail, match_reason
-        end
-        return false, "task_mismatch", task_name, task_detail, match_reason
+        return false, "task_mismatch", task_name, task_detail,
+            tostring(match_reason or "") .. ":map_gate:" .. tostring(map_reason or "") .. ":" .. tostring(map_name or "")
     end
 
     return true, match_reason
@@ -2083,7 +2180,7 @@ end
 
 local function startup_level_gate_accepts_task_mismatch_reason(reason, main_state, cfg, runtime, player_x, player_y)
     local value = tostring(reason or "")
-    if value == "inside_map_pattern" or value == "map_name" then
+    if value == "inside_map_pattern" or value == "map_name" or value == "map_name_token" then
         return true, value
     end
     if value:find("^route_nearby:", 1, false) ~= nil then
@@ -2230,6 +2327,18 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
             if reason_ok == true and type(hooks.allow_startup_task_mismatch_level_gate) == "function" then
                 allow_mismatch_level_gate, allow_mismatch_reason =
                     hooks.allow_startup_task_mismatch_level_gate(ctx, candidate, reason_gate or match_reason, task_name, task_detail)
+            end
+            if allow_mismatch_level_gate then
+                local map_gate_ok, gate_map_name, gate_map_reason = allow_treasure_task_mismatch_ownership(candidate, hooks)
+                if not map_gate_ok then
+                    allow_mismatch_level_gate = false
+                    allow_mismatch_reason = string.format(
+                        "%s:map_gate:%s:%s",
+                        tostring(allow_mismatch_reason or reason_gate or match_reason or ""),
+                        tostring(gate_map_reason or ""),
+                        tostring(gate_map_name or "")
+                    )
+                end
             end
             if allow_mismatch_level_gate then
                 local entry_ok, entry_gate_reason, entry_gap = startup_level_gate_entry_matches(
@@ -4434,6 +4543,9 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                 player_y,
                 player_z
             )
+            if candidate_level == nil then
+                candidate_level = refresh_player_level(ctx, candidate, runtime, hooks, current_time, runtime.player_level == nil)
+            end
             if should_activate(candidate, main_state, hooks, player_x, player_y, player_z, candidate_level) then
                 activate_cfg(ctx, main_state, candidate, hooks, player_x, player_y, player_z)
                 cfg = candidate
@@ -5476,6 +5588,108 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                 ))
         end
 
+        if portal_kind == "exit" then
+            local return_ready, return_block_reason, return_block_map =
+                allow_return_mainline_from_treasure(cfg, hooks, current_level, target_level)
+            if return_ready then
+                runtime.pending_return_mainline = true
+                runtime.portal_kind = nil
+                runtime.next_retry_at = current_time
+                runtime.stage_deadline_at = 0
+                if record.completed ~= true then
+                    record.completed = true
+                    local save_ok, save_err = save_record(ctx, main_state, cfg)
+                    runtime.last_save_err = save_ok and nil or save_err
+                    if type(hooks.log_info) == "function" then
+                        hooks.log_info(ctx, string.format(
+                            "[Treasure] outside treasure map during portal phase, mark completed | key=%s map=%s level=%s target_level=%s save_ok=%s err=%s",
+                            tostring(cfg.key or ""),
+                            tostring(return_block_map or ""),
+                            tostring(current_level or ""),
+                            tostring(target_level or ""),
+                            save_ok and "true" or "false",
+                            tostring(save_err or "")
+                        ))
+                    end
+                end
+                transition_mode(ctx, hooks, cfg, runtime, "return_mainline", "post_portal_outside_map")
+                clear_portal_click_attempt(runtime)
+                if type(hooks.clear_task_target_state) == "function" then
+                    hooks.clear_task_target_state()
+                end
+                if type(hooks.clear_nav_worker_target) == "function" then
+                    hooks.clear_nav_worker_target(ctx, current_time, "treasure_post_portal_outside_map")
+                elseif type(hooks.hold_navigation) == "function" then
+                    hooks.hold_navigation(ctx, current_time, "treasure_post_portal_outside_map")
+                end
+                if type(main_state) == "table" then
+                    main_state.require_task_button_refresh = false
+                    main_state.task_update_wait_until = 0
+                    main_state.task_path_wait_until = 0
+                    main_state.task_path_refresh_requested = false
+                    main_state.next_task_button_click_at = current_time
+                    main_state.next_task_refresh_at = current_time
+                end
+                log_refresh_block_clear(ctx, hooks, cfg, runtime, "post_portal_outside_map", clear_mainline_refresh_block(main_state))
+                return true
+            elseif return_block_reason == "below_target_level" then
+                runtime.pending_return_mainline = false
+                runtime.portal_kind = nil
+                runtime.next_retry_at = current_time
+                runtime.stage_deadline_at = 0
+                runtime.entry_step_index = 1
+                runtime.route_cursor = nil
+                runtime.route_nearest_index = nil
+                transition_mode(ctx, hooks, cfg, runtime, "pending_entry", "post_portal_outside_below_target_level")
+                clear_portal_click_attempt(runtime)
+                clear_round_flags(runtime)
+                if type(hooks.clear_task_target_state) == "function" then
+                    hooks.clear_task_target_state()
+                end
+                if type(hooks.clear_nav_worker_target) == "function" then
+                    hooks.clear_nav_worker_target(ctx, current_time, "treasure_post_portal_outside_below_target_level")
+                elseif type(hooks.hold_navigation) == "function" then
+                    hooks.hold_navigation(ctx, current_time, "treasure_post_portal_outside_below_target_level")
+                end
+                log_refresh_block_clear(ctx, hooks, cfg, runtime, "post_portal_outside_below_target_level", clear_mainline_refresh_block(main_state))
+                if type(hooks.log_info) == "function" then
+                    hooks.log_info(ctx, string.format(
+                        "[Treasure] outside treasure map during portal phase but below target level, retry entry | key=%s map=%s level=%s target_level=%s",
+                        tostring(cfg.key or ""),
+                        tostring(return_block_map or ""),
+                        tostring(current_level or ""),
+                        tostring(target_level or "")
+                    ))
+                end
+                return true
+            elseif return_block_reason == "level_unknown" then
+                runtime.pending_return_mainline = true
+                runtime.portal_kind = "exit"
+                runtime.next_retry_at = math.max(tonumber(runtime.next_retry_at) or 0, current_time + 500)
+                runtime.stage_deadline_at = math.max(tonumber(runtime.stage_deadline_at) or 0, current_time + 1200)
+                transition_mode(ctx, hooks, cfg, runtime, "wait_exit", "post_portal_outside_level_unknown")
+                if type(hooks.clear_task_target_state) == "function" then
+                    hooks.clear_task_target_state()
+                end
+                if type(hooks.clear_nav_worker_target) == "function" then
+                    hooks.clear_nav_worker_target(ctx, current_time, "treasure_post_portal_outside_level_unknown")
+                elseif type(hooks.hold_navigation) == "function" then
+                    hooks.hold_navigation(ctx, current_time, "treasure_post_portal_outside_level_unknown")
+                end
+                log_refresh_block_clear(ctx, hooks, cfg, runtime, "post_portal_outside_level_unknown", clear_mainline_refresh_block(main_state))
+                if type(hooks.log_throttled) == "function" then
+                    hooks.log_throttled(ctx, "treasure_post_portal_outside_level_unknown_" .. tostring(cfg.key or ""), "info", 1200,
+                        string.format(
+                            "[Treasure] outside treasure map during portal phase but level unknown; wait before mainline | key=%s map=%s target_level=%s",
+                            tostring(cfg.key or ""),
+                            tostring(return_block_map or ""),
+                            tostring(target_level or "")
+                        ))
+                end
+                return true
+            end
+        end
+
         local retry_far, retry_distance, retry_threshold =
             portal_retry_far_from_trigger(runtime, current_time, cfg, portal_kind, portal_cfg, player_x, player_y)
         if retry_far then
@@ -5763,6 +5977,63 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         local ready = cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
             or exit_position_changed
             or (not has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0))
+        if ready then
+            local return_ready, return_block_reason, return_block_map =
+                allow_return_mainline_from_treasure(cfg, hooks, current_level, target_level)
+            if not return_ready then
+                if return_block_reason == "below_target_level" then
+                    runtime.pending_return_mainline = false
+                    runtime.portal_kind = nil
+                    runtime.next_retry_at = current_time
+                    runtime.stage_deadline_at = 0
+                    runtime.entry_step_index = 1
+                    runtime.route_cursor = nil
+                    runtime.route_nearest_index = nil
+                    transition_mode(ctx, hooks, cfg, runtime, "pending_entry", "exit_landing_below_target_level")
+                    if type(hooks.clear_task_target_state) == "function" then
+                        hooks.clear_task_target_state()
+                    end
+                    clear_portal_click_attempt(runtime)
+                    clear_round_flags(runtime)
+                    log_refresh_block_clear(ctx, hooks, cfg, runtime, "exit_landing_below_target_level", clear_mainline_refresh_block(main_state))
+                    if type(hooks.log_info) == "function" then
+                        hooks.log_info(ctx, string.format(
+                            "[Treasure] exit landing outside but level gate not reached, retry entry | key=%s level=%s target_level=%s map=%s pos=%.2f, %.2f, %.2f",
+                            tostring(cfg.key or ""),
+                            tostring(current_level or ""),
+                            tostring(target_level or ""),
+                            tostring(return_block_map or ""),
+                            tonumber(player_x) or 0,
+                            tonumber(player_y) or 0,
+                            tonumber(player_z) or 0
+                        ))
+                    end
+                    return true
+                end
+                ready = false
+                if return_block_reason == "map_unknown" or return_block_reason == "level_unknown" then
+                    runtime.stage_deadline_at = math.max(
+                        tonumber(runtime.stage_deadline_at) or 0,
+                        current_time + 1200
+                    )
+                end
+                runtime.next_retry_at = math.max(tonumber(runtime.next_retry_at) or 0, current_time + 500)
+                if type(hooks.log_throttled) == "function" then
+                    hooks.log_throttled(ctx, "treasure_wait_exit_return_gate_blocked_" .. tostring(cfg.key or ""), "info", 1200,
+                        string.format(
+                            "[Treasure] exit landing blocked by map/level gate | key=%s reason=%s map=%s level=%s target_level=%s pos=%.2f, %.2f, %.2f",
+                            tostring(cfg.key or ""),
+                            tostring(return_block_reason or ""),
+                            tostring(return_block_map or ""),
+                            tostring(current_level or ""),
+                            tostring(target_level or ""),
+                            tonumber(player_x) or 0,
+                            tonumber(player_y) or 0,
+                            tonumber(player_z) or 0
+                        ))
+                end
+            end
+        end
         if has_landing and ready ~= true and current_time >= (tonumber(runtime.stage_deadline_at) or 0)
             and handle_failed_portal_transition(
                 ctx,
@@ -5857,6 +6128,68 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
 
     if mode == "return_mainline" then
         set_treasure_stage(main_state, "treasure_return_mainline")
+        local return_ready, return_block_reason, return_block_map =
+            allow_return_mainline_from_treasure(cfg, hooks, current_level, target_level)
+        if not return_ready then
+            if return_block_reason == "below_target_level" then
+                record.completed = false
+                runtime.pending_return_mainline = false
+                runtime.portal_kind = nil
+                runtime.next_retry_at = current_time
+                runtime.stage_deadline_at = 0
+                runtime.entry_step_index = 1
+                runtime.route_cursor = nil
+                runtime.route_nearest_index = nil
+                transition_mode(ctx, hooks, cfg, runtime, "pending_entry", "return_mainline_below_target_level")
+                local save_ok, save_err = save_record(ctx, main_state, cfg)
+                runtime.last_save_err = save_ok and nil or save_err
+                if type(hooks.clear_task_target_state) == "function" then
+                    hooks.clear_task_target_state()
+                end
+                clear_portal_click_attempt(runtime)
+                clear_round_flags(runtime)
+                log_refresh_block_clear(ctx, hooks, cfg, runtime, "return_mainline_below_target_level", clear_mainline_refresh_block(main_state))
+                if type(hooks.log_info) == "function" then
+                    hooks.log_info(ctx, string.format(
+                        "[Treasure] return mainline blocked below target level, retry entry | key=%s level=%s target_level=%s map=%s save_ok=%s err=%s",
+                        tostring(cfg.key or ""),
+                        tostring(current_level or ""),
+                        tostring(target_level or ""),
+                        tostring(return_block_map or ""),
+                        save_ok and "true" or "false",
+                        tostring(save_err or "")
+                    ))
+                end
+                return true
+            end
+            runtime.pending_return_mainline = true
+            runtime.next_retry_at = math.max(tonumber(runtime.next_retry_at) or 0, current_time + 500)
+            if return_block_reason == "map_unknown" or return_block_reason == "level_unknown" then
+                runtime.stage_deadline_at = math.max(
+                    tonumber(runtime.stage_deadline_at) or 0,
+                    current_time + 1200
+                )
+            end
+            transition_mode(ctx, hooks, cfg, runtime, "wait_exit",
+                "return_mainline_blocked:" .. tostring(return_block_reason or ""))
+            if type(hooks.clear_task_target_state) == "function" then
+                hooks.clear_task_target_state()
+            end
+            log_refresh_block_clear(ctx, hooks, cfg, runtime, "return_mainline_blocked", clear_mainline_refresh_block(main_state))
+            if type(hooks.log_throttled) == "function" then
+                hooks.log_throttled(ctx, "treasure_return_mainline_gate_blocked_" .. tostring(cfg.key or ""), "info", 1200,
+                    string.format(
+                        "[Treasure] return mainline blocked by map/level gate | key=%s reason=%s map=%s level=%s target_level=%s completed=%s",
+                        tostring(cfg.key or ""),
+                        tostring(return_block_reason or ""),
+                        tostring(return_block_map or ""),
+                        tostring(current_level or ""),
+                        tostring(target_level or ""),
+                        record.completed == true and "true" or "false"
+                    ))
+            end
+            return true
+        end
         runtime.pending_return_mainline = false
         transition_mode(ctx, hooks, cfg, runtime, record.completed == true and "completed" or "inactive", "return_mainline_done")
         runtime.active_key = record.completed == true and runtime.active_key or nil

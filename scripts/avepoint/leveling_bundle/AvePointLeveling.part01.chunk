@@ -263,7 +263,7 @@ M.EQUIP_RECYCLE_MAINTENANCE_CONFIG = type(M._leveling_config) == "table"
     and type(M._leveling_config.EQUIP_RECYCLE_MAINTENANCE_CONFIG) == "table"
     and M._leveling_config.EQUIP_RECYCLE_MAINTENANCE_CONFIG
     or {}
-local POTION_THRESHOLD_RATIO = 0.65
+local POTION_THRESHOLD_RATIO = 0.70
 local POTION_COOLDOWN_MS = 100
 local LOG_THROTTLE_MS = 3000
 local MONSTER_SCAN_LOG_INTERVAL_MS = 2000
@@ -13066,7 +13066,7 @@ local function maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, opt
     local hotkey_vk = tonumber(opts.vk) or VK_Q
     local hotkey_name = tostring(opts.hotkey_name or (hotkey_vk == 0x45 and "E" or "Q"))
     local threshold_ratio = tonumber(opts.threshold_ratio)
-        or (hotkey_vk == 0x45 and 0.45 or POTION_THRESHOLD_RATIO)
+        or (hotkey_vk == 0x45 and 0.80 or POTION_THRESHOLD_RATIO)
     local last_used_field = tostring(opts.last_used_field or (hotkey_vk == 0x45 and "last_potion_e_at" or "last_potion_q_at"))
 
     local potion_cooldown_ms = math.max(0, math.floor(tonumber(opts.cooldown_ms) or POTION_COOLDOWN_MS))
@@ -13136,7 +13136,7 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         or max_hp == nil
         or hp_ratio == nil
         or info_age_ms >= 80
-        or (type(hp_ratio) == "number" and hp_ratio <= 0.72)
+        or (type(hp_ratio) == "number" and hp_ratio <= 0.80)
 
     local common_opts = {
         nonintrusive = true,
@@ -13144,7 +13144,7 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         watch = true
     }
 
-    local emergency_e = type(hp_ratio) == "number" and hp_ratio <= 0.45
+    local emergency_e = type(hp_ratio) == "number" and hp_ratio <= 0.80
     local used_q = maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
         nonintrusive = common_opts.nonintrusive,
         force_refresh = common_opts.force_refresh,
@@ -13165,7 +13165,7 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         watch = common_opts.watch,
         vk = 0x45,
         hotkey_name = "E",
-        threshold_ratio = 0.45,
+        threshold_ratio = 0.80,
         cooldown_ms = 100,
         last_used_field = "last_potion_e_at"
     })
