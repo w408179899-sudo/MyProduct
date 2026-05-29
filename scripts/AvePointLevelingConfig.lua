@@ -11208,20 +11208,17 @@ M.TASK_NAME_CONFIGS = {
         "equipment_crafting_ember_arms_dealer_dragon_scale_belt_before_jump",
         {
             {
-                key = "equipment_crafting_dragon_scale_belt_btn",
-                label = "\u{9F99}\u{9CDE}\u{62A4}\u{8170}\u{6309}\u{94AE}",
-                distance_anchor_exact_text = "\u{9F99}\u{9CDE}\u{62A4}\u{8170}",
+                key = "equipment_crafting_head_wolf_greaves_btn",
+                label = "\u{5934}\u{72FC}\u{62A4}\u{80EB}\u{6309}\u{94AE}",
                 distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button",
-                distance_min = 19.166834,
-                distance_max = 20.352411,
                 include_patterns = {
                     "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button"
                 },
-                hint_client_x = 616.611877,
-                hint_client_y = 270.200287,
-                hint_ratio_x = 0.428500,
-                hint_ratio_y = 0.300223,
-                hint_max_distance = 80.000,
+                hint_client_x = 593.211731,
+                hint_client_y = 224.523193,
+                hint_ratio_x = 0.411953,
+                hint_ratio_y = 0.249470,
+                hint_max_distance = 30.000,
                 retry_ms = 600,
                 settle_ms = 1200
             }
@@ -11254,20 +11251,17 @@ M.TASK_NAME_CONFIGS = {
         "otherworld_exploration_ember_otherworld_tutor_dragon_scale_belt_before_jump",
         {
             {
-                key = "otherworld_exploration_dragon_scale_belt_btn",
-                label = "\u{9F99}\u{9CDE}\u{62A4}\u{8170}\u{6309}\u{94AE}",
-                distance_anchor_exact_text = "\u{9F99}\u{9CDE}\u{62A4}\u{8170}",
+                key = "otherworld_exploration_head_wolf_greaves_btn",
+                label = "\u{5934}\u{72FC}\u{62A4}\u{80EB}\u{6309}\u{94AE}",
                 distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button",
-                distance_min = 19.166834,
-                distance_max = 20.352411,
                 include_patterns = {
                     "UIButton Transient.GameEngine.CoreGameInstance.TaskButtonDetailItem_C.WidgetTree.Button"
                 },
-                hint_client_x = 616.611877,
-                hint_client_y = 270.200287,
-                hint_ratio_x = 0.428500,
-                hint_ratio_y = 0.300223,
-                hint_max_distance = 80.000,
+                hint_client_x = 593.211731,
+                hint_client_y = 224.523193,
+                hint_ratio_x = 0.411953,
+                hint_ratio_y = 0.249470,
+                hint_max_distance = 30.000,
                 retry_ms = 600,
                 settle_ms = 1200
             }
@@ -11296,19 +11290,6 @@ M.TASK_NAME_CONFIGS = {
             }
         }
     ),
-    ["\u{5F02}\u{754C}\u{63A2}\u{7D22} / \u{524D}\u{5F80}\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{7684}\u{5F02}\u{754C}\u{88C5}\u{7F6E}"] = {
-        key = "otherworld_exploration_reach_ember_otherworld_device_stop",
-        stop_script = true,
-        stop_reason = "reached_ember_otherworld_device_task",
-        task_patterns = {
-            "\u{5F02}\u{754C}\u{63A2}\u{7D22}"
-        },
-        task_detail_patterns = {
-            "\u{524D}\u{5F80}\u{4F59}\u{70EC}\u{4E4B}\u{606F}\u{7684}\u{5F02}\u{754C}\u{88C5}\u{7F6E}",
-            "\u{5230}\u{5F02}\u{754C}\u{88C5}\u{7F6E}"
-        },
-        constraint_mode = "all"
-    },
     ["\u{5723}\u{6D01}\u{4E4B}\u{706B}"] = make_dialogue_locator_flow_task_config(
         "holy_fire_guard_dialogue_flow",
         {
