@@ -7945,7 +7945,7 @@ function M.update(now, ctx)
     local immediate_boss_kite = type(objective_cfg) == "table"
         and tostring(objective_cfg.mode or "") == "boss_kite"
         and (
-            objective_cfg.immediate_kite_on_reached == true
+            objective_cfg.immediate_kite_on_reached ~= false
             or (
                 type(point_objective_cfg) == "table"
                 and point_objective_cfg.immediate_kite_on_reached == true
@@ -7957,7 +7957,9 @@ function M.update(now, ctx)
             owner = "task_intent",
             priority = 10,
             run = function()
-                if immediate_boss_kite and type(goal_distance) == "number" and goal_distance <= objective_ready_distance then
+                if immediate_boss_kite and type(goal_distance) == "number" then
+                    local kite_start_distance = M.task_combat_kite_start_distance(objective_ready_distance, objective_cfg, point_objective_cfg)
+                    local kite_prearm_distance = M.task_combat_kite_prearm_distance(kite_start_distance, objective_cfg, point_objective_cfg)
                     local require_task_path_for_kite = (
                         objective_cfg.require_task_path_for_kite == true
                     ) or (
@@ -7970,9 +7972,11 @@ function M.update(now, ctx)
                         or destination_source_for_kite == "task_path"
                         or destination_source_for_kite == "path_first_endpoint"
                         or destination_source_for_kite == "path_last_endpoint"
-                    if not require_task_path_for_kite or task_path_ready_for_kite then
-                        local _, task_name = M.current_task_runtime_config()
-                        if M.arm_immediate_task_boss_kite(
+                    local _, task_name = M.current_task_runtime_config()
+                    if goal_distance <= kite_prearm_distance
+                        and (not require_task_path_for_kite or task_path_ready_for_kite)
+                    then
+                        M.prime_immediate_task_boss_kite(
                             ctx,
                             current_time,
                             task_name,
@@ -7983,21 +7987,38 @@ function M.update(now, ctx)
                             player_x,
                             player_y,
                             player_z,
-                            "follow_ready"
-                        ) then
-                            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
-                            return true
+                            "follow_prearm"
+                        )
+                    end
+                    if goal_distance <= kite_start_distance then
+                        if not require_task_path_for_kite or task_path_ready_for_kite then
+                            if M.arm_immediate_task_boss_kite(
+                                ctx,
+                                current_time,
+                                task_name,
+                                objective_cfg,
+                                point_objective_cfg,
+                                destination,
+                                target,
+                                player_x,
+                                player_y,
+                                player_z,
+                                "follow_ready"
+                            ) then
+                                log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+                                return true
+                            end
+                        else
+                            log_throttled(ctx, "follow_ready_boss_kite_wait_task_path_" .. tostring(objective_cfg.key or ""), "info", LOG_THROTTLE_MS, string.format(
+                                "[Leveling] immediate boss kite ready but waiting task_path target | task=%s detail=%s objective=%s target_source=%s destination_source=%s goal_distance=%.2f",
+                                tostring(task_name or state.current_task_name or ""),
+                                tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                                tostring(objective_cfg.key or ""),
+                                target_source_for_kite,
+                                destination_source_for_kite,
+                                tonumber(goal_distance) or 0
+                            ))
                         end
-                    else
-                        log_throttled(ctx, "follow_ready_boss_kite_wait_task_path_" .. tostring(objective_cfg.key or ""), "info", LOG_THROTTLE_MS, string.format(
-                            "[Leveling] immediate boss kite ready but waiting task_path target | task=%s detail=%s objective=%s target_source=%s destination_source=%s goal_distance=%.2f",
-                            tostring(select(2, M.current_task_runtime_config()) or state.current_task_name or ""),
-                            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
-                            tostring(objective_cfg.key or ""),
-                            target_source_for_kite,
-                            destination_source_for_kite,
-                            tonumber(goal_distance) or 0
-                        ))
                     end
                 end
                 return false

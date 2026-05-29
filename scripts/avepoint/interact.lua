@@ -851,6 +851,14 @@ local function step_has_fallback_target_resolver(step, ctx)
     return false
 end
 
+local function step_requires_text_distance_anchor(step)
+    return type(step) == "table"
+        and (
+            step.distance_anchor_required == true
+            or step.strict_distance_anchor == true
+        )
+end
+
 function fetch_button_for_step(step, opts)
     local ctx = {
         image_preset = resolve_image_click_preset(step)
@@ -867,6 +875,15 @@ function fetch_button_for_step(step, opts)
             if err ~= nil and err ~= "" then
                 last_err = err
                 if resolver.name == "text_distance" and step_has_fallback_target_resolver(step, ctx) then
+                    if step_requires_text_distance_anchor(step) then
+                        log.warn(string.format(
+                            "Distance-first target miss [%s]; strict text-distance anchor required: %s",
+                            tostring(type(step) == "table" and step.label or ""),
+                            tostring(err)
+                        ))
+                        return nil, err
+                    end
+
                     log.warn(string.format(
                         "Distance-first target miss [%s]; fallback to generic match: %s",
                         tostring(type(step) == "table" and step.label or ""),

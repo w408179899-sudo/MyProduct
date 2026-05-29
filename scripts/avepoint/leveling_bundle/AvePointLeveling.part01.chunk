@@ -737,11 +737,11 @@ M.GUIDE_SKIP_STEP = {
     include_patterns = {
         "UIButton Transient.GameEngine.CoreGameInstance.NoviceGuideMainUI_C.WidgetTree.C_SkipButton"
     },
-    hint_client_x = 722.137634,
-    hint_client_y = 115.633369,
-    hint_ratio_x = 0.501833,
-    hint_ratio_y = 0.128482,
-    hint_max_distance = 120.000
+    hint_client_x = 758.667236,
+    hint_client_y = 124.673813,
+    hint_ratio_x = 0.526852,
+    hint_ratio_y = 0.138526,
+    hint_max_distance = 40.000
 }
 
 M.GLOBAL_TASK_PORTAL_STEP = {
@@ -1777,6 +1777,10 @@ local function clear_task_target_state()
     state.task_combat_kite_arrive_distance = nil
     state.task_combat_kite_move_interval_ms = nil
     state.task_combat_kite_force_move = false
+    state.task_combat_kite_prearm_key = nil
+    state.task_combat_kite_prearm_anchor_x = nil
+    state.task_combat_kite_prearm_anchor_y = nil
+    state.task_combat_kite_prearm_anchor_z = nil
     state.task_combat_kite_anchor_route_x = nil
     state.task_combat_kite_anchor_route_y = nil
     state.task_combat_kite_anchor_route_z = nil
@@ -1853,14 +1857,22 @@ function M.apply_task_entry_send_step_defaults(step)
         and slot_def.hover_capture
         or nil
 
+    step.distance_anchor_exact_text = "\u{4F20}\u{9001}"
+    step.distance_min = 11.009900
+    step.distance_max = 12.009900
+    step.hint_client_x = 633.372803
+    step.hint_client_y = 790.940796
+    step.hint_ratio_x = 0.439842
+    step.hint_ratio_y = 0.878823
+    step.hint_max_distance = 30.000
     if step.hover_capture_client_left == nil then
-        step.hover_capture_client_left = tonumber(hover_cfg and hover_cfg.client_left) or 654
+        step.hover_capture_client_left = tonumber(hover_cfg and hover_cfg.client_left) or 610
     end
     if step.hover_capture_client_top == nil then
-        step.hover_capture_client_top = tonumber(hover_cfg and hover_cfg.client_top) or 789
+        step.hover_capture_client_top = tonumber(hover_cfg and hover_cfg.client_top) or 770
     end
     if step.hover_capture_client_right == nil then
-        step.hover_capture_client_right = tonumber(hover_cfg and hover_cfg.client_right) or 790
+        step.hover_capture_client_right = tonumber(hover_cfg and hover_cfg.client_right) or 735
     end
     if step.hover_capture_client_bottom == nil then
         step.hover_capture_client_bottom = tonumber(hover_cfg and hover_cfg.client_bottom) or 810
@@ -1875,16 +1887,16 @@ function M.apply_task_entry_send_step_defaults(step)
         step.target_poll_interval_ms = 250
     end
     if step.fixed_fallback_ratio_x == nil then
-        step.fixed_fallback_ratio_x = 0.456331
+        step.fixed_fallback_ratio_x = 0.439842
     end
     if step.fixed_fallback_ratio_y == nil then
-        step.fixed_fallback_ratio_y = 0.903166
+        step.fixed_fallback_ratio_y = 0.878823
     end
     if step.fixed_fallback_client_x == nil then
-        step.fixed_fallback_client_x = 657.116943
+        step.fixed_fallback_client_x = 633.372803
     end
     if step.fixed_fallback_client_y == nil then
-        step.fixed_fallback_client_y = 812.849670
+        step.fixed_fallback_client_y = 790.940796
     end
     if step.fixed_fallback_mouse_mode == nil then
         step.fixed_fallback_mouse_mode = "api"
@@ -2406,6 +2418,10 @@ local function reset_state()
     state.task_combat_kite_arrive_distance = nil
     state.task_combat_kite_move_interval_ms = nil
     state.task_combat_kite_force_move = false
+    state.task_combat_kite_prearm_key = nil
+    state.task_combat_kite_prearm_anchor_x = nil
+    state.task_combat_kite_prearm_anchor_y = nil
+    state.task_combat_kite_prearm_anchor_z = nil
     state.task_combat_kite_anchor_route_x = nil
     state.task_combat_kite_anchor_route_y = nil
     state.task_combat_kite_anchor_route_z = nil
@@ -13221,6 +13237,10 @@ clear_task_combat_state = function()
     state.task_combat_kite_arrive_distance = nil
     state.task_combat_kite_move_interval_ms = nil
     state.task_combat_kite_force_move = false
+    state.task_combat_kite_prearm_key = nil
+    state.task_combat_kite_prearm_anchor_x = nil
+    state.task_combat_kite_prearm_anchor_y = nil
+    state.task_combat_kite_prearm_anchor_z = nil
     state.task_combat_kite_anchor_route_x = nil
     state.task_combat_kite_anchor_route_y = nil
     state.task_combat_kite_anchor_route_z = nil

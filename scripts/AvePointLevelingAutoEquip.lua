@@ -35,11 +35,11 @@ M.DEFAULT_CONFIG = {
     ring_slot_select_wait_ms = 450,
     ring_slot_left = {
         client_x = 972,
-        client_y = 381
+        client_y = 376
     },
     ring_slot_right = {
         client_x = 1376,
-        client_y = 376
+        client_y = 371
     },
     keep_equipped_rules = {
         {
@@ -110,10 +110,10 @@ M.DEFAULT_CONFIG = {
     natural_regen_text_patterns = { "每秒自然回复" },
     bag_grid = {
         center_scan = true,
-        first_center_x = 958,
-        first_center_y = 570,
-        last_center_x = 1392,
-        last_center_y = 755,
+        first_center_x = 955,
+        first_center_y = 571,
+        last_center_x = 1390,
+        last_center_y = 756,
         columns = 8,
         rows = 4,
         hover_jitter_px = 2,
@@ -1298,6 +1298,10 @@ local function parse_compare(snapshot, cfg)
     result.equipped_ring_names = parse_equipped_ring_names(snapshot.texts, cfg)
     result.equipped_item_names = parse_equipped_item_names(snapshot.texts, cfg)
     local ring_rows = {}
+    local candidate_item_name = nil
+    local fallback_item_name = nil
+    local candidate_item_type = nil
+    local fallback_item_type = nil
 
     for _, item in ipairs(snapshot.texts) do
         local name = identity_of(item)
@@ -1314,15 +1318,19 @@ local function parse_compare(snapshot, cfg)
             end
         end
         if name:find("tipweaponitem_c.widgettree.uitextblock", 1, true) ~= nil
-            and result.item_name == nil
             and text ~= ""
         then
-            result.item_name = text
+            fallback_item_name = fallback_item_name or text
+            if candidate_item_name == nil and not text_item_is_equipped_panel(item, cfg) then
+                candidate_item_name = text
+            end
         elseif name:find("tipstagitem_type.widgettree.uitextblock", 1, true) ~= nil
-            and result.item_type == nil
             and text ~= ""
         then
-            result.item_type = text
+            fallback_item_type = fallback_item_type or text
+            if candidate_item_type == nil and not text_item_is_equipped_panel(item, cfg) then
+                candidate_item_type = text
+            end
         elseif name:find("attrbutecompareitems", 1, true) ~= nil
             and name:find("text_attrvalue", 1, true) ~= nil
         then
@@ -1337,6 +1345,8 @@ local function parse_compare(snapshot, cfg)
         end
     end
 
+    result.item_name = candidate_item_name or fallback_item_name
+    result.item_type = candidate_item_type or fallback_item_type
     apply_ring_compare_choice(result, ring_rows, cfg)
     return result
 end

@@ -315,6 +315,7 @@ function M.maybe_handle_linear_task_recipe(ctx, current_time, player_x, player_y
     M.arm_linear_task_recipe(ctx, current_time, recipe)
 
     if M.maybe_block_task_entry_for_skip_sequence(ctx, current_time, "task_recipe") then
+        current_time = now_ms(ctx)
         state.task_recipe_deadline_at = math.max(
             tonumber(state.task_recipe_deadline_at) or 0,
             current_time + math.max(5000, tonumber(recipe.timeout_ms) or 12000)
@@ -324,8 +325,36 @@ function M.maybe_handle_linear_task_recipe(ctx, current_time, player_x, player_y
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
+    current_time = now_ms(ctx)
 
     if current_time >= (tonumber(state.task_recipe_deadline_at) or 0) then
+        local step_index = math.max(1, tonumber(state.task_recipe_step_index) or 1)
+        local recipes = type(M._leveling_recipes) == "table" and M._leveling_recipes or nil
+        local step = type(recipes) == "table" and type(recipes.step_at) == "function"
+            and recipes.step_at(recipe, step_index)
+            or recipe.steps[step_index]
+        local kind = tostring(type(step) == "table" and step.kind or "")
+        local slot = tostring(type(step) == "table" and step.slot or "")
+        if kind == "call_button_slot" and slot ~= "" then
+            logger(ctx).info(string.format(
+                "[Leveling] task recipe timeout forcing pending button slot once | key=%s step=%d/%d slot=%s step_key=%s label=%s",
+                tostring(state.task_recipe_active_key or ""),
+                step_index,
+                type(recipe.steps) == "table" and #recipe.steps or 0,
+                slot,
+                tostring(step.key or ""),
+                tostring(step.label or "")
+            ))
+            state.task_recipe_next_step_at = current_time
+            state.stage = "task_recipe"
+            hold_navigation(ctx, current_time, "task_recipe_timeout_button_slot")
+            local ok, err = M.execute_linear_task_recipe_step(ctx, current_time, recipe, step)
+            if ok == true then
+                return true
+            end
+            M.fail_task_recipe_step(ctx, current_time, recipe, step, err or "recipe timeout")
+            return true
+        end
         M.fail_task_recipe_step(ctx, current_time, recipe, nil, "recipe timeout")
         return true
     end
@@ -3202,16 +3231,37 @@ function M.apply_task_combat_kite_runtime_options(objective_cfg, point_objective
     end
     local has_configured_kite_points = type(point_cfg and point_cfg.kite_points) == "table"
         or type(task_cfg and task_cfg.kite_points) == "table"
-    local endpoint_kite = (point_cfg and point_cfg.immediate_kite_on_reached == true)
-        or (task_cfg and task_cfg.immediate_kite_on_reached == true)
+    local endpoint_kite = (
+        point_cfg
+        and (
+            point_cfg.immediate_kite_on_reached == true
+            or (
+                tostring(point_cfg.mode or "") == "boss_kite"
+                and point_cfg.immediate_kite_on_reached ~= false
+            )
+        )
+    ) or (
+        task_cfg
+        and (
+            task_cfg.immediate_kite_on_reached == true
+            or (
+                tostring(task_cfg.mode or "") == "boss_kite"
+                and task_cfg.immediate_kite_on_reached ~= false
+            )
+        )
+    )
 
     state.task_combat_kite_seamless = seamless == true
     state.task_combat_kite_switch_ms = tonumber(point_cfg and point_cfg.kite_switch_ms)
         or tonumber(task_cfg and task_cfg.kite_switch_ms)
         or tonumber(state.task_combat_kite_switch_ms)
-    state.task_combat_kite_point_count = tonumber(point_cfg and (point_cfg.kite_point_count or point_cfg.generated_kite_points))
+    local generated_point_count = tonumber(point_cfg and (point_cfg.kite_point_count or point_cfg.generated_kite_points))
         or tonumber(task_cfg and (task_cfg.kite_point_count or task_cfg.generated_kite_points))
         or nil
+    if generated_point_count == nil and endpoint_kite == true and not has_configured_kite_points then
+        generated_point_count = 3
+    end
+    state.task_combat_kite_point_count = generated_point_count
     state.task_combat_kite_async_worker = M.TASK_COMBAT_KITE_ASYNC_ROUTE_WORKER == true
         and async_override ~= false
         and (
@@ -3231,18 +3281,7 @@ function M.apply_task_combat_kite_runtime_options(objective_cfg, point_objective
     end
 end
 
-function M.arm_immediate_task_boss_kite(ctx, current_time, task_name, objective_cfg, point_objective_cfg, destination, target, player_x, player_y, player_z, reason)
-    if type(objective_cfg) ~= "table" or tostring(objective_cfg.mode or "") ~= "boss_kite" then
-        return false
-    end
-
-    state.task_reached_unresolved_since = 0
-    state.task_combat_force_kite = true
-    if (tonumber(state.task_combat_started_at) or 0) <= 0 then
-        state.task_combat_started_at = current_time
-    end
-    M.lock_boss_combat_context(task_name, objective_cfg, point_objective_cfg)
-
+function M.resolve_task_combat_kite_anchor(point_objective_cfg, destination, target, player_x, player_y, player_z)
     local anchor = nil
     if type(point_objective_cfg) == "table"
         and tonumber(point_objective_cfg.x) ~= nil
@@ -3255,9 +3294,27 @@ function M.arm_immediate_task_boss_kite(ctx, current_time, task_name, objective_
         anchor = target
     end
 
-    state.task_combat_anchor_x = tonumber(anchor and anchor.x) or tonumber(player_x)
-    state.task_combat_anchor_y = tonumber(anchor and anchor.y) or tonumber(player_y)
-    state.task_combat_anchor_z = tonumber(anchor and anchor.z) or tonumber(player_z)
+    local anchor_x = tonumber(anchor and anchor.x) or tonumber(player_x)
+    local anchor_y = tonumber(anchor and anchor.y) or tonumber(player_y)
+    if anchor_x == nil or anchor_y == nil then
+        return nil
+    end
+    return {
+        x = anchor_x,
+        y = anchor_y,
+        z = tonumber(anchor and anchor.z) or tonumber(player_z)
+    }
+end
+
+function M.prepare_task_combat_kite_runtime(objective_cfg, point_objective_cfg, destination, target, player_x, player_y, player_z)
+    local anchor = M.resolve_task_combat_kite_anchor(point_objective_cfg, destination, target, player_x, player_y, player_z)
+    if type(anchor) ~= "table" then
+        return nil
+    end
+
+    state.task_combat_anchor_x = anchor.x
+    state.task_combat_anchor_y = anchor.y
+    state.task_combat_anchor_z = anchor.z
     state.task_combat_kite_radius = tonumber(type(point_objective_cfg) == "table" and point_objective_cfg.kite_radius)
         or tonumber(objective_cfg.kite_radius)
         or tonumber(state.task_combat_kite_radius)
@@ -3268,12 +3325,167 @@ function M.arm_immediate_task_boss_kite(ctx, current_time, task_name, objective_
     state.task_combat_kite_switch_ms = tonumber(type(point_objective_cfg) == "table" and point_objective_cfg.kite_switch_ms)
         or tonumber(objective_cfg.kite_switch_ms)
     M.apply_task_combat_kite_runtime_options(objective_cfg, point_objective_cfg)
+    return anchor
+end
+
+function M.task_combat_kite_route_key(task_name, objective_cfg, point_objective_cfg)
+    return table.concat({
+        tostring(task_name or state.current_task_name or ""),
+        tostring(type(objective_cfg) == "table" and objective_cfg.key or ""),
+        tostring(type(point_objective_cfg) == "table" and (point_objective_cfg.key or point_objective_cfg.name) or ""),
+        tostring(tonumber(state.task_combat_kite_radius) or ""),
+        tostring(tonumber(state.task_combat_kite_point_count) or ""),
+        tostring(tonumber(state.task_combat_kite_switch_ms) or "")
+    }, "|")
+end
+
+function M.task_combat_kite_route_matches(route_key, anchor)
+    if tostring(state.task_combat_kite_prearm_key or "") ~= tostring(route_key or "") then
+        return false
+    end
+    local route_points = state.task_combat_kite_points
+    if type(route_points) ~= "table" or #route_points < 3 then
+        return false
+    end
+    local route_anchor_x = tonumber(state.task_combat_kite_anchor_route_x)
+    local route_anchor_y = tonumber(state.task_combat_kite_anchor_route_y)
+    if type(anchor) ~= "table" or route_anchor_x == nil or route_anchor_y == nil then
+        return false
+    end
+    if distance_2d(route_anchor_x, route_anchor_y, anchor.x, anchor.y) > 160 then
+        return false
+    end
+    local route_anchor_z = tonumber(state.task_combat_kite_anchor_route_z)
+    local anchor_z = tonumber(anchor.z)
+    if route_anchor_z ~= nil and anchor_z ~= nil and math.abs(route_anchor_z - anchor_z) > 260 then
+        return false
+    end
+    return true
+end
+
+function M.select_nearest_task_combat_kite_point(player_x, player_y, current_time)
+    local route_points = state.task_combat_kite_points
+    if type(route_points) ~= "table" or tonumber(player_x) == nil or tonumber(player_y) == nil then
+        return false
+    end
+    local nearest_index = 1
+    local nearest_distance = math.huge
+    for index, point in ipairs(route_points) do
+        local point_x = tonumber(type(point) == "table" and point.x)
+        local point_y = tonumber(type(point) == "table" and point.y)
+        if point_x ~= nil and point_y ~= nil then
+            local point_distance = distance_2d(player_x, player_y, point_x, point_y)
+            if point_distance < nearest_distance then
+                nearest_distance = point_distance
+                nearest_index = index
+            end
+        end
+    end
+    state.task_combat_kite_index = nearest_index
+    state.task_combat_next_kite_switch_at = (tonumber(current_time) or 0)
+        + math.max(800, tonumber(state.task_combat_kite_switch_ms) or 2800)
+    return true
+end
+
+function M.task_combat_kite_start_distance(objective_ready_distance, objective_cfg, point_objective_cfg)
+    local point_cfg = type(point_objective_cfg) == "table" and point_objective_cfg or nil
+    local task_cfg = type(objective_cfg) == "table" and objective_cfg or nil
+    return math.max(
+        tonumber(objective_ready_distance) or TARGET_REACHED_DISTANCE,
+        tonumber(point_cfg and (point_cfg.kite_start_distance or point_cfg.immediate_kite_start_distance)) or 0,
+        tonumber(task_cfg and (task_cfg.kite_start_distance or task_cfg.immediate_kite_start_distance)) or 0,
+        tonumber(point_cfg and point_cfg.trigger_distance) or 0,
+        tonumber(task_cfg and task_cfg.trigger_distance) or 0,
+        640
+    )
+end
+
+function M.task_combat_kite_prearm_distance(start_distance, objective_cfg, point_objective_cfg)
+    local point_cfg = type(point_objective_cfg) == "table" and point_objective_cfg or nil
+    local task_cfg = type(objective_cfg) == "table" and objective_cfg or nil
+    local start = tonumber(start_distance) or 640
+    local lead = tonumber(point_cfg and point_cfg.kite_prearm_lead_distance)
+        or tonumber(task_cfg and task_cfg.kite_prearm_lead_distance)
+        or 1400
+    return math.max(
+        start,
+        tonumber(point_cfg and point_cfg.kite_prearm_distance) or 0,
+        tonumber(task_cfg and task_cfg.kite_prearm_distance) or 0,
+        start + lead
+    )
+end
+
+function M.prime_immediate_task_boss_kite(ctx, current_time, task_name, objective_cfg, point_objective_cfg, destination, target, player_x, player_y, player_z, reason)
+    if type(objective_cfg) ~= "table" or tostring(objective_cfg.mode or "") ~= "boss_kite" then
+        return false
+    end
+    local anchor = M.prepare_task_combat_kite_runtime(objective_cfg, point_objective_cfg, destination, target, player_x, player_y, player_z)
+    if type(anchor) ~= "table" then
+        return false
+    end
+    local route_key = M.task_combat_kite_route_key(task_name, objective_cfg, point_objective_cfg)
+    if M.task_combat_kite_route_matches(route_key, anchor) then
+        return true
+    end
+
     state.task_combat_kite_points = nil
     state.task_combat_kite_index = 0
     state.task_combat_next_kite_switch_at = 0
     state.task_combat_kite_force_move = true
+    local kite_target = M.build_task_combat_kite_target(current_time, player_x, player_y, destination or target)
+    if type(kite_target) ~= "table" then
+        return false
+    end
+    state.task_combat_kite_prearm_key = route_key
+    state.task_combat_kite_prearm_anchor_x = anchor.x
+    state.task_combat_kite_prearm_anchor_y = anchor.y
+    state.task_combat_kite_prearm_anchor_z = anchor.z
+    log_throttled(ctx, "task_boss_kite_prearm_" .. route_key, "info", LOG_THROTTLE_MS, string.format(
+        "[Leveling] immediate boss kite route prearmed | task=%s objective=%s reason=%s center=%.2f, %.2f, %.2f points=%d first_target_distance=%s",
+        tostring(task_name or state.current_task_name or ""),
+        tostring(objective_cfg.key or ""),
+        tostring(reason or ""),
+        tonumber(anchor.x) or 0,
+        tonumber(anchor.y) or 0,
+        tonumber(anchor.z) or 0,
+        type(state.task_combat_kite_points) == "table" and #state.task_combat_kite_points or 0,
+        tostring(kite_target.current_distance or "")
+    ))
+    return true
+end
+
+function M.arm_immediate_task_boss_kite(ctx, current_time, task_name, objective_cfg, point_objective_cfg, destination, target, player_x, player_y, player_z, reason)
+    if type(objective_cfg) ~= "table" or tostring(objective_cfg.mode or "") ~= "boss_kite" then
+        return false
+    end
+
+    state.task_reached_unresolved_since = 0
+    state.task_combat_force_kite = true
+    if (tonumber(state.task_combat_started_at) or 0) <= 0 then
+        state.task_combat_started_at = current_time
+    end
+    M.lock_boss_combat_context(task_name, objective_cfg, point_objective_cfg)
+
+    local anchor = M.prepare_task_combat_kite_runtime(objective_cfg, point_objective_cfg, destination, target, player_x, player_y, player_z)
+    if type(anchor) ~= "table" then
+        return false
+    end
+    local route_key = M.task_combat_kite_route_key(task_name, objective_cfg, point_objective_cfg)
+    local route_prearmed = M.task_combat_kite_route_matches(route_key, anchor)
+    if route_prearmed then
+        M.select_nearest_task_combat_kite_point(player_x, player_y, current_time)
+    else
+        state.task_combat_kite_points = nil
+        state.task_combat_kite_index = 0
+        state.task_combat_next_kite_switch_at = 0
+    end
+    state.task_combat_kite_force_move = true
 
     local kite_target = M.build_task_combat_kite_target(current_time, player_x, player_y, destination or target)
+    state.task_combat_kite_prearm_key = route_key
+    state.task_combat_kite_prearm_anchor_x = anchor.x
+    state.task_combat_kite_prearm_anchor_y = anchor.y
+    state.task_combat_kite_prearm_anchor_z = anchor.z
     state.stage = "task_combat_kite"
     if type(kite_target) == "table" then
         M.issue_task_combat_kite_move(ctx, current_time, kite_target)
@@ -3282,10 +3494,11 @@ function M.arm_immediate_task_boss_kite(ctx, current_time, task_name, objective_
         mode = "task_combat_kite"
     })
     log_throttled(ctx, "task_immediate_boss_kite", "info", LOG_THROTTLE_MS, string.format(
-        "[Leveling] immediate boss kite armed at objective | task=%s objective=%s reason=%s kite_target=%s route_index=%s/%s",
+        "[Leveling] immediate boss kite armed at objective | task=%s objective=%s reason=%s prearmed=%s kite_target=%s route_index=%s/%s",
         tostring(task_name or state.current_task_name or ""),
         tostring(objective_cfg.key or ""),
         tostring(reason or ""),
+        route_prearmed and "true" or "false",
         type(kite_target) == "table" and string.format("%.2f, %.2f", tonumber(kite_target.x) or 0, tonumber(kite_target.y) or 0) or "nil",
         type(kite_target) == "table" and tostring(kite_target.path_index or "") or "",
         type(kite_target) == "table" and tostring(kite_target.path_points or "") or ""
@@ -3344,6 +3557,24 @@ function M.maybe_handle_task_reached(
     local objective_mode = type(objective_cfg) == "table" and tostring(objective_cfg.mode or "") or ""
     local force_boss_objective = objective_mode == "boss_kite"
         or sticky_force_boss
+    local immediate_boss_kite = type(objective_cfg) == "table"
+        and (
+            objective_cfg.immediate_kite_on_reached == true
+            or (
+                objective_mode == "boss_kite"
+                and objective_cfg.immediate_kite_on_reached ~= false
+            )
+            or (
+                type(point_objective_cfg) == "table"
+                and (
+                    point_objective_cfg.immediate_kite_on_reached == true
+                    or (
+                        tostring(point_objective_cfg.mode or "") == "boss_kite"
+                        and point_objective_cfg.immediate_kite_on_reached ~= false
+                    )
+                )
+            )
+        )
     local boss_trigger_distance = type(M._leveling_policy) == "table"
         and type(M._leveling_policy.objective_ready_distance) == "function"
         and M._leveling_policy.objective_ready_distance(TARGET_REACHED_DISTANCE, objective_cfg)
@@ -3351,6 +3582,11 @@ function M.maybe_handle_task_reached(
             TARGET_REACHED_DISTANCE,
             tonumber(type(objective_cfg) == "table" and force_boss_objective and objective_cfg.trigger_distance) or 360
         )
+    if force_boss_objective
+        and immediate_boss_kite
+    then
+        boss_trigger_distance = M.task_combat_kite_start_distance(boss_trigger_distance, objective_cfg, point_objective_cfg)
+    end
     local skip_direct_interact = (type(objective_cfg) == "table" and objective_cfg.skip_direct_interact == true)
         and (
             force_boss_objective
@@ -3418,7 +3654,7 @@ function M.maybe_handle_task_reached(
 
     if force_boss_objective
         and type(objective_cfg) == "table"
-        and objective_cfg.immediate_kite_on_reached == true
+        and immediate_boss_kite
         and type(goal_distance) == "number"
         and goal_distance <= boss_trigger_distance
         and (not require_task_path_for_kite or task_path_ready_for_kite)
@@ -5943,11 +6179,51 @@ function M.maybe_move_mouse_after_level_up_maintenance_image_done(ctx, step, rea
         return false, "cursor outside configured rectangle"
     end
 
+    local function is_outside_mouse_away_rect(x, y)
+        return type(x) == "number"
+            and type(y) == "number"
+            and not (x >= left and x <= right and y >= top and y <= bottom)
+    end
+
     local target_x = tonumber(opts.target_client_x) or tonumber(opts.client_x)
     local target_y = tonumber(opts.target_client_y) or tonumber(opts.client_y)
+    local random_target_used = false
+    if opts.random_target == true then
+        local target_regions = opts.target_regions or opts.random_target_regions or opts.random_regions
+        if type(target_regions) == "table" and #target_regions > 0 then
+            local start_index = M.random_int(1, #target_regions)
+            for offset = 0, #target_regions - 1 do
+                local region = target_regions[((start_index + offset - 2) % #target_regions) + 1]
+                if type(region) == "table" then
+                    local region_left = tonumber(region.left) or tonumber(region.rect_left) or tonumber(region.client_left) or tonumber(region[1])
+                    local region_top = tonumber(region.top) or tonumber(region.rect_top) or tonumber(region.client_top) or tonumber(region[2])
+                    local region_right = tonumber(region.right) or tonumber(region.rect_right) or tonumber(region.client_right) or tonumber(region[3])
+                    local region_bottom = tonumber(region.bottom) or tonumber(region.rect_bottom) or tonumber(region.client_bottom) or tonumber(region[4])
+                    if region_left ~= nil and region_top ~= nil and region_right ~= nil and region_bottom ~= nil then
+                        if region_left > region_right then
+                            region_left, region_right = region_right, region_left
+                        end
+                        if region_top > region_bottom then
+                            region_top, region_bottom = region_bottom, region_top
+                        end
+
+                        local candidate_x = M.random_float(region_left, region_right)
+                        local candidate_y = M.random_float(region_top, region_bottom)
+                        if is_outside_mouse_away_rect(candidate_x, candidate_y) then
+                            target_x = candidate_x
+                            target_y = candidate_y
+                            random_target_used = true
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     local ratio_x = tonumber(opts.target_ratio_x) or tonumber(opts.ratio_x)
     local ratio_y = tonumber(opts.target_ratio_y) or tonumber(opts.ratio_y)
-    if client_w ~= nil and client_h ~= nil and ratio_x ~= nil and ratio_y ~= nil then
+    if not random_target_used and client_w ~= nil and client_h ~= nil and ratio_x ~= nil and ratio_y ~= nil then
         target_x = ratio_x * client_w
         target_y = ratio_y * client_h
     end
@@ -5963,7 +6239,7 @@ function M.maybe_move_mouse_after_level_up_maintenance_image_done(ctx, step, rea
     })
     if moved then
         logger(ctx).info(string.format(
-            "[Leveling] level-up maintenance image cleanup moved mouse away | reason=%s step_key=%s from=(%s,%s) rect=(%.2f,%.2f)-(%.2f,%.2f) target=(%.2f,%.2f)",
+            "[Leveling] level-up maintenance image cleanup moved mouse away | reason=%s step_key=%s from=(%s,%s) rect=(%.2f,%.2f)-(%.2f,%.2f) target=(%.2f,%.2f) random=%s",
             tostring(reason or ""),
             tostring(step.key or ""),
             tostring(cursor_x or ""),
@@ -5973,7 +6249,8 @@ function M.maybe_move_mouse_after_level_up_maintenance_image_done(ctx, step, rea
             tonumber(right) or 0,
             tonumber(bottom) or 0,
             tonumber(target_x) or 0,
-            tonumber(target_y) or 0
+            tonumber(target_y) or 0,
+            tostring(random_target_used == true)
         ))
         return true
     end
@@ -6856,6 +7133,19 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
     end
     local repeat_count = math.max(1, math.floor(tonumber(step.click_repeat_count or step.repeat_count) or 1))
     local repeat_interval_ms = math.max(0, tonumber(step.click_repeat_interval_ms or step.repeat_interval_ms) or 120)
+    local repeat_interval_min_ms = tonumber(step.click_repeat_interval_min_ms or step.repeat_interval_min_ms)
+    local repeat_interval_max_ms = tonumber(step.click_repeat_interval_max_ms or step.repeat_interval_max_ms)
+    if repeat_interval_min_ms ~= nil or repeat_interval_max_ms ~= nil then
+        repeat_interval_min_ms = math.max(0, math.floor(tonumber(repeat_interval_min_ms) or repeat_interval_ms))
+        repeat_interval_max_ms = math.max(0, math.floor(tonumber(repeat_interval_max_ms) or repeat_interval_min_ms))
+        if repeat_interval_max_ms < repeat_interval_min_ms then
+            repeat_interval_min_ms, repeat_interval_max_ms = repeat_interval_max_ms, repeat_interval_min_ms
+        end
+    end
+    local repeat_interval_label = tostring(repeat_interval_ms)
+    if repeat_interval_min_ms ~= nil and repeat_interval_max_ms ~= nil then
+        repeat_interval_label = tostring(repeat_interval_min_ms) .. "-" .. tostring(repeat_interval_max_ms)
+    end
     for repeat_index = 1, repeat_count do
         local clicked, click_err = click_locator_button_target(ctx, step, target)
         if not clicked then
@@ -6870,13 +7160,23 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
                 )
             )
         end
-        if repeat_index < repeat_count and repeat_interval_ms > 0 and type(sys) == "table" and type(sys.sleep) == "function" then
-            sys.sleep(repeat_interval_ms)
+        if repeat_index < repeat_count and type(sys) == "table" and type(sys.sleep) == "function" then
+            local current_repeat_interval_ms = repeat_interval_ms
+            if repeat_interval_min_ms ~= nil and repeat_interval_max_ms ~= nil then
+                current_repeat_interval_ms = repeat_interval_min_ms
+                local interval_delta = repeat_interval_max_ms - repeat_interval_min_ms
+                if interval_delta > 0 then
+                    current_repeat_interval_ms = repeat_interval_min_ms + math.random(0, interval_delta)
+                end
+            end
+            if current_repeat_interval_ms > 0 then
+                sys.sleep(current_repeat_interval_ms)
+            end
         end
     end
     if repeat_count > 1 then
         logger(ctx).info(string.format(
-            "[Leveling] level-up maintenance step clicked repeatedly | kind=%s level=%s plan=%s step=%d/%d key=%s label=%s repeat=%d interval_ms=%d addr=%s pos=(%s,%s)",
+            "[Leveling] level-up maintenance step clicked repeatedly | kind=%s level=%s plan=%s step=%d/%d key=%s label=%s repeat=%d interval_ms=%s addr=%s pos=(%s,%s)",
             tostring(state.level_up_maintenance_executor_kind or ""),
             tostring(state.level_up_maintenance_executor_level or ""),
             tostring(state.level_up_maintenance_executor_plan_label or ""),
@@ -6885,7 +7185,7 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
             tostring(step.key or ""),
             tostring(step.label or ""),
             repeat_count,
-            repeat_interval_ms,
+            repeat_interval_label,
             tostring(type(target) == "table" and target.addr or ""),
             tostring(type(target) == "table" and target.x or ""),
             tostring(type(target) == "table" and target.y or "")
@@ -10738,6 +11038,23 @@ function M.maybe_click_common_revive_reentry_portal(ctx, current_time, player_x,
         return false, false
     end
 
+    local button_probe_radius = tonumber(best_cfg.button_probe_radius)
+        or tonumber(best_cfg.portal_button_probe_radius)
+        or tonumber(best_cfg.portal_click_radius)
+    if button_probe_radius ~= nil
+        and (tonumber(best_player_distance) or math.huge) > button_probe_radius
+    then
+        log_throttled(ctx, "common_revive_reentry_follow_path_until_portal", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] common revive reentry path matched, follow main path until near door | key=%s source=%s path_distance=%s player_distance=%s probe_radius=%.2f",
+            tostring(best_cfg.key or ""),
+            tostring(best_source or ""),
+            best_path_distance ~= nil and string.format("%.2f", best_path_distance) or "nil",
+            best_player_distance ~= nil and string.format("%.2f", best_player_distance) or "nil",
+            tonumber(button_probe_radius) or 0
+        ))
+        return false, false
+    end
+
     local enum_portal, enum_err = M.find_common_revive_reentry_enum_portal(
         ctx,
         best_cfg,
@@ -10756,6 +11073,23 @@ function M.maybe_click_common_revive_reentry_portal(ctx, current_time, player_x,
         return false, best_cfg.require_enum_portal ~= false
     end
 
+    if button_probe_radius ~= nil
+        and (tonumber(enum_portal.player_distance) or math.huge) > button_probe_radius
+    then
+        log_throttled(ctx, "common_revive_reentry_follow_path_until_portal", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] common revive reentry portal matched, follow main path until near door | key=%s source=%s path_distance=%s player_distance=%s enum_pos=%.2f, %.2f enum_distance=%.2f probe_radius=%.2f",
+            tostring(best_cfg.key or ""),
+            tostring(best_source or ""),
+            best_path_distance ~= nil and string.format("%.2f", best_path_distance) or "nil",
+            best_player_distance ~= nil and string.format("%.2f", best_player_distance) or "nil",
+            tonumber(enum_portal.x) or 0,
+            tonumber(enum_portal.y) or 0,
+            tonumber(enum_portal.player_distance) or 0,
+            tonumber(button_probe_radius) or 0
+        ))
+        return false, false
+    end
+
     local step = type(best_cfg.step) == "table" and best_cfg.step or M.GLOBAL_TASK_PORTAL_STEP
     if type(step) ~= "table" then
         return false, true
@@ -10765,7 +11099,26 @@ function M.maybe_click_common_revive_reentry_portal(ctx, current_time, player_x,
         return false, true
     end
 
-    local target, fetch_err = fetch_locator_button_target(ctx, step)
+    local portal_step = {}
+    for k, v in pairs(step) do
+        portal_step[k] = v
+    end
+    portal_step.target_poll_retry_count = math.max(
+        tonumber(portal_step.target_poll_retry_count) or 1,
+        tonumber(best_cfg.portal_button_poll_count) or 1
+    )
+    portal_step.target_poll_interval_ms = math.max(
+        tonumber(portal_step.target_poll_interval_ms) or 0,
+        tonumber(best_cfg.portal_button_poll_interval_ms) or 0
+    )
+
+    local target, fetch_err, _, target_step = M.fetch_locator_button_target_with_configured_fallback(
+        ctx,
+        portal_step,
+        current_time,
+        "common_revive_reentry_portal"
+    )
+    target_step = type(target_step) == "table" and target_step or portal_step
     if type(target) ~= "table" then
         log_throttled(ctx, "common_revive_reentry_wait_portal", "info", LOG_THROTTLE_MS, string.format(
             "[Leveling] common revive reentry enum portal matched, waiting PortalBtn | key=%s source=%s path_distance=%s player_distance=%s enum_pos=%.2f, %.2f enum_distance=%.2f err=%s",
@@ -10784,7 +11137,7 @@ function M.maybe_click_common_revive_reentry_portal(ctx, current_time, player_x,
     state.stage = "common_revive_reentry_portal"
     hold_navigation(ctx, current_time, "common_revive_reentry_portal")
     release_async_combat_inputs(ctx, current_time, true)
-    local clicked, click_err, retryable = click_locator_button_target(ctx, step, target)
+    local clicked, click_err, retryable = click_locator_button_target(ctx, target_step, target)
     if not clicked then
         log_throttled(ctx,
             retryable and "common_revive_reentry_click_retry" or "common_revive_reentry_click_failed",

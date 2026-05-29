@@ -57,7 +57,7 @@ local function looks_like_transition_position(player_x, player_y, player_z)
     if type(player_x) ~= "number" or type(player_y) ~= "number" or type(player_z) ~= "number" then
         return true
     end
-    return math.abs(player_y) < 1 and math.abs(player_z) < 1 and math.abs(player_x) < 300
+    return math.abs(player_x) < 500 and math.abs(player_y) < 80 and math.abs(player_z) < 80
 end
 
 local TREASURE_BOSS_KITE_SWITCH_MS = 700
@@ -141,6 +141,19 @@ local function configured_target_level(cfg)
         return nil
     end
     return math.floor(target_level)
+end
+
+local function startup_recovery_requires_task_match(cfg)
+    if type(cfg) ~= "table" then
+        return true
+    end
+    if cfg.startup_recovery_requires_task_match ~= nil then
+        return cfg.startup_recovery_requires_task_match ~= false
+    end
+    if cfg.startup_recovery_allow_task_mismatch_by_level_gate == true then
+        return false
+    end
+    return true
 end
 
 local function pick_level_text_candidate(snapshot)
@@ -530,6 +543,11 @@ local function clear_character_resume(main_state, character_id, reason)
     if character_id == "" then
         return false, "character persistence id unavailable; treasure resume not cleared"
     end
+    if type(main_state) == "table" then
+        main_state.treasure_runtime = nil
+        main_state.treasure_runtime_character_id = character_id
+        main_state.treasure_runtime_clear_reason = tostring(reason or "clear_character_resume")
+    end
     if type(persisted_state_root) ~= "table" then
         persisted_state_root = load_state_root()
     end
@@ -581,47 +599,73 @@ local function clear_character_resume(main_state, character_id, reason)
     return save_state_root()
 end
 
-local function ensure_runtime_state(main_state)
-    if type(main_state.treasure_runtime) ~= "table" then
-        main_state.treasure_runtime = {
-            mode = "inactive",
-            active_key = nil,
-            task_match_confirmed = false,
-            startup_recovery_task_pending_since = nil,
-            route = nil,
-            route_loaded = false,
-            route_cursor = nil,
-            route_nearest_index = nil,
-            path_retry_count = 0,
-            next_retry_at = 0,
-            stage_deadline_at = 0,
-            last_click_at = 0,
-            last_save_err = nil,
-            boss_engaged = false,
-            boss_clear_started_at = 0,
-            boss_zero_monster_started_at = 0,
-            boss_portal_detected_at = 0,
-            boss_kite_points = nil,
-            boss_kite_index = 0,
-            boss_kite_next_switch_at = 0,
-            portal_kind = nil,
-            pending_return_mainline = false,
-            entry_step_index = 1,
-            loot_next_at = 0,
-            loot_ignore_until = 0,
-            loot_stuck_reference_count = 0,
-            loot_stuck_attempts = 0,
-            boss_loot_pulse_count = 0,
-            nearby_hold_signature = "",
-            nearby_hold_started_at = 0,
-            player_level = nil,
-            player_level_progress = nil,
-            player_level_text = nil,
-            player_level_source = nil,
-            player_level_next_probe_at = 0
-        }
+local function default_runtime_state(character_id)
+    local runtime = {
+        mode = "inactive",
+        active_key = nil,
+        task_match_confirmed = false,
+        startup_recovery_task_pending_since = nil,
+        route = nil,
+        route_loaded = false,
+        route_cursor = nil,
+        route_nearest_index = nil,
+        path_retry_count = 0,
+        next_retry_at = 0,
+        stage_deadline_at = 0,
+        last_click_at = 0,
+        last_save_err = nil,
+        boss_engaged = false,
+        boss_clear_started_at = 0,
+        boss_zero_monster_started_at = 0,
+        boss_portal_detected_at = 0,
+        boss_kite_points = nil,
+        boss_kite_index = 0,
+        boss_kite_next_switch_at = 0,
+        portal_kind = nil,
+        pending_return_mainline = false,
+        entry_step_index = 1,
+        loot_next_at = 0,
+        loot_ignore_until = 0,
+        loot_stuck_reference_count = 0,
+        loot_stuck_attempts = 0,
+        boss_loot_pulse_count = 0,
+        nearby_hold_signature = "",
+        nearby_hold_started_at = 0,
+        player_level = nil,
+        player_level_progress = nil,
+        player_level_text = nil,
+        player_level_source = nil,
+        player_level_next_probe_at = 0
+    }
+    if type(character_id) == "string" and character_id ~= "" then
+        runtime.character_id = character_id
     end
+    return runtime
+end
+
+local function ensure_runtime_state(main_state)
     local character_id = current_character_id()
+    if type(main_state.treasure_runtime) ~= "table" then
+        main_state.treasure_runtime = default_runtime_state(character_id)
+    else
+        local previous_runtime_character_id = trim(main_state.treasure_runtime.character_id or main_state.treasure_runtime_character_id)
+        if type(character_id) == "string"
+            and character_id ~= ""
+            and previous_runtime_character_id ~= ""
+            and previous_runtime_character_id ~= character_id
+        then
+            main_state.treasure_runtime = default_runtime_state(character_id)
+            main_state.treasure_runtime_character_reset_reason = "character_identity_changed"
+            main_state.treasure_runtime_character_previous_id = previous_runtime_character_id
+            main_state.treasure_runtime_character_changed_id = character_id
+        elseif type(character_id) == "string" and character_id ~= "" then
+            main_state.treasure_runtime.character_id = character_id
+        end
+    end
+    if type(character_id) == "string" and character_id ~= "" then
+        main_state.treasure_runtime.character_id = character_id
+        main_state.treasure_runtime_character_id = character_id
+    end
     if type(main_state.treasure_persisted) ~= "table"
         or main_state.treasure_persisted_character_id ~= character_id
     then
@@ -1456,6 +1500,28 @@ local function entry_distance(player_x, player_y, cfg)
     return distance_2d(player_x, player_y, tonumber(trigger.x), tonumber(trigger.y))
 end
 
+local function startup_level_gate_entry_matches(cfg, match_reason, player_x, player_y, player_z)
+    local reason = tostring(match_reason or "")
+    if reason == "map_name" or reason == "inside_map_pattern" then
+        return true, reason, entry_distance(player_x, player_y, cfg)
+    end
+    if reason:find("^route_nearby:", 1, false) ~= nil
+        or reason:find("^route_nearby_task_mismatch:", 1, false) ~= nil
+    then
+        return true, reason, entry_distance(player_x, player_y, cfg)
+    end
+    if reason == "inside_landing" or reason == "restart_landing" then
+        local ok = cfg_landing_ready(player_x, player_y, player_z, cfg, reason)
+        return ok, ok and reason or (reason .. "_mismatch"), entry_distance(player_x, player_y, cfg)
+    end
+    local trigger = type(cfg) == "table" and cfg.entry_trigger or nil
+    if not is_valid_point(trigger) then
+        return false, "missing_entry_trigger", math.huge
+    end
+    local ok = within_trigger(player_x, player_y, player_z, trigger)
+    return ok, ok and "entry_trigger" or "entry_trigger_mismatch", entry_distance(player_x, player_y, cfg)
+end
+
 local function route_nearby_for_cfg(main_state, cfg, runtime, player_x, player_y, fallback_distance)
     if type(cfg) ~= "table" or not has_reliable_world_pos(player_x, player_y) then
         return false, math.huge, 0
@@ -1619,6 +1685,7 @@ local reject_acquired_route
 
 local function activate_cfg(ctx, main_state, cfg, hooks, player_x, player_y, player_z)
     local runtime = ensure_runtime_state(main_state)
+    local active_character_id = current_character_id() or ""
     runtime.active_key = tostring(cfg.key or "")
     runtime.task_match_confirmed = true
     runtime.startup_recovery_task_pending_since = nil
@@ -1650,8 +1717,9 @@ local function activate_cfg(ctx, main_state, cfg, hooks, player_x, player_y, pla
         runtime.last_save_err = save_ok and nil or save_err
         if type(hooks.log_info) == "function" then
             hooks.log_info(ctx, string.format(
-                "[Treasure] route cache rejected | key=%s points=%d reason=%s detail=%s save_ok=%s",
+                "[Treasure] route cache rejected | key=%s character_id=%s points=%d reason=%s detail=%s save_ok=%s",
                 tostring(cfg.key or ""),
+                tostring(active_character_id),
                 #cached_route,
                 tostring(cached_reject_reason),
                 tostring(cached_reject_detail or ""),
@@ -1660,21 +1728,46 @@ local function activate_cfg(ctx, main_state, cfg, hooks, player_x, player_y, pla
         end
         cached_route = nil
     end
+    local route_source = "cache"
+    if (type(cached_route) ~= "table" or #cached_route < math.max(1, tonumber(cfg.min_path_points) or 3))
+        and type(cfg.fallback_route) == "table"
+    then
+        local fallback_route, fallback_stats = normalize_route(cfg.fallback_route, cfg)
+        local fallback_reject_reason, fallback_reject_detail = reject_acquired_route(cfg, fallback_route)
+        if type(fallback_route) == "table"
+            and #fallback_route >= math.max(1, tonumber(cfg.min_path_points) or 3)
+            and fallback_reject_reason == nil
+        then
+            cached_route = fallback_route
+            cache_stats = fallback_stats
+            route_source = "config_fallback"
+        elseif type(hooks.log_info) == "function" then
+            hooks.log_info(ctx, string.format(
+                "[Treasure] fallback route unavailable | key=%s points=%d reason=%s detail=%s",
+                tostring(cfg.key or ""),
+                type(fallback_route) == "table" and #fallback_route or 0,
+                tostring(fallback_reject_reason or "invalid"),
+                tostring(fallback_reject_detail or "")
+            ))
+        end
+    end
     if type(cached_route) == "table" and #cached_route >= math.max(1, tonumber(cfg.min_path_points) or 3) then
         runtime.route = cached_route
         runtime.route_loaded = true
         record.route = clone_table(cached_route)
-        if tonumber(type(cache_stats) == "table" and cache_stats.original_points or 0) > #cached_route then
-            local save_ok, save_err = save_record(ctx, main_state, cfg)
-            runtime.last_save_err = save_ok and nil or save_err
-        end
+        record.route_acquired = true
+        local save_ok, save_err = save_record(ctx, main_state, cfg)
+        runtime.last_save_err = save_ok and nil or save_err
         if type(hooks.log_info) == "function" then
             hooks.log_info(ctx, string.format(
-                "[Treasure] route cache hit | key=%s points=%d original_points=%d runs=%d",
+                "[Treasure] route cache hit | key=%s character_id=%s source=%s points=%d original_points=%d runs=%d save_ok=%s",
                 tostring(cfg.key or ""),
+                tostring(active_character_id),
+                tostring(route_source or ""),
                 #cached_route,
                 tonumber(type(cache_stats) == "table" and cache_stats.original_points or #cached_route) or #cached_route,
-                tonumber(record.run_count) or 0
+                tonumber(record.run_count) or 0,
+                save_ok and "true" or "false"
             ))
         end
     end
@@ -1727,7 +1820,9 @@ reject_acquired_route = function(cfg, route)
             tonumber(reject_trigger.radius) or 0
         )
     end
-    if cfg.acquire_path_require_boss_trigger == true then
+    if cfg.acquire_path_require_boss_trigger == true
+        or cfg.terminal_route_fail_without_boss == true
+    then
         local boss_cfg = type(cfg.boss) == "table" and cfg.boss or nil
         local boss_trigger = type(boss_cfg) == "table" and boss_cfg.trigger or nil
         if not is_valid_point(boss_trigger) then
@@ -1941,7 +2036,9 @@ local function startup_inside_recovery_match(ctx, main_state, runtime, cfg, hook
         and cfg_landing_ready(player_x, player_y, player_z, cfg, "restart_landing")
     then
         match_reason = "restart_landing"
-    elseif cfg.startup_recovery_route_nearby == true then
+    elseif cfg.startup_recovery_route_nearby == true
+        or (cfg.startup_recovery_activate_by_level_gate == true and configured_target_level(cfg) ~= nil)
+    then
         local near_route, route_gap, route_threshold = route_nearby_for_cfg(
             main_state,
             cfg,
@@ -1990,7 +2087,12 @@ local function startup_level_gate_accepts_task_mismatch_reason(reason, main_stat
         return true, value
     end
     if value:find("^route_nearby:", 1, false) ~= nil then
-        if type(cfg) == "table" and cfg.startup_recovery_allow_route_nearby_task_mismatch_by_level_gate == true then
+        if type(cfg) == "table"
+            and (
+                cfg.startup_recovery_allow_route_nearby_task_mismatch_by_level_gate == true
+                or (cfg.startup_recovery_activate_by_level_gate == true and configured_target_level(cfg) ~= nil)
+            )
+        then
             return true, "route_nearby_config"
         end
         return false, "route_nearby_requires_config"
@@ -2029,11 +2131,38 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
     local runtime = ensure_runtime_state(main_state)
     for _, candidate in ipairs(configs) do
         local inside_match, inside_reason, task_name, task_detail, match_reason = startup_inside_recovery_match(ctx, main_state, runtime, candidate, hooks, current_time, player_x, player_y, player_z)
+        local require_task_match = startup_recovery_requires_task_match(candidate)
         if inside_reason == "task_pending" then
             local target_level = configured_target_level(candidate)
             local pending_level = nil
-            if candidate.startup_recovery_activate_by_level_gate == true and target_level ~= nil then
-                pending_level = refresh_player_level(ctx, candidate, runtime, hooks, current_time, runtime.player_level == nil)
+            if not require_task_match
+                and candidate.startup_recovery_activate_by_level_gate == true
+                and target_level ~= nil
+            then
+                local entry_ok, entry_gate_reason, entry_gap = startup_level_gate_entry_matches(
+                    candidate,
+                    match_reason,
+                    player_x,
+                    player_y,
+                    player_z
+                )
+                if entry_ok then
+                    pending_level = refresh_player_level(ctx, candidate, runtime, hooks, current_time, runtime.player_level == nil)
+                elseif type(hooks.log_throttled) == "function" then
+                    hooks.log_throttled(ctx, "treasure_startup_pending_level_gate_position_blocked_" .. tostring(candidate.key or ""), "info", 2500,
+                        string.format(
+                            "[Treasure] startup task-pending level gate blocked by position gate | key=%s match=%s reason=%s entry_gap=%.2f task=%s detail=%s pos=%.2f, %.2f, %.2f",
+                            tostring(candidate.key or ""),
+                            tostring(match_reason or ""),
+                            tostring(entry_gate_reason or ""),
+                            tonumber(entry_gap) or 0,
+                            tostring(task_name or ""),
+                            tostring(task_detail or ""),
+                            tonumber(player_x) or 0,
+                            tonumber(player_y) or 0,
+                            tonumber(player_z) or 0
+                        ))
+                end
                 if type(pending_level) == "number" and pending_level < target_level then
                     inside_match = true
                     inside_reason = tostring(match_reason or "inside_landing") .. "_level_gate"
@@ -2085,6 +2214,7 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
             end
         end
         if inside_reason == "task_mismatch"
+            and not require_task_match
             and candidate.startup_recovery_allow_task_mismatch_by_level_gate == true
         then
             local reason_ok, reason_gate = startup_level_gate_accepts_task_mismatch_reason(
@@ -2100,6 +2230,24 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
             if reason_ok == true and type(hooks.allow_startup_task_mismatch_level_gate) == "function" then
                 allow_mismatch_level_gate, allow_mismatch_reason =
                     hooks.allow_startup_task_mismatch_level_gate(ctx, candidate, reason_gate or match_reason, task_name, task_detail)
+            end
+            if allow_mismatch_level_gate then
+                local entry_ok, entry_gate_reason, entry_gap = startup_level_gate_entry_matches(
+                    candidate,
+                    match_reason,
+                    player_x,
+                    player_y,
+                    player_z
+                )
+                if not entry_ok then
+                    allow_mismatch_level_gate = false
+                    allow_mismatch_reason = string.format(
+                        "%s:%s:entry_gap=%.2f",
+                        tostring(allow_mismatch_reason or reason_gate or match_reason or ""),
+                        tostring(entry_gate_reason or ""),
+                        tonumber(entry_gap) or 0
+                    )
+                end
             end
             if not allow_mismatch_level_gate then
                 inside_reason = "task_mismatch"
@@ -2124,7 +2272,7 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
                     mismatch_level = refresh_player_level(ctx, candidate, runtime, hooks, current_time, runtime.player_level == nil)
                     if type(mismatch_level) == "number" and mismatch_level < target_level then
                         inside_match = true
-                        inside_reason = "inside_landing_task_mismatch_level_gate"
+                        inside_reason = tostring(match_reason or "inside") .. "_task_mismatch_level_gate"
                         runtime.startup_recovery_task_pending_since = nil
                         if type(hooks.log_info) == "function" then
                             hooks.log_info(ctx, string.format(
@@ -2159,6 +2307,7 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
             local record = ensure_record(main_state, candidate)
             local target_level = configured_target_level(candidate)
             local candidate_level = nil
+            local near_exit_landing = cfg_landing_ready(player_x, player_y, player_z, candidate, "exit_landing")
             if target_level ~= nil then
                 candidate_level = refresh_player_level(ctx, candidate, runtime, hooks, current_time, runtime.player_level == nil)
             end
@@ -2183,11 +2332,25 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
                         tostring(save_err or "")
                     ))
                 end
+            elseif record.completed == true and not near_exit_landing then
+                record.completed = false
+                record.route_acquired = type(record.route) == "table" and #record.route > 0 or record.route_acquired == true
+                local save_ok, save_err = save_record(ctx, main_state, candidate)
+                runtime.last_save_err = save_ok and nil or save_err
+                if type(hooks.log_info) == "function" then
+                    hooks.log_info(ctx, string.format(
+                        "[Treasure] completed record cleared by inside startup recovery before exit landing | key=%s level=%s target_level=%s reason=%s save_ok=%s err=%s",
+                        tostring(candidate.key or ""),
+                        tostring(candidate_level or ""),
+                        tostring(target_level or ""),
+                        tostring(inside_reason or ""),
+                        save_ok and "true" or "false",
+                        tostring(save_err or "")
+                    ))
+                end
             end
 
-            if record.completed ~= true
-                and not (target_level ~= nil and type(candidate_level) == "number" and candidate_level >= target_level)
-            then
+            if record.completed ~= true then
                 activate_cfg(ctx, main_state, candidate, hooks, player_x, player_y, player_z)
                 local startup_runtime = ensure_runtime_state(main_state)
                 transition_mode(
@@ -2201,6 +2364,18 @@ local function recover_inside_startup_cfg(ctx, main_state, configs, hooks, curre
                 startup_runtime.next_retry_at = current_time
                 startup_runtime.stage_deadline_at = current_time + math.max(5000, tonumber(candidate.transition_timeout_ms) or 15000)
                 startup_runtime.entry_step_index = 1
+                if target_level ~= nil and type(candidate_level) == "number" and candidate_level >= target_level then
+                    startup_runtime.pending_return_mainline = true
+                    if type(hooks.log_info) == "function" then
+                        hooks.log_info(ctx, string.format(
+                            "[Treasure] startup inside recovery keeps treasure ownership until exit landing | key=%s level=%d target_level=%d reason=%s",
+                            tostring(candidate.key or ""),
+                            candidate_level,
+                            target_level,
+                            tostring(inside_reason or "")
+                        ))
+                    end
+                end
                 if type(hooks.clear_task_target_state) == "function" then
                     hooks.clear_task_target_state()
                 end
@@ -4286,7 +4461,12 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         local task_ok, task_name, task_detail = current_treasure_task_matches(cfg, hooks)
         if task_ok then
             runtime.task_match_confirmed = true
-        elseif mode ~= "inactive" and mode ~= "completed" and mode ~= "failed" then
+        elseif mode ~= "inactive"
+            and mode ~= "completed"
+            and mode ~= "failed"
+            and mode ~= "wait_exit"
+            and mode ~= "return_mainline"
+        then
             local task_info_blank = trim(task_name or "") == "" and trim(task_detail or "") == ""
             if task_info_blank then
                 if type(hooks.log_throttled) == "function" then
@@ -4301,24 +4481,43 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
                         ))
                 end
             else
-                if type(hooks.log_info) == "function" then
-                    hooks.log_info(ctx, string.format(
-                        "[Treasure] active runtime cleared by task mismatch | key=%s mode=%s task=%s detail=%s pos=%.2f, %.2f, %.2f",
-                        tostring(cfg.key or ""),
-                        tostring(mode),
-                        tostring(task_name or ""),
-                        tostring(task_detail or ""),
-                        tonumber(player_x) or 0,
-                        tonumber(player_y) or 0,
-                        tonumber(player_z) or 0
-                    ))
+                local inside_treasure, inside_reason = likely_inside_treasure(ctx, cfg, hooks, runtime, current_time, player_x, player_y, player_z)
+                if inside_treasure then
+                    runtime.task_match_confirmed = true
+                    if type(hooks.log_throttled) == "function" then
+                        hooks.log_throttled(ctx, "treasure_active_task_mismatch_kept_" .. tostring(cfg.key or ""), "info", 1500,
+                            string.format(
+                                "[Treasure] active runtime keeps ownership during task mismatch | key=%s mode=%s reason=%s task=%s detail=%s pos=%.2f, %.2f, %.2f",
+                                tostring(cfg.key or ""),
+                                tostring(mode),
+                                tostring(inside_reason or ""),
+                                tostring(task_name or ""),
+                                tostring(task_detail or ""),
+                                tonumber(player_x) or 0,
+                                tonumber(player_y) or 0,
+                                tonumber(player_z) or 0
+                            ))
+                    end
+                else
+                    if type(hooks.log_info) == "function" then
+                        hooks.log_info(ctx, string.format(
+                            "[Treasure] active runtime cleared by task mismatch | key=%s mode=%s task=%s detail=%s pos=%.2f, %.2f, %.2f",
+                            tostring(cfg.key or ""),
+                            tostring(mode),
+                            tostring(task_name or ""),
+                            tostring(task_detail or ""),
+                            tonumber(player_x) or 0,
+                            tonumber(player_y) or 0,
+                            tonumber(player_z) or 0
+                        ))
+                    end
+                    reset_runtime(main_state)
+                    save_resume_snapshot(ctx, main_state, "task_mismatch")
+                    if type(hooks.clear_task_target_state) == "function" then
+                        hooks.clear_task_target_state()
+                    end
+                    return false
                 end
-                reset_runtime(main_state)
-                save_resume_snapshot(ctx, main_state, "task_mismatch")
-                if type(hooks.clear_task_target_state) == "function" then
-                    hooks.clear_task_target_state()
-                end
-                return false
             end
         end
     end
@@ -4896,6 +5095,20 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         if current_time < (tonumber(runtime.next_retry_at) or 0) then
             return true
         end
+        if looks_like_transition_position(player_x, player_y, player_z) then
+            runtime.next_retry_at = current_time + 1000
+            if type(hooks.log_throttled) == "function" then
+                hooks.log_throttled(ctx, "treasure_acquire_path_skip_transition_pos_" .. tostring(cfg.key or ""), "info", 1500,
+                    string.format(
+                        "[Treasure] skip acquire-path panel click due to transition-like position | key=%s pos=%.2f, %.2f, %.2f",
+                        tostring(cfg.key or ""),
+                        tonumber(player_x) or 0,
+                        tonumber(player_y) or 0,
+                        tonumber(player_z) or 0
+                    ))
+            end
+            return true
+        end
         runtime.path_retry_count = (tonumber(runtime.path_retry_count) or 0) + 1
         local panel_ok = select(1, try_click_task_panel_entry(ctx, hooks, cfg))
         local route, route_err = hooks.get_main_task_path(ctx)
@@ -4937,8 +5150,9 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
             log_refresh_block_clear(ctx, hooks, cfg, runtime, "route_acquired", clear_mainline_refresh_block(main_state))
             if type(hooks.log_info) == "function" then
                 hooks.log_info(ctx, string.format(
-                    "[Treasure] route acquired | key=%s points=%d original_points=%d save_ok=%s next_mode=%s",
+                    "[Treasure] route acquired | key=%s character_id=%s points=%d original_points=%d save_ok=%s next_mode=%s",
                     tostring(cfg.key or ""),
+                    tostring(current_character_id() or ""),
                     #normalized,
                     tonumber(type(route_stats) == "table" and route_stats.original_points or #normalized) or #normalized,
                     save_ok and "true" or "false",

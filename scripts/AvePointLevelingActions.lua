@@ -36,14 +36,22 @@ local function apply_world_map_send_step_defaults(step)
         return step
     end
 
+    step.distance_anchor_exact_text = "\u{4F20}\u{9001}"
+    step.distance_min = 11.009900
+    step.distance_max = 12.009900
+    step.hint_client_x = 633.372803
+    step.hint_client_y = 790.940796
+    step.hint_ratio_x = 0.439842
+    step.hint_ratio_y = 0.878823
+    step.hint_max_distance = 30.000
     if step.hover_capture_client_left == nil then
-        step.hover_capture_client_left = 654
+        step.hover_capture_client_left = 610
     end
     if step.hover_capture_client_top == nil then
-        step.hover_capture_client_top = 789
+        step.hover_capture_client_top = 770
     end
     if step.hover_capture_client_right == nil then
-        step.hover_capture_client_right = 790
+        step.hover_capture_client_right = 735
     end
     if step.hover_capture_client_bottom == nil then
         step.hover_capture_client_bottom = 810
@@ -58,16 +66,16 @@ local function apply_world_map_send_step_defaults(step)
         step.target_poll_interval_ms = 250
     end
     if step.fixed_fallback_ratio_x == nil then
-        step.fixed_fallback_ratio_x = 0.456331
+        step.fixed_fallback_ratio_x = 0.439842
     end
     if step.fixed_fallback_ratio_y == nil then
-        step.fixed_fallback_ratio_y = 0.903166
+        step.fixed_fallback_ratio_y = 0.878823
     end
     if step.fixed_fallback_client_x == nil then
-        step.fixed_fallback_client_x = 657.116943
+        step.fixed_fallback_client_x = 633.372803
     end
     if step.fixed_fallback_client_y == nil then
-        step.fixed_fallback_client_y = 812.849670
+        step.fixed_fallback_client_y = 790.940796
     end
     if step.fixed_fallback_mouse_mode == nil then
         step.fixed_fallback_mouse_mode = "api"
@@ -194,6 +202,11 @@ function M.make_boss_kite_task(key, extra_objective, extra_task)
             key = key,
             mode = "boss_kite",
             trigger_distance = 320,
+            kite_start_distance = 640,
+            kite_prearm_distance = 1800,
+            immediate_kite_on_reached = true,
+            seamless_kite = true,
+            kite_point_count = 3,
             skip_direct_interact = true,
             allow_any_monster = true,
             force_kite = true
@@ -374,6 +387,23 @@ local function contract_fixed_click(key, label, x, y, rx, ry, wait_after_ms)
     })
 end
 
+local function contract_pet_button_step(key, label, pattern, x, y, rx, ry, wait_after_ms)
+    return M.make_maintenance_locator_step({
+        key = key,
+        label = label,
+        distance_button_name = pattern,
+        include_patterns = {
+            pattern
+        },
+        hint_client_x = x,
+        hint_client_y = y,
+        hint_ratio_x = rx,
+        hint_ratio_y = ry,
+        hint_max_distance = 30,
+        wait_after_ms = wait_after_ms or 700
+    })
+end
+
 local function contract_point_entry_step(key, label, extra)
     local step = M.make_maintenance_locator_step({
         key = key,
@@ -442,10 +472,10 @@ local function contract_pet_back_step(key, label, extra)
         include_patterns = {
             "UIButton Transient.GameEngine.CoreGameInstance.Pet_C.WidgetTree.UITitleItem.WidgetTree.BackBtn"
         },
-        hint_client_x = 23.411688,
-        hint_client_y = 39.000000,
-        hint_ratio_x = 0.016269,
-        hint_ratio_y = 0.043333,
+        hint_client_x = 23.143999,
+        hint_client_y = 37.000000,
+        hint_ratio_x = 0.016072,
+        hint_ratio_y = 0.041111,
         hint_max_distance = 80,
         wait_after_ms = 700
     })
@@ -523,13 +553,13 @@ function M.make_contract_initial_and_second_setup_plan(opts)
     plan.steps = {
         M.make_maintenance_open_menu_step("level_" .. level .. "_contract_open_menu_first", opts.open_menu_label, opts.open_menu_extra),
         M.make_contract_panel_step("level_" .. level .. "_contract_open_panel_first", opts.open_panel_label, opts.open_panel_extra),
-        contract_fixed_click("level_" .. level .. "_contract_first_click_106_376", opts.first_sequence_labels and opts.first_sequence_labels[1] or numbered_label(opts.click_label_prefix, 1), 106.00, 376.00, 0.073662, 0.417778, 450),
-        contract_fixed_click("level_" .. level .. "_contract_first_click_295_121", opts.first_sequence_labels and opts.first_sequence_labels[2] or numbered_label(opts.click_label_prefix, 2), 295.00, 121.00, 0.205003, 0.134444, 450),
-        contract_fixed_click("level_" .. level .. "_contract_first_click_281_253", opts.first_sequence_labels and opts.first_sequence_labels[3] or numbered_label(opts.click_label_prefix, 3), 281.00, 253.00, 0.195274, 0.281111, 450),
-        contract_fixed_click("level_" .. level .. "_contract_first_click_103_226", opts.first_sequence_labels and opts.first_sequence_labels[4] or numbered_label(opts.click_label_prefix, 4), 103.00, 226.00, 0.071577, 0.251111, 450),
-        contract_fixed_click("level_" .. level .. "_contract_first_click_1340_845", opts.first_sequence_labels and opts.first_sequence_labels[5] or numbered_label(opts.click_label_prefix, 5), 1340.00, 845.00, 0.931202, 0.938889, 700),
-        M.make_contract_back_click_step("level_" .. level .. "_contract_back_first_1", opts.back_label, opts.back_extra),
-        M.make_contract_back_click_step("level_" .. level .. "_contract_back_first_2", opts.back_label, opts.back_extra),
+        contract_pet_button_step("level_" .. level .. "_contract_battle_pet_slot", opts.first_sequence_labels and opts.first_sequence_labels[1] or numbered_label(opts.click_label_prefix, 1), "UIButton Transient.GameEngine.CoreGameInstance.Pet_C.WidgetTree.ServantEquipSlot.WidgetTree.ServantEquipSlotItem.WidgetTree.Btn", 65.638039, 318.260803, 0.045582, 0.353623, 700),
+        contract_pet_button_step("level_" .. level .. "_contract_all_tab", opts.first_sequence_labels and opts.first_sequence_labels[2] or numbered_label(opts.click_label_prefix, 2), "UIButton Transient.GameEngine.CoreGameInstance.Pet_C.WidgetTree.ServantList.WidgetTree.PetComTabItem.WidgetTree.Btn", 249.943985, 159.471985, 0.173572, 0.177191, 700),
+        contract_pet_button_step("level_" .. level .. "_contract_new_filter", opts.first_sequence_labels and opts.first_sequence_labels[3] or numbered_label(opts.click_label_prefix, 3), "UIButton Transient.GameEngine.CoreGameInstance.PetPresetDropBtnItem_C.WidgetTree.ClickBtn", 250.851181, 310.067200, 0.174202, 0.344519, 700),
+        contract_pet_button_step("level_" .. level .. "_contract_pet_list_item", opts.first_sequence_labels and opts.first_sequence_labels[4] or numbered_label(opts.click_label_prefix, 4), "UIButton Transient.GameEngine.CoreGameInstance.Pet_C.WidgetTree.ServantList.WidgetTree.PetItem_C.WidgetTree.Btn", 67.596802, 203.017593, 0.046942, 0.225575, 700),
+        contract_pet_button_step("level_" .. level .. "_contract_bind_pet", opts.first_sequence_labels and opts.first_sequence_labels[5] or numbered_label(opts.click_label_prefix, 5), "UIButton Transient.GameEngine.CoreGameInstance.Pet_C.WidgetTree.ChangeBtn", 1274.087036, 848.094360, 0.884783, 0.942327, 900),
+        contract_pet_back_step("level_" .. level .. "_contract_back_first_1", opts.back_label, opts.back_extra),
+        contract_pet_back_step("level_" .. level .. "_contract_back_first_2", opts.back_label, opts.back_extra),
         M.make_maintenance_open_menu_step("level_" .. level .. "_contract_open_menu_second", opts.open_menu_label, opts.open_menu_extra),
         M.make_contract_panel_step("level_" .. level .. "_contract_open_panel_second", opts.open_panel_label, opts.open_panel_extra)
     }
@@ -614,6 +644,11 @@ function M.make_objective_point(opts)
         constraint_mode = "all",
         radius = 520,
         trigger_distance = 520,
+        kite_start_distance = 640,
+        kite_prearm_distance = 1800,
+        immediate_kite_on_reached = true,
+        seamless_kite = true,
+        kite_point_count = 3,
         skip_direct_interact = true,
         allow_any_monster = true,
         force_kite = true
@@ -623,7 +658,7 @@ function M.make_objective_point(opts)
 end
 
 -- Objective point: fixed-point clear room / boss room.
--- Enters 4-point kite when destination reaches the room point, and only
+-- Enters 3-point kite when destination reaches the room point, and only
 -- resumes main task flow after nearby monsters have disappeared for a short
 -- settle window.
 function M.make_clear_room_point(opts)
@@ -632,6 +667,11 @@ function M.make_clear_room_point(opts)
         constraint_mode = "all",
         radius = 520,
         trigger_distance = 520,
+        kite_start_distance = 640,
+        kite_prearm_distance = 1800,
+        immediate_kite_on_reached = true,
+        seamless_kite = true,
+        kite_point_count = 3,
         skip_direct_interact = true,
         allow_any_monster = true,
         force_kite = true,

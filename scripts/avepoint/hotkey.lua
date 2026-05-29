@@ -2484,13 +2484,16 @@ function avepoint_hotkey_distance_tolerance(distance, preset)
 end
 
 local HOTKEY_NOISY_TEXT_ANCHOR_BUTTON_PATTERNS = {
+    "taskitem_c.widgettree.taskbtn",
     "skill_c.widgettree.skillextabitem.widgettree.clickbtn",
     "skill_c.widgettree.skillexviewitem.widgettree.clickbtn",
+    "skill_c.widgettree.uititleitem.widgettree.btnback",
     "tipskillhanditem_c.widgettree.levelupbtn",
     "talentpointitem_c.widgettree.selectbtn",
     "tabtalentitem_c.widgettree.tiptalentitem.widgettree.activebtn",
     "uicareerpointitem_c.widgettree.selectbtn",
-    "tipcareeritem_c.widgettree.activebtn"
+    "tipcareeritem_c.widgettree.activebtn",
+    "noviceguidemainui_c.widgettree.c_skipbutton"
 }
 
 function avepoint_hotkey_button_identity_text(button_item)
@@ -2511,6 +2514,33 @@ function avepoint_hotkey_button_identity_text(button_item)
     return ""
 end
 
+function avepoint_hotkey_text_identity_text(text_item)
+    if type(text_item) ~= "table" then
+        return ""
+    end
+
+    local name = trim(text_item.name or "")
+    if name ~= "" then
+        return name:lower()
+    end
+
+    local fullname = trim(text_item.Fullname or text_item.fullname or "")
+    if fullname ~= "" then
+        return fullname:lower()
+    end
+
+    return ""
+end
+
+function avepoint_hotkey_text_item_is_noisy_anchor(text_item)
+    local identity = avepoint_hotkey_text_identity_text(text_item)
+    if identity == "" then
+        return false
+    end
+
+    return identity:find("grounditemname_c.widgettree.framename", 1, true) ~= nil
+end
+
 function avepoint_hotkey_button_uses_noisy_nearest_text(button_item)
     local identity = avepoint_hotkey_button_identity_text(button_item)
     if identity == "" then
@@ -2528,11 +2558,17 @@ end
 
 function avepoint_hotkey_noisy_anchor_button_label(button_item)
     local identity = avepoint_hotkey_button_identity_text(button_item)
+    if identity:find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil then
+        return "任务列表项按钮"
+    end
     if identity:find("skill_c.widgettree.skillextabitem.widgettree.clickbtn", 1, true) ~= nil then
         return "技能页标签按钮"
     end
     if identity:find("skill_c.widgettree.skillexviewitem.widgettree.clickbtn", 1, true) ~= nil then
         return "技能列表项按钮"
+    end
+    if identity:find("skill_c.widgettree.uititleitem.widgettree.btnback", 1, true) ~= nil then
+        return "技能返回按钮"
     end
     if identity:find("tipskillhanditem_c.widgettree.levelupbtn", 1, true) ~= nil then
         return "技能升级按钮"
@@ -2549,12 +2585,20 @@ function avepoint_hotkey_noisy_anchor_button_label(button_item)
     if identity:find("tipcareeritem_c.widgettree.activebtn", 1, true) ~= nil then
         return "天赋大类激活按钮"
     end
+    if identity:find("noviceguidemainui_c.widgettree.c_skipbutton", 1, true) ~= nil then
+        return "新手引导跳过按钮"
+    end
+    if identity:find("worldmapitem_c.widgettree.btn", 1, true) ~= nil then
+        return "地图项按钮"
+    end
 
     return ""
 end
 
 function avepoint_hotkey_locator_label(button_item, nearest_text_item)
-    if avepoint_hotkey_button_uses_noisy_nearest_text(button_item) then
+    if avepoint_hotkey_button_uses_noisy_nearest_text(button_item)
+        or avepoint_hotkey_text_item_is_noisy_anchor(nearest_text_item)
+    then
         local neutral_label = avepoint_hotkey_noisy_anchor_button_label(button_item)
         if neutral_label ~= "" then
             return neutral_label
@@ -3696,6 +3740,7 @@ function avepoint_hotkey_build_cursor_probe_step(entry, cursor, buttons, preset)
     local nearest_text_item = entry.nearest_text_item
     local nearest_text_value = trim(nearest_text_item and nearest_text_item.text or "")
     local use_text_anchor = not avepoint_hotkey_button_uses_noisy_nearest_text(button)
+        and not avepoint_hotkey_text_item_is_noisy_anchor(nearest_text_item)
     local same_name_count = avepoint_hotkey_count_same_button_name(buttons, button.name)
     local label = avepoint_hotkey_locator_label(button, nearest_text_item)
     local step = {
@@ -3800,6 +3845,7 @@ function avepoint_hotkey_build_selected_probe_step(preset)
         Fullname = selected.Fullname or selected.fullname
     }
     local use_text_anchor = not avepoint_hotkey_button_uses_noisy_nearest_text(selected_button_for_locator)
+        and not avepoint_hotkey_text_item_is_noisy_anchor(nearest_text_item)
     local label = avepoint_hotkey_locator_label(selected_button_for_locator, nearest_text_item)
     local step = {
         label = label,
@@ -4299,24 +4345,10 @@ function avepoint_hotkey_click_cursor_probe_target()
     })
 end
 
-function avepoint_hotkey_preview_cursor_probe_target()
+function avepoint_hotkey_preview_cursor_probe_target(hotkey_label)
     return avepoint_hotkey_resolve_cursor_probe_target({
-        hotkey_label = "F10",
+        hotkey_label = tostring(hotkey_label or "F10"),
         perform_click = false
-    })
-end
-
-function avepoint_hotkey_dump_cursor_api_raw()
-    if type(nav) ~= "table"
-        or type(nav.dump_current_selected_button) ~= "function"
-    then
-        return false, "GetCurrentSelected raw dump is unavailable."
-    end
-
-    return nav.dump_current_selected_button({
-        header = "F12 GetCurrentSelected raw dump",
-        dump_depth = 4,
-        dump_table_limit = 48
     })
 end
 
@@ -4464,6 +4496,98 @@ local function avepoint_data_api_summary(value)
         end
     end
     return summary
+end
+
+local function avepoint_data_api_serialize_raw(value, depth, seen)
+    local value_type = type(value)
+    if value_type ~= "table" then
+        return avepoint_data_api_format_scalar(value)
+    end
+
+    depth = tonumber(depth) or 0
+    if depth <= 0 then
+        return "{...}"
+    end
+
+    seen = seen or {}
+    if seen[value] then
+        return "{<cycle>}"
+    end
+    seen[value] = true
+
+    local keys = {}
+    for key, _ in pairs(value) do
+        if type(key) == "string" or type(key) == "number" or type(key) == "boolean" then
+            keys[#keys + 1] = key
+        end
+    end
+    table.sort(keys, function(a, b)
+        local ta = type(a)
+        local tb = type(b)
+        if ta == tb and ta == "number" then
+            return a < b
+        end
+        return tostring(a) < tostring(b)
+    end)
+
+    local parts = {}
+    for _, key in ipairs(keys) do
+        parts[#parts + 1] = "[" .. avepoint_data_api_format_scalar(key) .. "]="
+            .. avepoint_data_api_serialize_raw(value[key], depth - 1, seen)
+    end
+
+    seen[value] = nil
+    return "{" .. table.concat(parts, ", ") .. "}"
+end
+
+local function avepoint_hotkey_dump_enum_monster_raw()
+    if type(nav) ~= "table" then
+        return false, "nav unavailable"
+    end
+    if type(nav.ensure_initialized) == "function" then
+        local ok, err = nav.ensure_initialized(PROCESS_NAME, MODE)
+        if not ok then
+            return false, err or "Torch API init failed"
+        end
+        initialized = true
+        last_init_error = nil
+        next_init_retry_at = sys.time() + INIT_RETRY_MS
+    elseif initialized ~= true then
+        return false, "Torch API not ready"
+    end
+
+    if type(nav.game_api) ~= "table" then
+        return false, "nav.game_api unavailable"
+    end
+    if type(nav.game_api.EnumMonster) ~= "function" then
+        return false, "EnumMonster unavailable"
+    end
+
+    local ok, monsters, err = pcall(nav.game_api.EnumMonster)
+    log.info(string.format(
+        "F10 EnumMonster raw call | ok=%s value_type=%s err=%s summary=%s",
+        tostring(ok),
+        type(monsters),
+        tostring(err or ""),
+        ok and avepoint_data_api_summary(monsters) or tostring(monsters or "")
+    ))
+    if not ok then
+        return false, tostring(monsters or "")
+    end
+    if type(monsters) ~= "table" then
+        return false, "EnumMonster returned non-table"
+    end
+
+    for index, monster in ipairs(monsters) do
+        log.info(string.format(
+            "F10 EnumMonster monster[%d/%d] raw=%s",
+            index,
+            #monsters,
+            avepoint_data_api_serialize_raw(monster, 4)
+        ))
+    end
+    log.info(string.format("F10 EnumMonster raw dump complete | total=%d", #monsters))
+    return true
 end
 
 local function avepoint_data_api_log_result(label, ok, value, err)
@@ -4976,7 +5100,7 @@ function main()
     log.info("Press F1 to dump all buttons returned by EnumCButton")
     log.info("Press F2 to dump all text controls returned by EnumCText")
     log.info("Press F5 to dump nearby NPCs returned by EnumNPC")
-    log.info("Press F12 to dump raw GetCurrentSelected API output without clicking")
+    log.info("Press F12 to match current selected target and print locator step without clicking")
     local f4_preset = HOTKEY_DISTANCE_PREVIEW_PRESETS and HOTKEY_DISTANCE_PREVIEW_PRESETS.current or nil
     log.info(string.format(
         "Press F4 to preview the configured target for %s without clicking",
@@ -4984,10 +5108,7 @@ function main()
     ))
     log.info("Press F3 to dump all images returned by EnumCImage")
     local f11_preset = HOTKEY_CURSOR_CLICK_PRESETS and HOTKEY_CURSOR_CLICK_PRESETS.current or nil
-    log.info(string.format(
-        "Press F10 to inspect the same uniquely matched mouse target for %s without clicking",
-        tostring(f11_preset and f11_preset.label or "cursor click test")
-    ))
+    log.info("Press F10 to dump raw EnumMonster() result")
     log.info(string.format(
         "Press F11 or \\ to validate-click a uniquely matched mouse target for %s",
         tostring(f11_preset and f11_preset.label or "cursor click test")
@@ -5923,36 +6044,15 @@ function main()
 
         if pressed_once(HOTKEY_F10) and not hotkey.is_pressed(HOTKEY_EXIT_CTRL) then
             if state.running then
-                log.info("F10 cursor probe ignored while automation is running")
+                log.info("F10 EnumMonster dump ignored while automation is running")
             elseif state.f6_loop_active == true then
-                log.info("F10 cursor probe ignored while F6 3-round loop is active")
+                log.info("F10 EnumMonster dump ignored while F6 3-round loop is active")
             elseif not initialized then
                 log.warn("Torch API not ready yet")
             else
-                local cursor_ok, cursor_err = avepoint_hotkey_print_cursor_client_pos("F10")
-                if not cursor_ok then
-                    log.warn("F10 cursor pos unavailable: " .. tostring(cursor_err))
-                end
-                local f10_ok, result = avepoint_hotkey_preview_cursor_probe_target()
-                if f10_ok then
-                    log.info(string.format(
-                        "F10 target matched: kind=%s addr=%s name=%s text=%s fullname=%s x=%s y=%s related_text=%s related_name=%s related_distance=%s hint_distance=%s source=%s",
-                        tostring(result.kind or ""),
-                        avepoint_format_addr_hex(result.addr),
-                        tostring(result.name or ""),
-                        tostring(result.text or ""),
-                        tostring(result.fullname or ""),
-                        tostring(result.x or ""),
-                        tostring(result.y or ""),
-                        tostring(result.related_text or ""),
-                        tostring(result.related_name or ""),
-                        tostring(result.related_distance or ""),
-                        tostring(result.hint_distance or ""),
-                        tostring(result.source or "")
-                    ))
-                    log.info("F10 locator step: " .. tostring(result.step_snippet or ""))
-                else
-                    log.error("F10 target inspect failed: " .. tostring(result))
+                local f10_ok, f10_err = avepoint_hotkey_dump_enum_monster_raw()
+                if not f10_ok then
+                    log.error("F10 EnumMonster raw dump failed: " .. tostring(f10_err))
                 end
             end
         end
@@ -5995,57 +6095,36 @@ function main()
 
         if pressed_once(HOTKEY_EXIT) and not hotkey.is_pressed(HOTKEY_EXIT_CTRL) then
             if state.running then
-                log.info("F12 raw API dump ignored while automation is running")
+                log.info("F12 target preview ignored while automation is running")
             elseif state.f6_loop_active == true then
-                log.info("F12 raw API dump ignored while F6 3-round loop is active")
+                log.info("F12 target preview ignored while F6 3-round loop is active")
             elseif not initialized then
                 log.warn("Torch API not ready yet")
             else
-                local hotkey_ok, result = avepoint_hotkey_dump_cursor_api_raw()
-                if hotkey_ok then
-                    if type(result) == "table" then
-                        local selected_identity = tostring(result.Fullname or result.fullname or result.name or "")
-                        if selected_identity:lower():find("taskitem_c.widgettree.taskbtn", 1, true) ~= nil then
-                            _G.AVEPOINT_MAIN_TASK_BUTTON_LOCATOR = {
-                                fullname = selected_identity,
-                                x = tonumber(result.x),
-                                y = tonumber(result.y),
-                                related_text = tostring(result.rel1_text or ""),
-                                related_dx = tonumber(result.rel1_dx),
-                                related_dy = tonumber(result.rel1_dy),
-                                related_tolerance = 42,
-                                max_distance = 140,
-                                include_patterns = {
-                                    "taskitem_c.widgettree.taskbtn"
-                                },
-                                source = "F12 GetCurrentSelected locator",
-                                captured_addr = result.addr,
-                                cached_at = type(sys) == "table" and type(sys.time) == "function" and sys.time() or nil
-                            }
-                            log.info(string.format(
-                                "F12 cached main task TaskBtn locator | fullname=%s x=%.2f y=%.2f related=%s dx=%s dy=%s captured_addr=%s",
-                                selected_identity,
-                                tonumber(result.x) or 0,
-                                tonumber(result.y) or 0,
-                                tostring(result.rel1_text or ""),
-                                tostring(result.rel1_dx or ""),
-                                tostring(result.rel1_dy or ""),
-                                tostring(result.addr or "")
-                            ))
-                        end
-                        log.info(string.format(
-                            "F12 GetCurrentSelected raw dump complete | addr=%s name=%s x=%.2f y=%.2f text=%s",
-                            tostring(result.addr or ""),
-                            tostring(result.Fullname or result.name or ""),
-                            tonumber(result.x) or 0,
-                            tonumber(result.y) or 0,
-                            tostring(result.text or "")
-                        ))
-                    else
-                        log.info("F12 GetCurrentSelected raw dump complete")
-                    end
+                local cursor_ok, cursor_err = avepoint_hotkey_print_cursor_client_pos("F12")
+                if not cursor_ok then
+                    log.warn("F12 cursor pos unavailable: " .. tostring(cursor_err))
+                end
+                local f12_ok, result = avepoint_hotkey_preview_cursor_probe_target("F12")
+                if f12_ok then
+                    log.info(string.format(
+                        "F12 target clicked: kind=%s addr=%s name=%s text=%s fullname=%s x=%s y=%s related_text=%s related_name=%s related_distance=%s hint_distance=%s source=%s",
+                        tostring(result.kind or ""),
+                        avepoint_format_addr_hex(result.addr),
+                        tostring(result.name or ""),
+                        tostring(result.text or ""),
+                        tostring(result.fullname or ""),
+                        tostring(result.x or ""),
+                        tostring(result.y or ""),
+                        tostring(result.related_text or ""),
+                        tostring(result.related_name or ""),
+                        tostring(result.related_distance or ""),
+                        tostring(result.hint_distance or ""),
+                        tostring(result.source or "")
+                    ))
+                    log.info("F12 locator step: " .. tostring(result.step_snippet or ""))
                 else
-                    log.error("F12 GetCurrentSelected raw dump failed: " .. tostring(result))
+                    log.error("F12 target click failed: " .. tostring(result))
                 end
             end
         end
