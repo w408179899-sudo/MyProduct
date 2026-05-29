@@ -10097,14 +10097,14 @@ M.TASK_NAME_CONFIGS = {
             }
         }
     },
-    ["\u{51FB}\u{8D25}\u{88AB}\u{64CD}\u{7EB5}\u{7684}\u{54E5}\u{5E03}\u{6797}"] = make_boss_kite_task_config(
-        "controlled_goblin_boss",
+    ["\u{4E0A}\u{53E4}\u{6218}\u{573A} / \u{51FB}\u{8D25}\u{88AB}\u{64CD}\u{7EB5}\u{7684}\u{54E5}\u{5E03}\u{6797}"] = make_boss_kite_task_config(
+        "ancient_battlefield_controlled_goblin_fixed_kite",
         {
-            trigger_distance = 520,
+            trigger_distance = 1200,
             immediate_kite_on_reached = true,
             kite_anchor_source = "task_destination",
             kite_radius = 1200,
-            kite_point_count = 3,
+            kite_point_count = 4,
             kite_switch_ms = 2400,
             seamless_kite = true,
             kite_arrive_distance = 520,
@@ -10113,9 +10113,19 @@ M.TASK_NAME_CONFIGS = {
             boss_clear_settle_ms = 3000,
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
-            generic_followup_require_no_special = true
+            generic_followup_require_no_special = true,
+            ignore_terminal_text_change_when_objective_same = true,
+            kite_points = {
+                { x = 11651.07, y = -7607.71, z = 566.00 },
+                { x = 12712.64, y = -7604.06, z = 609.00 },
+                { x = 12792.69, y = -6343.92, z = 606.00 },
+                { x = 11516.00, y = -6634.00, z = 609.31 }
+            }
         },
         {
+            task_patterns = { "\u{4E0A}\u{53E4}\u{6218}\u{573A}" },
+            task_detail_patterns = { "\u{51FB}\u{8D25}\u{88AB}\u{64CD}\u{7EB5}\u{7684}\u{54E5}\u{5E03}\u{6797}" },
+            constraint_mode = "all",
             exclude_task_detail_patterns = {
                 "\u{4EA4}\u{8C08}",
                 "\u{5BF9}\u{8BDD}"
@@ -13971,7 +13981,7 @@ M.ROUTE_POINT_ACTIONS = {
     }),
     make_npc_dialogue_route_action({
         key = "ancient_battlefield_keli_dialogue_12169_-7323",
-        label = "上古战场_和科里交谈_固定NPC对话",
+        label = "上古战场_和科里交谈_高ID最近NPC对话",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
         direct_when_task_active = true,
@@ -14003,8 +14013,9 @@ M.ROUTE_POINT_ACTIONS = {
             center_settle_ms = 700,
             interact_retry_ms = 1800,
             timeout_ms = 22000,
-            npc_search_radius = 120,
-            fallback_interact = true
+            npc_entity_id_min = 1000,
+            npc_search_radius = 1400,
+            fallback_interact = false
         }
     }),
     make_route_point_action({

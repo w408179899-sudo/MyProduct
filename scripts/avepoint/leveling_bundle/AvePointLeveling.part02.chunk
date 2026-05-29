@@ -8217,7 +8217,7 @@ function M.find_route_point_intent_candidate(ctx, current_time, player_x, player
     return nil
 end
 
-function M.find_npc_near_point(ctx, point_x, point_y, search_radius, player_x, player_y)
+function M.find_npc_near_point(ctx, point_x, point_y, search_radius, player_x, player_y, opts)
     local nav_mod = nav_api(ctx)
     if type(nav_mod) ~= "table" or type(nav_mod.enum_npcs) ~= "function" then
         return nil, "nav.enum_npcs is unavailable."
@@ -8235,28 +8235,42 @@ function M.find_npc_near_point(ctx, point_x, point_y, search_radius, player_x, p
     end
 
     local max_distance = math.max(120, tonumber(search_radius) or 420)
+    local target_entity_id = nil
+    local min_entity_id = nil
+    if type(opts) == "table" then
+        target_entity_id = as_number(opts.npc_entity_id or opts.npcEntityId or opts.entityId or opts.entityID)
+        min_entity_id = as_number(opts.npc_entity_id_min or opts.npcEntityIdMin or opts.minEntityId)
+    end
     local nearest = nil
     local best_anchor_distance = nil
 
     for _, item in ipairs(items) do
-        local x, y, z = extract_position_from_item(ctx, item)
-        if x ~= nil and y ~= nil then
-            local anchor_distance = distance_2d(anchor_x, anchor_y, x, y)
-            if anchor_distance <= max_distance
-                and (best_anchor_distance == nil or anchor_distance < best_anchor_distance)
-            then
-                nearest = {
-                    item = item,
-                    x = x,
-                    y = y,
-                    z = z,
-                    label = npc_label(item),
-                    point_distance = anchor_distance,
-                    distance = type(player_x) == "number" and type(player_y) == "number"
-                        and distance_2d(player_x, player_y, x, y)
-                        or anchor_distance
-                }
-                best_anchor_distance = anchor_distance
+        local item_entity_id = type(item) == "table"
+            and as_number(item.entityId or item.entityID or item.id or item.Id or item.ID)
+            or nil
+        if (target_entity_id == nil or item_entity_id == target_entity_id)
+            and (min_entity_id == nil or (item_entity_id ~= nil and item_entity_id > min_entity_id))
+        then
+            local x, y, z = extract_position_from_item(ctx, item)
+            if x ~= nil and y ~= nil then
+                local anchor_distance = distance_2d(anchor_x, anchor_y, x, y)
+                if anchor_distance <= max_distance
+                    and (best_anchor_distance == nil or anchor_distance < best_anchor_distance)
+                then
+                    nearest = {
+                        item = item,
+                        x = x,
+                        y = y,
+                        z = z,
+                        entity_id = item_entity_id,
+                        label = npc_label(item),
+                        point_distance = anchor_distance,
+                        distance = type(player_x) == "number" and type(player_y) == "number"
+                            and distance_2d(player_x, player_y, x, y)
+                            or anchor_distance
+                    }
+                    best_anchor_distance = anchor_distance
+                end
             end
         end
     end
@@ -8265,6 +8279,12 @@ function M.find_npc_near_point(ctx, point_x, point_y, search_radius, player_x, p
         return nearest, nil
     end
 
+    if target_entity_id ~= nil then
+        return nil, string.format("No NPC entityId=%s near point %.2f, %.2f within %.2f", tostring(target_entity_id), anchor_x, anchor_y, max_distance)
+    end
+    if min_entity_id ~= nil then
+        return nil, string.format("No NPC entityId>%s near point %.2f, %.2f within %.2f", tostring(min_entity_id), anchor_x, anchor_y, max_distance)
+    end
     return nil, string.format("No NPC near point %.2f, %.2f within %.2f", anchor_x, anchor_y, max_distance)
 end
 
@@ -9032,7 +9052,7 @@ function M.maybe_handle_route_point_action_npc_dialogue(ctx, current_time, playe
     local z_gap = point_z ~= nil and type(player_z) == "number"
         and math.abs((tonumber(player_z) or 0) - point_z)
         or 0
-    local nearest_npc, npc_err = M.find_npc_near_point(ctx, point_x, point_y, npc_search_radius, player_x, player_y)
+    local nearest_npc, npc_err = M.find_npc_near_point(ctx, point_x, point_y, npc_search_radius, player_x, player_y, dialogue)
     local npc_x = type(nearest_npc) == "table" and tonumber(nearest_npc.x) or nil
     local npc_y = type(nearest_npc) == "table" and tonumber(nearest_npc.y) or nil
     local npc_z = type(nearest_npc) == "table" and tonumber(nearest_npc.z) or point_z
