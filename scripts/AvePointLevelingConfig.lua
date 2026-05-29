@@ -7176,10 +7176,10 @@ M.TREASURE_DUNGEON_CONFIGS = {
         inside_detect_task_panel_text = false,
         startup_recovery_wait_for_task_panel = true,
         startup_recovery_activate_by_level_gate = true,
-        startup_recovery_requires_task_match = false,
-        startup_recovery_allow_task_mismatch_by_level_gate = true,
-        startup_recovery_allow_landing_task_mismatch_by_level_gate = true,
-        startup_recovery_allow_route_nearby_task_mismatch_by_level_gate = true,
+        startup_recovery_requires_task_match = true,
+        startup_recovery_allow_task_mismatch_by_level_gate = false,
+        startup_recovery_allow_landing_task_mismatch_by_level_gate = false,
+        startup_recovery_allow_route_nearby_task_mismatch_by_level_gate = false,
         startup_recovery_task_panel_wait_ms = 1800,
         startup_recovery_task_panel_wait_cap_ms = 9000,
         startup_recovery_route_nearby = true,
@@ -7436,8 +7436,8 @@ M.TREASURE_DUNGEON_CONFIGS = {
         startup_recovery_restart_landing = false,
         startup_recovery_wait_for_task_panel = true,
         startup_recovery_activate_by_level_gate = true,
-        startup_recovery_allow_task_mismatch_by_level_gate = true,
-        startup_recovery_allow_inside_landing_task_mismatch_by_level_gate = true,
+        startup_recovery_allow_task_mismatch_by_level_gate = false,
+        startup_recovery_allow_inside_landing_task_mismatch_by_level_gate = false,
         startup_recovery_task_panel_wait_ms = 1800,
         startup_recovery_task_panel_wait_cap_ms = 9000,
         startup_recovery_route_nearby = true,
@@ -7775,10 +7775,10 @@ M.TREASURE_DUNGEON_CONFIGS = {
         inside_detect_task_panel_text = false,
         startup_recovery_wait_for_task_panel = true,
         startup_recovery_activate_by_level_gate = true,
-        startup_recovery_requires_task_match = false,
-        startup_recovery_allow_task_mismatch_by_level_gate = true,
-        startup_recovery_allow_inside_landing_task_mismatch_by_level_gate = true,
-        startup_recovery_allow_landing_task_mismatch_by_level_gate = true,
+        startup_recovery_requires_task_match = true,
+        startup_recovery_allow_task_mismatch_by_level_gate = false,
+        startup_recovery_allow_inside_landing_task_mismatch_by_level_gate = false,
+        startup_recovery_allow_landing_task_mismatch_by_level_gate = false,
         discard_terminal_route_nearby_resume = true,
         terminal_route_fail_without_boss = true,
         startup_recovery_task_panel_wait_ms = 1800,
@@ -8039,9 +8039,9 @@ M.TREASURE_DUNGEON_CONFIGS = {
         inside_detect_task_panel_text = false,
         startup_recovery_wait_for_task_panel = true,
         startup_recovery_activate_by_level_gate = true,
-        startup_recovery_allow_task_mismatch_by_level_gate = true,
-        startup_recovery_allow_inside_landing_task_mismatch_by_level_gate = true,
-        startup_recovery_allow_route_nearby_task_mismatch_by_level_gate = true,
+        startup_recovery_allow_task_mismatch_by_level_gate = false,
+        startup_recovery_allow_inside_landing_task_mismatch_by_level_gate = false,
+        startup_recovery_allow_route_nearby_task_mismatch_by_level_gate = false,
         startup_recovery_route_nearby = true,
         startup_recovery_route_distance = 1800,
         startup_recovery_allow_landing_task_mismatch_by_level_gate = false,
@@ -8321,8 +8321,8 @@ M.TREASURE_DUNGEON_CONFIGS = {
         allow_when_task_unknown = true,
         startup_recovery_wait_for_task_panel = true,
         startup_recovery_activate_by_level_gate = true,
-        startup_recovery_allow_task_mismatch_by_level_gate = true,
-        startup_recovery_allow_inside_landing_task_mismatch_by_level_gate = true,
+        startup_recovery_allow_task_mismatch_by_level_gate = false,
+        startup_recovery_allow_inside_landing_task_mismatch_by_level_gate = false,
         startup_recovery_task_panel_wait_ms = 1800,
         startup_recovery_task_panel_wait_cap_ms = 9000,
         restart_landing_require_verified = true,
@@ -9068,6 +9068,11 @@ local function make_overcast_city_ask_liv_key_sequence_task_config()
             interval_ms = 140,
             initial_delay_ms = 250,
             timeout_ms = 5000,
+            suppress_after_key_sequence = true,
+            jump_after_sequence = true,
+            jump_after_sequence_delay_ms = 200,
+            jump_after_sequence_window_ms = 5000,
+            wait_after_sequence_ms = 900,
             label = "阴云压城_询问丽芙情况_A键确认"
         },
         task_patterns = {
@@ -9180,6 +9185,50 @@ local function make_ancient_battlefield_trace_ryan_task_config()
             constraint_mode = "all"
         }
     )
+end
+
+local function make_ancient_battlefield_controlled_goblin_reentry_config()
+    return make_revive_reentry_config({
+        key = "ancient_battlefield_controlled_goblin_reentry_10318_-7239",
+        label = "上古战场_被操纵的哥布林复活进门",
+        anchor = {
+            x = 10318.68,
+            y = -7239.43,
+            z = 566.00,
+            radius = 1200,
+            z_tolerance = 260
+        },
+        interact_distance = 240,
+        portal_scan_distance = 900,
+        retry_ms = 1200,
+        settle_ms = 1200,
+        timeout_ms = 45000,
+        post_transition_boss_engage_ms = 15000,
+        allow_non_boss_revive_reentry = true,
+        task_patterns = {
+            "上古战场"
+        },
+        task_detail_patterns = {
+            "通过木桥，继续追击觉醒者",
+            "击败被操纵的哥布林"
+        },
+        constraint_mode = "all",
+        fallback_interact = true
+    })
+end
+
+local function make_ancient_battlefield_controlled_goblin_route_task_config()
+    return {
+        task_patterns = {
+            "上古战场"
+        },
+        task_detail_patterns = {
+            "通过木桥，继续追击觉醒者",
+            "击败被操纵的哥布林"
+        },
+        constraint_mode = "all",
+        revive_reentry = make_ancient_battlefield_controlled_goblin_reentry_config()
+    }
 end
 
 local function make_holy_fire_roadblock_awakened_task_config(fight_detail_name)
@@ -10097,31 +10146,6 @@ M.TASK_NAME_CONFIGS = {
             }
         }
     },
-    ["\u{51FB}\u{8D25}\u{88AB}\u{64CD}\u{7EB5}\u{7684}\u{54E5}\u{5E03}\u{6797}"] = make_boss_kite_task_config(
-        "controlled_goblin_boss",
-        {
-            trigger_distance = 520,
-            immediate_kite_on_reached = true,
-            kite_anchor_source = "task_destination",
-            kite_radius = 1200,
-            kite_point_count = 3,
-            kite_switch_ms = 2400,
-            seamless_kite = true,
-            kite_arrive_distance = 520,
-            kite_move_interval_ms = 120,
-            defer_followup_until_clear = true,
-            boss_clear_settle_ms = 3000,
-            generic_followup_refresh_ms = 3500,
-            generic_followup_requires_task_pos_only = true,
-            generic_followup_require_no_special = true
-        },
-        {
-            exclude_task_detail_patterns = {
-                "\u{4EA4}\u{8C08}",
-                "\u{5BF9}\u{8BDD}"
-            }
-        }
-    ),
     ["击败矮人王多加尔"] = {
         task_patterns = {
             "群山之心"
@@ -10254,23 +10278,23 @@ M.TASK_NAME_CONFIGS = {
         },
         {
             selection_step = {
-                label = "\u{9F99}\u{9AA8}\u{5C71}\u{810A}\u{5730}\u{56FE}\u{9879}\u{6309}\u{94AE}",
+                label = "\u{5730}\u{56FE}\u{9879}\u{6309}\u{94AE}",
                 distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
                 include_patterns = {
                     "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
                 },
-                hint_client_x = 686.359497,
-                hint_client_y = 410.743622,
-                hint_ratio_x = 0.476639,
-                hint_ratio_y = 0.456382,
-                hint_max_distance = 80.000,
+                hint_client_x = 683.011169,
+                hint_client_y = 396.815979,
+                hint_ratio_x = 0.474313,
+                hint_ratio_y = 0.440907,
+                hint_max_distance = 30.000,
                 prefer_hint_fallback = true,
                 poll_retry_count = 30,
                 poll_interval_ms = 100,
                 fixed_fallback_client_x = 724.00,
-                fixed_fallback_client_y = 451.00,
+                fixed_fallback_client_y = 450.00,
                 fixed_fallback_ratio_x = 0.502778,
-                fixed_fallback_ratio_y = 0.501111,
+                fixed_fallback_ratio_y = 0.500000,
                 fixed_fallback_prefer_ratio = true,
                 fixed_fallback_mouse_mode = "api",
                 fixed_fallback_click_delay_ms = 50,
@@ -10705,6 +10729,8 @@ M.TASK_NAME_CONFIGS = {
     ["\u{7A81}\u{7834}\u{89C9}\u{9192}\u{8005}\u{91CD}\u{56F4}"] = make_journey_begin_awakened_leader_task_config(),
     ["\u{51FB}\u{8D25}\u{89C9}\u{9192}\u{8005}\u{5934}\u{76EE}"] = make_journey_begin_awakened_leader_task_config(),
     ["\u{4E0A}\u{53E4}\u{6218}\u{573A} / \u{5E26}\u{4E0A}\u{79D1}\u{91CC}\u{FF0C}\u{7EE7}\u{7EED}\u{8FFD}\u{8E2A}\u{83B1}\u{5B89}"] = make_ancient_battlefield_trace_ryan_task_config(),
+    ["上古战场 / 通过木桥，继续追击觉醒者"] = make_ancient_battlefield_controlled_goblin_route_task_config(),
+    ["上古战场 / 击败被操纵的哥布林"] = make_ancient_battlefield_controlled_goblin_route_task_config(),
     ["\u{51FB}\u{8D25}\u{62E6}\u{8DEF}\u{7684}\u{526F}\u{5B98}"] = make_fanmu_blocking_deputy_task_config(),
     ["\u{9003}\u{79BB}\u{5185}\u{57CE}\u{533A} / \u{524D}\u{5F80}\u{5B66}\u{8005}\u{8857}\u{5DF7}\u{7684}\u{51FA}\u{53E3}"] = make_escape_inner_city_exit_hass_kite_task_config({
         "\u{524D}\u{5F80}\u{5B66}\u{8005}\u{8857}\u{5DF7}\u{7684}\u{51FA}\u{53E3}"
@@ -13970,7 +13996,7 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_npc_dialogue_route_action({
-        key = "ancient_battlefield_keli_dialogue_12169_-7323",
+        key = "ancient_battlefield_keli_dialogue_11602_-7065",
         label = "上古战场_和科里交谈_固定NPC对话",
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
@@ -13986,16 +14012,16 @@ M.ROUTE_POINT_ACTIONS = {
         },
         constraint_mode = "all",
         trigger = {
-            x = 12519.00,
-            y = -6853.00,
-            z = 609.08,
+            x = 11602.00,
+            y = -7065.00,
+            z = 566.00,
             radius = 1800,
             z_tolerance = 320
         },
         dialogue = {
-            x = 12519.00,
-            y = -6853.00,
-            z = 609.08,
+            x = 11602.00,
+            y = -7065.00,
+            z = 566.00,
             radius = 220,
             interact_radius = 140,
             move_interval_ms = 220,
@@ -14006,6 +14032,42 @@ M.ROUTE_POINT_ACTIONS = {
             npc_search_radius = 120,
             fallback_interact = true
         }
+    }),
+    make_route_point_action({
+        key = "ancient_battlefield_cross_bridge_controlled_goblin_route_9821_-7337",
+        label = "上古战场_通过木桥到被操纵的哥布林固定跑打",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        task_patterns = {
+            "上古战场"
+        },
+        task_detail_patterns = {
+            "通过木桥，继续追击觉醒者",
+            "击败被操纵的哥布林"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 9821.39,
+            y = -7336.69,
+            z = 566.00,
+            radius = 1200,
+            z_tolerance = 360
+        },
+        retry_ms = 600000,
+        timeout_ms = 180000,
+        waypoint_reach_radius = 260,
+        waypoint_z_tolerance = 360,
+        move_interval_ms = 220,
+        route_worker_max_points = 48,
+        reacquire_retry_ms = 1200,
+        waypoints = repeat_waypoints({
+            { x = 11263.88, y = -6657.04, z = 610.03 },
+            { x = 11294.36, y = -7604.12, z = 566.00 },
+            { x = 12437.35, y = -7594.66, z = 586.17 },
+            { x = 12408.55, y = -6492.49, z = 606.89 }
+        }, 12)
     }),
     make_route_point_action({
         key = "wall_of_sighs_aria_dialogue_route_18621_-3838",
@@ -18880,35 +18942,6 @@ M.FORCE_KITE_MONSTER_NAMES = Actions.make_force_kite_name_set({
 })
 
 M.OBJECTIVE_POINT_CONFIGS = {
-    Actions.make_objective_point({
-        key = "controlled_goblin_boss_room",
-        x = 12351.00,
-        y = -7100.00,
-        z = 777.00,
-        radius = 520,
-        trigger_distance = 520,
-        immediate_kite_on_reached = true,
-        kite_radius = 1260,
-        kite_point_count = 3,
-        kite_switch_ms = 2400,
-        seamless_kite = true,
-        kite_arrive_distance = 520,
-        kite_move_interval_ms = 120,
-        defer_followup_until_clear = true,
-        boss_clear_settle_ms = 3000,
-        task_patterns = {
-            "\u{51FB}\u{8D25}\u{88AB}\u{64CD}\u{7EB5}\u{7684}\u{54E5}\u{5E03}\u{6797}",
-            "\u{88AB}\u{64CD}\u{7EB5}\u{7684}\u{54E5}\u{5E03}\u{6797}"
-        },
-        exclude_task_patterns = {
-            "\u{4EA4}\u{8C08}",
-            "\u{5BF9}\u{8BDD}"
-        },
-        exclude_task_detail_patterns = {
-            "\u{4EA4}\u{8C08}",
-            "\u{5BF9}\u{8BDD}"
-        }
-    }),
     Actions.make_clear_room_point({
         key = "kingdom_end_deep_boss_kite",
         x = 7650.00,

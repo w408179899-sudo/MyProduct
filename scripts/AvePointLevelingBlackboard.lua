@@ -42,6 +42,14 @@ function M.snapshot(state, current_time, opts)
     local task_target = type(state.task_target) == "table" and state.task_target or nil
     local task_path = type(state.task_path) == "table" and state.task_path or nil
     local treasure_runtime = type(state.treasure_runtime) == "table" and state.treasure_runtime or nil
+    local treasure_mode = text(treasure_runtime and (treasure_runtime.mode or treasure_runtime.stage) or nil)
+    local treasure_active_key = text(treasure_runtime and treasure_runtime.active_key or nil)
+    local treasure_active = treasure_runtime ~= nil
+        and treasure_active_key ~= ""
+        and treasure_mode ~= ""
+        and treasure_mode ~= "inactive"
+        and treasure_mode ~= "completed"
+        and treasure_mode ~= "failed"
     local active_owner, active_node = runtime_owner(state)
 
     local player_x = num(first_non_nil(opts.player_x, state.last_known_player_x))
@@ -142,10 +150,10 @@ function M.snapshot(state, current_time, opts)
         },
 
         treasure = {
-            active = treasure_runtime ~= nil and text(treasure_runtime.active_key or treasure_runtime.stage) ~= "",
+            active = treasure_active,
             runtime = treasure_runtime,
-            active_key = text(treasure_runtime and treasure_runtime.active_key or nil),
-            stage = text(treasure_runtime and treasure_runtime.stage or nil),
+            active_key = treasure_active_key,
+            stage = treasure_mode,
             route_store_key = text(treasure_runtime and treasure_runtime.route_store_key or nil)
         },
 

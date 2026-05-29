@@ -13144,7 +13144,7 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         watch = true
     }
 
-    local emergency_e = type(hp_ratio) == "number" and hp_ratio <= 0.45
+    local emergency_e = type(hp_ratio) == "number" and hp_ratio <= 0.80
     local used_q = maybe_consume_potion(ctx, current_time, hp, max_hp, hp_ratio, {
         nonintrusive = common_opts.nonintrusive,
         force_refresh = common_opts.force_refresh,
@@ -13165,7 +13165,7 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         watch = common_opts.watch,
         vk = 0x45,
         hotkey_name = "E",
-        threshold_ratio = 0.45,
+        threshold_ratio = 0.80,
         cooldown_ms = 100,
         last_used_field = "last_potion_e_at"
     })

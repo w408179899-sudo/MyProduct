@@ -2320,6 +2320,44 @@ function M.maybe_handle_task_entry_key_sequence(ctx, current_time, player_x, pla
 
     local after_key_time = now_ms(ctx)
     local locked_entry_key = tostring(state.task_entry_action_locked_key or entry_action.key or "")
+    local suppress_after_complete = entry_action.suppress_after_complete == true
+        or entry_action.suppress_after_key_sequence == true
+        or entry_action.one_shot == true
+    local jump_after_sequence = entry_action.jump_after_sequence == true
+        or entry_action.jump_after_complete == true
+    if suppress_after_complete and locked_entry_key ~= "" then
+        state.task_entry_action_suppressed_key = locked_entry_key
+        state.task_entry_action_suppressed_task_name =
+            normalize_map_name(M.current_task_log_name()) or normalize_map_name(state.current_task_name)
+        state.task_entry_action_suppressed_task_detail =
+            normalize_map_name(M.current_task_log_detail()) or normalize_map_name(state.current_task_detail)
+        state.task_entry_action_suppressed_reason = "key_sequence_completed"
+    end
+    if jump_after_sequence then
+        local jump_delay_ms = math.max(0, tonumber(entry_action.jump_after_sequence_delay_ms) or 200)
+        local jump_window_ms = math.max(1500, tonumber(entry_action.jump_after_sequence_window_ms) or 5000)
+        local wait_ms = math.max(0,
+            tonumber(entry_action.wait_after_sequence_ms)
+                or tonumber(entry_action.jump_after_sequence_wait_ms)
+                or TASK_BUTTON_SETTLE_MS
+        )
+        state.dialogue_jump_window_until = math.max(
+            tonumber(state.dialogue_jump_window_until) or 0,
+            after_key_time + jump_window_ms
+        )
+        state.dialogue_jump_window_origin = tostring(entry_action.jump_origin or "task_entry_key_sequence")
+        state.next_dialogue_jump_scan_at = after_key_time + jump_delay_ms
+        state.next_dialogue_jump_click_at = 0
+        state.task_update_wait_until = math.max(
+            tonumber(state.task_update_wait_until) or 0,
+            after_key_time + wait_ms
+        )
+        state.require_task_button_refresh = false
+        state.require_task_button_refresh_reason = nil
+        if type(M.reset_dialogue_jump_missing_probe) == "function" then
+            M.reset_dialogue_jump_missing_probe(false)
+        end
+    end
     M.clear_task_entry_action_state()
     state.next_task_refresh_at = math.min(tonumber(state.next_task_refresh_at) or after_key_time, after_key_time)
     logger(ctx).info(string.format(
@@ -2329,6 +2367,23 @@ function M.maybe_handle_task_entry_key_sequence(ctx, current_time, player_x, pla
         tonumber(hotkey_vk) or 0,
         repeat_count
     ))
+    if suppress_after_complete then
+        logger(ctx).info(string.format(
+            "[Leveling] task entry key sequence suppressed after completion | task=%s detail=%s key=%s",
+            tostring(M.current_task_log_name() or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            locked_entry_key
+        ))
+    end
+    if jump_after_sequence then
+        logger(ctx).info(string.format(
+            "[Leveling] task entry key sequence opened dialogue jump window | task=%s detail=%s key=%s wait_left=%dms",
+            tostring(M.current_task_log_name() or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            locked_entry_key,
+            math.max(0, (tonumber(state.dialogue_jump_window_until) or after_key_time) - after_key_time)
+        ))
+    end
     log_heartbeat(ctx, after_key_time, player_x, player_y, player_z)
     return true
 end

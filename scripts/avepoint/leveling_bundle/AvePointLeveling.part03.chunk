@@ -2178,7 +2178,18 @@ function M.build_treasure_hooks(ctx)
             return M.current_task_log_detail() or state.current_task_detail or ""
         end,
         current_map_name = function()
-            return state.current_map_name or ""
+            local current_name = trim(state.current_map_name or "")
+            if current_name ~= "" then
+                return current_name
+            end
+            if type(M.refresh_route_point_action_map_name) == "function" then
+                local fetched_name = select(1, M.refresh_route_point_action_map_name(ctx, now_ms(ctx), true))
+                fetched_name = trim(fetched_name)
+                if fetched_name ~= "" then
+                    return fetched_name
+                end
+            end
+            return ""
         end,
         allow_startup_task_mismatch_level_gate = function(inner_ctx, cfg, match_reason, task_name, task_detail)
             local reason = tostring(match_reason or "")
