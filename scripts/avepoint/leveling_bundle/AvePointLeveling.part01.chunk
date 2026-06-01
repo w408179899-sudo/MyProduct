@@ -26,6 +26,15 @@ function M.loadfile_with_bytecode_fallback_local(path, label)
 end
 
 function M.load_leveling_support_module(require_name, require_name_alt, file_path, label)
+    if type(package) == "table" and type(package.loaded) == "table" then
+        if type(require_name) == "string" and require_name ~= "" then
+            package.loaded[require_name] = nil
+        end
+        if type(require_name_alt) == "string" and require_name_alt ~= "" then
+            package.loaded[require_name_alt] = nil
+        end
+    end
+
     local ok, mod = pcall(require, require_name)
     if ok and type(mod) == "table" then
         return mod
@@ -159,6 +168,12 @@ local TASK_COMBAT_CLEAR_SETTLE_MS = 1800
 M.TASK_BUTTON_PATH_EARLY_RETRY_AFTER_MS = 1100
 M.TASK_BUTTON_PATH_EARLY_RETRY_FAILED_MS = 1200
 M.TASK_BUTTON_PATH_WAIT_POLL_INTERVAL_MS = 100
+M.TASK_REFRESH_BAG_PAUSE_ENABLED = false
+M.TASK_REFRESH_BAG_PAUSE_KEY_VK = 0x42
+M.TASK_REFRESH_BAG_PAUSE_MAX_MS = 12000
+M.TASK_REFRESH_BAG_PAUSE_RETRY_MS = 900
+M.TASK_REFRESH_BAG_PAUSE_VERIFY_ATTEMPTS = 5
+M.TASK_REFRESH_BAG_PAUSE_VERIFY_INTERVAL_MS = 100
 M.TASK_DETAIL_TRANSITION_MAX_HOLD_MS = 6000
 local TASK_COMBAT_HARD_TRIGGER_MS = 4500
 local TASK_COMBAT_HARD_MONSTER_COUNT = 6
@@ -1317,6 +1332,11 @@ function M.clear_route_point_action_npc_dialogue_state()
     state.route_point_action_dialogue_entered_at = 0
     state.route_point_action_dialogue_next_interact_at = 0
     state.route_point_action_dialogue_deadline_at = 0
+    state.route_point_action_dialogue_locked_entity_id = nil
+    state.route_point_action_dialogue_locked_x = nil
+    state.route_point_action_dialogue_locked_y = nil
+    state.route_point_action_dialogue_locked_z = nil
+    state.route_point_action_dialogue_locked_at = 0
 end
 
 function M.clear_route_point_action_objective_state()
@@ -1397,6 +1417,8 @@ function M.clear_task_recipe_state()
     state.task_recipe_previous_task_name = nil
     state.task_recipe_previous_task_detail = nil
     state.task_recipe_last_error = nil
+    state.task_recipe_world_map_panel_missing_since = 0
+    state.task_recipe_world_map_panel_missing_step = nil
 end
 
 function M.blocking_side_task_key(blocker)
@@ -2439,6 +2461,11 @@ local function reset_state()
     state.route_point_action_dialogue_entered_at = 0
     state.route_point_action_dialogue_next_interact_at = 0
     state.route_point_action_dialogue_deadline_at = 0
+    state.route_point_action_dialogue_locked_entity_id = nil
+    state.route_point_action_dialogue_locked_x = nil
+    state.route_point_action_dialogue_locked_y = nil
+    state.route_point_action_dialogue_locked_z = nil
+    state.route_point_action_dialogue_locked_at = 0
     state.route_point_action_objective_active_key = nil
     state.route_point_action_objective_active_state_key = nil
     state.route_point_action_objective_entered_at = 0

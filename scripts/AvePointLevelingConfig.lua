@@ -7166,6 +7166,42 @@ M.TASK_FOLLOW_MOVE_INTERVAL_MS = 1200
 M.TASK_POS_MOVE_INTERVAL_MS = 900
 M.TASK_COMBAT_KITE_ASYNC_ROUTE_WORKER = true
 
+local TREASURE_DUNGEON_BASELINE_DEFAULTS = {
+    inside_detect_task_panel_text = false,
+    startup_recovery_wait_for_task_panel = true,
+    startup_recovery_activate_by_level_gate = true,
+    startup_recovery_requires_task_match = false,
+    startup_recovery_allow_task_mismatch_by_level_gate = true,
+    startup_recovery_allow_inside_landing_task_mismatch_by_level_gate = true,
+    startup_recovery_allow_landing_task_mismatch_by_level_gate = true,
+    startup_recovery_allow_route_nearby_task_mismatch_by_level_gate = true,
+    startup_recovery_map_token_task_mismatch_requires_route_nearby = true,
+    startup_recovery_task_panel_wait_ms = 1800,
+    startup_recovery_task_panel_wait_cap_ms = 9000,
+    startup_recovery_route_nearby = true,
+    startup_recovery_route_distance = 1800,
+    resume_route_nearby = true,
+    resume_route_distance = 1800,
+    entry_far_reacquire_mainline = true,
+    entry_far_reacquire_distance = 1800
+}
+
+local function apply_treasure_dungeon_baseline_defaults(configs)
+    if type(configs) ~= "table" then
+        return configs
+    end
+    for _, cfg in ipairs(configs) do
+        if type(cfg) == "table" then
+            for key, value in pairs(TREASURE_DUNGEON_BASELINE_DEFAULTS) do
+                if cfg[key] == nil then
+                    cfg[key] = value
+                end
+            end
+        end
+    end
+    return configs
+end
+
 M.TREASURE_DUNGEON_CONFIGS = {
     {
         key = "treasure_milu_creek",
@@ -7173,6 +7209,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
         name = "\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{871C}\u{9732}\u{6EAA}\u{8C37}",
         route_store_key = "treasure_milu_creek",
         target_level = 25,
+        entry_activation_ignore_map_gate = true,
         inside_detect_task_panel_text = false,
         startup_recovery_wait_for_task_panel = true,
         startup_recovery_activate_by_level_gate = true,
@@ -7194,7 +7231,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "\u{871C}\u{9732}\u{6EAA}\u{8C37}"
         },
         task_detail_patterns = {
-            "\u{8FC7}\u{6865}\u{652F}\u{63F4}\u{4E3D}\u{8299}",
+            "\u{51FB}\u{8D25}\u{5F02}\u{5316}\u{7684}\u{4E3D}\u{8299}",
             "\u{901A}\u{5173}1\u{6B21}\u{85CF}\u{5B9D}\u{5730}\u{FF1A}\u{871C}\u{9732}\u{6EAA}\u{8C37}"
         },
         map_patterns = {
@@ -7205,7 +7242,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             x = 4167.00,
             y = 3949.00,
             z = 1603.89,
-            radius = 1200,
+            radius = 1800,
             z_tolerance = 260
         },
         entry_steps = {
@@ -8046,6 +8083,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
         startup_recovery_route_distance = 1800,
         startup_recovery_allow_landing_task_mismatch_by_level_gate = false,
         startup_recovery_restart_landing = false,
+        require_exit_landing_before_return_mainline = true,
         entry_far_reacquire_mainline = true,
         entry_far_reacquire_distance = 1500,
         inside_detect_restart_landing = false,
@@ -8602,6 +8640,8 @@ M.TREASURE_DUNGEON_CONFIGS = {
         }
     }
 }
+
+apply_treasure_dungeon_baseline_defaults(M.TREASURE_DUNGEON_CONFIGS)
 
 M.TASK_OBJECTIVE_BUTTON_STEPS = {
     {
@@ -9980,6 +10020,16 @@ M.TASK_NAME_CONFIGS = {
         },
         constraint_mode = "all"
     },
+    ["主线 龙陨之野 / 向科里询问情报"] = {
+        task_patterns = {
+            "龙陨之野"
+        },
+        task_detail_patterns = {
+            "向科里询问情报"
+        },
+        constraint_mode = "all",
+        allow_wait_task_path_route_action_recover = true
+    },
     ["追击觉醒者莱安"] = {
         boss_objective_point_key = "old_dusk_lai_an_boss_room_14861_23378",
         task_patterns = {
@@ -10200,6 +10250,66 @@ M.TASK_NAME_CONFIGS = {
             generic_followup_refresh_ms = 3500,
             generic_followup_requires_task_pos_only = true,
             generic_followup_require_no_special = true
+        }
+    ),
+    ["坠星 / 前往坠星集市"] = make_world_map_send_task_config(
+        "falling_star_go_to_market_world_map_send",
+        {
+            label = "传送按钮",
+            distance_anchor_exact_text = "传送",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn"
+            },
+            prefer_hint_fallback = true
+        },
+        {
+            map_open_wait_ms = 1200,
+            world_map_panel_missing_fallback_ms = 3500,
+            center_use_human_mouse = true,
+            center_selection_step = {
+                label = "坠星集市地图项按钮",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
+                },
+                hint_client_x = 428.011200,
+                hint_client_y = 395.815979,
+                hint_ratio_x = 0.297230,
+                hint_ratio_y = 0.439796,
+                hint_max_distance = 30.000,
+                prefer_hint_fallback = true,
+                poll_retry_count = 30,
+                poll_interval_ms = 100,
+                fixed_fallback_client_x = 472.00,
+                fixed_fallback_client_y = 451.00,
+                fixed_fallback_ratio_x = 0.327778,
+                fixed_fallback_ratio_y = 0.501111,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_click_delay_ms = 50,
+                fixed_fallback_hover_delay_ms = 80
+            },
+            center_mouse_mode = "api",
+            center_hover_delay_ms = 90,
+            center_click_delay_ms = 60,
+            center_settle_ms = 750,
+            center_retry_ms = 1400,
+            transition_wait_ms = 2500,
+            timeout_ms = 18000
+        },
+        {
+            task_patterns = {
+                "坠星"
+            },
+            task_detail_patterns = {
+                "前往坠星集市"
+            },
+            main_task_call = {
+                allow_anchor_click_fallback = true
+            },
+            constraint_mode = "all",
+            enable_linear_recipe = true
         }
     ),
     ["藏宝地：曙光大道 / 在群狼街巷找到下一个藏宝地（推荐等级27~35级）"] = make_world_map_send_task_config(
@@ -10600,6 +10710,16 @@ M.TASK_NAME_CONFIGS = {
         },
         task_detail_patterns = {
             "与艾丝梅拉达对话"
+        },
+        constraint_mode = "all",
+        allow_wait_task_path_route_action_recover = true
+    },
+    ["晚星待明 / 离开坠星集市，前往伊吉部族夺回火种"] = {
+        task_patterns = {
+            "晚星待明"
+        },
+        task_detail_patterns = {
+            "离开坠星集市，前往伊吉部族夺回火种"
         },
         constraint_mode = "all",
         allow_wait_task_path_route_action_recover = true
@@ -11035,6 +11155,7 @@ M.TASK_NAME_CONFIGS = {
             center_settle_ms = 750,
             center_retry_ms = 1400,
             transition_wait_ms = 2500,
+            failure_route_action_key = "wall_of_sighs_forbidden_wall_no_path_route_-16603_9004",
             timeout_ms = 16000
         },
         {
@@ -11105,9 +11226,10 @@ M.TASK_NAME_CONFIGS = {
             center_settle_ms = 750,
             center_retry_ms = 1400,
             transition_wait_ms = 2500,
-            timeout_ms = 16000
+            timeout_ms = 24000
         },
         {
+            enable_linear_recipe = true,
             task_patterns = {
                 "\u{6C38}\u{591C}\u{9E23}\u{6C99}"
             },
@@ -11127,6 +11249,78 @@ M.TASK_NAME_CONFIGS = {
         constraint_mode = "all",
         allow_wait_task_path_route_action_recover = true
     },
+    ["长夜明星 / 与艾丝一同前往坠星集市"] = {
+        task_patterns = {
+            "长夜明星"
+        },
+        task_detail_patterns = {
+            "与艾丝一同前往坠星集市"
+        },
+        constraint_mode = "all",
+        allow_wait_task_path_route_action_recover = true
+    },
+    ["狂沙地海 / 前往女神裙摆"] = make_world_map_send_task_config(
+        "sand_sea_go_to_goddess_hem_world_map_send",
+        {
+            label = "传送按钮",
+            distance_anchor_exact_text = "传送",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.WorldMapDetail_C.WidgetTree.WorldMapDetailItem.WidgetTree.SendBtn"
+            },
+            prefer_hint_fallback = true
+        },
+        {
+            map_open_wait_ms = 1200,
+            world_map_panel_missing_fallback_ms = 3500,
+            center_click_ratio_x = 0.502778,
+            center_click_ratio_y = 0.502222,
+            center_use_human_mouse = true,
+            center_selection_step = {
+                label = "女神裙摆地图项按钮",
+                distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn",
+                include_patterns = {
+                    "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
+                },
+                hint_client_x = 676.011230,
+                hint_client_y = 396.815979,
+                hint_ratio_x = 0.469452,
+                hint_ratio_y = 0.440907,
+                hint_max_distance = 30.000,
+                prefer_hint_fallback = true,
+                poll_retry_count = 30,
+                poll_interval_ms = 100,
+                fixed_fallback_client_x = 724.00,
+                fixed_fallback_client_y = 452.00,
+                fixed_fallback_ratio_x = 0.502778,
+                fixed_fallback_ratio_y = 0.502222,
+                fixed_fallback_prefer_ratio = true,
+                fixed_fallback_mouse_mode = "api",
+                fixed_fallback_click_delay_ms = 50,
+                fixed_fallback_hover_delay_ms = 80
+            },
+            center_mouse_mode = "api",
+            center_hover_delay_ms = 90,
+            center_click_delay_ms = 60,
+            center_settle_ms = 750,
+            center_retry_ms = 1400,
+            transition_wait_ms = 2500,
+            timeout_ms = 18000
+        },
+        {
+            task_patterns = {
+                "狂沙地海"
+            },
+            task_detail_patterns = {
+                "前往女神裙摆"
+            },
+            main_task_call = {
+                allow_anchor_click_fallback = true
+            },
+            constraint_mode = "all",
+            enable_linear_recipe = true
+        }
+    ),
     ["\u{5BFC}\u{5E08}\u{9988}\u{8D60}"] = make_dialogue_locator_flow_task_config(
         "mentor_gift_task_detail_before_antonio_jump",
         {
@@ -11300,7 +11494,7 @@ M.TASK_NAME_CONFIGS = {
             }
         }
     ),
-    ["\u{5723}\u{6D01}\u{4E4B}\u{706B}"] = make_dialogue_locator_flow_task_config(
+    ["\u{5723}\u{6D01}\u{4E4B}\u{706B} / \u{5C1D}\u{8BD5}\u{548C}\u{5B66}\u{57CE}\u{5B88}\u{536B}\u{4EA4}\u{8C08}"] = make_dialogue_locator_flow_task_config(
         "holy_fire_guard_dialogue_flow",
         {
             {
@@ -11359,6 +11553,12 @@ M.TASK_NAME_CONFIGS = {
             }
         }
     ),
+    ["\u{5723}\u{6D01}\u{4E4B}\u{706B} / \u{8FDB}\u{5165}\u{5B66}\u{57CE}\u{6DF1}\u{5904}"] = {
+        task_patterns = { "\u{5723}\u{6D01}\u{4E4B}\u{706B}" },
+        task_detail_patterns = { "\u{8FDB}\u{5165}\u{5B66}\u{57CE}\u{6DF1}\u{5904}" },
+        constraint_mode = "all",
+        allow_wait_task_path_route_action_recover = true
+    },
     ["\u{957F}\u{591C}\u{7EC8}\u{5C3D} / \u{4E0E}\u{83AB}\u{7433}\u{5A1C}\u{4EA4}\u{8C08}"] = make_dialogue_locator_flow_task_config(
         "long_night_end_task_detail_before_molina_jump",
         {
@@ -11542,6 +11742,7 @@ M.TASK_NAME_CONFIGS = {
             main_task_call = {
                 allow_anchor_click_fallback = true
             },
+            allow_wait_task_path_route_action_recover = true,
             constraint_mode = "all",
             enable_linear_recipe = true
         }
@@ -12906,6 +13107,43 @@ M.ROUTE_POINT_ACTIONS = {
         hotkey_repeat_count = 1,
         force_task_call_after_transition = false
     }),
+    make_npc_dialogue_route_action({
+        key = "dragonfall_wilds_ask_keli_dialogue_10234_26476",
+        label = "龙陨之野_向科里询问情报_NPC对话",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        direct_when_task_active = true,
+        drop_active_when_task_mismatch = true,
+        retry_ms = 600000,
+        task_patterns = {
+            "龙陨之野"
+        },
+        task_detail_patterns = {
+            "向科里询问情报"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 10233.67,
+            y = 26475.80,
+            z = 5235.18,
+            radius = 1800,
+            z_tolerance = 520
+        },
+        dialogue = {
+            x = 10233.67,
+            y = 26475.80,
+            z = 5235.18,
+            radius = 320,
+            interact_radius = 160,
+            move_interval_ms = 220,
+            z_tolerance = 520,
+            center_settle_ms = 700,
+            interact_retry_ms = 1800,
+            timeout_ms = 22000,
+            npc_search_radius = 900,
+            fallback_interact = true
+        }
+    }),
     make_sun_faction_choice_action(),
     make_sun_faction_no_path_recover_route_action(),
     make_sun_faction_after_join_route_action(),
@@ -13021,6 +13259,38 @@ M.ROUTE_POINT_ACTIONS = {
             { x = 6538.37, y = 15782.33, z = 519.00 },
             { x = 7564.20, y = 15750.88, z = 519.00 },
             { x = 9006.98, y = 16825.09, z = 526.47 }
+        }
+    }),
+    make_route_point_action({
+        key = "holy_fire_enter_academy_deep_wait_path_recover_14450_15820",
+        label = "圣洁之火_进入学城深处_等待路径恢复",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        wait_task_path_recover_only = true,
+        task_patterns = {
+            "\u{5723}\u{6D01}\u{4E4B}\u{706B}"
+        },
+        task_detail_patterns = {
+            "\u{8FDB}\u{5165}\u{5B66}\u{57CE}\u{6DF1}\u{5904}"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 14450.00,
+            y = 15820.00,
+            z = 1714.00,
+            radius = 800,
+            z_tolerance = 420
+        },
+        retry_ms = 600000,
+        timeout_ms = 30000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 420,
+        move_interval_ms = 220,
+        reacquire_retry_ms = 1200,
+        waypoints = {
+            { x = 15087.28, y = 15779.39, z = 1714.00 },
+            { x = 16204.95, y = 15697.74, z = 1714.00 }
         }
     }),
     make_npc_dialogue_route_action({
@@ -14261,6 +14531,8 @@ M.ROUTE_POINT_ACTIONS = {
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
         allow_during_task_button_refresh = true,
+        direct_when_task_active = true,
+        select_nearest_task_dialogue = true,
         direct_without_task_target_only = true,
         drop_active_when_task_mismatch = true,
         retry_ms = 6000,
@@ -14299,6 +14571,8 @@ M.ROUTE_POINT_ACTIONS = {
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
         allow_during_task_button_refresh = true,
+        direct_when_task_active = true,
+        select_nearest_task_dialogue = true,
         direct_without_task_target_only = true,
         drop_active_when_task_mismatch = true,
         task_patterns = {
@@ -14308,13 +14582,6 @@ M.ROUTE_POINT_ACTIONS = {
             "\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}"
         },
         constraint_mode = "all",
-        trigger = {
-            x = -289.00,
-            y = -1109.00,
-            z = 2021.38,
-            radius = 1300,
-            z_tolerance = 420
-        },
         retry_ms = 6000,
         dialogue = {
             x = -289.00,
@@ -14337,6 +14604,8 @@ M.ROUTE_POINT_ACTIONS = {
         allow_without_task_target = true,
         allow_wait_task_path_recover = true,
         allow_during_task_button_refresh = true,
+        direct_when_task_active = true,
+        select_nearest_task_dialogue = true,
         direct_without_task_target_only = true,
         drop_active_when_task_mismatch = true,
         retry_ms = 6000,
@@ -14347,13 +14616,6 @@ M.ROUTE_POINT_ACTIONS = {
             "\u{4E0E}\u{827E}\u{4E1D}\u{6885}\u{62C9}\u{8FBE}\u{5BF9}\u{8BDD}"
         },
         constraint_mode = "all",
-        trigger = {
-            x = -2337.00,
-            y = 5316.00,
-            z = 2004.00,
-            radius = 1300,
-            z_tolerance = 420
-        },
         dialogue = {
             x = -2337.00,
             y = 5316.00,
@@ -14367,6 +14629,55 @@ M.ROUTE_POINT_ACTIONS = {
             timeout_ms = 22000,
             npc_search_radius = 700,
             fallback_interact = true
+        }
+    }),
+    make_route_point_action({
+        key = "evening_star_leave_falling_star_market_no_path_route_-749_1235",
+        label = "晚星待明_离开坠星集市前往伊吉部族夺回火种_无路径固定路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
+        wait_task_path_recover_only = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "晚星待明"
+        },
+        task_detail_patterns = {
+            "离开坠星集市，前往伊吉部族夺回火种"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -749.61,
+            y = 1235.88,
+            z = 2004.72,
+            radius = 1800,
+            z_tolerance = 420
+        },
+        retry_ms = 600000,
+        timeout_ms = 90000,
+        waypoint_reach_radius = 240,
+        waypoint_z_tolerance = 420,
+        move_interval_ms = 220,
+        route_worker_max_points = 4,
+        waypoints = {
+            { x = -749.61, y = 1235.88, z = 2004.72 },
+            { x = 404.05, y = 1669.52, z = 2017.83 },
+            { x = 1174.85, y = 2002.43, z = 2001.42 },
+            { x = 1576.05, y = 2328.83, z = 2004.00 },
+            { x = 1824.44, y = 2832.17, z = 2003.00 },
+            { x = 1963.21, y = 3236.97, z = 2004.00 },
+            { x = 2149.05, y = 3742.19, z = 2009.63 },
+            { x = 2377.84, y = 4158.94, z = 2010.08 },
+            { x = 2606.82, y = 4566.59, z = 2004.04 },
+            { x = 2855.17, y = 5008.79, z = 2001.00 },
+            { x = 3053.40, y = 5369.95, z = 2001.00 },
+            { x = 3181.16, y = 5736.42, z = 2001.00 },
+            { x = 3269.67, y = 6162.66, z = 2001.00 },
+            { x = 3283.93, y = 6574.41, z = 2001.00 },
+            { x = 3293.45, y = 6994.30, z = 2001.00 },
+            { x = 3319.62, y = 7492.80, z = 2001.00 }
         }
     }),
     make_npc_dialogue_route_action({
@@ -18329,6 +18640,43 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
+        key = "long_night_star_go_to_falling_star_market_no_path_route_17034_-7147",
+        label = "长夜明星_与艾丝一同前往坠星集市_无路径固定路线",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        allow_during_task_button_refresh = true,
+        wait_task_path_recover_only = true,
+        direct_without_task_target_only = true,
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "长夜明星"
+        },
+        task_detail_patterns = {
+            "与艾丝一同前往坠星集市"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = 17034.69,
+            y = -7147.79,
+            z = 2491.00,
+            radius = 1600,
+            z_tolerance = 420
+        },
+        retry_ms = 600000,
+        timeout_ms = 30000,
+        waypoint_reach_radius = 240,
+        waypoint_z_tolerance = 420,
+        move_interval_ms = 220,
+        route_worker_max_points = 4,
+        waypoints = {
+            { x = 17034.69, y = -7147.79, z = 2491.00 },
+            { x = 17240.31, y = -7782.70, z = 2491.00 },
+            { x = 17493.57, y = -8233.29, z = 2491.00 },
+            { x = 18637.48, y = -8377.18, z = 2495.53 }
+        }
+    }),
+    make_route_point_action({
         key = "sand_sea_find_iji_fire_seed_route_8639_10964",
         label = "狂沙地海_找到伊吉部族追寻火种_固定路线后重call主线",
         mode = "recorded_route_point",
@@ -18698,6 +19046,94 @@ M.ROUTE_POINT_ACTIONS = {
         }
     }),
     make_route_point_action({
+        key = "wall_of_sighs_forbidden_wall_no_path_route_-16603_9004",
+        label = "叹息之墙_前往禁忌高墙_无路径移动到过图门",
+        mode = "recorded_route_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        wait_task_path_recover_only = true,
+        drop_active_when_task_mismatch = true,
+        complete_without_task_reacquire = true,
+        followup_route_action_key = "wall_of_sighs_forbidden_wall_no_path_portal_-16603_9004",
+        followup_route_action_ignore_retry = true,
+        task_patterns = {
+            "叹息之墙"
+        },
+        task_detail_patterns = {
+            "前往禁忌高墙"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -16603.00,
+            y = 9004.00,
+            z = 1004.00,
+            radius = 1800,
+            z_tolerance = 420
+        },
+        retry_ms = 600000,
+        timeout_ms = 45000,
+        waypoint_reach_radius = 220,
+        waypoint_z_tolerance = 420,
+        move_interval_ms = 220,
+        route_worker_max_points = 3,
+        waypoints = {
+            { x = -16603.00, y = 9004.00, z = 1004.00 }
+        }
+    }),
+    make_route_point_action({
+        key = "wall_of_sighs_forbidden_wall_no_path_portal_-16603_9004",
+        label = "叹息之墙_前往禁忌高墙_无路径过图门",
+        mode = "objective_button_flow_point",
+        allow_without_task_target = true,
+        allow_wait_task_path_recover = true,
+        wait_task_path_recover_only = true,
+        drop_active_when_task_mismatch = true,
+        task_patterns = {
+            "叹息之墙"
+        },
+        task_detail_patterns = {
+            "前往禁忌高墙"
+        },
+        constraint_mode = "all",
+        trigger = {
+            x = -16603.00,
+            y = 9004.00,
+            z = 1004.00,
+            radius = 900,
+            z_tolerance = 420
+        },
+        objective_point = {
+            x = -16603.00,
+            y = 9004.00,
+            z = 1004.00,
+            radius = 260,
+            z_tolerance = 420
+        },
+        interact_radius = 260,
+        probe_retry_ms = 700,
+        retry_ms = 2500,
+        settle_ms = 4500,
+        timeout_ms = 18000,
+        force_task_call_after_transition = true,
+        task_pos_reject_extra_ms = 3500,
+        fallback_interact = true,
+        fallback_interact_distance = 320,
+        fallback_retry_ms = 2500,
+        step = {
+            key = "wall_of_sighs_forbidden_wall_no_path_portal_btn_-16603_9004",
+            label = "禁忌高墙过图门PortalBtn",
+            distance_button_name = "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn",
+            include_patterns = {
+                "UIButton Transient.GameEngine.CoreGameInstance.FightInteractiveView_C.WidgetTree.PortalBtn"
+            },
+            hint_client_x = 697.204834,
+            hint_client_y = 724.439941,
+            hint_ratio_x = 0.484170,
+            hint_ratio_y = 0.804933,
+            hint_max_distance = 180.000
+        }
+    }),
+    make_route_point_action({
         key = "wall_of_sighs_forbidden_wall_end_route_31064_21852",
         label = "叹息之墙_前往禁忌高墙尽头_固定路线后重call主线",
         mode = "recorded_route_point",
@@ -19057,22 +19493,20 @@ M.OBJECTIVE_POINT_CONFIGS = {
             "\u{89E3}\u{6551}\u{88AB}\u{56F0}\u{8005}"
         },
         revive_reentry = make_revive_reentry_config({
-            key = "counterattack_dawn_worm_room_reentry_17580_18579",
+            key = "counterattack_dawn_worm_room_reentry_17624_18584",
             label = "\u{53CD}\u{51FB}\u{7684}\u{9ECE}\u{660E} Boss\u{91CD}\u{8FDB}\u{623F}",
             anchor = {
-                x = 17614.00,
-                y = 18548.00,
+                x = 17624.50,
+                y = 18583.58,
                 z = 920.00,
                 radius = 560,
                 z_tolerance = 260
             },
             interact_distance = 360,
-            call_task_before_reentry = true,
-            follow_task_path_to_anchor = true,
             portal_scan_distance = 900,
             retry_ms = 900,
             settle_ms = 1400,
-            timeout_ms = 20000,
+            timeout_ms = 45000,
             post_transition_boss_engage_ms = 16000,
             fallback_interact = true
         })
@@ -19117,20 +19551,34 @@ M.OBJECTIVE_POINT_CONFIGS = {
             key = "old_dusk_lai_an_boss_room_reentry_14861_23378",
             label = "\u{65E7}\u{65E5}\u{7684}\u{9EC4}\u{660F} Boss\u{91CD}\u{8FDB}\u{623F}",
             anchor = {
-                x = 14861.00,
-                y = 23378.00,
+                x = 14864.95,
+                y = 23355.08,
                 z = 1010.00,
                 radius = 620,
                 z_tolerance = 320
             },
+            waypoints = {
+                { x = 15214.98, y = 19127.11, z = 1010.00 },
+                { x = 14445.89, y = 19340.83, z = 1010.00 },
+                { x = 13901.46, y = 19691.01, z = 1010.00 },
+                { x = 13595.97, y = 20203.03, z = 1010.00 },
+                { x = 13451.89, y = 20632.95, z = 1010.00 },
+                { x = 13380.09, y = 21374.39, z = 1010.00 },
+                { x = 13463.10, y = 21894.64, z = 1010.00 },
+                { x = 13720.87, y = 22486.74, z = 1010.00 },
+                { x = 14001.11, y = 23053.35, z = 1010.00 },
+                { x = 14401.45, y = 23445.98, z = 1010.00 },
+                { x = 14864.95, y = 23355.08, z = 1010.00 }
+            },
+            waypoint_reach_radius = 260,
             use_global_portal = false,
             interact_distance = 360,
-            call_task_before_reentry = true,
-            follow_task_path_to_anchor = true,
+            call_task_before_reentry = false,
+            follow_task_path_to_anchor = false,
             portal_scan_distance = 900,
             retry_ms = 900,
             settle_ms = 1400,
-            timeout_ms = 70000,
+            timeout_ms = 90000,
             transition_success_room_radius = 2100,
             post_transition_boss_engage_ms = 18000,
             fallback_interact = true

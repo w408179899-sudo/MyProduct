@@ -105,6 +105,15 @@ function M.make_world_map_send_linear_recipe(key, send_step, entry_action)
         local center_step = clone_table(action.center_selection_step)
         center_step.kind = "call_locator_button"
         center_step.key = center_step.key or (tostring(key or "") .. "_select_point")
+        if center_step.require_world_map_panel_ready == nil then
+            center_step.require_world_map_panel_ready = action.require_world_map_panel_ready ~= false
+        end
+        center_step.world_map_panel_retry_ms = tonumber(center_step.world_map_panel_retry_ms)
+            or tonumber(action.world_map_panel_retry_ms or action.center_ready_retry_ms)
+            or 300
+        center_step.world_map_panel_missing_fallback_ms = tonumber(center_step.world_map_panel_missing_fallback_ms)
+            or tonumber(action.world_map_panel_missing_fallback_ms or action.map_panel_missing_fallback_ms)
+            or 0
         if center_step.label == nil then
             center_step.label = tostring(key or "") .. "_select_point"
         end
@@ -160,6 +169,15 @@ function M.make_world_map_send_linear_recipe(key, send_step, entry_action)
         local selection_step = clone_table(action.selection_step)
         selection_step.kind = "call_locator_button"
         selection_step.key = selection_step.key or (tostring(key or "") .. "_selection")
+        if selection_step.require_world_map_panel_ready == nil then
+            selection_step.require_world_map_panel_ready = action.require_world_map_panel_ready ~= false
+        end
+        selection_step.world_map_panel_retry_ms = tonumber(selection_step.world_map_panel_retry_ms)
+            or tonumber(action.world_map_panel_retry_ms or action.selection_ready_retry_ms)
+            or 300
+        selection_step.world_map_panel_missing_fallback_ms = tonumber(selection_step.world_map_panel_missing_fallback_ms)
+            or tonumber(action.world_map_panel_missing_fallback_ms or action.map_panel_missing_fallback_ms)
+            or 0
         if selection_step.label == nil then
             selection_step.label = tostring(key or "") .. "_selection"
         end
@@ -179,6 +197,15 @@ function M.make_world_map_send_linear_recipe(key, send_step, entry_action)
     send_recipe_step.transition_wait_ms = tonumber(action.transition_wait_ms) or 1800
     send_recipe_step.force_task_call = true
     send_recipe_step.task_pos_reject_extra_ms = 3500
+    if send_recipe_step.require_world_map_panel_ready == nil then
+        send_recipe_step.require_world_map_panel_ready = action.require_world_map_panel_ready ~= false
+    end
+    send_recipe_step.world_map_panel_retry_ms = tonumber(send_recipe_step.world_map_panel_retry_ms)
+        or tonumber(action.world_map_panel_retry_ms or action.send_ready_retry_ms)
+        or 300
+    send_recipe_step.world_map_panel_missing_fallback_ms = tonumber(send_recipe_step.world_map_panel_missing_fallback_ms)
+        or tonumber(action.world_map_panel_missing_fallback_ms or action.map_panel_missing_fallback_ms)
+        or 0
     steps[#steps + 1] = send_recipe_step
 
     return {
@@ -187,6 +214,7 @@ function M.make_world_map_send_linear_recipe(key, send_step, entry_action)
         recipe_type = "linear",
         activation = "entry_action_active",
         entry_action_key = key,
+        failure_route_action_key = action.failure_route_action_key or action.on_failure_route_action_key,
         timeout_ms = math.max(5000, tonumber(action.timeout_ms) or 12000),
         steps = steps,
         success = {

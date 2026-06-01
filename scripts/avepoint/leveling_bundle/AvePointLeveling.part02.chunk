@@ -92,6 +92,9 @@ function M.fail_task_recipe_step(ctx, current_time, recipe, step, err)
     local recipe_type = type(recipe) == "table" and tostring(recipe.recipe_type or "") or ""
     local activation = type(recipe) == "table" and tostring(recipe.activation or "") or ""
     local entry_action_key = type(recipe) == "table" and tostring(recipe.entry_action_key or "") or ""
+    local failure_route_action_key = trim(type(recipe) == "table"
+        and (recipe.failure_route_action_key or recipe.on_failure_route_action_key)
+        or "")
     local should_clear_entry_action = entry_action_key ~= ""
         or activation == "entry_action_active"
         or recipe_type == "compat_entry_action"
@@ -114,6 +117,34 @@ function M.fail_task_recipe_step(ctx, current_time, recipe, step, err)
         ))
     end
     M.clear_task_recipe_state()
+    if failure_route_action_key ~= "" then
+        local fallback_action, fallback_err = M.activate_route_point_action(
+            ctx,
+            current_time,
+            failure_route_action_key,
+            "task_recipe_failure"
+        )
+        if type(fallback_action) == "table" then
+            state.require_task_button_refresh = false
+            state.require_task_button_refresh_reason = nil
+            logger(ctx).warn(string.format(
+                "[Leveling] task recipe failure armed route action fallback | key=%s step=%s route_action=%s mode=%s err=%s",
+                key,
+                step_key,
+                failure_route_action_key,
+                tostring(fallback_action.mode or ""),
+                tostring(err or "")
+            ))
+            return
+        end
+        logger(ctx).warn(string.format(
+            "[Leveling] task recipe failure route action fallback failed | key=%s step=%s route_action=%s err=%s",
+            key,
+            step_key,
+            failure_route_action_key,
+            tostring(fallback_err or "")
+        ))
+    end
     state.require_task_button_refresh = true
     state.require_task_button_refresh_reason = "task_recipe_step_failed:" .. key .. ":" .. step_key
     state.next_task_button_click_at = current_time + math.max(300, tonumber(type(step) == "table" and step.retry_ms) or 900)
@@ -137,6 +168,60 @@ end
 
 function M.execute_linear_task_recipe_step(ctx, current_time, recipe, step)
     local kind = tostring(type(step) == "table" and step.kind or "")
+    local function wait_world_map_panel_ready_if_needed(step_for_ready, source)
+        if type(step_for_ready) ~= "table" or step_for_ready.require_world_map_panel_ready ~= true then
+            return true
+        end
+
+        local map_ready, map_ready_reason = M.is_task_entry_world_map_panel_ready(
+            ctx,
+            current_time,
+            tostring(source or "task_recipe")
+        )
+        if map_ready == true then
+            state.task_recipe_world_map_panel_missing_since = 0
+            state.task_recipe_world_map_panel_missing_step = nil
+            return true
+        end
+
+        local step_key = tostring(step_for_ready.key or kind or "")
+        local missing_step = tostring(state.task_recipe_world_map_panel_missing_step or "")
+        local missing_since = tonumber(state.task_recipe_world_map_panel_missing_since) or 0
+        if missing_since <= 0 or missing_step ~= step_key then
+            missing_since = current_time
+            state.task_recipe_world_map_panel_missing_since = missing_since
+            state.task_recipe_world_map_panel_missing_step = step_key
+        end
+
+        local fallback_ms = tonumber(
+            step_for_ready.world_map_panel_missing_fallback_ms
+                or step_for_ready.map_panel_missing_fallback_ms
+        ) or 0
+        local elapsed_ms = math.max(0, current_time - missing_since)
+        if (fallback_ms > 0 and elapsed_ms >= fallback_ms)
+            or current_time >= (tonumber(state.task_recipe_deadline_at) or 0)
+        then
+            return false, string.format(
+                "world map panel not visible before %s; elapsed=%dms reason=%s",
+                tostring(step_key),
+                elapsed_ms,
+                tostring(map_ready_reason or "")
+            )
+        end
+
+        local retry_ms = math.max(100, tonumber(step_for_ready.world_map_panel_retry_ms or step_for_ready.ready_retry_ms) or 300)
+        state.task_recipe_next_step_at = current_time + retry_ms
+        log_throttled(ctx, "task_recipe_wait_world_map_panel_" .. tostring(state.task_recipe_active_key or "") .. "_" .. step_key, "info", 600, string.format(
+            "[Leveling] task recipe waiting world map panel before button step | key=%s step_key=%s retry=%dms elapsed=%dms reason=%s",
+            tostring(state.task_recipe_active_key or ""),
+            step_key,
+            retry_ms,
+            elapsed_ms,
+            tostring(map_ready_reason or "")
+        ))
+        return nil
+    end
+
     if kind == "wait_entry_action_elapsed" then
         local armed_at = tonumber(state.task_entry_action_button_click_at) or 0
         if armed_at <= 0 then
@@ -223,6 +308,14 @@ function M.execute_linear_task_recipe_step(ctx, current_time, recipe, step)
     end
 
     if kind == "call_locator_button" then
+        local ready, ready_err = wait_world_map_panel_ready_if_needed(step, "task_recipe_locator")
+        if ready == nil then
+            return true
+        end
+        if ready ~= true then
+            return false, ready_err or "world map panel not visible"
+        end
+
         local target, target_err, source, click_step = M.fetch_locator_button_target_with_configured_fallback(
             ctx,
             step,
@@ -252,6 +345,14 @@ function M.execute_linear_task_recipe_step(ctx, current_time, recipe, step)
 
     if kind == "call_button_slot" then
         local slot = tostring(step.slot or "")
+        local ready, ready_err = wait_world_map_panel_ready_if_needed(step, "task_recipe_" .. slot)
+        if ready == nil then
+            return true
+        end
+        if ready ~= true then
+            return false, ready_err or "world map panel not visible"
+        end
+
         local clicked, click_meta_or_err = M.call_button_slot(ctx, current_time, slot, step, {
             reason = "task_recipe_" .. slot
         })
@@ -7943,6 +8044,31 @@ function M.route_point_action_skip_reason(ctx, action, current_time)
     then
         return "task_refresh_pending", pending_key
     end
+    if pending_key ~= "" and action_key ~= "" and pending_key ~= action_key
+        and M.route_point_action_advances_task(action)
+    then
+        local deadline_at = tonumber(state.task_advancing_action_pending_deadline_at) or 0
+        local pending_active = deadline_at <= 0 or (tonumber(current_time) or 0) <= deadline_at
+        if pending_active then
+            local pending_task = M.normalize_task_title_key(state.task_advancing_action_pending_task_name)
+            local pending_detail = normalize_map_name(state.task_advancing_action_pending_task_detail)
+            local current_task = M.normalize_task_title_key(M.current_task_log_name() or state.current_task_name)
+            local current_detail = normalize_map_name(M.current_task_log_detail() or state.current_task_detail)
+            local same_task = pending_task == nil or current_task == nil or pending_task == current_task
+            local same_detail = pending_detail == nil or current_detail == nil or pending_detail == current_detail
+            if same_task and same_detail then
+                log_throttled(ctx, "route_point_action_skip_pending_other_" .. action_key, "info", LOG_THROTTLE_MS,
+                    string.format(
+                        "[Leveling] route point action skipped during pending task refresh | key=%s pending=%s task=%s detail=%s",
+                        action_key,
+                        pending_key,
+                        tostring(current_task or ""),
+                        tostring(current_detail or "")
+                    ))
+                return "task_refresh_pending_other", pending_key
+            end
+        end
+    end
 
     local recipe_package_key = trim(action.recipe_package_key or "")
     local recipe_side_task_key = trim(action.recipe_side_task_key or "")
@@ -8130,6 +8256,8 @@ function M.find_route_point_intent_candidate(ctx, current_time, player_x, player
         return persisted_candidate
     end
 
+    local nearest_candidate = nil
+    local nearest_candidate_distance = nil
     for _, action in ipairs(M.ROUTE_POINT_ACTIONS) do
         local kind = M.route_point_action_intent_kind(action)
         if kind ~= "" then
@@ -8170,21 +8298,32 @@ function M.find_route_point_intent_candidate(ctx, current_time, player_x, player
                 local skip_reason = select(1, M.route_point_action_skip_reason(ctx, action, current_time))
                 if skip_reason == nil then
                     local trigger = type(action) == "table" and action.trigger or nil
+                    local dialogue = type(action) == "table" and action.dialogue or nil
                     local trigger_x = tonumber(trigger and trigger.x)
                     local trigger_y = tonumber(trigger and trigger.y)
                     local trigger_z = tonumber(trigger and trigger.z)
-                    local trigger_radius = math.max(80, tonumber(trigger and trigger.radius) or 220)
-                    local z_tolerance = math.max(0, tonumber(trigger and trigger.z_tolerance) or 260)
-                    if trigger_x ~= nil and trigger_y ~= nil then
-                        local trigger_distance = distance_2d(player_x, player_y, trigger_x, trigger_y)
-                        local z_gap = trigger_z ~= nil and type(player_z) == "number"
-                            and math.abs((tonumber(player_z) or 0) - trigger_z)
+                    local direct_task_match = (action.direct_when_task_active == true
+                        or action.activate_on_task_match == true)
+                        and not (action.direct_without_task_target_only == true and has_task_target)
+                    local nearest_task_dialogue = action.select_nearest_task_dialogue == true
+                        or action.select_nearest_dialogue == true
+                    local anchor_x = trigger_x
+                    local anchor_y = trigger_y
+                    local anchor_z = trigger_z
+                    if nearest_task_dialogue and (anchor_x == nil or anchor_y == nil) then
+                        anchor_x = tonumber(dialogue and dialogue.x)
+                        anchor_y = tonumber(dialogue and dialogue.y)
+                        anchor_z = tonumber(dialogue and dialogue.z)
+                    end
+                    local trigger_radius = math.max(80, tonumber(trigger and trigger.radius) or tonumber(action.trigger_radius) or 220)
+                    local z_tolerance = math.max(0, tonumber(trigger and trigger.z_tolerance) or tonumber(dialogue and dialogue.z_tolerance) or 260)
+                    if anchor_x ~= nil and anchor_y ~= nil then
+                        local trigger_distance = distance_2d(player_x, player_y, anchor_x, anchor_y)
+                        local z_gap = anchor_z ~= nil and type(player_z) == "number"
+                            and math.abs((tonumber(player_z) or 0) - anchor_z)
                             or 0
-                        local direct_task_match = (action.direct_when_task_active == true
-                            or action.activate_on_task_match == true)
-                            and not (action.direct_without_task_target_only == true and has_task_target)
                         if direct_task_match
-                            or (trigger_distance <= trigger_radius and z_gap <= z_tolerance)
+                            or (trigger_x ~= nil and trigger_y ~= nil and trigger_distance <= trigger_radius and z_gap <= z_tolerance)
                         then
                             local map_match = select(1, M.route_point_action_matches_current_map(ctx, action, current_time))
                             local destination_match = select(1, M.route_point_action_destination_matches(action, player_x, player_y))
@@ -8193,7 +8332,7 @@ function M.find_route_point_intent_candidate(ctx, current_time, player_x, player
                                 local last_triggered_at = tonumber(state.map_transition_triggered[state_key]) or 0
                                 local retry_ms = math.max(1000, tonumber(action.retry_ms) or 3000)
                                 if last_triggered_at <= 0 or current_time - last_triggered_at >= retry_ms then
-                                    return M.build_task_intent_candidate(
+                                    local candidate = M.build_task_intent_candidate(
                                         kind,
                                         "route_point_candidate",
                                         tostring(action.key or action.label or ""),
@@ -8205,6 +8344,16 @@ function M.find_route_point_intent_candidate(ctx, current_time, player_x, player
                                             direct_task_match and "true" or "false"
                                         )
                                     )
+                                    if nearest_task_dialogue then
+                                        if nearest_candidate_distance == nil
+                                            or trigger_distance < nearest_candidate_distance
+                                        then
+                                            nearest_candidate = candidate
+                                            nearest_candidate_distance = trigger_distance
+                                        end
+                                    else
+                                        return candidate
+                                    end
                                 end
                             end
                         end
@@ -8212,6 +8361,10 @@ function M.find_route_point_intent_candidate(ctx, current_time, player_x, player
                 end
             end
         end
+    end
+
+    if type(nearest_candidate) == "table" then
+        return nearest_candidate
     end
 
     return nil
@@ -8241,8 +8394,11 @@ function M.find_npc_near_point(ctx, point_x, point_y, search_radius, player_x, p
         target_entity_id = as_number(opts.npc_entity_id or opts.npcEntityId or opts.entityId or opts.entityID)
         min_entity_id = as_number(opts.npc_entity_id_min or opts.npcEntityIdMin or opts.minEntityId)
     end
+    local prefer_player_nearest = type(opts) == "table"
+        and (opts.prefer_player_nearest == true or opts.prefer_anchor_nearest ~= true)
     local nearest = nil
     local best_anchor_distance = nil
+    local best_player_distance = nil
 
     for _, item in ipairs(items) do
         local item_entity_id = type(item) == "table"
@@ -8254,9 +8410,23 @@ function M.find_npc_near_point(ctx, point_x, point_y, search_radius, player_x, p
             local x, y, z = extract_position_from_item(ctx, item)
             if x ~= nil and y ~= nil then
                 local anchor_distance = distance_2d(anchor_x, anchor_y, x, y)
-                if anchor_distance <= max_distance
-                    and (best_anchor_distance == nil or anchor_distance < best_anchor_distance)
-                then
+                local player_distance = type(player_x) == "number" and type(player_y) == "number"
+                    and distance_2d(player_x, player_y, x, y)
+                    or anchor_distance
+                local better = false
+                if anchor_distance <= max_distance then
+                    if prefer_player_nearest and type(player_distance) == "number" then
+                        better = best_player_distance == nil
+                            or player_distance < best_player_distance
+                            or (
+                                player_distance == best_player_distance
+                                and (best_anchor_distance == nil or anchor_distance < best_anchor_distance)
+                            )
+                    else
+                        better = best_anchor_distance == nil or anchor_distance < best_anchor_distance
+                    end
+                end
+                if better then
                     nearest = {
                         item = item,
                         x = x,
@@ -8265,11 +8435,10 @@ function M.find_npc_near_point(ctx, point_x, point_y, search_radius, player_x, p
                         entity_id = item_entity_id,
                         label = npc_label(item),
                         point_distance = anchor_distance,
-                        distance = type(player_x) == "number" and type(player_y) == "number"
-                            and distance_2d(player_x, player_y, x, y)
-                            or anchor_distance
+                        distance = player_distance
                     }
                     best_anchor_distance = anchor_distance
+                    best_player_distance = player_distance
                 end
             end
         end
@@ -8328,6 +8497,11 @@ function M.arm_route_point_action_npc_dialogue(ctx, action, state_key, current_t
     state.route_point_action_dialogue_next_interact_at = tonumber(current_time) or now_ms(ctx)
     state.route_point_action_dialogue_deadline_at = (tonumber(current_time) or now_ms(ctx))
         + math.max(6000, tonumber(dialogue.timeout_ms) or 18000)
+    state.route_point_action_dialogue_locked_entity_id = nil
+    state.route_point_action_dialogue_locked_x = nil
+    state.route_point_action_dialogue_locked_y = nil
+    state.route_point_action_dialogue_locked_z = nil
+    state.route_point_action_dialogue_locked_at = 0
 
     logger(ctx).info(string.format(
         "[Leveling] route point action npc dialogue armed | task=%s key=%s source=%s point=%.2f, %.2f, %.2f radius=%.2f timeout=%dms",
@@ -9029,6 +9203,18 @@ function M.maybe_handle_route_point_action_npc_dialogue(ctx, current_time, playe
     local center_settle_ms = math.max(0, tonumber(dialogue.center_settle_ms) or 600)
     local interact_retry_ms = math.max(800, tonumber(dialogue.interact_retry_ms) or 1800)
     local npc_search_radius = math.max(interact_radius, tonumber(dialogue.npc_search_radius) or 420)
+    local function dialogue_opts(extra)
+        local opts = {}
+        for k, v in pairs(dialogue) do
+            opts[k] = v
+        end
+        if type(extra) == "table" then
+            for k, v in pairs(extra) do
+                opts[k] = v
+            end
+        end
+        return opts
+    end
 
     if point_x == nil or point_y == nil then
         M.clear_route_point_action_npc_dialogue_state()
@@ -9052,11 +9238,81 @@ function M.maybe_handle_route_point_action_npc_dialogue(ctx, current_time, playe
     local z_gap = point_z ~= nil and type(player_z) == "number"
         and math.abs((tonumber(player_z) or 0) - point_z)
         or 0
-    local nearest_npc, npc_err = M.find_npc_near_point(ctx, point_x, point_y, npc_search_radius, player_x, player_y, dialogue)
+    local locked_entity_id = as_number(state.route_point_action_dialogue_locked_entity_id)
+    local locked_x = tonumber(state.route_point_action_dialogue_locked_x)
+    local locked_y = tonumber(state.route_point_action_dialogue_locked_y)
+    local locked_z = tonumber(state.route_point_action_dialogue_locked_z)
+    local has_locked_target = locked_entity_id ~= nil or (locked_x ~= nil and locked_y ~= nil)
+    local nearest_npc, npc_err = nil, nil
+
+    if locked_entity_id ~= nil then
+        local locked_search_radius = math.max(npc_search_radius, tonumber(dialogue.lock_reacquire_radius) or npc_search_radius)
+        nearest_npc, npc_err = M.find_npc_near_point(ctx, point_x, point_y, locked_search_radius, player_x, player_y, dialogue_opts({
+            npc_entity_id = locked_entity_id,
+            prefer_anchor_nearest = true
+        }))
+        if type(nearest_npc) ~= "table" and locked_x ~= nil and locked_y ~= nil then
+            local lock_search_radius = math.max(interact_radius, tonumber(dialogue.lock_reacquire_radius) or 260)
+            nearest_npc, npc_err = M.find_npc_near_point(ctx, locked_x, locked_y, lock_search_radius, player_x, player_y, dialogue_opts({
+                prefer_anchor_nearest = true
+            }))
+        end
+    elseif locked_x ~= nil and locked_y ~= nil then
+        local lock_search_radius = math.max(interact_radius, tonumber(dialogue.lock_reacquire_radius) or 260)
+        nearest_npc, npc_err = M.find_npc_near_point(ctx, locked_x, locked_y, lock_search_radius, player_x, player_y, dialogue_opts({
+            prefer_anchor_nearest = true
+        }))
+    end
+
+    if type(nearest_npc) ~= "table" then
+        if has_locked_target then
+            log_throttled(ctx, "route_point_action_npc_lock_lost_" .. tostring(state_key), "warn", LOG_THROTTLE_MS, string.format(
+                "[Leveling] route point action npc dialogue waiting locked target | task=%s key=%s locked_entity_id=%s locked_pos=%.2f, %.2f, %.2f err=%s",
+                tostring(M.current_task_log_name() or state.current_task_name or ""),
+                tostring(action.key or action.label or ""),
+                tostring(locked_entity_id or ""),
+                tonumber(locked_x) or 0,
+                tonumber(locked_y) or 0,
+                tonumber(locked_z) or 0,
+                tostring(npc_err or "")
+            ))
+        else
+            nearest_npc, npc_err = M.find_npc_near_point(ctx, point_x, point_y, npc_search_radius, player_x, player_y, dialogue_opts({
+                prefer_player_nearest = true
+            }))
+            if type(nearest_npc) == "table" then
+                state.route_point_action_dialogue_locked_entity_id = nearest_npc.entity_id
+                state.route_point_action_dialogue_locked_x = nearest_npc.x
+                state.route_point_action_dialogue_locked_y = nearest_npc.y
+                state.route_point_action_dialogue_locked_z = nearest_npc.z
+                state.route_point_action_dialogue_locked_at = current_time
+                logger(ctx).info(string.format(
+                    "[Leveling] route point action npc dialogue locked target | task=%s key=%s npc=%s entity_id=%s player_distance=%.2f anchor_distance=%.2f pos=%.2f, %.2f, %.2f",
+                    tostring(M.current_task_log_name() or state.current_task_name or ""),
+                    tostring(action.key or action.label or ""),
+                    tostring(nearest_npc.label or ""),
+                    tostring(nearest_npc.entity_id or ""),
+                    tonumber(nearest_npc.distance) or 0,
+                    tonumber(nearest_npc.point_distance) or 0,
+                    tonumber(nearest_npc.x) or 0,
+                    tonumber(nearest_npc.y) or 0,
+                    tonumber(nearest_npc.z) or 0
+                ))
+            end
+        end
+    end
+
     local npc_x = type(nearest_npc) == "table" and tonumber(nearest_npc.x) or nil
     local npc_y = type(nearest_npc) == "table" and tonumber(nearest_npc.y) or nil
     local npc_z = type(nearest_npc) == "table" and tonumber(nearest_npc.z) or point_z
     local npc_player_distance = type(nearest_npc) == "table" and tonumber(nearest_npc.distance) or nil
+    local fallback_x = has_locked_target and locked_x ~= nil and locked_x or point_x
+    local fallback_y = has_locked_target and locked_y ~= nil and locked_y or point_y
+    local fallback_z = has_locked_target and locked_z ~= nil and locked_z or point_z
+    local fallback_distance = distance_2d(player_x, player_y, fallback_x, fallback_y)
+    local fallback_z_gap = fallback_z ~= nil and type(player_z) == "number"
+        and math.abs((tonumber(player_z) or 0) - fallback_z)
+        or z_gap
 
     if npc_x ~= nil
         and npc_y ~= nil
@@ -9095,15 +9351,15 @@ function M.maybe_handle_route_point_action_npc_dialogue(ctx, current_time, playe
         return true
     end
 
-    if (npc_x == nil or npc_y == nil) and (point_distance > interact_radius or z_gap > z_tolerance) then
+    if (npc_x == nil or npc_y == nil) and (fallback_distance > interact_radius or fallback_z_gap > z_tolerance) then
         state.stage = "route_point_action_npc_dialogue_move"
         state.route_point_action_dialogue_entered_at = 0
         hold_navigation(ctx, current_time, "route_point_action_npc_dialogue_move")
         if current_time >= (tonumber(state.next_move_at) or 0) then
             issue_move(ctx, current_time, {
-                x = point_x,
-                y = point_y,
-                z = point_z,
+                x = fallback_x,
+                y = fallback_y,
+                z = fallback_z,
                 source = "route_point_npc_dialogue",
                 path_index = 0,
                 path_points = 0,
@@ -9114,12 +9370,12 @@ function M.maybe_handle_route_point_action_npc_dialogue(ctx, current_time, playe
             "[Leveling] route point action moving to npc dialogue point | task=%s key=%s distance=%.2f interact_radius=%.2f z_gap=%.2f point=%.2f, %.2f, %.2f",
             tostring(M.current_task_log_name() or state.current_task_name or ""),
             tostring(action.key or action.label or ""),
-            tonumber(point_distance) or 0,
+            tonumber(fallback_distance) or 0,
             tonumber(interact_radius) or 0,
-            tonumber(z_gap) or 0,
-            tonumber(point_x) or 0,
-            tonumber(point_y) or 0,
-            tonumber(point_z) or 0
+            tonumber(fallback_z_gap) or 0,
+            tonumber(fallback_x) or 0,
+            tonumber(fallback_y) or 0,
+            tonumber(fallback_z) or 0
         ))
         return true
     end
@@ -10452,6 +10708,23 @@ function M.maybe_handle_route_point_action(ctx, current_time, player_x, player_y
             if mode == "lift_transition" then
                 return M.maybe_handle_route_point_action_boarding(ctx, current_time, player_x, player_y, player_z)
             end
+        end
+    end
+
+    if type(persisted_candidate) ~= "table" then
+        local route_point_intent = M.find_route_point_intent_candidate(
+            ctx,
+            current_time,
+            player_x,
+            player_y,
+            player_z,
+            opts
+        )
+        if type(route_point_intent) == "table"
+            and tostring(route_point_intent.matched_source or "") == "route_point_candidate"
+            and M.dispatch_task_intent(ctx, current_time, player_x, player_y, player_z, route_point_intent)
+        then
+            return true
         end
     end
 
@@ -12304,6 +12577,13 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
     state.startup_state_resolve_until = 0
     if resume_level_up_maintenance then
         local cfg = type(M.level_up_maintenance_config) == "function" and M.level_up_maintenance_config() or {}
+        local restart_step_after_revive = type(cfg) ~= "table" or cfg.restart_executor_step_after_revive ~= false
+        local old_started_at = tonumber(state.level_up_maintenance_executor_started_at) or 0
+        local paused_at = tonumber(state.level_up_maintenance_executor_paused_by_death_at) or 0
+        local pause_duration_ms = 0
+        if paused_at > 0 and current_time > paused_at then
+            pause_duration_ms = current_time - paused_at
+        end
         state.level_up_maintenance_executor_resume_after_revive = nil
         state.level_up_maintenance_executor_paused_by_death_at = nil
         state.level_up_maintenance_executor_next_step_at = current_time
@@ -12311,7 +12591,8 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
         state.level_up_maintenance_safe_since = 0
         state.level_up_maintenance_last_block_reason = nil
         state.level_up_maintenance_nearby_block_since = nil
-        if type(cfg) ~= "table" or cfg.restart_executor_step_after_revive ~= false then
+        if restart_step_after_revive then
+            state.level_up_maintenance_executor_started_at = current_time
             state.level_up_maintenance_executor_step_index = 1
             state.level_up_maintenance_executor_close_pending = false
             state.level_up_maintenance_executor_close_attempts = 0
@@ -12319,13 +12600,25 @@ local function resume_after_revive(ctx, current_time, hp, player_x, player_y, pl
             if type(M.clear_level_up_maintenance_point_decrement_state) == "function" then
                 M.clear_level_up_maintenance_point_decrement_state()
             end
+        elseif old_started_at > 0 and paused_at > 0 and current_time > paused_at then
+            state.level_up_maintenance_executor_started_at = old_started_at + pause_duration_ms
+        end
+        if old_started_at > 0 and tonumber(state.level_up_maintenance_executor_started_at) ~= old_started_at then
+            logger(ctx).info(string.format(
+                "[Leveling] level-up maintenance executor timeout window refreshed after revive | kind=%s level=%s plan=%s restart_step=%s paused_ms=%d",
+                tostring(state.level_up_maintenance_executor_kind or ""),
+                tostring(state.level_up_maintenance_executor_level or ""),
+                tostring(state.level_up_maintenance_executor_plan_label or ""),
+                restart_step_after_revive and "true" or "false",
+                math.max(0, math.floor(pause_duration_ms))
+            ))
         end
         logger(ctx).info(string.format(
             "[Leveling] revive completed; resume level-up maintenance executor | kind=%s level=%s plan=%s restart_step=%s pos=%.2f, %.2f, %.2f",
             tostring(state.level_up_maintenance_executor_kind or ""),
             tostring(state.level_up_maintenance_executor_level or ""),
             tostring(state.level_up_maintenance_executor_plan_label or ""),
-            (type(cfg) ~= "table" or cfg.restart_executor_step_after_revive ~= false) and "true" or "false",
+            restart_step_after_revive and "true" or "false",
             tonumber(player_x) or 0,
             tonumber(player_y) or 0,
             tonumber(player_z) or 0

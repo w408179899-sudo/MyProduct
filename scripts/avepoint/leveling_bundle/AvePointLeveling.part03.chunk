@@ -2178,15 +2178,15 @@ function M.build_treasure_hooks(ctx)
             return M.current_task_log_detail() or state.current_task_detail or ""
         end,
         current_map_name = function()
-            local map_name = normalize_map_name(state.current_map_name or state.cached_route_point_action_map_name)
-            if map_name ~= nil then
-                return map_name
-            end
             if type(M.refresh_route_point_action_map_name) == "function" then
-                map_name = normalize_map_name(select(1, M.refresh_route_point_action_map_name(ctx, now_ms(ctx), false)))
+                local map_name = normalize_map_name(select(1, M.refresh_route_point_action_map_name(ctx, now_ms(ctx), true)))
                 if map_name ~= nil then
                     return map_name
                 end
+            end
+            local map_name = normalize_map_name(state.current_map_name)
+            if map_name ~= nil then
+                return map_name
             end
             return ""
         end,
@@ -7709,6 +7709,14 @@ function M.update(now, ctx)
                     if task_entry_action_active ~= true
                         and M.maybe_open_task_refresh_bag_pause(ctx, current_time, "wait_task_path_after_button")
                     then
+                        if current_time >= (tonumber(state.next_task_refresh_at) or 0) then
+                            update_task_target(ctx, current_time, player_x, player_y)
+                            target_synced_this_tick = true
+                        end
+                        if M.maybe_close_task_refresh_bag_pause_for_ready_path(ctx, current_time) then
+                            log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+                            return true
+                        end
                         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
                         return true
                     end

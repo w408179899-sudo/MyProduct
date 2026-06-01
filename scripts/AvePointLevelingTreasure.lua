@@ -130,23 +130,26 @@ end
 local function treasure_map_name_matches(cfg, map_name)
     local text = trim(map_name)
     if type(cfg) ~= "table" or text == "" then
-        return false, nil
+        return false, nil, nil
     end
 
-    local tokens = {}
-    local seen = {}
-    push_treasure_map_token(tokens, seen, cfg.name)
-    push_treasure_map_token(tokens, seen, cfg.panel_query)
-    for _, item in ipairs(type(cfg.panel_query_fallbacks) == "table" and cfg.panel_query_fallbacks or {}) do
-        push_treasure_map_token(tokens, seen, item)
+    local name = trim(cfg.name)
+    if name ~= "" and text:find(name, 1, true) then
+        return true, name, "map_name"
     end
 
-    for _, token in ipairs(tokens) do
+    local short_name = strip_treasure_map_prefix(name)
+    if short_name ~= "" and text:find(short_name, 1, true) then
+        return true, short_name, "map_name"
+    end
+
+    for _, item in ipairs(type(cfg.inside_map_tokens) == "table" and cfg.inside_map_tokens or {}) do
+        local token = trim(item)
         if token ~= "" and text:find(token, 1, true) then
-            return true, token
+            return true, token, "map_name_token"
         end
     end
-    return false, nil
+    return false, nil, nil
 end
 
 local function treasure_task_matches(cfg, task_name, task_detail)
@@ -1363,7 +1366,9 @@ local function activation_context_matches(cfg, hooks, player_x, player_y, player
     local task_detail = trim(type(hooks.current_task_detail) == "function" and hooks.current_task_detail() or "")
     local map_name = trim(type(hooks.current_map_name) == "function" and hooks.current_map_name() or "")
     local task_ok = treasure_task_matches(cfg, task_name, task_detail)
-    local map_ok = map_name == ""
+    local ignore_map_gate = cfg.entry_activation_ignore_map_gate == true
+    local map_ok = ignore_map_gate
+        or map_name == ""
         or cfg.map_patterns == nil
         or match_text_patterns(cfg.map_patterns, map_name)
     return task_ok and map_ok and within_trigger(player_x, player_y, player_z, cfg.entry_trigger)
@@ -1985,9 +1990,9 @@ local function current_treasure_map_match(cfg, hooks)
         return false, map_name, "map_unknown"
     end
 
-    local map_name_ok, map_token = treasure_map_name_matches(cfg, map_name)
+    local map_name_ok, map_token, map_reason = treasure_map_name_matches(cfg, map_name)
     if map_name_ok then
-        return true, map_name, map_token == trim(type(cfg) == "table" and cfg.name or "") and "map_name" or "map_name_token"
+        return true, map_name, map_reason
     end
 
     if match_text_patterns(type(cfg) == "table" and cfg.inside_map_patterns or nil, map_name) then
@@ -2034,9 +2039,19 @@ likely_inside_treasure = function(ctx, cfg, hooks, runtime, current_time, player
     local post_entry_grace_until = tonumber(type(runtime) == "table" and runtime.next_retry_at or 0) or 0
     local task_matches = treasure_task_matches(cfg, task_name, task_detail)
     local map_matches, _, map_reason = current_treasure_map_match(cfg, hooks)
+    local mode = tostring(type(runtime) == "table" and runtime.mode or "")
+    local at_inside_landing = type(cfg) == "table" and cfg_landing_ready(player_x, player_y, player_z, cfg, "inside_landing")
 
     if map_matches then
         return true, map_reason
+    end
+    if at_inside_landing then
+        if task_matches or cfg.inside_landing_detect_requires_task_match == false then
+            return true, "inside_landing"
+        end
+        if mode ~= "" and mode ~= "inactive" then
+            return true, "inside_landing_task_mismatch_active"
+        end
     end
     if map_name ~= "" and not map_matches then
         if type(hooks.log_throttled) == "function" then
@@ -2054,14 +2069,6 @@ likely_inside_treasure = function(ctx, cfg, hooks, runtime, current_time, player
                 ))
         end
         return false, "map_mismatch"
-    end
-    if type(cfg) == "table" and cfg_landing_ready(player_x, player_y, player_z, cfg, "inside_landing") then
-        if task_matches or cfg.inside_landing_detect_requires_task_match == false then
-            return true, "inside_landing"
-        end
-        if type(runtime) == "table" and tostring(runtime.mode or "") ~= "" and tostring(runtime.mode or "") ~= "inactive" then
-            return true, "inside_landing_task_mismatch_active"
-        end
     end
     if not task_matches then
         local near_route, route_gap, route_threshold = route_nearby_for_cfg(
@@ -2169,6 +2176,30 @@ local function startup_inside_recovery_match(ctx, main_state, runtime, cfg, hook
     local task_ok, task_name, task_detail = current_treasure_task_matches(cfg, hooks)
     if not task_ok then
         if map_matches then
+            if map_reason == "map_name_token"
+                and type(cfg) == "table"
+                and cfg.startup_recovery_map_token_task_mismatch_requires_route_nearby == true
+            then
+                local near_route = route_nearby_for_cfg(
+                    main_state,
+                    cfg,
+                    runtime,
+                    player_x,
+                    player_y,
+                    tonumber(cfg.startup_recovery_route_distance) or tonumber(cfg.resume_route_distance) or 1800
+                )
+                local near_landing =
+                    cfg_landing_ready(player_x, player_y, player_z, cfg, "inside_landing")
+                    or (
+                        cfg.startup_recovery_restart_landing ~= false
+                        and cfg_landing_ready(player_x, player_y, player_z, cfg, "restart_landing")
+                    )
+                if not near_route and not near_landing then
+                    return false, "task_mismatch", task_name, task_detail,
+                        "map_name_token_requires_route_nearby"
+                end
+                return true, "map_name_token_route_nearby_task_mismatch"
+            end
             return true, tostring(match_reason or "map") .. "_task_mismatch"
         end
         return false, "task_mismatch", task_name, task_detail,
@@ -2180,7 +2211,28 @@ end
 
 local function startup_level_gate_accepts_task_mismatch_reason(reason, main_state, cfg, runtime, player_x, player_y)
     local value = tostring(reason or "")
-    if value == "inside_map_pattern" or value == "map_name" or value == "map_name_token" then
+    if value == "inside_map_pattern" or value == "map_name" then
+        return true, value
+    end
+    if value == "map_name_token" then
+        if type(cfg) == "table"
+            and cfg.startup_recovery_map_token_task_mismatch_requires_route_nearby == true
+        then
+            local near_route = route_nearby_for_cfg(
+                main_state,
+                cfg,
+                runtime,
+                player_x,
+                player_y,
+                tonumber(type(cfg) == "table" and cfg.startup_recovery_route_distance)
+                    or tonumber(type(cfg) == "table" and cfg.resume_route_distance)
+                    or 1800
+            )
+            if near_route then
+                return true, "map_name_token_route_nearby"
+            end
+            return false, "map_name_token_requires_route_nearby"
+        end
         return true, value
     end
     if value:find("^route_nearby:", 1, false) ~= nil then
@@ -5559,6 +5611,9 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         end
         if target_level ~= nil then
             local portal_level = refresh_player_level(ctx, cfg, runtime, hooks, current_time, true)
+            if type(portal_level) == "number" then
+                current_level = portal_level
+            end
             if type(portal_level) == "number" and portal_level >= target_level and runtime.pending_return_mainline ~= true then
                 runtime.pending_return_mainline = true
                 if type(hooks.log_info) == "function" then
@@ -5589,8 +5644,60 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         end
 
         if portal_kind == "exit" then
-            local return_ready, return_block_reason, return_block_map =
-                allow_return_mainline_from_treasure(cfg, hooks, current_level, target_level)
+            if cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing") then
+                runtime.pending_return_mainline = true
+                runtime.portal_kind = "exit"
+                runtime.next_retry_at = current_time
+                runtime.stage_deadline_at = math.max(tonumber(runtime.stage_deadline_at) or 0, current_time + 1200)
+                transition_mode(ctx, hooks, cfg, runtime, "wait_exit", "post_portal_exit_landing_detected")
+                clear_portal_click_attempt(runtime)
+                if type(hooks.clear_task_target_state) == "function" then
+                    hooks.clear_task_target_state()
+                end
+                if type(hooks.clear_nav_worker_target) == "function" then
+                    hooks.clear_nav_worker_target(ctx, current_time, "treasure_post_portal_exit_landing_detected")
+                elseif type(hooks.hold_navigation) == "function" then
+                    hooks.hold_navigation(ctx, current_time, "treasure_post_portal_exit_landing_detected")
+                end
+                log_refresh_block_clear(ctx, hooks, cfg, runtime, "post_portal_exit_landing_detected", clear_mainline_refresh_block(main_state))
+                if type(hooks.log_info) == "function" then
+                    hooks.log_info(ctx, string.format(
+                        "[Treasure] exit landing detected during portal phase; delegate to wait_exit gate | key=%s level=%s target_level=%s pos=%.2f, %.2f, %.2f",
+                        tostring(cfg.key or ""),
+                        tostring(current_level or ""),
+                        tostring(target_level or ""),
+                        tonumber(player_x) or 0,
+                        tonumber(player_y) or 0,
+                        tonumber(player_z) or 0
+                    ))
+                end
+                return true
+            end
+            local wait_exit_landing_before_return = type(cfg) == "table"
+                and cfg.require_exit_landing_before_return_mainline == true
+                and cfg_landing_has_point(cfg, "exit_landing")
+                and not cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
+            local return_ready, return_block_reason, return_block_map = false, nil, nil
+            if wait_exit_landing_before_return then
+                return_block_reason = "waiting_exit_landing"
+                return_block_map = trim(type(hooks.current_map_name) == "function" and hooks.current_map_name() or "")
+                if type(hooks.log_throttled) == "function" then
+                    hooks.log_throttled(ctx, "treasure_post_portal_wait_exit_landing_" .. tostring(cfg.key or ""), "info", 1200,
+                        string.format(
+                            "[Treasure] post portal return waits for exit landing | key=%s map=%s level=%s target_level=%s pos=%.2f, %.2f, %.2f",
+                            tostring(cfg.key or ""),
+                            tostring(return_block_map or ""),
+                            tostring(current_level or ""),
+                            tostring(target_level or ""),
+                            tonumber(player_x) or 0,
+                            tonumber(player_y) or 0,
+                            tonumber(player_z) or 0
+                        ))
+                end
+            else
+                return_ready, return_block_reason, return_block_map =
+                    allow_return_mainline_from_treasure(cfg, hooks, current_level, target_level)
+            end
             if return_ready then
                 runtime.pending_return_mainline = true
                 runtime.portal_kind = nil
@@ -5974,12 +6081,45 @@ function M.maybe_handle(ctx, main_state, configs, hooks, current_time, player_x,
         local exit_portal_cfg = type(cfg.portals) == "table" and cfg.portals.exit or nil
         local exit_position_changed, exit_position_moved =
             portal_click_position_changed(runtime, player_x, player_y, player_z, cfg, exit_portal_cfg)
-        local ready = cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
+        local exit_landing_ready = cfg_landing_ready(player_x, player_y, player_z, cfg, "exit_landing")
+        local ready = exit_landing_ready
             or exit_position_changed
             or (not has_landing and current_time >= (tonumber(runtime.stage_deadline_at) or 0))
         if ready then
-            local return_ready, return_block_reason, return_block_map =
-                allow_return_mainline_from_treasure(cfg, hooks, current_level, target_level)
+            local return_ready, return_block_reason, return_block_map
+            local exit_flow_confirmed = tostring(runtime.portal_kind or "") == "exit"
+                or runtime.pending_return_mainline == true
+            local exit_level_known = target_level == nil or type(current_level) == "number"
+            local exit_level_ready = target_level == nil
+                or (type(current_level) == "number" and current_level >= target_level)
+            if exit_landing_ready and exit_flow_confirmed then
+                return_block_map = trim(type(hooks.current_map_name) == "function" and hooks.current_map_name() or "")
+                if not exit_level_known then
+                    return_ready = false
+                    return_block_reason = "level_unknown"
+                elseif exit_level_ready then
+                    return_ready = true
+                    return_block_reason = "exit_landing_level_gate"
+                    if type(hooks.log_info) == "function" then
+                        hooks.log_info(ctx, string.format(
+                            "[Treasure] exit landing confirmed by coordinate and level gate | key=%s map=%s level=%s target_level=%s pos=%.2f, %.2f, %.2f",
+                            tostring(cfg.key or ""),
+                            tostring(return_block_map or ""),
+                            tostring(current_level or ""),
+                            tostring(target_level or ""),
+                            tonumber(player_x) or 0,
+                            tonumber(player_y) or 0,
+                            tonumber(player_z) or 0
+                        ))
+                    end
+                else
+                    return_ready = false
+                    return_block_reason = "below_target_level"
+                end
+            else
+                return_ready, return_block_reason, return_block_map =
+                    allow_return_mainline_from_treasure(cfg, hooks, current_level, target_level)
+            end
             if not return_ready then
                 if return_block_reason == "below_target_level" then
                     runtime.pending_return_mainline = false
