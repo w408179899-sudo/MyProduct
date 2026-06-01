@@ -4735,6 +4735,236 @@ function avepoint_hotkey_test_data_api()
     return fail_count == 0
 end
 
+local function avepoint_hotkey_trim_text(value)
+    return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function avepoint_hotkey_is_mainline_task_item(item)
+    if type(item) ~= "table" then
+        return false
+    end
+
+    local fields = {
+        item.kind,
+        item.raw_text,
+        item.title,
+        item.text
+    }
+    for _, value in ipairs(fields) do
+        local text = avepoint_hotkey_trim_text(value)
+        if text:find("主线", 1, true) ~= nil
+            or text:find("涓荤嚎", 1, true) ~= nil
+        then
+            return true
+        end
+    end
+    return false
+end
+
+local function avepoint_hotkey_task_item_label(item)
+    if type(item) ~= "table" then
+        return ""
+    end
+
+    local kind = avepoint_hotkey_trim_text(item.kind)
+    local title = avepoint_hotkey_trim_text(item.title or item.raw_text or item.text)
+    local detail = avepoint_hotkey_trim_text(item.detail)
+    local parts = {}
+    if kind ~= "" then
+        parts[#parts + 1] = kind
+    end
+    if title ~= "" then
+        parts[#parts + 1] = title
+    end
+    if detail ~= "" then
+        parts[#parts + 1] = detail
+    end
+    return table.concat(parts, " / ")
+end
+
+local function avepoint_hotkey_format_path_point(point)
+    if type(point) ~= "table" then
+        return "nil"
+    end
+    return string.format(
+        "x=%.2f y=%.2f z=%.2f index=%s",
+        tonumber(point.x) or 0,
+        tonumber(point.y) or 0,
+        tonumber(point.z) or 0,
+        tostring(point.index or "")
+    )
+end
+
+local function avepoint_hotkey_dump_task_path(path, label)
+    if type(path) ~= "table" or #path <= 0 then
+        log.warn(string.format("%s path dump skipped: empty path", tostring(label or "Ctrl+F1")))
+        return false
+    end
+
+    local first = path[1]
+    local last = path[#path]
+    log.info(string.format(
+        "%s path dump start | points=%d first=(%.2f, %.2f, %.2f) last=(%.2f, %.2f, %.2f)",
+        tostring(label or "Ctrl+F1"),
+        #path,
+        tonumber(first and first.x) or 0,
+        tonumber(first and first.y) or 0,
+        tonumber(first and first.z) or 0,
+        tonumber(last and last.x) or 0,
+        tonumber(last and last.y) or 0,
+        tonumber(last and last.z) or 0
+    ))
+    for index, point in ipairs(path) do
+        log.info(string.format(
+            "%s path point[%d/%d] | %s",
+            tostring(label or "Ctrl+F1"),
+            index,
+            #path,
+            avepoint_hotkey_format_path_point(point)
+        ))
+    end
+    log.info(string.format("%s path dump complete | points=%d", tostring(label or "Ctrl+F1"), #path))
+    return true
+end
+
+local function avepoint_hotkey_find_current_main_task_entry()
+    if type(nav) ~= "table" or type(nav.enum_ui) ~= "function" then
+        return nil, "nav.enum_ui is unavailable."
+    end
+    if type(nav.get_task_panel_info) ~= "function" then
+        return nil, "nav.get_task_panel_info is unavailable."
+    end
+
+    local snapshot, snapshot_err = nav.enum_ui()
+    if type(snapshot) ~= "table" then
+        return nil, snapshot_err or "enum_ui failed."
+    end
+
+    local info, info_err = nav.get_task_panel_info(snapshot)
+    if type(info) ~= "table" or type(info.tasks) ~= "table" then
+        return nil, info_err or "task panel unavailable."
+    end
+
+    for _, item in ipairs(info.tasks) do
+        if avepoint_hotkey_is_mainline_task_item(item) then
+            return item, nil
+        end
+    end
+
+    return nil, "mainline task panel entry not found."
+end
+
+local function avepoint_hotkey_test_main_task_path()
+    if type(nav) ~= "table" then
+        return false, "nav is unavailable."
+    end
+
+    if type(nav.ensure_initialized) == "function" then
+        local ok, err = nav.ensure_initialized(avepoint_hotkey_attach_target_pid(), MODE)
+        if not ok then
+            return false, err or "Torch API init failed."
+        end
+        initialized = true
+        last_init_error = nil
+        next_init_retry_at = sys.time() + INIT_RETRY_MS
+    elseif initialized ~= true then
+        local ok, err = avepoint_wait_for_torch_init(3500, avepoint_hotkey_attach_target_pid(), MODE)
+        if not ok then
+            return false, err or "Torch API init failed."
+        end
+    end
+
+    local task_item, entry_warn = avepoint_hotkey_find_current_main_task_entry()
+    if type(task_item) ~= "table" then
+        return false, entry_warn or "main task entry unavailable."
+    end
+    if entry_warn ~= nil and entry_warn ~= "" then
+        log.warn("Ctrl+F1 main task path test entry warning: " .. tostring(entry_warn))
+    end
+
+    local addr = tonumber(task_item.button_addr)
+    if addr == nil or addr == 0 then
+        return false, "main task button address unavailable."
+    end
+
+    local task_label = avepoint_hotkey_task_item_label(task_item)
+    log.info(string.format(
+        "Ctrl+F1 main task path test begin | task=%s addr=%s button=(%s,%s)",
+        tostring(task_label),
+        avepoint_format_addr_hex(addr),
+        tostring(task_item.button_x or ""),
+        tostring(task_item.button_y or "")
+    ))
+
+    local click_ok, click_err = nav.control_click(addr)
+    if not click_ok then
+        return false, "main task control_click failed: " .. tostring(click_err)
+    end
+    log.info("Ctrl+F1 main task clicked; waiting for GetMainTaskPath")
+
+    local started_at = sys.time()
+    local timeout_ms = 12000
+    local poll_ms = 500
+    local last_path_err = nil
+    local last_pos_err = nil
+    local attempt = 0
+    while sys.time() - started_at <= timeout_ms do
+        attempt = attempt + 1
+        local path, path_err = nil, "nav.get_main_task_path is unavailable."
+        if type(nav.get_main_task_path) == "function" then
+            path, path_err = nav.get_main_task_path()
+        end
+        local task_pos, pos_err = nil, "nav.get_main_task_pos is unavailable."
+        if type(nav.get_main_task_pos) == "function" then
+            task_pos, pos_err = nav.get_main_task_pos()
+        end
+        last_path_err = path_err
+        last_pos_err = pos_err
+
+        if type(task_pos) == "table" then
+            log.info(string.format(
+                "Ctrl+F1 main task target pos | attempt=%d x=%.2f y=%.2f z=%.2f",
+                attempt,
+                tonumber(task_pos.x) or 0,
+                tonumber(task_pos.y) or 0,
+                tonumber(task_pos.z) or 0
+            ))
+        else
+            log.info(string.format(
+                "Ctrl+F1 main task target pos unavailable | attempt=%d err=%s",
+                attempt,
+                tostring(pos_err)
+            ))
+        end
+
+        if type(path) == "table" and #path > 0 then
+            log.info(string.format(
+                "Ctrl+F1 GetMainTaskPath success | attempt=%d elapsed=%dms points=%d",
+                attempt,
+                sys.time() - started_at,
+                #path
+            ))
+            avepoint_hotkey_dump_task_path(path, "Ctrl+F1")
+            return true
+        end
+
+        log.info(string.format(
+            "Ctrl+F1 GetMainTaskPath pending | attempt=%d elapsed=%dms err=%s",
+            attempt,
+            sys.time() - started_at,
+            tostring(path_err)
+        ))
+        sys.sleep(poll_ms)
+    end
+
+    return false, string.format(
+        "GetMainTaskPath timeout after %dms. last_path_err=%s last_pos_err=%s",
+        timeout_ms,
+        tostring(last_path_err),
+        tostring(last_pos_err)
+    )
+end
+
 local F9_LEVEL_UP_MAINTENANCE_TEST = {
     kind = "talent",
     level = 35,
@@ -5097,6 +5327,7 @@ function main()
     else
         log.info("Press Insert or Ctrl+F9 or [ to start current task mode; hold Delete or Ctrl+F10 or ] to stop")
     end
+    log.info("Press Ctrl+F1 to click current main task and dump GetMainTaskPath")
     log.info("Press F1 to dump all buttons returned by EnumCButton")
     log.info("Press F2 to dump all text controls returned by EnumCText")
     log.info("Press F5 to dump nearby NPCs returned by EnumNPC")
@@ -5245,7 +5476,20 @@ function main()
             end
         end
 
-        if pressed_once(HOTKEY_F1) then
+        if pressed_once(HOTKEY_F1, HOTKEY_EXIT_CTRL) then
+            if state.running then
+                log.info("Ctrl+F1 main task path test ignored while automation is running")
+            elseif state.f6_loop_active == true then
+                log.info("Ctrl+F1 main task path test ignored while F6 3-round loop is active")
+            else
+                local ok, err = avepoint_hotkey_test_main_task_path()
+                if not ok then
+                    log.error("Ctrl+F1 main task path test failed: " .. tostring(err))
+                end
+            end
+        end
+
+        if pressed_once(HOTKEY_F1) and not hotkey.is_pressed(HOTKEY_EXIT_CTRL) then
             if not initialized then
                 local attach_target = avepoint_hotkey_attach_target_pid()
                 local init_ok, init_err = avepoint_wait_for_torch_init(3500, attach_target, MODE)

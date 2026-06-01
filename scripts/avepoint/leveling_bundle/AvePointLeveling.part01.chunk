@@ -168,12 +168,18 @@ local TASK_COMBAT_CLEAR_SETTLE_MS = 1800
 M.TASK_BUTTON_PATH_EARLY_RETRY_AFTER_MS = 1100
 M.TASK_BUTTON_PATH_EARLY_RETRY_FAILED_MS = 1200
 M.TASK_BUTTON_PATH_WAIT_POLL_INTERVAL_MS = 100
+M.TASK_BUTTON_PATH_WAIT_QUIET = true
 M.TASK_REFRESH_BAG_PAUSE_ENABLED = false
 M.TASK_REFRESH_BAG_PAUSE_KEY_VK = 0x42
 M.TASK_REFRESH_BAG_PAUSE_MAX_MS = 12000
 M.TASK_REFRESH_BAG_PAUSE_RETRY_MS = 900
 M.TASK_REFRESH_BAG_PAUSE_VERIFY_ATTEMPTS = 5
 M.TASK_REFRESH_BAG_PAUSE_VERIFY_INTERVAL_MS = 100
+M.LEVELING_USE_POTION_WORKER = not (
+    M._leveling_config and M._leveling_config.LEVELING_USE_POTION_WORKER == false
+)
+M.POTION_WORKER_SHARE_PREFIX_BASE = "avepoint_leveling_potion_worker"
+M.POTION_WORKER_UPDATE_INTERVAL_MS = tonumber(M._leveling_config and M._leveling_config.POTION_WORKER_UPDATE_INTERVAL_MS) or 40
 M.TASK_DETAIL_TRANSITION_MAX_HOLD_MS = 6000
 local TASK_COMBAT_HARD_TRIGGER_MS = 4500
 local TASK_COMBAT_HARD_MONSTER_COUNT = 6
@@ -226,6 +232,13 @@ M.COMBAT_WORKER_LEASE_MS = math.max(
     tonumber(M._leveling_config and M._leveling_config.COMBAT_WORKER_LEASE_MS)
         or M.COMBAT_WORKER_DEFAULT_LEASE_MS
 )
+M.NAVIGATION_COMBAT_MONITOR_LEASE_MS = math.max(
+    M.COMBAT_WORKER_LEASE_MS,
+    tonumber(M._leveling_config and M._leveling_config.NAVIGATION_COMBAT_MONITOR_LEASE_MS)
+        or M.COMBAT_WORKER_LEASE_MS
+)
+M.NAVIGATION_COMBAT_MONITOR_DISTANCE = tonumber(M._leveling_config and M._leveling_config.NAVIGATION_COMBAT_MONITOR_DISTANCE) or 1000
+M.NAVIGATION_COMBAT_MONITOR_SCAN_INTERVAL_MS = tonumber(M._leveling_config and M._leveling_config.NAVIGATION_COMBAT_MONITOR_SCAN_INTERVAL_MS) or 200
 M.TASK_PATH_WORKER_ROUTE_MODE = not (
     M._leveling_config and M._leveling_config.TASK_PATH_WORKER_ROUTE_MODE == false
 )
@@ -1343,6 +1356,7 @@ function M.clear_route_point_action_objective_state()
     state.route_point_action_objective_active_key = nil
     state.route_point_action_objective_active_state_key = nil
     state.route_point_action_objective_entered_at = 0
+    state.route_point_action_objective_arrived_at = 0
     state.route_point_action_objective_next_probe_at = 0
     state.route_point_action_objective_deadline_at = 0
     state.route_point_action_objective_missing_button_since_at = 0
@@ -2113,6 +2127,10 @@ local function reset_state()
     state.combat_worker_lease_version = 0
     state.combat_worker_last_pulse_at = 0
     state.combat_worker_last_pulse_count = 0
+    state.potion_worker_task_id = 0
+    state.potion_worker_share_prefix = nil
+    state.potion_worker_last_status = nil
+    state.potion_worker_last_error = nil
     state.interaction_combat_guard_key = nil
     state.interaction_combat_guard_started_at = 0
     state.interaction_combat_guard_skip_key = nil
@@ -2469,6 +2487,7 @@ local function reset_state()
     state.route_point_action_objective_active_key = nil
     state.route_point_action_objective_active_state_key = nil
     state.route_point_action_objective_entered_at = 0
+    state.route_point_action_objective_arrived_at = 0
     state.route_point_action_objective_next_probe_at = 0
     state.route_point_action_objective_deadline_at = 0
     state.route_point_action_objective_missing_button_since_at = 0
@@ -2747,6 +2766,45 @@ function M.combat_worker_clear_shares(ctx)
 
     for _, suffix in ipairs(suffixes) do
         sys_api.set_share(state.combat_worker_share_prefix .. ":" .. suffix, nil)
+    end
+end
+
+function M.potion_worker_key(suffix)
+    if type(state.potion_worker_share_prefix) ~= "string" or state.potion_worker_share_prefix == "" then
+        return nil
+    end
+    return state.potion_worker_share_prefix .. ":" .. tostring(suffix or "")
+end
+
+function M.potion_worker_set(ctx, suffix, value)
+    local sys_api = share_api(ctx)
+    local key = M.potion_worker_key(suffix)
+    if not sys_api or not key then
+        return false
+    end
+    sys_api.set_share(key, value)
+    return true
+end
+
+function M.potion_worker_clear_shares(ctx)
+    local sys_api = share_api(ctx)
+    if not sys_api or type(state.potion_worker_share_prefix) ~= "string" or state.potion_worker_share_prefix == "" then
+        return
+    end
+
+    local suffixes = {
+        "stop",
+        "worker_status",
+        "last_error",
+        "last_potion_at",
+        "last_potion_key",
+        "use_count",
+        "heartbeat_at",
+        "status_changed_at"
+    }
+
+    for _, suffix in ipairs(suffixes) do
+        sys_api.set_share(state.potion_worker_share_prefix .. ":" .. suffix, nil)
     end
 end
 
@@ -3117,6 +3175,78 @@ local function stop_nav_worker(ctx)
     state.route_point_recorded_route_worker_path_signature = nil
 end
 
+function M.start_potion_worker(ctx, current_time)
+    if M.LEVELING_USE_POTION_WORKER ~= true then
+        return false, "leveling potion worker disabled."
+    end
+
+    local task_mod = task_api()
+    local sys_api = share_api(ctx)
+    if type(task_mod) ~= "table" or type(task_mod.run) ~= "function" or not sys_api then
+        return false, "task.run or sys share API is unavailable."
+    end
+
+    if tonumber(state.potion_worker_task_id) and tonumber(state.potion_worker_task_id) > 0 then
+        return true
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local current_task_id = type(task_mod.id) == "function" and tonumber(task_mod.id()) or 0
+    state.potion_worker_share_prefix = string.format(
+        "%s_%d_%d",
+        M.POTION_WORKER_SHARE_PREFIX_BASE,
+        tonumber(current_time) or 0,
+        tonumber(current_task_id) or 0
+    )
+    state.potion_worker_last_status = nil
+    state.potion_worker_last_error = nil
+    M.potion_worker_clear_shares(ctx)
+    M.potion_worker_set(ctx, "stop", false)
+
+    local worker_id = task_mod.run("scripts/AvePointLevelingPotionWorker.lua", {
+        name = "AvePointLevelingPotionWorker",
+        priority = "high",
+        share_prefix = tostring(state.potion_worker_share_prefix),
+        process_name = tostring(type(ctx) == "table" and ctx.process_name or ""),
+        runtime_mode = tostring(type(ctx) == "table" and ctx.runtime_mode or ""),
+        update_interval_ms = M.POTION_WORKER_UPDATE_INTERVAL_MS,
+        q_threshold_ratio = POTION_THRESHOLD_RATIO,
+        e_threshold_ratio = 0.80,
+        cooldown_ms = POTION_COOLDOWN_MS
+    })
+    if type(worker_id) ~= "number" or worker_id <= 0 then
+        state.potion_worker_share_prefix = nil
+        return false, "task.run returned invalid potion worker id."
+    end
+
+    state.potion_worker_task_id = worker_id
+    logger(ctx).info(string.format(
+        "[Leveling] potion worker started | task_id=%d share=%s interval_ms=%d q_threshold=%.2f e_threshold=%.2f",
+        worker_id,
+        tostring(state.potion_worker_share_prefix),
+        tonumber(M.POTION_WORKER_UPDATE_INTERVAL_MS) or 0,
+        tonumber(POTION_THRESHOLD_RATIO) or 0,
+        0.80
+    ))
+    return true
+end
+
+function M.stop_potion_worker(ctx)
+    M.potion_worker_set(ctx, "stop", true)
+
+    local task_mod = task_api()
+    local worker_id = tonumber(state.potion_worker_task_id) or 0
+    if worker_id > 0 and type(task_mod) == "table" and type(task_mod.stop) == "function" then
+        pcall(task_mod.stop, worker_id)
+    end
+
+    M.potion_worker_clear_shares(ctx)
+    state.potion_worker_task_id = 0
+    state.potion_worker_share_prefix = nil
+    state.potion_worker_last_status = nil
+    state.potion_worker_last_error = nil
+end
+
 function M.start_combat_worker(ctx, current_time)
     if M.LEVELING_USE_COMBAT_WORKER ~= true then
         state.combat_worker_force_direct = true
@@ -3195,6 +3325,7 @@ function M.pause_combat_worker(ctx, current_time, reason)
     M.combat_worker_set(ctx, "paused", true)
     M.combat_worker_set(ctx, "allow_until", current_time)
     M.combat_worker_set(ctx, "reason", tostring(reason or "pause"))
+    M.combat_worker_set(ctx, "scan_nearby", false)
     return true
 end
 
@@ -3312,6 +3443,7 @@ function M.publish_combat_worker_lease(ctx, current_time, reason, opts)
     )
     local lease_ms = math.max(interval_ms, math.floor(tonumber(opts.lease_ms) or tonumber(M.COMBAT_WORKER_LEASE_MS) or M.COMBAT_WORKER_DEFAULT_LEASE_MS))
     local retry_ms = math.max(50, math.floor(tonumber(opts.retry_ms) or 100))
+    local scan_nearby = opts.scan_nearby == true
 
     state.combat_worker_lease_version = (tonumber(state.combat_worker_lease_version) or 0) + 1
     state.combat_worker_last_publish_at = current_time
@@ -3324,16 +3456,46 @@ function M.publish_combat_worker_lease(ctx, current_time, reason, opts)
     M.combat_worker_set(ctx, "reason", tostring(reason or "combat_worker"))
     M.combat_worker_set(ctx, "stage", tostring(state.stage or ""))
     M.combat_worker_set(ctx, "lease_version", tonumber(state.combat_worker_lease_version) or 0)
+    M.combat_worker_set(ctx, "scan_nearby", scan_nearby)
+    M.combat_worker_set(ctx, "scan_distance", scan_nearby and (tonumber(opts.scan_distance) or 0) or 0)
+    M.combat_worker_set(ctx, "scan_interval_ms", scan_nearby and (tonumber(opts.scan_interval_ms) or 0) or 0)
+    M.combat_worker_set(ctx, "scan_start_at", scan_nearby and (tonumber(opts.scan_start_at) or 0) or 0)
 
     log_throttled(ctx, "combat_worker_lease", "info", 1000, string.format(
-        "[Leveling] combat worker lease armed | reason=%s stage=%s interval_ms=%d lease_ms=%d status=%s",
+        "[Leveling] combat worker lease armed | reason=%s stage=%s interval_ms=%d lease_ms=%d scan=%s status=%s",
         tostring(reason or ""),
         tostring(state.stage or ""),
         interval_ms,
         lease_ms,
+        scan_nearby and "true" or "false",
         tostring(M.combat_worker_get(ctx, "worker_status") or "")
     ))
     return true
+end
+
+function M.publish_navigation_combat_monitor(ctx, current_time, reason)
+    if M.LEVELING_USE_COMBAT_WORKER ~= true or state.combat_worker_force_direct == true then
+        return false
+    end
+    if M.is_task_combat_or_post_loot_active and M.is_task_combat_or_post_loot_active() then
+        return false
+    end
+    if type(M.combat_sidecar_action_lock_reason) == "function"
+        and M.combat_sidecar_action_lock_reason() ~= nil
+    then
+        return false
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    return M.publish_combat_worker_lease(ctx, current_time, reason or "navigation_monitor", {
+        interval_ms = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS,
+        lease_ms = M.NAVIGATION_COMBAT_MONITOR_LEASE_MS,
+        retry_ms = 100,
+        scan_nearby = true,
+        scan_distance = M.NAVIGATION_COMBAT_MONITOR_DISTANCE,
+        scan_interval_ms = M.NAVIGATION_COMBAT_MONITOR_SCAN_INTERVAL_MS,
+        scan_start_at = math.max(current_time, tonumber(state.pause_combat_until) or 0)
+    })
 end
 
 local function ensure_nav_worker_running(ctx, current_time, force_enabled)
@@ -6265,6 +6427,9 @@ function M.clear_dialogue_jump_session_state()
     state.dialogue_jump_consumed_at = 0
     state.dialogue_jump_consumed_source = nil
     state.dialogue_jump_consumed_addr = 0
+    if type(M.clear_pending_dialogue_jump_candidate_sequence) == "function" then
+        M.clear_pending_dialogue_jump_candidate_sequence()
+    end
 end
 
 function M.mark_dialogue_jump_consumed(ctx, current_time, target, source, interaction_origin)
@@ -13165,9 +13330,13 @@ M.maybe_handle_potion_watch = function(ctx, current_time, hp, max_hp, hp_ratio)
         or info_age_ms >= 80
         or (type(hp_ratio) == "number" and hp_ratio <= 0.80)
 
+    if force_refresh then
+        _, hp, max_hp, hp_ratio = refresh_player_status(ctx, current_time, true)
+    end
+
     local common_opts = {
         nonintrusive = true,
-        force_refresh = force_refresh,
+        force_refresh = false,
         watch = true
     }
 
@@ -13481,6 +13650,9 @@ local function clear_pending_interaction(keep_npc_dialogue_retry_state, preserve
     state.pending_interaction_started_at = 0
     state.pending_interaction_deadline_at = 0
     state.task_dialogue_flow_waiting_jump_until = 0
+    if type(M.clear_pending_dialogue_jump_candidate_sequence) == "function" then
+        M.clear_pending_dialogue_jump_candidate_sequence()
+    end
     M.clear_dialogue_jump_window_state()
     if preserve_jump_session ~= true then
         M.clear_dialogue_jump_session_state()
@@ -13831,35 +14003,112 @@ function M.fetch_locator_candidate_target(ctx, step)
     return target, fetch_err, effective_step or step, nil
 end
 
-function M.advance_locator_candidate_sequence(ctx, step, candidate_index)
-    if type(step) ~= "table" or step.locator_candidate_sequence ~= true then
-        return
-    end
-    local sequence_key = tostring(step.locator_candidate_sequence_runtime_key or "")
+function M.advance_locator_candidate_sequence_by_key(ctx, sequence_key, candidate_index, source)
+    sequence_key = tostring(sequence_key or "")
     if sequence_key == "" then
-        return
+        return false
     end
     if type(state.locator_candidate_sequence_next) ~= "table" then
         state.locator_candidate_sequence_next = {}
     end
     local next_index = math.max(1, tonumber(candidate_index) or 0) + 1
     state.locator_candidate_sequence_next[sequence_key] = next_index
+    local source_text = trim(source or "")
+    if source_text ~= "" then
+        logger(ctx).info(string.format(
+            "[Leveling] locator candidate sequence advanced | key=%s candidate=%s next=%d source=%s",
+            sequence_key,
+            tostring(candidate_index or ""),
+            next_index,
+            source_text
+        ))
+    else
+        logger(ctx).info(string.format(
+            "[Leveling] locator candidate sequence advanced | key=%s candidate=%s next=%d",
+            sequence_key,
+            tostring(candidate_index or ""),
+            next_index
+        ))
+    end
+    return true
+end
+
+function M.advance_locator_candidate_sequence(ctx, step, candidate_index)
+    if type(step) ~= "table" or step.locator_candidate_sequence ~= true then
+        return false
+    end
+    local sequence_key = tostring(step.locator_candidate_sequence_runtime_key or "")
+    return M.advance_locator_candidate_sequence_by_key(ctx, sequence_key, candidate_index)
+end
+
+function M.clear_pending_dialogue_jump_candidate_sequence()
+    state.dialogue_jump_pending_sequence_key = nil
+    state.dialogue_jump_pending_sequence_candidate = nil
+    state.dialogue_jump_pending_sequence_flow_key = nil
+    state.dialogue_jump_pending_sequence_step_key = nil
+end
+
+function M.defer_dialogue_jump_candidate_sequence_advance(ctx, step, candidate_index, flow_key)
+    if type(step) ~= "table" or step.locator_candidate_sequence ~= true then
+        M.clear_pending_dialogue_jump_candidate_sequence()
+        return false
+    end
+    local sequence_key = tostring(step.locator_candidate_sequence_runtime_key or "")
+    local candidate_number = tonumber(candidate_index)
+    if sequence_key == "" or candidate_number == nil then
+        M.clear_pending_dialogue_jump_candidate_sequence()
+        return false
+    end
+    state.dialogue_jump_pending_sequence_key = sequence_key
+    state.dialogue_jump_pending_sequence_candidate = candidate_number
+    state.dialogue_jump_pending_sequence_flow_key = tostring(flow_key or "")
+    state.dialogue_jump_pending_sequence_step_key = tostring(step.key or step.label or "")
     logger(ctx).info(string.format(
-        "[Leveling] locator candidate sequence advanced | key=%s candidate=%s next=%d",
+        "[Leveling] locator candidate sequence deferred until dialogue Jump | key=%s candidate=%s step_key=%s flow=%s",
         sequence_key,
-        tostring(candidate_index or ""),
-        next_index
+        tostring(candidate_number),
+        tostring(state.dialogue_jump_pending_sequence_step_key or ""),
+        tostring(state.dialogue_jump_pending_sequence_flow_key or "")
     ))
+    return true
+end
+
+function M.advance_pending_dialogue_jump_candidate_sequence(ctx, current_time, source)
+    local sequence_key = tostring(state.dialogue_jump_pending_sequence_key or "")
+    local candidate_index = tonumber(state.dialogue_jump_pending_sequence_candidate)
+    if sequence_key == "" or candidate_index == nil then
+        M.clear_pending_dialogue_jump_candidate_sequence()
+        return false
+    end
+    local advanced = M.advance_locator_candidate_sequence_by_key(
+        ctx,
+        sequence_key,
+        candidate_index,
+        trim(source or "") ~= "" and tostring(source) or "dialogue_jump"
+    )
+    M.clear_pending_dialogue_jump_candidate_sequence()
+    return advanced
 end
 
 function M.maybe_handle_task_dialogue_flow(ctx, current_time)
-    current_time = tonumber(current_time) or now_ms(ctx)
+    current_time = now_ms(ctx)
 
     local waiting_jump_until = tonumber(state.task_dialogue_flow_waiting_jump_until) or 0
     if waiting_jump_until > current_time then
-        return false
+        state.stage = "dialogue_jump_wait"
+        hold_navigation(ctx, current_time, "dialogue_jump_wait")
+        if M.maybe_click_dialogue_jump_button(ctx, now_ms(ctx)) then
+            return true
+        end
+        log_throttled(ctx, "task_dialogue_flow_waiting_jump", "info", 1000, string.format(
+            "[Leveling] task dialogue flow waiting for Jump consumption | wait_left=%dms origin=%s",
+            math.max(0, waiting_jump_until - current_time),
+            tostring(state.dialogue_jump_window_origin or state.pending_interaction_origin or "")
+        ))
+        return true
     elseif waiting_jump_until > 0 then
         state.task_dialogue_flow_waiting_jump_until = 0
+        M.clear_pending_dialogue_jump_candidate_sequence()
     end
 
     local interaction_origin = trim(state.pending_interaction_origin)
@@ -14065,7 +14314,17 @@ function M.maybe_handle_task_dialogue_flow(ctx, current_time)
     state.task_dialogue_flow_step_index = step_index + 1
     state.task_dialogue_flow_next_retry_at = after_click_time + settle_ms
     state.pause_combat_until = math.max(tonumber(state.pause_combat_until) or 0, after_click_time + POST_UI_PAUSE_MS)
-    M.advance_locator_candidate_sequence(ctx, dispatch_step, candidate_index)
+    local jump_after_step = flow.jump_after_step == true
+        or flow.jump_after_click == true
+        or step.jump_after_step == true
+        or step.jump_after_click == true
+        or dispatch_step.jump_after_step == true
+        or dispatch_step.jump_after_click == true
+    if jump_after_step then
+        M.defer_dialogue_jump_candidate_sequence_advance(ctx, dispatch_step, candidate_index, flow_key)
+    else
+        M.advance_locator_candidate_sequence(ctx, dispatch_step, candidate_index)
+    end
     logger(ctx).info(string.format(
         "[Leveling] task dialogue flow step clicked | task=%s key=%s step=%d/%d step_key=%s label=%s origin=%s candidate=%s addr=%s pos=(%s,%s) settle_ms=%d",
         tostring(task_name or state.current_task_name or ""),
@@ -14081,12 +14340,6 @@ function M.maybe_handle_task_dialogue_flow(ctx, current_time)
         tostring(target.y or ""),
         settle_ms
     ))
-    local jump_after_step = flow.jump_after_step == true
-        or flow.jump_after_click == true
-        or step.jump_after_step == true
-        or step.jump_after_click == true
-        or dispatch_step.jump_after_step == true
-        or dispatch_step.jump_after_click == true
     if jump_after_step then
         local jump_delay_ms = math.max(0,
             tonumber(dispatch_step.jump_after_step_delay_ms)
@@ -14094,7 +14347,7 @@ function M.maybe_handle_task_dialogue_flow(ctx, current_time)
             or tonumber(flow.jump_after_step_delay_ms)
             or 200
         )
-        local jump_window_ms = math.max(1500,
+        local jump_window_ms = math.max(10000,
             tonumber(dispatch_step.jump_after_step_window_ms)
             or tonumber(step.jump_after_step_window_ms)
             or tonumber(flow.jump_after_step_window_ms)
@@ -14120,6 +14373,10 @@ function M.maybe_handle_task_dialogue_flow(ctx, current_time)
         state.task_dialogue_flow_waiting_jump_until = after_click_time + jump_window_ms
         state.next_dialogue_jump_scan_at = after_click_time + jump_delay_ms
         state.next_dialogue_jump_click_at = 0
+        state.pending_interaction_deadline_at = math.max(
+            tonumber(state.pending_interaction_deadline_at) or 0,
+            after_click_time + jump_window_ms + 2000
+        )
         state.require_task_button_refresh = false
         state.require_task_button_refresh_reason = nil
         if type(M.reset_dialogue_jump_missing_probe) == "function" then
@@ -14564,7 +14821,7 @@ function M.arm_pending_task_advancing_jump_followup_route(ctx, current_time, sou
 end
 
 function M.maybe_click_dialogue_jump_button(ctx, current_time)
-    current_time = tonumber(current_time) or now_ms(ctx)
+    current_time = now_ms(ctx)
     local jump_allowed, jump_reason, jump_meta = M.evaluate_dialogue_jump_intent(ctx, current_time)
     if not jump_allowed then
         if jump_reason == "post_dialogue_flow_handles_jump" then
@@ -14632,6 +14889,7 @@ function M.maybe_click_dialogue_jump_button(ctx, current_time)
             consumed_origin = tostring(state.dialogue_jump_window_origin or "")
         end
         M.mark_dialogue_jump_consumed(ctx, after_click_time, clicked_target, click_source, consumed_origin)
+        M.advance_pending_dialogue_jump_candidate_sequence(ctx, after_click_time, "dialogue_jump_consumed")
         M.reset_dialogue_jump_missing_probe(true)
         M.clear_dialogue_jump_window_state()
         clear_pending_interaction(false, true)

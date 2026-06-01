@@ -154,6 +154,8 @@ local UPDATE_INTERVAL_MS = math.max(30, tonumber(update_interval_ms) or 40)
 local DEFAULT_INTERVAL_MS = math.max(100, tonumber(interval_ms) or 550)
 local DEFAULT_RETRY_MS = math.max(50, tonumber(retry_ms) or 100)
 local ACTION_MOUSE_HOLD_MS = math.max(10, tonumber(mouse_hold_ms) or 34)
+local DEFAULT_SCAN_INTERVAL_MS = 200
+local DEFAULT_SCAN_DISTANCE = 1000
 local VK_W = 0x57
 local VK_R = 0x52
 local DEFAULT_R_INTERVAL_MIN_MS = math.max(1000, tonumber(r_interval_min_ms) or 10000)
@@ -179,6 +181,11 @@ local pulse_count = 0
 local r_count = 0
 local last_status = ""
 local last_log_at = 0
+local next_scan_at = 0
+local scan_has_target = false
+local scan_count = 0
+local scan_nearest_distance = nil
+local last_scan_log_at = 0
 
 local function ensure_nav_ready()
     if type(nav) ~= "table" or type(nav.ensure_initialized) ~= "function" then
@@ -395,6 +402,68 @@ local function issue_r_pulse(reason)
     return false, detail
 end
 
+local function item_position(item)
+    if type(nav) == "table" and type(nav.extract_position) == "function" then
+        local x, y, z = nav.extract_position(item)
+        if x ~= nil and y ~= nil then
+            return x, y, z
+        end
+    end
+    if type(item) ~= "table" then
+        return nil, nil, nil
+    end
+    return as_number(item.x or item.X), as_number(item.y or item.Y), as_number(item.z or item.Z)
+end
+
+local function refresh_nearby_monster_scan(current_time, scan_distance, scan_interval_ms)
+    if current_time < next_scan_at then
+        return scan_has_target, scan_count, scan_nearest_distance, nil
+    end
+    next_scan_at = current_time + math.max(50, tonumber(scan_interval_ms) or DEFAULT_SCAN_INTERVAL_MS)
+    scan_has_target = false
+    scan_count = 0
+    scan_nearest_distance = nil
+
+    if type(nav) ~= "table" or type(nav.player_pos) ~= "function" then
+        return false, 0, nil, "nav.player_pos unavailable"
+    end
+    if type(nav.enum_monsters) ~= "function" then
+        return false, 0, nil, "nav.enum_monsters unavailable"
+    end
+
+    local px, py, _, pos_err = nav.player_pos()
+    if px == nil or py == nil then
+        return false, 0, nil, pos_err or "player position unavailable"
+    end
+
+    local items, enum_err = nav.enum_monsters()
+    if type(items) ~= "table" then
+        return false, 0, nil, enum_err or "EnumMonster failed"
+    end
+
+    local max_distance = math.max(100, tonumber(scan_distance) or DEFAULT_SCAN_DISTANCE)
+    for _, item in ipairs(items) do
+        local x, y = item_position(item)
+        if x ~= nil and y ~= nil then
+            local dx = (tonumber(px) or 0) - (tonumber(x) or 0)
+            local dy = (tonumber(py) or 0) - (tonumber(y) or 0)
+            local dist = math.sqrt(dx * dx + dy * dy)
+            if dist <= max_distance then
+                scan_count = scan_count + 1
+                if scan_nearest_distance == nil or dist < scan_nearest_distance then
+                    scan_nearest_distance = dist
+                end
+            end
+        end
+    end
+
+    scan_has_target = scan_count > 0
+    share_set(SHARE_PREFIX, "scan_count", scan_count)
+    share_set(SHARE_PREFIX, "scan_nearest_distance", scan_nearest_distance or 0)
+    share_set(SHARE_PREFIX, "scan_checked_at", current_time)
+    return scan_has_target, scan_count, scan_nearest_distance, nil
+end
+
 if type(task) == "table" and type(task.on_stop) == "function" then
     task.on_stop(function()
         running = false
@@ -437,6 +506,10 @@ while running do
         local reason = tostring(share_get(SHARE_PREFIX, "reason") or "")
         local interval_ms = math.max(100, as_number(share_get(SHARE_PREFIX, "interval_ms")) or DEFAULT_INTERVAL_MS)
         local retry_ms = math.max(50, as_number(share_get(SHARE_PREFIX, "retry_ms")) or DEFAULT_RETRY_MS)
+        local scan_nearby = as_boolean(share_get(SHARE_PREFIX, "scan_nearby"))
+        local scan_distance = math.max(100, as_number(share_get(SHARE_PREFIX, "scan_distance")) or DEFAULT_SCAN_DISTANCE)
+        local scan_interval_ms = math.max(50, as_number(share_get(SHARE_PREFIX, "scan_interval_ms")) or DEFAULT_SCAN_INTERVAL_MS)
+        local scan_start_at = as_number(share_get(SHARE_PREFIX, "scan_start_at")) or 0
 
         if paused or not enabled then
             next_r_at = 0
@@ -452,25 +525,69 @@ while running do
                 break
             end
         else
-            if next_r_at <= 0 then
-                schedule_next_r(current_time)
-            end
-            if current_time >= next_pulse_at then
-                issue_pulse(reason, interval_ms, retry_ms)
-                current_time = now_ms()
-            end
-            if current_time >= next_r_at then
-                issue_r_pulse(reason)
-                current_time = now_ms()
+            local monitor_wait_ms = nil
+            if scan_nearby then
+                if current_time < scan_start_at then
+                    monitor_wait_ms = math.min(UPDATE_INTERVAL_MS, math.max(10, scan_start_at - current_time))
+                    set_status("monitoring_wait", string.format("wait_ms=%d", math.max(0, scan_start_at - current_time)))
+                else
+                    local has_target, count, nearest_distance, scan_err =
+                        refresh_nearby_monster_scan(current_time, scan_distance, scan_interval_ms)
+                    if not has_target then
+                        monitor_wait_ms = UPDATE_INTERVAL_MS
+                        set_status("monitoring", scan_err or string.format("count=%d nearest=%s", tonumber(count) or 0, tostring(nearest_distance or "")))
+                        if current_time - last_scan_log_at >= 2000 then
+                            last_scan_log_at = current_time
+                            log_info(string.format(
+                                "[Leveling] combat worker navigation monitor waiting | reason=%s distance=%.0f count=%d nearest=%s err=%s",
+                                reason,
+                                tonumber(scan_distance) or 0,
+                                tonumber(count) or 0,
+                                nearest_distance ~= nil and string.format("%.2f", tonumber(nearest_distance) or 0) or "nil",
+                                tostring(scan_err or "")
+                            ))
+                        end
+                    else
+                        set_status("monitoring_target", string.format("count=%d nearest=%.2f", tonumber(count) or 0, tonumber(nearest_distance) or 0))
+                        if current_time - last_scan_log_at >= 1000 then
+                            last_scan_log_at = current_time
+                            log_info(string.format(
+                                "[Leveling] combat worker navigation monitor target | reason=%s distance=%.0f count=%d nearest=%.2f",
+                                reason,
+                                tonumber(scan_distance) or 0,
+                                tonumber(count) or 0,
+                                tonumber(nearest_distance) or 0
+                            ))
+                        end
+                    end
+                end
             end
 
-            local next_wait_at = next_pulse_at
-            if next_r_at > 0 then
-                next_wait_at = math.min(next_wait_at, next_r_at)
-            end
-            local wait_ms = math.min(UPDATE_INTERVAL_MS, math.max(10, next_wait_at - current_time))
-            if not safe_sleep(wait_ms) then
-                break
+            if monitor_wait_ms ~= nil then
+                if not safe_sleep(monitor_wait_ms) then
+                    break
+                end
+            else
+                if next_r_at <= 0 then
+                    schedule_next_r(current_time)
+                end
+                if current_time >= next_pulse_at then
+                    issue_pulse(reason, interval_ms, retry_ms)
+                    current_time = now_ms()
+                end
+                if current_time >= next_r_at then
+                    issue_r_pulse(reason)
+                    current_time = now_ms()
+                end
+
+                local next_wait_at = next_pulse_at
+                if next_r_at > 0 then
+                    next_wait_at = math.min(next_wait_at, next_r_at)
+                end
+                local wait_ms = math.min(UPDATE_INTERVAL_MS, math.max(10, next_wait_at - current_time))
+                if not safe_sleep(wait_ms) then
+                    break
+                end
             end
         end
     end

@@ -3116,6 +3116,7 @@ local function update_task_target(ctx, current_time, player_x, player_y)
         state.task_path_wait_until = 0
         state.task_path_early_retry_at = 0
         state.task_path_early_retry_count = 0
+        state.wait_task_path_force_poll_at = 0
         state.task_pos_reject_until = 0
         state.task_pos_reject_reason = nil
         state.force_task_path_reacquire_until = 0
@@ -4240,6 +4241,11 @@ function M.start(ctx)
             tonumber(M.TASK_FOLLOW_MOVE_INTERVAL_MS) or 0,
             tonumber(M.TASK_POS_MOVE_INTERVAL_MS) or 0
         ))
+    end
+    local potion_worker_ok, potion_worker_err = M.start_potion_worker(ctx, current_time)
+    if not potion_worker_ok then
+        log_throttled(ctx, "potion_worker_start_failed", "warn", LOG_THROTTLE_MS,
+            "[Leveling] potion worker start failed; low-hp hotkeys will not run as an independent task: " .. tostring(potion_worker_err))
     end
     if M.LEVELING_USE_COMBAT_WORKER == true then
         local combat_worker_ok, combat_worker_err = M.start_combat_worker(ctx, current_time)
@@ -6640,6 +6646,187 @@ function M.maybe_stop_for_current_task_config(ctx, current_time, player_x, playe
     end
     return true
 end
+function M.has_active_route_point_action_state(current_time)
+    if state.route_point_action_active_key ~= nil
+        or state.route_point_action_dialogue_active_key ~= nil
+        or state.route_point_action_objective_active_key ~= nil
+        or state.route_point_action_route_active_key ~= nil
+    then
+        return true
+    end
+    return (tonumber(state.route_point_action_route_wait_reacquire_until) or 0) > (tonumber(current_time) or 0)
+end
+function M.maybe_fast_lane_wait_task_path_after_button(ctx, current_time, player_x, player_y, player_z)
+    if type(state.task_target) == "table" then
+        return false
+    end
+    local last_click_at = tonumber(state.last_task_button_click_at) or 0
+    if last_click_at <= 0 then
+        return false
+    end
+    local wait_until = math.max(
+        last_click_at + TASK_BUTTON_SETTLE_MS,
+        tonumber(state.task_path_wait_until) or 0
+    )
+    if current_time >= wait_until then
+        return false
+    end
+    if state.require_task_button_refresh == true then
+        return false
+    end
+    if type(M.is_task_entry_action_active) == "function"
+        and M.is_task_entry_action_active(current_time)
+    then
+        return false
+    end
+    if type(M.is_task_transition_active) == "function"
+        and M.is_task_transition_active(current_time)
+    then
+        return false
+    end
+    if type(M.has_active_treasure_runtime) == "function"
+        and M.has_active_treasure_runtime()
+    then
+        return false
+    end
+    if type(M.is_task_combat_active) == "function"
+        and M.is_task_combat_active()
+    then
+        return false
+    end
+    if M.has_active_route_point_action_state(current_time) then
+        return false
+    end
+    local wait_task_cfg = select(1, M.current_task_runtime_config())
+    if type(wait_task_cfg) == "table"
+        and wait_task_cfg.allow_wait_task_path_route_action_recover == true
+    then
+        return false
+    end
+    local early_retry_at = tonumber(state.task_path_early_retry_at) or 0
+    if early_retry_at > 0 and current_time >= early_retry_at then
+        return false
+    end
+    if type(M.should_suspend_treasure_task_refresh) == "function"
+        and M.should_suspend_treasure_task_refresh()
+    then
+        return false
+    end
+
+    state.stage = "wait_task_path_after_button"
+    local polled = false
+    if current_time >= (tonumber(state.next_task_refresh_at) or 0) then
+        polled = true
+        update_task_target(ctx, current_time, player_x, player_y)
+    end
+    if type(state.task_target) == "table" then
+        M.refresh_blackboard_snapshot(current_time, {
+            ctx = ctx,
+            player_x = player_x,
+            player_y = player_y,
+            player_z = player_z,
+            task_log_name = M.current_task_log_name(),
+            task_log_detail = M.current_task_log_detail()
+        })
+        log_throttled(ctx, "task_path_fast_lane_ready", "info", LOG_THROTTLE_MS, string.format(
+            "[Leveling] task path fast-lane ready; continue same tick | task=%s detail=%s elapsed_ms=%d polled=%s",
+            tostring(M.current_task_log_name() or state.current_task_name or ""),
+            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+            math.max(0, current_time - last_click_at),
+            polled and "true" or "false"
+        ))
+        return "ready"
+    end
+
+    M.log_execution_trace(ctx, current_time, "waiting_task_path_fast_lane", nil, nil, nil, nil, player_x, player_y, player_z)
+    release_async_combat_inputs(ctx, current_time, true, {
+        preserve_alternate = true
+    })
+    hold_navigation(ctx, current_time, "wait_task_path_after_button")
+    log_throttled(ctx, "task_path_fast_lane_wait", "info", LOG_THROTTLE_MS, string.format(
+        "[Leveling] waiting task path fast-lane | task=%s detail=%s elapsed_ms=%d next_poll_ms=%d",
+        tostring(M.current_task_log_name() or state.current_task_name or ""),
+        tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+        math.max(0, current_time - last_click_at),
+        math.max(0, (tonumber(state.next_task_refresh_at) or current_time) - current_time)
+    ))
+    log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+    return true
+end
+
+function M.maybe_fast_lane_issue_task_follow(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface)
+    local target = state.task_target
+    if type(target) ~= "table" then
+        return false
+    end
+    if type(M.is_task_combat_active) == "function" and M.is_task_combat_active() then
+        return false
+    end
+    if type(M.is_task_transition_active) == "function"
+        and M.is_task_transition_active(current_time)
+    then
+        return false
+    end
+    if M.has_active_route_point_action_state(current_time) then
+        return false
+    end
+
+    local destination = build_task_destination_point(player_x, player_y)
+    local destination_distance = destination
+        and distance_2d(player_x, player_y, destination.x, destination.y)
+        or nil
+    local target_distance = distance_2d(player_x, player_y, target.x, target.y)
+    local goal_distance = destination_distance or target_distance
+    local map_cfg = select(1, current_map_task_config())
+    local task_cfg = select(1, M.current_task_runtime_config())
+    local point_objective_cfg = M.current_objective_point_config(destination, target)
+    local objective_cfg = type(task_cfg) == "table" and type(task_cfg.objective) == "table" and task_cfg.objective
+        or (type(map_cfg) == "table" and type(map_cfg.objective) == "table" and map_cfg.objective or nil)
+        or point_objective_cfg
+    local objective_ready_distance = type(M._leveling_policy) == "table"
+        and type(M._leveling_policy.objective_ready_distance) == "function"
+        and M._leveling_policy.objective_ready_distance(TARGET_REACHED_DISTANCE, objective_cfg)
+        or TARGET_REACHED_DISTANCE
+
+    if type(goal_distance) ~= "number" or goal_distance <= objective_ready_distance then
+        return false
+    end
+    local suppress_nearby_pulse = M.should_suppress_follow_nearby_monster_pulse(task_cfg, objective_cfg, target, goal_distance, objective_ready_distance)
+
+    if M.maybe_handle_route_point_action(ctx, current_time, player_x, player_y, player_z, {
+        has_target = true
+    }) then
+        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+        return true
+    end
+
+    state.stage = "follow_task"
+    M.log_execution_trace(ctx, current_time, "follow_task_fast_lane_move", target, destination, goal_distance, objective_cfg and objective_cfg.mode, player_x, player_y, player_z)
+    issue_move(ctx, current_time, target)
+    maybe_soft_refresh_task_button_during_follow(ctx, current_time, goal_distance)
+    if suppress_nearby_pulse ~= true and type(M.publish_navigation_combat_monitor) == "function" then
+        M.publish_navigation_combat_monitor(ctx, current_time, "follow_task_fast_lane_monitor")
+    end
+    log_throttled(ctx, "task_path_fast_lane_follow", "info", LOG_THROTTLE_MS, string.format(
+        "[Leveling] task path fast-lane issued follow immediately | task=%s detail=%s goal_distance=%.2f target_source=%s",
+        tostring(M.current_task_log_name() or state.current_task_name or ""),
+        tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+        tonumber(goal_distance) or 0,
+        tostring(target.source or "")
+    ))
+    M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
+        phase = suppress_nearby_pulse and "follow_task_fast_lane_move_suppressed" or "follow_task_fast_lane_move",
+        in_main_interface = in_main_interface,
+        allow_when_main_interface_false = true,
+        skip_ambient = suppress_nearby_pulse == true,
+        allow_follow_move_pulse = true,
+        goal_distance = goal_distance,
+        target = target
+    })
+    log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+    return true
+end
+
 function M.update(now, ctx)
     if state.running ~= true then
         return false, "Leveling runner is not started."
@@ -6883,15 +7070,23 @@ function M.update(now, ctx)
         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
         return true
     end
+    local task_path_fast_lane_result = M.maybe_fast_lane_wait_task_path_after_button(
+        ctx,
+        current_time,
+        player_x,
+        player_y,
+        player_z
+    )
+    if task_path_fast_lane_result == true then
+        return true
+    end
+    if task_path_fast_lane_result == "ready"
+        and M.maybe_fast_lane_issue_task_follow(ctx, current_time, player_x, player_y, player_z, hp_ratio, in_main_interface)
+    then
+        return true
+    end
     update_progress_anchor(current_time, player_x, player_y)
     M.bt_run_service_nodes(ctx, current_time, "service.pre_interaction", {
-        {
-            key = "service.potion_watch",
-            priority = 10,
-            run = function()
-                return M.maybe_handle_potion_watch(ctx, current_time, hp, max_hp, hp_ratio)
-            end
-        },
         {
             key = "service.level_up_observe",
             priority = 20,
@@ -7667,6 +7862,27 @@ function M.update(now, ctx)
                         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
                         return true
                     end
+                    if target_synced_this_tick ~= true then
+                        local wait_poll_interval_ms = math.max(
+                            50,
+                            tonumber(M.TASK_BUTTON_PATH_WAIT_POLL_INTERVAL_MS) or 100
+                        )
+                        local last_force_poll_at = tonumber(state.wait_task_path_force_poll_at) or 0
+                        if current_time - last_force_poll_at >= wait_poll_interval_ms then
+                            state.wait_task_path_force_poll_at = current_time
+                            update_task_target(ctx, current_time, player_x, player_y)
+                            target_synced_this_tick = true
+                            if type(state.task_target) == "table" then
+                                log_throttled(ctx, "task_path_ready_continue_same_tick", "info", LOG_THROTTLE_MS, string.format(
+                                    "[Leveling] task path ready during wait; continue same tick | task=%s detail=%s elapsed_ms=%d",
+                                    tostring(M.current_task_log_name() or state.current_task_name or ""),
+                                    tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                                    math.max(0, current_time - (tonumber(state.last_task_button_click_at) or current_time))
+                                ))
+                                return false
+                            end
+                        end
+                    end
                     local early_retry_at = tonumber(state.task_path_early_retry_at) or 0
                     if task_entry_action_active ~= true
                         and early_retry_at > 0
@@ -7717,6 +7933,16 @@ function M.update(now, ctx)
                             log_heartbeat(ctx, current_time, player_x, player_y, player_z)
                             return true
                         end
+                        log_heartbeat(ctx, current_time, player_x, player_y, player_z)
+                        return true
+                    end
+                    if M.TASK_BUTTON_PATH_WAIT_QUIET ~= false then
+                        log_throttled(ctx, "task_path_wait_quiet_no_combat", "info", LOG_THROTTLE_MS, string.format(
+                            "[Leveling] task path wait quiet; skip combat pulse | task=%s detail=%s elapsed_ms=%d",
+                            tostring(M.current_task_log_name() or state.current_task_name or ""),
+                            tostring(M.current_task_log_detail() or state.current_task_detail or ""),
+                            math.max(0, current_time - (tonumber(state.last_task_button_click_at) or current_time))
+                        ))
                         log_heartbeat(ctx, current_time, player_x, player_y, player_z)
                         return true
                     end
@@ -8321,6 +8547,9 @@ function M.update(now, ctx)
                             or 0
                     ))
                 end
+                if suppress_nearby_pulse ~= true and type(M.publish_navigation_combat_monitor) == "function" then
+                    M.publish_navigation_combat_monitor(ctx, current_time, "follow_task_monitor")
+                end
                 M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
                     phase = suppress_nearby_pulse and "follow_task_move_suppressed" or "follow_task_move",
                     in_main_interface = in_main_interface,
@@ -8343,6 +8572,7 @@ function M.update(now, ctx)
 end
 function M.stop(ctx)
     release_async_combat_inputs(ctx, now_ms(ctx), true)
+    M.stop_potion_worker(ctx)
     M.stop_combat_worker(ctx)
     stop_nav_worker(ctx)
     if state.running == true then

@@ -99,8 +99,8 @@ local SUN_FACTION_CHOICE = configured_sun_faction_choice()
 M.LEVEL_UP_MAINTENANCE_CONFIG = {
     enabled = true,
     execute_ui = true,
-    run_current_level_plan_on_baseline = true,
-    catch_up_missing_plans_on_baseline = true,
+    run_current_level_plan_on_baseline = false,
+    catch_up_missing_plans_on_baseline = false,
     suppress_baseline_on_identity_change = true,
     suppress_baseline_on_level_drop = true,
     suppress_baseline_on_low_new_character = true,
@@ -7061,14 +7061,20 @@ local function make_trial_of_sun_power_maptrap_action(index, from_point, objecti
         interact_radius = tonumber(objective_point and objective_point.interact_radius) or 220,
         probe_retry_ms = 650,
         retry_ms = 600000,
-        settle_ms = 1200,
+        settle_ms = 500,
         timeout_ms = 35000,
         force_task_call_after_transition = false,
+        task_refresh_confirms_success = false,
+        pre_action_combat_guard = false,
+        press_key = "D",
+        hotkey_label = string.format("太阳的试炼_权力之试_D_%02d", tonumber(index) or 0),
+        hotkey_repeat_count = 1,
+        hotkey_interval_ms = 0,
+        arrival_settle_ms = 500,
         skip_missing_button_to_followup = followup_key ~= nil,
         missing_button_complete_side_task = followup_key == nil,
         missing_button_skip_after_ms = 3000,
-        followup_route_action_key = followup_key,
-        step = make_trial_of_sun_power_maptrap_step(index)
+        followup_route_action_key = followup_key
     })
     return mark_trial_of_sun_action(action, TRIAL_OF_SUN_POWER_SIDE_KEY, {
         step_key = action_key,
@@ -7127,15 +7133,21 @@ local function make_trial_of_sun_side_maptrap_action(opts)
         interact_radius = tonumber(objective_point.interact_radius) or 220,
         probe_retry_ms = tonumber(opts.probe_retry_ms) or 650,
         retry_ms = tonumber(opts.retry_ms) or 600000,
-        settle_ms = tonumber(opts.settle_ms) or 1200,
+        settle_ms = tonumber(opts.settle_ms) or 500,
         timeout_ms = tonumber(opts.timeout_ms) or 35000,
         force_task_call_after_transition = opts.force_task_call_after_transition == true,
+        task_refresh_confirms_success = false,
+        pre_action_combat_guard = opts.pre_action_combat_guard == true,
+        press_key = opts.press_key or "D",
+        hotkey_label = opts.hotkey_label or string.format("%s_D_%02d", tostring(opts.label or "太阳的试炼"), index),
+        hotkey_repeat_count = tonumber(opts.hotkey_repeat_count) or 1,
+        hotkey_interval_ms = tonumber(opts.hotkey_interval_ms) or 0,
+        arrival_settle_ms = tonumber(opts.arrival_settle_ms) or 500,
         skip_missing_button_to_followup = opts.followup_route_action_key ~= nil,
         missing_button_complete_side_task = opts.followup_route_action_key == nil,
         missing_button_skip_after_ms = tonumber(opts.missing_button_skip_after_ms) or 3000,
         followup_route_action_key = opts.followup_route_action_key,
-        combat_pulse_while_waiting = opts.combat_pulse_while_waiting == true,
-        step = make_trial_of_sun_side_maptrap_step(prefix, opts.button_label or opts.label, index)
+        combat_pulse_while_waiting = opts.combat_pulse_while_waiting == true
     })
     return mark_trial_of_sun_action(action, opts.side_task_key or trial_of_sun_side_key_from_prefix(prefix), {
         step_key = action.key,
@@ -8370,6 +8382,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             "\u{7FA4}\u{661F}\u{4E4B}\u{8F89}"
         },
         task_detail_patterns = {
+            "\u{524D}\u{5F80}\u{96C4}\u{72EE}\u{4E4B}\u{5FC3}\u{FF0C}\u{53C2}\u{4E0E}\u{665A}\u{661F}\u{7684}\u{53CD}\u{653B}",
             "\u{65B0}",
             "\u{5E2E}\u{52A9}\u{665A}\u{661F}\u{51FB}\u{6E83}\u{4F0A}\u{5409}\u{738B}\u{519B}\u{FF0C}\u{627E}\u{5230}\u{72EE}\u{5FC3}\u{738B}"
         },
@@ -8416,7 +8429,7 @@ M.TREASURE_DUNGEON_CONFIGS = {
             x = -7886.00,
             y = -4560.00,
             z = 1921.62,
-            radius = 520,
+            radius = 1800,
             z_tolerance = 520
         },
         entry_steps = {
@@ -11838,8 +11851,8 @@ M.TASK_NAME_CONFIGS = {
         },
         {
             map_open_wait_ms = 1200,
-            center_click_ratio_x = 0.503472,
-            center_click_ratio_y = 0.384444,
+            center_click_ratio_x = 0.504167,
+            center_click_ratio_y = 0.382222,
             center_use_human_mouse = true,
             center_selection_step = {
                 label = "\u{9884}\u{8A00}\u{5723}\u{5730}\u{5730}\u{56FE}\u{6309}\u{94AE}",
@@ -11847,18 +11860,18 @@ M.TASK_NAME_CONFIGS = {
                 include_patterns = {
                     "UIButton Transient.GameEngine.CoreGameInstance.WorldMapItem_C.WidgetTree.Btn"
                 },
-                hint_client_x = 687.359497,
-                hint_client_y = 302.743561,
-                hint_ratio_x = 0.477333,
-                hint_ratio_y = 0.336382,
-                hint_max_distance = 80.000,
+                hint_client_x = 676.011230,
+                hint_client_y = 291.815979,
+                hint_ratio_x = 0.469452,
+                hint_ratio_y = 0.324240,
+                hint_max_distance = 30.000,
                 prefer_hint_fallback = true,
                 poll_retry_count = 30,
                 poll_interval_ms = 100,
-                fixed_fallback_client_x = 725.00,
-                fixed_fallback_client_y = 346.00,
-                fixed_fallback_ratio_x = 0.503472,
-                fixed_fallback_ratio_y = 0.384444,
+                fixed_fallback_client_x = 726.00,
+                fixed_fallback_client_y = 344.00,
+                fixed_fallback_ratio_x = 0.504167,
+                fixed_fallback_ratio_y = 0.382222,
                 fixed_fallback_prefer_ratio = true,
                 fixed_fallback_mouse_mode = "api",
                 fixed_fallback_click_delay_ms = 50,
@@ -14782,6 +14795,7 @@ M.ROUTE_POINT_ACTIONS = {
             "\u{94F6}\u{6C99}\u{8FB9}\u{57CE}"
         },
         task_detail_patterns = {
+            "\u{524D}\u{5F80}\u{96C4}\u{72EE}\u{4E4B}\u{5FC3}\u{FF0C}\u{53C2}\u{4E0E}\u{665A}\u{661F}\u{7684}\u{53CD}\u{653B}",
             "\u{5E2E}\u{52A9}\u{665A}\u{661F}\u{51FB}\u{6E83}\u{4F0A}\u{5409}\u{738B}\u{519B}\u{FF0C}\u{627E}\u{5230}\u{72EE}\u{5FC3}\u{738B}",
             "\u{65B0}"
         },
@@ -14793,7 +14807,7 @@ M.ROUTE_POINT_ACTIONS = {
             x = -9485.00,
             y = -4658.00,
             z = 1890.00,
-            radius = 950,
+            radius = 1800,
             z_tolerance = 520
         },
         retry_ms = 600000,
@@ -17392,7 +17406,7 @@ M.ROUTE_POINT_ACTIONS = {
             x = 982.00,
             y = 20371.00,
             z = 503.00,
-            radius = 1200,
+            radius = 1800,
             z_tolerance = 260
         },
         retry_ms = 600000,
@@ -17460,7 +17474,7 @@ M.ROUTE_POINT_ACTIONS = {
             x = -8609.00,
             y = 21802.00,
             z = 503.00,
-            radius = 1200,
+            radius = 1800,
             z_tolerance = 260
         },
         retry_ms = 600000,
@@ -17538,7 +17552,7 @@ M.ROUTE_POINT_ACTIONS = {
             x = -10533.50,
             y = 19190.70,
             z = 503.00,
-            radius = 1200,
+            radius = 1800,
             z_tolerance = 260
         },
         retry_ms = 600000,
@@ -17610,7 +17624,7 @@ M.ROUTE_POINT_ACTIONS = {
             x = -15752.00,
             y = 5940.00,
             z = 503.00,
-            radius = 1200,
+            radius = 2500,
             z_tolerance = 260
         },
         retry_ms = 600000,

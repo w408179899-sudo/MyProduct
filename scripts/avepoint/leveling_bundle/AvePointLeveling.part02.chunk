@@ -6,7 +6,7 @@ end
 local resolve_main_task_button_hint
 
 function M.arm_linear_task_recipe(ctx, current_time, recipe)
-    current_time = tonumber(current_time) or now_ms(ctx)
+    current_time = now_ms(ctx)
     local key = tostring(type(recipe) == "table" and (recipe.key or recipe.recipe_key) or "")
     if key == "" then
         key = tostring(M.current_task_log_name() or state.current_task_name or "linear_recipe")
@@ -10151,6 +10151,7 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
 
     if objective_distance > interact_radius or z_gap > z_tolerance then
         state.route_point_action_objective_missing_button_since_at = 0
+        state.route_point_action_objective_arrived_at = 0
         state.stage = "route_point_action_objective_move"
         release_async_combat_inputs(ctx, current_time, true)
         issue_move(ctx, current_time, {
@@ -10221,6 +10222,47 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
                     tostring(pulse_err or "")
                 )
             )
+        end
+    end
+
+    local arrival_settle_ms = math.max(
+        0,
+        tonumber(action.arrival_settle_ms or action.objective_arrival_settle_ms or action.hotkey_settle_ms) or 0
+    )
+    if arrival_settle_ms > 0 then
+        local arrived_at = tonumber(state.route_point_action_objective_arrived_at) or 0
+        if arrived_at <= 0 then
+            arrived_at = current_time
+            state.route_point_action_objective_arrived_at = current_time
+            if hotkey_vk ~= nil then
+                logger(ctx).info(string.format(
+                    "[Leveling] route point action objective arrival sleep before hotkey | task=%s key=%s distance=%.2f sleep_ms=%d",
+                    tostring(M.current_task_log_name() or state.current_task_name or ""),
+                    tostring(active_key),
+                    tonumber(objective_distance) or 0,
+                    math.floor(arrival_settle_ms)
+                ))
+                sleep_ms(ctx, arrival_settle_ms)
+                current_time = now_ms(ctx)
+            end
+        end
+        local settle_elapsed = math.max(0, current_time - arrived_at)
+        if settle_elapsed < arrival_settle_ms then
+            pulse_while_waiting("route_point_objective_arrival_settle")
+            log_throttled(
+                ctx,
+                "route_point_action_objective_arrival_settle_" .. tostring(active_key),
+                "info",
+                500,
+                string.format(
+                    "[Leveling] route point action objective arrival settle | task=%s key=%s distance=%.2f wait_left=%dms",
+                    tostring(M.current_task_log_name() or state.current_task_name or ""),
+                    tostring(active_key),
+                    tonumber(objective_distance) or 0,
+                    math.max(0, math.floor(arrival_settle_ms - settle_elapsed))
+                )
+            )
+            return true
         end
     end
 
@@ -10340,6 +10382,19 @@ function M.maybe_handle_route_point_action_objective(ctx, current_time, player_x
                 tonumber(player_z) or 0,
                 armed_followup_action and ("route_point_followup:" .. tostring(followup_route_action_key)) or "main_task_refresh"
             ))
+            if armed_followup_action then
+                local followup_now = now_ms(ctx)
+                local handled = M.maybe_handle_route_point_action_objective(
+                    ctx,
+                    followup_now,
+                    player_x,
+                    player_y,
+                    player_z
+                )
+                if handled then
+                    return true
+                end
+            end
             return true
         end
 
@@ -15835,8 +15890,12 @@ end
             state.task_path_wait_until = after_click_time + TASK_BUTTON_PATH_FETCH_TIMEOUT_MS
             state.next_task_button_click_at = state.task_path_wait_until
             state.task_path_early_retry_at = after_click_time
-                + math.max(900, tonumber(M.TASK_BUTTON_PATH_EARLY_RETRY_AFTER_MS) or 1100)
+                + math.max(
+                    TASK_BUTTON_PATH_FETCH_TIMEOUT_MS,
+                    tonumber(M.TASK_BUTTON_PATH_EARLY_RETRY_AFTER_MS) or 1100
+                )
             state.task_path_early_retry_count = 0
+            state.wait_task_path_force_poll_at = 0
             state.cached_nearest_npc = nil
             state.cached_npc_error = nil
             state.cached_task_monsters = nil
