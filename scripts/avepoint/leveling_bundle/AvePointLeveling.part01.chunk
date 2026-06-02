@@ -133,8 +133,8 @@ M.BUTTON_CALL_HOVER_CAPTURE_DISABLED = true
 local UPDATE_INTERVAL_MS = 100
 local HEARTBEAT_INTERVAL_MS = 3000
 local ACTION_INTERVAL_MS = 255
-M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS = 550
-M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS = 550
+M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS = 280
+M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS = 360
 M.COMBAT_ALTERNATE_ACTION_INTERVAL_MS = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS
 M.COMBAT_ALTERNATE_RESET_MS = 10000
 local MOVE_INTERVAL_MS = 900
@@ -180,6 +180,10 @@ M.LEVELING_USE_POTION_WORKER = not (
 )
 M.POTION_WORKER_SHARE_PREFIX_BASE = "avepoint_leveling_potion_worker"
 M.POTION_WORKER_UPDATE_INTERVAL_MS = tonumber(M._leveling_config and M._leveling_config.POTION_WORKER_UPDATE_INTERVAL_MS) or 40
+M.POTION_WORKER_MAIN_FALLBACK_ENABLED = not (
+    M._leveling_config and M._leveling_config.POTION_WORKER_MAIN_FALLBACK_ENABLED == false
+)
+M.POTION_WORKER_HEARTBEAT_STALE_MS = tonumber(M._leveling_config and M._leveling_config.POTION_WORKER_HEARTBEAT_STALE_MS) or 1200
 M.TASK_DETAIL_TRANSITION_MAX_HOLD_MS = 6000
 local TASK_COMBAT_HARD_TRIGGER_MS = 4500
 local TASK_COMBAT_HARD_MONSTER_COUNT = 6
@@ -237,8 +241,12 @@ M.NAVIGATION_COMBAT_MONITOR_LEASE_MS = math.max(
     tonumber(M._leveling_config and M._leveling_config.NAVIGATION_COMBAT_MONITOR_LEASE_MS)
         or M.COMBAT_WORKER_LEASE_MS
 )
-M.NAVIGATION_COMBAT_MONITOR_DISTANCE = tonumber(M._leveling_config and M._leveling_config.NAVIGATION_COMBAT_MONITOR_DISTANCE) or 1000
-M.NAVIGATION_COMBAT_MONITOR_SCAN_INTERVAL_MS = tonumber(M._leveling_config and M._leveling_config.NAVIGATION_COMBAT_MONITOR_SCAN_INTERVAL_MS) or 200
+M.NAVIGATION_COMBAT_MONITOR_DISTANCE = tonumber(M._leveling_config and M._leveling_config.NAVIGATION_COMBAT_MONITOR_DISTANCE) or 1200
+M.NAVIGATION_COMBAT_MONITOR_SCAN_INTERVAL_MS = tonumber(M._leveling_config and M._leveling_config.NAVIGATION_COMBAT_MONITOR_SCAN_INTERVAL_MS) or 80
+M.COMBAT_WORKER_TARGET_HOLD_MS = tonumber(M._leveling_config and M._leveling_config.COMBAT_WORKER_TARGET_HOLD_MS) or 4000
+M.COMBAT_WORKER_AMBIENT_MONITOR_ENABLED = not (
+    M._leveling_config and M._leveling_config.COMBAT_WORKER_AMBIENT_MONITOR_ENABLED == false
+)
 M.TASK_PATH_WORKER_ROUTE_MODE = not (
     M._leveling_config and M._leveling_config.TASK_PATH_WORKER_ROUTE_MODE == false
 )
@@ -269,6 +277,7 @@ M.TASK_INFO_STABILITY_TIMEOUT_MS = 12000
 M.TASK_INFO_STABILITY_AFTER_CHANGE_DEADLINE_PAD_MS = 1500
 M.TASK_INFO_STABILITY_RUNTIME_PROBE_MS = 600
 M.TASK_INFO_STABILITY_RUNTIME_READY_COUNT = 1
+M.TASK_UPDATE_WAIT_FAST_RELEASE_AFTER_MS = 600
 local POST_UI_PAUSE_MS = 900
 local FOLLOW_MOVE_PULSE_INTERVAL_MS = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS
 local FOLLOW_MOVE_PULSE_MIN_DISTANCE = 260
@@ -2748,14 +2757,25 @@ function M.combat_worker_clear_shares(ctx)
         "enabled",
         "allow_until",
         "interval_ms",
+        "interval_max_ms",
         "retry_ms",
+        "target_hold_ms",
+        "target_hold_until",
         "reason",
         "stage",
         "lease_version",
+        "scan_nearby",
+        "scan_distance",
+        "scan_interval_ms",
+        "scan_start_at",
+        "scan_count",
+        "scan_nearest_distance",
+        "scan_checked_at",
         "worker_status",
         "last_error",
         "last_pulse_at",
         "last_pulse_interval_ms",
+        "last_pulse_target_interval_ms",
         "last_reason",
         "last_key_mode",
         "last_mouse_mode",
@@ -2784,6 +2804,20 @@ function M.potion_worker_set(ctx, suffix, value)
     end
     sys_api.set_share(key, value)
     return true
+end
+
+function M.potion_worker_get(ctx, suffix)
+    local sys_api = share_api(ctx)
+    local key = M.potion_worker_key(suffix)
+    if not sys_api or not key or type(sys_api.get_share) ~= "function" then
+        return nil
+    end
+
+    local ok, value = pcall(sys_api.get_share, key)
+    if ok then
+        return value
+    end
+    return nil
 end
 
 function M.potion_worker_clear_shares(ctx)
@@ -3247,6 +3281,57 @@ function M.stop_potion_worker(ctx)
     state.potion_worker_last_error = nil
 end
 
+function M.potion_worker_is_healthy(ctx, current_time)
+    if M.LEVELING_USE_POTION_WORKER ~= true then
+        return false, "disabled"
+    end
+    if not (tonumber(state.potion_worker_task_id) and tonumber(state.potion_worker_task_id) > 0) then
+        return false, "not_started"
+    end
+
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local status = tostring(M.potion_worker_get(ctx, "worker_status") or "")
+    local last_error = tostring(M.potion_worker_get(ctx, "last_error") or "")
+    local heartbeat_at = tonumber(M.potion_worker_get(ctx, "heartbeat_at")) or 0
+    if heartbeat_at <= 0 then
+        return false, status ~= "" and ("no_heartbeat:" .. status) or "no_heartbeat"
+    end
+    if current_time - heartbeat_at > (tonumber(M.POTION_WORKER_HEARTBEAT_STALE_MS) or 1200) then
+        return false, "heartbeat_stale:" .. status
+    end
+    if status == "nav_unavailable" or status == "potion_failed" or status == "stopped" then
+        return false, status
+    end
+    if status == "watching"
+        and last_error:find("hp/max_hp unavailable", 1, true) ~= nil
+    then
+        return false, "hp_unavailable"
+    end
+
+    return true, status
+end
+
+function M.maybe_handle_potion_worker_fallback(ctx, current_time, hp, max_hp, hp_ratio)
+    if M.POTION_WORKER_MAIN_FALLBACK_ENABLED ~= true then
+        return false
+    end
+    if type(M.maybe_handle_potion_watch) ~= "function" then
+        return false
+    end
+
+    local healthy, reason = M.potion_worker_is_healthy(ctx, current_time)
+    if healthy then
+        return false
+    end
+
+    log_throttled(ctx, "potion_worker_main_fallback", "info", 2000, string.format(
+        "[Leveling] potion worker fallback active | reason=%s hp_ratio=%s",
+        tostring(reason or ""),
+        type(hp_ratio) == "number" and string.format("%.2f", hp_ratio) or "nil"
+    ))
+    return M.maybe_handle_potion_watch(ctx, current_time, hp, max_hp, hp_ratio)
+end
+
 function M.start_combat_worker(ctx, current_time)
     if M.LEVELING_USE_COMBAT_WORKER ~= true then
         state.combat_worker_force_direct = true
@@ -3286,7 +3371,9 @@ function M.start_combat_worker(ctx, current_time)
     M.combat_worker_set(ctx, "enabled", false)
     M.combat_worker_set(ctx, "allow_until", 0)
     M.combat_worker_set(ctx, "interval_ms", M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS)
+    M.combat_worker_set(ctx, "interval_max_ms", M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS)
     M.combat_worker_set(ctx, "retry_ms", 100)
+    M.combat_worker_set(ctx, "target_hold_ms", M.COMBAT_WORKER_TARGET_HOLD_MS)
 
     local worker_id = task_mod.run("scripts/AvePointLevelingCombatWorker.lua", {
         name = "AvePointLevelingCombatWorker",
@@ -3296,7 +3383,9 @@ function M.start_combat_worker(ctx, current_time)
         runtime_mode = tostring(type(ctx) == "table" and ctx.runtime_mode or ""),
         update_interval_ms = 40,
         interval_ms = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS,
+        interval_max_ms = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS,
         retry_ms = 100,
+        target_hold_ms = M.COMBAT_WORKER_TARGET_HOLD_MS,
         mouse_hold_ms = ACTION_MOUSE_HOLD_MS
     })
     if type(worker_id) ~= "number" or worker_id <= 0 then
@@ -3307,10 +3396,11 @@ function M.start_combat_worker(ctx, current_time)
 
     state.combat_worker_task_id = worker_id
     logger(ctx).info(string.format(
-        "[Leveling] combat worker started | task_id=%d share=%s interval_ms=%d lease_ms=%d",
+        "[Leveling] combat worker started | task_id=%d share=%s interval_ms=%d-%d lease_ms=%d",
         worker_id,
         tostring(state.combat_worker_share_prefix),
         tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS) or 0,
+        tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS) or 0,
         tonumber(M.COMBAT_WORKER_LEASE_MS) or 0
     ))
     return true
@@ -3441,9 +3531,18 @@ function M.publish_combat_worker_lease(ctx, current_time, reason, opts)
                 or 550
         )
     )
+    local interval_max_ms = math.max(
+        interval_ms,
+        math.floor(
+            tonumber(opts.interval_max_ms)
+                or tonumber(M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS)
+                or interval_ms
+        )
+    )
     local lease_ms = math.max(interval_ms, math.floor(tonumber(opts.lease_ms) or tonumber(M.COMBAT_WORKER_LEASE_MS) or M.COMBAT_WORKER_DEFAULT_LEASE_MS))
     local retry_ms = math.max(50, math.floor(tonumber(opts.retry_ms) or 100))
     local scan_nearby = opts.scan_nearby == true
+    local target_hold_ms = math.max(0, math.floor(tonumber(opts.target_hold_ms) or tonumber(M.COMBAT_WORKER_TARGET_HOLD_MS) or 0))
 
     state.combat_worker_lease_version = (tonumber(state.combat_worker_lease_version) or 0) + 1
     state.combat_worker_last_publish_at = current_time
@@ -3452,6 +3551,7 @@ function M.publish_combat_worker_lease(ctx, current_time, reason, opts)
     M.combat_worker_set(ctx, "enabled", true)
     M.combat_worker_set(ctx, "allow_until", current_time + lease_ms)
     M.combat_worker_set(ctx, "interval_ms", interval_ms)
+    M.combat_worker_set(ctx, "interval_max_ms", interval_max_ms)
     M.combat_worker_set(ctx, "retry_ms", retry_ms)
     M.combat_worker_set(ctx, "reason", tostring(reason or "combat_worker"))
     M.combat_worker_set(ctx, "stage", tostring(state.stage or ""))
@@ -3460,14 +3560,17 @@ function M.publish_combat_worker_lease(ctx, current_time, reason, opts)
     M.combat_worker_set(ctx, "scan_distance", scan_nearby and (tonumber(opts.scan_distance) or 0) or 0)
     M.combat_worker_set(ctx, "scan_interval_ms", scan_nearby and (tonumber(opts.scan_interval_ms) or 0) or 0)
     M.combat_worker_set(ctx, "scan_start_at", scan_nearby and (tonumber(opts.scan_start_at) or 0) or 0)
+    M.combat_worker_set(ctx, "target_hold_ms", target_hold_ms)
 
     log_throttled(ctx, "combat_worker_lease", "info", 1000, string.format(
-        "[Leveling] combat worker lease armed | reason=%s stage=%s interval_ms=%d lease_ms=%d scan=%s status=%s",
+        "[Leveling] combat worker lease armed | reason=%s stage=%s interval_ms=%d-%d lease_ms=%d scan=%s hold_ms=%d status=%s",
         tostring(reason or ""),
         tostring(state.stage or ""),
         interval_ms,
+        interval_max_ms,
         lease_ms,
         scan_nearby and "true" or "false",
+        target_hold_ms,
         tostring(M.combat_worker_get(ctx, "worker_status") or "")
     ))
     return true
@@ -3489,12 +3592,14 @@ function M.publish_navigation_combat_monitor(ctx, current_time, reason)
     current_time = tonumber(current_time) or now_ms(ctx)
     return M.publish_combat_worker_lease(ctx, current_time, reason or "navigation_monitor", {
         interval_ms = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS,
+        interval_max_ms = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS,
         lease_ms = M.NAVIGATION_COMBAT_MONITOR_LEASE_MS,
         retry_ms = 100,
         scan_nearby = true,
         scan_distance = M.NAVIGATION_COMBAT_MONITOR_DISTANCE,
         scan_interval_ms = M.NAVIGATION_COMBAT_MONITOR_SCAN_INTERVAL_MS,
-        scan_start_at = math.max(current_time, tonumber(state.pause_combat_until) or 0)
+        scan_start_at = current_time,
+        target_hold_ms = M.COMBAT_WORKER_TARGET_HOLD_MS
     })
 end
 
@@ -11362,81 +11467,7 @@ local function resolve_input_hwnd(ctx)
     return hwnd
 end
 
-local function try_background_key_click(ctx, vk, label)
-    local hwnd, hwnd_err = resolve_input_hwnd(ctx)
-    if not hwnd then
-        return false, hwnd_err
-    end
-
-    local keybd_api = select(1, input_apis(ctx))
-    if type(keybd_api) ~= "table" or type(keybd_api.post_click) ~= "function" then
-        return false, "keybd.post_click is unavailable."
-    end
-
-    local ok, result = safe_call(keybd_api.post_click, hwnd, vk)
-    if not ok or result == false then
-        return false, string.format("%s keybd.post_click(0x%02X) failed.", tostring(label or "key"), tonumber(vk) or 0)
-    end
-
-    return true
-end
-
-local function try_background_key_state(ctx, vk, is_down, label)
-    local hwnd, hwnd_err = resolve_input_hwnd(ctx)
-    if not hwnd then
-        return false, hwnd_err
-    end
-
-    local keybd_api = select(1, input_apis(ctx))
-    if type(keybd_api) ~= "table" or type(keybd_api.post_key) ~= "function" then
-        return false, "keybd.post_key is unavailable."
-    end
-
-    local ok, result = safe_call(keybd_api.post_key, hwnd, vk, is_down == true)
-    if not ok or result == false then
-        return false, string.format(
-            "%s keybd.post_key(0x%02X, %s) failed.",
-            tostring(label or "key"),
-            tonumber(vk) or 0,
-            tostring(is_down == true)
-        )
-    end
-
-    return true
-end
-
 local function press_keyboard_hotkey(ctx, current_time, vk, label)
-    local background_ok = try_background_key_click(ctx, vk, label)
-    if background_ok then
-        return true
-    end
-
-    local prepared, prepare_err = prepare_inputs(ctx, current_time, {
-        need_mouse = false
-    })
-    if not prepared then
-        return false, prepare_err
-    end
-
-    local keybd_api = select(1, input_apis(ctx))
-    if type(keybd_api) ~= "table" or type(keybd_api.click) ~= "function" then
-        return false, "keybd.click is unavailable."
-    end
-
-    local ok, result = safe_call(keybd_api.click, vk)
-    if not ok or result == false then
-        return false, string.format("%s keybd.click(0x%02X) failed.", tostring(label or "key"), tonumber(vk) or 0)
-    end
-
-    return true
-end
-
-M.try_press_potion_hotkey = function(ctx, vk, label)
-    local background_ok, background_err = try_background_key_click(ctx, vk, label)
-    if background_ok then
-        return true, nil, "background"
-    end
-
     local driver_api = type(ctx) == "table" and ctx.driver or driver
     if type(driver_api) == "table" and type(driver_api.keybd_click) == "function" then
         local ok, result = safe_call(driver_api.keybd_click, vk)
@@ -11447,22 +11478,49 @@ M.try_press_potion_hotkey = function(ctx, vk, label)
 
     local hwnd, hwnd_err = resolve_input_hwnd(ctx)
     if not hwnd then
-        return false, background_err or hwnd_err or "game window not found."
+        return false, hwnd_err or "game window not found."
+    end
+
+    local keybd_api = select(1, input_apis(ctx))
+    if type(keybd_api) ~= "table" or type(keybd_api.click) ~= "function" then
+        return false, "keybd.click is unavailable."
+    end
+    if type(keybd_api.set_mode) == "function" then
+        safe_call(keybd_api.set_mode, "driver")
+    end
+    if type(keybd_api.set_window) == "function" then
+        safe_call(keybd_api.set_window, hwnd)
+    end
+
+    local ok, result = safe_call(keybd_api.click, vk)
+    if not ok or result == false then
+        return false, string.format("%s keybd.click(0x%02X) failed.", tostring(label or "key"), tonumber(vk) or 0)
+    end
+
+    return true, nil, "key_click_driver"
+end
+
+M.try_press_potion_hotkey = function(ctx, vk, label)
+    local driver_api = type(ctx) == "table" and ctx.driver or driver
+    if type(driver_api) == "table" and type(driver_api.keybd_click) == "function" then
+        local ok, result = safe_call(driver_api.keybd_click, vk)
+        if ok and result ~= false then
+            return true, nil, "driver_click"
+        end
+    end
+
+    local hwnd, hwnd_err = resolve_input_hwnd(ctx)
+    if not hwnd then
+        return false, hwnd_err or "game window not found."
     end
 
     local keybd_api = select(1, input_apis(ctx))
     if type(keybd_api) ~= "table" then
-        return false, background_err or "keybd api unavailable."
+        return false, "keybd api unavailable."
     end
 
-    local preferred_mode = type(ctx) == "table" and ctx.runtime_mode or "driver"
-    preferred_mode = preferred_mode == "api" and "api" or "driver"
     if type(keybd_api.set_mode) == "function" then
-        local fallback_mode = preferred_mode == "api" and "driver" or "api"
-        local ok, result = safe_call(keybd_api.set_mode, preferred_mode)
-        if not ok or result == false then
-            safe_call(keybd_api.set_mode, fallback_mode)
-        end
+        safe_call(keybd_api.set_mode, "driver")
     end
     if type(keybd_api.set_window) == "function" then
         safe_call(keybd_api.set_window, hwnd)
@@ -11474,7 +11532,7 @@ M.try_press_potion_hotkey = function(ctx, vk, label)
         end
     end
 
-    return false, background_err or string.format("%s nonintrusive key click failed.", tostring(label or "key"))
+    return false, string.format("%s driver key click failed.", tostring(label or "key"))
 end
 
 function M.try_press_right_click_nonintrusive(ctx, label)
@@ -12425,6 +12483,7 @@ local function issue_combat_pulse(ctx, current_time, reason, ignore_move_guard)
     if M.LEVELING_USE_COMBAT_WORKER == true and state.combat_worker_force_direct ~= true then
         local worker_ok, worker_err = M.publish_combat_worker_lease(ctx, current_time, reason, {
             interval_ms = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MIN_MS,
+            interval_max_ms = M.COMBAT_ALTERNATE_ACTION_INTERVAL_MAX_MS,
             lease_ms = M.COMBAT_WORKER_LEASE_MS,
             retry_ms = 100
         })
@@ -12961,6 +13020,13 @@ function M.tick_independent_combat_task(ctx, current_time, player_x, player_y, p
     local has_target = type(state.task_target) == "table"
     local navigation_active = has_target and not M.is_non_navigation_skill_pulse_stage(stage_name)
     local phase = navigation_active and "independent_navigation" or "independent_non_navigation"
+
+    if navigation_active
+        and M.COMBAT_WORKER_AMBIENT_MONITOR_ENABLED == true
+        and type(M.publish_navigation_combat_monitor) == "function"
+    then
+        M.publish_navigation_combat_monitor(ctx, current_time, phase .. "_monitor")
+    end
 
     return M.tick_combat_sidecar(ctx, current_time, player_x, player_y, player_z, hp_ratio, {
         phase = phase,

@@ -152,7 +152,9 @@ local PROCESS_NAME = tostring(process_name or "")
 local RUNTIME_MODE = tostring(runtime_mode or "")
 local UPDATE_INTERVAL_MS = math.max(30, tonumber(update_interval_ms) or 40)
 local DEFAULT_INTERVAL_MS = math.max(100, tonumber(interval_ms) or 550)
+local DEFAULT_INTERVAL_MAX_MS = math.max(DEFAULT_INTERVAL_MS, tonumber(interval_max_ms) or DEFAULT_INTERVAL_MS)
 local DEFAULT_RETRY_MS = math.max(50, tonumber(retry_ms) or 100)
+local DEFAULT_TARGET_HOLD_MS = math.max(0, tonumber(target_hold_ms) or 4000)
 local ACTION_MOUSE_HOLD_MS = math.max(10, tonumber(mouse_hold_ms) or 34)
 local DEFAULT_SCAN_INTERVAL_MS = 200
 local DEFAULT_SCAN_DISTANCE = 1000
@@ -186,6 +188,7 @@ local scan_has_target = false
 local scan_count = 0
 local scan_nearest_distance = nil
 local last_scan_log_at = 0
+local target_hold_until = 0
 
 local function ensure_nav_ready()
     if type(nav) ~= "table" or type(nav.ensure_initialized) ~= "function" then
@@ -317,7 +320,7 @@ local function press_right()
     return false, "combat worker right click failed.", nil
 end
 
-local function issue_pulse(reason, interval_ms, retry_ms)
+local function issue_pulse(reason, interval_ms, interval_max_ms, retry_ms)
     local start_at = now_ms()
     local key_ok, key_err, key_mode = press_w()
     local mouse_ok, mouse_err, mouse_mode = press_right()
@@ -325,11 +328,13 @@ local function issue_pulse(reason, interval_ms, retry_ms)
 
     if key_ok and mouse_ok then
         local previous = last_pulse_at
+        local next_interval_ms = random_between(interval_ms, interval_max_ms)
         last_pulse_at = finish_at
         pulse_count = pulse_count + 1
-        next_pulse_at = finish_at + interval_ms
+        next_pulse_at = math.max(finish_at, start_at + next_interval_ms)
         share_set(SHARE_PREFIX, "last_pulse_at", finish_at)
         share_set(SHARE_PREFIX, "last_pulse_interval_ms", previous > 0 and math.max(0, finish_at - previous) or 0)
+        share_set(SHARE_PREFIX, "last_pulse_target_interval_ms", next_interval_ms)
         share_set(SHARE_PREFIX, "last_reason", tostring(reason or ""))
         share_set(SHARE_PREFIX, "last_key_mode", tostring(key_mode or ""))
         share_set(SHARE_PREFIX, "last_mouse_mode", tostring(mouse_mode or ""))
@@ -340,9 +345,11 @@ local function issue_pulse(reason, interval_ms, retry_ms)
         if finish_at - last_log_at >= 1000 then
             last_log_at = finish_at
             log_info(string.format(
-                "[Leveling] combat worker pulse issued | reason=%s interval_ms=%d actual_gap_ms=%d key_mode=%s mouse_mode=%s elapsed_ms=%d",
+                "[Leveling] combat worker pulse issued | reason=%s interval_ms=%d-%d next_interval_ms=%d actual_gap_ms=%d key_mode=%s mouse_mode=%s elapsed_ms=%d",
                 tostring(reason or ""),
                 tonumber(interval_ms) or 0,
+                tonumber(interval_max_ms) or 0,
+                tonumber(next_interval_ms) or 0,
                 previous > 0 and math.max(0, finish_at - previous) or 0,
                 tostring(key_mode or ""),
                 tostring(mouse_mode or ""),
@@ -505,14 +512,18 @@ while running do
         local allow_until = as_number(share_get(SHARE_PREFIX, "allow_until")) or 0
         local reason = tostring(share_get(SHARE_PREFIX, "reason") or "")
         local interval_ms = math.max(100, as_number(share_get(SHARE_PREFIX, "interval_ms")) or DEFAULT_INTERVAL_MS)
+        local interval_max_ms = math.max(interval_ms, as_number(share_get(SHARE_PREFIX, "interval_max_ms")) or DEFAULT_INTERVAL_MAX_MS)
         local retry_ms = math.max(50, as_number(share_get(SHARE_PREFIX, "retry_ms")) or DEFAULT_RETRY_MS)
         local scan_nearby = as_boolean(share_get(SHARE_PREFIX, "scan_nearby"))
         local scan_distance = math.max(100, as_number(share_get(SHARE_PREFIX, "scan_distance")) or DEFAULT_SCAN_DISTANCE)
         local scan_interval_ms = math.max(50, as_number(share_get(SHARE_PREFIX, "scan_interval_ms")) or DEFAULT_SCAN_INTERVAL_MS)
         local scan_start_at = as_number(share_get(SHARE_PREFIX, "scan_start_at")) or 0
+        local target_hold_ms = math.max(0, as_number(share_get(SHARE_PREFIX, "target_hold_ms")) or DEFAULT_TARGET_HOLD_MS)
 
         if paused or not enabled then
             next_r_at = 0
+            target_hold_until = 0
+            share_set(SHARE_PREFIX, "target_hold_until", 0)
             set_status(paused and "paused" or "idle")
             if not safe_sleep(UPDATE_INTERVAL_MS) then
                 break
@@ -528,15 +539,35 @@ while running do
             local monitor_wait_ms = nil
             if scan_nearby then
                 if current_time < scan_start_at then
-                    monitor_wait_ms = math.min(UPDATE_INTERVAL_MS, math.max(10, scan_start_at - current_time))
-                    set_status("monitoring_wait", string.format("wait_ms=%d", math.max(0, scan_start_at - current_time)))
+                    if current_time <= target_hold_until then
+                        set_status("monitoring_hold", string.format("hold_ms=%d", math.max(0, target_hold_until - current_time)))
+                    else
+                        monitor_wait_ms = math.min(UPDATE_INTERVAL_MS, math.max(10, scan_start_at - current_time))
+                        set_status("monitoring_wait", string.format("wait_ms=%d", math.max(0, scan_start_at - current_time)))
+                    end
                 else
                     local has_target, count, nearest_distance, scan_err =
                         refresh_nearby_monster_scan(current_time, scan_distance, scan_interval_ms)
                     if not has_target then
-                        monitor_wait_ms = UPDATE_INTERVAL_MS
-                        set_status("monitoring", scan_err or string.format("count=%d nearest=%s", tonumber(count) or 0, tostring(nearest_distance or "")))
-                        if current_time - last_scan_log_at >= 2000 then
+                        if current_time <= target_hold_until then
+                            set_status("monitoring_hold", string.format("hold_ms=%d count=%d", math.max(0, target_hold_until - current_time), tonumber(count) or 0))
+                            if current_time - last_scan_log_at >= 1000 then
+                                last_scan_log_at = current_time
+                                log_info(string.format(
+                                    "[Leveling] combat worker navigation monitor hold | reason=%s hold_ms=%d distance=%.0f count=%d nearest=%s err=%s",
+                                    reason,
+                                    math.max(0, target_hold_until - current_time),
+                                    tonumber(scan_distance) or 0,
+                                    tonumber(count) or 0,
+                                    nearest_distance ~= nil and string.format("%.2f", tonumber(nearest_distance) or 0) or "nil",
+                                    tostring(scan_err or "")
+                                ))
+                            end
+                        else
+                            monitor_wait_ms = UPDATE_INTERVAL_MS
+                            set_status("monitoring", scan_err or string.format("count=%d nearest=%s", tonumber(count) or 0, tostring(nearest_distance or "")))
+                        end
+                        if monitor_wait_ms ~= nil and current_time - last_scan_log_at >= 2000 then
                             last_scan_log_at = current_time
                             log_info(string.format(
                                 "[Leveling] combat worker navigation monitor waiting | reason=%s distance=%.0f count=%d nearest=%s err=%s",
@@ -548,6 +579,10 @@ while running do
                             ))
                         end
                     else
+                        if target_hold_ms > 0 then
+                            target_hold_until = math.max(target_hold_until, current_time + target_hold_ms)
+                            share_set(SHARE_PREFIX, "target_hold_until", target_hold_until)
+                        end
                         set_status("monitoring_target", string.format("count=%d nearest=%.2f", tonumber(count) or 0, tonumber(nearest_distance) or 0))
                         if current_time - last_scan_log_at >= 1000 then
                             last_scan_log_at = current_time
@@ -572,7 +607,7 @@ while running do
                     schedule_next_r(current_time)
                 end
                 if current_time >= next_pulse_at then
-                    issue_pulse(reason, interval_ms, retry_ms)
+                    issue_pulse(reason, interval_ms, interval_max_ms, retry_ms)
                     current_time = now_ms()
                 end
                 if current_time >= next_r_at then

@@ -5503,6 +5503,70 @@ function M.release_task_info_stability_gate_for_fast_task(ctx, current_time, gat
     state.next_task_button_click_at = current_time
     state.next_task_refresh_at = current_time
 end
+function M.maybe_fast_release_task_update_wait(ctx, current_time, player_x, player_y, player_z, in_main_interface)
+    if state.task_info_stability_gate_active ~= true then
+        return false
+    end
+    if current_time >= (tonumber(state.task_update_wait_until) or 0) then
+        return false
+    end
+    local started_at = tonumber(state.task_info_stability_gate_started_at) or 0
+    local min_wait_ms = math.max(0, tonumber(M.TASK_UPDATE_WAIT_FAST_RELEASE_AFTER_MS) or 600)
+    if started_at <= 0 or current_time - started_at < min_wait_ms then
+        return false
+    end
+
+    if current_time >= (tonumber(state.task_info_stability_gate_next_probe_at) or 0) then
+        local hint_x, hint_y = resolve_main_task_button_hint(ctx)
+        if hint_x ~= nil and hint_y ~= nil then
+            M.refresh_current_task_name(ctx, current_time, nil, hint_x, hint_y)
+        end
+        state.task_info_stability_gate_next_probe_at =
+            current_time + (tonumber(M.TASK_INFO_STABILITY_PROBE_INTERVAL_MS) or 600)
+    end
+
+    local previous_task_name = normalize_map_name(state.task_info_stability_gate_previous_task_name)
+    local previous_task_detail = normalize_map_name(state.task_info_stability_gate_previous_task_detail)
+    local current_task_name = normalize_map_name(state.current_task_name)
+    local current_task_detail = normalize_map_name(state.current_task_detail)
+    if current_task_name == previous_task_name and current_task_detail == previous_task_detail then
+        return false
+    end
+
+    local fast_ready, fast_ready_reason = M.task_info_gate_has_fast_ready_task()
+    if not fast_ready then
+        return false
+    end
+    local runtime_ready, runtime_reason = M.task_info_gate_player_runtime_ready(
+        ctx,
+        current_time,
+        player_x,
+        player_y,
+        player_z,
+        in_main_interface
+    )
+    if not runtime_ready then
+        M.extend_task_info_stability_gate_for_runtime(ctx, current_time, runtime_reason)
+        return false
+    end
+
+    logger(ctx).info(string.format(
+        "[Leveling] task update wait fast-released | task=%s detail=%s previous_task=%s previous_detail=%s runtime=%s ready=%s wait_left=%dms",
+        tostring(current_task_name or ""),
+        tostring(current_task_detail or ""),
+        tostring(previous_task_name or ""),
+        tostring(previous_task_detail or ""),
+        tostring(runtime_reason or ""),
+        tostring(fast_ready_reason or ""),
+        math.max(0, (tonumber(state.task_update_wait_until) or current_time) - current_time)
+    ))
+    M.clear_task_info_refresh_wait_state()
+    state.require_task_button_refresh = true
+    state.require_task_button_refresh_reason = "task_update_fast_ready"
+    state.next_task_button_click_at = current_time
+    state.next_task_refresh_at = current_time
+    return true
+end
 function M.maybe_handle_task_info_stability_gate(ctx, current_time, player_x, player_y, player_z, in_main_interface)
     if state.task_info_stability_gate_active ~= true then
         return false
@@ -6907,6 +6971,9 @@ function M.update(now, ctx)
             "[Leveling] is_main_interface failed: " .. tostring(main_interface_err))
     end
     local _, hp, max_hp, hp_ratio = refresh_player_status(ctx, current_time)
+    if type(M.maybe_handle_potion_worker_fallback) == "function" then
+        M.maybe_handle_potion_worker_fallback(ctx, current_time, hp, max_hp, hp_ratio)
+    end
     local player_x, player_y, player_z, pos_err = read_player_pos(ctx)
     M.refresh_blackboard_snapshot(current_time, {
         ctx = ctx,
@@ -7502,6 +7569,16 @@ function M.update(now, ctx)
             priority = 10,
             run = function()
                 if current_time < (tonumber(state.task_update_wait_until) or 0) then
+                    if M.maybe_fast_release_task_update_wait(
+                        ctx,
+                        current_time,
+                        player_x,
+                        player_y,
+                        player_z,
+                        in_main_interface
+                    ) then
+                        return false
+                    end
                     state.stage = "wait_task_update"
                     M.log_execution_trace(ctx, current_time, "waiting_task_update", nil, nil, nil, nil, player_x, player_y, player_z)
                     release_async_combat_inputs(ctx, current_time, true, {

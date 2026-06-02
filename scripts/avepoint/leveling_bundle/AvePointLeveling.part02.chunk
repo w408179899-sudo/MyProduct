@@ -5267,6 +5267,32 @@ function M.level_up_maintenance_has_plan_for_level(cfg, level)
     return false
 end
 
+function M.level_up_maintenance_should_catch_up_baseline(cfg, observed_level)
+    cfg = type(cfg) == "table" and cfg or M.level_up_maintenance_config()
+    if cfg.catch_up_missing_plans_on_baseline ~= true then
+        return false
+    end
+    observed_level = math.floor(tonumber(observed_level) or 0)
+    local max_level = tonumber(cfg.catch_up_missing_plans_on_baseline_max_level)
+    if max_level ~= nil and max_level > 0 and observed_level > math.floor(max_level) then
+        return false
+    end
+    return observed_level > 0
+end
+
+function M.level_up_maintenance_should_run_current_baseline(cfg, observed_level)
+    cfg = type(cfg) == "table" and cfg or M.level_up_maintenance_config()
+    if cfg.run_current_level_plan_on_baseline ~= true then
+        return false
+    end
+    observed_level = math.floor(tonumber(observed_level) or 0)
+    local max_level = tonumber(cfg.run_current_level_plan_on_baseline_max_level)
+    if max_level ~= nil and max_level > 0 and observed_level > math.floor(max_level) then
+        return false
+    end
+    return observed_level > 0
+end
+
 function M.level_up_maintenance_collect_baseline_pending_levels(cfg, observed_level)
     cfg = type(cfg) == "table" and cfg or M.level_up_maintenance_config()
     observed_level = math.floor(tonumber(observed_level) or 0)
@@ -5274,7 +5300,7 @@ function M.level_up_maintenance_collect_baseline_pending_levels(cfg, observed_le
         and state.level_up_maintenance_pending_levels
         or {}
     local order = M.level_up_maintenance_plan_order(cfg)
-    local start_level = cfg.catch_up_missing_plans_on_baseline == true and 1 or observed_level
+    local start_level = M.level_up_maintenance_should_catch_up_baseline(cfg, observed_level) and 1 or observed_level
     if cfg.default_skill_catch_up_missing == true then
         state.level_up_maintenance_default_skill_min_pending_level = nil
     else
@@ -5969,6 +5995,7 @@ function M.clear_level_up_maintenance_executor_state()
     state.level_up_maintenance_executor_close_attempts = nil
     state.level_up_maintenance_executor_plan_done_pre_marked = nil
     state.level_up_maintenance_executor_point_check_miss_count = nil
+    state.level_up_maintenance_executor_panel_open_retry_count = nil
     state.level_up_maintenance_executor_no_persist = nil
     state.level_up_maintenance_panel_open_death_guard_until = 0
     state.level_up_maintenance_panel_open_death_guard_wall_until = 0
@@ -6431,6 +6458,7 @@ function M.start_level_up_maintenance_executor(ctx, current_time, plan_info)
     state.level_up_maintenance_executor_close_attempts = 0
     state.level_up_maintenance_executor_plan_done_pre_marked = nil
     state.level_up_maintenance_executor_point_check_miss_count = 0
+    state.level_up_maintenance_executor_panel_open_retry_count = 0
     state.level_up_maintenance_executor_no_persist =
         plan_info.no_persist == true or (ctx ~= nil and ctx.level_up_maintenance_no_persist == true)
     state.level_up_maintenance_executor_last_result = nil
@@ -6511,6 +6539,51 @@ function M.fail_level_up_maintenance_executor(ctx, current_time, err)
             force_task_call = true
         })
     end
+    return true
+end
+
+function M.defer_level_up_maintenance_panel_open_retry(ctx, current_time, reason, step)
+    current_time = tonumber(current_time) or now_ms(ctx)
+    local cfg = M.level_up_maintenance_config()
+    local retry_count = (tonumber(state.level_up_maintenance_executor_panel_open_retry_count) or 0) + 1
+    local max_retries = math.max(1, tonumber(
+        type(step) == "table" and step.panel_open_max_retry_count
+            or type(step) == "table" and step.max_retry_count
+            or type(cfg) == "table" and cfg.panel_open_max_retry_count
+    ) or 6)
+    if retry_count > max_retries then
+        return M.fail_level_up_maintenance_executor(
+            ctx,
+            current_time,
+            string.format(
+                "ensure_panel_open retry exhausted after %d attempts: %s",
+                max_retries,
+                tostring(reason or "")
+            )
+        )
+    end
+
+    local retry_ms = math.max(200, tonumber(
+        type(step) == "table" and step.panel_open_retry_ms
+            or type(step) == "table" and step.retry_ms
+            or type(cfg) == "table" and cfg.panel_open_retry_ms
+    ) or 800)
+    state.level_up_maintenance_executor_panel_open_retry_count = retry_count
+    state.level_up_maintenance_executor_next_step_at = current_time + retry_ms
+    state.level_up_maintenance_next_retry_at = current_time + retry_ms
+    release_async_combat_inputs(ctx, current_time, true)
+    hold_navigation(ctx, current_time, "level_up_maintenance_panel_open_retry")
+    logger(ctx).warn(string.format(
+        "[Leveling] level-up maintenance panel open deferred; keep plan pending | kind=%s level=%s plan=%s step=%s retry=%d/%d wait=%dms reason=%s",
+        tostring(state.level_up_maintenance_executor_kind or ""),
+        tostring(state.level_up_maintenance_executor_level or ""),
+        tostring(state.level_up_maintenance_executor_plan_label or ""),
+        tostring(state.level_up_maintenance_executor_step_index or ""),
+        retry_count,
+        max_retries,
+        retry_ms,
+        tostring(reason or "")
+    ))
     return true
 end
 
@@ -6685,10 +6758,11 @@ function M.progress_level_up_maintenance_executor(ctx, current_time)
 
                 local now = now_ms(ctx)
                 if now >= deadline then
-                    return M.fail_level_up_maintenance_executor(
+                    return M.defer_level_up_maintenance_panel_open_retry(
                         ctx,
                         current_time,
-                        "ensure_panel_open verify timeout: " .. tostring(fetch_err or "")
+                        "ensure_panel_open verify timeout: " .. tostring(fetch_err or ""),
+                        step
                     )
                 end
                 if type(sys) == "table" and type(sys.sleep) == "function" then
@@ -7428,7 +7502,7 @@ function M.record_level_up_maintenance_observation(ctx, current_time, level, pro
             ))
             return false
         end
-        if cfg.run_current_level_plan_on_baseline == true then
+        if M.level_up_maintenance_should_run_current_baseline(cfg, observed_level) then
             local pending_levels, has_skill, has_talent, pending_count, has_contract, kind_flags =
                 M.level_up_maintenance_collect_baseline_pending_levels(cfg, observed_level)
             if pending_count > 0 then
@@ -7441,7 +7515,7 @@ function M.record_level_up_maintenance_observation(ctx, current_time, level, pro
                 observed_level,
                 progress ~= nil and tostring(progress) or "",
                 tostring(text or ""),
-                cfg.catch_up_missing_plans_on_baseline == true and "true" or "false",
+                M.level_up_maintenance_should_catch_up_baseline(cfg, observed_level) and "true" or "false",
                 pending_count,
                 M.level_up_maintenance_pending_summary()
             ))
@@ -7491,7 +7565,8 @@ function M.record_level_up_maintenance_observation(ctx, current_time, level, pro
     local kind_plan_counts = {}
     local order = M.level_up_maintenance_plan_order(cfg)
     local catch_up_count = 0
-    if cfg.catch_up_missing_plans_on_baseline == true then
+    local catch_up_enabled = M.level_up_maintenance_should_catch_up_baseline(cfg, observed_level)
+    if catch_up_enabled then
         local catch_up_pending_levels, _, _, pending_count, _, catch_up_kind_flags =
             M.level_up_maintenance_collect_baseline_pending_levels(cfg, observed_level)
         pending_levels = catch_up_pending_levels
@@ -7551,7 +7626,7 @@ function M.record_level_up_maintenance_observation(ctx, current_time, level, pro
         skill_plan_count,
         talent_plan_count,
         contract_plan_count,
-        cfg.catch_up_missing_plans_on_baseline == true and "true" or "false",
+        catch_up_enabled and "true" or "false",
         catch_up_count,
         M.level_up_maintenance_pending_summary()
     ))
