@@ -1,0 +1,24 @@
+# Sensitive runtime configuration
+config.json
+script_config.json
+key.txt
+auth_config.lua
+signatures.json
+
+# Binary/proprietary runtime artifacts
+*.exe
+*.dll
+*.luac
+
+# Logs and local runtime output
+*.log
+logs/
+cache/
+tmp/
+temp/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

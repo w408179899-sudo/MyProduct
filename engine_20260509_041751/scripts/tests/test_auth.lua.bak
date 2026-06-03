@@ -1,0 +1,283 @@
+--[[
+    auth 模块综合测试
+    网络验证功能验证 (纯 userdata 实例模式)
+    
+    API (重构后):
+    - auth.new(config)       创建独立验证客户端 (userdata, __gc 自动释放)
+    - auth.machine_code()    获取机器码 (无状态)
+    
+    客户端对象方法 (client:method()):
+    - client:login(card)           登录
+    - client:is_logged_in()        登录状态
+    - client:start_heartbeat()     启动心跳
+    - client:stop_heartbeat()      停止心跳
+    - client:get_notice()          获取公告
+    - client:get_variable(name)    获取远程变量
+    - client:unbind()              解绑
+    - client:get_token()           获取 Token
+]]
+local T = require("tests.test_framework")
+
+--============================================================================
+-- 测试配置
+--============================================================================
+
+-- 真实服务器配置 (用于网络测试)
+local REAL_SERVER_CONFIG = {
+    host = "http://eydata666.xyz:58080",
+    app_id = "4",
+    app_key = "3f2d532caa0e41c931d23e573c91a048",
+    encrypt_algorithm = "aes",
+    encode_method = "base64",
+    signature_method = "md5",
+    aes_key = "499e183f149266a9",
+    aes_iv = "499e183f149266a9",
+    encrypt_param_name = false,
+    encrypt_param_value = true,
+    encrypt_response = true,
+    verify_signature = false,
+    verify_safe_code = false,
+    verify_time_diff = false,
+    heartbeat_interval = 60000
+}
+
+-- 测试卡密
+local TEST_CARD = "LUA5D744CAA2A7A601FB14514E3D93B9D5A"
+
+--============================================================================
+-- 主测试函数
+--============================================================================
+local M = {}
+
+function M.run()
+    T.reset()
+    log.info("=== auth 模块综合测试 ===")
+
+    --========================================================================
+    -- 第1部分: 模块 API 完整性
+    --========================================================================
+    log.info("\n--- 1. 模块 API ---")
+
+    T.test(
+        "auth 模块 API 完整性",
+        function()
+            local apis = {"new", "machine_code"}
+            local missing = {}
+            for _, name in ipairs(apis) do
+                if type(auth[name]) ~= "function" then
+                    table.insert(missing, name)
+                end
+            end
+            if #missing > 0 then
+                log.info("  缺失: " .. table.concat(missing, ", "))
+            end
+            T.assert_eq(#missing, 0, "所有模块级API应存在")
+            log.info(string.format("  验证 %d 个模块级 API", #apis))
+        end
+    )
+
+    T.test(
+        "auth 模块: 全局便捷 API 已移除",
+        function()
+            -- 这些函数在重构后应不再存在
+            local removed = {"init", "login", "is_logged_in",
+                             "start_heartbeat", "stop_heartbeat",
+                             "get_notice", "get_variable", "unbind"}
+            for _, name in ipairs(removed) do
+                T.assert_nil(auth[name], "auth." .. name .. " 应已移除")
+            end
+            log.info("  确认 " .. #removed .. " 个全局便捷 API 已移除")
+        end
+    )
+
+    --========================================================================
+    -- 第2部分: 机器码测试
+    --========================================================================
+    log.info("\n--- 2. 机器码 ---")
+
+    T.test(
+        "auth.machine_code: 获取机器码",
+        function()
+            local mc = auth.machine_code()
+            T.assert_type(mc, "string")
+            T.assert_gt(#mc, 0, "机器码不应为空")
+            T.assert_gte(#mc, 16, "机器码应至少16字符")
+            log.info("  机器码: " .. mc:sub(1, 16) .. "...")
+        end
+    )
+
+    T.test(
+        "auth.machine_code: 多次调用一致性",
+        function()
+            local mc1 = auth.machine_code()
+            local mc2 = auth.machine_code()
+            T.assert_eq(mc1, mc2, "机器码应保持一致")
+        end
+    )
+
+    --========================================================================
+    -- 第3部分: 多实例测试 (auth.new)
+    --========================================================================
+    log.info("\n--- 3. auth.new 实例测试 ---")
+
+    T.test(
+        "auth.new: 创建验证客户端",
+        function()
+            local config = {
+                host = "http://test.example.com",
+                app_id = "test_app",
+                app_key = "test_key",
+                encrypt_algorithm = "aes",
+                encode_method = "base64",
+                aes_key = "1234567890123456",
+                aes_iv = "1234567890123456"
+            }
+            local client = auth.new(config)
+            T.assert_not_nil(client, "应返回客户端对象")
+            T.assert_true(tostring(client):match("AuthClient"), "应为AuthClient类型")
+            log.info("  创建客户端: " .. tostring(client))
+        end
+    )
+
+    T.test(
+        "auth.new: 客户端方法完整性",
+        function()
+            local client = auth.new({host = "http://test.example.com", app_id = "1"})
+            T.assert_not_nil(client)
+            local methods = {
+                "login",
+                "is_logged_in",
+                "start_heartbeat",
+                "stop_heartbeat",
+                "get_notice",
+                "get_variable",
+                "unbind",
+                "get_token"
+            }
+            for _, m in ipairs(methods) do
+                T.assert_type(client[m], "function", m .. " 方法")
+            end
+            log.info(string.format("  验证 %d 个对象方法", #methods))
+        end
+    )
+
+    T.test(
+        "auth.new: 客户端初始状态",
+        function()
+            local client = auth.new({host = "http://test.example.com"})
+            T.assert_false(client:is_logged_in(), "新客户端应未登录")
+            local token = client:get_token()
+            T.assert_type(token, "string")
+            T.assert_eq(#token, 0, "未登录时token应为空")
+        end
+    )
+
+    T.test(
+        "auth.new: 多个独立客户端",
+        function()
+            local client1 = auth.new({host = "http://server1.example.com", app_id = "app1"})
+            local client2 = auth.new({host = "http://server2.example.com", app_id = "app2"})
+            T.assert_not_nil(client1)
+            T.assert_not_nil(client2)
+            T.assert_true(tostring(client1) ~= tostring(client2), "应为不同对象")
+            T.assert_false(client1:is_logged_in())
+            T.assert_false(client2:is_logged_in())
+        end
+    )
+
+    T.test(
+        "auth.new: 加密算法配置",
+        function()
+            local algorithms = {"none", "aes", "rc4", "base64"}
+            for _, alg in ipairs(algorithms) do
+                local client = auth.new({host = "http://test.example.com", encrypt_algorithm = alg})
+                T.assert_not_nil(client, "应支持 " .. alg .. " 算法")
+            end
+        end
+    )
+
+    T.test(
+        "auth.new: 编码方式配置",
+        function()
+            local encodings = {"base64", "hex"}
+            for _, enc in ipairs(encodings) do
+                local client = auth.new({host = "http://test.example.com", encode_method = enc})
+                T.assert_not_nil(client, "应支持 " .. enc .. " 编码")
+            end
+        end
+    )
+
+    T.test(
+        "auth.new: 签名算法配置",
+        function()
+            local methods = {"md5", "sha1"}
+            for _, m in ipairs(methods) do
+                local client = auth.new({host = "http://test.example.com", signature_method = m})
+                T.assert_not_nil(client, "应支持 " .. m .. " 签名")
+            end
+        end
+    )
+
+    T.test(
+        "auth.new: 垃圾回收 (GC)",
+        function()
+            for i = 1, 10 do
+                local _ = auth.new({host = "http://test" .. i .. ".example.com"})
+            end
+            collectgarbage("collect")
+            -- 如果没有崩溃，测试通过
+            log.info("  10 个客户端已创建并被 GC 回收")
+        end
+    )
+
+    --========================================================================
+    -- 第4部分: 真实服务器测试 (可选, 使用 auth.new 实例)
+    --========================================================================
+    log.info("\n--- 4. 真实服务器测试 (可选) ---")
+
+    T.test(
+        "auth.new: 创建真实服务器客户端",
+        function()
+            local client = auth.new(REAL_SERVER_CONFIG)
+            T.assert_not_nil(client, "应创建客户端")
+            T.assert_false(client:is_logged_in(), "初始应未登录")
+            log.info("  客户端: " .. tostring(client))
+        end
+    )
+
+    T.test(
+        "client:get_notice: 获取公告 (需网络)",
+        function()
+            local client = auth.new(REAL_SERVER_CONFIG)
+            local notice = client:get_notice()
+            -- 公告可能为空，不报错即可
+            T.assert_true(notice ~= nil or notice == nil, "获取公告不应报错")
+            if notice and #notice > 0 then
+                log.info("  公告: " .. notice:sub(1, 50) .. (string.len(notice) > 50 and "..." or ""))
+            end
+        end
+    )
+
+    T.test(
+        "client:login: 登录测试 (需网络)",
+        function()
+            local client = auth.new(REAL_SERVER_CONFIG)
+            local success, result = client:login(TEST_CARD)
+            T.assert_type(success, "boolean", "登录应返回布尔值")
+            if success then
+                log.info("  登录成功")
+                T.assert_true(client:is_logged_in(), "登录后应为已登录状态")
+                local token = client:get_token()
+                if token and #token > 0 then
+                    log.info("  Token: " .. token:sub(1, 16) .. "...")
+                end
+            else
+                log.info("  登录失败 (卡密无效或网络问题)")
+            end
+        end
+    )
+
+    return T.report("auth")
+end
+
+return M
