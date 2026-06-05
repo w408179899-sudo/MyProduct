@@ -8,6 +8,11 @@ local quest = require("aion.quest")
 local map = require("aion.map")
 local combat = require("aion.combat")
 local nav = require("aion.nav")
+local account = require("aion.account")
+local channel = require("aion.channel")
+local remote = require("aion.remote")
+local loot = require("aion.loot")
+local security = require("aion.security")
 local data = core.data
 
 local M = {}
@@ -65,7 +70,7 @@ local tests = {
     {
         name = "core.ensureInit",
         run = function()
-            local ok, err = core.ensureInit()
+            local ok, err = core.ensureInit(M.current_pid)
             if not ok then
                 return fail(err)
             end
@@ -85,6 +90,30 @@ local tests = {
         run = function()
             return checkCall(core.getScene, function(scene)
                 return string.format("idx=%s name=%s", tostring(scene.index), tostring(scene.name))
+            end)
+        end,
+    },
+    {
+        name = "account.serverList",
+        run = function()
+            return checkCall(account.serverList, function(list)
+                return "count=" .. tostring(count(list))
+            end)
+        end,
+    },
+    {
+        name = "account.currentServerId",
+        run = function()
+            return checkCall(account.currentServerId, function(id)
+                return "server_id=" .. tostring(id)
+            end)
+        end,
+    },
+    {
+        name = "account.characterList",
+        run = function()
+            return checkCall(account.characterList, function(list)
+                return "count=" .. tostring(count(list))
             end)
         end,
     },
@@ -131,9 +160,30 @@ local tests = {
     {
         name = "map.bigMapTeleports",
         run = function()
-            return checkCall(map.bigMapTeleports, function(list)
-                return "count=" .. tostring(count(list))
-            end)
+            local eOk, elyos, eErr = map.bigMapTeleportsForRace(0)
+            if not eOk then
+                return fail("elyos: " .. tostring(eErr))
+            end
+            local aOk, asmodian, aErr = map.bigMapTeleportsForRace(1)
+            if not aOk then
+                return fail("asmodian: " .. tostring(aErr))
+            end
+            return pass(string.format("elyos=%d asmodian=%d", count(elyos), count(asmodian)))
+        end,
+    },
+    {
+        name = "channel.info",
+        run = function()
+            local ok, info, err = channel.info()
+            if not ok then
+                return fail(err)
+            end
+            if not info then
+                return warn("not available")
+            end
+            return pass(string.format("current=%s count=%s",
+                tostring(info.current or info.current_channel or info.index),
+                tostring(info.count or info.channel_count or "")))
         end,
     },
     {
@@ -203,6 +253,24 @@ local tests = {
             return checkCall(combat.autoPassiveSkills, function(list)
                 return "count=" .. tostring(count(list))
             end)
+        end,
+    },
+    {
+        name = "combat.skillType.sample",
+        run = function()
+            local ok, list, err = combat.skillList()
+            if not ok then
+                return warn(err)
+            end
+            local first = list and list[1]
+            if not first then
+                return warn("no learned skill")
+            end
+            local typeOk, value, typeErr = combat.skillType(first.id)
+            if not typeOk then
+                return fail(typeErr)
+            end
+            return pass(string.format("id=%s type=%s", tostring(first.id), tostring(value)))
         end,
     },
     {
@@ -320,27 +388,29 @@ local tests = {
     {
         name = "shop.staticList",
         run = function()
-            return checkCall(shop.staticList, function(list)
-                return "count=" .. tostring(count(list))
-            end)
+            local eOk, elyos, eErr = shop.staticListForRace(0)
+            if not eOk then
+                return fail("elyos: " .. tostring(eErr))
+            end
+            local aOk, asmodian, aErr = shop.staticListForRace(1)
+            if not aOk then
+                return fail("asmodian: " .. tostring(aErr))
+            end
+            return pass(string.format("elyos=%d asmodian=%d", count(elyos), count(asmodian)))
         end,
     },
     {
-        name = "data.GetSecondPwdDialog",
+        name = "security.secondPwdDialog",
         run = function()
-            return checkCall(function()
-                return core.first("AionData.GetSecondPwdDialog", data.GetSecondPwdDialog)
-            end, function(info)
+            return checkCall(security.secondPwdDialog, function(info)
                 return string.format("addr=%s title=%s", tostring(info.addr), tostring(info.title))
             end)
         end,
     },
     {
-        name = "data.GetSelectBoxCandidates",
+        name = "security.selectBoxCandidates",
         run = function()
-            return checkCall(function()
-                return core.first("AionData.GetSelectBoxCandidates", data.GetSelectBoxCandidates)
-            end, function(list)
+            return checkCall(security.selectBoxCandidates, function(list)
                 return "count=" .. tostring(count(list))
             end)
         end,
@@ -385,6 +455,7 @@ local tests = {
                 inventory.equipByName,
                 inventory.decomposeByCategory,
                 quest.openSubmit,
+                quest.questTeleportId,
                 quest.questTeleport,
                 quest.taskTeleport,
                 map.nodeTeleport,
@@ -392,6 +463,19 @@ local tests = {
                 combat.selectTarget,
                 combat.autoBattleOn,
                 combat.autoBattleOff,
+                combat.skillType,
+                combat.rebuildSkillTypeMap,
+                account.selectServer,
+                account.selectCharacter,
+                account.createCharacter,
+                channel.switch,
+                remote.pressKey,
+                remote.placeQuickbar,
+                remote.returnCharacter,
+                loot.pickup,
+                security.inputSecondPwd,
+                security.claimSelectBox,
+                security.genOtp,
             }
             for i, fn in ipairs(required) do
                 if type(fn) ~= "function" then
@@ -405,10 +489,13 @@ local tests = {
 
 function M.run(opts)
     opts = opts or {}
+    local requested_pid = tonumber(opts.pid) or 0
+    M.current_pid = requested_pid > 0 and requested_pid or nil
     local results = {}
     local summary = { PASS = 0, WARN = 0, FAIL = 0 }
 
-    log_msg("info", "=== Aion API probe start ===")
+    log_msg("info", "=== Aion API probe start ===" ..
+        (M.current_pid and (" pid=" .. tostring(M.current_pid)) or " pid=auto"))
     for _, test in ipairs(tests) do
         local started = os.clock()
         local ok, result = pcall(test.run)
@@ -438,6 +525,7 @@ function M.run(opts)
     log_msg("info", string.format("=== Aion API probe done: total=%d pass=%d warn=%d fail=%d ===",
         total, summary.PASS or 0, summary.WARN or 0, summary.FAIL or 0))
 
+    M.current_pid = nil
     return results, summary
 end
 

@@ -46,6 +46,14 @@ function M.autoPassiveSkills()
     return true, list or {}, nil
 end
 
+function M.skillType(skillId)
+    return core.first("AionData.GetSkillType", data.GetSkillType, skillId)
+end
+
+function M.rebuildSkillTypeMap()
+    return core.first("AionData.RebuildSkillTypeMap", data.RebuildSkillTypeMap)
+end
+
 function M.autoBattleStatus()
     return core.first("AionData.GetAutoBattleStatus", data.GetAutoBattleStatus)
 end

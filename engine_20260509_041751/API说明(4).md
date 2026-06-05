@@ -34,17 +34,18 @@ AION 客户端（Aion.bin）数据读取模块，基于 AetherEngine 3.2.0。
 13. [地图](#地图)
 14. [UI 窗口](#ui-窗口)
 15. [UI 子控件树](#ui-子控件树)
-16. [技能类型查询](#技能类型查询)
-17. [常用枚举](#常用枚举)
-18. [远程调用](#远程调用)
-19. [选中目标](#选中目标)
-20. [移动](#移动)
-21. [NPC 对话](#npc-对话)
-22. [物品](#物品)
-23. [拾取](#拾取)
-24. [OTP / TOTP](#otp--totp)
-25. [注意事项](#注意事项)
-26. [**协议登录 (AionLogin 模块)**](#协议登录-aionlogin-模块) ← 独立模块, 不依赖游戏
+16. [频道](#频道)
+17. [技能类型查询](#技能类型查询)
+18. [常用枚举](#常用枚举)
+19. [远程调用](#远程调用)
+20. [选中目标](#选中目标)
+21. [移动](#移动)
+22. [NPC 对话](#npc-对话)
+23. [物品](#物品)
+24. [拾取](#拾取)
+25. [OTP / TOTP](#otp--totp)
+26. [注意事项](#注意事项)
+27. [**协议登录 (AionLogin 模块)**](#协议登录-aionlogin-模块) ← 独立模块, 不依赖游戏
 
 ---
 
@@ -55,7 +56,14 @@ AION 客户端（Aion.bin）数据读取模块，基于 AetherEngine 3.2.0。
 ```lua
 local data = require("AionData")
 
-local ok, err = data.InitGameinfo()
+-- 枚举进程, 传 PID 初始化
+local pid = 0
+for _, p in ipairs(proc.list()) do
+    if p.name == "Aion.bin" then pid = p.pid; break end
+end
+if pid == 0 then log.error("找不到进程"); return end
+
+local ok, err = data.InitGameinfo(pid)
 if not ok then log.error(err); return end
 
 local char  = data.GetCharacter()
@@ -78,9 +86,13 @@ local map   = data.GetCurrentMap()
 
 ## 初始化
 
-### `M.InitGameinfo() → ok, err`
+### `M.InitGameinfo(pid) → ok, err`
 
 加载驱动、定位进程、获取模块基址、初始化主线程劫持调用。**所有其它接口必须先调用一次此函数。**
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `pid` | int | 目标游戏进程 PID, 由调用方枚举后传入 |
 
 | 返回值 | 类型 | 说明 |
 |---|---|---|
@@ -326,6 +338,9 @@ end
 | `equip_pos` | u32 | 可穿戴位置 ID (仅装备类有意义; 表示该装备**可以穿在哪个槽**, 与是否已穿戴无关) |
 | `equip_pos_name` | string | 可穿戴位置名 |
 | `text` | string | 物品名（UTF-8） |
+| `item_info_id` | u32 | 物品信息 ID, 用于内部查表匹配 |
+| `quality` | int | 品质 (1=白色, 2=绿色, 3=蓝色, 4=黄色; 0=未匹配) |
+| `item_level` | int | 物品等级 (0=未匹配) |
 
 ### `M.GetKinah() → number`
 
@@ -860,6 +875,39 @@ for _, t in ipairs(data.BIG_MAP_TELEPORTS.elyos) do ... end
 | `recurse` | bool | 是否实际递归进了下一层（等同 `visible`） |
 | `x` | double | 相对游戏窗口客户区的 X 坐标 |
 | `y` | double | 相对游戏窗口客户区的 Y 坐标 |
+
+---
+
+## 频道
+
+### `M.GetChannelInfo() → table | nil`
+
+返回当前频道信息。对话框未打开时返回 `nil`。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `current` | int | 当前所在频道序号（从0数） |
+| `count` | int | 频道总数 |
+
+```lua
+local ch = data.GetChannelInfo()
+if ch then
+    print(string.format("频道: %d/%d", ch.current, ch.count))
+end
+```
+
+### `M.SwitchChannel(channel_index) → bool`
+
+切换到指定频道。
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `channel_index` | int | 目标频道序号（0-based，如 `0`=1 频道） |
+
+```lua
+-- 切换到第 3 频道
+data.SwitchChannel(2)
+```
 
 ---
 

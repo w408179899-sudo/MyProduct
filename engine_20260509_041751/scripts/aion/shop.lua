@@ -13,6 +13,9 @@ end
 
 function M.staticList(race)
     if type(data.GetShopItemsStatic) == "function" then
+        if race == nil then
+            return core.first("AionData.GetShopItemsStatic", data.GetShopItemsStatic)
+        end
         return core.first("AionData.GetShopItemsStatic", data.GetShopItemsStatic, race)
     end
 
@@ -22,6 +25,10 @@ function M.staticList(race)
     end
     local key = char and char.race == 1 and "asmodian" or "elyos"
     return true, data.SHOP_ITEMS and data.SHOP_ITEMS[key] or {}, nil
+end
+
+function M.staticListForRace(race)
+    return M.staticList(race)
 end
 
 function M.findByName(name)

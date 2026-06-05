@@ -62,6 +62,10 @@ function M.openSubmit(questId)
     return core.first("AionData.OpenQuestSubmit", data.OpenQuestSubmit, questId)
 end
 
+function M.questTeleportId(questId)
+    return core.first("AionData.GetQuestTeleportId", data.GetQuestTeleportId, questId)
+end
+
 function M.questTeleport(questId, teleportId)
     return core.first("AionData.QuestTeleport", data.QuestTeleport, questId, teleportId)
 end

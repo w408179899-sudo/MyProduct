@@ -10,6 +10,83 @@ local function pack(...)
     return { n = select("#", ...), ... }
 end
 
+local function safe_call(fn, ...)
+    if type(fn) ~= "function" then
+        return false, nil
+    end
+
+    local ok, value = pcall(fn, ...)
+    if not ok then
+        return false, nil, tostring(value)
+    end
+    return true, value, nil
+end
+
+local function normalize_pid(pid)
+    pid = tonumber(pid) or 0
+    if pid > 0 then
+        return math.floor(pid)
+    end
+    return nil
+end
+
+local function process_basename(value)
+    local text = string.lower(tostring(value or "")):gsub("\\", "/")
+    return text:match("([^/]+)$") or text
+end
+
+local function config_pid()
+    if not config or type(config.get) ~= "function" then
+        return nil
+    end
+
+    local ok, value = pcall(config.get, "aion_control.target.pid", 0)
+    if ok then
+        return normalize_pid(value)
+    end
+    return nil
+end
+
+local function first_aion_pid()
+    if not proc or type(proc.list) ~= "function" then
+        return nil
+    end
+
+    local ok, list = safe_call(proc.list)
+    if not ok or type(list) ~= "table" then
+        return nil
+    end
+
+    for _, p in ipairs(list) do
+        local name = process_basename(p.name)
+        local pid = normalize_pid(p.pid)
+        if pid and name == "aion.bin" then
+            return pid
+        end
+    end
+
+    return nil
+end
+
+local function state_pid_if_inited()
+    if type(data.GetState) ~= "function" then
+        return nil
+    end
+
+    local ok, state = safe_call(data.GetState)
+    if ok and type(state) == "table" and state.inited == true then
+        return normalize_pid(state.pid)
+    end
+    return nil
+end
+
+function M.resolvePid(pid)
+    return normalize_pid(pid)
+        or config_pid()
+        or state_pid_if_inited()
+        or first_aion_pid()
+end
+
 function M.call(name, fn, ...)
     if type(fn) ~= "function" then
         return false, nil, string.format("%s is not callable", tostring(name))
@@ -35,14 +112,36 @@ function M.first(name, fn, ...)
     return true, values[1], nil
 end
 
-function M.ensureInit()
-    local ok, values, err = M.call("AionData.InitGameinfo", data.InitGameinfo)
+function M.ensureInit(pid)
+    local target_pid = M.resolvePid(pid)
+    if not target_pid then
+        return false, "target pid is not selected"
+    end
+
+    local current_pid = state_pid_if_inited()
+    if current_pid and current_pid ~= target_pid then
+        return false, string.format(
+            "AionData already initialized with pid=%s, selected pid=%s",
+            tostring(current_pid),
+            tostring(target_pid))
+    end
+
+    local ok, values, err = M.call("AionData.InitGameinfo", data.InitGameinfo, target_pid)
     if not ok then
         return false, err
     end
     if values[1] ~= true then
         return false, tostring(values[2] or "InitGameinfo returned false")
     end
+
+    local post_pid = state_pid_if_inited()
+    if post_pid and post_pid ~= target_pid then
+        return false, string.format(
+            "AionData initialized pid mismatch: expected=%s actual=%s",
+            tostring(target_pid),
+            tostring(post_pid))
+    end
+
     return true, nil
 end
 

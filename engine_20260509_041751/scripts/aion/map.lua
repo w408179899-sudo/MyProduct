@@ -16,6 +16,14 @@ function M.bigMapId()
 end
 
 function M.nodes(bigMapId)
+    if bigMapId == nil then
+        local idOk, id, idErr = M.bigMapId()
+        if not idOk then
+            return false, nil, idErr
+        end
+        bigMapId = id
+    end
+
     local ok, list, err = core.first("AionData.GetMapNodeList", data.GetMapNodeList, bigMapId)
     if not ok then
         return false, nil, err
@@ -47,6 +55,9 @@ end
 
 function M.bigMapTeleports(race)
     if type(data.GetBigMapTeleports) == "function" then
+        if race == nil then
+            return core.first("AionData.GetBigMapTeleports", data.GetBigMapTeleports)
+        end
         return core.first("AionData.GetBigMapTeleports", data.GetBigMapTeleports, race)
     end
 
@@ -56,6 +67,10 @@ function M.bigMapTeleports(race)
     end
     local key = char and char.race == 1 and "asmodian" or "elyos"
     return true, data.BIG_MAP_TELEPORTS and data.BIG_MAP_TELEPORTS[key] or {}, nil
+end
+
+function M.bigMapTeleportsForRace(race)
+    return M.bigMapTeleports(race)
 end
 
 function M.bigMapTeleport(slot)
