@@ -5662,6 +5662,7 @@ local function route_advance_after_arrival()
     )
 
     if done then
+        runtime.route.completed_field = r.follow_field
         route_stop_follow("路径完成", r.attach_runtime)
         return
     end
@@ -6176,7 +6177,7 @@ local function draw_accounts_overview()
         imgui.table_setup_column("PID", imgui.TableColumnFlags_WidthFixed, 48)
         imgui.table_setup_column("状态", imgui.TableColumnFlags_WidthFixed, 58)
         imgui.table_setup_column("金币/h", imgui.TableColumnFlags_WidthFixed, 54)
-        imgui.table_setup_column("杀星h", imgui.TableColumnFlags_WidthFixed, 54)
+        imgui.table_setup_column("杀怪/h", imgui.TableColumnFlags_WidthFixed, 54)
         imgui.table_setup_column("时长", imgui.TableColumnFlags_WidthFixed, 64)
         imgui.table_setup_column("操作", imgui.TableColumnFlags_WidthStretch)
         imgui.table_headers_row()
@@ -7031,7 +7032,7 @@ function draw_skill_tab()
     changed, val = imgui.checkbox("显示中文技能名", cfg.skills.translate_names)
     if changed then cfg.skills.translate_names = val end
 
-    if imgui.button("Refresh skills", 100, 26) then
+    if imgui.button("刷新技能", 100, 26) then
         bootstrap_update_combat()
         set_event(string.format("技能已刷新: learned=%d active=%d passive=%d",
             tonumber(b.skill_count) or 0,
@@ -7088,7 +7089,7 @@ function draw_skill_tab()
     if changed then cfg.skills.translation_map = val end
 
     if use_game_auto_skills then imgui.begin_disabled(true) end
-    imgui.text("Buff / 维护技能")
+    imgui.text("增益/维护技能")
     imgui.set_next_item_width(520)
     changed, val = imgui.input_text_multiline("##skill_buff_order", cfg.skills.buff_order, 520, 70)
     if changed then cfg.skills.buff_order = val end
