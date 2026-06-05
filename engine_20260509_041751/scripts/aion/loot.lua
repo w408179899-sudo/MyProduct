@@ -9,25 +9,38 @@ function M.pickup(lootObj)
 end
 
 function M.pickupDialog(dialogName)
-    dialogName = dialogName or "dlg_loot"
-    local direct_ok, direct_value, direct_err = M.pickup(dialogName)
-    if direct_ok and direct_value == true then
-        return direct_ok, direct_value, direct_err
+    local names = {}
+    if dialogName and dialogName ~= "" then
+        names[#names + 1] = dialogName
+    else
+        names[#names + 1] = "loot_dialog"
+        names[#names + 1] = "dlg_loot"
     end
 
-    local ok, dlg, err = ui.find(dialogName)
-    if not ok then
-        return false, nil, direct_err or err
-    end
-    if not dlg or not dlg.addr or dlg.addr == 0 then
-        return false, nil, direct_err or ("loot dialog not found: " .. tostring(dialogName))
+    local last_err = nil
+    local last_value = nil
+    for _, name in ipairs(names) do
+        local direct_ok, direct_value, direct_err = M.pickup(name)
+        if direct_ok and direct_value == true then
+            return direct_ok, direct_value, direct_err
+        end
+        last_err = direct_err or last_err
+        last_value = direct_value
+
+        local ok, dlg, err = ui.find(name)
+        if ok and dlg and dlg.addr and dlg.addr ~= 0 then
+            local addr_ok, addr_value, addr_err = M.pickup(dlg.addr)
+            if addr_ok and addr_value == true then
+                return addr_ok, addr_value, addr_err
+            end
+            last_err = addr_err or last_err
+            last_value = addr_value
+        else
+            last_err = err or last_err or ("loot dialog not found: " .. tostring(name))
+        end
     end
 
-    local addr_ok, addr_value, addr_err = M.pickup(dlg.addr)
-    if addr_ok and addr_value == true then
-        return addr_ok, addr_value, addr_err
-    end
-    return false, addr_value, addr_err or direct_err
+    return false, last_value, last_err
 end
 
 return M

@@ -6,6 +6,7 @@
 
     Hotkeys:
       F1       scan nearby NPC names or auto-click open NPC dialog
+      F2       dump full UI list and revive candidate child trees to log
       F7       show/hide window
       F8       start/stop
       F9       run safe API probe
@@ -124,6 +125,7 @@ local runtime = {
         status = "空闲",
         error = "",
         finish_shows_ui = false,
+        test_only = false,
     },
     recovery = {
         active = false,
@@ -135,6 +137,9 @@ local runtime = {
         death_count = 0,
         last_status = "",
         last_action_at = 0,
+        last_revive_click_at = 0,
+        revive_click_attempts = 0,
+        revive_last_error = "",
     },
     combat = {
         anchor = nil,
@@ -191,6 +196,17 @@ local runtime = {
         selected_index = 1,
         node_dump = "",
     },
+    ui_test = {
+        last_status = "",
+        controls = {},
+        labels = { "No UI controls" },
+        selected_index = 1,
+        dump = "",
+    },
+    loot_test = {
+        last_status = "",
+        last_dump = "",
+    },
     skill_order = {
         left_index = 1,
         right_index = 1,
@@ -233,6 +249,10 @@ local cfg = {
         enabled = true,
         mode = 1,
         target_policy = 1,
+        anchor_enabled = false,
+        anchor_x = 0,
+        anchor_y = 0,
+        anchor_z = 0,
         radius = 35,
         min_level = 1,
         max_level = 99,
@@ -254,6 +274,8 @@ local cfg = {
         keep_auto_battle = false,
         target_names = "",
         blacklist_names = "",
+        ignore_summons = true,
+        pet_names = "물의 정령\n불의 정령\n바람의 정령\n대지의 정령\n용암의 정령\n태풍의 정령",
     },
 
     gather = {
@@ -334,6 +356,9 @@ local cfg = {
         return_keycode = 187,
         return_wait_seconds = 8,
         dead_return_wait_seconds = 8,
+        auto_revive = true,
+        revive_click_interval = 0.8,
+        post_revive_wait_seconds = 2.0,
         route_name = "打怪路径",
         revive_route_name = "复活路径",
         vendor_route_name = "补给路径",
@@ -361,6 +386,7 @@ local cfg = {
 
     npc_dialog = {
         accept_npc_name = "",
+        accept_npc_interact_id = "",
         accept_quest_id = 0,
         accept_next_dialog_id = 0,
         wait_dialog_ms = 3000,
@@ -422,6 +448,9 @@ local cfg = {
 
     test = {
         selected_node_id = 0,
+        ui_parent_name = "resurrect_dialog_new",
+        ui_child_depth = 6,
+        ui_include_no_name = true,
     },
 }
 
@@ -436,6 +465,25 @@ local function normalize_primary_mode()
     cfg.primary_mode = math.max(1, math.min(#primary_modes, tonumber(cfg.primary_mode) or 1))
 end
 
+function combat_allowed_by_primary_mode()
+    normalize_primary_mode()
+    local mode = primary_modes[cfg.primary_mode] or ""
+    if mode == "打怪" then
+        return true
+    end
+    if mode == "主线" then
+        return cfg.leveling and cfg.leveling.allow_grind == true
+    end
+    return false
+end
+
+function sync_combat_enabled_from_primary_mode()
+    if cfg and cfg.combat then
+        cfg.combat.enabled = combat_allowed_by_primary_mode()
+    end
+    return cfg and cfg.combat and cfg.combat.enabled == true
+end
+
 local priority_modes = {
     "优先打怪",
     "优先采集",
@@ -446,6 +494,13 @@ local priority_modes = {
 
 local function normalize_priority_mode()
     cfg.priority_mode = math.max(1, math.min(#priority_modes, tonumber(cfg.priority_mode) or 1))
+end
+
+function normalize_route_config()
+    if type(cfg.route) ~= "table" then
+        return
+    end
+    cfg.route.return_keycode = 187
 end
 
 local combat_modes = {
@@ -461,6 +516,7 @@ local combat_target_policies = {
     "低血量目标",
     "威胁目标",
     "指定名字",
+    "优先攻击主动怪",
 }
 
 local gather_modes = {
@@ -578,6 +634,9 @@ local route_config_keys = {
     "return_keycode",
     "return_wait_seconds",
     "dead_return_wait_seconds",
+    "auto_revive",
+    "revive_click_interval",
+    "post_revive_wait_seconds",
     "route_name",
     "revive_route_name",
     "vendor_route_name",
@@ -606,6 +665,7 @@ local config_domain_keys = {
     "safety",
     "audit",
     "transfer",
+    "test",
 }
 
 local config_top_level_keys = {
@@ -1646,6 +1706,27 @@ function combat_text_has_line(text, name)
     return false
 end
 
+function combat_text_has_exact_line(text, name)
+    name = combat_trim(name)
+    if name == "" then
+        return false
+    end
+    for line in string.gmatch(tostring(text or ""), "[^\r\n]+") do
+        line = combat_trim(line)
+        if line ~= "" and line == name then
+            return true
+        end
+    end
+    return false
+end
+
+function combat_is_ignored_summon(name)
+    if not cfg.combat or cfg.combat.ignore_summons == false then
+        return false
+    end
+    return combat_text_has_exact_line(cfg.combat.pet_names, name)
+end
+
 function combat_log(key, message, interval, force)
     if not force and not (cfg.combat and cfg.combat.debug_log == true) then
         return
@@ -1744,7 +1825,7 @@ function combat_is_stationary_enabled()
     return runtime.running
         and not runtime.paused
         and not (route_recovery_blocks_combat and route_recovery_blocks_combat())
-        and cfg.combat.enabled == true
+        and sync_combat_enabled_from_primary_mode()
         and tonumber(cfg.primary_mode) == 1
         and tonumber(cfg.combat.mode) == 1
 end
@@ -1753,7 +1834,7 @@ function combat_is_patrol_enabled()
     return runtime.running
         and not runtime.paused
         and not (route_recovery_blocks_combat and route_recovery_blocks_combat())
-        and cfg.combat.enabled == true
+        and sync_combat_enabled_from_primary_mode()
         and tonumber(cfg.primary_mode) == 1
         and tonumber(cfg.combat.mode) == 2
 end
@@ -1915,6 +1996,48 @@ function combat_patrol_text()
         tonumber(c.patrol_laps) or 0)
 end
 
+function combat_configured_anchor()
+    if not cfg.combat or cfg.combat.anchor_enabled ~= true then
+        return nil
+    end
+    return {
+        x = tonumber(cfg.combat.anchor_x) or 0,
+        y = tonumber(cfg.combat.anchor_y) or 0,
+        z = tonumber(cfg.combat.anchor_z) or 0,
+    }
+end
+
+function combat_set_stationary_anchor_current()
+    if not ok_core or not core then
+        combat_set_status("error", "aion.core unavailable", true)
+        return false
+    end
+
+    local ok, pos, err = core.getPosition()
+    if not ok or not pos then
+        combat_set_status("error", "read current position failed: " .. tostring(err), true)
+        return false
+    end
+
+    cfg.combat.anchor_enabled = true
+    cfg.combat.anchor_x = tonumber(pos.x) or 0
+    cfg.combat.anchor_y = tonumber(pos.y) or 0
+    cfg.combat.anchor_z = tonumber(pos.z) or 0
+    runtime.combat.anchor = {
+        x = cfg.combat.anchor_x,
+        y = cfg.combat.anchor_y,
+        z = cfg.combat.anchor_z,
+    }
+    runtime.combat.target_obj = 0
+    runtime.combat.target_name = ""
+    runtime.combat.target_distance = 0
+    runtime.combat.anchor_distance = 0
+    combat_set_status("anchor-ready", combat_anchor_text(), true)
+    combat_log("anchor-config", "stationary anchor configured pos=" .. combat_anchor_text(), 0, true)
+    set_event("已设定原地打怪坐标: " .. combat_anchor_text())
+    return true
+end
+
 function combat_anchor_text()
     local a = runtime.combat.anchor
     if not a then
@@ -1925,6 +2048,13 @@ end
 
 function combat_ensure_anchor()
     if runtime.combat.anchor then
+        return true
+    end
+    local configured = combat_configured_anchor()
+    if configured then
+        runtime.combat.anchor = configured
+        combat_set_status("anchor-ready", combat_anchor_text(), true)
+        combat_log("anchor", "anchor set configured pos=" .. combat_anchor_text(), 0, true)
         return true
     end
     if not ok_core or not core then
@@ -1996,6 +2126,9 @@ function combat_is_target_candidate(e, anchor)
     if name == "" or not combat_is_name_allowed(name) then
         return false
     end
+    if combat_is_ignored_summon(name) then
+        return false
+    end
 
     local hp = tonumber(e.hp) or 0
     local mhp = tonumber(e.mhp) or 0
@@ -2004,8 +2137,7 @@ function combat_is_target_candidate(e, anchor)
     end
 
     local tag = tostring(e.tag or "")
-    local interact_id = tonumber(e.interact_id) or 0
-    if tag ~= "?" and interact_id > 0 then
+    if tag == "NPC" then
         return false
     end
 
@@ -2049,11 +2181,19 @@ function combat_target_reject_reason(e, anchor)
     if name == "" or not combat_is_name_allowed(name) then
         return "name"
     end
+    if combat_is_ignored_summon(name) then
+        return "summon"
+    end
 
     local hp = tonumber(e.hp) or 0
     local mhp = tonumber(e.mhp) or 0
     if mhp > 0 and hp <= 0 then
         return "hp-zero"
+    end
+
+    local tag = tostring(e.tag or "")
+    if tag == "NPC" then
+        return "npc"
     end
 
     local level = tonumber(e.level) or 0
@@ -2111,6 +2251,13 @@ function combat_find_current_entity(list, anchor)
     return nil
 end
 
+function combat_is_aggressive_target(e)
+    if type(e) ~= "table" then
+        return false
+    end
+    return tostring(e.tag or "") == "主动怪"
+end
+
 function combat_target_score(e, char)
     local dist = ok_core and core and core.distance3(char, e) or 0
     local policy = tonumber(cfg.combat.target_policy) or 1
@@ -2118,6 +2265,12 @@ function combat_target_score(e, char)
         local hp = tonumber(e.hp) or 0
         local mhp = math.max(1, tonumber(e.mhp) or 1)
         return (hp / mhp) * 1000 + dist
+    end
+    if policy == 6 then
+        if combat_is_aggressive_target(e) then
+            return dist
+        end
+        return 10000 + dist
     end
     return dist
 end
@@ -2179,12 +2332,21 @@ function combat_choose_target(list, char, anchor)
     local sample_text = table.concat(type2_samples, " | ")
     local near_sample_text = table.concat(near_samples, " | ")
     if best then
+        local best_dist = ok_core and core and core.distance3(char, best) or 0
         combat_log("target-scan",
-            string.format("target scan checked=%d accepted=%d best=%s obj=%s score=%.2f rejects=%s",
+            string.format("target scan checked=%d accepted=%d best=%s obj=%s dist=%.1f hp=%s/%s tag=%s type_name=%s level=%s rating=%s iid=%s score=%.2f rejects=%s",
                 checked,
                 accepted,
                 tostring(best.name or ""),
                 tostring(combat_entity_obj(best)),
+                tonumber(best_dist) or 0,
+                tostring(best.hp or ""),
+                tostring(best.mhp or ""),
+                tostring(best.tag or ""),
+                tostring(best.type_name or ""),
+                tostring(best.level or ""),
+                tostring(best.rating or ""),
+                tostring(best.interact_id or ""),
                 tonumber(best_score) or 0,
                 reject_text),
             nil,
@@ -2301,36 +2463,314 @@ function combat_choose_loot(list, char, anchor)
     return best
 end
 
+function combat_finish_loot(source, detail)
+    local c = runtime.combat
+    local picked_obj = tonumber(c.loot_obj) or 0
+    if picked_obj > 0 then
+        c.loot_ignored = c.loot_ignored or {}
+        c.loot_ignored[picked_obj] = now_seconds() + 5
+    end
+    c.last_loot_at = now_seconds()
+    c.loot_obj = 0
+    c.loot_name = ""
+    c.loot_distance = 0
+    c.loot_attempts = 0
+    c.post_kill_until = 0
+    combat_set_status("looted", tostring(source or ""), false)
+    combat_log("loot-picked",
+        "loot picked source=" .. tostring(source or "") ..
+        " obj=" .. tostring(picked_obj) ..
+        " " .. tostring(detail or ""),
+        0,
+        true)
+end
+
+function combat_ui_obj(ctrl)
+    if type(ctrl) ~= "table" then
+        return tonumber(ctrl) or ctrl
+    end
+    return ctrl.obj or ctrl.addr
+end
+
+function combat_score_loot_all_button(child, parent)
+    child = child or {}
+    parent = parent or {}
+    local obj = combat_ui_obj(child)
+    if not obj or tonumber(obj) == 0 then
+        return nil
+    end
+    if child.visible ~= true then
+        return nil
+    end
+
+    local name = tostring(child.name or "")
+    local lower = string.lower(name)
+    local score = 0
+    local function has(text)
+        return lower:find(text, 1, true) ~= nil
+    end
+
+    if has("all") then score = score + 80 end
+    if has("get") or has("pickup") or has("loot") or has("take") or has("receive") or has("acquire") then
+        score = score + 50
+    end
+    if has("button") or has("btn") or has("ok") then
+        score = score + 20
+    end
+    if has("close") or has("cancel") or has("refuse") or has("prev") then
+        score = score - 120
+    end
+
+    local x = tonumber(child.x) or 0
+    local y = tonumber(child.y) or 0
+    local px = tonumber(parent.x) or 0
+    local py = tonumber(parent.y) or 0
+
+    local global_rect = (px > 0 or py > 0) and
+        x >= px + 35 and x <= px + 170 and
+        y >= py + 220 and y <= py + 300
+    local relative_rect =
+        x >= 35 and x <= 170 and
+        y >= 220 and y <= 300
+    if global_rect or relative_rect then
+        score = score + 65
+    end
+
+    local expected_x = (px > 0 and px + 95 or 95)
+    local expected_y = (py > 0 and py + 255 or 255)
+    local dx = x - expected_x
+    local dy = y - expected_y
+    local dist = math.sqrt(dx * dx + dy * dy)
+    score = score - math.min(35, dist / 12)
+
+    if score <= 15 then
+        return nil
+    end
+    return score
+end
+
+function combat_click_loot_all_button()
+    local ok_ui, ui_runtime = pcall(require, "aion.ui")
+    if not ok_ui or not ui_runtime then
+        return false, "aion.ui unavailable"
+    end
+
+    local parents = { "loot_dialog", "dlg_loot" }
+    local best = nil
+    local best_parent = nil
+    local best_score = nil
+    local best_parent_name = ""
+    local last_err = nil
+
+    for _, parent_name in ipairs(parents) do
+        local parent = {}
+        local find_ok, found = ui_runtime.find(parent_name)
+        if find_ok and type(found) == "table" then
+            parent = found
+        end
+
+        local ok, children, err = ui_runtime.children(parent_name, 8)
+        if not ok then
+            last_err = err
+            combat_log("loot-ui-children:" .. tostring(parent_name),
+                "loot children failed parent=" .. tostring(parent_name) .. " err=" .. tostring(err),
+                1.0,
+                false)
+        else
+            children = children or {}
+            combat_log("loot-ui-children:" .. tostring(parent_name),
+                "loot children parent=" .. tostring(parent_name) .. " count=" .. tostring(#children),
+                1.0,
+                false)
+            for index, child in ipairs(children) do
+                local score = combat_score_loot_all_button(child, parent)
+                if score and (not best_score or score > best_score) then
+                    best = child
+                    best_parent = parent
+                    best_parent_name = parent_name
+                    best_score = score
+                end
+                if index <= 12 then
+                    combat_log("loot-ui-child-sample:" .. tostring(parent_name) .. ":" .. tostring(index),
+                        string.format("loot child parent=%s idx=%d obj=%s name=%s visible=%s x=%.0f y=%.0f score=%s",
+                            tostring(parent_name),
+                            tonumber(index) or 0,
+                            tostring(combat_ui_obj(child) or 0),
+                            tostring((child and child.name) or ""),
+                            tostring(child and child.visible == true),
+                            tonumber(child and child.x) or 0,
+                            tonumber(child and child.y) or 0,
+                            tostring(score or "")),
+                        0,
+                        false)
+                end
+            end
+        end
+    end
+
+    if not best then
+        return false, "loot all button not found; last_err=" .. tostring(last_err)
+    end
+
+    local obj = combat_ui_obj(best)
+    local ok, clicked, err = ui_runtime.click(obj)
+    if ok and clicked ~= false then
+        combat_log("loot-click-all",
+            string.format("clicked loot all parent=%s obj=%s name=%s x=%.0f y=%.0f score=%.1f parent_xy=%.0f,%.0f",
+                tostring(best_parent_name),
+                tostring(obj),
+                tostring(best.name or ""),
+                tonumber(best.x) or 0,
+                tonumber(best.y) or 0,
+                tonumber(best_score) or 0,
+                tonumber(best_parent and best_parent.x) or 0,
+                tonumber(best_parent and best_parent.y) or 0),
+            0,
+            true)
+        return true, nil
+    end
+
+    return false, "ClickButton failed obj=" .. tostring(obj) .. " err=" .. tostring(err) .. " clicked=" .. tostring(clicked)
+end
+
+function combat_close_loot_dialog(reason)
+    local ok_ui, ui_runtime = pcall(require, "aion.ui")
+    if not ok_ui or not ui_runtime then
+        return false, "aion.ui unavailable"
+    end
+
+    local parents = { "loot_dialog", "dlg_loot" }
+    for _, parent_name in ipairs(parents) do
+        local ok, children = ui_runtime.children(parent_name, 8)
+        if ok and children then
+            for _, child in ipairs(children) do
+                local name = string.lower(tostring(child and child.name or ""))
+                local obj = combat_ui_obj(child)
+                if child and child.visible == true and obj and tonumber(obj) ~= 0 and
+                    (name == "cancel" or name == "close" or name:find("close", 1, true)) then
+                    local click_ok, clicked, err = ui_runtime.click(obj)
+                    if click_ok and clicked ~= false then
+                        combat_log("loot-close",
+                            "closed stale loot dialog parent=" .. tostring(parent_name) ..
+                            " button=" .. tostring(child.name or "") ..
+                            " obj=" .. tostring(obj) ..
+                            " reason=" .. tostring(reason or ""),
+                            0,
+                            true)
+                        return true, nil
+                    end
+                    return false, "close click failed obj=" .. tostring(obj) .. " err=" .. tostring(err)
+                end
+            end
+        end
+    end
+
+    return false, "no visible close button"
+end
+
+function combat_wait_pickup_dialog(timeout_ms, interval_ms)
+    local timeout = math.max(50, tonumber(timeout_ms) or 1000) / 1000.0
+    local interval = math.max(20, tonumber(interval_ms) or 100)
+    local started = now_seconds()
+    local last_err = nil
+    while now_seconds() - started <= timeout do
+        local ok, err = combat_pickup_dialog()
+        if ok then
+            return true, nil
+        end
+        last_err = err
+        sleep(interval)
+    end
+    return false, last_err or "loot dialog timeout"
+end
+
+function combat_loot_dialog_active()
+    local ok_ui, ui_runtime = pcall(require, "aion.ui")
+    if not ok_ui or not ui_runtime then
+        return false, "aion.ui unavailable"
+    end
+
+    local parents = { "loot_dialog", "dlg_loot" }
+    local details = {}
+    for _, parent_name in ipairs(parents) do
+        local find_ok, parent = ui_runtime.find(parent_name)
+        if find_ok and type(parent) == "table" and parent.visible == true then
+            return true, "parent=" .. tostring(parent_name)
+        end
+
+        local ok, children = ui_runtime.children(parent_name, 8)
+        if ok and children then
+            local visible_count = 0
+            for _, child in ipairs(children) do
+                if child and child.visible == true then
+                    visible_count = visible_count + 1
+                end
+            end
+            details[#details + 1] = tostring(parent_name) .. ":visible_children=" .. tostring(visible_count)
+            if visible_count > 0 then
+                return true, details[#details]
+            end
+        else
+            details[#details + 1] = tostring(parent_name) .. ":children_unavailable"
+        end
+    end
+
+    return false, table.concat(details, ",")
+end
+
 function combat_pickup_dialog()
     if not cfg.combat.loot_enabled then
         return false
     end
 
     local ok_loot, loot_runtime = pcall(require, "aion.loot")
-    if not ok_loot or not loot_runtime then
-        combat_set_status("loot-error", "aion.loot unavailable", true)
-        return false
+    local api_err = nil
+    local api_picked = false
+    if ok_loot and loot_runtime then
+        local ok, picked, err = loot_runtime.pickupDialog()
+        if ok and picked == true then
+            api_picked = true
+            sleep(120)
+        else
+            api_err = err or tostring(picked)
+        end
+        combat_log("loot-api",
+            "LootPickup result picked=" .. tostring(picked) .. " err=" .. tostring(err),
+            1.0,
+            false)
+    else
+        api_err = "aion.loot unavailable"
+        combat_log("loot-api",
+            "LootPickup unavailable: " .. tostring(api_err),
+            1.0,
+            false)
     end
 
-    local ok, picked, err = loot_runtime.pickupDialog("dlg_loot")
-    if ok and picked == true then
-        local c = runtime.combat
-        c.last_loot_at = now_seconds()
-        c.loot_obj = 0
-        c.loot_name = ""
-        c.loot_distance = 0
-        c.loot_attempts = 0
-        c.post_kill_until = 0
-        combat_set_status("looted", "", false)
-        combat_log("loot-picked", "loot dialog picked", 0, true)
+    local clicked, click_err = combat_click_loot_all_button()
+    if clicked then
+        combat_finish_loot("click-all", "")
         return true
     end
 
+    if api_picked then
+        local active, active_detail = combat_loot_dialog_active()
+        if not active then
+            combat_finish_loot("LootPickup", "dialog=auto verified_closed " .. tostring(active_detail or ""))
+            return true
+        end
+        combat_log("loot-api-uncertain",
+            "LootPickup returned true, but loot dialog still active; click_err=" .. tostring(click_err) ..
+            " detail=" .. tostring(active_detail),
+            0,
+            true)
+        return false, "LootPickup true but loot dialog still active: " .. tostring(click_err)
+    end
+
     combat_log("loot-dialog",
-        "loot dialog not ready picked=" .. tostring(picked) .. " err=" .. tostring(err),
+        "loot dialog not ready api_err=" .. tostring(api_err) .. " click_err=" .. tostring(click_err),
         nil,
         false)
-    return false, err
+    return false, click_err or api_err
 end
 
 function combat_ignore_loot(obj)
@@ -2414,29 +2854,51 @@ function combat_open_loot(loot_target, char)
                 combat_log("loot-move-failed:" .. tostring(loot_key), "loot move failed err=" .. tostring(move_err), 0, true)
                 return false
             end
-            combat_set_status("loot-moving", string.format("%.1f", dist), false)
-            combat_log("loot-moving:" .. tostring(loot_key),
-                string.format("loot moving name=%s obj=%s dist=%.1f range=%.1f",
-                    c.loot_name,
-                    tostring(loot_key),
-                    tonumber(dist) or 0,
-                    tonumber(interact_range) or 0),
-                1.0,
-                false)
-            return true
+            local moved_dist = dist
+            if ok_core and core and type(core.getCharacter) == "function" then
+                local char_ok, moved_char = core.getCharacter()
+                if char_ok and moved_char then
+                    char = moved_char
+                    moved_dist = core.distance3(char, loot_target)
+                    c.loot_distance = moved_dist
+                end
+            end
+            if moved_dist <= interact_range then
+                dist = moved_dist
+                combat_log("loot-arrived:" .. tostring(loot_key),
+                    string.format("loot arrived name=%s obj=%s dist=%.1f range=%.1f, continue open",
+                        c.loot_name,
+                        tostring(loot_key),
+                        tonumber(dist) or 0,
+                        tonumber(interact_range) or 0),
+                    0,
+                    true)
+            else
+                dist = moved_dist
+                c.loot_distance = dist
+                combat_set_status("loot-moving", string.format("%.1f", dist), false)
+                combat_log("loot-moving:" .. tostring(loot_key),
+                    string.format("loot moving name=%s obj=%s dist=%.1f range=%.1f",
+                        c.loot_name,
+                        tostring(loot_key),
+                        tonumber(dist) or 0,
+                        tonumber(interact_range) or 0),
+                    1.0,
+                    false)
+                return true
+            end
         end
         combat_set_status("loot-error", "aion.nav unavailable", true)
         combat_log("loot-error", "loot nav unavailable", 0, true)
         return false
     end
 
-    if combat_pickup_dialog() then
-        return true
-    end
-
     local now = now_seconds()
     local retry = math.max(0.2, tonumber(cfg.combat.loot_retry_interval) or 1.0)
     if c.last_loot_interact_at > 0 and now - c.last_loot_interact_at < retry then
+        if combat_wait_pickup_dialog(250, 50) then
+            return true
+        end
         combat_set_status("loot-wait-dialog", c.loot_name, false)
         combat_log("loot-wait:" .. tostring(loot_key), "loot wait dialog name=" .. c.loot_name, 1.0, false)
         return true
@@ -2458,6 +2920,9 @@ function combat_open_loot(loot_target, char)
         return false
     end
 
+    combat_close_loot_dialog("before-open:" .. tostring(loot_key))
+    sleep(80)
+
     local interact_id = tonumber(loot_target.interact_id) or 0
     if interact_id > 0 then
         local ok_npc, npc_runtime = pcall(require, "aion.npc")
@@ -2469,26 +2934,237 @@ function combat_open_loot(loot_target, char)
                     "loot open by interact_id=" .. tostring(interact_id) .. " name=" .. c.loot_name,
                     0,
                     true)
-                combat_send_loot_key(loot_target, obj, "after-interact")
-                return true
+                local picked = combat_wait_pickup_dialog(1200, 100)
+                if picked then
+                    return true
+                end
+                local key_ok, key_err = combat_send_loot_key(loot_target, obj, "after-interact-no-dialog")
+                if key_ok and combat_wait_pickup_dialog(1000, 100) then
+                    return true
+                end
+                combat_log("loot-open-no-dialog:" .. tostring(loot_key),
+                    "loot interact sent but no pickup dialog clicked name=" .. c.loot_name ..
+                    " key_ok=" .. tostring(key_ok) ..
+                    " key_err=" .. tostring(key_err),
+                    0,
+                    true)
+                return false, key_err or "loot dialog not clicked after interact"
             end
             c.last_error = "loot interact failed: " .. tostring(err)
             combat_log("loot-interact-failed:" .. tostring(loot_key), "loot interact failed err=" .. tostring(err), 0, true)
         end
     end
 
-    return combat_send_loot_key(loot_target, obj, "fallback")
+    local key_ok, key_err = combat_send_loot_key(loot_target, obj, "fallback")
+    if key_ok and combat_wait_pickup_dialog(1200, 100) then
+        return true
+    end
+    return false, key_err or "loot dialog not clicked after key"
 end
 
-function combat_auto_on()
+function loot_test_set_status(text)
+    runtime.loot_test = runtime.loot_test or {}
+    runtime.loot_test.last_status = tostring(text or "")
+    set_event("[拾取测试] " .. runtime.loot_test.last_status)
+    log_info("[AionLootTest] " .. runtime.loot_test.last_status)
+end
+
+function loot_test_pick_nearest()
+    runtime.loot_test = runtime.loot_test or {}
+    runtime.loot_test.last_dump = ""
+
+    if not ok_core or not core then
+        loot_test_set_status("失败: aion.core 不可用")
+        return false
+    end
+    if not ok_entity or not entity then
+        loot_test_set_status("失败: aion.entity 不可用")
+        return false
+    end
+
+    local pid = tonumber(cfg.target and cfg.target.pid) or nil
+    if core.ensureInit then
+        local init_ok, init_err = core.ensureInit(pid)
+        if not init_ok then
+            loot_test_set_status("失败: 初始化失败 " .. tostring(init_err))
+            return false
+        end
+    end
+
+    local char_ok, char, char_err = core.getCharacter()
+    if not char_ok or not char then
+        loot_test_set_status("失败: 读取角色失败 " .. tostring(char_err))
+        return false
+    end
+
+    local list_ok, list, list_err = entity.list()
+    if not list_ok then
+        loot_test_set_status("失败: 读取实体失败 " .. tostring(list_err))
+        return false
+    end
+
+    local old_enabled = cfg.combat.loot_enabled
+    cfg.combat.loot_enabled = true
+    local target = combat_choose_loot(list or {}, char, char)
+    if not target then
+        cfg.combat.loot_enabled = old_enabled
+        runtime.loot_test.last_dump = "未找到可拾取尸体。请确认尸体在拾取半径内，且 API 的 lootable=1。"
+        loot_test_set_status("未找到可拾取尸体 entities=" .. tostring(#(list or {})))
+        return false
+    end
+
+    local dist = ok_core and core and core.distance3(char, target) or tonumber(target.distance) or 0
+    runtime.loot_test.last_dump = string.format(
+        "目标: %s\nobj: %s\n距离: %.1f\nlootable: %s\ninteract_id: %s\n坐标: %.2f, %.2f, %.2f",
+        tostring(target.name or ""),
+        tostring(combat_loot_key(target)),
+        tonumber(dist) or 0,
+        tostring(target.lootable or ""),
+        tostring(target.interact_id or ""),
+        tonumber(target.x) or 0,
+        tonumber(target.y) or 0,
+        tonumber(target.z) or 0)
+
+    local call_ok, ok_or_err = pcall(combat_open_loot, target, char)
+    cfg.combat.loot_enabled = old_enabled
+    if not call_ok then
+        loot_test_set_status("拾取步骤异常: " .. tostring(ok_or_err))
+        return false
+    end
+
+    if ok_or_err then
+        loot_test_set_status(string.format("已执行拾取步骤: %s dist=%.1f", tostring(target.name or ""), tonumber(dist) or 0))
+        return true
+    end
+
+    loot_test_set_status(string.format("拾取步骤失败: %s dist=%.1f", tostring(target.name or ""), tonumber(dist) or 0))
+    return false
+end
+
+function loot_test_pick_nearest()
+    runtime.loot_test = runtime.loot_test or {}
+    runtime.loot_test.last_dump = ""
+
+    if not ok_core or not core then
+        loot_test_set_status("failed: aion.core unavailable")
+        return false
+    end
+    if not ok_entity or not entity then
+        loot_test_set_status("failed: aion.entity unavailable")
+        return false
+    end
+
+    local pid = tonumber(cfg.target and cfg.target.pid) or nil
+    if core.ensureInit then
+        local init_ok, init_err = core.ensureInit(pid)
+        if not init_ok then
+            loot_test_set_status("failed: init " .. tostring(init_err))
+            return false
+        end
+    end
+
+    local old_enabled = cfg.combat.loot_enabled
+    cfg.combat.loot_enabled = true
+
+    local started = now_seconds()
+    local timeout = 12.0
+    local last_target_name = ""
+    local last_dist = 0
+    local last_entities = 0
+    local last_err = nil
+
+    while now_seconds() - started <= timeout do
+        local char_ok, char, char_err = core.getCharacter()
+        if not char_ok or not char then
+            cfg.combat.loot_enabled = old_enabled
+            loot_test_set_status("failed: read character " .. tostring(char_err))
+            return false
+        end
+
+        local list_ok, list, list_err = entity.list()
+        if not list_ok then
+            cfg.combat.loot_enabled = old_enabled
+            loot_test_set_status("failed: read entities " .. tostring(list_err))
+            return false
+        end
+        last_entities = #(list or {})
+
+        local target = combat_choose_loot(list or {}, char, char)
+        if not target then
+            if tostring(runtime.combat.status or "") == "looted" then
+                cfg.combat.loot_enabled = old_enabled
+                loot_test_set_status("picked: no remaining loot target")
+                return true
+            end
+            last_err = "no loot target"
+            sleep(250)
+        else
+            local dist = ok_core and core and core.distance3(char, target) or tonumber(target.distance) or 0
+            last_target_name = tostring(target.name or "")
+            last_dist = tonumber(dist) or 0
+            runtime.loot_test.last_dump = string.format(
+                "target: %s\nobj: %s\ndist: %.1f\nlootable: %s\ninteract_id: %s\npos: %.2f, %.2f, %.2f\nstatus: %s",
+                tostring(target.name or ""),
+                tostring(combat_loot_key(target)),
+                tonumber(dist) or 0,
+                tostring(target.lootable or ""),
+                tostring(target.interact_id or ""),
+                tonumber(target.x) or 0,
+                tonumber(target.y) or 0,
+                tonumber(target.z) or 0,
+                tostring(runtime.combat.status or ""))
+
+            local call_ok, ok_or_err, err = pcall(combat_open_loot, target, char)
+            if not call_ok then
+                cfg.combat.loot_enabled = old_enabled
+                loot_test_set_status("loot exception: " .. tostring(ok_or_err))
+                return false
+            end
+
+            local status = tostring(runtime.combat.status or "")
+            if status == "looted" then
+                cfg.combat.loot_enabled = old_enabled
+                loot_test_set_status(string.format("picked: %s dist=%.1f", last_target_name, last_dist))
+                return true
+            end
+
+            if ok_or_err and status == "loot-moving" then
+                loot_test_set_status(string.format("moving to loot: %s dist=%.1f", last_target_name, last_dist))
+                sleep(350)
+            elseif ok_or_err then
+                loot_test_set_status(string.format("waiting loot click: %s dist=%.1f status=%s", last_target_name, last_dist, status))
+                sleep(250)
+            else
+                last_err = err or ok_or_err
+                sleep(250)
+            end
+        end
+    end
+
+    cfg.combat.loot_enabled = old_enabled
+    loot_test_set_status(string.format("timeout: target=%s dist=%.1f entities=%d err=%s",
+        tostring(last_target_name),
+        tonumber(last_dist) or 0,
+        tonumber(last_entities) or 0,
+        tostring(last_err or "")))
+    return false
+end
+
+function combat_auto_on(force_start)
     if not ok_combat or not combat then
-        return false, "aion.combat 不可用"
+        return false, "aion.combat unavailable"
+    end
+    if not force_start and combat.isAutoBattleOn then
+        local state_ok, is_on = combat.isAutoBattleOn()
+        if state_ok and is_on == true then
+            return true, nil, true
+        end
     end
     local ok, value, err = combat.autoBattleOn()
     if not ok then
         return false, err
     end
-    return value ~= false, nil
+    return value ~= false, nil, false
 end
 
 function combat_auto_off(reason, force_log)
@@ -2590,6 +3266,7 @@ function combat_engage_target(target)
     local select_ms = 0
     local auto_ms = 0
     local same_target = tonumber(c.target_obj) == obj
+    local force_auto_on = false
     if not same_target then
         local select_started = now_seconds()
         local select_ok, selected, select_err = combat.selectTarget(obj)
@@ -2607,6 +3284,7 @@ function combat_engage_target(target)
         c.target_name = tostring(target.name or "")
         c.target_distance = tonumber(target.distance) or 0
         c.post_kill_until = 0
+        force_auto_on = true
         combat_log("select:" .. tostring(obj),
             string.format("selected name=%s obj=%s select_ms=%.0f",
                 tostring(target.name or ""),
@@ -2616,11 +3294,28 @@ function combat_engage_target(target)
             true)
     end
 
-    local auto_interval = math.max(0.2, tonumber(cfg.combat.auto_refresh_interval) or 1.0)
-    local should_auto_on = (not same_target) or tostring(c.status or "") ~= "fighting" or now - (tonumber(c.last_auto_on_at) or 0) >= auto_interval
+    local auto_state = "new-target"
+    local should_auto_on = (not same_target) or tostring(c.status or "") ~= "fighting"
+    if same_target and tostring(c.status or "") == "fighting" and combat.isAutoBattleOn then
+        local state_ok, is_on, state_err = combat.isAutoBattleOn()
+        if state_ok then
+            auto_state = tostring(is_on == true)
+            should_auto_on = not (is_on == true)
+        else
+            auto_state = "check-failed:" .. tostring(state_err)
+            should_auto_on = false
+            combat_log("auto-state-failed:" .. tostring(obj),
+                "auto battle state check failed name=" .. tostring(target.name or "") .. " obj=" .. tostring(obj) .. " err=" .. tostring(state_err),
+                2.0,
+                false)
+        end
+    elseif same_target and tostring(c.status or "") == "fighting" then
+        auto_state = "unchecked"
+        should_auto_on = false
+    end
     if should_auto_on then
         local auto_started = now_seconds()
-        local auto_ok, auto_err = combat_auto_on()
+        local auto_ok, auto_err, already_on = combat_auto_on(force_auto_on)
         auto_ms = math.max(0, (now_seconds() - auto_started) * 1000)
         if not auto_ok then
             combat_set_status("auto-battle-failed", tostring(auto_err), true)
@@ -2630,16 +3325,27 @@ function combat_engage_target(target)
                 true)
             return false
         end
-        c.last_auto_on_at = now_seconds()
+        if already_on then
+            auto_state = "already-on"
+        elseif force_auto_on then
+            auto_state = "forced-start"
+            c.last_auto_on_at = now_seconds()
+        else
+            auto_state = "started"
+            c.last_auto_on_at = now_seconds()
+        end
     end
 
     c.target_obj = obj
     c.target_name = tostring(target.name or "")
     c.target_distance = tonumber(target.distance) or 0
     c.post_kill_until = 0
+    if not same_target then
+        c.last_tick_at = 0
+    end
     combat_set_status("fighting", c.target_name, false)
     combat_log("fighting:" .. tostring(obj),
-        string.format("fighting name=%s obj=%s dist=%.1f hp=%s/%s same=%s auto=%s select_ms=%.0f auto_ms=%.0f total_ms=%.0f",
+        string.format("fighting name=%s obj=%s dist=%.1f hp=%s/%s same=%s auto=%s force=%s auto_state=%s select_ms=%.0f auto_ms=%.0f total_ms=%.0f",
             c.target_name,
             tostring(obj),
             tonumber(c.target_distance) or 0,
@@ -2647,6 +3353,8 @@ function combat_engage_target(target)
             tostring(target.mhp or ""),
             tostring(same_target),
             tostring(should_auto_on),
+            tostring(force_auto_on),
+            tostring(auto_state),
             select_ms,
             auto_ms,
             math.max(0, (now_seconds() - engage_started) * 1000)),
@@ -2980,6 +3688,7 @@ function npc_fill_selected_candidate()
     end
 
     cfg.npc_dialog.accept_npc_name = item.name
+    cfg.npc_dialog.accept_npc_interact_id = tostring(item.interact_id or "")
     npc_dialog_set_status("已填入接任务NPC: " .. tostring(item.name))
     return true
 end
@@ -3015,6 +3724,37 @@ function npc_dialog_prepare_runtime()
     end
 
     return true, npc_runtime, ui_runtime
+end
+
+function npc_open_dialog_by_interact_id()
+    local ready, npc_runtime = npc_dialog_prepare_runtime()
+    if not ready then
+        return false
+    end
+
+    cfg.npc_dialog = cfg.npc_dialog or {}
+    local interact_id = tonumber(cfg.npc_dialog.accept_npc_interact_id) or 0
+    if interact_id <= 0 then
+        npc_dialog_set_status("用ID打开NPC失败: 请先填写接任务NPC ID")
+        return false
+    end
+
+    local interact_ok, _, interact_err = npc_runtime.interactId(interact_id)
+    if not interact_ok then
+        npc_dialog_set_status("用ID打开NPC失败: interact_id=" .. tostring(interact_id) .. " err=" .. tostring(interact_err))
+        return false
+    end
+
+    local wait_ok, dialog_or_err = npc_runtime.waitDialog(tonumber(cfg.npc_dialog.wait_dialog_ms) or 3000)
+    if not wait_ok or not dialog_or_err then
+        npc_dialog_set_status("用ID打开NPC失败: 等待对话框超时 interact_id=" .. tostring(interact_id) .. " err=" .. tostring(dialog_or_err))
+        return false
+    end
+
+    npc_dialog_set_status("用ID打开NPC成功: interact_id=" .. tostring(interact_id) ..
+        " npc_dialog_id=" .. tostring(dialog_or_err.npc_dialog_id or 0))
+    npc_dump_current_dialog()
+    return true
 end
 
 function npc_dialog_child_label(index, child)
@@ -3359,10 +4099,24 @@ function npc_accept_quest_test()
     end
 
     cfg.npc_dialog = cfg.npc_dialog or {}
+    local interact_id = tonumber(cfg.npc_dialog.accept_npc_interact_id) or 0
     local npc_name = tostring(cfg.npc_dialog.accept_npc_name or ""):gsub("^%s+", ""):gsub("%s+$", "")
     local info
 
-    if npc_name ~= "" then
+    if interact_id > 0 then
+        local interact_ok, _, interact_err = npc_runtime.interactId(interact_id)
+        if not interact_ok then
+            npc_dialog_set_status("NPC接任务失败 无法用ID交互NPC interact_id=" .. tostring(interact_id) .. " " .. tostring(interact_err))
+            return false
+        end
+
+        local wait_ok, dialog_or_err = npc_runtime.waitDialog(tonumber(cfg.npc_dialog.wait_dialog_ms) or 3000)
+        if not wait_ok or not dialog_or_err then
+            npc_dialog_set_status("NPC接任务失败 用ID等待NPC对话框超时 interact_id=" .. tostring(interact_id) .. " " .. tostring(dialog_or_err))
+            return false
+        end
+        info = dialog_or_err
+    elseif npc_name ~= "" then
         local interact_ok, _, interact_err = npc_runtime.interactByName(npc_name)
         if not interact_ok then
             npc_dialog_set_status("NPC接任务失败 找不到或无法交互NPC " .. npc_name .. " " .. tostring(interact_err))
@@ -3434,6 +4188,7 @@ local function start_bot()
     if cfg.audit.reset_on_start then
         audit_reset()
     end
+    sync_combat_enabled_from_primary_mode()
     combat_reset_runtime("start")
     runtime.running = true
     runtime.paused = false
@@ -4498,6 +5253,8 @@ local function apply_config_snapshot(snapshot)
             merge_table(cfg[key], snapshot[key])
         end
     end
+    sync_combat_enabled_from_primary_mode()
+    normalize_route_config()
 
     return true, nil
 end
@@ -4526,6 +5283,8 @@ local function load_config_domains()
     for _, key in ipairs(config_domain_keys) do
         load_config_domain(key)
     end
+    sync_combat_enabled_from_primary_mode()
+    normalize_route_config()
 end
 
 local function save_route_config()
@@ -4538,6 +5297,7 @@ local function load_route_config()
     for _, key in ipairs(route_config_keys) do
         cfg.route[key] = config.get("aion_control.route." .. key, cfg.route[key])
     end
+    normalize_route_config()
 end
 
 local function save_config()
@@ -4546,6 +5306,8 @@ local function save_config()
         return
     end
 
+    normalize_route_config()
+    sync_combat_enabled_from_primary_mode()
     config.load()
     save_config_domains()
 
@@ -4606,6 +5368,8 @@ local function load_config()
         cfg.audit.material_keywords = config.get("aion_control.audit_material_keywords", cfg.audit.material_keywords)
     end
     normalize_primary_mode()
+    sync_combat_enabled_from_primary_mode()
+    normalize_route_config()
     if cleared_login then
         account_save_domain()
     end
@@ -4829,6 +5593,218 @@ function teleport_to_selected_node()
     return true
 end
 
+function ui_test_prepare_runtime()
+    local ok_ui_runtime, ui_runtime = pcall(require, "aion.ui")
+    if not ok_ui_runtime or not ui_runtime then
+        runtime.ui_test.last_status = "UI测试失败: aion.ui 不可用"
+        set_event(runtime.ui_test.last_status)
+        return false, nil
+    end
+
+    if ok_core and core and type(core.ensureInit) == "function" then
+        local init_ok, init_err = core.ensureInit(tonumber(cfg.target.pid) or nil)
+        if not init_ok then
+            runtime.ui_test.last_status = "UI测试初始化失败: " .. tostring(init_err)
+            set_event(runtime.ui_test.last_status)
+            return false, nil
+        end
+    end
+
+    return true, ui_runtime
+end
+
+function ui_test_control_obj(ctrl)
+    if type(ctrl) ~= "table" then
+        return nil
+    end
+    return ctrl.obj or ctrl.addr
+end
+
+function ui_test_control_label(ctrl, index)
+    ctrl = ctrl or {}
+    local name = tostring(ctrl.name or "")
+    if name == "" then
+        name = "(no-name)"
+    end
+    local depth_or_layer = ctrl.depth
+    local prefix = "depth"
+    if depth_or_layer == nil then
+        depth_or_layer = ctrl.layer
+        prefix = "layer"
+    end
+    return string.format(
+        "%02d. %s=%s obj=%s name=%s visible=%s x=%.0f y=%.0f",
+        tonumber(index) or 0,
+        prefix,
+        tostring(depth_or_layer or 0),
+        tostring(ui_test_control_obj(ctrl) or 0),
+        name,
+        tostring(ctrl.visible == true),
+        tonumber(ctrl.x) or 0,
+        tonumber(ctrl.y) or 0)
+end
+
+function ui_test_set_controls(list, status)
+    local t = runtime.ui_test
+    t.controls = list or {}
+    t.labels = {}
+    local dump = {}
+    for index, ctrl in ipairs(t.controls) do
+        local label = ui_test_control_label(ctrl, index)
+        t.labels[index] = label
+        dump[index] = label
+    end
+    if #t.labels == 0 then
+        t.labels[1] = "No UI controls"
+    end
+    t.selected_index = math.max(1, math.min(#t.labels, tonumber(t.selected_index) or 1))
+    t.dump = table.concat(dump, "\n")
+    t.last_status = status or ("控件数=" .. tostring(#t.controls))
+    set_event(t.last_status)
+    log_info("[AionUITest] " .. t.last_status)
+end
+
+function ui_test_refresh_all()
+    local t = runtime.ui_test
+    local ready, ui_runtime = ui_test_prepare_runtime()
+    if not ready then return false end
+
+    local include_no_name = cfg.test.ui_include_no_name == true
+    local ok, list, err = ui_runtime.list(include_no_name)
+    if not ok then
+        t.last_status = "遍历全部UI失败: " .. tostring(err)
+        set_event(t.last_status)
+        return false
+    end
+    ui_test_set_controls(list or {}, string.format("遍历全部UI完成: count=%d includeNoName=%s", #(list or {}), tostring(include_no_name)))
+    return true
+end
+
+function ui_test_refresh_children()
+    local t = runtime.ui_test
+    local ready, ui_runtime = ui_test_prepare_runtime()
+    if not ready then return false end
+
+    local parent = tostring(cfg.test.ui_parent_name or "")
+    if parent == "" then
+        t.last_status = "遍历子控件失败: 父控件名为空"
+        set_event(t.last_status)
+        return false
+    end
+
+    local depth = math.max(1, tonumber(cfg.test.ui_child_depth) or 6)
+    local ok, list, err = ui_runtime.children(parent, depth)
+    if not ok then
+        t.last_status = "遍历子控件失败: " .. tostring(err)
+        set_event(t.last_status)
+        return false
+    end
+    ui_test_set_controls(list or {}, string.format("遍历子控件完成: parent=%s depth=%d count=%d", parent, depth, #(list or {})))
+    return true
+end
+
+function ui_test_click_selected()
+    local t = runtime.ui_test
+    local ready, ui_runtime = ui_test_prepare_runtime()
+    if not ready then return false end
+
+    local index = math.max(1, tonumber(t.selected_index) or 1)
+    local ctrl = (t.controls or {})[index]
+    if not ctrl then
+        t.last_status = "点击控件失败: 未选择有效控件"
+        set_event(t.last_status)
+        return false
+    end
+
+    local obj = ui_test_control_obj(ctrl)
+    if not obj or tonumber(obj) == 0 then
+        t.last_status = "点击控件失败: 控件对象地址无效"
+        set_event(t.last_status)
+        return false
+    end
+
+    local ok, result, err = ui_runtime.click(obj)
+    if not ok or result == false then
+        t.last_status = "点击控件失败: " .. tostring(err or result) .. " | " .. ui_test_control_label(ctrl, index)
+        set_event(t.last_status)
+        return false
+    end
+
+    t.last_status = "点击控件已发送: " .. ui_test_control_label(ctrl, index)
+    set_event(t.last_status)
+    log_info("[AionUITest] " .. t.last_status)
+    return true
+end
+
+function ui_test_f2_dump()
+    local ready, ui_runtime = ui_test_prepare_runtime()
+    if not ready then
+        log_warn("[AionUIF2] prepare failed: " .. tostring(runtime.ui_test.last_status or ""))
+        return false
+    end
+
+    local ok, list, err = ui_runtime.list(true)
+    if not ok then
+        runtime.ui_test.last_status = "F2 full UI dump failed: " .. tostring(err)
+        set_event(runtime.ui_test.last_status)
+        log_warn("[AionUIF2] " .. runtime.ui_test.last_status)
+        return false
+    end
+
+    list = list or {}
+    ui_test_set_controls(list, string.format("F2 full UI dump logged: count=%d", #list))
+    log_info("[AionUIF2] full UI begin count=" .. tostring(#list) .. " includeNoName=true")
+    for index, ctrl in ipairs(list) do
+        log_info("[AionUIF2] UI " .. ui_test_control_label(ctrl, index))
+    end
+    log_info("[AionUIF2] full UI end")
+
+    local depth = math.max(1, tonumber(cfg.test.ui_child_depth) or 8)
+    local parents = {}
+    local seen = {}
+    local function add_parent(name)
+        name = tostring(name or "")
+        if name ~= "" and not seen[name] then
+            seen[name] = true
+            parents[#parents + 1] = name
+        end
+    end
+
+    add_parent(cfg.test.ui_parent_name)
+    add_parent("resurrect_dialog_new")
+    add_parent("move_state_dialog")
+    add_parent("dlg_revive")
+    add_parent("death_object_delay_dialog")
+    add_parent("resurrectother_dialog")
+    add_parent("common_alert_dialog")
+    add_parent("start_dialog")
+    add_parent("dlg_dialog")
+    add_parent("loot_dialog")
+    add_parent("dlg_loot")
+
+    for _, parent in ipairs(parents) do
+        local child_ok, children, child_err = ui_runtime.children(parent, depth)
+        if not child_ok then
+            log_warn("[AionUIF2] children parent=" .. tostring(parent) ..
+                " depth=" .. tostring(depth) .. " failed: " .. tostring(child_err))
+        else
+            children = children or {}
+            log_info("[AionUIF2] children begin parent=" .. tostring(parent) ..
+                " depth=" .. tostring(depth) .. " count=" .. tostring(#children))
+            for index, child in ipairs(children) do
+                log_info("[AionUIF2] CHILD parent=" .. tostring(parent) ..
+                    " " .. ui_test_control_label(child, index))
+            end
+            log_info("[AionUIF2] children end parent=" .. tostring(parent))
+        end
+    end
+
+    runtime.ui_test.last_status = "F2 UI dump complete; copy log lines with [AionUIF2]"
+    set_event(runtime.ui_test.last_status)
+    log_info("[AionUIF2] dump complete")
+    return true
+end
+
 local function append_point(field, silentTooClose)
     local pos, err = capture_position()
     if not pos then
@@ -4964,6 +5940,40 @@ function route_saved_index(pointsField, nameField)
     return 1
 end
 
+function route_sync_name_from_saved_points(pointsField, nameField)
+    local current_name = route_trim(cfg.route[nameField] or "")
+    if current_name ~= "" then
+        return false
+    end
+
+    local points_text = tostring(cfg.route[pointsField] or "")
+    if points_text == "" then
+        return false
+    end
+
+    for _, item in ipairs(route_saved_items(pointsField)) do
+        if tostring(item.points_text or "") == points_text then
+            local saved_name = route_trim(item.name or "")
+            if saved_name ~= "" then
+                cfg.route[nameField] = saved_name
+                return true
+            end
+            return false
+        end
+    end
+    return false
+end
+
+function route_sync_all_names_from_saved_points()
+    local changed = false
+    for _, spec in ipairs(route_specs) do
+        if route_sync_name_from_saved_points(spec.points_field, spec.name_field) then
+            changed = true
+        end
+    end
+    return changed
+end
+
 function route_save_current(pointsField, nameField, silent)
     local points_text = tostring(cfg.route[pointsField] or "")
     if route_point_count(points_text) <= 0 then
@@ -5092,6 +6102,16 @@ function route_distance3(a, b)
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+function route_format_pos(pos)
+    if type(pos) ~= "table" then
+        return "nil"
+    end
+    return string.format("%.2f,%.2f,%.2f",
+        tonumber(pos.x) or 0,
+        tonumber(pos.y) or 0,
+        tonumber(pos.z) or 0)
+end
+
 function route_current_position()
     if not ok_core or not core then
         return false, nil, "aion.core unavailable"
@@ -5141,6 +6161,114 @@ end
 
 function route_recovery_blocks_combat()
     return runtime.recovery and runtime.recovery.active == true
+end
+
+function auto_revive_is_death_phase(phase)
+    phase = tostring(phase or "")
+    return phase == "death-revive" or phase == "death-clicked" or phase == "death-wait"
+end
+
+function route_post_revive_wait_seconds()
+    return math.max(2.0, tonumber(cfg.route and cfg.route.post_revive_wait_seconds) or 2.0)
+end
+
+function auto_revive_control_obj(ctrl)
+    if type(ctrl) ~= "table" then
+        return nil
+    end
+    return ctrl.obj or ctrl.addr
+end
+
+function auto_revive_control_visible(ctrl)
+    return type(ctrl) == "table" and ctrl.visible == true
+end
+
+function auto_revive_try_parent(ui_runtime, parent_name, preferred_names, reason)
+    local find_ok, parent, find_err = ui_runtime.find(parent_name)
+    if not find_ok then
+        return false, "find " .. tostring(parent_name) .. " failed: " .. tostring(find_err)
+    end
+    if not parent then
+        return false, "parent not found: " .. tostring(parent_name)
+    end
+    if type(parent) == "table" and parent.visible == false then
+        return false, "parent hidden: " .. tostring(parent_name)
+    end
+
+    local child_ok, children, child_err = ui_runtime.children(parent_name, 6)
+    if not child_ok then
+        return false, "children " .. tostring(parent_name) .. " failed: " .. tostring(child_err)
+    end
+
+    children = children or {}
+    preferred_names = preferred_names or {}
+    local last_err = "no visible clickable child"
+    for _, wanted_name in ipairs(preferred_names) do
+        for _, child in ipairs(children) do
+            if auto_revive_control_visible(child) and tostring(child.name or "") == wanted_name then
+                local obj = auto_revive_control_obj(child)
+                if obj and tonumber(obj) ~= 0 then
+                    local click_ok, clicked, click_err = ui_runtime.click(obj)
+                    if click_ok and clicked ~= false then
+                        route_recovery_log("auto revive click parent=" .. tostring(parent_name) ..
+                            " child=" .. tostring(wanted_name) ..
+                            " obj=" .. tostring(obj) ..
+                            " reason=" .. tostring(reason or ""))
+                        return true, nil
+                    end
+                    last_err = "click " .. tostring(parent_name) .. "." .. tostring(wanted_name) ..
+                        " failed: " .. tostring(click_err or clicked)
+                end
+            end
+        end
+    end
+
+    return false, last_err
+end
+
+function auto_revive_try_click(reason, force)
+    if cfg.route and cfg.route.auto_revive == false then
+        return false, "auto revive disabled"
+    end
+
+    local rec = runtime.recovery
+    local now = now_seconds()
+    local interval = math.max(0.2, tonumber(cfg.route and cfg.route.revive_click_interval) or 0.8)
+    if not force and (tonumber(rec.last_revive_click_at) or 0) > 0 and now - (tonumber(rec.last_revive_click_at) or 0) < interval then
+        return false, "throttled"
+    end
+
+    rec.last_revive_click_at = now
+    rec.revive_click_attempts = (tonumber(rec.revive_click_attempts) or 0) + 1
+
+    local ok_ui_runtime, ui_runtime = pcall(require, "aion.ui")
+    if not ok_ui_runtime or not ui_runtime then
+        rec.revive_last_error = "aion.ui unavailable"
+        route_recovery_log("auto revive failed: " .. rec.revive_last_error)
+        return false, rec.revive_last_error
+    end
+
+    local ok, err = auto_revive_try_parent(ui_runtime, "resurrect_dialog_new", {
+        "ok",
+    }, reason)
+    if ok then
+        rec.revive_last_error = ""
+        return true, nil
+    end
+
+    local other_ok, other_err = auto_revive_try_parent(ui_runtime, "resurrectother_dialog", {
+        "resurrect_ok",
+    }, reason)
+    if other_ok then
+        rec.revive_last_error = ""
+        return true, nil
+    end
+
+    rec.revive_last_error = tostring(err or other_err or "revive dialog not ready")
+    route_recovery_log("auto revive waiting attempt=" .. tostring(rec.revive_click_attempts) ..
+        " reason=" .. tostring(reason or "") ..
+        " err=" .. tostring(rec.revive_last_error))
+    return false, rec.revive_last_error
 end
 
 function route_inventory_is_full()
@@ -5243,10 +6371,11 @@ local function route_stop_record()
     runtime.route.last_record_at = 0
 end
 
-route_stop_follow = function(reason, finishRuntime)
+route_stop_follow = function(reason, finishRuntime, completedField)
     local was_following = runtime.route.following
     local show_on_finish = runtime.route.finish_shows_ui
-    local completed_field = runtime.route.completed_field
+    local completed_field = completedField or runtime.route.completed_field
+    local test_only = runtime.route.test_only == true
     runtime.route.completed_field = nil
     runtime.route.following = false
     runtime.route.follow_field = nil
@@ -5261,6 +6390,7 @@ route_stop_follow = function(reason, finishRuntime)
     runtime.route.finish_shows_ui = false
     runtime.route.loop = nil
     runtime.route.reverse_on_end = nil
+    runtime.route.test_only = false
 
     if was_following then
         set_event("停止路径: " .. tostring(reason or "手动停止"))
@@ -5276,7 +6406,8 @@ route_stop_follow = function(reason, finishRuntime)
         end
     end
 
-    if completed_field and route_recovery_on_route_complete then
+    if completed_field and not test_only and route_recovery_on_route_complete then
+        log_info("[AionRoute] complete field=" .. tostring(completed_field) .. " reason=" .. tostring(reason or ""))
         route_recovery_on_route_complete(completed_field)
     end
 end
@@ -5343,45 +6474,58 @@ local function route_start_follow(pointsField, nameField, attachRuntime, opts)
     runtime.route.error = (#warnings > 0) and ("有无效行已忽略 " .. tostring(#warnings)) or ""
     runtime.route.attach_runtime = attachRuntime == true
     runtime.route.finish_shows_ui = attachRuntime == true
+    runtime.route.test_only = opts.test_only == true
     runtime.route.loop = opts.loop
     runtime.route.reverse_on_end = opts.reverse_on_end
-    log_info(string.format("[AionRoute] start name=%s field=%s points=%d index=%d nearest_dist=%.1f attach=%s",
+    local start_point = points[start_index]
+    log_info(string.format("[AionRoute] start name=%s field=%s points=%d index=%d nearest_dist=%.1f start_nearest=%s target=%s attach=%s",
         tostring(runtime.route.follow_name),
         tostring(pointsField),
         #points,
         tonumber(start_index) or 1,
         tonumber(start_dist) or 0,
+        tostring(use_nearest),
+        route_format_pos(start_point),
         tostring(attachRuntime == true)))
-    runtime.running = true
-    runtime.paused = false
-    runtime.status = "运行中"
-    runtime.active_mode = "路径测试"
+    if attachRuntime == true then
+        runtime.running = true
+        runtime.paused = false
+        runtime.status = "运行中"
+        runtime.active_mode = "路径"
+    end
 
-    set_event(string.format("开始运行路径 %s 点数=%d", runtime.route.follow_name, #points))
+    if runtime.route.test_only then
+        set_event(string.format("开始测试路径 %s 点数=%d", runtime.route.follow_name, #points))
+    else
+        set_event(string.format("开始运行路径 %s 点数=%d", runtime.route.follow_name, #points))
+    end
     return true
 end
 
-route_start_selected = function(attachRuntime)
-    local spec = route_selected_spec()
-    return route_start_follow(spec.points_field, spec.name_field, attachRuntime)
-end
+    route_start_selected = function(attachRuntime, opts)
+        local spec = route_selected_spec()
+        return route_start_follow(spec.points_field, spec.name_field, attachRuntime, opts)
+    end
 
-local function route_is_dead()
+function route_character_life_state()
     if not ok_core or not core then
-        return false
+        return false, false, nil, nil, nil, "aion.core unavailable"
     end
 
-    local ok, char = core.getCharacter()
+    local ok, char, err = core.getCharacter()
     if not ok or not char then
-        return false
-    end
-
-    if char.is_dead == true or char.dead == true then
-        return true
+        return false, false, nil, nil, nil, err or "character unavailable"
     end
 
     local hp = tonumber(char.hp or char.HP or char.cur_hp or char.current_hp)
-    return hp ~= nil and hp <= 0
+    local max_hp = tonumber(char.mhp or char.max_hp or char.maxHP or char.MaxHP)
+    local dead = char.is_dead == true or char.dead == true or (hp ~= nil and hp <= 0)
+    return true, dead, char, hp, max_hp, nil
+end
+
+local function route_is_dead()
+    local ok, dead = route_character_life_state()
+    return ok and dead == true
 end
 
 function route_recovery_clear(reason)
@@ -5392,6 +6536,9 @@ function route_recovery_clear(reason)
     rec.wait_until = 0
     rec.route_after_return = "revive"
     rec.last_action_at = now_seconds()
+    rec.last_revive_click_at = 0
+    rec.revive_click_attempts = 0
+    rec.revive_last_error = ""
 end
 
 function route_recovery_finish(reason)
@@ -5402,7 +6549,8 @@ function route_recovery_finish(reason)
     route_recovery_log("finish reason=" .. tostring(reason or ""))
 end
 
-function route_recovery_start_revive(reason, start_pos)
+function route_recovery_start_revive(reason, start_pos, opts)
+    opts = opts or {}
     local ok, points, warnings = route_read_points("revive_points")
     if not ok or #points <= 0 then
         route_recovery_log("revive route missing reason=" .. tostring(reason or "") .. " warnings=" .. tostring(warnings and warnings[1] or ""))
@@ -5410,8 +6558,22 @@ function route_recovery_start_revive(reason, start_pos)
         return false
     end
 
+    local start_nearest = opts.start_nearest
+    if start_nearest == nil then
+        start_nearest = true
+    end
+    local start_index = tonumber(opts.start_index)
+    route_recovery_log("start revive route request reason=" .. tostring(reason or "") ..
+        " points=" .. tostring(#points) ..
+        " start_nearest=" .. tostring(start_nearest) ..
+        " start_index=" .. tostring(start_index or "") ..
+        " start_pos=" .. route_format_pos(start_pos) ..
+        " first=" .. route_format_pos(points[1]) ..
+        " last=" .. route_format_pos(points[#points]))
+
     local started = route_start_follow("revive_points", "revive_route_name", false, {
-        start_nearest = true,
+        start_nearest = start_nearest,
+        start_index = start_index,
         start_pos = start_pos,
         loop = false,
         reverse_on_end = false,
@@ -5493,7 +6655,20 @@ end
 
 function route_recovery_on_death(reason)
     local rec = runtime.recovery
-    if rec.active and rec.phase == "death-wait" then
+    if rec.active and auto_revive_is_death_phase(rec.phase) then
+        local clicked = false
+        local click_err = nil
+        clicked, click_err = auto_revive_try_click(reason, false)
+        if clicked then
+            rec.phase = "death-clicked"
+            rec.wait_until = now_seconds() + route_post_revive_wait_seconds()
+            rec.last_action_at = now_seconds()
+            route_recovery_log("auto revive clicked while active phase=" .. tostring(rec.phase) ..
+                " wait=" .. string.format("%.1f", route_post_revive_wait_seconds()) ..
+                " reason=" .. tostring(reason or ""))
+        elseif click_err and click_err ~= "throttled" then
+            rec.revive_last_error = tostring(click_err)
+        end
         return true
     end
 
@@ -5502,28 +6677,26 @@ function route_recovery_on_death(reason)
         route_stop_follow("route-recovery-death", false)
     end
 
-    local ok_remote, remote_runtime = pcall(require, "aion.remote")
-    local returned = false
-    local err = nil
-    if ok_remote and remote_runtime and type(remote_runtime.returnCharacter) == "function" then
-        local ok, value, call_err = remote_runtime.returnCharacter()
-        returned = ok and value ~= false
-        err = call_err
-    end
-    if not returned and ok_remote and remote_runtime and type(remote_runtime.pressKey) == "function" then
-        local ok, _, call_err = remote_runtime.pressKey(tonumber(cfg.route.return_keycode) or 187)
-        returned = ok
-        err = call_err
-    end
-
+    local now = now_seconds()
     rec.active = true
-    rec.phase = "death-wait"
+    rec.phase = "death-revive"
     rec.reason = tostring(reason or "")
     rec.death_count = (tonumber(rec.death_count) or 0) + 1
-    rec.started_at = now_seconds()
-    rec.wait_until = now_seconds() + math.max(1, tonumber(cfg.route.dead_return_wait_seconds) or 8)
-    rec.last_action_at = now_seconds()
-    route_recovery_log("death return requested ok=" .. tostring(returned) .. " reason=" .. tostring(reason or "") .. " err=" .. tostring(err or ""))
+    rec.started_at = now
+    rec.wait_until = now + route_post_revive_wait_seconds()
+    rec.last_action_at = now
+    rec.last_revive_click_at = 0
+    rec.revive_click_attempts = 0
+    rec.revive_last_error = ""
+
+    local clicked, click_err = auto_revive_try_click(reason, true)
+    if clicked then
+        rec.phase = "death-clicked"
+        rec.wait_until = now_seconds() + route_post_revive_wait_seconds()
+    end
+    route_recovery_log("death detected reason=" .. tostring(reason or "") ..
+        " auto_revive_clicked=" .. tostring(clicked) ..
+        " err=" .. tostring(click_err or ""))
     return true
 end
 
@@ -5547,6 +6720,22 @@ function route_recovery_on_route_complete(field)
     return false
 end
 
+function route_recovery_stationary_anchor()
+    if not cfg.combat then
+        return nil
+    end
+    if tonumber(cfg.primary_mode) ~= 1 then
+        return nil
+    end
+    if not sync_combat_enabled_from_primary_mode() or tonumber(cfg.combat.mode) ~= 1 then
+        return nil
+    end
+    if type(combat_configured_anchor) ~= "function" then
+        return nil
+    end
+    return combat_configured_anchor()
+end
+
 function route_recovery_plan_start(reason)
     local full, used, threshold = route_inventory_is_full()
     if route_is_dead() then
@@ -5566,23 +6755,42 @@ function route_recovery_plan_start(reason)
         return false
     end
 
+    local stationary_anchor = route_recovery_stationary_anchor()
+    if stationary_anchor then
+        local anchor_dist = route_distance3(pos, stationary_anchor)
+        local near = math.max(1, tonumber(cfg.route.start_near_radius) or 45)
+        if anchor_dist <= near then
+            route_recovery_log("startup near stationary anchor dist=" ..
+                string.format("%.1f", anchor_dist) .. ", continue combat")
+            return false
+        end
+        route_recovery_log("startup far from stationary anchor dist=" ..
+            string.format("%.1f", anchor_dist) .. ", check revive path/return")
+    end
+
     local revive_ok, revive_points = route_read_points("revive_points")
     if revive_ok and #revive_points > 0 then
         local nearest_index, nearest_dist = route_nearest_point(revive_points, pos)
         local snap = math.max(1, tonumber(cfg.route.revive_path_snap_radius) or 45)
         local endpoint = revive_points[#revive_points]
-        local endpoint_dist = route_distance3(pos, endpoint)
+        local hang_point = stationary_anchor or endpoint
+        local endpoint_dist = route_distance3(pos, hang_point)
         local near = math.max(1, tonumber(cfg.route.start_near_radius) or 45)
+
+        if endpoint_dist <= near then
+            route_recovery_log("startup near hang point dist=" .. string.format("%.1f", endpoint_dist))
+            local arrival_radius = math.max(0.5, tonumber(cfg.route.waypoint_radius) or 3)
+            if endpoint_dist <= arrival_radius then
+                route_recovery_log("startup at hang point, continue combat")
+                return false
+            end
+            route_recovery_start_revive("startup-near-hang", pos)
+            return true
+        end
 
         if nearest_dist <= snap then
             route_recovery_log("startup on revive route nearest=" .. tostring(nearest_index) .. " dist=" .. string.format("%.1f", nearest_dist))
             route_recovery_start_revive("startup-on-revive-route", pos)
-            return true
-        end
-
-        if endpoint_dist <= near then
-            route_recovery_log("startup near hang point dist=" .. string.format("%.1f", endpoint_dist))
-            route_recovery_start_revive("startup-near-hang", pos)
             return true
         end
 
@@ -5611,6 +6819,37 @@ function route_recovery_tick()
     end
 
     local now = now_seconds()
+    if auto_revive_is_death_phase(rec.phase) then
+        if now < (tonumber(rec.wait_until) or 0) then
+            return
+        end
+        local life_ok, dead, char, hp, max_hp, life_err = route_character_life_state()
+        if not life_ok then
+            rec.wait_until = now + 0.5
+            if now - (tonumber(rec.last_action_at) or 0) >= 2.0 then
+                rec.last_action_at = now
+                route_recovery_log("wait revive life state unavailable err=" .. tostring(life_err))
+            end
+            return
+        end
+        if dead then
+            rec.wait_until = now + math.max(0.3, tonumber(cfg.route and cfg.route.revive_click_interval) or 0.8)
+            auto_revive_try_click("tick-still-dead", false)
+            return
+        end
+
+        local pos_ok, pos = route_current_position()
+        route_recovery_log("alive after revive hp=" .. tostring(hp or "") .. "/" .. tostring(max_hp or "") ..
+            " pos=" .. route_format_pos(pos_ok and pos or char) ..
+            " phase=" .. tostring(rec.phase) ..
+            " start revive route from first point")
+        route_recovery_start_revive("after-auto-revive", nil, {
+            start_nearest = false,
+            start_index = 1,
+        })
+        return
+    end
+
     if rec.phase == "return-wait" and now >= (tonumber(rec.wait_until) or 0) then
         local pos_ok, pos = route_current_position()
         if rec.route_after_return == "vendor" then
@@ -5621,17 +6860,20 @@ function route_recovery_tick()
         return
     end
 
-    if rec.phase == "death-wait" and now >= (tonumber(rec.wait_until) or 0) then
-        local pos_ok, pos = route_current_position()
-        route_recovery_start_revive("after-death-return", pos_ok and pos or nil)
-        return
-    end
 end
 
 local function route_send_move(target)
     if not target then
         return false, "target is nil"
     end
+
+    local r = runtime.route or {}
+    log_info(string.format("[AionRoute] move name=%s field=%s index=%s/%s target=%s",
+        tostring(r.follow_name or ""),
+        tostring(r.follow_field or ""),
+        tostring(r.index or ""),
+        tostring(type(r.points) == "table" and #r.points or ""),
+        route_format_pos(target)))
 
     local ok, _, err = nav.moveTo(target.x, target.y, target.z)
     if not ok then
@@ -5663,7 +6905,7 @@ local function route_advance_after_arrival()
 
     if done then
         runtime.route.completed_field = r.follow_field
-        route_stop_follow("路径完成", r.attach_runtime)
+        route_stop_follow("路径完成", r.attach_runtime, r.follow_field)
         return
     end
 
@@ -5733,7 +6975,7 @@ local function route_follow_tick()
 
     local target = r.points[r.index]
     if not target then
-        route_stop_follow("路径结束", r.attach_runtime)
+        route_stop_follow("路径结束", r.attach_runtime, r.follow_field)
         return
     end
 
@@ -5870,6 +7112,7 @@ local function apply_route_payload(payload)
 
     if type(payload.settings) == "table" then
         merge_table(cfg.route, payload.settings)
+        normalize_route_config()
     end
 
     if payload.selected_route ~= nil then
@@ -5909,6 +7152,7 @@ local function apply_route_payload(payload)
     end
 
     route_ensure_saved_routes()
+    normalize_route_config()
     return true, imported
 end
 
@@ -6111,6 +7355,11 @@ local function draw_account_login_common_panel()
     local changed, val
 
     imgui.text("自动登录公共参数")
+    imgui.same_line()
+    if imgui.button("保存登录参数", 110, 26) then
+        account_save_domain()
+        set_event("自动登录公共参数已保存")
+    end
     imgui.separator()
 
     imgui.set_next_item_width(620)
@@ -6120,11 +7369,6 @@ local function draw_account_login_common_panel()
     imgui.set_next_item_width(620)
     changed, val = imgui.input_text("Purple 根目标", cfg.accounts.purple_root)
     if changed then cfg.accounts.purple_root = val end
-
-    if imgui.button("保存登录参数", 110, 26) then
-        account_save_domain()
-        set_event("自动登录公共参数已保存")
-    end
 
     imgui.spacing()
 end
@@ -6255,7 +7499,7 @@ local function draw_accounts_overview()
 end
 
 local function draw_account_settings()
-    local account, account_index = selected_account()
+    local account = selected_account()
     local changed, val
 
     imgui.text("账号设置")
@@ -6263,36 +7507,6 @@ local function draw_account_settings()
 
     if not account then
         imgui.text("请先在账号总览中选择账号。")
-        return
-    end
-
-    if imgui.button("保存账号配置", 120, 26) then
-        account_save_domain()
-        set_event("账号配置已保存")
-    end
-    imgui.same_line()
-    if imgui.button("绑定当前目标", 120, 26) then
-        account_bind_current_target(account)
-    end
-    imgui.same_line()
-    if imgui.button("Apply script target", 130, 26) then
-        account_apply_to_target(account)
-    end
-
-    if imgui.button("启动脚本", 90, 26) then
-        if (tonumber(account.target and account.target.pid) or 0) > 0 then
-            account_apply_to_target(account)
-        end
-        account_queue_local_script("start", account, account_index)
-    end
-    imgui.same_line()
-    if imgui.button("停止脚本", 90, 26) then
-        account_queue_local_script("stop", account, account_index)
-    end
-    imgui.same_line()
-    if imgui.button("删除账号", 90, 26) then
-        account_remove_selected()
-        runtime.accounts.settings_window_visible = false
         return
     end
 
@@ -6308,10 +7522,6 @@ local function draw_account_settings()
     changed, val = imgui.checkbox("启用账号", account.enabled)
     if changed then account.enabled = val end
 
-    imgui.set_next_item_width(260)
-    changed, val = imgui.input_text("显示名", account.label)
-    if changed then account.label = val end
-
     imgui.set_next_item_width(320)
     changed, val = imgui.input_text("账号", account.account)
     if changed then account.account = val end
@@ -6319,16 +7529,6 @@ local function draw_account_settings()
     imgui.set_next_item_width(320)
     changed, val = imgui.input_text("密码", account.password)
     if changed then account.password = val end
-    imgui.same_line()
-    imgui.text("总览隐藏为 " .. mask_secret(account.password))
-
-    imgui.set_next_item_width(260)
-    changed, val = imgui.input_text("手机号", account.phone)
-    if changed then account.phone = val end
-
-    imgui.set_next_item_width(520)
-    changed, val = imgui.input_text("备注", account.note)
-    if changed then account.note = val end
 end
 
 local function draw_accounts_tab()
@@ -6338,68 +7538,70 @@ end
 local function draw_overview_tab()
     local changed, val
 
-    imgui.text("方案")
-    imgui.set_next_item_width(220)
-    changed, val = imgui.input_text("方案名", cfg.profile_name)
-    if changed then cfg.profile_name = val end
-
-    normalize_primary_mode()
-    imgui.set_next_item_width(220)
-    changed, val = imgui.combo("主模式", cfg.primary_mode, primary_modes)
-    if changed then cfg.primary_mode = val end
-
-    normalize_priority_mode()
-    imgui.set_next_item_width(220)
-    changed, val = imgui.combo("优先级", cfg.priority_mode, priority_modes)
-    if changed then cfg.priority_mode = val end
-
-    imgui.spacing()
-    imgui.text("角色")
-    imgui.separator()
-
     local api_race = runtime.audit.current.race_name ~= "" and runtime.audit.current.race_name
         or race_name_by_id(runtime.audit.current.race, "未知")
     local api_job = runtime.audit.current.job_name ~= "" and runtime.audit.current.job_name
         or job_name_by_id(runtime.audit.current.job, "未知")
-    imgui.text(string.format("API 当前: %s  Lv.%s  %s  %s",
-        tostring(runtime.audit.current.name or ""),
-        tostring(runtime.audit.current.level or 0),
-        tostring(api_race),
-        tostring(api_job)))
 
-    changed, val = imgui.checkbox("自动从 API 同步##character", cfg.character.auto_sync_from_api)
-    if changed then cfg.character.auto_sync_from_api = val end
+    if imgui.begin_table("##overview_scheme_character", 2, 0) then
+        imgui.table_setup_column("##overview_scheme", imgui.TableColumnFlags_WidthFixed, 430)
+        imgui.table_setup_column("##overview_character", imgui.TableColumnFlags_WidthStretch)
+        imgui.table_next_row()
 
-    imgui.set_next_item_width(220)
-    changed, val = imgui.combo("种族", find_option_index(race_options, cfg.character.race), race_names)
-    if changed then
-        local option = race_options[val] or race_options[1]
-        cfg.character.race = option.id
-        cfg.character.race_name = option.label
+        imgui.table_next_column()
+        imgui.text("方案")
+        imgui.set_next_item_width(220)
+        changed, val = imgui.input_text("方案名", cfg.profile_name)
+        if changed then cfg.profile_name = val end
+
+        normalize_primary_mode()
+        imgui.set_next_item_width(220)
+        changed, val = imgui.combo("主模式", cfg.primary_mode, primary_modes)
+        if changed then
+            cfg.primary_mode = val
+            sync_combat_enabled_from_primary_mode()
+        end
+
+        normalize_priority_mode()
+        imgui.set_next_item_width(220)
+        changed, val = imgui.combo("优先级", cfg.priority_mode, priority_modes)
+        if changed then cfg.priority_mode = val end
+
+        imgui.table_next_column()
+        imgui.text("角色")
+        imgui.text(string.format("API 当前: %s  Lv.%s  %s  %s",
+            tostring(runtime.audit.current.name or ""),
+            tostring(runtime.audit.current.level or 0),
+            tostring(api_race),
+            tostring(api_job)))
+
+        changed, val = imgui.checkbox("自动从 API 同步##character", cfg.character.auto_sync_from_api)
+        if changed then cfg.character.auto_sync_from_api = val end
+
+        imgui.set_next_item_width(220)
+        changed, val = imgui.combo("种族", find_option_index(race_options, cfg.character.race), race_names)
+        if changed then
+            local option = race_options[val] or race_options[1]
+            cfg.character.race = option.id
+            cfg.character.race_name = option.label
+        end
+
+        imgui.set_next_item_width(220)
+        changed, val = imgui.combo("职业", find_option_index(job_options, cfg.character.job), job_names)
+        if changed then
+            local option = job_options[val] or job_options[1]
+            cfg.character.job = option.id
+            cfg.character.job_name = option.label
+        end
+
+        imgui.same_line()
+        if imgui.button("从 API 同步", 100, 24) then
+            sync_character_from_api()
+        end
+
+        imgui.end_table()
     end
 
-    imgui.set_next_item_width(220)
-    changed, val = imgui.combo("职业", find_option_index(job_options, cfg.character.job), job_names)
-    if changed then
-        local option = job_options[val] or job_options[1]
-        cfg.character.job = option.id
-        cfg.character.job_name = option.label
-    end
-
-    imgui.same_line()
-    if imgui.button("从 API 同步", 100, 24) then
-        sync_character_from_api()
-    end
-
-    imgui.text(string.format("配置值 %s(%s)  %s(0x%X)",
-        tostring(cfg.character.race_name),
-        tostring(cfg.character.race),
-        tostring(cfg.character.job_name),
-        tonumber(cfg.character.job) or 0))
-
-    imgui.spacing()
-    imgui.text("主模式联动设置 " .. tostring(primary_modes[cfg.primary_mode] or "未知"))
-    imgui.separator()
     if type(draw_primary_mode_linked_panel) == "function" then
         draw_primary_mode_linked_panel()
     else
@@ -6410,26 +7612,43 @@ end
 local function draw_combat_tab()
     local changed, val
 
-    changed, val = imgui.checkbox("启用打怪", cfg.combat.enabled)
-    if changed then cfg.combat.enabled = val end
-
     imgui.set_next_item_width(220)
     changed, val = imgui.combo("打怪模式", cfg.combat.mode, combat_modes)
     if changed then cfg.combat.mode = val end
+    if tonumber(cfg.combat.mode) == 1 then
+        imgui.same_line()
+        if imgui.button("设当前坐标为原地打怪坐标", 210, 24) then
+            combat_set_stationary_anchor_current()
+        end
+        if cfg.combat.anchor_enabled then
+            imgui.text(string.format("原地打怪坐标: %.2f, %.2f, %.2f",
+                tonumber(cfg.combat.anchor_x) or 0,
+                tonumber(cfg.combat.anchor_y) or 0,
+                tonumber(cfg.combat.anchor_z) or 0))
+        else
+            imgui.text("原地打怪坐标: 未设置，启动时使用当前位置")
+        end
+    end
 
     imgui.set_next_item_width(220)
     changed, val = imgui.combo("目标策略", cfg.combat.target_policy, combat_target_policies)
     if changed then cfg.combat.target_policy = val end
 
+    imgui.set_next_item_width(90)
     changed, val = imgui.input_int("搜索半径", cfg.combat.radius)
     if changed then cfg.combat.radius = math.max(1, val) end
 
+    imgui.same_line()
+    imgui.set_next_item_width(90)
     changed, val = imgui.input_int("回中心半径", cfg.combat.return_radius)
     if changed then cfg.combat.return_radius = math.max(1, val) end
 
+    imgui.set_next_item_width(90)
     changed, val = imgui.input_int("最低等级", cfg.combat.min_level)
     if changed then cfg.combat.min_level = math.max(1, val) end
 
+    imgui.same_line()
+    imgui.set_next_item_width(90)
     changed, val = imgui.input_int("最高等级", cfg.combat.max_level)
     if changed then cfg.combat.max_level = math.max(cfg.combat.min_level, val) end
 
@@ -6445,22 +7664,30 @@ local function draw_combat_tab()
     changed, val = imgui.checkbox("启用拾取", cfg.combat.loot_enabled)
     if changed then cfg.combat.loot_enabled = val end
 
+    imgui.set_next_item_width(90)
     changed, val = imgui.input_int("拾取半径", cfg.combat.loot_radius)
     if changed then cfg.combat.loot_radius = math.max(1, val) end
 
+    imgui.same_line()
+    imgui.set_next_item_width(90)
     changed, val = imgui.input_int("拾取交互距离", cfg.combat.loot_interact_range)
     if changed then cfg.combat.loot_interact_range = math.max(1, val) end
 
+    imgui.set_next_item_width(90)
     changed, val = imgui.input_int("拾取交互键码", cfg.combat.loot_keycode)
     if changed then cfg.combat.loot_keycode = math.max(1, val) end
 
+    imgui.same_line()
+    imgui.set_next_item_width(90)
     changed, val = imgui.input_int("拾取最大尝试", cfg.combat.loot_max_attempts)
     if changed then cfg.combat.loot_max_attempts = math.max(1, val) end
 
-    changed, val = imgui.checkbox("Debug combat log", cfg.combat.debug_log)
+    changed, val = imgui.checkbox("调试打怪日志", cfg.combat.debug_log)
     if changed then cfg.combat.debug_log = val end
 
-    changed, val = imgui.input_float("Debug log interval", cfg.combat.debug_log_interval)
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_float("日志间隔秒", cfg.combat.debug_log_interval)
     if changed then cfg.combat.debug_log_interval = math.max(0.2, val) end
 
     imgui.separator()
@@ -6481,8 +7708,10 @@ local function draw_combat_tab()
     if runtime.combat.last_error ~= "" then
         imgui.text("打怪提示 " .. tostring(runtime.combat.last_error))
     end
-    if imgui.button("重置原地中心", 120, 26) then
-        combat_reset_runtime("manual reset")
+    if tonumber(cfg.combat.mode) == 1 then
+        if imgui.button("重置原地中心", 120, 26) then
+            combat_reset_runtime("manual reset")
+        end
     end
 
     imgui.text("指定目标名")
@@ -7124,17 +8353,17 @@ local function draw_route_editor(label, nameField, pointsField)
 
     imgui.text(label)
     imgui.set_next_item_width(240)
-    changed, val = imgui.input_text("路径名#" .. pointsField, cfg.route[nameField])
+    changed, val = imgui.input_text("路径名##" .. pointsField, cfg.route[nameField])
     if changed then cfg.route[nameField] = val end
 
     imgui.same_line()
     imgui.set_next_item_width(260)
-    changed, val = imgui.combo("已保存路径#" .. pointsField, route_saved_index(pointsField, nameField), route_saved_labels(pointsField))
+    changed, val = imgui.combo("已保存路径##" .. pointsField, route_saved_index(pointsField, nameField), route_saved_labels(pointsField))
     if changed then
         route_load_saved(pointsField, nameField, val)
     end
 
-    if imgui.button("保存到列表#" .. pointsField, 100, 26) then
+    if imgui.button("保存到列表##" .. pointsField, 100, 26) then
         route_save_current(pointsField, nameField, false)
     end
 
@@ -7145,12 +8374,7 @@ local function draw_route_editor(label, nameField, pointsField)
 
     imgui.text(route_stats_text(pointsField))
 
-    if imgui.button("添加当前坐标##" .. pointsField, 120, 26) then
-        append_point(pointsField)
-    end
-
-    imgui.same_line()
-    if imgui.button("开始录制#" .. pointsField, 100, 26) then
+    if imgui.button("开始录制##" .. pointsField, 100, 26) then
         route_start_record(pointsField, nameField)
     end
 
@@ -7160,17 +8384,13 @@ local function draw_route_editor(label, nameField, pointsField)
     end
 
     imgui.same_line()
-    if imgui.button("校验##" .. pointsField, 70, 26) then
-        route_validate(pointsField, cfg.route[nameField])
-    end
-
     if imgui.button("运行路径##" .. pointsField, 100, 26) then
-        route_start_follow(pointsField, nameField, false)
+        route_start_follow(pointsField, nameField, false, { test_only = true })
     end
 
     imgui.same_line()
     if imgui.button("停止运行##" .. pointsField, 100, 26) then
-        route_stop_follow("手动停止", true)
+        route_stop_follow("手动停止", false)
     end
 
     imgui.same_line()
@@ -7179,12 +8399,16 @@ local function draw_route_editor(label, nameField, pointsField)
     end
 
     imgui.set_next_item_width(560)
-    changed, val = imgui.input_text_multiline("##points_" .. pointsField, cfg.route[pointsField], 560, 220)
+    changed, val = imgui.input_text_multiline("##points_" .. pointsField, cfg.route[pointsField], 560, 105)
     if changed then cfg.route[pointsField] = val end
 end
 
 local function draw_route_tab()
     local changed, val
+
+    if route_sync_all_names_from_saved_points() then
+        route_persist_config()
+    end
 
     changed, val = imgui.checkbox("循环路径", cfg.route.loop)
     if changed then cfg.route.loop = val end
@@ -7197,82 +8421,6 @@ local function draw_route_tab()
     changed, val = imgui.checkbox("死亡停止路径", cfg.route.stop_on_death)
     if changed then cfg.route.stop_on_death = val end
 
-    imgui.text("录制间隔秒")
-    imgui.same_line()
-    imgui.set_next_item_width(90)
-    changed, val = imgui.input_float("##route_record_interval", cfg.route.record_interval)
-    if changed then cfg.route.record_interval = math.max(0.2, val) end
-
-    imgui.same_line()
-    imgui.text("最小录点距离")
-    imgui.same_line()
-    imgui.set_next_item_width(90)
-    changed, val = imgui.input_float("##route_min_record_distance", cfg.route.min_record_distance)
-    if changed then cfg.route.min_record_distance = math.max(0, val) end
-
-    imgui.text("路点到达半径")
-    imgui.same_line()
-    imgui.set_next_item_width(90)
-    changed, val = imgui.input_float("##route_waypoint_radius", cfg.route.waypoint_radius)
-    if changed then cfg.route.waypoint_radius = math.max(0.5, val) end
-
-    imgui.same_line()
-    imgui.text("移动超时秒")
-    imgui.same_line()
-    imgui.set_next_item_width(90)
-    changed, val = imgui.input_float("##route_move_timeout", cfg.route.move_timeout)
-    if changed then cfg.route.move_timeout = math.max(0, val) end
-
-    imgui.text("移动重发秒")
-    imgui.same_line()
-    imgui.set_next_item_width(90)
-    changed, val = imgui.input_float("##route_resend_interval", cfg.route.resend_interval)
-    if changed then cfg.route.resend_interval = math.max(0.2, val) end
-
-    imgui.same_line()
-    imgui.text("路点重试次数")
-    imgui.same_line()
-    imgui.set_next_item_width(70)
-    changed, val = imgui.input_int("##route_max_waypoint_retries", cfg.route.max_waypoint_retries)
-    if changed then cfg.route.max_waypoint_retries = math.max(0, val) end
-
-    changed, val = imgui.checkbox("最近点接续", cfg.route.start_from_nearest)
-    if changed then cfg.route.start_from_nearest = val end
-
-    imgui.same_line()
-    imgui.text("复活路径吸附")
-    imgui.same_line()
-    imgui.set_next_item_width(80)
-    changed, val = imgui.input_float("##route_revive_path_snap_radius", cfg.route.revive_path_snap_radius)
-    if changed then cfg.route.revive_path_snap_radius = math.max(1, val) end
-
-    imgui.same_line()
-    imgui.text("启动近点")
-    imgui.same_line()
-    imgui.set_next_item_width(80)
-    changed, val = imgui.input_float("##route_start_near_radius", cfg.route.start_near_radius)
-    if changed then cfg.route.start_near_radius = math.max(1, val) end
-
-    imgui.text("回城键码")
-    imgui.same_line()
-    imgui.set_next_item_width(80)
-    changed, val = imgui.input_int("##route_return_keycode", cfg.route.return_keycode)
-    if changed then cfg.route.return_keycode = math.max(1, val) end
-
-    imgui.same_line()
-    imgui.text("回城等待秒")
-    imgui.same_line()
-    imgui.set_next_item_width(80)
-    changed, val = imgui.input_float("##route_return_wait_seconds", cfg.route.return_wait_seconds)
-    if changed then cfg.route.return_wait_seconds = math.max(1, val) end
-
-    imgui.same_line()
-    imgui.text("死亡返回等待秒")
-    imgui.same_line()
-    imgui.set_next_item_width(80)
-    changed, val = imgui.input_float("##route_dead_return_wait_seconds", cfg.route.dead_return_wait_seconds)
-    if changed then cfg.route.dead_return_wait_seconds = math.max(1, val) end
-
     if runtime.recovery and runtime.recovery.active then
         imgui.text("恢复状态: " .. tostring(runtime.recovery.phase) .. " | " .. tostring(runtime.recovery.last_status))
     end
@@ -7282,10 +8430,6 @@ local function draw_route_tab()
         runtime.route.follow_name,
         runtime.route.index,
         #(runtime.route.points or {})) or "否"
-    imgui.text("录制: " .. tostring(recording_text) ..
-        " | 运行: " .. tostring(follow_text) ..
-        " | 状态: " .. tostring(runtime.route.status) ..
-        " | 圈数: " .. tostring(runtime.route.laps or 0))
     if runtime.route.error ~= "" then
         imgui.text("路径提示: " .. tostring(runtime.route.error))
     end
@@ -7295,15 +8439,6 @@ local function draw_route_tab()
         local name = route_trim(cfg.route[spec.name_field] or "")
         local count = route_point_count(cfg.route[spec.points_field] or "")
         imgui.text(string.format("  %s: %s (%d点)", spec.label, name ~= "" and name or "未选", count))
-    end
-
-    if imgui.button("运行当前路径", 110, 26) then
-        route_start_selected(false)
-    end
-
-    imgui.same_line()
-    if imgui.button("停止当前路径", 110, 26) then
-        route_stop_follow("手动停止", true)
     end
 
     imgui.spacing()
@@ -7341,13 +8476,13 @@ local function draw_leveling_tab()
     if changed then cfg.leveling.prefer_quest = val end
 
     changed, val = imgui.checkbox("允许主线必要打怪", cfg.leveling.allow_grind)
-    if changed then cfg.leveling.allow_grind = val end
+    if changed then
+        cfg.leveling.allow_grind = val
+        sync_combat_enabled_from_primary_mode()
+    end
 
     changed, val = imgui.checkbox("允许主线必要采集", cfg.leveling.allow_gather)
     if changed then cfg.leveling.allow_gather = val end
-
-    changed, val = imgui.checkbox("自动学习技能", cfg.leveling.learn_skills)
-    if changed then cfg.leveling.learn_skills = val end
 
     changed, val = imgui.checkbox("自动评估装备升级", cfg.leveling.equip_upgrades)
     if changed then cfg.leveling.equip_upgrades = val end
@@ -7384,6 +8519,10 @@ local function draw_leveling_tab()
     changed, val = imgui.input_text("接任务NPC", cfg.npc_dialog.accept_npc_name or "")
     if changed then cfg.npc_dialog.accept_npc_name = val end
 
+    imgui.set_next_item_width(260)
+    changed, val = imgui.input_text("接任务NPC ID", tostring(cfg.npc_dialog.accept_npc_interact_id or ""))
+    if changed then cfg.npc_dialog.accept_npc_interact_id = val end
+
     changed, val = imgui.input_int("接任务quest_id(0=使用对话)", tonumber(cfg.npc_dialog.accept_quest_id) or 0)
     if changed then cfg.npc_dialog.accept_quest_id = math.max(0, tonumber(val) or 0) end
 
@@ -7413,13 +8552,18 @@ local function draw_leveling_tab()
     end
 
     imgui.same_line()
-    if imgui.button("Test accept quest", 140, 28) then
+    if imgui.button("测试接任务", 140, 28) then
         npc_accept_quest_test()
     end
 
     imgui.same_line()
-    if imgui.button("Send current dialog", 140, 28) then
+    if imgui.button("发送当前对话", 140, 28) then
         npc_accept_current_dialog()
+    end
+
+    imgui.same_line()
+    if imgui.button("用ID打开对话", 140, 28) then
+        npc_open_dialog_by_interact_id()
     end
 
     imgui.set_next_item_width(720)
@@ -7652,6 +8796,7 @@ local function draw_debug_tab()
     imgui.text("热键")
     imgui.separator()
     imgui.text("F1: 有NPC对话时连续点击X控件；否则扫描附近NPC名字")
+    imgui.text("F2: 打印完整UI列表和复活候选子控件到日志")
     imgui.text("F7: 呼出/隐藏窗口")
     imgui.text("F8: 启动/停止")
     imgui.text("F9: API 探针")
@@ -7709,6 +8854,77 @@ function draw_test_tab()
     if changed then
         t.node_dump = val
     end
+
+    imgui.spacing()
+    imgui.separator()
+    imgui.text("拾取测试")
+
+    if imgui.button("拾取最近尸体", 150, 28) then
+        loot_test_pick_nearest()
+    end
+
+    imgui.same_line()
+    imgui.text("半径: " .. tostring(cfg.combat.loot_radius) ..
+        " | 交互距离: " .. tostring(cfg.combat.loot_interact_range) ..
+        " | 按键码: " .. tostring(cfg.combat.loot_keycode))
+
+    if runtime.loot_test.last_status ~= "" then
+        imgui.text("状态: " .. tostring(runtime.loot_test.last_status))
+    end
+    imgui.text("说明: 有尸体时点击一次会选最近可拾取目标；距离远会先移动，靠近后自动继续拾取。")
+    imgui.set_next_item_width(760)
+    changed, val = imgui.input_text_multiline("##loot_test_dump", runtime.loot_test.last_dump or "", 760, 120)
+    if changed then
+        runtime.loot_test.last_dump = val
+    end
+
+    if false then
+    imgui.spacing()
+    imgui.separator()
+    imgui.text("UI 控件测试")
+
+    imgui.set_next_item_width(220)
+    changed, val = imgui.input_text("父控件名", cfg.test.ui_parent_name or "")
+    if changed then cfg.test.ui_parent_name = val end
+
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_int("子控件深度", tonumber(cfg.test.ui_child_depth) or 6)
+    if changed then cfg.test.ui_child_depth = math.max(1, tonumber(val) or 6) end
+
+    imgui.same_line()
+    changed, val = imgui.checkbox("包含无名控件", cfg.test.ui_include_no_name == true)
+    if changed then cfg.test.ui_include_no_name = val end
+
+    if imgui.button("遍历全部UI", 120, 28) then
+        ui_test_refresh_all()
+    end
+    imgui.same_line()
+    if imgui.button("遍历父控件子树", 150, 28) then
+        ui_test_refresh_children()
+    end
+    imgui.same_line()
+    if imgui.button("点击选中控件", 140, 28) then
+        ui_test_click_selected()
+    end
+
+    local ui_t = runtime.ui_test
+    imgui.set_next_item_width(760)
+    changed, val = imgui.combo("控件选择", tonumber(ui_t.selected_index) or 1, ui_t.labels or { "No UI controls" })
+    if changed then
+        ui_t.selected_index = val
+    end
+
+    if ui_t.last_status ~= "" then
+        imgui.text("UI状态: " .. tostring(ui_t.last_status))
+    end
+    imgui.text("提示: 复活窗口可先试 parent=dlg_revive；NPC对话可试 parent=dlg_dialog。ClickButton 只保证按钮类控件可点。")
+    imgui.set_next_item_width(760)
+    changed, val = imgui.input_text_multiline("##ui_control_dump", ui_t.dump or "", 760, 260)
+    if changed then
+        ui_t.dump = val
+    end
+    end
 end
 
 local function draw_account_settings_window()
@@ -7716,7 +8932,7 @@ local function draw_account_settings_window()
         return
     end
 
-    local account = selected_account()
+    local account, account_index = selected_account()
     local title_name = account and account_display_name(account) or "未选择账号"
 
     imgui.set_next_window_size(860, 760, imgui.Cond_FirstUseEver)
@@ -7730,38 +8946,60 @@ local function draw_account_settings_window()
         runtime.accounts.settings_window_visible = false
     end
 
-    if visible and imgui.begin_tab_bar("##account_settings_tabs") then
-        if imgui.begin_tab_item("账号") then
-            draw_account_settings()
-            imgui.end_tab_item()
+    if visible then
+        if imgui.button("保存账号配置", 120, 26) then
+            account_save_domain()
+            set_event("账号配置已保存")
+        end
+        if account then
+            imgui.same_line()
+            if imgui.button("启动脚本", 90, 26) then
+                if (tonumber(account.target and account.target.pid) or 0) > 0 then
+                    account_apply_to_target(account)
+                end
+                account_queue_local_script("start", account, account_index)
+            end
+            imgui.same_line()
+            if imgui.button("停止脚本", 90, 26) then
+                account_queue_local_script("stop", account, account_index)
+            end
         end
 
-        if imgui.begin_tab_item("总览") then
-            draw_overview_tab()
-            imgui.end_tab_item()
-        end
+        imgui.separator()
 
-        if imgui.begin_tab_item("技能") then
-            draw_skill_tab()
-            imgui.end_tab_item()
-        end
+        if imgui.begin_tab_bar("##account_settings_tabs_account_last") then
+            if imgui.begin_tab_item("总览") then
+                draw_overview_tab()
+                imgui.end_tab_item()
+            end
 
-        if imgui.begin_tab_item("路径") then
-            draw_route_tab()
-            imgui.end_tab_item()
-        end
+            if imgui.begin_tab_item("技能") then
+                draw_skill_tab()
+                imgui.end_tab_item()
+            end
 
-        if imgui.begin_tab_item("补给/安全") then
-            draw_supply_tab()
-            imgui.end_tab_item()
-        end
+            if imgui.begin_tab_item("路径") then
+                draw_route_tab()
+                imgui.end_tab_item()
+            end
 
-        if imgui.begin_tab_item("测试") then
-            draw_test_tab()
-            imgui.end_tab_item()
-        end
+            if imgui.begin_tab_item("补给/安全") then
+                draw_supply_tab()
+                imgui.end_tab_item()
+            end
 
-        imgui.end_tab_bar()
+            if imgui.begin_tab_item("测试") then
+                draw_test_tab()
+                imgui.end_tab_item()
+            end
+
+            if imgui.begin_tab_item("账号") then
+                draw_account_settings()
+                imgui.end_tab_item()
+            end
+
+            imgui.end_tab_bar()
+        end
     end
 
     imgui.end_window()
@@ -7921,6 +9159,7 @@ local last_f7 = false
 local last_f8 = false
 local last_f9 = false
 local last_f10 = false
+last_f2 = false
 
 while true do
     local ctrl = hotkey.is_pressed(0x11)
@@ -7933,6 +9172,12 @@ while true do
         npc_f1_action()
     end
     runtime.hotkey_f1 = hotkey.is_pressed(0x70)
+
+    f2 = hotkey.is_pressed(0x71)
+    if f2 and not last_f2 then
+        ui_test_f2_dump()
+    end
+    last_f2 = f2
 
     local f7 = hotkey.is_pressed(0x76)
     if f7 and not last_f7 then
