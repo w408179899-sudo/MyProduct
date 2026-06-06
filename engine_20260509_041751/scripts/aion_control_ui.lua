@@ -7874,14 +7874,6 @@ local function draw_accounts_overview()
         account_open_add_window()
     end
     imgui.same_line()
-    if imgui.button("导入账号", 90, 26) then
-        runtime.accounts.show_import = not runtime.accounts.show_import
-    end
-    imgui.same_line()
-    if imgui.button("全部登录", 90, 26) then
-        account_request_login_all()
-    end
-    imgui.same_line()
     if imgui.button("全部启动", 90, 26) then
         account_start_runtime_all()
     end
@@ -7892,11 +7884,6 @@ local function draw_accounts_overview()
     imgui.same_line()
     if imgui.button("刷新审计", 90, 26) then
         account_poll(true)
-    end
-    imgui.same_line()
-    if imgui.button("保存账号", 90, 26) then
-        account_save_domain()
-        set_event("账号配置已保存")
     end
 
     draw_account_import_panel()
