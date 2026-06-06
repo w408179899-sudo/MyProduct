@@ -196,6 +196,44 @@ local function optional_arg_string(value)
     return tostring(value)
 end
 
+local function load_aion_login_module()
+    local ok, module = pcall(require, "AionLogin")
+    if ok and module then
+        return true, module, "require"
+    end
+
+    local errors = { "require: " .. tostring(module) }
+    local paths = {
+        "scripts/AionLogin.lua",
+        "scripts/AionLogin.luac",
+        "AionLogin.lua",
+        "AionLogin.luac",
+    }
+
+    for _, path in ipairs(paths) do
+        local exists = false
+        if io and type(io.open) == "function" then
+            local file = io.open(path, "rb")
+            if file then
+                exists = true
+                file:close()
+            end
+        else
+            exists = true
+        end
+
+        if exists then
+            local load_ok, loaded = pcall(dofile, path)
+            if load_ok and loaded then
+                return true, loaded, path
+            end
+            errors[#errors + 1] = tostring(path) .. ": " .. tostring(loaded)
+        end
+    end
+
+    return false, nil, table.concat(errors, " | ")
+end
+
 local function should_login(index, account)
     if selected_index > 0 and index ~= selected_index then
         return false
@@ -292,15 +330,19 @@ local function run()
         return
     end
 
-    local ok_login, login = pcall(require, "AionLogin")
+    local ok_login, login, login_source_or_error = load_aion_login_module()
     if not ok_login or not login then
         for loop_index, account in ipairs(accounts_cfg.items) do
             local source_index = account_source_index(loop_index, account)
             if should_login(source_index, account) then
-                set_status(source_index, "error", "AionLogin module unavailable")
+                set_status(source_index, "error", "AionLogin module unavailable: " .. tostring(login_source_or_error or "unknown"))
             end
         end
         return
+    end
+
+    if log and type(log.info) == "function" then
+        log.info("[AionLoginWorker] AionLogin loaded from " .. tostring(login_source_or_error or "unknown"))
     end
 
     if tostring(accounts_cfg.dll_path or "") ~= "" and type(login.SetDllPath) == "function" then

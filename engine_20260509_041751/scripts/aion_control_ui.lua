@@ -23,6 +23,11 @@ local ok_combat, combat = pcall(require, "aion.combat")
 local ok_map, map = pcall(require, "aion.map")
 local ok_nav, nav = pcall(require, "aion.nav")
 local ok_route, route_lib = pcall(require, "aion.route")
+local route_load_error = nil
+if not ok_route then
+    route_load_error = tostring(route_lib)
+    route_lib = nil
+end
 local ok_profile_io, profile_io = pcall(require, "aion.profile_io")
 local ok_target, target_lib = pcall(require, "aion.target")
 
@@ -469,12 +474,14 @@ local cfg = {
 local primary_modes = {
     "打怪",
     "主线",
-    "采集",
-    "制作",
 }
 
 local function normalize_primary_mode()
-    cfg.primary_mode = math.max(1, math.min(#primary_modes, tonumber(cfg.primary_mode) or 1))
+    local mode = tonumber(cfg.primary_mode) or 1
+    if mode < 1 or mode > #primary_modes then
+        mode = 1
+    end
+    cfg.primary_mode = mode
 end
 
 function combat_allowed_by_primary_mode()
@@ -617,34 +624,37 @@ local professions = {
 
 local route_specs = {
     {
-        label = "打怪路径",
-        description = "路径打怪用路径",
-        name_field = "route_name",
-        points_field = "route_points",
-    },
-    {
         label = "复活路径",
         description = "死亡复活后返回主路径",
         name_field = "revive_route_name",
         points_field = "revive_points",
     },
     {
+        label = "打怪路径",
+        description = "路径打怪用路径",
+        name_field = "route_name",
+        points_field = "route_points",
+    },
+    {
         label = "补给路径",
         description = "去商人/仓库/任务点路径",
         name_field = "vendor_route_name",
         points_field = "vendor_points",
+        hidden = true,
     },
     {
         label = "采集路径",
         description = "采集专用巡线路径",
         name_field = "gather_route_name",
         points_field = "gather_points",
+        hidden = true,
     },
     {
         label = "主线路径",
         description = "主线任务推进路径",
         name_field = "leveling_route_name",
         points_field = "leveling_points",
+        hidden = true,
     },
 }
 
@@ -4667,6 +4677,95 @@ local function account_display_name(account)
     return tostring(account.account or "")
 end
 
+function account_pid_is_alive(pid)
+    pid = tonumber(pid) or 0
+    if pid <= 0 then
+        return false
+    end
+    if not ok_target or not target_lib or type(target_lib.list_candidates) ~= "function" then
+        return true
+    end
+
+    local ok, candidates = target_lib.list_candidates({ selected_pid = pid })
+    if not ok or type(candidates) ~= "table" then
+        return true
+    end
+
+    for _, candidate in ipairs(candidates) do
+        if tonumber(candidate.pid) == pid then
+            local process_name = string.lower(tostring(candidate.process_name or ""))
+            process_name = process_name:gsub("\\", "/")
+            process_name = process_name:match("([^/]+)$") or process_name
+            return process_name == "aion.bin" and candidate.alive ~= false
+        end
+    end
+    return false
+end
+
+function account_clear_stale_target(account, stale_pid)
+    if not account then
+        return false
+    end
+
+    stale_pid = tonumber(stale_pid) or tonumber(account.target and account.target.pid) or 0
+    account.target = account.target or {}
+    account.runtime = account.runtime or {}
+    account.login = account.login or {}
+    account.audit = account.audit or {}
+
+    account.target.pid = 0
+    account.target.hwnd = 0
+    account.target.title = ""
+    account.target.process_name = ""
+    account.target.class_name = ""
+    account.target.path = ""
+    account.target.character_name = ""
+
+    account.runtime.status = "idle"
+    account.runtime.message = stale_pid > 0 and ("game exited pid=" .. tostring(stale_pid)) or "game exited"
+    account.runtime.task_id = 0
+    account.runtime.worker_key = ""
+    account.runtime.bound_pid = 0
+    account.runtime.bound_hwnd = 0
+
+    if account.login.requested ~= true then
+        account.login.status = "idle"
+        account.login.message = account.runtime.message
+    end
+    account.audit.status = "idle"
+
+    if stale_pid > 0 and tonumber(cfg.target and cfg.target.pid) == stale_pid then
+        cfg.target.pid = 0
+        cfg.target.hwnd = 0
+        cfg.target.title = ""
+        cfg.target.process_name = ""
+        cfg.target.class_name = ""
+        cfg.target.path = ""
+        cfg.target.character_name = ""
+        runtime.target.bound_pid = 0
+        runtime.target.bound_hwnd = 0
+        runtime.target.binding_status = "not_selected"
+        runtime.target.binding_message = "target game exited"
+    end
+
+    return true
+end
+
+local function account_is_logged_in(account)
+    if type(account) ~= "table" then
+        return false
+    end
+    local target = account.target or {}
+    local pid = tonumber(target.pid) or 0
+    if pid <= 0 or not account_pid_is_alive(pid) then
+        return false
+    end
+    local character_name = tostring(target.character_name or "")
+    character_name = string.gsub(character_name, "^%s+", "")
+    character_name = string.gsub(character_name, "%s+$", "")
+    return character_name ~= ""
+end
+
 local function account_save_domain()
     if not config or type(config.set) ~= "function" or type(config.save) ~= "function" then
         return
@@ -5552,10 +5651,19 @@ local function account_poll(force)
         if account_update_from_runtime_worker(account) then
             changed = true
         end
+        local account_pid = tonumber(account.target and account.target.pid) or 0
+        if account_pid > 0 and not account_pid_is_alive(account_pid) then
+            if account_clear_stale_target(account, account_pid) then
+                changed = true
+                runtime.accounts.last_status = "game exited; cleared pid " .. tostring(account_pid)
+            end
+        end
     end
 
     if changed then
-        runtime.accounts.last_status = "worker fields updated"
+        if runtime.accounts.last_status == "" then
+            runtime.accounts.last_status = "worker fields updated"
+        end
         account_save_domain()
     end
 end
@@ -6643,7 +6751,7 @@ end
 local function route_stats_text(field)
     local ok, points, warnings = route_read_points(field)
     if not ok then
-        return "路径模块不可用"
+        return "路径模块不可用: " .. tostring(route_load_error or "unknown")
     end
 
     local stats = route_lib.stats(points)
@@ -7817,6 +7925,16 @@ local function draw_accounts_overview()
             local target = account.target or {}
             local account_runtime = account.runtime or {}
             local selected = runtime.accounts.selected_index == index
+            local stale_pid = tonumber(target.pid) or 0
+            if stale_pid > 0 and not account_pid_is_alive(stale_pid) then
+                if account_clear_stale_target(account, stale_pid) then
+                    runtime.accounts.last_status = "game exited; cleared pid " .. tostring(stale_pid)
+                    account_save_domain()
+                    audit = account.audit or {}
+                    target = account.target or {}
+                    account_runtime = account.runtime or {}
+                end
+            end
 
             imgui.table_next_row()
             imgui.table_next_column()
@@ -7850,25 +7968,29 @@ local function draw_accounts_overview()
             account_table_text(format_duration(audit.runtime_seconds or 0))
 
             imgui.table_next_column()
-            if imgui.small_button("设置##account_settings_" .. tostring(index)) then
-                account_open_settings(account, index)
-            end
-            imgui.same_line()
-            if imgui.small_button("登录##account_login_" .. tostring(index)) then
-                account_request_login(account, index)
-            end
-            imgui.same_line()
-            if imgui.small_button("启动##account_run_" .. tostring(index)) then
-                if (tonumber(account.target and account.target.pid) or 0) > 0 then
-                    account_apply_to_target(account)
+            local logged_in = account_is_logged_in(account)
+            if not logged_in then
+                if imgui.small_button("登录##account_login_" .. tostring(index)) then
+                    account_request_login(account, index)
                 end
-                account_queue_local_script("start", account, index)
+                imgui.same_line()
+            else
+                if imgui.small_button("设置##account_settings_" .. tostring(index)) then
+                    account_open_settings(account, index)
+                end
+                imgui.same_line()
+                if imgui.small_button("启动##account_run_" .. tostring(index)) then
+                    if (tonumber(account.target and account.target.pid) or 0) > 0 then
+                        account_apply_to_target(account)
+                    end
+                    account_queue_local_script("start", account, index)
+                end
+                imgui.same_line()
+                if imgui.small_button("停止##account_stop_" .. tostring(index)) then
+                    account_queue_local_script("stop", account, index)
+                end
+                imgui.same_line()
             end
-            imgui.same_line()
-            if imgui.small_button("停止##account_stop_" .. tostring(index)) then
-                account_queue_local_script("stop", account, index)
-            end
-            imgui.same_line()
             if imgui.small_button("删除##account_delete_" .. tostring(index)) then
                 account_select(index, false)
                 account_remove_selected()
@@ -8817,7 +8939,7 @@ local function draw_route_editor(label, nameField, pointsField)
 
     imgui.same_line()
     imgui.set_next_item_width(260)
-    changed, val = imgui.combo("已保存路径#" .. pointsField, route_saved_index(pointsField, nameField), route_saved_labels(pointsField))
+    changed, val = imgui.combo("已保存路径##saved_" .. pointsField, route_saved_index(pointsField, nameField), route_saved_labels(pointsField))
     if changed then
         route_load_saved(pointsField, nameField, val)
     end
@@ -8833,23 +8955,13 @@ local function draw_route_editor(label, nameField, pointsField)
 
     imgui.text(route_stats_text(pointsField))
 
-    if imgui.button("开始录制#" .. pointsField, 100, 26) then
+    if imgui.button("开始录制##" .. pointsField, 100, 26) then
         route_start_record(pointsField, nameField)
     end
 
     imgui.same_line()
     if imgui.button("停止录制##" .. pointsField, 100, 26) then
         route_stop_record()
-    end
-
-    imgui.same_line()
-    if imgui.button("运行路径##" .. pointsField, 100, 26) then
-        route_start_follow(pointsField, nameField, false, { test_only = true })
-    end
-
-    imgui.same_line()
-    if imgui.button("停止运行##" .. pointsField, 100, 26) then
-        route_stop_follow("手动停止", false)
     end
 
     imgui.same_line()
@@ -8895,19 +9007,34 @@ local function draw_route_tab()
 
     imgui.text("挂机路径选择:")
     for _, spec in ipairs(route_specs) do
-        local name = route_trim(cfg.route[spec.name_field] or "")
-        local count = route_point_count(cfg.route[spec.points_field] or "")
-        imgui.text(string.format("  %s: %s (%d点)", spec.label, name ~= "" and name or "未选", count))
+        if not spec.hidden then
+            local name = route_trim(cfg.route[spec.name_field] or "")
+            local count = route_point_count(cfg.route[spec.points_field] or "")
+            imgui.text(string.format("  %s: %s (%d点)", spec.label, name ~= "" and name or "未选", count))
+        end
     end
 
     imgui.spacing()
 
-    if imgui.begin_tab_bar("##route_tabs") then
+    local selected_spec = route_specs[cfg.route.selected_route]
+    if not selected_spec or selected_spec.hidden then
         for index, spec in ipairs(route_specs) do
-            if imgui.begin_tab_item(spec.label) then
+            if not spec.hidden then
                 cfg.route.selected_route = index
-                draw_route_editor(spec.description, spec.name_field, spec.points_field)
-                imgui.end_tab_item()
+                selected_spec = spec
+                break
+            end
+        end
+    end
+
+    if imgui.begin_tab_bar("##route_tabs_ordered_v2") then
+        for index, spec in ipairs(route_specs) do
+            if not spec.hidden then
+                if imgui.begin_tab_item(spec.label .. "##" .. spec.points_field) then
+                    cfg.route.selected_route = index
+                    draw_route_editor(spec.description, spec.name_field, spec.points_field)
+                    imgui.end_tab_item()
+                end
             end
         end
 
@@ -8931,6 +9058,7 @@ local function draw_leveling_tab()
     changed, val = imgui.input_int("主线目标等级", cfg.leveling.target_level)
     if changed then cfg.leveling.target_level = math.max(cfg.leveling.start_level, val) end
 
+    if imgui.collapsing_header("主线高级设置 / NPC 对话测试") then
     changed, val = imgui.checkbox("只做主线任务", cfg.leveling.prefer_quest)
     if changed then cfg.leveling.prefer_quest = val end
 
@@ -9053,6 +9181,7 @@ local function draw_leveling_tab()
         imgui.text(tostring(runtime.npc_dialog.last_dialog_dump))
     end
     imgui.text("最近NPC对话: " .. tostring(runtime.npc_dialog.last_status or ""))
+    end
 end
 
 local function draw_crafting_tab()
@@ -9428,14 +9557,9 @@ local function draw_account_settings_window()
 
         imgui.separator()
 
-        if imgui.begin_tab_bar("##account_settings_tabs_account_last") then
+        if imgui.begin_tab_bar("##account_settings_tabs_overview_route_account") then
             if imgui.begin_tab_item("总览") then
                 draw_overview_tab()
-                imgui.end_tab_item()
-            end
-
-            if imgui.begin_tab_item("技能") then
-                draw_skill_tab()
                 imgui.end_tab_item()
             end
 
@@ -9444,18 +9568,13 @@ local function draw_account_settings_window()
                 imgui.end_tab_item()
             end
 
-            if imgui.begin_tab_item("补给/安全") then
-                draw_supply_tab()
+            if imgui.begin_tab_item("账号") then
+                draw_account_settings()
                 imgui.end_tab_item()
             end
 
             if imgui.begin_tab_item("测试") then
                 draw_test_tab()
-                imgui.end_tab_item()
-            end
-
-            if imgui.begin_tab_item("账号") then
-                draw_account_settings()
                 imgui.end_tab_item()
             end
 
