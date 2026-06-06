@@ -1,6 +1,6 @@
 # AetherEngine Lua API 文档
 
-> **版本**: 3.2.0 | **更新**: 2026-05-05 | **来源**: 基于 LuaExports.h/cpp + LuaApi_*.cpp 完整导出
+> **版本**: 3.4.0 | **更新**: 2026-06-02 | **来源**: 基于 LuaExports.h/cpp + LuaApi_*.cpp 完整导出
 
 ---
 
@@ -12,7 +12,7 @@
 | **进程与内存** | [`proc`](#proc---进程模块) [`driver`](#driver---驱动模块) | 进程管理、内存读写、AOB扫描、驱动级操作 |
 | **输入控制** | [`keybd`](#keybd---键盘模块) [`mouse`](#mouse---鼠标模块) [`hotkey`](#hotkey---热键模块) [`trajectory`](#trajectory---轨迹模块) | 键盘/鼠标(前台+后台)、热键监听、拟人轨迹 |
 | **窗口与视觉** | [`wnd`](#wnd---窗口模块) [`vision`](#vision---视觉模块) [`ocr`](#ocr---文字识别模块) | 窗口查找/操作、截图/找图/找色、中文OCR |
-| **网络与资源** | [`http`](#http---网络模块) [`resource`](#resource---资源模块) [`auth`](#auth---认证模块) | HTTP请求、远程资源管理、网络验证 |
+| **网络与资源** | [`http`](#http---网络模块) [`resource`](#resource---资源模块) [`auth`](#auth---认证模块) [`remote`](#remote---中控模块) | HTTP请求、远程资源管理、网络验证、中控客户端 |
 | **加密与编码** | [`crypto`](#crypto---加密模块) [`encoding`](#encoding---编码模块) | 哈希/AES/RC4/编解码、字符串编码转换 |
 | **地图寻路** | [`path`](#path---路点寻路模块) [`grid`](#grid---网格地图模块) | 路点A*寻路、二值化网格地图寻路 |
 | **底层工具** | [`asm`](#asm---汇编模块) [`disasm`](#disasm---反汇编模块) [`ffi`](#ffi---外部函数接口) | JIT汇编、反汇编、系统API调用 |
@@ -2111,9 +2111,87 @@ local cp = encoding.codepage("gbk")  -- 936
 | `encoding` | 15 | 字符串编码转换 (UTF-8/GBK/Big5/EUC-KR/Shift-JIS/Local/Adaptive) |
 | `path` | 2 | 路点地图寻路 (A* + wmap + maxRange) |
 | `asm` | 4 | JIT汇编编译 |
+| `remote` | 7 | 中控客户端 (WebSocket连接、命令接收、状态上报) |
 | `ffi` | ∞ | cffi-lua 外部函数接口 |
 | `imgui` | ∞ | ImGui 界面绑定 |
 
 ---
 
-*文档已基于 LuaApi_*.cpp 注册表完整对齐 (2026-03-28)*
+## remote - 中控模块
+
+通过 WebSocket 连接中控服务器，实现远程命令下发、配置推送、状态上报。
+基于 ixwebsocket 库，支持自动重连，`report_status` 同时作为心跳。
+
+### 连接管理
+
+| 函数 | 返回 | 说明 |
+|------|------|------|
+| `remote.connect(url, device_id [, license_key])` | bool | **非阻塞** 连接中控服务器，后台自动重连。用 `is_connected()` 查询状态 |
+| `remote.disconnect()` | — | 断开连接 |
+| `remote.is_connected()` | bool | 当前是否已连接 |
+
+### 状态上报
+
+| 函数 | 返回 | 说明 |
+|------|------|------|
+| `remote.define_fields(fields)` | — | 定义字段名 (`\|` 分隔)，未连接时缓存，连接后自动发送 |
+| `remote.report_status(data)` | — | 上报状态数据 (`\|` 分隔，多实例用 `\n` 分隔多行)，**同时作为心跳** |
+| `remote.report(key, value)` | — | 上报自定义键值对 |
+
+### 轮询
+
+| 函数 | 返回 | 说明 |
+|------|------|------|
+| `remote.poll()` | table | **非阻塞**，返回待处理命令数组 |
+
+### poll() 返回值
+
+返回命令数组，无命令时为空表 `{}`。每个命令结构：
+
+```lua
+{
+    type = "start"|"stop"|"config"|"custom",  -- 命令类型
+    name = "start",                            -- 命令名
+    payload = { key = "value", ... }            -- 负载数据
+}
+-- config 类型时: payload["config_data"] 包含配置内容
+```
+
+### 使用示例
+
+```lua
+-- 连接中控 (非阻塞，后台自动重连)
+remote.connect("ws://192.168.1.100:8080/ws", sys.hwid())
+
+-- 定义上报字段
+remote.define_fields("角色名|等级|金币|状态")
+
+-- 主循环中轮询命令 + 上报状态
+while true do
+    -- poll 非阻塞，返回待处理命令数组
+    local cmds = remote.poll()
+    for _, cmd in ipairs(cmds) do
+        if cmd.type == "start" then
+            log.info("收到启动命令")
+        elseif cmd.type == "stop" then
+            log.info("收到停止命令")
+        elseif cmd.type == "config" then
+            log.info("收到配置: " .. (cmd.payload["config_data"] or ""))
+        end
+    end
+
+    -- report_status 同时作为心跳 (单实例)
+    remote.report_status("张三|99|88888|运行中")
+
+    -- 多实例上报 (单机多开，\n 分隔多行)
+    -- remote.report_status("角色1|99|88888|运行中\n角色2|50|12345|挂机中")
+
+    sys.sleep(1000)
+end
+
+remote.disconnect()
+```
+
+---
+
+*文档已基于 LuaApi_*.cpp 注册表完整对齐 (2026-06-02)*

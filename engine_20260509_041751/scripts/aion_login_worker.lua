@@ -97,6 +97,7 @@ local function load_accounts_config()
                 enabled = true,
                 account = tostring(get_queue_value(prefix .. "account", "")),
                 password = tostring(get_queue_value(prefix .. "password", "")),
+                second_password = tostring(get_queue_value(prefix .. "second_password", "")),
                 phone = tostring(get_queue_value(prefix .. "phone", "")),
                 label = tostring(get_queue_value(prefix .. "label", "")),
                 login = {
