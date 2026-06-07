@@ -60,7 +60,7 @@ local runtime = {
         skill_count = 0,
         buff_count = 0,
         auto_active_count = 0,
-        auto_passive_count = 0,
+        auto_buff_count = 0,
         inventory_count = 0,
         quest_count = 0,
         map_name = "",
@@ -68,7 +68,7 @@ local runtime = {
         skills = {},
         buffs = {},
         auto_active_skills = {},
-        auto_passive_skills = {},
+        auto_buff_skills = {},
         inventory_items = {},
         quests = {},
     },
@@ -109,7 +109,7 @@ local runtime = {
             skills = 0,
             buffs = 0,
             auto_active_skills = 0,
-            auto_passive_skills = 0,
+            auto_buff_skills = 0,
         },
     },
     route = {
@@ -1568,13 +1568,13 @@ local function bootstrap_update_combat()
         bootstrap_set_error(active_err)
     end
 
-    local passive_ok, passive, passive_err = combat.autoPassiveSkills()
-    if passive_ok then
-        b.auto_passive_skills = passive or {}
-        b.auto_passive_count = count_array(passive)
-        runtime.audit.current.auto_passive_skills = b.auto_passive_count
+    local auto_buff_ok, auto_buff, auto_buff_err = combat.autoBuffSkills()
+    if auto_buff_ok then
+        b.auto_buff_skills = auto_buff or {}
+        b.auto_buff_count = count_array(auto_buff)
+        runtime.audit.current.auto_buff_skills = b.auto_buff_count
     else
-        bootstrap_set_error(passive_err)
+        bootstrap_set_error(auto_buff_err)
     end
 
     local target_ok, target = combat.currentTarget()
@@ -1586,7 +1586,7 @@ local function bootstrap_update_combat()
         runtime.audit.current.target_id = 0
     end
 
-    b.combat_ok = skill_ok and buff_ok and active_ok and passive_ok
+    b.combat_ok = skill_ok and buff_ok and active_ok and auto_buff_ok
 end
 
 local function bootstrap_update_core()
@@ -1629,7 +1629,7 @@ local function bootstrap_reset_values()
     b.skill_count = 0
     b.buff_count = 0
     b.auto_active_count = 0
-    b.auto_passive_count = 0
+    b.auto_buff_count = 0
     b.inventory_count = 0
     b.quest_count = 0
     b.map_name = ""
@@ -1637,7 +1637,7 @@ local function bootstrap_reset_values()
     b.skills = {}
     b.buffs = {}
     b.auto_active_skills = {}
-    b.auto_passive_skills = {}
+    b.auto_buff_skills = {}
     b.inventory_items = {}
     b.quests = {}
 end
@@ -1676,7 +1676,7 @@ local function bootstrap_finish()
         b.skill_count or 0,
         b.buff_count or 0,
         b.auto_active_count or 0,
-        b.auto_passive_count or 0
+        b.auto_buff_count or 0
     ))
 end
 
@@ -8831,10 +8831,10 @@ function draw_skill_tab()
 
     if imgui.button("刷新技能", 100, 26) then
         bootstrap_update_combat()
-        set_event(string.format("技能已刷新: learned=%d active=%d passive=%d",
+        set_event(string.format("技能已刷新: learned=%d active=%d buff=%d",
             tonumber(b.skill_count) or 0,
             tonumber(b.auto_active_count) or 0,
-            tonumber(b.auto_passive_count) or 0))
+            tonumber(b.auto_buff_count) or 0))
     end
 
     imgui.same_line()
@@ -8854,11 +8854,11 @@ function draw_skill_tab()
         set_event("已追加待翻译技能: " .. tostring(added))
     end
 
-    imgui.text(string.format("当前技能: 已学 %d | Buff %d | 自动主动 %d | 自动被动 %d",
+    imgui.text(string.format("当前技能: 已学 %d | Buff %d | 自动主动 %d | 自动增益 %d",
         tonumber(b.skill_count) or 0,
         tonumber(b.buff_count) or 0,
         tonumber(b.auto_active_count) or 0,
-        tonumber(b.auto_passive_count) or 0))
+        tonumber(b.auto_buff_count) or 0))
 
     imgui.spacing()
     imgui.text("技能执行配置")
@@ -8910,9 +8910,9 @@ function draw_skill_tab()
     imgui.set_next_item_width(520)
     changed, val = imgui.input_text_multiline("##skill_auto_active_ids", skill_auto_id_text(b.auto_active_skills), 520, 45)
 
-    imgui.text("自动被动技能ID")
+    imgui.text("自动增益技能ID")
     imgui.set_next_item_width(520)
-    changed, val = imgui.input_text_multiline("##skill_auto_passive_ids", skill_auto_id_text(b.auto_passive_skills), 520, 45)
+    changed, val = imgui.input_text_multiline("##skill_auto_buff_ids", skill_auto_id_text(b.auto_buff_skills), 520, 45)
 
 end
 

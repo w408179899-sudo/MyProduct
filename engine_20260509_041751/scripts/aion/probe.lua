@@ -248,9 +248,9 @@ local tests = {
         end,
     },
     {
-        name = "combat.autoPassiveSkills",
+        name = "combat.autoBuffSkills",
         run = function()
-            return checkCall(combat.autoPassiveSkills, function(list)
+            return checkCall(combat.autoBuffSkills, function(list)
                 return "count=" .. tostring(count(list))
             end)
         end,
@@ -271,6 +271,24 @@ local tests = {
                 return fail(typeErr)
             end
             return pass(string.format("id=%s type=%s", tostring(first.id), tostring(value)))
+        end,
+    },
+    {
+        name = "combat.isSkillAuto.sample",
+        run = function()
+            local ok, list, err = combat.skillList()
+            if not ok then
+                return warn(err)
+            end
+            local first = list and list[1]
+            if not first then
+                return warn("no learned skill")
+            end
+            local autoOk, value, autoErr = combat.isSkillAuto(first.id)
+            if not autoOk then
+                return fail(autoErr)
+            end
+            return pass(string.format("id=%s auto=%s", tostring(first.id), format_bool(value)))
         end,
     },
     {
@@ -464,7 +482,9 @@ local tests = {
                 combat.autoBattleOn,
                 combat.autoBattleOff,
                 combat.skillType,
+                combat.isSkillAuto,
                 combat.rebuildSkillTypeMap,
+                combat.skillAutoToggle,
                 account.selectServer,
                 account.selectCharacter,
                 account.createCharacter,

@@ -38,16 +38,25 @@ function M.autoActiveSkills()
     return true, list or {}, nil
 end
 
-function M.autoPassiveSkills()
-    local ok, list, err = core.first("AionData.GetAutoPassiveSkills", data.GetAutoPassiveSkills)
+function M.autoBuffSkills()
+    local ok, list, err = core.first("AionData.GetAutoBuffSkills", data.GetAutoBuffSkills)
     if not ok then
         return false, nil, err
     end
     return true, list or {}, nil
 end
 
+-- API 3.5 renamed auto passive skills to auto buff skills.
+function M.autoPassiveSkills()
+    return M.autoBuffSkills()
+end
+
 function M.skillType(skillId)
     return core.first("AionData.GetSkillType", data.GetSkillType, skillId)
+end
+
+function M.isSkillAuto(skillId)
+    return core.first("AionData.IsSkillAuto", data.IsSkillAuto, skillId)
 end
 
 function M.rebuildSkillTypeMap()
@@ -70,12 +79,8 @@ function M.autoBattleOff()
     return core.first("AionData.AutoBattleOff", data.AutoBattleOff)
 end
 
-function M.skillAutoOn(skillId, kind)
-    return core.first("AionData.SkillAutoOn", data.SkillAutoOn, skillId, kind or M.KIND_SKILL)
-end
-
-function M.skillAutoOff(skillId, kind)
-    return core.first("AionData.SkillAutoOff", data.SkillAutoOff, skillId, kind or M.KIND_SKILL)
+function M.skillAutoToggle(skillId, kind)
+    return core.first("AionData.SkillAutoToggle", data.SkillAutoToggle, skillId, kind or M.KIND_SKILL)
 end
 
 return M
