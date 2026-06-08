@@ -7,6 +7,7 @@
     Hotkeys:
       F1       scan nearby NPC names or auto-click open NPC dialog
       F2       dump full UI list and revive candidate child trees to log
+      F3       dump 5 UI controls nearest to the mouse position
       F7       show/hide window
       F8       start/stop
       F9       run safe API probe
@@ -210,6 +211,8 @@ local runtime = {
         labels = { "No UI controls" },
         selected_index = 1,
         dump = "",
+        nearby = {},
+        nearby_dump = "",
     },
     loot_test = {
         last_status = "",
@@ -218,6 +221,12 @@ local runtime = {
     skill_order = {
         left_index = 1,
         right_index = 1,
+    },
+    maintenance = {
+        keycode_reference_open = false,
+        keycode_window_visible = false,
+        keycode_target_kind = "",
+        keycode_target_index = 0,
     },
     target = {
         candidates = {},
@@ -249,6 +258,14 @@ local runtime = {
         worker_queue_id = "",
         pending_login = nil,
         pending_script = nil,
+        server_labels = { "服务器 1", "服务器 2", "服务器 3", "服务器 4" },
+        server_last_status = "",
+        account_api_checked = false,
+        account_api_ok = false,
+        account_api = nil,
+        save_feedback_until = 0,
+        save_feedback_ok = true,
+        save_feedback_text = "",
     },
 }
 
@@ -437,6 +454,8 @@ local cfg = {
         vendor_name = "",
         keep_items = "",
         sell_rules = "",
+        hp_rules = {},
+        mp_rules = {},
     },
 
     safety = {
@@ -472,8 +491,13 @@ local cfg = {
 }
 
 local primary_modes = {
-    "打怪",
-    "主线",
+    "自定义打怪",
+    "自动练级",
+}
+
+local primary_mode_ids = {
+    "combat",
+    "leveling",
 }
 
 local function normalize_primary_mode()
@@ -486,11 +510,11 @@ end
 
 function combat_allowed_by_primary_mode()
     normalize_primary_mode()
-    local mode = primary_modes[cfg.primary_mode] or ""
-    if mode == "打怪" then
+    local mode = primary_mode_ids[cfg.primary_mode] or ""
+    if mode == "combat" then
         return true
     end
-    if mode == "主线" then
+    if mode == "leveling" then
         return cfg.leveling and cfg.leveling.allow_grind == true
     end
     return false
@@ -520,6 +544,9 @@ function normalize_combat_config()
     if cfg.combat.counter_enemy_race == nil then
         cfg.combat.counter_enemy_race = false
     end
+    if type(normalize_combat_mode) == "function" then
+        normalize_combat_mode()
+    end
 end
 
 local priority_modes = {
@@ -544,9 +571,14 @@ end
 local combat_modes = {
     "原地打怪",
     "路径打怪",
-    "任务目标打怪",
-    "定点循环打怪",
 }
+
+function normalize_combat_mode()
+    if not cfg or not cfg.combat then
+        return
+    end
+    cfg.combat.mode = math.max(1, math.min(#combat_modes, tonumber(cfg.combat.mode) or 1))
+end
 
 local combat_target_policies = {
     "最近目标",
@@ -609,8 +641,6 @@ local job_names = {
 local leveling_modes = {
     "只做主线",
     "主线优先",
-    "主线补给",
-    "主线调试",
 }
 
 local professions = {
@@ -803,6 +833,112 @@ local function now_seconds()
         return sys.time() / 1000
     end
     return os.clock()
+end
+
+button_feedback = {
+    installed = false,
+    active = {},
+    style_supported = true,
+}
+
+function button_feedback_key(kind, label)
+    local text = tostring(label or "")
+    local explicit_id = string.match(text, "###(.+)$") or string.match(text, "##(.+)$")
+    return tostring(kind or "button") .. ":" .. tostring(explicit_id or text)
+end
+
+function button_feedback_push(active)
+    if not active or not imgui or type(imgui.push_style_color) ~= "function" then
+        return 0
+    end
+    if button_feedback.style_supported == false then
+        return 0
+    end
+    if not imgui.Col_Button or not imgui.Col_ButtonHovered or not imgui.Col_ButtonActive then
+        return 0
+    end
+
+    local count = 0
+    local ok = pcall(imgui.push_style_color, imgui.Col_Button, rgba(0.10, 0.34, 0.72, 1.0))
+    if not ok then
+        button_feedback.style_supported = false
+        return 0
+    end
+    count = count + 1
+    ok = pcall(imgui.push_style_color, imgui.Col_ButtonHovered, rgba(0.08, 0.30, 0.66, 1.0))
+    if not ok then
+        button_feedback.style_supported = false
+        button_feedback_pop(count)
+        return 0
+    end
+    count = count + 1
+    ok = pcall(imgui.push_style_color, imgui.Col_ButtonActive, rgba(0.06, 0.24, 0.56, 1.0))
+    if not ok then
+        button_feedback.style_supported = false
+        button_feedback_pop(count)
+        return 0
+    end
+    count = count + 1
+    return count
+end
+
+function button_feedback_pop(count)
+    if count > 0 and imgui and type(imgui.pop_style_color) == "function" then
+        pcall(imgui.pop_style_color, count)
+    end
+end
+
+function draw_feedback_button(kind, label, draw)
+    local key = button_feedback_key(kind, label)
+    local until_at = tonumber(button_feedback.active[key]) or 0
+    local pushed = button_feedback_push(until_at > now_seconds())
+    local clicked = draw()
+    button_feedback_pop(pushed)
+
+    if clicked then
+        button_feedback.active[key] = now_seconds() + 0.22
+    end
+    return clicked
+end
+
+function install_button_feedback()
+    if button_feedback.installed or not imgui then
+        return
+    end
+    button_feedback.installed = true
+
+    local raw_button = imgui.button
+    if type(raw_button) == "function" then
+        imgui.button = function(label, width, height)
+            return draw_feedback_button("button", label, function()
+                if width == nil then
+                    return raw_button(label)
+                end
+                if height == nil then
+                    return raw_button(label, width)
+                end
+                return raw_button(label, width, height)
+            end)
+        end
+    end
+
+    local raw_small_button = imgui.small_button
+    if type(raw_small_button) == "function" then
+        imgui.small_button = function(label)
+            return draw_feedback_button("small_button", label, function()
+                return raw_small_button(label)
+            end)
+        end
+    end
+
+    local raw_arrow_button = imgui.arrow_button
+    if type(raw_arrow_button) == "function" then
+        imgui.arrow_button = function(label, dir)
+            return draw_feedback_button("arrow_button", label, function()
+                return raw_arrow_button(label, dir)
+            end)
+        end
+    end
 end
 
 local function count_array(list)
@@ -4591,6 +4727,13 @@ local function account_default()
             title = "",
             character_name = "",
         },
+        server = {
+            key = -1,
+            server_id = 0,
+            label = "",
+            character_count = -1,
+            character_name = "",
+        },
         login = {
             status = "idle",
             requested = false,
@@ -4649,6 +4792,125 @@ local function selected_account()
     local index = math.max(1, math.min(#items, tonumber(runtime.accounts.selected_index) or 1))
     runtime.accounts.selected_index = index
     return items[index], index
+end
+
+function account_trim_text(value)
+    local text = tostring(value or "")
+    text = string.gsub(text, "^%s+", "")
+    text = string.gsub(text, "%s+$", "")
+    return text
+end
+
+function account_ensure_account_api()
+    local state = runtime.accounts
+    if not state.account_api_checked then
+        state.account_api_checked = true
+        state.account_api_ok, state.account_api = pcall(require, "aion.account")
+    end
+    return state.account_api_ok == true, state.account_api
+end
+
+function account_selected_server_index(account)
+    local selected = account and account.server or {}
+    local selected_key = tonumber(selected.key)
+    if selected_key == nil or selected_key < 0 then
+        return 1
+    end
+    return math.max(1, math.min(4, math.floor(selected_key) + 1))
+end
+
+function account_select_server_index(account, index)
+    if type(account) ~= "table" then
+        return false
+    end
+
+    index = math.max(1, math.min(4, tonumber(index) or 1))
+    account.server = account.server or {}
+    account.server.key = index - 1
+    account.server.server_id = 0
+    account.server.label = "服务器 " .. tostring(index)
+    account.server.character_count = -1
+    account.server.character_name = account_trim_text(account.server.character_name)
+    return true
+end
+
+function account_server_character_name(account)
+    if not account then
+        return ""
+    end
+    account.server = account.server or {}
+    account.server.character_name = account_trim_text(account.server.character_name)
+    return account.server.character_name
+end
+
+function account_can_save_settings(account)
+    if type(account) ~= "table" then
+        return false, "保存失败: 未选择账号"
+    end
+
+    return true, nil
+end
+
+function draw_account_server_combo(account)
+    local state = runtime.accounts
+    if type(account) ~= "table" then
+        return
+    end
+
+    imgui.set_next_item_width(190)
+    local changed, val = imgui.combo("服务器", account_selected_server_index(account), state.server_labels)
+    if changed then
+        if account_select_server_index(account, val) then
+            state.server_last_status = "已选择服务器: " .. tostring(account.server.label or "")
+        end
+    end
+
+    account.server = account.server or {}
+    imgui.set_next_item_width(190)
+    changed, val = imgui.input_text("角色名", account.server.character_name or "")
+    if changed then
+        account.server.character_name = val
+    end
+    if primary_mode_ids[cfg.primary_mode] == "leveling" then
+        imgui.text_colored(0.92, 0.22, 0.08, 1.0, "如果当前服务器无角色  角色名必填")
+    end
+end
+
+function account_select_configured_server(account)
+    if type(account) ~= "table" then
+        return false
+    end
+
+    local index = account_selected_server_index(account)
+    account_select_server_index(account, index)
+
+    if ok_core and core and type(core.ensureInit) == "function" then
+        local init_ok, init_err = core.ensureInit(cfg.target and cfg.target.pid)
+        if not init_ok then
+            runtime.accounts.server_last_status = "自动选服失败: AionData 初始化失败 " .. tostring(init_err)
+            set_event(runtime.accounts.server_last_status)
+            return false
+        end
+    end
+
+    local api_ok, account_api = account_ensure_account_api()
+    if not api_ok or not account_api or type(account_api.selectServer) ~= "function" then
+        runtime.accounts.server_last_status = "自动选服失败: aion.account 不可用"
+        set_event(runtime.accounts.server_last_status)
+        return false
+    end
+
+    local server_key = tonumber(account.server and account.server.key) or 0
+    local ok, selected, err = account_api.selectServer(server_key)
+    if not ok or selected == false then
+        runtime.accounts.server_last_status = "自动选服失败: " .. tostring(err or selected)
+        set_event(runtime.accounts.server_last_status)
+        return false
+    end
+
+    runtime.accounts.server_last_status = "已自动选择" .. tostring(account.server.label or ("服务器 " .. tostring(index)))
+    set_event(runtime.accounts.server_last_status)
+    return true
 end
 
 local function mask_secret(value)
@@ -4751,21 +5013,6 @@ function account_clear_stale_target(account, stale_pid)
     return true
 end
 
-local function account_is_logged_in(account)
-    if type(account) ~= "table" then
-        return false
-    end
-    local target = account.target or {}
-    local pid = tonumber(target.pid) or 0
-    if pid <= 0 or not account_pid_is_alive(pid) then
-        return false
-    end
-    local character_name = tostring(target.character_name or "")
-    character_name = string.gsub(character_name, "^%s+", "")
-    character_name = string.gsub(character_name, "%s+$", "")
-    return character_name ~= ""
-end
-
 local function account_save_domain()
     if not config or type(config.set) ~= "function" or type(config.save) ~= "function" then
         return
@@ -4824,6 +5071,9 @@ function account_publish_login_queue(worker_key, selected_index)
             sys.set_share(account_login_queue_key(worker_key, prefix .. "second_password"), account_login_queue_value(account.second_password))
             sys.set_share(account_login_queue_key(worker_key, prefix .. "phone"), account_login_queue_value(account.phone))
             sys.set_share(account_login_queue_key(worker_key, prefix .. "label"), account_login_queue_value(account_display_name(account)))
+            sys.set_share(account_login_queue_key(worker_key, prefix .. "server_key"), tonumber(account.server and account.server.key) or -1)
+            sys.set_share(account_login_queue_key(worker_key, prefix .. "server_id"), tonumber(account.server and account.server.server_id) or 0)
+            sys.set_share(account_login_queue_key(worker_key, prefix .. "character_name"), account_login_queue_value(account.server and account.server.character_name))
         end
     end
 
@@ -5427,6 +5677,10 @@ local function account_start_local_script(account, index)
         return false
     end
 
+    if (tonumber(account.target and account.target.pid) or 0) <= 0 and (tonumber(cfg.target and cfg.target.pid) or 0) > 0 then
+        account_bind_current_target(account)
+    end
+
     if (tonumber(account.target and account.target.pid) or 0) <= 0 then
         account.runtime.status = "error"
         account.runtime.message = "no target pid; bind current target first"
@@ -5474,6 +5728,7 @@ local function account_start_local_script(account, index)
     end
 
     account_apply_to_target(account)
+    account_select_configured_server(account)
     account.runtime.status = "starting"
     account.runtime.message = "starting local script"
     account.runtime.task_id = 0
@@ -5500,7 +5755,14 @@ local function account_start_local_script(account, index)
     end
 
     account.runtime.status = "error"
-    account.runtime.message = tostring(runtime.last_event or runtime.target.binding_message or "start failed")
+    local failure_message = account_trim_text(runtime.last_event)
+    if failure_message == "" then
+        failure_message = account_trim_text(runtime.target and runtime.target.binding_message)
+    end
+    if failure_message == "" then
+        failure_message = "start failed"
+    end
+    account.runtime.message = failure_message
     account.runtime.updated_at = now_seconds()
     runtime.accounts.last_status = "script start failed: " .. account.runtime.message
     account_save_domain()
@@ -5704,6 +5966,7 @@ local function apply_config_snapshot(snapshot)
     normalize_combat_config()
     sync_combat_enabled_from_primary_mode()
     normalize_route_config()
+    normalize_supply_config()
 
     return true, nil
 end
@@ -5735,6 +5998,7 @@ local function load_config_domains()
     normalize_combat_config()
     sync_combat_enabled_from_primary_mode()
     normalize_route_config()
+    normalize_supply_config()
 end
 
 local function save_route_config()
@@ -5757,6 +6021,7 @@ function save_config()
     end
 
     normalize_route_config()
+    normalize_supply_config()
     sync_combat_enabled_from_primary_mode()
     config.load()
     normalize_combat_config()
@@ -6096,6 +6361,21 @@ function ui_test_control_label(ctrl, index)
         tonumber(ctrl.y) or 0)
 end
 
+function ui_test_f3_label(ctrl, index)
+    local label = ui_test_control_label(ctrl, index)
+    local parts = {}
+    if tostring(ctrl.parent_name or "") ~= "" then
+        parts[#parts + 1] = "parent=" .. tostring(ctrl.parent_name)
+    end
+    if tonumber(ctrl.distance) then
+        parts[#parts + 1] = string.format("dist=%.1f", tonumber(ctrl.distance) or 0)
+    end
+    if #parts > 0 then
+        label = label .. " " .. table.concat(parts, " ")
+    end
+    return label
+end
+
 function ui_test_set_controls(list, status)
     local t = runtime.ui_test
     t.controls = list or {}
@@ -6103,6 +6383,9 @@ function ui_test_set_controls(list, status)
     local dump = {}
     for index, ctrl in ipairs(t.controls) do
         local label = ui_test_control_label(ctrl, index)
+        if tonumber(ctrl.distance) or tostring(ctrl.parent_name or "") ~= "" then
+            label = ui_test_f3_label(ctrl, index)
+        end
         t.labels[index] = label
         dump[index] = label
     end
@@ -6188,6 +6471,204 @@ function ui_test_click_selected()
     return true
 end
 
+function ui_test_f3_target_hwnd()
+    local hwnd = tonumber(cfg.target and cfg.target.hwnd) or 0
+    if hwnd <= 0 then
+        hwnd = tonumber(runtime.target and runtime.target.bound_hwnd) or 0
+    end
+    if hwnd <= 0 and proc and type(proc.window) == "function" then
+        local pid = tonumber(cfg.target and cfg.target.pid) or 0
+        if pid > 0 then
+            local ok, value = pcall(proc.window, pid)
+            if ok and tonumber(value) and tonumber(value) > 0 then
+                hwnd = tonumber(value)
+            end
+        end
+    end
+    if hwnd <= 0 and wnd and type(wnd.get_foreground) == "function" then
+        local ok, value = pcall(wnd.get_foreground)
+        if ok and tonumber(value) and tonumber(value) > 0 then
+            hwnd = tonumber(value)
+        end
+    end
+    return hwnd
+end
+
+function ui_test_f3_mouse_client_position()
+    if not mouse or type(mouse.position) ~= "function" then
+        return false, nil, "mouse.position unavailable"
+    end
+    if not wnd or type(wnd.client_rect) ~= "function" then
+        return false, nil, "wnd.client_rect unavailable"
+    end
+
+    local hwnd = ui_test_f3_target_hwnd()
+    if (tonumber(hwnd) or 0) <= 0 then
+        return false, nil, "target hwnd unavailable"
+    end
+
+    local mouse_ok, screen_x, screen_y = pcall(mouse.position)
+    if not mouse_ok or screen_x == nil or screen_y == nil then
+        return false, nil, "mouse.position failed"
+    end
+
+    local rect_ok, client_x, client_y, client_w, client_h = pcall(wnd.client_rect, hwnd)
+    if not rect_ok or client_x == nil or client_y == nil then
+        return false, nil, "wnd.client_rect failed"
+    end
+
+    screen_x = tonumber(screen_x) or 0
+    screen_y = tonumber(screen_y) or 0
+    client_x = tonumber(client_x) or 0
+    client_y = tonumber(client_y) or 0
+
+    return true, {
+        hwnd = hwnd,
+        screen_x = screen_x,
+        screen_y = screen_y,
+        client_x = screen_x - client_x,
+        client_y = screen_y - client_y,
+        rect_x = client_x,
+        rect_y = client_y,
+        rect_w = tonumber(client_w) or 0,
+        rect_h = tonumber(client_h) or 0,
+    }, nil
+end
+
+function ui_test_f3_add_candidate(out, seen, ctrl, parent_name, mouse_x, mouse_y)
+    if type(ctrl) ~= "table" or ctrl.visible ~= true then
+        return
+    end
+
+    local x = tonumber(ctrl.x)
+    local y = tonumber(ctrl.y)
+    if not x or not y then
+        return
+    end
+
+    local obj = ui_test_control_obj(ctrl)
+    local key = tostring(obj or "")
+    if key == "" or key == "0" then
+        key = tostring(parent_name or "") .. "|" .. tostring(ctrl.name or "") .. "|" .. tostring(x) .. "|" .. tostring(y)
+    end
+    if seen[key] then
+        return
+    end
+    seen[key] = true
+
+    local item = {}
+    for k, v in pairs(ctrl) do
+        item[k] = v
+    end
+    item.parent_name = tostring(parent_name or "")
+    item.mouse_x = mouse_x
+    item.mouse_y = mouse_y
+    item.distance2 = (x - mouse_x) * (x - mouse_x) + (y - mouse_y) * (y - mouse_y)
+    item.distance = math.sqrt(item.distance2)
+    out[#out + 1] = item
+end
+
+function ui_test_f3_collect_nearby(ui_runtime, mouse_x, mouse_y)
+    local ok, list, err = ui_runtime.list(true)
+    if not ok then
+        return false, nil, err or "GetUIList failed"
+    end
+
+    list = list or {}
+    local candidates = {}
+    local seen = {}
+    local parent_seen = {}
+    local depth = math.max(1, tonumber(cfg.test.ui_child_depth) or 6)
+
+    for _, ctrl in ipairs(list) do
+        ui_test_f3_add_candidate(candidates, seen, ctrl, "", mouse_x, mouse_y)
+
+        local parent_name = tostring(ctrl.name or "")
+        if ctrl.visible == true and parent_name ~= "" and not parent_seen[parent_name] then
+            parent_seen[parent_name] = true
+            local child_ok, children = ui_runtime.children(parent_name, depth)
+            if child_ok then
+                for _, child in ipairs(children or {}) do
+                    ui_test_f3_add_candidate(candidates, seen, child, parent_name, mouse_x, mouse_y)
+                end
+            end
+        end
+    end
+
+    table.sort(candidates, function(a, b)
+        local ad = tonumber(a.distance2) or 0
+        local bd = tonumber(b.distance2) or 0
+        if ad ~= bd then
+            return ad < bd
+        end
+        local an = tostring(a.name or "") ~= "" and 0 or 1
+        local bn = tostring(b.name or "") ~= "" and 0 or 1
+        if an ~= bn then
+            return an < bn
+        end
+        return tostring(a.name or "") < tostring(b.name or "")
+    end)
+
+    local nearby = {}
+    for index = 1, math.min(5, #candidates) do
+        nearby[index] = candidates[index]
+    end
+    return true, nearby, nil, #candidates, #list
+end
+
+function ui_test_f3_dump()
+    local ready, ui_runtime = ui_test_prepare_runtime()
+    if not ready then
+        log_warn("[AionUIF3] prepare failed: " .. tostring(runtime.ui_test.last_status or ""))
+        return false
+    end
+
+    local pos_ok, pos, pos_err = ui_test_f3_mouse_client_position()
+    if not pos_ok then
+        runtime.ui_test.last_status = "F3 nearby UI failed: " .. tostring(pos_err)
+        set_event(runtime.ui_test.last_status)
+        log_warn("[AionUIF3] " .. runtime.ui_test.last_status)
+        return false
+    end
+
+    local ok, nearby, err, total_count, top_count = ui_test_f3_collect_nearby(ui_runtime, pos.client_x, pos.client_y)
+    if not ok then
+        runtime.ui_test.last_status = "F3 nearby UI failed: " .. tostring(err)
+        set_event(runtime.ui_test.last_status)
+        log_warn("[AionUIF3] " .. runtime.ui_test.last_status)
+        return false
+    end
+
+    nearby = nearby or {}
+    runtime.ui_test.nearby = nearby
+    ui_test_set_controls(nearby, string.format(
+        "F3 nearby UI logged: mouse=(%.0f,%.0f) count=%d",
+        tonumber(pos.client_x) or 0,
+        tonumber(pos.client_y) or 0,
+        #nearby))
+    runtime.ui_test.nearby_dump = runtime.ui_test.dump or ""
+
+    log_info(string.format(
+        "[AionUIF3] nearby begin hwnd=%s screen=(%.0f,%.0f) client=(%.0f,%.0f) rect=(%.0f,%.0f %.0fx%.0f) top=%d total=%d count=%d",
+        tostring(pos.hwnd or 0),
+        tonumber(pos.screen_x) or 0,
+        tonumber(pos.screen_y) or 0,
+        tonumber(pos.client_x) or 0,
+        tonumber(pos.client_y) or 0,
+        tonumber(pos.rect_x) or 0,
+        tonumber(pos.rect_y) or 0,
+        tonumber(pos.rect_w) or 0,
+        tonumber(pos.rect_h) or 0,
+        tonumber(top_count) or 0,
+        tonumber(total_count) or 0,
+        #nearby))
+    for index, ctrl in ipairs(nearby) do
+        log_info("[AionUIF3] " .. ui_test_f3_label(ctrl, index))
+    end
+    log_info("[AionUIF3] nearby end")
+    return true
+end
+
 function ui_test_f2_dump()
     local ready, ui_runtime = ui_test_prepare_runtime()
     if not ready then
@@ -6230,6 +6711,7 @@ function ui_test_f2_dump()
     add_parent("resurrectother_dialog")
     add_parent("common_alert_dialog")
     add_parent("start_dialog")
+    add_parent("user_agreement_dialog")
     add_parent("dlg_dialog")
     add_parent("loot_dialog")
     add_parent("dlg_loot")
@@ -7955,29 +8437,25 @@ local function draw_accounts_overview()
             account_table_text(format_duration(audit.runtime_seconds or 0))
 
             imgui.table_next_column()
-            local logged_in = account_is_logged_in(account)
-            if not logged_in then
-                if imgui.small_button("登录##account_login_" .. tostring(index)) then
-                    account_request_login(account, index)
-                end
-                imgui.same_line()
-            else
-                if imgui.small_button("设置##account_settings_" .. tostring(index)) then
-                    account_open_settings(account, index)
-                end
-                imgui.same_line()
-                if imgui.small_button("启动##account_run_" .. tostring(index)) then
-                    if (tonumber(account.target and account.target.pid) or 0) > 0 then
-                        account_apply_to_target(account)
-                    end
-                    account_queue_local_script("start", account, index)
-                end
-                imgui.same_line()
-                if imgui.small_button("停止##account_stop_" .. tostring(index)) then
-                    account_queue_local_script("stop", account, index)
-                end
-                imgui.same_line()
+            if imgui.small_button("登录##account_login_" .. tostring(index)) then
+                account_request_login(account, index)
             end
+            imgui.same_line()
+            if imgui.small_button("设置##account_settings_" .. tostring(index)) then
+                account_open_settings(account, index)
+            end
+            imgui.same_line()
+            if imgui.small_button("启动##account_run_" .. tostring(index)) then
+                if (tonumber(account.target and account.target.pid) or 0) > 0 then
+                    account_apply_to_target(account)
+                end
+                account_queue_local_script("start", account, index)
+            end
+            imgui.same_line()
+            if imgui.small_button("停止##account_stop_" .. tostring(index)) then
+                account_queue_local_script("stop", account, index)
+            end
+            imgui.same_line()
             if imgui.small_button("删除##account_delete_" .. tostring(index)) then
                 account_select(index, false)
                 account_remove_selected()
@@ -7988,9 +8466,6 @@ local function draw_accounts_overview()
         imgui.end_table()
     end
 
-    if runtime.accounts.last_status ~= "" then
-        imgui.text("账号事件: " .. tostring(runtime.accounts.last_status))
-    end
 end
 
 local function draw_account_settings()
@@ -8009,9 +8484,6 @@ local function draw_account_settings()
         " | " .. tostring(account.runtime.message or ""))
     imgui.text("账号PID: " .. tostring(account.target and account.target.pid or 0) ..
         " | 当前脚本PID: " .. tostring(cfg.target and cfg.target.pid or 0))
-    if runtime.accounts.last_status ~= "" then
-        imgui.text("账号事件: " .. tostring(runtime.accounts.last_status))
-    end
 
     imgui.spacing()
     changed, val = imgui.checkbox("启用账号", account.enabled)
@@ -8036,11 +8508,7 @@ end
 
 local function draw_overview_tab()
     local changed, val
-
-    local api_race = runtime.audit.current.race_name ~= "" and runtime.audit.current.race_name
-        or race_name_by_id(runtime.audit.current.race, "未知")
-    local api_job = runtime.audit.current.job_name ~= "" and runtime.audit.current.job_name
-        or job_name_by_id(runtime.audit.current.job, "未知")
+    local account = selected_account()
 
     if imgui.begin_table("##overview_scheme_character", 2, 0) then
         imgui.table_setup_column("##overview_scheme", imgui.TableColumnFlags_WidthFixed, 430)
@@ -8064,17 +8532,7 @@ local function draw_overview_tab()
             save_config()
         end
 
-        imgui.table_next_column()
-        imgui.text("角色")
-        imgui.text(string.format("API 当前: %s  Lv.%s  %s  %s",
-            tostring(runtime.audit.current.name or ""),
-            tostring(runtime.audit.current.level or 0),
-            tostring(api_race),
-            tostring(api_job)))
-
-        changed, val = imgui.checkbox("自动从 API 同步##character", cfg.character.auto_sync_from_api)
-        if changed then cfg.character.auto_sync_from_api = val end
-
+        imgui.spacing()
         imgui.set_next_item_width(120)
         changed, val = imgui.combo("种族", find_option_index(race_options, cfg.character.race), race_names)
         if changed then
@@ -8092,11 +8550,10 @@ local function draw_overview_tab()
             cfg.character.job_name = option.label
         end
 
-        imgui.same_line()
-        if imgui.button("从 API 同步", 100, 24) then
-            sync_character_from_api()
-        end
+        imgui.spacing()
+        draw_account_server_combo(account)
 
+        imgui.table_next_column()
         imgui.end_table()
     end
 
@@ -8156,19 +8613,15 @@ local function draw_combat_tab()
     local changed, val
     local persist_before = combat_config_signature()
 
+    normalize_combat_mode()
     imgui.set_next_item_width(220)
     changed, val = imgui.combo("打怪模式", cfg.combat.mode, combat_modes)
     if changed then
         cfg.combat.mode = val
         save_config()
     end
-
-    normalize_priority_mode()
-    imgui.set_next_item_width(220)
-    changed, val = imgui.combo("优先级", cfg.priority_mode, priority_modes)
-    if changed then
-        cfg.priority_mode = val
-        save_config()
+    if tonumber(cfg.combat.mode) == 2 then
+        imgui.text_colored(0.92, 0.22, 0.08, 1.0, "先录制打怪路径")
     end
 
     if tonumber(cfg.combat.mode) == 1 then
@@ -8190,14 +8643,22 @@ local function draw_combat_tab()
     if changed then cfg.combat.loot_enabled = val end
 
     imgui.same_line()
-    changed, val = imgui.checkbox("是否抢怪", cfg.combat.allow_kill_steal)
+    changed, val = imgui.checkbox("抢怪", cfg.combat.allow_kill_steal)
     if changed then cfg.combat.allow_kill_steal = val end
 
     imgui.same_line()
-    changed, val = imgui.checkbox("是否反击敌对种族", cfg.combat.counter_enemy_race)
+    changed, val = imgui.checkbox("反击敌对种族", cfg.combat.counter_enemy_race)
     if changed then cfg.combat.counter_enemy_race = val end
 
     if imgui.collapsing_header("高级打怪设置") then
+    normalize_priority_mode()
+    imgui.set_next_item_width(220)
+    changed, val = imgui.combo("优先级", cfg.priority_mode, priority_modes)
+    if changed then
+        cfg.priority_mode = val
+        save_config()
+    end
+
     imgui.set_next_item_width(220)
     changed, val = imgui.combo("目标策略", cfg.combat.target_policy, combat_target_policies)
     if changed then cfg.combat.target_policy = val end
@@ -8968,17 +9429,6 @@ local function draw_route_tab()
         route_persist_config()
     end
 
-    changed, val = imgui.checkbox("循环路径", cfg.route.loop)
-    if changed then cfg.route.loop = val end
-
-    imgui.same_line()
-    changed, val = imgui.checkbox("到终点反向", cfg.route.reverse_on_end)
-    if changed then cfg.route.reverse_on_end = val end
-
-    imgui.same_line()
-    changed, val = imgui.checkbox("死亡停止路径", cfg.route.stop_on_death)
-    if changed then cfg.route.stop_on_death = val end
-
     if runtime.recovery and runtime.recovery.active then
         imgui.text("恢复状态 " .. tostring(runtime.recovery.phase) .. " | " .. tostring(runtime.recovery.last_status))
     end
@@ -9027,6 +9477,20 @@ local function draw_route_tab()
 
         imgui.end_tab_bar()
     end
+
+    imgui.spacing()
+    if imgui.collapsing_header("高级路径设置") then
+        changed, val = imgui.checkbox("循环路径", cfg.route.loop)
+        if changed then cfg.route.loop = val end
+
+        imgui.same_line()
+        changed, val = imgui.checkbox("到终点反向", cfg.route.reverse_on_end)
+        if changed then cfg.route.reverse_on_end = val end
+
+        imgui.same_line()
+        changed, val = imgui.checkbox("死亡停止路径", cfg.route.stop_on_death)
+        if changed then cfg.route.stop_on_death = val end
+    end
 end
 
 local function draw_leveling_tab()
@@ -9035,14 +9499,18 @@ local function draw_leveling_tab()
     changed, val = imgui.checkbox("启用主线目标", cfg.leveling.enabled)
     if changed then cfg.leveling.enabled = val end
 
+    cfg.leveling.mode = math.max(1, math.min(#leveling_modes, tonumber(cfg.leveling.mode) or 1))
     imgui.set_next_item_width(220)
     changed, val = imgui.combo("主线方式", cfg.leveling.mode, leveling_modes)
     if changed then cfg.leveling.mode = val end
 
-    changed, val = imgui.input_int("起始等级", cfg.leveling.start_level)
+    imgui.set_next_item_width(120)
+    changed, val = imgui.input_int("起始等级", cfg.leveling.start_level, 0)
     if changed then cfg.leveling.start_level = math.max(1, val) end
 
-    changed, val = imgui.input_int("主线目标等级", cfg.leveling.target_level)
+    imgui.same_line()
+    imgui.set_next_item_width(120)
+    changed, val = imgui.input_int("主线目标等级", cfg.leveling.target_level, 0)
     if changed then cfg.leveling.target_level = math.max(cfg.leveling.start_level, val) end
 
     if imgui.collapsing_header("主线高级设置 / NPC 对话测试") then
@@ -9158,16 +9626,6 @@ local function draw_leveling_tab()
         npc_continuous_click_dialog_x()
     end
 
-    imgui.text("F1: 有NPC对话时连续点击X控件；没有对话时扫描并打印附近可交互NPC銆?")
-    if runtime.npc_dialog.last_scan_text ~= "" then
-        imgui.text("最近扫描")
-        imgui.text(tostring(runtime.npc_dialog.last_scan_text))
-    end
-    if runtime.npc_dialog.last_dialog_dump ~= "" then
-        imgui.text("最近对话控件")
-        imgui.text(tostring(runtime.npc_dialog.last_dialog_dump))
-    end
-    imgui.text("最近NPC对话: " .. tostring(runtime.npc_dialog.last_status or ""))
     end
 end
 
@@ -9203,10 +9661,10 @@ end
 function draw_primary_mode_linked_panel()
     normalize_primary_mode()
 
-    local mode = primary_modes[cfg.primary_mode] or ""
-    if mode == "主线" then
+    local mode = primary_mode_ids[cfg.primary_mode] or ""
+    if mode == "leveling" then
         draw_leveling_tab()
-    elseif mode == "打怪" then
+    elseif mode == "combat" then
         draw_combat_tab()
     elseif mode == "采集" then
         draw_gather_tab()
@@ -9217,45 +9675,347 @@ function draw_primary_mode_linked_panel()
     end
 end
 
-local function draw_supply_tab()
+function normalize_maintenance_rules(rules, default_percent)
+    local normalized = {}
+    if type(rules) ~= "table" then
+        return normalized
+    end
+
+    for _, rule in ipairs(rules) do
+        if type(rule) == "table" then
+            local percent = tonumber(rule.percent or rule.threshold or default_percent) or default_percent
+            local keycode = tonumber(rule.keycode or rule.key_code or rule.key or 0) or 0
+            normalized[#normalized + 1] = {
+                percent = math.max(1, math.min(100, math.floor(percent))),
+                keycode = math.max(0, math.floor(keycode)),
+            }
+        end
+    end
+    return normalized
+end
+
+function normalize_supply_config()
+    cfg.supply = cfg.supply or {}
+    cfg.supply.hp_percent = math.max(1, math.min(100, tonumber(cfg.supply.hp_percent) or 35))
+    cfg.supply.mp_percent = math.max(1, math.min(100, tonumber(cfg.supply.mp_percent) or 25))
+    cfg.supply.bag_full_percent = math.max(1, math.min(100, tonumber(cfg.supply.bag_full_percent) or 85))
+    cfg.supply.bag_slots = math.max(1, tonumber(cfg.supply.bag_slots) or 100)
+    cfg.supply.min_kinah = math.max(0, tonumber(cfg.supply.min_kinah) or 0)
+    cfg.supply.buy_hp_potion = math.max(0, tonumber(cfg.supply.buy_hp_potion) or 0)
+    cfg.supply.buy_mp_potion = math.max(0, tonumber(cfg.supply.buy_mp_potion) or 0)
+    cfg.supply.vendor_name = tostring(cfg.supply.vendor_name or "")
+    cfg.supply.keep_items = tostring(cfg.supply.keep_items or "")
+    cfg.supply.sell_rules = tostring(cfg.supply.sell_rules or "")
+    cfg.supply.hp_rules = normalize_maintenance_rules(cfg.supply.hp_rules, cfg.supply.hp_percent)
+    cfg.supply.mp_rules = normalize_maintenance_rules(cfg.supply.mp_rules, cfg.supply.mp_percent)
+end
+
+function add_maintenance_rule(kind)
+    normalize_supply_config()
+    local is_mp = kind == "mp"
+    local rules = is_mp and cfg.supply.mp_rules or cfg.supply.hp_rules
+    local percent = is_mp and cfg.supply.mp_percent or cfg.supply.hp_percent
+    rules[#rules + 1] = {
+        percent = math.max(1, math.min(100, tonumber(percent) or 50)),
+        keycode = 0,
+    }
+    set_event(is_mp and "已新增蓝量维护" or "已新增血量维护")
+end
+
+function clear_maintenance_keycode_target()
+    runtime.maintenance = runtime.maintenance or {}
+    runtime.maintenance.keycode_target_kind = ""
+    runtime.maintenance.keycode_target_index = 0
+end
+
+function open_maintenance_keycode_picker(kind, index)
+    runtime.maintenance = runtime.maintenance or {}
+    runtime.maintenance.keycode_window_visible = true
+    runtime.maintenance.keycode_target_kind = tostring(kind or "")
+    runtime.maintenance.keycode_target_index = tonumber(index) or 0
+end
+
+function maintenance_key_label(keycode)
+    local code = math.floor(tonumber(keycode) or 0)
+    if code <= 0 then
+        return "选择按键"
+    end
+
+    local name = ""
+    if type(keycode_name_for_code) == "function" then
+        name = keycode_name_for_code(code)
+    end
+    if name ~= "" then
+        return name .. "=" .. tostring(code)
+    end
+    return "键码=" .. tostring(code)
+end
+
+function draw_maintenance_rule_row(kind, rules, index)
+    local rule = rules[index]
+    local label = kind == "mp" and "蓝量低于" or "血量低于"
     local changed, val
 
-    changed, val = imgui.input_int("回血阈值", cfg.supply.hp_percent)
-    if changed then cfg.supply.hp_percent = math.max(1, math.min(100, val)) end
+    imgui.text(label)
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_text("##maintenance_" .. kind .. "_percent_" .. tostring(index), tostring(tonumber(rule.percent) or 1))
+    if changed and tonumber(val) then
+        rule.percent = math.max(1, math.min(100, math.floor(tonumber(val) or 1)))
+    end
 
-    changed, val = imgui.input_int("回蓝阈值", cfg.supply.mp_percent)
-    if changed then cfg.supply.mp_percent = math.max(1, math.min(100, val)) end
+    imgui.same_line()
+    imgui.text("%  按")
+    imgui.same_line()
+    if imgui.button(maintenance_key_label(rule.keycode) .. "##maintenance_" .. kind .. "_pick_key_" .. tostring(index), 120, 26) then
+        open_maintenance_keycode_picker(kind, index)
+    end
 
+    imgui.same_line()
+    if imgui.small_button("删除##maintenance_" .. kind .. "_delete_" .. tostring(index)) then
+        if runtime.maintenance
+            and runtime.maintenance.keycode_target_kind == kind
+            and tonumber(runtime.maintenance.keycode_target_index) >= index then
+            clear_maintenance_keycode_target()
+            runtime.maintenance.keycode_window_visible = false
+        end
+        table.remove(rules, index)
+        set_event(kind == "mp" and "已删除蓝量维护" or "已删除血量维护")
+        return true
+    end
+
+    return false
+end
+
+function draw_maintenance_rule_section(kind)
+    local is_mp = kind == "mp"
+    local rules = is_mp and cfg.supply.mp_rules or cfg.supply.hp_rules
+    local title = is_mp and "蓝量维护" or "血量维护"
+    local add_label = is_mp and "新增蓝量维护" or "新增血量维护"
+
+    imgui.text(title)
+    imgui.same_line()
+    if imgui.button(add_label, 120, 26) then
+        add_maintenance_rule(kind)
+        rules = is_mp and cfg.supply.mp_rules or cfg.supply.hp_rules
+    end
+
+    if #rules == 0 then
+        imgui.text("暂无" .. title)
+        return
+    end
+
+    for index = 1, #rules do
+        if draw_maintenance_rule_row(kind, rules, index) then
+            break
+        end
+    end
+end
+
+KEYCODE_KEYBOARD_ROWS = {
+    {
+        { "Esc", 27 }, { gap = 18 },
+        { "F1", 112 }, { "F2", 113 }, { "F3", 114 }, { "F4", 115 }, { gap = 12 },
+        { "F5", 116 }, { "F6", 117 }, { "F7", 118 }, { "F8", 119 }, { gap = 12 },
+        { "F9", 120 }, { "F10", 121 }, { "F11", 122 }, { "F12", 123 }, { gap = 18 },
+        { "PrtSc", 44, 54 }, { "ScrLk", 145, 54 }, { "Pause", 19, 54 },
+    },
+    {
+        { "`~", 192 }, { "1!", 49 }, { "2@", 50 }, { "3#", 51 }, { "4$", 52 }, { "5%", 53 },
+        { "6^", 54 }, { "7&", 55 }, { "8*", 56 }, { "9(", 57 }, { "0)", 48 },
+        { "-_", 189 }, { "=+", 187 }, { "Backspace", 8, 96 }, { gap = 18 },
+        { "Ins", 45 }, { "Home", 36 }, { "PgUp", 33 }, { gap = 18 },
+        { "Num", 144 }, { "N/", 111 }, { "N*", 106 }, { "N-", 109 },
+    },
+    {
+        { "Tab", 9, 70 }, { "Q", 81 }, { "W", 87 }, { "E", 69 }, { "R", 82 }, { "T", 84 },
+        { "Y", 89 }, { "U", 85 }, { "I", 73 }, { "O", 79 }, { "P", 80 },
+        { "[{", 219 }, { "]}", 221 }, { "\\|", 220, 70 }, { gap = 18 },
+        { "Del", 46 }, { "End", 35 }, { "PgDn", 34 }, { gap = 18 },
+        { "N7", 103 }, { "N8", 104 }, { "N9", 105 }, { "N+", 107 },
+    },
+    {
+        { "Caps", 20, 82 }, { "A", 65 }, { "S", 83 }, { "D", 68 }, { "F", 70 }, { "G", 71 },
+        { "H", 72 }, { "J", 74 }, { "K", 75 }, { "L", 76 }, { ";:", 186 },
+        { "'\"", 222 }, { "Enter", 13, 104 }, { gap = 184 },
+        { "N4", 100 }, { "N5", 101 }, { "N6", 102 }, { "N+", 107 },
+    },
+    {
+        { "LShift", 160, 100 }, { "Z", 90 }, { "X", 88 }, { "C", 67 }, { "V", 86 }, { "B", 66 },
+        { "N", 78 }, { "M", 77 }, { ",<", 188 }, { ".>", 190 }, { "/?", 191 },
+        { "RShift", 161, 124 }, { gap = 76 }, { "Up", 38 }, { gap = 72 },
+        { "N1", 97 }, { "N2", 98 }, { "N3", 99 }, { "NEnter", 13, 66 },
+    },
+    {
+        { "LCtrl", 162, 66 }, { "LWin", 91, 62 }, { "LAlt", 164, 62 }, { "Space", 32, 260 },
+        { "RAlt", 165, 62 }, { "Menu", 93, 62 }, { "RWin", 92, 62 }, { "RCtrl", 163, 66 },
+        { gap = 22 }, { "Left", 37 }, { "Down", 40 }, { "Right", 39 }, { gap = 18 },
+        { "N0", 96, 92 }, { "N.", 110 }, { "NEnter", 13, 66 },
+    },
+}
+
+function keycode_name_for_code(code)
+    local target = tonumber(code) or -1
+    if type(KEYCODE_KEYBOARD_ROWS) ~= "table" then
+        return ""
+    end
+
+    for _, row in ipairs(KEYCODE_KEYBOARD_ROWS) do
+        for _, item in ipairs(row) do
+            if type(item) == "table" and tonumber(item[2]) == target then
+                return tostring(item[1] or "")
+            end
+        end
+    end
+    return ""
+end
+
+function maintenance_keycode_target_text()
+    runtime.maintenance = runtime.maintenance or {}
+    local kind = tostring(runtime.maintenance.keycode_target_kind or "")
+    local index = tonumber(runtime.maintenance.keycode_target_index) or 0
+    if kind == "hp" and index > 0 then
+        return "当前填入：血量维护第 " .. tostring(index) .. " 行"
+    end
+    if kind == "mp" and index > 0 then
+        return "当前填入：蓝量维护第 " .. tostring(index) .. " 行"
+    end
+    return "未选择维护行：请先点维护行里的选择按键"
+end
+
+function apply_selected_maintenance_keycode(name, code)
+    runtime.maintenance = runtime.maintenance or {}
+    local kind = tostring(runtime.maintenance.keycode_target_kind or "")
+    local index = tonumber(runtime.maintenance.keycode_target_index) or 0
+    local rules = nil
+    local title = ""
+
+    normalize_supply_config()
+    if kind == "hp" then
+        rules = cfg.supply.hp_rules
+        title = "血量维护"
+    elseif kind == "mp" then
+        rules = cfg.supply.mp_rules
+        title = "蓝量维护"
+    end
+
+    if type(rules) ~= "table" or index <= 0 or type(rules[index]) ~= "table" then
+        set_event("请先选择维护行")
+        return
+    end
+
+    local keycode = math.max(0, math.floor(tonumber(code) or 0))
+    rules[index].keycode = keycode
+    set_event(title .. "第" .. tostring(index) .. "行按键: " .. tostring(name or "") .. "=" .. tostring(keycode))
+    clear_maintenance_keycode_target()
+    runtime.maintenance.keycode_window_visible = false
+end
+
+function draw_keycode_key(item)
+    local name = tostring(item[1] or "")
+    local code = tostring(item[2] or "")
+    local width = tonumber(item[3]) or 44
+    local label = name .. "\n" .. code .. "##keycode_key_" .. name .. "_" .. code
+    if imgui.button(label, width, 42) then
+        apply_selected_maintenance_keycode(name, code)
+    end
+end
+
+function draw_keycode_keyboard()
+    for _, row in ipairs(KEYCODE_KEYBOARD_ROWS) do
+        local first = true
+        local spacing = 4
+        for _, item in ipairs(row) do
+            if item.gap then
+                spacing = tonumber(item.gap) or 12
+            else
+                if not first then
+                    imgui.same_line(0, spacing)
+                end
+                draw_keycode_key(item)
+                first = false
+                spacing = 4
+            end
+        end
+        imgui.spacing()
+    end
+end
+
+function draw_keycode_reference_window()
+    runtime.maintenance = runtime.maintenance or {}
+    if not runtime.maintenance.keycode_window_visible then
+        return
+    end
+
+    imgui.set_next_window_size(1040, 430, imgui.Cond_FirstUseEver)
+    imgui.set_next_window_pos(220, 140, imgui.Cond_FirstUseEver)
+
+    local visible, open = imgui.begin_window("键盘键码表###aion_keycode_reference_window", true, imgui.WindowFlags_NoCollapse)
+    if open == false then
+        runtime.maintenance.keycode_window_visible = false
+        clear_maintenance_keycode_target()
+    end
+
+    if visible then
+        imgui.text("键面文字 / Windows Virtual-Key 键码")
+        imgui.text("通用修饰键: Shift=16  Ctrl=17  Alt=18；左右修饰键按键盘实际键位单独列出。")
+        imgui.text(maintenance_keycode_target_text())
+        imgui.separator()
+        draw_keycode_keyboard()
+    end
+
+    imgui.end_window()
+end
+
+function draw_maintenance_keycode_reference()
+    runtime.maintenance = runtime.maintenance or {}
+    local label = runtime.maintenance.keycode_window_visible and "关闭键码表" or "打开键码表"
+    if imgui.button(label, 120, 26) then
+        if runtime.maintenance.keycode_window_visible then
+            runtime.maintenance.keycode_window_visible = false
+            clear_maintenance_keycode_target()
+        else
+            clear_maintenance_keycode_target()
+            runtime.maintenance.keycode_window_visible = true
+        end
+    end
+end
+
+function draw_maintenance_tab()
+    local changed, val
+
+    normalize_supply_config()
+
+    imgui.begin_group()
+    draw_maintenance_rule_section("hp")
+    imgui.spacing()
+    draw_maintenance_rule_section("mp")
+    imgui.end_group()
+
+    imgui.spacing()
+    imgui.separator()
+
+    if imgui.collapsing_header("高级设置") then
+    imgui.set_next_item_width(110)
     changed, val = imgui.input_int("清包阈值", cfg.supply.bag_full_percent)
     if changed then cfg.supply.bag_full_percent = math.max(1, math.min(100, val)) end
 
+    imgui.set_next_item_width(110)
     changed, val = imgui.input_int("背包总格数", cfg.supply.bag_slots)
     if changed then cfg.supply.bag_slots = math.max(1, val) end
+    end
+end
 
-    changed, val = imgui.input_int("最少金币", cfg.supply.min_kinah)
-    if changed then cfg.supply.min_kinah = math.max(0, val) end
-
-    changed, val = imgui.input_int("购买血药", cfg.supply.buy_hp_potion)
-    if changed then cfg.supply.buy_hp_potion = math.max(0, val) end
-
-    changed, val = imgui.input_int("购买蓝药", cfg.supply.buy_mp_potion)
-    if changed then cfg.supply.buy_mp_potion = math.max(0, val) end
-
-    imgui.set_next_item_width(260)
-    changed, val = imgui.input_text("商人名字", cfg.supply.vendor_name)
-    if changed then cfg.supply.vendor_name = val end
-
-    imgui.text("保留物品")
-    imgui.set_next_item_width(420)
-    changed, val = imgui.input_text_multiline("##keep_items", cfg.supply.keep_items, 420, 90)
-    if changed then cfg.supply.keep_items = val end
-
-    imgui.text("出售规则")
-    imgui.set_next_item_width(420)
-    changed, val = imgui.input_text_multiline("##sell_rules", cfg.supply.sell_rules, 420, 90)
-    if changed then cfg.supply.sell_rules = val end
+function draw_supply_tab()
+    draw_maintenance_tab()
 
     imgui.spacing()
+    draw_safety_tab()
+end
+
+function draw_safety_tab()
+    local changed, val
+
     imgui.text("安全")
     imgui.separator()
 
@@ -9502,6 +10262,42 @@ function draw_test_tab()
     end
 end
 
+function account_save_feedback_state()
+    local state = runtime.accounts
+    local until_at = tonumber(state.save_feedback_until) or 0
+    if until_at <= now_seconds() then
+        return "保存账号配置", false, true, ""
+    end
+
+    local dots = string.rep(".", (math.floor(now_seconds() * 6) % 3) + 1)
+    local ok = state.save_feedback_ok ~= false
+    local label = (ok and "已保存" or "保存失败") .. dots
+    return label, true, ok, tostring(state.save_feedback_text or "")
+end
+
+function account_mark_save_feedback(ok, text)
+    runtime.accounts.save_feedback_until = now_seconds() + 1.4
+    runtime.accounts.save_feedback_ok = ok ~= false
+    runtime.accounts.save_feedback_text = tostring(text or "")
+end
+
+function draw_account_save_feedback(active, ok, text)
+    if not active or text == "" then
+        return
+    end
+
+    imgui.same_line()
+    if imgui.text_colored then
+        if ok then
+            imgui.text_colored(0.12, 0.48, 0.20, 1.0, text)
+        else
+            imgui.text_colored(0.90, 0.18, 0.12, 1.0, text)
+        end
+    else
+        imgui.text(text)
+    end
+end
+
 local function draw_account_settings_window()
     if not runtime.accounts.settings_window_visible then
         return
@@ -9522,18 +10318,40 @@ local function draw_account_settings_window()
     end
 
     if visible then
-        if imgui.button("保存账号配置", 120, 26) then
-            save_config()
-            set_event("账号和脚本配置已保存")
+        local save_label, save_active, save_ok_state, save_feedback_text = account_save_feedback_state()
+        if imgui.button(save_label .. "##account_save_config", 120, 26) then
+            local save_ok, save_err = account_can_save_settings(account)
+            if save_ok then
+                save_config()
+                account_mark_save_feedback(true, "配置已保存")
+                save_active = true
+                save_ok_state = true
+                save_feedback_text = "配置已保存"
+                set_event("账号和脚本配置已保存")
+            else
+                runtime.accounts.last_status = tostring(save_err)
+                account_mark_save_feedback(false, tostring(save_err))
+                save_active = true
+                save_ok_state = false
+                save_feedback_text = tostring(save_err)
+                set_event(tostring(save_err))
+            end
         end
+        draw_account_save_feedback(save_active, save_ok_state, save_feedback_text)
         if account then
             imgui.same_line()
             if imgui.button("启动脚本", 90, 26) then
-                save_config()
-                if (tonumber(account.target and account.target.pid) or 0) > 0 then
-                    account_apply_to_target(account)
+                local save_ok, save_err = account_can_save_settings(account)
+                if save_ok then
+                    save_config()
+                    if (tonumber(account.target and account.target.pid) or 0) > 0 then
+                        account_apply_to_target(account)
+                    end
+                    account_queue_local_script("start", account, account_index)
+                else
+                    runtime.accounts.last_status = tostring(save_err)
+                    set_event(tostring(save_err))
                 end
-                account_queue_local_script("start", account, account_index)
             end
             imgui.same_line()
             if imgui.button("停止脚本", 90, 26) then
@@ -9552,6 +10370,11 @@ local function draw_account_settings_window()
 
             if imgui.begin_tab_item("路径") then
                 draw_route_tab()
+                imgui.end_tab_item()
+            end
+
+            if imgui.begin_tab_item("维护") then
+                draw_maintenance_tab()
                 imgui.end_tab_item()
             end
 
@@ -9688,6 +10511,7 @@ local function on_render()
             draw_main_window()
         end
         draw_account_add_window()
+        draw_keycode_reference_window()
     end
 end
 
@@ -9716,9 +10540,11 @@ if not imgui.is_initialized() then
         return
     end
     apply_white_blue_style()
+    install_button_feedback()
     imgui.run()
 else
     apply_white_blue_style()
+    install_button_feedback()
 end
 
 hotkey.start(10)
@@ -9728,6 +10554,7 @@ local last_f8 = false
 local last_f9 = false
 local last_f10 = false
 last_f2 = false
+last_f3 = false
 
 while true do
     local ctrl = hotkey.is_pressed(0x11)
@@ -9746,6 +10573,12 @@ while true do
         ui_test_f2_dump()
     end
     last_f2 = f2
+
+    f3 = hotkey.is_pressed(0x72)
+    if f3 and not last_f3 then
+        ui_test_f3_dump()
+    end
+    last_f3 = f3
 
     local f7 = hotkey.is_pressed(0x76)
     if f7 and not last_f7 then

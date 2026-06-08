@@ -100,6 +100,11 @@ local function load_accounts_config()
                 second_password = tostring(get_queue_value(prefix .. "second_password", "")),
                 phone = tostring(get_queue_value(prefix .. "phone", "")),
                 label = tostring(get_queue_value(prefix .. "label", "")),
+                server = {
+                    key = tonumber(get_queue_value(prefix .. "server_key", -1)) or -1,
+                    server_id = tonumber(get_queue_value(prefix .. "server_id", 0)) or 0,
+                    character_name = tostring(get_queue_value(prefix .. "character_name", "")),
+                },
                 login = {
                     requested = true,
                 },
