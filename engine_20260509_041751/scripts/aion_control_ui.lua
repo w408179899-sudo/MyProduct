@@ -497,7 +497,7 @@ local cfg = {
             enabled = false,
             start_percent = 15,
             recover_percent = 90,
-            sit_keycode = 56,
+            sit_keycode = 188,
             stand_keycode = 88,
             cancel_on_damage = true,
         },
@@ -4841,7 +4841,7 @@ function combat_floor_recovery_settings()
         enabled = false,
         start_percent = 15,
         recover_percent = 90,
-        sit_keycode = 56,
+        sit_keycode = 188,
         stand_keycode = 88,
         cancel_on_damage = true,
     }
@@ -11657,7 +11657,7 @@ function normalize_floor_recovery_config()
             enabled = current.enabled == true,
             start_percent = start_percent,
             recover_percent = recover_percent,
-            sit_keycode = math.max(1, math.min(255, math.floor(tonumber(current.sit_keycode) or 56))),
+            sit_keycode = 188,
             stand_keycode = math.max(1, math.min(255, math.floor(tonumber(current.stand_keycode) or 88))),
             cancel_on_damage = current.cancel_on_damage ~= false,
         }

@@ -5,12 +5,12 @@ local function run()
     T.reset()
     T.log("\n=== aion floor-recovery tests ===")
 
-    T.test("defaults are disabled with 15 to 90 thresholds and 8/X keys", function()
+    T.test("defaults are disabled with 15 to 90 thresholds and comma/X keys", function()
         local settings = floor_recovery.from_config({})
         T.assert_false(settings.enabled)
         T.assert_eq(settings.start_percent, 15)
         T.assert_eq(settings.recover_percent, 90)
-        T.assert_eq(settings.sit_keycode, 56)
+        T.assert_eq(settings.sit_keycode, 188)
         T.assert_eq(settings.stand_keycode, 88)
         T.assert_true(settings.cancel_on_damage)
     end)
@@ -29,14 +29,24 @@ local function run()
         T.assert_true(settings.enabled)
         T.assert_eq(settings.start_percent, 99)
         T.assert_eq(settings.recover_percent, 100)
-        T.assert_eq(settings.sit_keycode, 1)
+        T.assert_eq(settings.sit_keycode, 188)
         T.assert_eq(settings.stand_keycode, 255)
         T.assert_false(settings.cancel_on_damage)
     end)
 
+    T.test("legacy saved 8 key is migrated to comma key", function()
+        local settings = floor_recovery.from_config({
+            floor_recovery = {
+                enabled = true,
+                sit_keycode = 56,
+            },
+        })
+        T.assert_eq(settings.sit_keycode, 188)
+    end)
+
     T.test("no start before a loot completion marker", function()
         local decision = floor_recovery.decide({
-            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 56, stand_keycode = 88 },
+            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 188, stand_keycode = 88 },
             after_loot_pending = false,
             char = { mp = 10, max_mp = 100, hp = 100 },
         })
@@ -46,7 +56,7 @@ local function run()
 
     T.test("disabled setting consumes the after-loot check without sitting", function()
         local decision = floor_recovery.decide({
-            settings = { enabled = false, start_percent = 15, recover_percent = 90, sit_keycode = 56, stand_keycode = 88 },
+            settings = { enabled = false, start_percent = 15, recover_percent = 90, sit_keycode = 188, stand_keycode = 88 },
             after_loot_pending = true,
             char = { mp = 10, max_mp = 100, hp = 100 },
         })
@@ -56,13 +66,13 @@ local function run()
 
     T.test("after-loot low MP starts floor recovery", function()
         local decision = floor_recovery.decide({
-            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 56, stand_keycode = 88 },
+            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 188, stand_keycode = 88 },
             after_loot_pending = true,
             char = { mp = 14, max_mp = 100, hp = 100 },
         })
         T.assert_eq(decision.action, "start")
         T.assert_eq(decision.reason, "mp-low")
-        T.assert_eq(decision.keycode, 56)
+        T.assert_eq(decision.keycode, 188)
     end)
 
     T.test("character MP percent prefers documented mmp over max_mp alias", function()
@@ -76,7 +86,7 @@ local function run()
 
     T.test("MP equal to low threshold does not start because rule is lower-than", function()
         local decision = floor_recovery.decide({
-            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 56, stand_keycode = 88 },
+            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 188, stand_keycode = 88 },
             after_loot_pending = true,
             char = { mp = 15, max_mp = 100, hp = 100 },
         })
@@ -86,7 +96,7 @@ local function run()
 
     T.test("active recovery waits until recover threshold", function()
         local decision = floor_recovery.decide({
-            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 56, stand_keycode = 88 },
+            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 188, stand_keycode = 88 },
             state = { active = true, start_hp = 100, last_hp = 100 },
             char = { mp = 80, max_mp = 100, hp = 100 },
         })
@@ -96,7 +106,7 @@ local function run()
 
     T.test("active recovery finishes at high threshold and sends X", function()
         local decision = floor_recovery.decide({
-            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 56, stand_keycode = 88 },
+            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 188, stand_keycode = 88 },
             state = { active = true, start_hp = 100, last_hp = 100 },
             char = { mp = 90, max_mp = 100, hp = 100 },
         })
@@ -107,7 +117,7 @@ local function run()
 
     T.test("active recovery cancels on damage and sends X", function()
         local decision = floor_recovery.decide({
-            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 56, stand_keycode = 88 },
+            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 188, stand_keycode = 88 },
             state = { active = true, start_hp = 100, last_hp = 100 },
             char = { mp = 30, max_mp = 100, hp = 99 },
         })
@@ -118,7 +128,7 @@ local function run()
 
     T.test("start is deferred while combat or loot state is still pending", function()
         local decision = floor_recovery.decide({
-            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 56, stand_keycode = 88 },
+            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 188, stand_keycode = 88 },
             after_loot_pending = true,
             in_combat = true,
             char = { mp = 10, max_mp = 100, hp = 100 },

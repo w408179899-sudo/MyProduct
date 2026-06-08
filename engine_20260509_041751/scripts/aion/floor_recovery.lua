@@ -1,5 +1,8 @@
 local M = {}
 
+M.SIT_KEYCODE = 188 -- VK_OEM_COMMA: "," key, right of M on the keyboard.
+M.STAND_KEYCODE = 88
+
 local function number_or(value, fallback)
     local n = tonumber(value)
     if n == nil then
@@ -55,8 +58,8 @@ function M.from_config(supply)
         enabled = bool_or(cfg.enabled, false),
         start_percent = start_percent,
         recover_percent = recover_percent,
-        sit_keycode = clamp_key(cfg.sit_keycode or cfg.start_keycode or cfg.sit_key or 56, 56),
-        stand_keycode = clamp_key(cfg.stand_keycode or cfg.stop_keycode or cfg.stand_key or 88, 88),
+        sit_keycode = M.SIT_KEYCODE,
+        stand_keycode = clamp_key(cfg.stand_keycode or cfg.stop_keycode or cfg.stand_key or M.STAND_KEYCODE, M.STAND_KEYCODE),
         cancel_on_damage = bool_or(cfg.cancel_on_damage, true),
     }
 end
