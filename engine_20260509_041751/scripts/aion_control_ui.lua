@@ -147,6 +147,10 @@ local runtime = {
         last_revive_click_at = 0,
         revive_click_attempts = 0,
         revive_last_error = "",
+        death_probe_at = 0,
+        death_probe_count = 0,
+        death_probe_last_log_at = 0,
+        death_probe_reason = "",
     },
     combat = {
         anchor = nil,
@@ -392,6 +396,8 @@ local cfg = {
         loop = true,
         reverse_on_end = false,
         stop_on_death = true,
+        death_confirm_seconds = 0.8,
+        death_confirm_count = 2,
         record_interval = 1.5,
         min_record_distance = 2.5,
         waypoint_radius = 3,
@@ -709,6 +715,8 @@ local route_config_keys = {
     "loop",
     "reverse_on_end",
     "stop_on_death",
+    "death_confirm_seconds",
+    "death_confirm_count",
     "record_interval",
     "min_record_distance",
     "waypoint_radius",
@@ -2500,13 +2508,27 @@ function combat_find_current_entity(list, anchor)
         local obj = combat_entity_obj(e)
         local id = tonumber(e.id) or 0
         if (current_obj > 0 and obj == current_obj) or (current_id > 0 and id == current_id) then
-            if combat_is_target_candidate(e, anchor) then
+            local reject_reason = combat_target_reject_reason(e, anchor)
+            if reject_reason == nil or reject_reason == "radius" then
                 return e
             end
             return nil
         end
     end
     return nil
+end
+
+function combat_current_target_matches_obj(obj)
+    obj = tonumber(obj) or 0
+    if obj <= 0 or not ok_combat or not combat then
+        return false
+    end
+    local ok, current = combat.currentTarget()
+    if not ok or type(current) ~= "table" then
+        return false
+    end
+    local current_obj = tonumber(current.obj or current.IEntity or 0) or 0
+    return current_obj > 0 and current_obj == obj
 end
 
 function combat_is_aggressive_target(e)
@@ -4078,10 +4100,24 @@ function combat_tick()
         combat_set_status("error", "读取角色失败: " .. tostring(char_err), true)
         return
     end
-    if (tonumber(char.hp) or 0) <= 0 then
+    local char_hp = tonumber(char.hp or char.HP or char.cur_hp or char.current_hp)
+    local char_dead = char.is_dead == true or char.dead == true or (char_hp ~= nil and char_hp <= 0)
+    if char_dead then
+        local confirmed = true
+        if type(route_recovery_maybe_confirm_death) == "function" then
+            confirmed = route_recovery_maybe_confirm_death("combat-dead", char)
+        end
+        if not confirmed then
+            combat_set_status("death-confirm", "pending", false)
+            combat_log("death-confirm",
+                "death read pending hp=" .. tostring(char_hp or "") .. "; hold combat/recovery",
+                0.5,
+                false)
+            return
+        end
         combat_auto_off("dead", true)
         combat_set_status("dead", "", true)
-        combat_log("dead", "character dead, auto battle off", 0, true)
+        combat_log("dead", "character dead confirmed, auto battle off", 0, true)
         if route_recovery_on_death then
             route_recovery_on_death("combat-dead")
         end
@@ -4099,29 +4135,6 @@ function combat_tick()
         c.anchor_distance = core.distance3(char, anchor)
     end
 
-    local radius = tonumber(cfg.combat.radius) or 35
-    if c.anchor_distance > radius then
-        combat_log("out-of-radius",
-            string.format("out of radius mode=%s dist=%.1f radius=%.1f anchor=%s",
-                tostring(c.mode or ""),
-                tonumber(c.anchor_distance) or 0,
-                tonumber(radius) or 0,
-                combat_anchor_text()),
-            1.0,
-            false)
-        if patrol_mode and (tonumber(c.target_obj) or 0) > 0 then
-            combat_log("patrol-hold-fight",
-                "hold patrol move while tracked target is active obj=" .. tostring(c.target_obj),
-                1.0,
-                false)
-        elseif patrol_mode then
-            combat_move_anchor("patrol-moving")
-        else
-            combat_move_anchor("out-of-radius-return")
-            return
-        end
-    end
-
     local search_anchor = patrol_mode and char or anchor
 
     if not ok_entity or not entity then
@@ -4135,6 +4148,7 @@ function combat_tick()
     end
 
     local entity_count = #(list or {})
+    local radius = tonumber(cfg.combat.radius) or 35
     combat_log("tick",
         string.format("tick mode=%s patrol=%s status=%s char=%s hp=%s/%s anchor_dist=%.1f radius=%.1f entities=%d anchor=%s",
             tostring(c.mode or ""),
@@ -4154,6 +4168,14 @@ function combat_tick()
     local tracked_obj = tonumber(c.target_obj) or 0
     if tracked_obj > 0 then
         local tracked = combat_find_entity_by_obj(list, tracked_obj)
+        if not tracked and combat_current_target_matches_obj(tracked_obj) then
+            combat_log("tracked-target-current:" .. tostring(tracked_obj),
+                "tracked target missing from entity list but still current target obj=" .. tostring(tracked_obj) .. "; hold combat",
+                0.5,
+                false)
+            combat_set_status("fighting", c.target_name, false)
+            return
+        end
         local end_reason = combat_target_end_reason(tracked)
         if not end_reason then
             tracked.distance = core.distance3(char, tracked)
@@ -8211,9 +8233,89 @@ function route_character_life_state()
     return true, dead, char, hp, max_hp, nil
 end
 
-local function route_is_dead()
-    local ok, dead = route_character_life_state()
-    return ok and dead == true
+function route_life_from_char(char)
+    if type(char) ~= "table" then
+        return false, nil, nil
+    end
+    local hp = tonumber(char.hp or char.HP or char.cur_hp or char.current_hp)
+    local max_hp = tonumber(char.mhp or char.max_hp or char.maxHP or char.MaxHP)
+    local dead = char.is_dead == true or char.dead == true or (hp ~= nil and hp <= 0)
+    return dead, hp, max_hp
+end
+
+function route_recovery_clear_death_probe(reason)
+    local rec = runtime.recovery
+    if not rec then
+        return
+    end
+    rec.death_probe_at = 0
+    rec.death_probe_count = 0
+    rec.death_probe_last_log_at = 0
+    rec.death_probe_reason = tostring(reason or "")
+end
+
+function route_recovery_maybe_confirm_death(reason, char)
+    local rec = runtime.recovery
+    local dead, hp, max_hp
+    local ok = true
+    local err = nil
+    if type(char) == "table" then
+        dead, hp, max_hp = route_life_from_char(char)
+    else
+        ok, dead, char, hp, max_hp, err = route_character_life_state()
+        if not ok then
+            route_recovery_log("death confirm skipped: life state unavailable err=" .. tostring(err))
+            return false
+        end
+    end
+
+    if not dead then
+        if (tonumber(rec.death_probe_count) or 0) > 0 then
+            route_recovery_log("death probe cleared reason=" .. tostring(reason or "") ..
+                " hp=" .. tostring(hp or "") .. "/" .. tostring(max_hp or ""))
+        end
+        route_recovery_clear_death_probe("alive")
+        return false
+    end
+
+    if rec.active and auto_revive_is_death_phase(rec.phase) then
+        return true
+    end
+
+    local now = now_seconds()
+    if (tonumber(rec.death_probe_at) or 0) <= 0 then
+        rec.death_probe_at = now
+        rec.death_probe_count = 1
+        rec.death_probe_last_log_at = 0
+        rec.death_probe_reason = tostring(reason or "")
+    else
+        rec.death_probe_count = (tonumber(rec.death_probe_count) or 0) + 1
+    end
+
+    local confirm_seconds = math.max(0.1, tonumber(cfg.route and cfg.route.death_confirm_seconds) or 0.8)
+    local confirm_count = math.max(1, tonumber(cfg.route and cfg.route.death_confirm_count) or 2)
+    local elapsed = now - (tonumber(rec.death_probe_at) or now)
+    if elapsed < confirm_seconds or (tonumber(rec.death_probe_count) or 0) < confirm_count then
+        if now - (tonumber(rec.death_probe_last_log_at) or 0) >= 0.5 then
+            rec.death_probe_last_log_at = now
+            route_recovery_log("death probe pending reason=" .. tostring(reason or "") ..
+                " count=" .. tostring(rec.death_probe_count) .. "/" .. tostring(confirm_count) ..
+                " elapsed=" .. string.format("%.1f", elapsed) .. "/" .. string.format("%.1f", confirm_seconds) ..
+                " hp=" .. tostring(hp or "") .. "/" .. tostring(max_hp or ""))
+        end
+        return false
+    end
+
+    route_recovery_log("death confirmed reason=" .. tostring(reason or "") ..
+        " count=" .. tostring(rec.death_probe_count) ..
+        " elapsed=" .. string.format("%.1f", elapsed) ..
+        " hp=" .. tostring(hp or "") .. "/" .. tostring(max_hp or ""))
+    route_recovery_clear_death_probe("confirmed")
+    return true
+end
+
+local function route_is_dead(reason)
+    return route_recovery_maybe_confirm_death(tostring(reason or "route-dead")) == true
 end
 
 function route_recovery_clear(reason)
@@ -8227,6 +8329,7 @@ function route_recovery_clear(reason)
     rec.last_revive_click_at = 0
     rec.revive_click_attempts = 0
     rec.revive_last_error = ""
+    route_recovery_clear_death_probe(reason)
 end
 
 function route_recovery_finish(reason)
@@ -8360,6 +8463,7 @@ function route_recovery_on_death(reason)
         return true
     end
 
+    route_recovery_clear_death_probe("enter-death")
     combat_auto_off("route-recovery-death", true)
     if route_stop_follow and runtime.route.following then
         route_stop_follow("route-recovery-death", false)
@@ -8449,7 +8553,7 @@ end
 
 function route_recovery_plan_start(reason)
     local full, used, threshold = route_inventory_is_full()
-    if route_is_dead() then
+    if route_is_dead(tostring(reason or "start") .. ":dead") then
         route_recovery_on_death(tostring(reason or "start") .. ":dead")
         return true
     end
@@ -8530,7 +8634,7 @@ function route_recovery_tick()
         return
     end
 
-    if route_is_dead() then
+    if route_is_dead("tick-dead") then
         route_recovery_on_death("tick-dead")
         return
     end
@@ -8671,7 +8775,7 @@ local function route_follow_tick()
         return
     end
 
-    if cfg.route.stop_on_death and route_is_dead() then
+    if cfg.route.stop_on_death and route_is_dead("route-dead") then
         if route_recovery_on_death then
             route_recovery_on_death("route-dead")
             return
