@@ -318,24 +318,11 @@ local function load_aion_login_module()
     }
 
     for _, path in ipairs(paths) do
-        local exists = false
-        if io and type(io.open) == "function" then
-            local file = io.open(path, "rb")
-            if file then
-                exists = true
-                file:close()
-            end
-        else
-            exists = true
+        local load_ok, loaded = pcall(dofile, path)
+        if load_ok and loaded then
+            return true, loaded, path
         end
-
-        if exists then
-            local load_ok, loaded = pcall(dofile, path)
-            if load_ok and loaded then
-                return true, loaded, path
-            end
-            errors[#errors + 1] = tostring(path) .. ": " .. tostring(loaded)
-        end
+        errors[#errors + 1] = tostring(path) .. ": " .. tostring(loaded)
     end
 
     return false, nil, table.concat(errors, " | ")

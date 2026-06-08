@@ -6587,7 +6587,8 @@ function account_login_module_available()
         end
     end
 
-    return false, "AionLogin.lua/luac not found"
+    log_warn("[AionControlUI] AionLogin preflight not found by io.open; login worker will validate module")
+    return true
 end
 
 function account_fail_queued_login(index, message)
