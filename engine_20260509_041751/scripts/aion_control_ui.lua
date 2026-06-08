@@ -252,6 +252,8 @@ local runtime = {
         add_account = "",
         add_password = "",
         add_second_password = "",
+        add_draft = nil,
+        add_force_size = false,
         settings_window_visible = false,
         last_poll_at = 0,
         last_status = "",
@@ -4735,6 +4737,12 @@ local function account_default()
             character_count = -1,
             character_name = "",
         },
+        character = {
+            race = tonumber(cfg.character and cfg.character.race) or 0,
+            race_name = race_name_by_id(cfg.character and cfg.character.race, "天族"),
+            job = tonumber(cfg.character and cfg.character.job) or 0x1,
+            job_name = job_name_by_id(cfg.character and cfg.character.job, "剑星"),
+        },
         login = {
             status = "idle",
             requested = false,
@@ -4844,6 +4852,24 @@ function account_server_character_name(account)
     return account.server.character_name
 end
 
+function account_ensure_character(account)
+    if type(account) ~= "table" then
+        return nil
+    end
+    account.character = type(account.character) == "table" and account.character or {}
+    account.character.race = tonumber(account.character.race)
+        or tonumber(cfg.character and cfg.character.race)
+        or 0
+    account.character.race_name = account.character.race_name
+        or race_name_by_id(account.character.race, "天族")
+    account.character.job = tonumber(account.character.job)
+        or tonumber(cfg.character and cfg.character.job)
+        or 0x1
+    account.character.job_name = account.character.job_name
+        or job_name_by_id(account.character.job, "剑星")
+    return account.character
+end
+
 function account_can_save_settings(account)
     if type(account) ~= "table" then
         return false, "保存失败: 未选择账号"
@@ -4852,14 +4878,16 @@ function account_can_save_settings(account)
     return true, nil
 end
 
-function draw_account_server_combo(account)
+function draw_account_server_combo(account, id_suffix, input_width, show_hint)
     local state = runtime.accounts
     if type(account) ~= "table" then
         return
     end
+    id_suffix = tostring(id_suffix or "")
+    local width = tonumber(input_width) or 190
 
-    imgui.set_next_item_width(190)
-    local changed, val = imgui.combo("服务器", account_selected_server_index(account), state.server_labels)
+    imgui.set_next_item_width(width)
+    local changed, val = imgui.combo("服务器" .. id_suffix, account_selected_server_index(account), state.server_labels)
     if changed then
         if account_select_server_index(account, val) then
             state.server_last_status = "已选择服务器: " .. tostring(account.server.label or "")
@@ -4867,14 +4895,48 @@ function draw_account_server_combo(account)
     end
 
     account.server = account.server or {}
-    imgui.set_next_item_width(190)
-    changed, val = imgui.input_text("角色名", account.server.character_name or "")
+    imgui.set_next_item_width(width)
+    changed, val = imgui.input_text("角色名" .. id_suffix, account.server.character_name or "")
     if changed then
         account.server.character_name = val
     end
-    if primary_mode_ids[cfg.primary_mode] == "leveling" then
+    if show_hint ~= false and primary_mode_ids[cfg.primary_mode] == "leveling" then
         imgui.text_colored(0.92, 0.22, 0.08, 1.0, "如果当前服务器无角色  角色名必填")
     end
+end
+
+function draw_account_identity_fields(account, id_suffix, widths)
+    if type(account) ~= "table" then
+        return
+    end
+    id_suffix = tostring(id_suffix or "")
+    widths = type(widths) == "table" and widths or {}
+    local race_width = tonumber(widths.race_width) or 120
+    local job_width = tonumber(widths.job_width) or 120
+    local server_width = tonumber(widths.server_width) or 190
+    local show_hint = widths.show_hint ~= false
+    local character = account_ensure_character(account)
+    local changed, val
+
+    imgui.set_next_item_width(race_width)
+    changed, val = imgui.combo("种族" .. id_suffix, find_option_index(race_options, character.race), race_names)
+    if changed then
+        local option = race_options[val] or race_options[1]
+        character.race = option.id
+        character.race_name = option.label
+    end
+
+    imgui.same_line()
+    imgui.set_next_item_width(job_width)
+    changed, val = imgui.combo("职业" .. id_suffix, find_option_index(job_options, character.job), job_names)
+    if changed then
+        local option = job_options[val] or job_options[1]
+        character.job = option.id
+        character.job_name = option.label
+    end
+
+    imgui.spacing()
+    draw_account_server_combo(account, id_suffix, server_width, show_hint)
 end
 
 function account_select_configured_server(account)
@@ -5081,6 +5143,9 @@ function account_publish_login_queue(worker_key, selected_index)
             sys.set_share(account_login_queue_key(worker_key, prefix .. "server_key"), tonumber(account.server and account.server.key) or -1)
             sys.set_share(account_login_queue_key(worker_key, prefix .. "server_id"), tonumber(account.server and account.server.server_id) or 0)
             sys.set_share(account_login_queue_key(worker_key, prefix .. "character_name"), account_login_queue_value(account.server and account.server.character_name))
+            local character = account_ensure_character(account)
+            sys.set_share(account_login_queue_key(worker_key, prefix .. "race"), tonumber(character and character.race) or 0)
+            sys.set_share(account_login_queue_key(worker_key, prefix .. "job"), tonumber(character and character.job) or 0)
         end
     end
 
@@ -5363,6 +5428,24 @@ local function account_update_from_worker(index, account)
         changed = true
     end
 
+    local race = sys.get_share(account_login_share_key(worker_key, index, "race"))
+    local job = sys.get_share(account_login_share_key(worker_key, index, "job"))
+    if race ~= nil or job ~= nil then
+        local character = account_ensure_character(account)
+        local race_id = tonumber(race) or tonumber(character.race) or 0
+        local job_id = tonumber(job) or tonumber(character.job) or 0
+        if race ~= nil and race_id ~= tonumber(character.race) then
+            character.race = race_id
+            character.race_name = race_name_by_id(race_id, character.race_name)
+            changed = true
+        end
+        if job_id > 0 and job_id ~= tonumber(character.job) then
+            character.job = job_id
+            character.job_name = job_name_by_id(job_id, character.job_name)
+            changed = true
+        end
+    end
+
     if (tonumber(account.target.pid) or 0) > 0 then
         local select_current = (tonumber(cfg.target.pid) or 0) <= 0 or tonumber(runtime.accounts.selected_index) == tonumber(index)
         if select_current then
@@ -5450,31 +5533,42 @@ local function account_update_from_runtime_worker(account)
 end
 
 function account_open_add_window()
-    runtime.accounts.add_account = ""
-    runtime.accounts.add_password = ""
-    runtime.accounts.add_second_password = ""
+    local draft = account_default()
+    draft.account = ""
+    draft.password = ""
+    draft.second_password = ""
+    draft.label = ""
+    account_select_server_index(draft, 1)
+    runtime.accounts.add_draft = draft
+    runtime.accounts.add_force_size = true
     runtime.accounts.add_window_visible = true
 end
 
 function account_confirm_add_window()
-    local account_name = tostring(runtime.accounts.add_account or "")
-    local password = tostring(runtime.accounts.add_password or "")
-    local second_password = tostring(runtime.accounts.add_second_password or "")
+    local draft = account_ensure_shape(runtime.accounts.add_draft or {})
+    local account_name = tostring(draft.account or "")
+    local password = tostring(draft.password or "")
+    local second_password = tostring(draft.second_password or "")
     if account_name == "" or password == "" then
         runtime.accounts.last_status = "新增账号失败: 账号或密码为空"
         return false
     end
 
-    local account = account_default()
+    local account = draft
     account.account = account_name
     account.password = password
     account.second_password = second_password
     account.label = account_name
+    account.server = account.server or {}
+    account.server.character_name = account_trim_text(account.server.character_name)
+    account_ensure_character(account)
 
     local items = account_items()
     table.insert(items, account)
     runtime.accounts.selected_index = #items
     runtime.accounts.add_window_visible = false
+    runtime.accounts.add_draft = nil
+    runtime.accounts.add_force_size = false
     runtime.accounts.settings_window_visible = false
     runtime.accounts.last_status = "新增账号: " .. account_name
     account_save_domain()
@@ -5486,25 +5580,44 @@ function draw_account_add_window()
         return
     end
 
-    imgui.set_next_window_size(390, 190, imgui.Cond_FirstUseEver)
+    local size_cond = runtime.accounts.add_force_size and (imgui.Cond_Always or imgui.Cond_FirstUseEver)
+        or imgui.Cond_FirstUseEver
+    imgui.set_next_window_size(560, 330, size_cond)
     imgui.set_next_window_pos(260, 180, imgui.Cond_FirstUseEver)
     local visible, open = imgui.begin_window("新增账号###aion_add_account_window", true, imgui.WindowFlags_NoCollapse)
     if open == false then
         runtime.accounts.add_window_visible = false
+        runtime.accounts.add_draft = nil
+        runtime.accounts.add_force_size = false
     end
     if visible then
+        runtime.accounts.add_force_size = false
+        if type(runtime.accounts.add_draft) ~= "table" then
+            runtime.accounts.add_draft = account_default()
+            account_select_server_index(runtime.accounts.add_draft, 1)
+        end
+        local draft = runtime.accounts.add_draft
         local changed, val
-        imgui.set_next_item_width(260)
-        changed, val = imgui.input_text("账号", runtime.accounts.add_account)
-        if changed then runtime.accounts.add_account = val end
+        imgui.set_next_item_width(360)
+        changed, val = imgui.input_text("账号", draft.account)
+        if changed then draft.account = val end
 
-        imgui.set_next_item_width(260)
-        changed, val = imgui.input_text("密码", runtime.accounts.add_password)
-        if changed then runtime.accounts.add_password = val end
+        imgui.set_next_item_width(360)
+        changed, val = imgui.input_text("密码", draft.password)
+        if changed then draft.password = val end
 
-        imgui.set_next_item_width(260)
-        changed, val = imgui.input_text("二级密码", runtime.accounts.add_second_password)
-        if changed then runtime.accounts.add_second_password = val end
+        imgui.set_next_item_width(360)
+        changed, val = imgui.input_text("二级密码", draft.second_password)
+        if changed then draft.second_password = val end
+
+        imgui.spacing()
+        draw_account_identity_fields(draft, "##add_account", {
+            race_width = 150,
+            job_width = 150,
+            server_width = 360,
+            show_hint = false,
+        })
+        imgui.text_colored(0.92, 0.22, 0.08, 1.0, "如果当前服务器没有角色  角色名必填(避免重复)")
 
         imgui.spacing()
         if imgui.button("确认", 90, 26) then
@@ -5513,6 +5626,8 @@ function draw_account_add_window()
         imgui.same_line()
         if imgui.button("取消", 90, 26) then
             runtime.accounts.add_window_visible = false
+            runtime.accounts.add_draft = nil
+            runtime.accounts.add_force_size = false
         end
     end
     imgui.end_window()
@@ -6151,7 +6266,7 @@ local function account_poll(force)
         if runtime.accounts.last_status == "" then
             runtime.accounts.last_status = "worker fields updated"
         end
-        account_save_domain()
+        -- Poll updates are transient runtime state. Avoid config.save() here; sync IO can stall ImGui rendering.
     end
 end
 
@@ -8823,6 +8938,9 @@ local function draw_account_settings()
     imgui.set_next_item_width(320)
     changed, val = imgui.input_text("二级密码", account.second_password)
     if changed then account.second_password = val end
+
+    imgui.spacing()
+    draw_account_identity_fields(account, "##account_settings")
 end
 
 local function draw_accounts_tab()
@@ -8831,53 +8949,21 @@ end
 
 local function draw_overview_tab()
     local changed, val
-    local account = selected_account()
 
-    if imgui.begin_table("##overview_scheme_character", 2, 0) then
-        imgui.table_setup_column("##overview_scheme", imgui.TableColumnFlags_WidthFixed, 430)
-        imgui.table_setup_column("##overview_character", imgui.TableColumnFlags_WidthStretch)
-        imgui.table_next_row()
+    imgui.text("方案")
+    imgui.set_next_item_width(220)
+    changed, val = imgui.input_text("方案名", cfg.profile_name)
+    if changed then cfg.profile_name = val end
 
-        imgui.table_next_column()
-        imgui.text("方案")
-        imgui.set_next_item_width(220)
-        changed, val = imgui.input_text("方案名", cfg.profile_name)
-        if changed then cfg.profile_name = val end
-
-        normalize_primary_mode()
-        imgui.set_next_item_width(220)
-        changed, val = imgui.combo("##primary_mode_priority", cfg.primary_mode, primary_modes)
-        imgui.same_line()
-        imgui.text_colored(0.92, 0.22, 0.08, 1.0, "主模式")
-        if changed then
-            cfg.primary_mode = val
-            sync_combat_enabled_from_primary_mode()
-            save_config()
-        end
-
-        imgui.table_next_column()
-        imgui.spacing()
-        imgui.set_next_item_width(120)
-        changed, val = imgui.combo("种族", find_option_index(race_options, cfg.character.race), race_names)
-        if changed then
-            local option = race_options[val] or race_options[1]
-            cfg.character.race = option.id
-            cfg.character.race_name = option.label
-        end
-
-        imgui.same_line()
-        imgui.set_next_item_width(120)
-        changed, val = imgui.combo("职业", find_option_index(job_options, cfg.character.job), job_names)
-        if changed then
-            local option = job_options[val] or job_options[1]
-            cfg.character.job = option.id
-            cfg.character.job_name = option.label
-        end
-
-        imgui.spacing()
-        draw_account_server_combo(account)
-
-        imgui.end_table()
+    normalize_primary_mode()
+    imgui.set_next_item_width(220)
+    changed, val = imgui.combo("##primary_mode_priority", cfg.primary_mode, primary_modes)
+    imgui.same_line()
+    imgui.text_colored(0.92, 0.22, 0.08, 1.0, "主模式")
+    if changed then
+        cfg.primary_mode = val
+        sync_combat_enabled_from_primary_mode()
+        save_config()
     end
 
     if type(draw_primary_mode_linked_panel) == "function" then

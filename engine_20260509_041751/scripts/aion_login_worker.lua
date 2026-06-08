@@ -165,6 +165,10 @@ local function load_accounts_config()
                     server_id = tonumber(get_queue_value(prefix .. "server_id", 0)) or 0,
                     character_name = tostring(get_queue_value(prefix .. "character_name", "")),
                 },
+                character = {
+                    race = tonumber(get_queue_value(prefix .. "race", 0)) or 0,
+                    job = tonumber(get_queue_value(prefix .. "job", 0)) or 0,
+                },
                 login = {
                     requested = true,
                 },
