@@ -319,8 +319,7 @@ local cfg = {
         loot_keycode = 67,
         loot_retry_interval = 1.0,
         loot_max_attempts = 2,
-        post_kill_loot_seconds = 3.0,
-        lootable_grace_seconds = 0.8,
+        post_kill_check_delay_seconds = 0.1,
         auto_refresh_interval = 1.0,
         debug_log = true,
         debug_log_interval = 2.0,
@@ -570,7 +569,7 @@ function normalize_combat_config()
         cfg.combat.counter_enemy_race = false
     end
     cfg.combat.loot_max_attempts = math.max(1, math.min(2, tonumber(cfg.combat.loot_max_attempts) or 2))
-    cfg.combat.lootable_grace_seconds = math.max(0.8, math.min(1.5, tonumber(cfg.combat.lootable_grace_seconds) or 0.8))
+    cfg.combat.post_kill_check_delay_seconds = math.max(0.05, math.min(0.50, tonumber(cfg.combat.post_kill_check_delay_seconds) or 0.1))
     if type(normalize_combat_mode) == "function" then
         normalize_combat_mode()
     end
@@ -4153,6 +4152,7 @@ function combat_pick_loot_with_test_button(loot_target, char, reason)
         true)
 
     local call_ok, picked = pcall(loot_test_pick_nearest)
+    sleep(100)
     if not call_ok then
         local err = tostring(picked)
         combat_set_status("loot-button-error", err, true)
@@ -4160,7 +4160,8 @@ function combat_pick_loot_with_test_button(loot_target, char, reason)
             "loot_test_pick_nearest exception err=" .. err,
             0,
             true)
-        combat_extend_post_kill("loot-button-exception", 2.0)
+        combat_clear_pending_loot("loot-button-exception", false)
+        combat_clear_last_kill("loot-button-exception", false)
         return false, err
     end
 
@@ -4175,7 +4176,8 @@ function combat_pick_loot_with_test_button(loot_target, char, reason)
         "loot_test_pick_nearest returned false status=" .. err,
         0,
         true)
-    combat_extend_post_kill("loot-button-failed", 2.0)
+    combat_clear_pending_loot("loot-button-failed", false)
+    combat_clear_last_kill("loot-button-failed", false)
     return false, err
 end
 
@@ -4230,7 +4232,8 @@ function combat_begin_post_kill(reason, entity)
         return false
     end
     local loot_enabled = cfg.combat and cfg.combat.loot_enabled == true
-    local wait_seconds = loot_enabled and math.max(0.5, tonumber(cfg.combat.post_kill_loot_seconds) or 3.0) or 0
+    local check_delay = loot_enabled and math.max(0.05, math.min(0.50, tonumber(cfg.combat.post_kill_check_delay_seconds) or 0.1)) or 0
+    local now = now_seconds()
     local pending_loot = tonumber(c.loot_obj) or 0
     if pending_loot > 0 and pending_loot ~= obj then
         combat_close_loot_dialog("new-kill-clear-pending")
@@ -4239,8 +4242,8 @@ function combat_begin_post_kill(reason, entity)
     c.last_killed_obj = obj
     c.last_killed_interact_id = tonumber(entity and entity.interact_id) or 0
     c.last_killed_name = tostring(c.target_name or (entity and entity.name) or "")
-    c.post_kill_started_at = now_seconds()
-    c.post_kill_until = loot_enabled and (now_seconds() + wait_seconds) or 0
+    c.post_kill_started_at = now
+    c.post_kill_until = loot_enabled and (now + check_delay) or 0
     c.target_obj = 0
     c.target_name = ""
     c.target_distance = 0
@@ -4267,12 +4270,12 @@ function combat_begin_post_kill(reason, entity)
     combat_auto_off(reason or "target-ended", true)
     combat_set_status("post-kill-loot", c.last_killed_name, false)
     combat_log("post-kill:" .. tostring(obj),
-        string.format("target ended reason=%s name=%s obj=%s interact_id=%s loot_wait=%.1fs",
+        string.format("target ended reason=%s name=%s obj=%s interact_id=%s loot_check_delay=%.2fs",
             tostring(reason or ""),
             tostring(c.last_killed_name or ""),
             tostring(obj),
             tostring(c.last_killed_interact_id or 0),
-            tonumber(wait_seconds) or 0),
+            tonumber(check_delay) or 0),
         0,
         true)
     return true
@@ -4750,10 +4753,20 @@ function combat_decide_post_kill_loot(args)
         return module.decide(args)
     end
     args = args or {}
+    local now = tonumber(args.now) or 0
+    local check_at = tonumber(args.post_kill_check_at or args.post_kill_until) or now
+    local remain = math.max(0, check_at - now)
+    if remain > 0 then
+        return {
+            action = "delay",
+            reason = "check-delay",
+            remain = remain,
+        }
+    end
     return {
-        action = args.loot_target and "open-loot" or "wait",
-        reason = tostring(args.reject_reason or "pending"),
-        remain = math.max(0, (tonumber(args.post_kill_until) or 0) - (tonumber(args.now) or 0)),
+        action = args.loot_target and "open-loot" or "skip",
+        reason = args.loot_target and "loot-ready" or tostring(args.reject_reason or "not-lootable"),
+        remain = 0,
     }
 end
 
@@ -4934,13 +4947,32 @@ function combat_tick()
     -- Post-kill loot has priority over reacquiring the game's current target.
     if cfg.combat.loot_enabled then
         local last_killed_obj = tonumber(c.last_killed_obj) or 0
-        local last_killed_until = tonumber(c.post_kill_until) or 0
-        if last_killed_obj > 0 and last_killed_until > now then
+        local post_kill_check_at = tonumber(c.post_kill_until) or 0
+        if last_killed_obj > 0 then
             local pending_loot = tonumber(c.loot_obj) or 0
             if pending_loot > 0 and pending_loot ~= last_killed_obj then
                 combat_close_loot_dialog("post-kill-clear-mismatch")
                 combat_clear_pending_loot("post-kill-mismatch-current", false)
             end
+
+            local decision = combat_decide_post_kill_loot({
+                last_killed_obj = last_killed_obj,
+                post_kill_check_at = post_kill_check_at,
+                now = now,
+            })
+            if decision.action == "delay" then
+                combat_log("post-kill-delay:" .. tostring(last_killed_obj),
+                    string.format("wait one-shot loot check name=%s obj=%s interact_id=%s remain=%.2fs",
+                        tostring(c.last_killed_name or ""),
+                        tostring(last_killed_obj),
+                        tostring(c.last_killed_interact_id or 0),
+                        tonumber(decision.remain) or math.max(0, post_kill_check_at - now)),
+                    0.5,
+                    false)
+                combat_set_status("post-kill-check", c.last_killed_name, false)
+                return
+            end
+
             local loot_target, reject_reason, seen_entity, checked = combat_find_last_killed_loot(list, char, search_anchor)
             local seen_text = "false"
             local lootable_text = ""
@@ -4952,9 +4984,10 @@ function combat_tick()
                     dist_text = string.format("%.1f", core.distance3(char, seen_entity))
                 end
             end
-            local decision = combat_decide_post_kill_loot({
+
+            decision = combat_decide_post_kill_loot({
                 last_killed_obj = last_killed_obj,
-                post_kill_until = last_killed_until,
+                post_kill_check_at = post_kill_check_at,
                 now = now,
                 loot_target = loot_target,
                 reject_reason = reject_reason,
@@ -4964,35 +4997,27 @@ function combat_tick()
                 combat_pick_loot_with_test_button(loot_target, char, "post-kill")
                 return
             end
-            if decision.action == "wait" then
+
+            if decision.action == "skip" then
+                local skip_name = tostring(c.last_killed_name or "")
                 combat_log("post-kill-no-loot:" .. tostring(last_killed_obj),
-                    string.format("last killed not lootable yet name=%s obj=%s interact_id=%s reason=%s seen=%s lootable=%s dist=%s checked=%d remain=%.1fs",
-                        tostring(c.last_killed_name or ""),
+                    string.format("one-shot loot check done; skip corpse name=%s obj=%s interact_id=%s reason=%s seen=%s lootable=%s dist=%s checked=%d",
+                        skip_name,
                         tostring(last_killed_obj),
                         tostring(c.last_killed_interact_id or 0),
                         tostring(decision.reason or reject_reason or ""),
                         seen_text,
                         lootable_text,
                         dist_text,
-                        tonumber(checked) or 0,
-                        tonumber(decision.remain) or math.max(0, last_killed_until - now)),
+                        tonumber(checked) or 0),
                     0,
                     true)
-                combat_auto_off("post-kill-wait", false)
-                combat_set_status("post-kill-wait", c.last_killed_name, false)
+                combat_clear_last_kill("not-lootable", false)
+                combat_set_status("post-kill-skip", skip_name, false)
                 return
             end
-        end
 
-        if last_killed_obj > 0 then
-            combat_log("post-kill-empty:" .. tostring(last_killed_obj),
-                string.format("last killed loot window expired; treat as empty corpse name=%s obj=%s interact_id=%s",
-                    tostring(c.last_killed_name or ""),
-                    tostring(last_killed_obj),
-                    tostring(c.last_killed_interact_id or 0)),
-                0,
-                true)
-            combat_clear_last_kill("loot-window-expired", false)
+            combat_clear_last_kill("post-kill-none", false)
         end
 
         if combat_handle_priority_loot(list, char) then
@@ -10153,8 +10178,7 @@ function combat_config_signature()
         tostring(c.loot_keycode),
         tostring(c.loot_retry_interval),
         tostring(c.loot_max_attempts),
-        tostring(c.post_kill_loot_seconds),
-        tostring(c.lootable_grace_seconds),
+        tostring(c.post_kill_check_delay_seconds),
         tostring(c.auto_refresh_interval),
         tostring(c.debug_log),
         tostring(c.debug_log_interval),
@@ -10310,8 +10334,8 @@ local function draw_combat_tab()
 
     imgui.same_line()
     imgui.set_next_item_width(90)
-    changed, val = imgui.input_float("空包确认秒", cfg.combat.lootable_grace_seconds)
-    if changed then cfg.combat.lootable_grace_seconds = math.max(0.8, math.min(1.5, val)) end
+    changed, val = imgui.input_float("死亡判定延迟秒", cfg.combat.post_kill_check_delay_seconds)
+    if changed then cfg.combat.post_kill_check_delay_seconds = math.max(0.05, math.min(0.50, val)) end
 
     changed, val = imgui.checkbox("调试打怪日志", cfg.combat.debug_log)
     if changed then cfg.combat.debug_log = val end

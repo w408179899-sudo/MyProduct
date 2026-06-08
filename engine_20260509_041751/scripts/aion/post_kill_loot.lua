@@ -12,13 +12,13 @@ function M.decide(state)
     end
 
     local now = tonumber(state.now) or 0
-    local until_time = tonumber(state.post_kill_until) or 0
-    local remain = math.max(0, until_time - now)
-    if until_time <= now then
+    local check_at = tonumber(state.post_kill_check_at or state.post_kill_until) or now
+    local remain = math.max(0, check_at - now)
+    if remain > 0 then
         return {
-            action = "expired",
-            reason = "window-expired",
-            remain = 0,
+            action = "delay",
+            reason = "check-delay",
+            remain = remain,
         }
     end
 
@@ -26,14 +26,14 @@ function M.decide(state)
         return {
             action = "open-loot",
             reason = "loot-ready",
-            remain = remain,
+            remain = 0,
         }
     end
 
     return {
-        action = "wait",
-        reason = tostring(state.reject_reason or "pending"),
-        remain = remain,
+        action = "skip",
+        reason = tostring(state.reject_reason or "not-lootable"),
+        remain = 0,
     }
 end
 
