@@ -33,6 +33,7 @@ if not ok_route then
 end
 local ok_profile_io, profile_io = pcall(require, "aion.profile_io")
 local ok_target, target_lib = pcall(require, "aion.target")
+ok_login_autostart, login_autostart = pcall(require, "aion.login_autostart")
 
 local runtime = {
     running = false,
@@ -395,6 +396,7 @@ local cfg = {
 
     accounts = {
         enabled = true,
+        auto_start_after_login = true,
         poll_interval = 5.0,
         game_path = "",
         purple_root = "",
@@ -6775,6 +6777,38 @@ local function account_stop_runtime_worker(account)
     return true
 end
 
+function account_maybe_auto_start_after_login(index, account)
+    if not ok_login_autostart or not login_autostart or type(login_autostart.decide) ~= "function" then
+        return false
+    end
+
+    local decision = login_autostart.decide({
+        cfg = cfg,
+        account = account,
+        runtime = runtime,
+        is_task_running = account_task_is_running,
+    })
+
+    if decision.action == "start" then
+        runtime.accounts.last_status = "login ready; auto start queued: " .. account_display_name(account)
+        set_event("login ready; auto start queued: " .. account_display_name(account))
+        if type(account_queue_local_script) == "function" then
+            return account_queue_local_script("start", account, index) == true
+        end
+        runtime.accounts.last_status = "auto start failed: account_queue_local_script unavailable"
+        return false
+    end
+
+    if decision.action == "block" then
+        local message = tostring(decision.message or decision.reason or "auto start blocked")
+        runtime.accounts.last_status = message
+        set_event(message)
+        return true
+    end
+
+    return false
+end
+
 local function account_update_from_worker(index, account)
     if not account or not account.login then
         return false
@@ -6892,6 +6926,10 @@ local function account_update_from_worker(index, account)
 
     if changed and (account.login.status == "ready" or account.login.status == "error" or account.login.status == "game_started") then
         account.login.requested = false
+    end
+
+    if changed and account_maybe_auto_start_after_login(index, account) then
+        changed = true
     end
 
     return changed
@@ -10269,6 +10307,11 @@ local function draw_account_login_common_panel()
         set_event("自动登录公共参数已保存")
     end
     imgui.separator()
+
+    changed, val = imgui.checkbox("登录完成后自动启动挂机##account_auto_start_after_login", cfg.accounts.auto_start_after_login == true)
+    if changed then cfg.accounts.auto_start_after_login = val == true end
+
+    imgui.spacing()
 
     imgui.set_next_item_width(620)
     changed, val = imgui.input_text("游戏路径", cfg.accounts.game_path)

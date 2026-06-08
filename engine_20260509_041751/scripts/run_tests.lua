@@ -50,6 +50,8 @@ local all_test_modules = {
     -- 驱动与轨迹
     driver = "tests.test_driver",
     trajectory = "tests.test_trajectory",
+    aion_core = "tests.test_aion_core",
+    aion_login_autostart = "tests.test_aion_login_autostart",
     aion_post_kill_loot = "tests.test_aion_post_kill_loot",
     aion_attack_key_repeat = "tests.test_aion_attack_key_repeat",
     aion_floor_recovery = "tests.test_aion_floor_recovery",
@@ -64,6 +66,8 @@ local default_order = {
     "http", "auth",
     "resource", "crypto", "hotkey", "path", "ffi", "asm", "disasm",
     "config", "encoding", "grid", "driver", "trajectory",
+    "aion_core",
+    "aion_login_autostart",
     "aion_post_kill_loot", "aion_attack_key_repeat", "aion_floor_recovery", "aion_loot"
 }
 

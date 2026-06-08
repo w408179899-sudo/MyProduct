@@ -118,14 +118,6 @@ function M.ensureInit(pid)
         return false, "target pid is not selected"
     end
 
-    local current_pid = state_pid_if_inited()
-    if current_pid and current_pid ~= target_pid then
-        return false, string.format(
-            "AionData already initialized with pid=%s, selected pid=%s",
-            tostring(current_pid),
-            tostring(target_pid))
-    end
-
     local ok, values, err = M.call("AionData.InitGameinfo", data.InitGameinfo, target_pid)
     if not ok then
         return false, err
