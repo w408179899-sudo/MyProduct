@@ -100,32 +100,56 @@ function M.pickup(lootObj)
     return core.first("AionData.LootPickup", data.LootPickup, lootObj)
 end
 
-function M.pickupDialog(dialogName)
+function M.pickupDialog(dialogName, opts)
     local names = dialog_names(dialogName)
 
     local last_err = nil
     local last_value = nil
-    for _, name in ipairs(names) do
-        local direct_ok, direct_value, direct_err = M.pickup(name)
-        if direct_ok and direct_value == true then
-            return direct_ok, direct_value, direct_err
+    local saw_true = false
+    local function return_if_closed(err)
+        saw_true = true
+        sleep_ms(opts, tonumber(opts.pickupProbeDelayMs) or 80)
+        local active, detail = M.dialogActive(names)
+        if not active then
+            return true, true, err
         end
-        last_err = direct_err or last_err
-        last_value = direct_value
+        last_err = "LootPickup true but dialog active: " .. tostring(detail)
+        return nil
+    end
 
+    for _, name in ipairs(names) do
         local ok, dlg, err = ui.find(name)
-        if ok and dlg and dlg.addr and dlg.addr ~= 0 then
-            local addr_ok, addr_value, addr_err = M.pickup(dlg.addr)
+        local dlg_obj = ui_obj(dlg)
+        if ok and dlg_obj and tonumber(dlg_obj) ~= 0 then
+            emit(opts, "loot_pickup_try", "source=ui_obj name=" .. tostring(name) .. " obj=" .. tostring(dlg_obj))
+            local addr_ok, addr_value, addr_err = M.pickup(dlg_obj)
             if addr_ok and addr_value == true then
-                return addr_ok, addr_value, addr_err
+                local closed_ok, closed_value, closed_err = return_if_closed(addr_err)
+                if closed_ok ~= nil then
+                    return closed_ok, closed_value, closed_err
+                end
             end
             last_err = addr_err or last_err
             last_value = addr_value
         else
             last_err = err or last_err or ("loot dialog not found: " .. tostring(name))
         end
+
+        emit(opts, "loot_pickup_try", "source=name name=" .. tostring(name))
+        local direct_ok, direct_value, direct_err = M.pickup(name)
+        if direct_ok and direct_value == true then
+            local closed_ok, closed_value, closed_err = return_if_closed(direct_err)
+            if closed_ok ~= nil then
+                return closed_ok, closed_value, closed_err
+            end
+        end
+        last_err = direct_err or last_err
+        last_value = direct_value
     end
 
+    if saw_true then
+        return true, true, last_err
+    end
     return false, last_value, last_err
 end
 
@@ -298,11 +322,40 @@ function M.closeDialog(opts)
     return false, nil, "no visible close button"
 end
 
+function M.ensureDialogClosed(opts)
+    opts = opts or {}
+    for attempt = 1, 2 do
+        local active, detail = M.dialogActive(opts.dialogName or opts.dialogNames)
+        if not active then
+            return true, detail
+        end
+
+        local close_ok, _, close_err = M.closeDialog(opts)
+        emit(opts, "close_before_open", string.format("attempt=%d active=%s close_ok=%s err=%s",
+            attempt,
+            tostring(detail),
+            tostring(close_ok),
+            tostring(close_err)))
+        sleep_ms(opts, tonumber(opts.closeDelayMs) or 120)
+    end
+
+    local active, detail = M.dialogActive(opts.dialogName or opts.dialogNames)
+    if not active then
+        return true, detail
+    end
+    return false, detail or "loot dialog still active"
+end
+
 function M.pickupOpenDialog(opts)
     opts = opts or {}
 
-    local ok, picked, err = M.pickupDialog(opts.dialogName or opts.dialogNames)
-    emit(opts, "loot_pickup", "picked=" .. tostring(picked) .. " err=" .. tostring(err))
+    local active, active_detail = M.dialogActive(opts.dialogName or opts.dialogNames)
+    if not active then
+        return false, nil, active_detail or "loot dialog not open"
+    end
+
+    local ok, picked, err = M.pickupDialog(opts.dialogName or opts.dialogNames, opts)
+    emit(opts, "loot_pickup", "active=" .. tostring(active_detail) .. " picked=" .. tostring(picked) .. " err=" .. tostring(err))
     if ok and picked == true then
         sleep_ms(opts, tonumber(opts.verifyDelayMs) or 120)
         local active, detail = M.dialogActive(opts.dialogName or opts.dialogNames)
@@ -320,7 +373,7 @@ function M.pickupOpenDialog(opts)
         err = click_err or err
     end
 
-    return false, nil, err or "loot dialog not ready"
+    return false, nil, err or "loot dialog pickup failed"
 end
 
 function M.waitPickupDialog(opts)
@@ -399,6 +452,31 @@ function M.findNearestLootable(opts)
     return true, best, nil, meta
 end
 
+local function pickup_wait_opts(opts)
+    opts = opts or {}
+    return {
+        dialogName = opts.dialogName,
+        dialogNames = opts.dialogNames,
+        timeoutMs = tonumber(opts.waitTimeoutMs) or 1200,
+        intervalMs = tonumber(opts.intervalMs) or 100,
+        verifyDelayMs = opts.verifyDelayMs,
+        clickFallback = opts.clickFallback,
+        sampleChildren = opts.sampleChildren,
+        sleep = opts.sleep,
+        now_ms = opts.now_ms,
+        log = opts.log,
+    }
+end
+
+local function attach_target_result(picked_result, target, result, key)
+    picked_result = picked_result or {}
+    picked_result.target = target
+    picked_result.obj = key
+    picked_result.name = result.name
+    picked_result.open_mode = result.open_mode
+    return picked_result
+end
+
 function M.pickupTarget(target, opts)
     opts = opts or {}
     if type(target) ~= "table" then
@@ -442,30 +520,85 @@ function M.pickupTarget(target, opts)
             result.error = move_err
             return false, result, move_err
         end
-        result.status = "moving"
         emit(opts, "move", string.format("name=%s obj=%s dist=%.1f range=%.1f",
             result.name,
             tostring(key),
             tonumber(dist) or 0,
             tonumber(interact_range) or 0))
-        return true, result, nil
+
+        sleep_ms(opts, tonumber(opts.moveSettleMs) or 250)
+        local moved_char = char
+        local char_ok, value = core.getCharacter()
+        if char_ok and value then
+            moved_char = value
+            char = value
+        end
+        dist = core.distance3(moved_char, target)
+        result.distance = dist
+        if dist > interact_range then
+            result.status = "moving"
+            emit(opts, "moving", string.format("name=%s obj=%s dist=%.1f range=%.1f",
+                result.name,
+                tostring(key),
+                tonumber(dist) or 0,
+                tonumber(interact_range) or 0))
+            return true, result, nil
+        end
+        emit(opts, "arrived", string.format("name=%s obj=%s dist=%.1f range=%.1f",
+            result.name,
+            tostring(key),
+            tonumber(dist) or 0,
+            tonumber(interact_range) or 0))
     end
 
     if opts.closeBeforeOpen ~= false then
-        M.closeDialog(opts)
-        sleep_ms(opts, tonumber(opts.closeDelayMs) or 80)
+        local active, active_detail = M.dialogActive(opts.dialogName or opts.dialogNames)
+        if active then
+            emit(opts, "active_dialog_before_open", tostring(active_detail))
+            if opts.pickupActiveBeforeOpen == true then
+                local picked_ok, picked_result, picked_err = M.waitPickupDialog({
+                    dialogName = opts.dialogName,
+                    dialogNames = opts.dialogNames,
+                    timeoutMs = tonumber(opts.waitTimeoutMs) or 1200,
+                    intervalMs = tonumber(opts.intervalMs) or 100,
+                    verifyDelayMs = opts.verifyDelayMs,
+                    clickFallback = opts.clickFallback,
+                    sampleChildren = opts.sampleChildren,
+                    sleep = opts.sleep,
+                    now_ms = opts.now_ms,
+                    log = opts.log,
+                })
+                if picked_ok then
+                    picked_result.target = target
+                    picked_result.obj = key
+                    picked_result.name = result.name
+                    return true, picked_result, nil
+                end
+                emit(opts, "active_dialog_unpicked", "detail=" .. tostring(active_detail) .. " err=" .. tostring(picked_err))
+            else
+                emit(opts, "stale_dialog_before_open", tostring(active_detail))
+            end
+        end
+
+        local closed_ok, closed_detail = M.ensureDialogClosed(opts)
+        if not closed_ok then
+            result.stale_dialog = true
+            emit(opts, "stale_dialog_continue",
+                "stale loot dialog still active before open: " .. tostring(closed_detail))
+        end
     end
 
     if combat and type(combat.selectTarget) == "function" then
         pcall(combat.selectTarget, key)
     end
 
+    local last_err = nil
     local interact_id = tonumber(target.interact_id) or 0
     if interact_id > 0 then
         local interact_ok, interact_value, interact_err = npc.interactId(interact_id)
         if interact_ok and interact_value ~= false then
             emit(opts, "open_interact", "interact_id=" .. tostring(interact_id) .. " obj=" .. tostring(key))
-            local picked_ok, picked_result = M.waitPickupDialog({
+            local picked_ok, picked_result, picked_err = M.waitPickupDialog({
                 dialogName = opts.dialogName,
                 dialogNames = opts.dialogNames,
                 timeoutMs = tonumber(opts.waitTimeoutMs) or 1200,
@@ -483,15 +616,17 @@ function M.pickupTarget(target, opts)
                 picked_result.name = result.name
                 return true, picked_result, nil
             end
-            emit(opts, "open_interact_no_dialog", "obj=" .. tostring(key))
+            last_err = picked_err or "pickup dialog not opened after interact"
+            emit(opts, "open_interact_no_dialog", "obj=" .. tostring(key) .. " err=" .. tostring(last_err))
         else
-            emit(opts, "open_interact_failed", "interact_id=" .. tostring(interact_id) .. " err=" .. tostring(interact_err))
+            last_err = interact_err or tostring(interact_value)
+            emit(opts, "open_interact_failed", "interact_id=" .. tostring(interact_id) .. " err=" .. tostring(last_err))
         end
     end
 
     local keycode = tonumber(opts.keycode) or 67
-    local key_ok, _, key_err = remote.pressKey(keycode)
-    if key_ok then
+    local key_ok, key_value, key_err = remote.pressKey(keycode)
+    if key_ok and key_value ~= false then
         emit(opts, "open_key", "keycode=" .. tostring(keycode) .. " obj=" .. tostring(key))
         local picked_ok, picked_result, picked_err = M.waitPickupDialog({
             dialogName = opts.dialogName,
@@ -511,14 +646,128 @@ function M.pickupTarget(target, opts)
             picked_result.name = result.name
             return true, picked_result, nil
         end
-        result.status = "wait_dialog"
-        result.error = picked_err
-        return true, result, picked_err
+        last_err = picked_err or "pickup dialog not opened after key"
+        emit(opts, "open_key_no_dialog", "obj=" .. tostring(key) .. " err=" .. tostring(last_err))
+    else
+        last_err = key_err or tostring(key_value)
+        emit(opts, "open_key_failed", "keycode=" .. tostring(keycode) .. " obj=" .. tostring(key) .. " err=" .. tostring(last_err))
     end
 
     result.status = "failed"
-    result.error = key_err
-    return false, result, key_err or "loot open failed"
+    result.error = last_err
+    return false, result, last_err or "loot open failed"
+end
+
+function M.pickupTargetByKey(target, opts)
+    opts = opts or {}
+    if type(target) ~= "table" then
+        return false, nil, "loot target is nil"
+    end
+
+    local char = opts.char
+    if not char then
+        local char_ok, value, char_err = core.getCharacter()
+        if not char_ok or not value then
+            return false, nil, char_err or "character unavailable"
+        end
+        char = value
+    end
+
+    local key = loot_key(target)
+    if key <= 0 then
+        return false, nil, "invalid loot target"
+    end
+
+    local dist = core.distance3(char, target)
+    local interact_range = math.max(0.5, tonumber(opts.interactRange) or 4)
+    local result = {
+        status = "target",
+        target = target,
+        obj = key,
+        name = tostring(target.name or ""),
+        distance = dist,
+        interact_id = tonumber(target.interact_id) or 0,
+        open_mode = "key",
+    }
+    emit(opts, "target_key", string.format("name=%s obj=%s dist=%.1f interact_id=%s",
+        result.name,
+        tostring(key),
+        tonumber(dist) or 0,
+        tostring(result.interact_id)))
+
+    if dist > interact_range then
+        local move_ok, _, move_err = nav.moveTo(target.x or 0, target.y or 0, target.z or 0)
+        if not move_ok then
+            result.status = "failed"
+            result.error = move_err
+            return false, result, move_err
+        end
+        emit(opts, "move_key", string.format("name=%s obj=%s dist=%.1f range=%.1f",
+            result.name,
+            tostring(key),
+            tonumber(dist) or 0,
+            tonumber(interact_range) or 0))
+
+        sleep_ms(opts, tonumber(opts.moveSettleMs) or 250)
+        local moved_char = char
+        local char_ok, value = core.getCharacter()
+        if char_ok and value then
+            moved_char = value
+            char = value
+        end
+        dist = core.distance3(moved_char, target)
+        result.distance = dist
+        if dist > interact_range then
+            result.status = "moving"
+            emit(opts, "moving_key", string.format("name=%s obj=%s dist=%.1f range=%.1f",
+                result.name,
+                tostring(key),
+                tonumber(dist) or 0,
+                tonumber(interact_range) or 0))
+            return true, result, nil
+        end
+        emit(opts, "arrived_key", string.format("name=%s obj=%s dist=%.1f range=%.1f",
+            result.name,
+            tostring(key),
+            tonumber(dist) or 0,
+            tonumber(interact_range) or 0))
+    end
+
+    if opts.closeBeforeOpen ~= false then
+        local active, active_detail = M.dialogActive(opts.dialogName or opts.dialogNames)
+        if active then
+            emit(opts, "stale_dialog_before_key_open", tostring(active_detail))
+        end
+        local closed_ok, closed_detail = M.ensureDialogClosed(opts)
+        if not closed_ok then
+            result.stale_dialog = true
+            emit(opts, "stale_dialog_continue_key",
+                "stale loot dialog still active before key open: " .. tostring(closed_detail))
+        end
+    end
+
+    if combat and type(combat.selectTarget) == "function" then
+        pcall(combat.selectTarget, key)
+    end
+
+    local keycode = tonumber(opts.keycode) or 67
+    local key_ok, key_value, key_err = remote.pressKey(keycode)
+    if key_ok and key_value ~= false then
+        emit(opts, "open_key", "keycode=" .. tostring(keycode) .. " obj=" .. tostring(key))
+        local picked_ok, picked_result, picked_err = M.waitPickupDialog(pickup_wait_opts(opts))
+        if picked_ok then
+            return true, attach_target_result(picked_result, target, result, key), nil
+        end
+        result.status = "failed"
+        result.error = picked_err or "pickup dialog not opened after key"
+        emit(opts, "open_key_no_dialog", "obj=" .. tostring(key) .. " err=" .. tostring(result.error))
+        return false, result, result.error
+    end
+
+    result.status = "failed"
+    result.error = key_err or tostring(key_value)
+    emit(opts, "open_key_failed", "keycode=" .. tostring(keycode) .. " obj=" .. tostring(key) .. " err=" .. tostring(result.error))
+    return false, result, result.error or "loot key open failed"
 end
 
 function M.pickupNearest(opts)

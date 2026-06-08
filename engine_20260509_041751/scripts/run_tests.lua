@@ -49,7 +49,10 @@ local all_test_modules = {
     grid = "tests.test_grid",
     -- 驱动与轨迹
     driver = "tests.test_driver",
-    trajectory = "tests.test_trajectory"
+    trajectory = "tests.test_trajectory",
+    aion_post_kill_loot = "tests.test_aion_post_kill_loot",
+    aion_attack_key_repeat = "tests.test_aion_attack_key_repeat",
+    aion_loot = "tests.test_aion_loot"
 }
 
 -- 默认运行顺序
@@ -59,7 +62,8 @@ local default_order = {
     "vision", "ocr",
     "http", "auth",
     "resource", "crypto", "hotkey", "path", "ffi", "asm", "disasm",
-    "config", "encoding", "grid", "driver", "trajectory"
+    "config", "encoding", "grid", "driver", "trajectory",
+    "aion_post_kill_loot", "aion_attack_key_repeat", "aion_loot"
 }
 
 -- 解析命令行参数

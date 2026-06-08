@@ -9,6 +9,7 @@
       F2       dump full UI list and revive candidate child trees to log
       F3       dump 5 UI controls nearest to the mouse position
       F4       dump server selection API details
+      F5       dump nearest corpse candidates
       F7       show/hide window
       F8       start/stop
       F9       run safe API probe
@@ -165,7 +166,9 @@ local runtime = {
         loot_attempts = 0,
         loot_ignored = {},
         post_kill_until = 0,
+        post_kill_started_at = 0,
         last_killed_obj = 0,
+        last_killed_interact_id = 0,
         last_killed_name = "",
         last_auto_off_at = 0,
         last_auto_on_at = 0,
@@ -304,6 +307,7 @@ local cfg = {
         move_resend_interval = 2.0,
         attack_trigger_mode = 1,
         attack_keycode = 49,
+        attack_key_repeat_interval_ms = 1000,
         target_no_damage_seconds = 6.0,
         target_ignore_seconds = 20.0,
         auto_force_window = 0.60,
@@ -314,8 +318,9 @@ local cfg = {
         loot_interact_range = 4,
         loot_keycode = 67,
         loot_retry_interval = 1.0,
-        loot_max_attempts = 5,
+        loot_max_attempts = 2,
         post_kill_loot_seconds = 3.0,
+        lootable_grace_seconds = 0.8,
         auto_refresh_interval = 1.0,
         debug_log = true,
         debug_log_interval = 2.0,
@@ -564,6 +569,8 @@ function normalize_combat_config()
     if cfg.combat.counter_enemy_race == nil then
         cfg.combat.counter_enemy_race = false
     end
+    cfg.combat.loot_max_attempts = math.max(1, math.min(2, tonumber(cfg.combat.loot_max_attempts) or 2))
+    cfg.combat.lootable_grace_seconds = math.max(0.8, math.min(1.5, tonumber(cfg.combat.lootable_grace_seconds) or 0.8))
     if type(normalize_combat_mode) == "function" then
         normalize_combat_mode()
     end
@@ -600,6 +607,13 @@ function normalize_combat_mode()
     cfg.combat.mode = math.max(1, math.min(#combat_modes, tonumber(cfg.combat.mode) or 1))
     cfg.combat.attack_trigger_mode = tonumber(cfg.combat.attack_trigger_mode) == 2 and 2 or 1
     cfg.combat.attack_keycode = 49
+    local ok_repeat, repeat_key = pcall(require, "aion.attack_key_repeat")
+    if ok_repeat and repeat_key and type(repeat_key.from_config) == "function" then
+        local settings = repeat_key.from_config(cfg.combat)
+        cfg.combat.attack_key_repeat_interval_ms = settings.interval_ms
+    else
+        cfg.combat.attack_key_repeat_interval_ms = math.max(250, math.min(3000, math.floor(tonumber(cfg.combat.attack_key_repeat_interval_ms) or 1000)))
+    end
 end
 
 local combat_target_policies = {
@@ -1990,7 +2004,9 @@ function combat_reset_runtime(reason)
     c.loot_attempts = 0
     c.loot_ignored = {}
     c.post_kill_until = 0
+    c.post_kill_started_at = 0
     c.last_killed_obj = 0
+    c.last_killed_interact_id = 0
     c.last_killed_name = ""
     c.last_auto_off_at = 0
     c.last_auto_on_at = 0
@@ -2665,8 +2681,11 @@ function combat_loot_reject_reason(e, anchor)
     end
 
     local ignored_until = runtime.combat.loot_ignored and runtime.combat.loot_ignored[obj]
-    if ignored_until and now_seconds() < ignored_until then
-        return "ignored"
+    if ignored_until then
+        if now_seconds() < ignored_until then
+            return "ignored"
+        end
+        runtime.combat.loot_ignored[obj] = nil
     end
 
     local radius = tonumber(cfg.combat.loot_radius) or tonumber(cfg.combat.radius) or 35
@@ -2743,27 +2762,246 @@ function combat_choose_loot(list, char, anchor)
     return best
 end
 
-function combat_finish_loot(source, detail)
+function combat_clear_last_kill(reason, force_log)
     local c = runtime.combat
-    local picked_obj = tonumber(c.loot_obj) or 0
-    if picked_obj <= 0 then
-        picked_obj = tonumber(c.last_killed_obj) or 0
+    local obj = tonumber(c.last_killed_obj) or 0
+    local interact_id = tonumber(c.last_killed_interact_id) or 0
+    local name = tostring(c.last_killed_name or "")
+    c.last_killed_obj = 0
+    c.last_killed_interact_id = 0
+    c.last_killed_name = ""
+    c.post_kill_until = 0
+    c.post_kill_started_at = 0
+    if force_log and (obj > 0 or interact_id > 0 or name ~= "") then
+        combat_log("post-kill-clear:" .. tostring(obj),
+            string.format("clear last killed reason=%s name=%s obj=%s interact_id=%s",
+                tostring(reason or ""),
+                name,
+                tostring(obj),
+                tostring(interact_id)),
+            0,
+            true)
     end
-    if picked_obj > 0 then
-        c.loot_ignored = c.loot_ignored or {}
-        c.loot_ignored[picked_obj] = now_seconds() + 5
+end
+
+function combat_clear_pending_loot(reason, ignore)
+    local c = runtime.combat
+    local loot_key = tonumber(c.loot_obj) or 0
+    local loot_name = tostring(c.loot_name or "")
+    local attempts = tonumber(c.loot_attempts) or 0
+    if loot_key > 0 and ignore then
+        combat_ignore_loot(loot_key)
     end
-    c.last_loot_at = now_seconds()
     c.loot_obj = 0
     c.loot_name = ""
     c.loot_distance = 0
     c.loot_attempts = 0
-    c.post_kill_until = 0
+    c.last_loot_interact_at = 0
+    if loot_key > 0 then
+        combat_log("loot-clear-pending:" .. tostring(loot_key),
+            string.format("clear pending loot reason=%s name=%s obj=%s attempts=%d ignore=%s",
+                tostring(reason or ""),
+                loot_name,
+                tostring(loot_key),
+                attempts,
+                tostring(ignore == true)),
+            0,
+            true)
+    end
+end
+
+function combat_extend_post_kill(reason, seconds)
+    local c = runtime.combat
+    if (tonumber(c.last_killed_obj) or 0) <= 0 then
+        return
+    end
+    local extend_until = now_seconds() + math.max(0.5, tonumber(seconds) or 2.0)
+    if extend_until > (tonumber(c.post_kill_until) or 0) then
+        c.post_kill_until = extend_until
+        combat_log("post-kill-extend:" .. tostring(c.last_killed_obj or 0),
+            string.format("extend last killed loot window reason=%s name=%s obj=%s remain=%.1fs",
+                tostring(reason or ""),
+                tostring(c.last_killed_name or ""),
+                tostring(c.last_killed_obj or 0),
+                math.max(0, c.post_kill_until - now_seconds())),
+            1.0,
+            false)
+    end
+end
+
+function combat_match_last_killed(e)
+    if type(e) ~= "table" then
+        return false
+    end
+    local c = runtime.combat
+    local last_obj = tonumber(c.last_killed_obj) or 0
+    local last_interact_id = tonumber(c.last_killed_interact_id) or 0
+    local obj = combat_entity_obj(e)
+    local interact_id = tonumber(e.interact_id) or 0
+    if last_obj > 0 and obj == last_obj then
+        return true
+    end
+    if last_interact_id > 0 and interact_id == last_interact_id then
+        return true
+    end
+    return false
+end
+
+function combat_find_last_killed_loot(list, char, anchor)
+    local checked = 0
+    local found = nil
+    for _, e in ipairs(list or {}) do
+        checked = checked + 1
+        if combat_match_last_killed(e) then
+            found = e
+            break
+        end
+    end
+    if not found then
+        return nil, "missing", nil, checked
+    end
+
+    local reason = combat_loot_reject_reason(found, anchor)
+    if reason then
+        return nil, reason, found, checked
+    end
+    if ok_core and core then
+        found.distance = core.distance3(char, found)
+    end
+    return found, nil, found, checked
+end
+
+function combat_loot_entity_state(loot_key, char)
+    loot_key = tonumber(loot_key) or 0
+    if loot_key <= 0 then
+        return { ok = false, err = "invalid loot key" }
+    end
+    if not ok_entity or not entity then
+        return { ok = false, err = "aion.entity unavailable" }
+    end
+
+    local list_ok, list, list_err = entity.list()
+    if not list_ok then
+        return { ok = false, err = list_err or "entity list failed" }
+    end
+
+    for _, e in ipairs(list or {}) do
+        if combat_loot_key(e) == loot_key then
+            local dist = tonumber(e.distance) or 0
+            if ok_core and core and char then
+                dist = core.distance3(char, e)
+            end
+            return {
+                ok = true,
+                found = true,
+                lootable = (tonumber(e.lootable) or 0) ~= 0,
+                lootable_value = tonumber(e.lootable) or 0,
+                name = tostring(e.name or ""),
+                distance = dist,
+                interact_id = tonumber(e.interact_id) or 0,
+            }
+        end
+    end
+
+    return { ok = true, found = false }
+end
+
+function combat_confirm_loot_cleared(source, detail)
+    local c = runtime.combat
+    local loot_key = tonumber(c.loot_obj) or 0
+    if loot_key <= 0 then
+        loot_key = tonumber(c.last_killed_obj) or 0
+    end
+    if loot_key <= 0 then
+        combat_log("loot-verify-skip",
+            "loot verify skipped: no current loot key source=" .. tostring(source or ""),
+            0,
+            true)
+        return true, "no-key"
+    end
+
+    local char = nil
+    if ok_core and core and type(core.getCharacter) == "function" then
+        local char_ok, value = core.getCharacter()
+        if char_ok then
+            char = value
+        end
+    end
+
+    local last_state = nil
+    for attempt = 1, 6 do
+        sleep(attempt == 1 and 160 or 120)
+        local state = combat_loot_entity_state(loot_key, char)
+        last_state = state
+        local active, active_detail = combat_loot_dialog_active()
+
+        if state.ok and (not state.found or not state.lootable) then
+            if active then
+                combat_close_loot_dialog("verified-cleared:" .. tostring(source or ""))
+            end
+            combat_log("loot-verify-ok:" .. tostring(loot_key),
+                string.format("loot verify ok source=%s obj=%s found=%s lootable=%s active=%s detail=%s %s",
+                    tostring(source or ""),
+                    tostring(loot_key),
+                    tostring(state.found == true),
+                    tostring(state.lootable_value or ""),
+                    tostring(active),
+                    tostring(active_detail or ""),
+                    tostring(detail or "")),
+                0,
+                true)
+            return true, "cleared"
+        end
+
+        combat_log("loot-verify-pending:" .. tostring(loot_key),
+            string.format("loot verify pending source=%s obj=%s ok=%s found=%s lootable=%s dist=%s active=%s err=%s",
+                tostring(source or ""),
+                tostring(loot_key),
+                tostring(state.ok == true),
+                tostring(state.found == true),
+                tostring(state.lootable_value or ""),
+                tostring(state.distance or ""),
+                tostring(active),
+                tostring(state.err or active_detail or "")),
+            1.0,
+            false)
+    end
+
+    local err = "loot target still lootable"
+    if last_state and not last_state.ok then
+        err = tostring(last_state.err or err)
+    end
+    combat_log("loot-verify-failed:" .. tostring(loot_key),
+        "loot verify failed source=" .. tostring(source or "") ..
+        " obj=" .. tostring(loot_key) ..
+        " err=" .. tostring(err),
+        0,
+        true)
+    combat_close_loot_dialog("verify-failed:" .. tostring(source or ""))
+    c.last_loot_interact_at = 0
+    combat_set_status("loot-verify-failed", err, true)
+    return false, err
+end
+
+function combat_finish_loot(source, detail)
+    local c = runtime.combat
+    local now = now_seconds()
+    local picked_obj = tonumber(c.loot_obj) or 0
+    if picked_obj <= 0 then
+        picked_obj = tonumber(c.last_killed_obj) or 0
+    end
+    c.last_loot_at = now
+    c.loot_obj = 0
+    c.loot_name = ""
+    c.loot_distance = 0
+    c.loot_attempts = 0
+    c.last_loot_interact_at = 0
+    combat_clear_last_kill("picked", false)
     combat_set_status("looted", tostring(source or ""), false)
     combat_log("loot-picked",
         "loot picked source=" .. tostring(source or "") ..
         " obj=" .. tostring(picked_obj) ..
-        " " .. tostring(detail or ""),
+        " done_current=1 " .. tostring(detail or ""),
         0,
         true)
 end
@@ -3006,6 +3244,15 @@ function combat_pickup_dialog()
         return false
     end
 
+    local active, active_detail = combat_loot_dialog_active()
+    if not active then
+        combat_log("loot-dialog",
+            "loot dialog not open; wait after pickup key detail=" .. tostring(active_detail),
+            1.0,
+            false)
+        return false, "loot dialog not open"
+    end
+
     local ok_loot, loot_runtime = pcall(require, "aion.loot")
     local api_err = nil
     local api_picked = false
@@ -3018,7 +3265,8 @@ function combat_pickup_dialog()
             api_err = err or tostring(picked)
         end
         combat_log("loot-api",
-            "LootPickup result picked=" .. tostring(picked) .. " err=" .. tostring(err),
+            "LootPickup result active=" .. tostring(active_detail) ..
+            " picked=" .. tostring(picked) .. " err=" .. tostring(err),
             1.0,
             false)
     else
@@ -3031,22 +3279,27 @@ function combat_pickup_dialog()
 
     local clicked, click_err = combat_click_loot_all_button()
     if clicked then
-        combat_finish_loot("click-all", "")
-        return true
+        local verified, verify_err = combat_confirm_loot_cleared("click-all", "")
+        if verified then
+            combat_finish_loot("click-all", "")
+            return true
+        end
+        return false, verify_err or "loot click did not clear target"
     end
 
     if api_picked then
-        local active, active_detail = combat_loot_dialog_active()
-        if not active then
-            combat_finish_loot("LootPickup", "dialog=auto verified_closed " .. tostring(active_detail or ""))
+        local verified, verify_err = combat_confirm_loot_cleared("LootPickup", "")
+        if verified then
+            combat_finish_loot("LootPickup", "verified_clear")
             return true
         end
+        local active, active_detail = combat_loot_dialog_active()
         combat_log("loot-api-uncertain",
             "LootPickup returned true, but loot dialog still active; click_err=" .. tostring(click_err) ..
             " detail=" .. tostring(active_detail),
             0,
             true)
-        return false, "LootPickup true but loot dialog still active: " .. tostring(click_err)
+        return false, verify_err or ("LootPickup true but loot target still active: " .. tostring(click_err))
     end
 
     combat_log("loot-dialog",
@@ -3064,6 +3317,10 @@ function combat_ignore_loot(obj)
     runtime.combat.loot_ignored = runtime.combat.loot_ignored or {}
     runtime.combat.loot_ignored[obj] = now_seconds() + 20
     combat_log("loot-ignore:" .. tostring(obj), "loot ignored obj=" .. tostring(obj), 0, true)
+end
+
+function combat_loot_max_attempts()
+    return math.max(1, math.min(2, tonumber(cfg.combat.loot_max_attempts) or 2))
 end
 
 function combat_ignore_target(obj, reason, name)
@@ -3227,10 +3484,16 @@ function combat_open_loot(loot_target, char)
                     end,
                 })
                 if picked_ok then
-                    combat_finish_loot(tostring(picked_result and picked_result.source or "pickup-dialog"),
-                        "module wait obj=" .. tostring(loot_key))
-                    return true
+                    local source = tostring(picked_result and picked_result.source or "pickup-dialog")
+                    local detail = "module wait obj=" .. tostring(loot_key)
+                    local verified, verify_err = combat_confirm_loot_cleared(source, detail)
+                    if verified then
+                        combat_finish_loot(source, detail)
+                        return true
+                    end
+                    return false, verify_err or "loot target still lootable after pickup dialog"
                 end
+                combat_extend_post_kill("loot-wait-dialog", 2.0)
                 combat_set_status("loot-wait-dialog", c.loot_name, false)
                 combat_log("loot-wait:" .. tostring(loot_key), "loot wait dialog name=" .. c.loot_name, 1.0, false)
                 return true
@@ -3242,13 +3505,21 @@ function combat_open_loot(loot_target, char)
             c.loot_attempts = (tonumber(c.loot_attempts) or 0) + 1
             c.last_loot_interact_at = now
 
-            local max_attempts = math.max(1, tonumber(cfg.combat.loot_max_attempts) or 5)
+            local max_attempts = combat_loot_max_attempts()
             if c.loot_attempts > max_attempts then
+                local giveup_name = c.loot_name
                 combat_ignore_loot(loot_key)
+                c.loot_obj = 0
+                c.loot_name = ""
+                c.loot_distance = 0
                 c.loot_attempts = 0
-                c.post_kill_until = 0
-                combat_set_status("loot-give-up", c.loot_name, true)
-                combat_log("loot-give-up:" .. tostring(loot_key), "loot give up name=" .. c.loot_name .. " obj=" .. tostring(loot_key), 0, true)
+                combat_clear_last_kill("loot-give-up", false)
+                combat_set_status("loot-give-up", giveup_name, true)
+                combat_log("loot-give-up:" .. tostring(loot_key),
+                    "loot give up name=" .. tostring(giveup_name) ..
+                    " after attempts=" .. tostring(max_attempts) .. " obj=" .. tostring(loot_key),
+                    0,
+                    true)
                 return false
             end
         end
@@ -3259,6 +3530,7 @@ function combat_open_loot(loot_target, char)
             keycode = tonumber(cfg.combat.loot_keycode) or 67,
             waitTimeoutMs = 1200,
             intervalMs = 100,
+            moveSettleMs = 250,
             sleep = sleep,
             now_ms = function()
                 return math.floor(now_seconds() * 1000)
@@ -3270,11 +3542,18 @@ function combat_open_loot(loot_target, char)
 
         local status = tostring(pick_result and pick_result.status or "")
         if pick_ok and status == "picked" then
-            combat_finish_loot(tostring(pick_result.source or "pickup"), "module obj=" .. tostring(loot_key))
-            return true
+            local source = tostring(pick_result.source or "pickup")
+            local detail = "module obj=" .. tostring(loot_key)
+            local verified, verify_err = combat_confirm_loot_cleared(source, detail)
+            if verified then
+                combat_finish_loot(source, detail)
+                return true
+            end
+            return false, verify_err or "loot target still lootable after pickup"
         end
         if pick_ok and status == "moving" then
             c.loot_distance = tonumber(pick_result.distance) or dist
+            combat_extend_post_kill("loot-moving", 2.0)
             combat_set_status("loot-moving", string.format("%.1f", tonumber(c.loot_distance) or 0), false)
             combat_log("loot-moving:" .. tostring(loot_key),
                 string.format("loot moving name=%s obj=%s dist=%.1f range=%.1f",
@@ -3287,6 +3566,7 @@ function combat_open_loot(loot_target, char)
             return true
         end
         if pick_ok and status == "wait_dialog" then
+            combat_extend_post_kill("loot-wait-dialog", 2.0)
             combat_set_status("loot-wait-dialog", c.loot_name, false)
             combat_log("loot-wait:" .. tostring(loot_key),
                 "loot opened but dialog not picked err=" .. tostring(pick_err or (pick_result and pick_result.error)),
@@ -3295,12 +3575,13 @@ function combat_open_loot(loot_target, char)
             return true
         end
         if not pick_ok then
-            combat_set_status("loot-error", tostring(pick_err or (pick_result and pick_result.error)), true)
+            local err_text = tostring(pick_err or (pick_result and pick_result.error) or "loot module failed")
+            combat_set_status("loot-error", err_text, true)
             combat_log("loot-module-failed:" .. tostring(loot_key),
-                "loot module failed err=" .. tostring(pick_err or (pick_result and pick_result.error)),
+                "loot module failed err=" .. err_text,
                 0,
                 true)
-            return false
+            return false, err_text
         end
     end
 
@@ -3334,6 +3615,7 @@ function combat_open_loot(loot_target, char)
             else
                 dist = moved_dist
                 c.loot_distance = dist
+                combat_extend_post_kill("loot-moving", 2.0)
                 combat_set_status("loot-moving", string.format("%.1f", dist), false)
                 combat_log("loot-moving:" .. tostring(loot_key),
                     string.format("loot moving name=%s obj=%s dist=%.1f range=%.1f",
@@ -3357,6 +3639,7 @@ function combat_open_loot(loot_target, char)
         if combat_wait_pickup_dialog(250, 50) then
             return true
         end
+        combat_extend_post_kill("loot-wait-dialog", 2.0)
         combat_set_status("loot-wait-dialog", c.loot_name, false)
         combat_log("loot-wait:" .. tostring(loot_key), "loot wait dialog name=" .. c.loot_name, 1.0, false)
         return true
@@ -3368,13 +3651,21 @@ function combat_open_loot(loot_target, char)
     c.loot_attempts = (tonumber(c.loot_attempts) or 0) + 1
     c.last_loot_interact_at = now
 
-    local max_attempts = math.max(1, tonumber(cfg.combat.loot_max_attempts) or 5)
+    local max_attempts = combat_loot_max_attempts()
     if c.loot_attempts > max_attempts then
+        local giveup_name = c.loot_name
         combat_ignore_loot(loot_key)
+        c.loot_obj = 0
+        c.loot_name = ""
+        c.loot_distance = 0
         c.loot_attempts = 0
-        c.post_kill_until = 0
-        combat_set_status("loot-give-up", c.loot_name, true)
-        combat_log("loot-give-up:" .. tostring(loot_key), "loot give up name=" .. c.loot_name .. " obj=" .. tostring(loot_key), 0, true)
+        combat_clear_last_kill("loot-give-up", false)
+        combat_set_status("loot-give-up", giveup_name, true)
+        combat_log("loot-give-up:" .. tostring(loot_key),
+            "loot give up name=" .. tostring(giveup_name) ..
+            " after attempts=" .. tostring(max_attempts) .. " obj=" .. tostring(loot_key),
+            0,
+            true)
         return false
     end
 
@@ -3425,6 +3716,158 @@ function loot_test_set_status(text)
     runtime.loot_test.last_status = tostring(text or "")
     set_event("[拾取测试] " .. runtime.loot_test.last_status)
     log_info("[AionLootTest] " .. runtime.loot_test.last_status)
+end
+
+function loot_test_dump_near_corpses()
+    runtime.loot_test = runtime.loot_test or {}
+    runtime.loot_test.last_dump = ""
+
+    if not ok_core or not core then
+        loot_test_set_status("F5 failed: aion.core unavailable")
+        return false
+    end
+    if not ok_entity or not entity then
+        loot_test_set_status("F5 failed: aion.entity unavailable")
+        return false
+    end
+
+    local pid = tonumber(cfg.target and cfg.target.pid) or nil
+    if core.ensureInit then
+        local init_ok, init_err = core.ensureInit(pid)
+        if not init_ok then
+            loot_test_set_status("F5 failed: init " .. tostring(init_err))
+            return false
+        end
+    end
+
+    local char_ok, char, char_err = core.getCharacter()
+    if not char_ok or not char then
+        loot_test_set_status("F5 failed: read character " .. tostring(char_err))
+        return false
+    end
+
+    local list_ok, list, list_err = entity.list()
+    if not list_ok then
+        loot_test_set_status("F5 failed: read entities " .. tostring(list_err))
+        return false
+    end
+    list = list or {}
+
+    local corpse_rows = {}
+    local type2_rows = {}
+    local type2_count = 0
+    local lootable_count = 0
+
+    for _, e in ipairs(list) do
+        local type_val = tonumber(e and e.type) or 0
+        local hp = tonumber(e and e.hp) or 0
+        local mhp = tonumber(e and e.mhp) or 0
+        local lootable = tonumber(e and e.lootable) or 0
+        local dead = e and e.dead == true
+        local dist = ok_core and core and core.distance3(char, e) or tonumber(e and e.distance) or 9999
+        local obj = combat_entity_obj(e)
+        local key = combat_loot_key(e)
+        local interact_id = tonumber(e and e.interact_id) or 0
+        local name = tostring(e and e.name or "")
+        local reason = combat_loot_reject_reason(e, char) or "loot-ok"
+
+        if type_val == 2 then
+            type2_count = type2_count + 1
+            type2_rows[#type2_rows + 1] = {
+                dist = dist,
+                obj = obj,
+                key = key,
+                interact_id = interact_id,
+                name = name,
+                hp = hp,
+                mhp = mhp,
+                lootable = lootable,
+                dead = dead,
+                reason = reason,
+            }
+        end
+        if lootable ~= 0 then
+            lootable_count = lootable_count + 1
+        end
+        if type_val == 2 and (lootable ~= 0 or dead or (mhp > 0 and hp <= 0)) then
+            corpse_rows[#corpse_rows + 1] = {
+                dist = dist,
+                obj = obj,
+                key = key,
+                interact_id = interact_id,
+                name = name,
+                hp = hp,
+                mhp = mhp,
+                lootable = lootable,
+                dead = dead,
+                reason = reason,
+            }
+        end
+    end
+
+    local function by_dist(a, b)
+        return (tonumber(a.dist) or 9999) < (tonumber(b.dist) or 9999)
+    end
+    table.sort(corpse_rows, by_dist)
+    table.sort(type2_rows, by_dist)
+
+    local lines = {}
+    lines[#lines + 1] = string.format(
+        "F5 nearest corpse dump: entities=%d type2=%d corpse=%d lootable=%d char=%.2f, %.2f, %.2f",
+        #(list or {}),
+        tonumber(type2_count) or 0,
+        #corpse_rows,
+        tonumber(lootable_count) or 0,
+        tonumber(char.x) or 0,
+        tonumber(char.y) or 0,
+        tonumber(char.z) or 0)
+
+    log_info(string.format("[AionLootF5] begin entities=%d type2=%d corpse=%d lootable=%d char=%.2f,%.2f,%.2f",
+        #(list or {}),
+        tonumber(type2_count) or 0,
+        #corpse_rows,
+        tonumber(lootable_count) or 0,
+        tonumber(char.x) or 0,
+        tonumber(char.y) or 0,
+        tonumber(char.z) or 0))
+
+    local rows = corpse_rows
+    local label = "corpse"
+    if #rows <= 0 then
+        rows = type2_rows
+        label = "type2"
+        lines[#lines + 1] = "No corpse candidates; showing nearest type=2 samples."
+    end
+
+    local limit = math.min(#rows, 15)
+    for index = 1, limit do
+        local row = rows[index]
+        local text = string.format(
+            "%02d. %s dist=%.1f obj=%s key=%s iid=%s hp=%s/%s lootable=%s dead=%s reason=%s name=%s",
+            index,
+            label,
+            tonumber(row.dist) or 0,
+            tostring(row.obj or 0),
+            tostring(row.key or 0),
+            tostring(row.interact_id or 0),
+            tostring(row.hp or 0),
+            tostring(row.mhp or 0),
+            tostring(row.lootable or 0),
+            tostring(row.dead == true),
+            tostring(row.reason or ""),
+            tostring(row.name or ""))
+        lines[#lines + 1] = text
+        log_info("[AionLootF5] " .. text)
+    end
+    if limit <= 0 then
+        lines[#lines + 1] = "No type=2 entities found nearby."
+        log_info("[AionLootF5] no type=2 entities")
+    end
+    log_info("[AionLootF5] end")
+
+    runtime.loot_test.last_dump = table.concat(lines, "\n")
+    loot_test_set_status(string.format("F5 尸体遍历完成: corpse=%d lootable=%d", #corpse_rows, tonumber(lootable_count) or 0))
+    return true
 end
 
 function loot_test_pick_nearest()
@@ -3512,6 +3955,13 @@ function loot_test_pick_nearest()
         return false
     end
 
+    local ok_loot_module, loot_runtime = pcall(require, "aion.loot")
+    if not ok_loot_module or not loot_runtime or type(loot_runtime.findNearestLootable) ~= "function" or type(loot_runtime.pickupTargetByKey) ~= "function" then
+        loot_test_set_status("failed: aion.loot key-pickup unavailable")
+        runtime.loot_test.last_dump = tostring(loot_runtime)
+        return false
+    end
+
     local pid = tonumber(cfg.target and cfg.target.pid) or nil
     if core.ensureInit then
         local init_ok, init_err = core.ensureInit(pid)
@@ -3521,37 +3971,83 @@ function loot_test_pick_nearest()
         end
     end
 
-    local old_enabled = cfg.combat.loot_enabled
-    cfg.combat.loot_enabled = true
-
     local started = now_seconds()
     local timeout = 12.0
     local last_target_name = ""
     local last_dist = 0
     local last_entities = 0
     local last_err = nil
+    local picked_once = false
+
+    local function loot_test_key(target)
+        if loot_runtime and type(loot_runtime.lootKey) == "function" then
+            return tonumber(loot_runtime.lootKey(target)) or 0
+        end
+        return tonumber(combat_loot_key(target)) or 0
+    end
+
+    local function set_target_dump(target, dist, status, meta)
+        runtime.loot_test.last_dump = string.format(
+            "target: %s\nobj: %s\ndist: %.1f\nlootable: %s\ninteract_id: %s\npos: %.2f, %.2f, %.2f\nstatus: %s\nchecked: %s accepted: %s",
+            tostring(target and target.name or ""),
+            tostring(loot_test_key(target)),
+            tonumber(dist) or 0,
+            tostring(target and target.lootable or ""),
+            tostring(target and target.interact_id or ""),
+            tonumber(target and target.x) or 0,
+            tonumber(target and target.y) or 0,
+            tonumber(target and target.z) or 0,
+            tostring(status or ""),
+            tostring(meta and meta.checked or ""),
+            tostring(meta and meta.accepted or ""))
+    end
+
+    local function same_target_still_lootable(list, key)
+        key = tonumber(key) or 0
+        if key <= 0 then
+            return false
+        end
+        for _, item in ipairs(list or {}) do
+            if loot_test_key(item) == key then
+                return (tonumber(item and item.lootable) or 0) ~= 0
+            end
+        end
+        return false
+    end
 
     while now_seconds() - started <= timeout do
         local char_ok, char, char_err = core.getCharacter()
         if not char_ok or not char then
-            cfg.combat.loot_enabled = old_enabled
             loot_test_set_status("failed: read character " .. tostring(char_err))
             return false
         end
 
         local list_ok, list, list_err = entity.list()
         if not list_ok then
-            cfg.combat.loot_enabled = old_enabled
             loot_test_set_status("failed: read entities " .. tostring(list_err))
             return false
         end
         last_entities = #(list or {})
 
-        local target = combat_choose_loot(list or {}, char, char)
+        local find_ok, target, find_err, meta = loot_runtime.findNearestLootable({
+            char = char,
+            list = list or {},
+            radius = tonumber(cfg.combat.loot_radius) or tonumber(cfg.combat.radius) or 35,
+            monsterOnly = true,
+        })
+        if not find_ok then
+            loot_test_set_status("failed: find lootable " .. tostring(find_err))
+            return false
+        end
+
         if not target then
-            if tostring(runtime.combat.status or "") == "looted" then
-                cfg.combat.loot_enabled = old_enabled
-                loot_test_set_status("picked: no remaining loot target")
+            runtime.loot_test.last_dump = string.format(
+                "no lootable corpse found\nentities: %d\nchecked: %s accepted: %s\nnote: manual test scans type=2 and lootable=1 without combat ignore list",
+                tonumber(last_entities) or 0,
+                tostring(meta and meta.checked or ""),
+                tostring(meta and meta.accepted or ""))
+            if picked_once then
+                loot_test_set_status("picked by C: no remaining loot target")
                 return true
             end
             last_err = "no loot target"
@@ -3560,52 +4056,127 @@ function loot_test_pick_nearest()
             local dist = ok_core and core and core.distance3(char, target) or tonumber(target.distance) or 0
             last_target_name = tostring(target.name or "")
             last_dist = tonumber(dist) or 0
-            runtime.loot_test.last_dump = string.format(
-                "target: %s\nobj: %s\ndist: %.1f\nlootable: %s\ninteract_id: %s\npos: %.2f, %.2f, %.2f\nstatus: %s",
-                tostring(target.name or ""),
-                tostring(combat_loot_key(target)),
-                tonumber(dist) or 0,
-                tostring(target.lootable or ""),
-                tostring(target.interact_id or ""),
-                tonumber(target.x) or 0,
-                tonumber(target.y) or 0,
-                tonumber(target.z) or 0,
-                tostring(runtime.combat.status or ""))
+            local target_key = loot_test_key(target)
+            set_target_dump(target, dist, "target-found", meta)
 
-            local call_ok, ok_or_err, err = pcall(combat_open_loot, target, char)
+            local call_ok, pick_ok, pick_result, pick_err = pcall(loot_runtime.pickupTargetByKey, target, {
+                char = char,
+                interactRange = math.max(0.5, tonumber(cfg.combat.loot_interact_range) or 4),
+                keycode = tonumber(cfg.combat.loot_keycode) or 67,
+                waitTimeoutMs = 1600,
+                intervalMs = 100,
+                moveSettleMs = 350,
+                closeDelayMs = 80,
+                sleep = sleep,
+                now_ms = function()
+                    return math.floor(now_seconds() * 1000)
+                end,
+                log = function(event, message)
+                    log_info("[AionLootTestFlow] " .. tostring(event) .. " " .. tostring(message or ""))
+                end,
+            })
             if not call_ok then
-                cfg.combat.loot_enabled = old_enabled
-                loot_test_set_status("loot exception: " .. tostring(ok_or_err))
+                loot_test_set_status("loot exception: " .. tostring(pick_ok))
                 return false
             end
 
-            local status = tostring(runtime.combat.status or "")
-            if status == "looted" then
-                cfg.combat.loot_enabled = old_enabled
-                loot_test_set_status(string.format("picked: %s dist=%.1f", last_target_name, last_dist))
-                return true
-            end
-
-            if ok_or_err and status == "loot-moving" then
-                loot_test_set_status(string.format("moving to loot: %s dist=%.1f", last_target_name, last_dist))
+            local status = tostring(pick_result and pick_result.status or "")
+            last_dist = tonumber(pick_result and pick_result.distance) or last_dist
+            set_target_dump(target, last_dist, status, meta)
+            if pick_ok and status == "moving" then
+                loot_test_set_status(string.format("moving to corpse: %s dist=%.1f", last_target_name, last_dist))
                 sleep(350)
-            elseif ok_or_err then
-                loot_test_set_status(string.format("waiting loot click: %s dist=%.1f status=%s", last_target_name, last_dist, status))
-                sleep(250)
+            elseif pick_ok and status == "picked" then
+                picked_once = true
+                sleep(300)
+                local verify_ok, verify_list, verify_err = entity.list()
+                if verify_ok and not same_target_still_lootable(verify_list or {}, target_key) then
+                    loot_test_set_status(string.format("picked by C: %s dist=%.1f", last_target_name, last_dist))
+                    return true
+                end
+                last_err = verify_ok and "target still lootable after pickup" or ("verify failed " .. tostring(verify_err))
+                loot_test_set_status(string.format("picked dialog, verifying corpse: %s dist=%.1f err=%s",
+                    last_target_name,
+                    last_dist,
+                    tostring(last_err)))
+                sleep(300)
             else
-                last_err = err or ok_or_err
+                last_err = pick_err or (pick_result and pick_result.error) or "key pickup failed"
+                loot_test_set_status(string.format("key pickup failed: %s dist=%.1f err=%s",
+                    last_target_name,
+                    last_dist,
+                    tostring(last_err)))
                 sleep(250)
             end
         end
     end
 
-    cfg.combat.loot_enabled = old_enabled
     loot_test_set_status(string.format("timeout: target=%s dist=%.1f entities=%d err=%s",
         tostring(last_target_name),
         tonumber(last_dist) or 0,
         tonumber(last_entities) or 0,
         tostring(last_err or "")))
     return false
+end
+
+function combat_pick_loot_with_test_button(loot_target, char, reason)
+    if not cfg.combat or cfg.combat.loot_enabled ~= true then
+        return false, "loot disabled"
+    end
+    if type(loot_test_pick_nearest) ~= "function" then
+        return false, "loot test button method unavailable"
+    end
+
+    local c = runtime.combat
+    local loot_key = combat_loot_key(loot_target)
+    if loot_key <= 0 then
+        return false, "invalid loot key"
+    end
+
+    local dist = ok_core and core and char and core.distance3(char, loot_target) or tonumber(loot_target and loot_target.distance) or 0
+    c.loot_obj = loot_key
+    c.loot_name = tostring(loot_target and loot_target.name or "")
+    c.loot_distance = dist
+    c.last_loot_interact_at = now_seconds()
+
+    combat_auto_off("loot-button:" .. tostring(reason or ""), false)
+    combat_set_status("loot-button", c.loot_name, false)
+    combat_log("loot-button:" .. tostring(loot_key),
+        string.format("call loot_test_pick_nearest reason=%s name=%s obj=%s dist=%.1f interact_id=%s lootable=%s",
+            tostring(reason or ""),
+            c.loot_name,
+            tostring(loot_key),
+            tonumber(dist) or 0,
+            tostring(loot_target and loot_target.interact_id or 0),
+            tostring(loot_target and loot_target.lootable or "")),
+        0,
+        true)
+
+    local call_ok, picked = pcall(loot_test_pick_nearest)
+    if not call_ok then
+        local err = tostring(picked)
+        combat_set_status("loot-button-error", err, true)
+        combat_log("loot-button-error:" .. tostring(loot_key),
+            "loot_test_pick_nearest exception err=" .. err,
+            0,
+            true)
+        combat_extend_post_kill("loot-button-exception", 2.0)
+        return false, err
+    end
+
+    if picked == true then
+        combat_finish_loot("loot-test-button", "reason=" .. tostring(reason or "") .. " obj=" .. tostring(loot_key))
+        return true, nil
+    end
+
+    local err = tostring(runtime.loot_test and runtime.loot_test.last_status or "loot test button failed")
+    combat_set_status("loot-button-failed", err, true)
+    combat_log("loot-button-failed:" .. tostring(loot_key),
+        "loot_test_pick_nearest returned false status=" .. err,
+        0,
+        true)
+    combat_extend_post_kill("loot-button-failed", 2.0)
+    return false, err
 end
 
 function combat_auto_on(force_start)
@@ -3660,8 +4231,15 @@ function combat_begin_post_kill(reason, entity)
     end
     local loot_enabled = cfg.combat and cfg.combat.loot_enabled == true
     local wait_seconds = loot_enabled and math.max(0.5, tonumber(cfg.combat.post_kill_loot_seconds) or 3.0) or 0
+    local pending_loot = tonumber(c.loot_obj) or 0
+    if pending_loot > 0 and pending_loot ~= obj then
+        combat_close_loot_dialog("new-kill-clear-pending")
+        combat_clear_pending_loot("new-kill", false)
+    end
     c.last_killed_obj = obj
+    c.last_killed_interact_id = tonumber(entity and entity.interact_id) or 0
     c.last_killed_name = tostring(c.target_name or (entity and entity.name) or "")
+    c.post_kill_started_at = now_seconds()
     c.post_kill_until = loot_enabled and (now_seconds() + wait_seconds) or 0
     c.target_obj = 0
     c.target_name = ""
@@ -3689,10 +4267,11 @@ function combat_begin_post_kill(reason, entity)
     combat_auto_off(reason or "target-ended", true)
     combat_set_status("post-kill-loot", c.last_killed_name, false)
     combat_log("post-kill:" .. tostring(obj),
-        string.format("target ended reason=%s name=%s obj=%s loot_wait=%.1fs",
+        string.format("target ended reason=%s name=%s obj=%s interact_id=%s loot_wait=%.1fs",
             tostring(reason or ""),
             tostring(c.last_killed_name or ""),
             tostring(obj),
+            tostring(c.last_killed_interact_id or 0),
             tonumber(wait_seconds) or 0),
         0,
         true)
@@ -3725,6 +4304,7 @@ function combat_abort_target(reason, entity)
     c.target_name = ""
     c.target_distance = 0
     c.post_kill_until = 0
+    c.post_kill_started_at = 0
     c.force_auto_until = 0
     c.last_force_auto_at = 0
     c.last_attack_key_at = 0
@@ -3886,6 +4466,67 @@ function combat_send_attack_key(target, obj, reason)
     return false, err or "PressKey failed"
 end
 
+function combat_attack_key_repeat_settings()
+    local ok_module, module = pcall(require, "aion.attack_key_repeat")
+    if ok_module and module and type(module.from_config) == "function" then
+        return module.from_config(cfg.combat or {})
+    end
+    return {
+        interval_ms = math.max(250, math.min(3000, math.floor(tonumber(cfg.combat and cfg.combat.attack_key_repeat_interval_ms) or 1000))),
+    }
+end
+
+function combat_should_send_attack_key(target, obj, force)
+    obj = tonumber(obj) or combat_entity_obj(target)
+    if obj <= 0 then
+        return false, "invalid-target"
+    end
+    if force == true then
+        return true, "force"
+    end
+
+    local settings = combat_attack_key_repeat_settings()
+    local ok_module, module = pcall(require, "aion.attack_key_repeat")
+    if ok_module and module and type(module.should_press) == "function" then
+        return module.should_press({
+            now = now_seconds(),
+            target_obj = obj,
+            last_attack_key_at = runtime.combat.last_attack_key_at,
+            last_attack_key_obj = runtime.combat.last_attack_key_obj,
+            interval_ms = settings.interval_ms,
+        })
+    end
+
+    local c = runtime.combat
+    if tonumber(c.last_attack_key_obj) ~= obj then
+        return true, "new-target"
+    end
+    local last_at = tonumber(c.last_attack_key_at) or 0
+    if last_at <= 0 then
+        return true, "no-previous-key"
+    end
+    if (now_seconds() - last_at) * 1000 >= (tonumber(settings.interval_ms) or 1000) then
+        return true, "interval"
+    end
+    return false, "waiting"
+end
+
+function combat_maybe_send_attack_key(target, obj, reason, force)
+    obj = tonumber(obj) or combat_entity_obj(target)
+    if obj <= 0 then
+        return false, "invalid target obj", 0, false
+    end
+
+    local should_send, cadence_reason = combat_should_send_attack_key(target, obj, force)
+    if not should_send then
+        return true, "wait-" .. tostring(cadence_reason or ""), 0, false
+    end
+
+    local key_ok, key_state, key_ms = combat_send_attack_key(target, obj,
+        tostring(reason or "target") .. ":" .. tostring(cadence_reason or "repeat"))
+    return key_ok, key_state, tonumber(key_ms) or 0, true
+end
+
 function combat_engage_target(target)
     local c = runtime.combat
     local obj = combat_entity_obj(target)
@@ -3923,11 +4564,12 @@ function combat_engage_target(target)
         c.target_name = tostring(target.name or "")
         c.target_distance = tonumber(target.distance) or 0
         c.post_kill_until = 0
+        c.post_kill_started_at = 0
         combat_begin_target_progress(target, obj)
         if use_attack_key then
             c.force_auto_until = 0
             c.last_force_auto_at = 0
-            local key_ok, key_state, key_ms = combat_send_attack_key(target, obj, "new-target")
+            local key_ok, key_state, key_ms = combat_maybe_send_attack_key(target, obj, "new-target", true)
             auto_ms = tonumber(key_ms) or 0
             if not key_ok then
                 combat_set_status("attack-key-failed", tostring(key_state), true)
@@ -3971,7 +4613,13 @@ function combat_engage_target(target)
     local should_auto_on = (not use_attack_key) and ((not same_target) or tostring(c.status or "") ~= "fighting") and not auto_handled
     local force_window_active = (not use_attack_key) and same_target and (tonumber(c.force_auto_until) or 0) > now_seconds()
     if use_attack_key and same_target then
-        auto_state = "key1-once"
+        local key_ok, key_state, key_ms = combat_maybe_send_attack_key(target, obj, "target-alive", false)
+        auto_ms = tonumber(key_ms) or 0
+        if not key_ok then
+            combat_set_status("attack-key-failed", tostring(key_state), true)
+            return false
+        end
+        auto_state = "key1-" .. tostring(key_state or "wait")
     elseif force_window_active
         and now_seconds() - (tonumber(c.last_force_auto_at) or 0) >= (tonumber(cfg.combat.auto_force_interval) or 0.10) then
         force_auto_on = true
@@ -4026,6 +4674,7 @@ function combat_engage_target(target)
     c.target_name = tostring(target.name or "")
     c.target_distance = tonumber(target.distance) or 0
     c.post_kill_until = 0
+    c.post_kill_started_at = 0
     if not same_target and not use_attack_key then
         c.force_auto_until = math.max(tonumber(c.force_auto_until) or 0, now_seconds() + (tonumber(cfg.combat.auto_force_window) or 0.60))
     end
@@ -4051,6 +4700,61 @@ function combat_engage_target(target)
         1.0,
         not same_target)
     return true
+end
+
+function combat_handle_priority_loot(list, char)
+    if not cfg.combat or cfg.combat.loot_enabled ~= true then
+        return false
+    end
+    if type(list) ~= "table" or type(char) ~= "table" then
+        return false
+    end
+
+    local loot_target = combat_choose_loot(list, char, char)
+    if not loot_target then
+        return false
+    end
+
+    local loot_key = combat_loot_key(loot_target)
+    if loot_key <= 0 then
+        return false
+    end
+
+    local c = runtime.combat
+    local pending_loot = tonumber(c.loot_obj) or 0
+    if pending_loot > 0 and pending_loot ~= loot_key then
+        combat_close_loot_dialog("loot-priority-clear-mismatch")
+        combat_clear_pending_loot("loot-priority-mismatch", false)
+    end
+
+    local dist = ok_core and core and core.distance3(char, loot_target) or tonumber(loot_target.distance) or 9999
+    loot_target.distance = dist
+    combat_auto_off("loot-priority", false)
+    combat_set_status("loot-priority", tostring(loot_target.name or ""), false)
+    combat_log("loot-priority:" .. tostring(loot_key),
+        string.format("priority loot claim name=%s obj=%s dist=%.1f interact_id=%s lootable=%s",
+            tostring(loot_target.name or ""),
+            tostring(loot_key),
+            tonumber(dist) or 0,
+            tostring(loot_target.interact_id or 0),
+            tostring(loot_target.lootable or "")),
+        0,
+        true)
+    combat_pick_loot_with_test_button(loot_target, char, "priority")
+    return true
+end
+
+function combat_decide_post_kill_loot(args)
+    local ok_module, module = pcall(require, "aion.post_kill_loot")
+    if ok_module and module and type(module.decide) == "function" then
+        return module.decide(args)
+    end
+    args = args or {}
+    return {
+        action = args.loot_target and "open-loot" or "wait",
+        reason = tostring(args.reject_reason or "pending"),
+        remain = math.max(0, (tonumber(args.post_kill_until) or 0) - (tonumber(args.now) or 0)),
+    }
 end
 
 function combat_tick()
@@ -4164,11 +4868,17 @@ function combat_tick()
         nil,
         false)
 
-    local target_lost_this_tick = false
     local tracked_obj = tonumber(c.target_obj) or 0
     if tracked_obj > 0 then
         local tracked = combat_find_entity_by_obj(list, tracked_obj)
         if not tracked and combat_current_target_matches_obj(tracked_obj) then
+            if combat_uses_attack_key() then
+                local key_ok, key_state = combat_maybe_send_attack_key({ name = c.target_name }, tracked_obj, "tracked-current", false)
+                if not key_ok then
+                    combat_set_status("attack-key-failed", tostring(key_state), true)
+                    return
+                end
+            end
             combat_log("tracked-target-current:" .. tostring(tracked_obj),
                 "tracked target missing from entity list but still current target obj=" .. tostring(tracked_obj) .. "; hold combat",
                 0.5,
@@ -4183,7 +4893,6 @@ function combat_tick()
             if failure_reason then
                 combat_ignore_target(tracked_obj, failure_reason, tracked.name or c.target_name)
                 combat_abort_target(failure_reason, tracked)
-                target_lost_this_tick = true
             else
                 combat_log("tracked-target:" .. tostring(tracked_obj),
                     string.format("continue tracked target name=%s obj=%s dist=%.1f hp=%s/%s; skip move/loot",
@@ -4200,26 +4909,9 @@ function combat_tick()
         end
         if end_reason == "missing" then
             combat_abort_target("missing", tracked)
-            target_lost_this_tick = true
         elseif end_reason then
             combat_begin_post_kill(end_reason, tracked)
         end
-    end
-
-    local current = combat_find_current_entity(list, search_anchor)
-    if current then
-        current.distance = core.distance3(char, current)
-        combat_log("current-target:" .. tostring(combat_entity_obj(current)),
-            string.format("continue current target name=%s obj=%s dist=%.1f hp=%s/%s",
-                tostring(current.name or ""),
-                tostring(combat_entity_obj(current)),
-                tonumber(current.distance) or 0,
-                tostring(current.hp or ""),
-                tostring(current.mhp or "")),
-            1.0,
-            false)
-        combat_engage_target(current)
-        return
     end
 
     local previous_target_obj = tonumber(c.target_obj) or 0
@@ -4239,39 +4931,88 @@ function combat_tick()
         end
     end
 
-    if cfg.combat.loot_enabled and not target_lost_this_tick then
-        local should_pickup_dialog = (tonumber(c.loot_obj) or 0) > 0 or (tonumber(c.post_kill_until) or 0) > now
-        if should_pickup_dialog and combat_pickup_dialog() then
-            return
+    -- Post-kill loot has priority over reacquiring the game's current target.
+    if cfg.combat.loot_enabled then
+        local last_killed_obj = tonumber(c.last_killed_obj) or 0
+        local last_killed_until = tonumber(c.post_kill_until) or 0
+        if last_killed_obj > 0 and last_killed_until > now then
+            local pending_loot = tonumber(c.loot_obj) or 0
+            if pending_loot > 0 and pending_loot ~= last_killed_obj then
+                combat_close_loot_dialog("post-kill-clear-mismatch")
+                combat_clear_pending_loot("post-kill-mismatch-current", false)
+            end
+            local loot_target, reject_reason, seen_entity, checked = combat_find_last_killed_loot(list, char, search_anchor)
+            local seen_text = "false"
+            local lootable_text = ""
+            local dist_text = ""
+            if seen_entity then
+                seen_text = "true"
+                lootable_text = tostring(seen_entity.lootable or "")
+                if ok_core and core then
+                    dist_text = string.format("%.1f", core.distance3(char, seen_entity))
+                end
+            end
+            local decision = combat_decide_post_kill_loot({
+                last_killed_obj = last_killed_obj,
+                post_kill_until = last_killed_until,
+                now = now,
+                loot_target = loot_target,
+                reject_reason = reject_reason,
+                seen_entity = seen_entity,
+            })
+            if decision.action == "open-loot" then
+                combat_pick_loot_with_test_button(loot_target, char, "post-kill")
+                return
+            end
+            if decision.action == "wait" then
+                combat_log("post-kill-no-loot:" .. tostring(last_killed_obj),
+                    string.format("last killed not lootable yet name=%s obj=%s interact_id=%s reason=%s seen=%s lootable=%s dist=%s checked=%d remain=%.1fs",
+                        tostring(c.last_killed_name or ""),
+                        tostring(last_killed_obj),
+                        tostring(c.last_killed_interact_id or 0),
+                        tostring(decision.reason or reject_reason or ""),
+                        seen_text,
+                        lootable_text,
+                        dist_text,
+                        tonumber(checked) or 0,
+                        tonumber(decision.remain) or math.max(0, last_killed_until - now)),
+                    0,
+                    true)
+                combat_auto_off("post-kill-wait", false)
+                combat_set_status("post-kill-wait", c.last_killed_name, false)
+                return
+            end
         end
-        local loot_target = combat_choose_loot(list, char, search_anchor)
-        if loot_target then
-            combat_open_loot(loot_target, char)
-            return
-        end
-        if (tonumber(c.post_kill_until) or 0) > now then
-            combat_log("post-kill-no-loot:" .. tostring(c.last_killed_obj or 0),
-                string.format("no loot target yet, keep waiting name=%s obj=%s remain=%.1fs",
+
+        if last_killed_obj > 0 then
+            combat_log("post-kill-empty:" .. tostring(last_killed_obj),
+                string.format("last killed loot window expired; treat as empty corpse name=%s obj=%s interact_id=%s",
                     tostring(c.last_killed_name or ""),
-                    tostring(c.last_killed_obj or 0),
-                    math.max(0, (tonumber(c.post_kill_until) or 0) - now)),
+                    tostring(last_killed_obj),
+                    tostring(c.last_killed_interact_id or 0)),
                 0,
                 true)
-            combat_auto_off("post-kill-wait", false)
-            combat_set_status("post-kill-wait", c.last_killed_name, false)
+            combat_clear_last_kill("loot-window-expired", false)
+        end
+
+        if combat_handle_priority_loot(list, char) then
             return
         end
     end
 
-    if (tonumber(c.post_kill_until) or 0) > now then
-        combat_auto_off("post-kill-wait", false)
-        combat_set_status("post-kill-wait", c.last_killed_name, false)
-        combat_log("post-kill-wait",
-            string.format("waiting loot window name=%s remain=%.1fs",
-                tostring(c.last_killed_name or ""),
-                math.max(0, (tonumber(c.post_kill_until) or 0) - now)),
+    local current = combat_find_current_entity(list, search_anchor)
+    if current then
+        current.distance = core.distance3(char, current)
+        combat_log("current-target:" .. tostring(combat_entity_obj(current)),
+            string.format("continue current target name=%s obj=%s dist=%.1f hp=%s/%s",
+                tostring(current.name or ""),
+                tostring(combat_entity_obj(current)),
+                tonumber(current.distance) or 0,
+                tostring(current.hp or ""),
+                tostring(current.mhp or "")),
             1.0,
             false)
+        combat_engage_target(current)
         return
     end
 
@@ -9402,6 +10143,7 @@ function combat_config_signature()
         tostring(c.move_resend_interval),
         tostring(c.attack_trigger_mode),
         tostring(c.attack_keycode),
+        tostring(c.attack_key_repeat_interval_ms),
         tostring(c.target_no_damage_seconds),
         tostring(c.target_ignore_seconds),
         tostring(c.stop_move_on_target),
@@ -9412,6 +10154,7 @@ function combat_config_signature()
         tostring(c.loot_retry_interval),
         tostring(c.loot_max_attempts),
         tostring(c.post_kill_loot_seconds),
+        tostring(c.lootable_grace_seconds),
         tostring(c.auto_refresh_interval),
         tostring(c.debug_log),
         tostring(c.debug_log_interval),
@@ -9468,6 +10211,10 @@ local function draw_combat_tab()
         cfg.combat.loot_enabled = val
         if not val then
             runtime.combat.post_kill_until = 0
+            runtime.combat.post_kill_started_at = 0
+            runtime.combat.last_killed_obj = 0
+            runtime.combat.last_killed_interact_id = 0
+            runtime.combat.last_killed_name = ""
             runtime.combat.loot_obj = 0
             runtime.combat.loot_name = ""
             runtime.combat.loot_distance = 0
@@ -9499,8 +10246,13 @@ local function draw_combat_tab()
     changed, val = imgui.checkbox("使用游戏自动战斗", tonumber(cfg.combat.attack_trigger_mode) == 2)
     if changed then cfg.combat.attack_trigger_mode = val and 2 or 1 end
     if tonumber(cfg.combat.attack_trigger_mode) ~= 2 then
-        imgui.text("当前每次新锁怪后只后台按一次主键盘 1，键码 49")
+        imgui.text(string.format("Key mode: press main 1 every %dms while target is alive, keycode 49",
+            tonumber(cfg.combat.attack_key_repeat_interval_ms) or 1000))
     end
+
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_int("Press1 interval ms", cfg.combat.attack_key_repeat_interval_ms)
+    if changed then cfg.combat.attack_key_repeat_interval_ms = math.max(250, math.min(3000, val)) end
 
     imgui.set_next_item_width(90)
     changed, val = imgui.input_float("无伤害超时秒", cfg.combat.target_no_damage_seconds)
@@ -9554,7 +10306,12 @@ local function draw_combat_tab()
     imgui.same_line()
     imgui.set_next_item_width(90)
     changed, val = imgui.input_int("拾取最大尝试", cfg.combat.loot_max_attempts)
-    if changed then cfg.combat.loot_max_attempts = math.max(1, val) end
+    if changed then cfg.combat.loot_max_attempts = math.max(1, math.min(2, val)) end
+
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_float("空包确认秒", cfg.combat.lootable_grace_seconds)
+    if changed then cfg.combat.lootable_grace_seconds = math.max(0.8, math.min(1.5, val)) end
 
     changed, val = imgui.checkbox("调试打怪日志", cfg.combat.debug_log)
     if changed then cfg.combat.debug_log = val end
@@ -11055,6 +11812,9 @@ function draw_test_tab()
         imgui.text("状态 " .. tostring(runtime.loot_test.last_status))
     end
     imgui.text("说明: 有尸体时点击一次会选最近可拾取目标；距离远会先移动，靠近后自动继续拾取。")
+    if imgui.button("遍历最近尸体(F5)", 150, 28) then
+        loot_test_dump_near_corpses()
+    end
     imgui.set_next_item_width(760)
     changed, val = imgui.input_text_multiline("##loot_test_dump", runtime.loot_test.last_dump or "", 760, 120)
     if changed then
@@ -11405,6 +12165,7 @@ local last_f10 = false
 last_f2 = false
 last_f3 = false
 last_f4 = false
+last_f5 = false
 
 while true do
     local ctrl = hotkey.is_pressed(0x11)
@@ -11435,6 +12196,12 @@ while true do
         run_server_probe()
     end
     last_f4 = f4
+
+    f5 = hotkey.is_pressed(0x74)
+    if f5 and not last_f5 then
+        loot_test_dump_near_corpses()
+    end
+    last_f5 = f5
 
     local f7 = hotkey.is_pressed(0x76)
     if f7 and not last_f7 then
