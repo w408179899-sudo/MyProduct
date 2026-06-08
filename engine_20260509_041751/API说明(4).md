@@ -71,7 +71,7 @@ local list  = data.GetAroundList()
 local items = data.GetInventoryList()
 local sks   = data.GetSkillList()
 local act   = data.GetAutoActiveSkills()
-local pas   = data.GetAutoPassiveSkills()
+local buf   = data.GetAutoBuffSkills()
 local uis   = data.GetUIList()
 local qs    = data.GetQuestList()
 local map   = data.GetCurrentMap()
@@ -524,15 +524,32 @@ end
 
 ## 自动技能
 
-游戏内"自动战斗"使用的技能列表，主动 / 被动分开返回。
+游戏内"自动战斗"使用的技能列表，主动 / 增益分开返回。
 
 ### `M.GetAutoActiveSkills() → { skillId, ... }`
 
 返回自动战斗里**主动**技能 ID 列表。
 
-### `M.GetAutoPassiveSkills() → { skillId, ... }`
+### `M.GetAutoBuffSkills() → { skillId, ... }`
 
-返回自动战斗里**被动**技能 ID 列表。
+返回自动战斗里**增益**技能 ID 列表。
+
+### `M.IsSkillAuto(skill_id) → bool`
+
+查询单个技能是否可加入自动战斗。
+
+| 返回值 | 含义 |
+|---|---|
+| `true` | 可自动 |
+| `false` | 不可自动 |
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `skill_id` | int | 技能 id |
+
+```lua
+print(string.format("技能是否可自动:%s",tostring(data.IsSkillAuto(0x68D))))  -- true/false
+```
 
 ---
 
@@ -1003,18 +1020,14 @@ data.SwitchChannel(2)
 | `kind` | `0x1`=物品, `0x15`=技能 |
 | `id` | 物品 id / 技能 id |
 
-### `M.SkillAutoOn(skill_id, type) → bool`
+### `M.SkillAutoToggle(skill_id, type) → bool`
 
-把指定条目加入自动战斗主动列表。
+切换指定条目的自动战斗状态（再次调用会翻转：开→关 / 关→开）。
 
 | 参数 | 说明 |
 |---|---|
 | `skill_id` | 技能 id 或 物品 id |
 | `type` | `0x1`=物品，`0x15`=技能 |
-
-### `M.SkillAutoOff(skill_id, type) → bool`
-
-从自动战斗主动列表中移除指定条目。参数同 `SkillAutoOn`。
 
 ### `M.GetQuestTeleportId(quest_id) → int`
 

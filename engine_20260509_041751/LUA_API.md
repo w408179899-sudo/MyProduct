@@ -1,6 +1,6 @@
 # AetherEngine Lua API 文档
 
-> **版本**: 3.4.0 | **更新**: 2026-06-02 | **来源**: 基于 LuaExports.h/cpp + LuaApi_*.cpp 完整导出
+> **版本**: 3.5.0 | **更新**: 2026-06-06 | **来源**: 基于 LuaExports.h/cpp + LuaApi_*.cpp 完整导出
 
 ---
 

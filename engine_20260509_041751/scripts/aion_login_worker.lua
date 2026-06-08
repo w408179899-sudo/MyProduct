@@ -7,6 +7,7 @@
 ]]
 
 local ok_target, target = pcall(require, "aion.target")
+local ok_login_flow, login_flow = pcall(require, "aion.login_flow")
 
 local queue_id = tostring(queue_id or "default")
 local selected_index = tonumber(account_index or "0") or 0
@@ -56,6 +57,19 @@ local function set_target(index, candidate)
     sys.set_share(share_key(index, "title"), tostring(candidate.title or ""))
 end
 
+local function set_character(index, char)
+    if not sys or not sys.set_share then
+        return
+    end
+    if type(char) ~= "table" then
+        return
+    end
+    sys.set_share(share_key(index, "character_name"), tostring(char.name or ""))
+    sys.set_share(share_key(index, "level"), tonumber(char.level) or 0)
+    sys.set_share(share_key(index, "race"), tonumber(char.race) or 0)
+    sys.set_share(share_key(index, "job"), tonumber(char.job) or 0)
+end
+
 local function sleep(ms)
     if sys and sys.sleep then
         sys.sleep(ms)
@@ -75,6 +89,41 @@ local function set_progress(value)
     end
 end
 
+local function default_login_flow_config()
+    return {
+        init_timeout_seconds = 120,
+        server_timeout_seconds = 90,
+        character_timeout_seconds = 90,
+        enter_game_timeout_seconds = 120,
+        poll_interval_ms = 1000,
+        agreement_timeout_seconds = 12,
+        agreement_retry_interval_ms = 1000,
+        server_submit_attempts = 2,
+        server_submit_interval_ms = 450,
+    }
+end
+
+local function normalize_login_flow_config(flow)
+    local out = default_login_flow_config()
+    if type(flow) == "table" then
+        for key, value in pairs(flow) do
+            if out[key] ~= nil then
+                out[key] = tonumber(value) or out[key]
+            end
+        end
+    end
+    out.init_timeout_seconds = math.max(30, out.init_timeout_seconds)
+    out.server_timeout_seconds = math.max(5, out.server_timeout_seconds)
+    out.character_timeout_seconds = math.max(5, out.character_timeout_seconds)
+    out.enter_game_timeout_seconds = math.max(10, out.enter_game_timeout_seconds)
+    out.poll_interval_ms = math.max(250, out.poll_interval_ms)
+    out.agreement_timeout_seconds = math.max(0, out.agreement_timeout_seconds)
+    out.agreement_retry_interval_ms = math.max(250, out.agreement_retry_interval_ms)
+    out.server_submit_attempts = math.max(1, math.min(4, math.floor(out.server_submit_attempts)))
+    out.server_submit_interval_ms = math.max(150, out.server_submit_interval_ms)
+    return out
+end
+
 local function load_accounts_config()
     local shared_count = tonumber(get_queue_value("count", 0)) or 0
     if shared_count > 0 then
@@ -87,6 +136,17 @@ local function load_accounts_config()
             decode_mail = tostring(get_queue_value("decode_mail", "")),
             pid_wait_seconds = tonumber(get_queue_value("pid_wait_seconds", 60)) or 60,
             login_gap_ms = tonumber(get_queue_value("login_gap_ms", 1500)) or 1500,
+            login_flow = normalize_login_flow_config({
+                init_timeout_seconds = get_queue_value("post_init_timeout_seconds", 120),
+                server_timeout_seconds = get_queue_value("server_select_timeout_seconds", 90),
+                character_timeout_seconds = get_queue_value("character_select_timeout_seconds", 90),
+                enter_game_timeout_seconds = get_queue_value("enter_game_timeout_seconds", 120),
+                poll_interval_ms = get_queue_value("post_login_poll_interval_ms", 1000),
+                agreement_timeout_seconds = get_queue_value("agreement_timeout_seconds", 12),
+                agreement_retry_interval_ms = get_queue_value("agreement_retry_interval_ms", 1000),
+                server_submit_attempts = get_queue_value("server_submit_attempts", 2),
+                server_submit_interval_ms = get_queue_value("server_submit_interval_ms", 450),
+            }),
             items = {},
         }
 
@@ -126,6 +186,7 @@ local function load_accounts_config()
     if type(accounts.items) ~= "table" then
         accounts.items = {}
     end
+    accounts.login_flow = normalize_login_flow_config(accounts.login_flow)
     return accounts, nil
 end
 
@@ -151,6 +212,43 @@ local function candidate_map()
         end
     end
     return out
+end
+
+local function candidate_map_text(before)
+    local items = {}
+    for pid in pairs(before or {}) do
+        if tonumber(pid) and tonumber(pid) > 0 then
+            items[#items + 1] = tostring(pid)
+        end
+    end
+    table.sort(items)
+    return table.concat(items, ",")
+end
+
+local function start_agreement_watcher(index, before, accounts_cfg)
+    if not task or type(task.run) ~= "function" then
+        if log and type(log.warn) == "function" then
+            log.warn("[AionLoginFlow] index=" .. tostring(index) .. " event=agreement_watcher_unavailable task.run unavailable")
+        end
+        return nil
+    end
+
+    local timeout = math.max(10, tonumber(accounts_cfg and accounts_cfg.pid_wait_seconds) or 60)
+    local id = task.run("scripts/aion_login_agreement_worker.lua", {
+        name = "AionLoginAgreement_" .. tostring(index),
+        priority = "normal",
+        queue_id = queue_id,
+        account_index = tostring(index or 0),
+        known_pids = candidate_map_text(before),
+        timeout_seconds = tostring(timeout),
+        poll_interval_ms = "250",
+    })
+    if log and type(log.info) == "function" then
+        log.info("[AionLoginFlow] index=" .. tostring(index) ..
+            " event=agreement_watcher_started id=" .. tostring(id) ..
+            " known_pids=" .. candidate_map_text(before))
+    end
+    return id
 end
 
 local function find_new_candidate(before)
@@ -258,6 +356,52 @@ local function should_login(index, account)
     return type(account.login) == "table" and account.login.requested == true
 end
 
+local function flow_log(level, index, event, data)
+    if not log then
+        return
+    end
+
+    local fn = log[level]
+    if type(fn) ~= "function" then
+        fn = log.info
+    end
+    if type(fn) ~= "function" then
+        return
+    end
+
+    local text = "[AionLoginFlow] index=" .. tostring(index) .. " event=" .. tostring(event or "")
+    if data ~= nil and tostring(data) ~= "" then
+        text = text .. " " .. tostring(data)
+    end
+    fn(text)
+end
+
+local function flow_info(index, event, data)
+    flow_log("info", index, event, data)
+end
+
+local function flow_warn(index, event, data)
+    flow_log("warn", index, event, data)
+end
+
+local function post_login_enter_game(accounts_cfg, account, index, candidate)
+    if not ok_login_flow or not login_flow or type(login_flow.run) ~= "function" then
+        return false, "aion.login_flow unavailable: " .. tostring(login_flow)
+    end
+
+    return login_flow.run({
+        index = index,
+        accounts_cfg = accounts_cfg,
+        account = account,
+        candidate = candidate,
+        set_status = set_status,
+        set_character = set_character,
+        set_progress = set_progress,
+        sleep = sleep,
+        now_ms = now_ms,
+    })
+end
+
 local function call_auto_login(login, accounts_cfg, account, index)
     local game_path = tostring(accounts_cfg.game_path or "")
     local purple_root = tostring(accounts_cfg.purple_root or "")
@@ -279,6 +423,7 @@ local function call_auto_login(login, accounts_cfg, account, index)
     end
 
     local before = candidate_map()
+    start_agreement_watcher(index, before, accounts_cfg)
     set_status(index, "logging_in", "AutoLogin running")
     set_progress(0.15)
 
@@ -300,10 +445,29 @@ local function call_auto_login(login, accounts_cfg, account, index)
 
     ret = tonumber(ret) or 0
     local ret_text = login.RetText and login.RetText[ret] or "unknown"
-    set_result(index, ret, ret_text)
+    flow_info(index, "auto_login_return", "ret=" .. tostring(ret) .. " text=" .. tostring(ret_text))
 
     if ret ~= 1 then
+        if ret == 15 then
+            flow_warn(index, "auto_login_agreement_failed", "try recover with post-login flow")
+            set_status(index, "agreement_recover", "AutoLogin returned 15; trying agreement click")
+            local candidate = wait_for_game_window(before, 10)
+            if candidate then
+                set_target(index, candidate)
+                local flow_ok, flow_msg = post_login_enter_game(accounts_cfg, account, index, candidate)
+                if flow_ok then
+                    set_status(index, "ready", flow_msg)
+                    set_result(index, 1, flow_msg)
+                    set_progress(1.0)
+                    return 1, flow_msg
+                end
+                flow_warn(index, "agreement_recover_failed", tostring(flow_msg))
+            else
+                flow_warn(index, "agreement_recover_no_pid", "no Aion.bin candidate")
+            end
+        end
         set_status(index, "error", ret_text)
+        set_result(index, ret, ret_text)
         return ret, ret_text
     end
 
@@ -312,12 +476,26 @@ local function call_auto_login(login, accounts_cfg, account, index)
     local candidate = wait_for_game_window(before, tonumber(accounts_cfg.pid_wait_seconds) or 60)
     if candidate then
         set_target(index, candidate)
-        set_status(index, "ready", "pid=" .. tostring(candidate.pid))
+        set_status(index, "game_detected", "pid=" .. tostring(candidate.pid))
         if log and type(log.info) == "function" then
             log.info("[AionLoginWorker] detected game pid=" .. tostring(candidate.pid) .. " hwnd=" .. tostring(candidate.hwnd or 0))
         end
+
+        local flow_ok, flow_msg = post_login_enter_game(accounts_cfg, account, index, candidate)
+        if flow_ok then
+            set_status(index, "ready", flow_msg)
+            set_result(index, 1, flow_msg)
+            set_progress(1.0)
+            return 1, flow_msg
+        end
+
+        flow_warn(index, "flow_failed", tostring(flow_msg))
+        set_status(index, "error", tostring(flow_msg))
+        set_result(index, 0, tostring(flow_msg))
+        return 0, tostring(flow_msg)
     else
         set_status(index, "game_started", "login success, but pid not detected")
+        set_result(index, 1, ret_text)
         if log and type(log.warn) == "function" then
             log.warn("[AionLoginWorker] login success, but pid not detected")
         end

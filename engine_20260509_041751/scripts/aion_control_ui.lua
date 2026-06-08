@@ -8,6 +8,7 @@
       F1       scan nearby NPC names or auto-click open NPC dialog
       F2       dump full UI list and revive candidate child trees to log
       F3       dump 5 UI controls nearest to the mouse position
+      F4       dump server selection API details
       F7       show/hide window
       F8       start/stop
       F9       run safe API probe
@@ -5058,6 +5059,12 @@ function account_publish_login_queue(worker_key, selected_index)
     sys.set_share(account_login_queue_key(worker_key, "decode_mail"), account_login_queue_value(cfg.accounts.decode_mail))
     sys.set_share(account_login_queue_key(worker_key, "pid_wait_seconds"), tonumber(cfg.accounts.pid_wait_seconds) or 60)
     sys.set_share(account_login_queue_key(worker_key, "login_gap_ms"), tonumber(cfg.accounts.login_gap_ms) or 1500)
+    sys.set_share(account_login_queue_key(worker_key, "post_init_timeout_seconds"), 120)
+    sys.set_share(account_login_queue_key(worker_key, "server_select_timeout_seconds"), 90)
+    sys.set_share(account_login_queue_key(worker_key, "character_select_timeout_seconds"), 90)
+    sys.set_share(account_login_queue_key(worker_key, "enter_game_timeout_seconds"), 120)
+    sys.set_share(account_login_queue_key(worker_key, "agreement_timeout_seconds"), 20)
+    sys.set_share(account_login_queue_key(worker_key, "agreement_retry_interval_ms"), 500)
 
     for index, account in ipairs(account_items()) do
         local selected = selected_index > 0 and index == selected_index
@@ -5125,6 +5132,56 @@ end
 
 local function account_make_worker_key()
     return tostring(os.time()) .. "_" .. tostring(math.floor((now_seconds() % 100000) * 1000))
+end
+
+function account_current_aion_pid_text()
+    if not ok_target or not target_lib or type(target_lib.list_candidates) ~= "function" then
+        return ""
+    end
+
+    local ok, candidates = target_lib.list_candidates({})
+    if not ok or type(candidates) ~= "table" then
+        return ""
+    end
+
+    local pids = {}
+    for _, candidate in ipairs(candidates) do
+        local pid = tonumber(candidate.pid) or 0
+        if pid > 0 then
+            pids[#pids + 1] = tostring(pid)
+        end
+    end
+    table.sort(pids)
+    return table.concat(pids, ",")
+end
+
+function account_start_agreement_watcher(index, worker_key)
+    if not task or type(task.run) ~= "function" then
+        log_warn("[AionControlUI] agreement watcher unavailable: task.run missing")
+        return false
+    end
+
+    worker_key = tostring(worker_key or "")
+    if worker_key == "" then
+        return false
+    end
+
+    local known_pids = account_current_aion_pid_text()
+    local timeout = math.max(30, tonumber(cfg.accounts and cfg.accounts.pid_wait_seconds) or 60)
+    local id = task.run("scripts/aion_login_agreement_worker.lua", {
+        name = "AionLoginAgreement_UI_" .. tostring(index or 0),
+        priority = "normal",
+        queue_id = worker_key,
+        account_index = tostring(index or 0),
+        known_pids = known_pids,
+        timeout_seconds = tostring(timeout),
+        poll_interval_ms = "250",
+    })
+    runtime.accounts.agreement_worker_task_id = tonumber(id) or 0
+    log_info("[AionControlUI] agreement watcher started id=" .. tostring(id) ..
+        " index=" .. tostring(index or 0) ..
+        " known_pids=" .. tostring(known_pids))
+    return id ~= nil
 end
 
 local function account_worker_is_running()
@@ -5294,6 +5351,18 @@ local function account_update_from_worker(index, account)
         changed = true
     end
 
+    local character_name = sys.get_share(account_login_share_key(worker_key, index, "character_name"))
+    if character_name ~= nil and tostring(character_name) ~= tostring(account.target.character_name or "") then
+        account.target.character_name = tostring(character_name)
+        changed = true
+    end
+
+    local level = sys.get_share(account_login_share_key(worker_key, index, "level"))
+    if level ~= nil and tonumber(level) ~= tonumber(account.audit.level) then
+        account.audit.level = tonumber(level) or 0
+        changed = true
+    end
+
     if (tonumber(account.target.pid) or 0) > 0 then
         local select_current = (tonumber(cfg.target.pid) or 0) <= 0 or tonumber(runtime.accounts.selected_index) == tonumber(index)
         if select_current then
@@ -5307,6 +5376,10 @@ local function account_update_from_worker(index, account)
             end
             if tostring(cfg.target.title or "") ~= tostring(account.target.title or "") then
                 cfg.target.title = tostring(account.target.title or "")
+                changed = true
+            end
+            if tostring(cfg.target.character_name or "") ~= tostring(account.target.character_name or "") then
+                cfg.target.character_name = tostring(account.target.character_name or "")
                 changed = true
             end
         end
@@ -5607,6 +5680,8 @@ function account_process_pending_login()
         worker_key = account_make_worker_key()
     end
 
+    account_start_agreement_watcher(index, worker_key)
+
     if account_start_login_worker(index, worker_key) then
         for item_index, account in ipairs(account_items()) do
             if index == 0 or item_index == index then
@@ -5616,6 +5691,156 @@ function account_process_pending_login()
             end
         end
         account_save_domain()
+    end
+end
+
+function account_login_flow_active()
+    if type(runtime.accounts.pending_login) == "table" then
+        return true
+    end
+    if account_worker_is_running() then
+        return true
+    end
+
+    for _, account in ipairs(account_items()) do
+        local login = account.login or {}
+        local status = tostring(login.status or "")
+        if login.requested == true
+            or status == "queued"
+            or status == "logging_in"
+            or status == "agreement_recover"
+            or status == "waiting_pid"
+            or status == "game_detected" then
+            return true
+        end
+    end
+    return false
+end
+
+function account_ui_obj_id(obj)
+    if type(obj) ~= "table" then
+        return tonumber(obj) or 0
+    end
+    return tonumber(obj.addr) or tonumber(obj.obj) or tonumber(obj.node) or 0
+end
+
+function account_ui_visible(obj)
+    if type(obj) ~= "table" then
+        return false
+    end
+    if obj.visible == false then
+        return false
+    end
+    return account_ui_obj_id(obj) > 0 or obj.visible == true
+end
+
+function account_agreement_page_visible()
+    local scene_text = "unknown"
+    if ok_core and core and type(core.getScene) == "function" then
+        local scene_call_ok, scene_ok, scene, scene_err = pcall(core.getScene)
+        if not scene_call_ok then
+            local err_text = scene_ok
+            scene_ok = false
+            scene_err = err_text
+        end
+        if scene_ok and type(scene) == "table" then
+            local idx = tonumber(scene.index) or -1
+            scene_text = "idx=" .. tostring(scene.index) .. " name=" .. tostring(scene.name or "")
+            if idx == 0x8 or idx == 0x9 then
+                return true, scene_text
+            end
+        else
+            scene_text = "failed err=" .. tostring(scene_err)
+        end
+    end
+
+    local ok_ui_runtime, ui_runtime = pcall(require, "aion.ui")
+    if not ok_ui_runtime or not ui_runtime or type(ui_runtime.find) ~= "function" then
+        return false, scene_text
+    end
+
+    local dialog_call_ok, find_ok, dialog = pcall(ui_runtime.find, "user_agreement_dialog")
+    if not dialog_call_ok then
+        find_ok = false
+    end
+    if find_ok and account_ui_visible(dialog) then
+        return true, scene_text .. " dialog=user_agreement_dialog"
+    end
+
+    local button_call_ok, btn_ok, button = pcall(ui_runtime.find, "agreement_yes")
+    if not button_call_ok then
+        btn_ok = false
+    end
+    if btn_ok and account_ui_visible(button) then
+        return true, scene_text .. " button=agreement_yes"
+    end
+
+    return false, scene_text
+end
+
+function account_agreement_click_tick()
+    if not account_login_flow_active() then
+        return
+    end
+
+    local now = now_seconds()
+    if now - (tonumber(runtime.accounts.agreement_last_attempt_at) or 0) < 0.5 then
+        return
+    end
+    runtime.accounts.agreement_last_attempt_at = now
+
+    local visible, visible_context = account_agreement_page_visible()
+    if not visible then
+        local context = tostring(visible_context or "")
+        if context ~= "" and context ~= tostring(runtime.accounts.agreement_last_scene or "") then
+            runtime.accounts.agreement_last_scene = context
+            log_info("[AionControlUI] agreement tick waiting scene " .. context)
+        end
+        return
+    end
+
+    local ok_login_flow, login_flow = pcall(require, "aion.login_flow")
+    if not ok_login_flow or not login_flow or type(login_flow.acceptAgreement) ~= "function" then
+        return
+    end
+
+    local ctx = runtime.accounts.agreement_tick_ctx
+    if type(ctx) ~= "table" then
+        ctx = {}
+        runtime.accounts.agreement_tick_ctx = ctx
+    end
+    ctx.index = tonumber(runtime.accounts.selected_index) or 0
+    ctx.sleep = function(ms)
+        if sys and type(sys.sleep) == "function" then
+            sys.sleep(math.min(50, tonumber(ms) or 0))
+        end
+    end
+    ctx.now_ms = function()
+        if sys and type(sys.time) == "function" then
+            return sys.time()
+        end
+        return os.time() * 1000
+    end
+
+    local call_ok, ok, clicked_or_absent = pcall(login_flow.acceptAgreement, ctx, 0, 50)
+    if not call_ok then
+        local err_text = tostring(ok or "")
+        if err_text ~= tostring(runtime.accounts.agreement_last_error or "") then
+            runtime.accounts.agreement_last_error = err_text
+            log_warn("[AionControlUI] agreement tick interrupted: " .. err_text)
+        end
+        return
+    end
+
+    if ok and clicked_or_absent then
+        runtime.accounts.agreement_last_error = ""
+        log_info("[AionControlUI] agreement tick clicked agreement_yes")
+    elseif not ok then
+        local err_text = tostring(clicked_or_absent or "")
+        if err_text ~= tostring(runtime.accounts.agreement_last_error or "") then
+            runtime.accounts.agreement_last_error = err_text
+            log_warn("[AionControlUI] agreement tick failed: " .. err_text)
+        end
     end
 end
 
@@ -6058,7 +6283,18 @@ local function load_config()
     for _, account in ipairs(account_items()) do
         if account.login and account.login.requested == true and not account_task_is_running(account.login.task_id) then
             account.login.requested = false
-            if account.login.status == "queued" or account.login.status == "logging_in" or account.login.status == "waiting_pid" then
+            if account.login.status == "queued"
+                or account.login.status == "logging_in"
+                or account.login.status == "waiting_pid"
+                or account.login.status == "game_detected"
+                or account.login.status == "agreement_recover"
+                or account.login.status == "post_login_init"
+                or account.login.status == "waiting_server_select"
+                or account.login.status == "selecting_server"
+                or account.login.status == "waiting_character_select"
+                or account.login.status == "selecting_character"
+                or account.login.status == "input_second_password"
+                or account.login.status == "waiting_enter_game" then
                 account.login.status = "idle"
                 account.login.message = "stale login state cleared"
             end
@@ -6116,6 +6352,93 @@ local function run_probe()
     runtime.last_probe = string.format("pass=%d warn=%d fail=%d",
         summary.PASS or 0, summary.WARN or 0, summary.FAIL or 0)
     set_event("API 探针完成: " .. runtime.last_probe)
+end
+
+local function run_server_probe()
+    local prefix = "[AionServerProbe] "
+    local function probe_info(text)
+        log_info(prefix .. tostring(text or ""))
+    end
+    local function probe_warn(text)
+        log_warn(prefix .. tostring(text or ""))
+    end
+
+    if not ok_core or not core then
+        probe_warn("aion.core unavailable")
+        set_event("F4 服务器探针失败: aion.core 不可用")
+        return
+    end
+
+    local account_ok, account_api = account_ensure_account_api()
+    if not account_ok or not account_api or type(account_api.serverList) ~= "function" then
+        probe_warn("aion.account unavailable")
+        set_event("F4 服务器探针失败: aion.account 不可用")
+        return
+    end
+
+    target_refresh(true)
+    local probe_pid = tonumber(cfg.target and cfg.target.pid) or 0
+    if probe_pid <= 0 and type(core.resolvePid) == "function" then
+        probe_pid = tonumber(core.resolvePid()) or 0
+    end
+    if probe_pid <= 0 then
+        probe_warn("Aion.bin process not found")
+        set_event("F4 服务器探针失败: 找不到 Aion.bin 进程")
+        return
+    end
+
+    local init_ok, init_err = core.ensureInit(probe_pid)
+    if not init_ok then
+        probe_warn("InitGameinfo failed pid=" .. tostring(probe_pid) .. " err=" .. tostring(init_err))
+        set_event("F4 服务器探针失败: 初始化失败 " .. tostring(init_err))
+        return
+    end
+
+    local scene_text = "unknown"
+    if type(core.getScene) == "function" then
+        local scene_ok, scene, scene_err = core.getScene()
+        if scene_ok and scene then
+            scene_text = "idx=" .. tostring(scene.index) .. " name=" .. tostring(scene.name)
+        else
+            scene_text = "failed: " .. tostring(scene_err)
+        end
+    end
+
+    local current_text = "unknown"
+    if type(account_api.currentServerId) == "function" then
+        local cur_ok, cur_id, cur_err = account_api.currentServerId()
+        if cur_ok then
+            current_text = tostring(cur_id)
+        else
+            current_text = "failed: " .. tostring(cur_err)
+        end
+    end
+
+    probe_info("begin pid=" .. tostring(probe_pid) .. " scene=" .. scene_text .. " current_server_id=" .. current_text)
+
+    local list_ok, list, list_err = account_api.serverList()
+    if not list_ok then
+        probe_warn("GetServerList failed: " .. tostring(list_err))
+        set_event("F4 服务器探针失败: " .. tostring(list_err))
+        return
+    end
+
+    list = list or {}
+    probe_info("server_list count=" .. tostring(#list))
+    for index, server in ipairs(list) do
+        probe_info(string.format(
+            "server #%d key=%s server_id=%s addr=%s",
+            index,
+            tostring(server.key),
+            tostring(server.server_id),
+            tostring(server.addr)))
+    end
+
+    if #list == 0 then
+        probe_warn("server list empty; keep the client on server_select_dialog and press F4 again")
+    end
+    probe_info("end")
+    set_event("F4 服务器探针完成: count=" .. tostring(#list))
 end
 
 local function capture_position()
@@ -8532,6 +8855,7 @@ local function draw_overview_tab()
             save_config()
         end
 
+        imgui.table_next_column()
         imgui.spacing()
         imgui.set_next_item_width(120)
         changed, val = imgui.combo("种族", find_option_index(race_options, cfg.character.race), race_names)
@@ -8553,7 +8877,6 @@ local function draw_overview_tab()
         imgui.spacing()
         draw_account_server_combo(account)
 
-        imgui.table_next_column()
         imgui.end_table()
     end
 
@@ -9496,10 +9819,11 @@ end
 local function draw_leveling_tab()
     local changed, val
 
+    cfg.leveling.mode = math.max(1, math.min(#leveling_modes, tonumber(cfg.leveling.mode) or 1))
+    if imgui.collapsing_header("主线高级设置 / NPC 对话测试") then
     changed, val = imgui.checkbox("启用主线目标", cfg.leveling.enabled)
     if changed then cfg.leveling.enabled = val end
 
-    cfg.leveling.mode = math.max(1, math.min(#leveling_modes, tonumber(cfg.leveling.mode) or 1))
     imgui.set_next_item_width(220)
     changed, val = imgui.combo("主线方式", cfg.leveling.mode, leveling_modes)
     if changed then cfg.leveling.mode = val end
@@ -9513,7 +9837,6 @@ local function draw_leveling_tab()
     changed, val = imgui.input_int("主线目标等级", cfg.leveling.target_level, 0)
     if changed then cfg.leveling.target_level = math.max(cfg.leveling.start_level, val) end
 
-    if imgui.collapsing_header("主线高级设置 / NPC 对话测试") then
     changed, val = imgui.checkbox("只做主线任务", cfg.leveling.prefer_quest)
     if changed then cfg.leveling.prefer_quest = val end
 
@@ -10518,6 +10841,7 @@ end
 local function background_refresh_tick()
     account_process_pending_script()
     account_process_pending_login()
+    account_agreement_click_tick()
 
     if runtime.ui_visible then
         account_poll(false)
@@ -10555,6 +10879,7 @@ local last_f9 = false
 local last_f10 = false
 last_f2 = false
 last_f3 = false
+last_f4 = false
 
 while true do
     local ctrl = hotkey.is_pressed(0x11)
@@ -10579,6 +10904,12 @@ while true do
         ui_test_f3_dump()
     end
     last_f3 = f3
+
+    f4 = hotkey.is_pressed(0x73)
+    if f4 and not last_f4 then
+        run_server_probe()
+    end
+    last_f4 = f4
 
     local f7 = hotkey.is_pressed(0x76)
     if f7 and not last_f7 then
