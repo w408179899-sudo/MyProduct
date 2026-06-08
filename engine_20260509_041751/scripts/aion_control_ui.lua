@@ -167,6 +167,8 @@ local runtime = {
         last_auto_on_at = 0,
         force_auto_until = 0,
         last_force_auto_at = 0,
+        last_attack_key_at = 0,
+        last_attack_key_obj = 0,
         anchor_distance = 0,
         patrol_points = {},
         patrol_index = 1,
@@ -291,6 +293,8 @@ local cfg = {
         return_radius = 4,
         tick_interval = 0.10,
         move_resend_interval = 2.0,
+        attack_trigger_mode = 1,
+        attack_keycode = 49,
         auto_force_window = 0.60,
         auto_force_interval = 0.10,
         stop_move_on_target = false,
@@ -581,6 +585,8 @@ function normalize_combat_mode()
         return
     end
     cfg.combat.mode = math.max(1, math.min(#combat_modes, tonumber(cfg.combat.mode) or 1))
+    cfg.combat.attack_trigger_mode = tonumber(cfg.combat.attack_trigger_mode) == 2 and 2 or 1
+    cfg.combat.attack_keycode = 49
 end
 
 local combat_target_policies = {
@@ -1975,6 +1981,8 @@ function combat_reset_runtime(reason)
     c.last_auto_on_at = 0
     c.force_auto_until = 0
     c.last_force_auto_at = 0
+    c.last_attack_key_at = 0
+    c.last_attack_key_obj = 0
     c.anchor_distance = 0
     c.patrol_points = {}
     c.patrol_index = 1
@@ -3047,6 +3055,9 @@ function combat_send_loot_key(loot_target, obj, reason)
 end
 
 function combat_open_loot(loot_target, char)
+    if not cfg.combat.loot_enabled then
+        return false
+    end
     if not loot_target then
         return false
     end
@@ -3075,6 +3086,102 @@ function combat_open_loot(loot_target, char)
         false)
 
     local interact_range = math.max(0.5, tonumber(cfg.combat.loot_interact_range) or 4)
+
+    local ok_loot_module, loot_runtime = pcall(require, "aion.loot")
+    if ok_loot_module and loot_runtime and type(loot_runtime.pickupTarget) == "function" then
+        if dist <= interact_range then
+            local now = now_seconds()
+            local retry = math.max(0.2, tonumber(cfg.combat.loot_retry_interval) or 1.0)
+            if c.last_loot_interact_at > 0 and now - c.last_loot_interact_at < retry then
+                local picked_ok, picked_result = loot_runtime.waitPickupDialog({
+                    timeoutMs = 250,
+                    intervalMs = 50,
+                    sleep = sleep,
+                    now_ms = function()
+                        return math.floor(now_seconds() * 1000)
+                    end,
+                    log = function(event, message)
+                        combat_log("loot-flow:" .. tostring(event) .. ":" .. tostring(loot_key), tostring(message or ""), 1.0, false)
+                    end,
+                })
+                if picked_ok then
+                    combat_finish_loot(tostring(picked_result and picked_result.source or "pickup-dialog"),
+                        "module wait obj=" .. tostring(loot_key))
+                    return true
+                end
+                combat_set_status("loot-wait-dialog", c.loot_name, false)
+                combat_log("loot-wait:" .. tostring(loot_key), "loot wait dialog name=" .. c.loot_name, 1.0, false)
+                return true
+            end
+
+            if previous_loot_obj ~= loot_key then
+                c.loot_attempts = 0
+            end
+            c.loot_attempts = (tonumber(c.loot_attempts) or 0) + 1
+            c.last_loot_interact_at = now
+
+            local max_attempts = math.max(1, tonumber(cfg.combat.loot_max_attempts) or 5)
+            if c.loot_attempts > max_attempts then
+                combat_ignore_loot(loot_key)
+                c.loot_attempts = 0
+                c.post_kill_until = 0
+                combat_set_status("loot-give-up", c.loot_name, true)
+                combat_log("loot-give-up:" .. tostring(loot_key), "loot give up name=" .. c.loot_name .. " obj=" .. tostring(loot_key), 0, true)
+                return false
+            end
+        end
+
+        local pick_ok, pick_result, pick_err = loot_runtime.pickupTarget(loot_target, {
+            char = char,
+            interactRange = interact_range,
+            keycode = tonumber(cfg.combat.loot_keycode) or 67,
+            waitTimeoutMs = 1200,
+            intervalMs = 100,
+            sleep = sleep,
+            now_ms = function()
+                return math.floor(now_seconds() * 1000)
+            end,
+            log = function(event, message)
+                combat_log("loot-flow:" .. tostring(event) .. ":" .. tostring(loot_key), tostring(message or ""), 1.0, false)
+            end,
+        })
+
+        local status = tostring(pick_result and pick_result.status or "")
+        if pick_ok and status == "picked" then
+            combat_finish_loot(tostring(pick_result.source or "pickup"), "module obj=" .. tostring(loot_key))
+            return true
+        end
+        if pick_ok and status == "moving" then
+            c.loot_distance = tonumber(pick_result.distance) or dist
+            combat_set_status("loot-moving", string.format("%.1f", tonumber(c.loot_distance) or 0), false)
+            combat_log("loot-moving:" .. tostring(loot_key),
+                string.format("loot moving name=%s obj=%s dist=%.1f range=%.1f",
+                    c.loot_name,
+                    tostring(loot_key),
+                    tonumber(c.loot_distance) or 0,
+                    tonumber(interact_range) or 0),
+                1.0,
+                false)
+            return true
+        end
+        if pick_ok and status == "wait_dialog" then
+            combat_set_status("loot-wait-dialog", c.loot_name, false)
+            combat_log("loot-wait:" .. tostring(loot_key),
+                "loot opened but dialog not picked err=" .. tostring(pick_err or (pick_result and pick_result.error)),
+                1.0,
+                false)
+            return true
+        end
+        if not pick_ok then
+            combat_set_status("loot-error", tostring(pick_err or (pick_result and pick_result.error)), true)
+            combat_log("loot-module-failed:" .. tostring(loot_key),
+                "loot module failed err=" .. tostring(pick_err or (pick_result and pick_result.error)),
+                0,
+                true)
+            return false
+        end
+    end
+
     if dist > interact_range then
         if ok_nav and nav then
             local move_ok, _, move_err = nav.moveTo(loot_target.x or 0, loot_target.y or 0, loot_target.z or 0)
@@ -3397,6 +3504,13 @@ function combat_auto_on(force_start)
 end
 
 function combat_auto_off(reason, force_log)
+    if type(combat_uses_attack_key) == "function" and combat_uses_attack_key() then
+        combat_log("auto-off-skip:" .. tostring(reason or "manual"),
+            "auto battle off skipped because attack trigger is key1",
+            force_log and 0 or 1.0,
+            force_log == true)
+        return false, "key1-trigger"
+    end
     if ok_combat and combat and not cfg.combat.keep_auto_battle then
         local c = runtime.combat
         local ok, value, err = combat.autoBattleOff()
@@ -3422,15 +3536,33 @@ function combat_begin_post_kill(reason, entity)
     if obj <= 0 then
         return false
     end
-    local wait_seconds = math.max(0.5, tonumber(cfg.combat.post_kill_loot_seconds) or 3.0)
+    local loot_enabled = cfg.combat and cfg.combat.loot_enabled == true
+    local wait_seconds = loot_enabled and math.max(0.5, tonumber(cfg.combat.post_kill_loot_seconds) or 3.0) or 0
     c.last_killed_obj = obj
     c.last_killed_name = tostring(c.target_name or (entity and entity.name) or "")
-    c.post_kill_until = now_seconds() + wait_seconds
+    c.post_kill_until = loot_enabled and (now_seconds() + wait_seconds) or 0
     c.target_obj = 0
     c.target_name = ""
     c.target_distance = 0
     c.force_auto_until = 0
     c.last_force_auto_at = 0
+    c.last_attack_key_at = 0
+    c.last_attack_key_obj = 0
+    if not loot_enabled then
+        c.loot_obj = 0
+        c.loot_name = ""
+        c.loot_distance = 0
+        c.loot_attempts = 0
+        combat_set_status("target-ended", c.last_killed_name, false)
+        combat_log("post-kill-skip-loot:" .. tostring(obj),
+            string.format("target ended reason=%s name=%s obj=%s loot_enabled=false",
+                tostring(reason or ""),
+                tostring(c.last_killed_name or ""),
+                tostring(obj)),
+            0,
+            true)
+        return true
+    end
     combat_auto_off(reason or "target-ended", true)
     combat_set_status("post-kill-loot", c.last_killed_name, false)
     combat_log("post-kill:" .. tostring(obj),
@@ -3472,6 +3604,8 @@ function combat_abort_target(reason, entity)
     c.post_kill_until = 0
     c.force_auto_until = 0
     c.last_force_auto_at = 0
+    c.last_attack_key_at = 0
+    c.last_attack_key_obj = 0
     c.loot_obj = 0
     c.loot_name = ""
     c.loot_attempts = 0
@@ -3581,6 +3715,53 @@ function combat_stop_movement_for_target(reason)
     return false, err
 end
 
+function combat_attack_trigger_mode()
+    normalize_combat_mode()
+    return tonumber(cfg.combat and cfg.combat.attack_trigger_mode) or 1
+end
+
+function combat_uses_attack_key()
+    return combat_attack_trigger_mode() == 1
+end
+
+function combat_send_attack_key(target, obj, reason)
+    obj = tonumber(obj) or combat_entity_obj(target)
+    if obj <= 0 then
+        return false, "invalid target obj"
+    end
+
+    local c = runtime.combat
+    local ok_remote, remote_runtime = pcall(require, "aion.remote")
+    if not ok_remote or not remote_runtime or type(remote_runtime.pressKey) ~= "function" then
+        return false, "aion.remote unavailable"
+    end
+
+    local keycode = 49
+    local key_started = now_seconds()
+    local ok, _, err = remote_runtime.pressKey(keycode)
+    local key_ms = math.max(0, (now_seconds() - key_started) * 1000)
+    if ok then
+        c.last_attack_key_at = now_seconds()
+        c.last_attack_key_obj = obj
+        combat_log("attack-key:" .. tostring(obj),
+            string.format("attack key sent key=%s(main 1) reason=%s name=%s obj=%s key_ms=%.0f",
+                tostring(keycode),
+                tostring(reason or ""),
+                tostring(target and target.name or ""),
+                tostring(obj),
+                key_ms),
+            0,
+            true)
+        return true, "sent", key_ms
+    end
+
+    combat_log("attack-key-failed:" .. tostring(obj),
+        "attack key failed key=" .. tostring(keycode) .. " reason=" .. tostring(reason or "") .. " err=" .. tostring(err),
+        0,
+        true)
+    return false, err or "PressKey failed"
+end
+
 function combat_engage_target(target)
     local c = runtime.combat
     local obj = combat_entity_obj(target)
@@ -3597,9 +3778,10 @@ function combat_engage_target(target)
     local select_ms = 0
     local auto_ms = 0
     local same_target = tonumber(c.target_obj) == obj
+    local use_attack_key = combat_uses_attack_key()
     local force_auto_on = false
     local auto_handled = false
-    local auto_state = "new-target"
+    local auto_state = use_attack_key and "key1-new-target" or "new-target"
     if not same_target then
         local select_started = now_seconds()
         local select_ok, selected, select_err = combat.selectTarget(obj)
@@ -3617,27 +3799,39 @@ function combat_engage_target(target)
         c.target_name = tostring(target.name or "")
         c.target_distance = tonumber(target.distance) or 0
         c.post_kill_until = 0
-        c.force_auto_until = now_seconds() + (tonumber(cfg.combat.auto_force_window) or 0.60)
-        c.last_force_auto_at = 0
-        force_auto_on = true
-        local auto_started = now_seconds()
-        local auto_ok, auto_err, already_on = combat_auto_on(true)
-        auto_ms = math.max(0, (now_seconds() - auto_started) * 1000)
-        if not auto_ok then
-            combat_set_status("auto-battle-failed", tostring(auto_err), true)
-            combat_log("auto-failed:" .. tostring(obj),
-                "auto battle on failed name=" .. tostring(target.name or "") .. " obj=" .. tostring(obj) .. " err=" .. tostring(auto_err),
-                0,
-                true)
-            return false
-        end
-        if already_on then
-            auto_state = "already-on"
+        if use_attack_key then
+            c.force_auto_until = 0
+            c.last_force_auto_at = 0
+            local key_ok, key_state, key_ms = combat_send_attack_key(target, obj, "new-target")
+            auto_ms = tonumber(key_ms) or 0
+            if not key_ok then
+                combat_set_status("attack-key-failed", tostring(key_state), true)
+                return false
+            end
+            auto_state = "key1-" .. tostring(key_state or "sent")
         else
-            auto_state = "forced-start"
-            c.last_auto_on_at = now_seconds()
+            c.force_auto_until = now_seconds() + (tonumber(cfg.combat.auto_force_window) or 0.60)
+            c.last_force_auto_at = 0
+            force_auto_on = true
+            local auto_started = now_seconds()
+            local auto_ok, auto_err, already_on = combat_auto_on(true)
+            auto_ms = math.max(0, (now_seconds() - auto_started) * 1000)
+            if not auto_ok then
+                combat_set_status("auto-battle-failed", tostring(auto_err), true)
+                combat_log("auto-failed:" .. tostring(obj),
+                    "auto battle on failed name=" .. tostring(target.name or "") .. " obj=" .. tostring(obj) .. " err=" .. tostring(auto_err),
+                    0,
+                    true)
+                return false
+            end
+            if already_on then
+                auto_state = "already-on"
+            else
+                auto_state = "forced-start"
+                c.last_auto_on_at = now_seconds()
+            end
+            c.last_force_auto_at = now_seconds()
         end
-        c.last_force_auto_at = now_seconds()
         auto_handled = true
         c.last_move_at = 0
         combat_log("select:" .. tostring(obj),
@@ -3649,14 +3843,16 @@ function combat_engage_target(target)
             true)
     end
 
-    local should_auto_on = ((not same_target) or tostring(c.status or "") ~= "fighting") and not auto_handled
-    local force_window_active = same_target and (tonumber(c.force_auto_until) or 0) > now_seconds()
-    if force_window_active
+    local should_auto_on = (not use_attack_key) and ((not same_target) or tostring(c.status or "") ~= "fighting") and not auto_handled
+    local force_window_active = (not use_attack_key) and same_target and (tonumber(c.force_auto_until) or 0) > now_seconds()
+    if use_attack_key and same_target then
+        auto_state = "key1-once"
+    elseif force_window_active
         and now_seconds() - (tonumber(c.last_force_auto_at) or 0) >= (tonumber(cfg.combat.auto_force_interval) or 0.10) then
         force_auto_on = true
         should_auto_on = true
         auto_state = "force-window"
-    elseif same_target and tostring(c.status or "") == "fighting" and combat.isAutoBattleOn then
+    elseif (not use_attack_key) and same_target and tostring(c.status or "") == "fighting" and combat.isAutoBattleOn then
         local state_ok, is_on, state_err = combat.isAutoBattleOn()
         if state_ok then
             auto_state = tostring(is_on == true)
@@ -3669,7 +3865,7 @@ function combat_engage_target(target)
                 2.0,
                 false)
         end
-    elseif same_target and tostring(c.status or "") == "fighting" then
+    elseif (not use_attack_key) and same_target and tostring(c.status or "") == "fighting" then
         auto_state = "unchecked"
         should_auto_on = false
     end
@@ -3705,7 +3901,7 @@ function combat_engage_target(target)
     c.target_name = tostring(target.name or "")
     c.target_distance = tonumber(target.distance) or 0
     c.post_kill_until = 0
-    if not same_target then
+    if not same_target and not use_attack_key then
         c.force_auto_until = math.max(tonumber(c.force_auto_until) or 0, now_seconds() + (tonumber(cfg.combat.auto_force_window) or 0.60))
     end
     if not same_target then
@@ -3713,13 +3909,14 @@ function combat_engage_target(target)
     end
     combat_set_status("fighting", c.target_name, false)
     combat_log("fighting:" .. tostring(obj),
-        string.format("fighting name=%s obj=%s dist=%.1f hp=%s/%s same=%s auto=%s force=%s auto_state=%s select_ms=%.0f auto_ms=%.0f total_ms=%.0f",
+        string.format("fighting name=%s obj=%s dist=%.1f hp=%s/%s same=%s trigger=%s auto=%s force=%s auto_state=%s select_ms=%.0f auto_ms=%.0f total_ms=%.0f",
             c.target_name,
             tostring(obj),
             tonumber(c.target_distance) or 0,
             tostring(target.hp or ""),
             tostring(target.mhp or ""),
             tostring(same_target),
+            use_attack_key and "key1" or "auto_battle",
             tostring(should_auto_on),
             tostring(force_auto_on),
             tostring(auto_state),
@@ -8989,6 +9186,8 @@ function combat_config_signature()
         tostring(c.return_radius),
         tostring(c.tick_interval),
         tostring(c.move_resend_interval),
+        tostring(c.attack_trigger_mode),
+        tostring(c.attack_keycode),
         tostring(c.stop_move_on_target),
         tostring(c.loot_enabled),
         tostring(c.loot_radius),
@@ -9049,7 +9248,16 @@ local function draw_combat_tab()
     end
 
     changed, val = imgui.checkbox("启用拾取", cfg.combat.loot_enabled)
-    if changed then cfg.combat.loot_enabled = val end
+    if changed then
+        cfg.combat.loot_enabled = val
+        if not val then
+            runtime.combat.post_kill_until = 0
+            runtime.combat.loot_obj = 0
+            runtime.combat.loot_name = ""
+            runtime.combat.loot_distance = 0
+            runtime.combat.loot_attempts = 0
+        end
+    end
 
     imgui.same_line()
     changed, val = imgui.checkbox("抢怪", cfg.combat.allow_kill_steal)
@@ -9071,6 +9279,12 @@ local function draw_combat_tab()
     imgui.set_next_item_width(220)
     changed, val = imgui.combo("目标策略", cfg.combat.target_policy, combat_target_policies)
     if changed then cfg.combat.target_policy = val end
+
+    changed, val = imgui.checkbox("使用游戏自动战斗", tonumber(cfg.combat.attack_trigger_mode) == 2)
+    if changed then cfg.combat.attack_trigger_mode = val and 2 or 1 end
+    if tonumber(cfg.combat.attack_trigger_mode) ~= 2 then
+        imgui.text("当前每次新锁怪后只后台按一次主键盘 1，键码 49")
+    end
 
     imgui.set_next_item_width(90)
     changed, val = imgui.input_int("搜索半径", cfg.combat.radius)
