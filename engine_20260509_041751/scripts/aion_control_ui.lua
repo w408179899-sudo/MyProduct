@@ -169,6 +169,11 @@ local runtime = {
         last_force_auto_at = 0,
         last_attack_key_at = 0,
         last_attack_key_obj = 0,
+        target_started_at = 0,
+        target_start_hp = 0,
+        target_last_hp = 0,
+        target_last_damage_at = 0,
+        target_ignored = {},
         anchor_distance = 0,
         patrol_points = {},
         patrol_index = 1,
@@ -295,6 +300,8 @@ local cfg = {
         move_resend_interval = 2.0,
         attack_trigger_mode = 1,
         attack_keycode = 49,
+        target_no_damage_seconds = 6.0,
+        target_ignore_seconds = 20.0,
         auto_force_window = 0.60,
         auto_force_interval = 0.10,
         stop_move_on_target = false,
@@ -1983,6 +1990,11 @@ function combat_reset_runtime(reason)
     c.last_force_auto_at = 0
     c.last_attack_key_at = 0
     c.last_attack_key_obj = 0
+    c.target_started_at = 0
+    c.target_start_hp = 0
+    c.target_last_hp = 0
+    c.target_last_damage_at = 0
+    c.target_ignored = {}
     c.anchor_distance = 0
     c.patrol_points = {}
     c.patrol_index = 1
@@ -2447,13 +2459,22 @@ function combat_target_reject_reason(e, anchor)
         end
     end
 
+    local obj = combat_entity_obj(e)
+    if obj <= 0 then
+        return "obj"
+    end
+
+    local ignored_until = runtime.combat.target_ignored and runtime.combat.target_ignored[obj]
+    if ignored_until then
+        if now_seconds() < ignored_until then
+            return "ignored"
+        end
+        runtime.combat.target_ignored[obj] = nil
+    end
+
     local radius = tonumber(cfg.combat.radius) or 35
     if ok_core and core and core.distance3(anchor, e) > radius then
         return "radius"
-    end
-
-    if combat_entity_obj(e) <= 0 then
-        return "obj"
     end
     return nil
 end
@@ -3023,6 +3044,82 @@ function combat_ignore_loot(obj)
     combat_log("loot-ignore:" .. tostring(obj), "loot ignored obj=" .. tostring(obj), 0, true)
 end
 
+function combat_ignore_target(obj, reason, name)
+    obj = tonumber(obj) or 0
+    if obj <= 0 then
+        return
+    end
+    local seconds = math.max(1, tonumber(cfg.combat.target_ignore_seconds) or 20)
+    runtime.combat.target_ignored = runtime.combat.target_ignored or {}
+    runtime.combat.target_ignored[obj] = now_seconds() + seconds
+    combat_log("target-ignore:" .. tostring(obj),
+        string.format("target ignored reason=%s name=%s obj=%s seconds=%.1f",
+            tostring(reason or ""),
+            tostring(name or ""),
+            tostring(obj),
+            seconds),
+        0,
+        true)
+end
+
+function combat_reset_target_progress()
+    local c = runtime.combat
+    c.target_started_at = 0
+    c.target_start_hp = 0
+    c.target_last_hp = 0
+    c.target_last_damage_at = 0
+end
+
+function combat_begin_target_progress(target, obj)
+    local c = runtime.combat
+    local now = now_seconds()
+    local hp = tonumber(target and target.hp) or 0
+    c.target_started_at = now
+    c.target_start_hp = hp
+    c.target_last_hp = hp
+    c.target_last_damage_at = now
+end
+
+function combat_target_failure_reason(target, obj)
+    if not combat_uses_attack_key() then
+        return nil
+    end
+    obj = tonumber(obj) or 0
+    if obj <= 0 or type(target) ~= "table" then
+        return nil
+    end
+
+    local c = runtime.combat
+    local now = now_seconds()
+    local hp = tonumber(target.hp) or 0
+    local last_hp = tonumber(c.target_last_hp) or 0
+    if hp > 0 and last_hp > 0 and hp < last_hp then
+        c.target_last_hp = hp
+        c.target_last_damage_at = now
+        return nil
+    end
+    if hp > last_hp then
+        c.target_last_hp = hp
+    elseif last_hp <= 0 and hp > 0 then
+        c.target_last_hp = hp
+    end
+
+    local started = tonumber(c.target_started_at) or 0
+    if started <= 0 then
+        combat_begin_target_progress(target, obj)
+        return nil
+    end
+
+    local last_damage = tonumber(c.target_last_damage_at) or started
+    local timeout = math.max(1, tonumber(cfg.combat.target_no_damage_seconds) or 6)
+    local elapsed = now - last_damage
+    if elapsed >= timeout and hp > 0 then
+        return "no-damage"
+    end
+
+    return nil
+end
+
 function combat_send_loot_key(loot_target, obj, reason)
     obj = tonumber(obj) or combat_entity_obj(loot_target)
     if obj <= 0 then
@@ -3551,6 +3648,7 @@ function combat_begin_post_kill(reason, entity)
     c.last_force_auto_at = 0
     c.last_attack_key_at = 0
     c.last_attack_key_obj = 0
+    combat_reset_target_progress()
     if not loot_enabled then
         c.loot_obj = 0
         c.loot_name = ""
@@ -3609,6 +3707,7 @@ function combat_abort_target(reason, entity)
     c.last_force_auto_at = 0
     c.last_attack_key_at = 0
     c.last_attack_key_obj = 0
+    combat_reset_target_progress()
     c.loot_obj = 0
     c.loot_name = ""
     c.loot_attempts = 0
@@ -3802,6 +3901,7 @@ function combat_engage_target(target)
         c.target_name = tostring(target.name or "")
         c.target_distance = tonumber(target.distance) or 0
         c.post_kill_until = 0
+        combat_begin_target_progress(target, obj)
         if use_attack_key then
             c.force_auto_until = 0
             c.last_force_auto_at = 0
@@ -4057,22 +4157,29 @@ function combat_tick()
         local end_reason = combat_target_end_reason(tracked)
         if not end_reason then
             tracked.distance = core.distance3(char, tracked)
-            combat_log("tracked-target:" .. tostring(tracked_obj),
-                string.format("continue tracked target name=%s obj=%s dist=%.1f hp=%s/%s; skip move/loot",
-                    tostring(tracked.name or c.target_name or ""),
-                    tostring(tracked_obj),
-                    tonumber(tracked.distance) or 0,
-                    tostring(tracked.hp or ""),
-                    tostring(tracked.mhp or "")),
-                0.5,
-                false)
-            combat_engage_target(tracked)
-            return
+            local failure_reason = combat_target_failure_reason(tracked, tracked_obj)
+            if failure_reason then
+                combat_ignore_target(tracked_obj, failure_reason, tracked.name or c.target_name)
+                combat_abort_target(failure_reason, tracked)
+                target_lost_this_tick = true
+            else
+                combat_log("tracked-target:" .. tostring(tracked_obj),
+                    string.format("continue tracked target name=%s obj=%s dist=%.1f hp=%s/%s; skip move/loot",
+                        tostring(tracked.name or c.target_name or ""),
+                        tostring(tracked_obj),
+                        tonumber(tracked.distance) or 0,
+                        tostring(tracked.hp or ""),
+                        tostring(tracked.mhp or "")),
+                    0.5,
+                    false)
+                combat_engage_target(tracked)
+                return
+            end
         end
         if end_reason == "missing" then
             combat_abort_target("missing", tracked)
             target_lost_this_tick = true
-        else
+        elseif end_reason then
             combat_begin_post_kill(end_reason, tracked)
         end
     end
@@ -9191,6 +9298,8 @@ function combat_config_signature()
         tostring(c.move_resend_interval),
         tostring(c.attack_trigger_mode),
         tostring(c.attack_keycode),
+        tostring(c.target_no_damage_seconds),
+        tostring(c.target_ignore_seconds),
         tostring(c.stop_move_on_target),
         tostring(c.loot_enabled),
         tostring(c.loot_radius),
@@ -9288,6 +9397,15 @@ local function draw_combat_tab()
     if tonumber(cfg.combat.attack_trigger_mode) ~= 2 then
         imgui.text("当前每次新锁怪后只后台按一次主键盘 1，键码 49")
     end
+
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_float("无伤害超时秒", cfg.combat.target_no_damage_seconds)
+    if changed then cfg.combat.target_no_damage_seconds = math.max(1.0, val) end
+
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_float("失败忽略秒", cfg.combat.target_ignore_seconds)
+    if changed then cfg.combat.target_ignore_seconds = math.max(1.0, val) end
 
     imgui.set_next_item_width(90)
     changed, val = imgui.input_int("搜索半径", cfg.combat.radius)
