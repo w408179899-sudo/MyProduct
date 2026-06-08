@@ -2703,6 +2703,9 @@ end
 function combat_finish_loot(source, detail)
     local c = runtime.combat
     local picked_obj = tonumber(c.loot_obj) or 0
+    if picked_obj <= 0 then
+        picked_obj = tonumber(c.last_killed_obj) or 0
+    end
     if picked_obj > 0 then
         c.loot_ignored = c.loot_ignored or {}
         c.loot_ignored[picked_obj] = now_seconds() + 5
@@ -4119,15 +4122,15 @@ function combat_tick()
         end
         if (tonumber(c.post_kill_until) or 0) > now then
             combat_log("post-kill-no-loot:" .. tostring(c.last_killed_obj or 0),
-                string.format("no loot target, retarget immediately name=%s obj=%s",
+                string.format("no loot target yet, keep waiting name=%s obj=%s remain=%.1fs",
                     tostring(c.last_killed_name or ""),
-                    tostring(c.last_killed_obj or 0)),
+                    tostring(c.last_killed_obj or 0),
+                    math.max(0, (tonumber(c.post_kill_until) or 0) - now)),
                 0,
                 true)
-            c.post_kill_until = 0
-            c.loot_obj = 0
-            c.loot_name = ""
-            c.loot_attempts = 0
+            combat_auto_off("post-kill-wait", false)
+            combat_set_status("post-kill-wait", c.last_killed_name, false)
+            return
         end
     end
 
