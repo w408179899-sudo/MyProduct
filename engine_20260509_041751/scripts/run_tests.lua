@@ -52,6 +52,7 @@ local all_test_modules = {
     trajectory = "tests.test_trajectory",
     aion_post_kill_loot = "tests.test_aion_post_kill_loot",
     aion_attack_key_repeat = "tests.test_aion_attack_key_repeat",
+    aion_floor_recovery = "tests.test_aion_floor_recovery",
     aion_loot = "tests.test_aion_loot"
 }
 
@@ -63,7 +64,7 @@ local default_order = {
     "http", "auth",
     "resource", "crypto", "hotkey", "path", "ffi", "asm", "disasm",
     "config", "encoding", "grid", "driver", "trajectory",
-    "aion_post_kill_loot", "aion_attack_key_repeat", "aion_loot"
+    "aion_post_kill_loot", "aion_attack_key_repeat", "aion_floor_recovery", "aion_loot"
 }
 
 -- 解析命令行参数

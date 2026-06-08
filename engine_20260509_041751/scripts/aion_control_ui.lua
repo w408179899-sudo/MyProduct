@@ -193,6 +193,9 @@ local runtime = {
         last_select_at = 0,
         last_loot_at = 0,
         last_loot_interact_at = 0,
+        post_loot_maintenance_pending = false,
+        post_loot_maintenance_source = "",
+        post_loot_maintenance_at = 0,
         log_times = {},
         last_error = "",
     },
@@ -242,6 +245,16 @@ local runtime = {
         keycode_window_visible = false,
         keycode_target_kind = "",
         keycode_target_index = 0,
+        floor_recovery = {
+            active = false,
+            started_at = 0,
+            start_hp = 0,
+            last_hp = 0,
+            start_mp_percent = 0,
+            last_mp_percent = 0,
+            last_action = "",
+            last_reason = "",
+        },
     },
     target = {
         candidates = {},
@@ -480,6 +493,14 @@ local cfg = {
         sell_rules = "",
         hp_rules = {},
         mp_rules = {},
+        floor_recovery = {
+            enabled = false,
+            start_percent = 15,
+            recover_percent = 90,
+            sit_keycode = 56,
+            stand_keycode = 88,
+            cancel_on_damage = true,
+        },
     },
 
     safety = {
@@ -2030,8 +2051,21 @@ function combat_reset_runtime(reason)
     c.last_select_at = 0
     c.last_loot_at = 0
     c.last_loot_interact_at = 0
+    c.post_loot_maintenance_pending = false
+    c.post_loot_maintenance_source = ""
+    c.post_loot_maintenance_at = 0
     c.log_times = {}
     c.last_error = ""
+    if runtime.maintenance and type(runtime.maintenance.floor_recovery) == "table" then
+        runtime.maintenance.floor_recovery.active = false
+        runtime.maintenance.floor_recovery.started_at = 0
+        runtime.maintenance.floor_recovery.start_hp = 0
+        runtime.maintenance.floor_recovery.last_hp = 0
+        runtime.maintenance.floor_recovery.start_mp_percent = 0
+        runtime.maintenance.floor_recovery.last_mp_percent = 0
+        runtime.maintenance.floor_recovery.last_action = ""
+        runtime.maintenance.floor_recovery.last_reason = ""
+    end
     if reason then
         combat_log("reset", "reset reason=" .. tostring(reason), 0, true)
     end
@@ -2783,6 +2817,13 @@ function combat_clear_last_kill(reason, force_log)
     end
 end
 
+function combat_mark_post_loot_maintenance(source)
+    local c = runtime.combat
+    c.post_loot_maintenance_pending = true
+    c.post_loot_maintenance_source = tostring(source or "")
+    c.post_loot_maintenance_at = now_seconds()
+end
+
 function combat_clear_pending_loot(reason, ignore)
     local c = runtime.combat
     local loot_key = tonumber(c.loot_obj) or 0
@@ -2990,6 +3031,7 @@ function combat_finish_loot(source, detail)
         picked_obj = tonumber(c.last_killed_obj) or 0
     end
     c.last_loot_at = now
+    combat_mark_post_loot_maintenance(source)
     c.loot_obj = 0
     c.loot_name = ""
     c.loot_distance = 0
@@ -4770,6 +4812,273 @@ function combat_decide_post_kill_loot(args)
     }
 end
 
+function combat_floor_recovery_state()
+    runtime.maintenance = runtime.maintenance or {}
+    if type(runtime.maintenance.floor_recovery) ~= "table" then
+        runtime.maintenance.floor_recovery = {}
+    end
+    local state = runtime.maintenance.floor_recovery
+    if state.active == nil then
+        state.active = false
+    end
+    state.started_at = tonumber(state.started_at) or 0
+    state.start_hp = tonumber(state.start_hp) or 0
+    state.last_hp = tonumber(state.last_hp) or 0
+    state.start_mp_percent = tonumber(state.start_mp_percent) or 0
+    state.last_mp_percent = tonumber(state.last_mp_percent) or 0
+    state.last_action = tostring(state.last_action or "")
+    state.last_reason = tostring(state.last_reason or "")
+    return state
+end
+
+function combat_floor_recovery_settings()
+    normalize_supply_config()
+    local ok_module, module = pcall(require, "aion.floor_recovery")
+    if ok_module and module and type(module.from_config) == "function" then
+        return module.from_config(cfg.supply)
+    end
+    return cfg.supply and cfg.supply.floor_recovery or {
+        enabled = false,
+        start_percent = 15,
+        recover_percent = 90,
+        sit_keycode = 56,
+        stand_keycode = 88,
+        cancel_on_damage = true,
+    }
+end
+
+function combat_floor_recovery_decide(args)
+    local ok_module, module = pcall(require, "aion.floor_recovery")
+    if ok_module and module and type(module.decide) == "function" then
+        return module.decide(args)
+    end
+    return {
+        action = "skip",
+        reason = "module-unavailable",
+    }
+end
+
+function combat_floor_recovery_press_key(keycode, reason)
+    local raw_keycode = tonumber(keycode) or 0
+    if raw_keycode <= 0 then
+        return false, "invalid keycode"
+    end
+    keycode = math.max(1, math.min(255, math.floor(raw_keycode)))
+    local ok_remote, remote_runtime = pcall(require, "aion.remote")
+    if not ok_remote or not remote_runtime or type(remote_runtime.pressKey) ~= "function" then
+        return false, "aion.remote unavailable"
+    end
+
+    local started = now_seconds()
+    local ok, _, err = remote_runtime.pressKey(keycode)
+    local key_ms = math.max(0, (now_seconds() - started) * 1000)
+    if ok then
+        combat_log("floor-recovery-key:" .. tostring(reason or "") .. ":" .. tostring(keycode),
+            string.format("floor recovery key sent key=%s reason=%s key_ms=%.0f",
+                tostring(keycode),
+                tostring(reason or ""),
+                key_ms),
+            0,
+            true)
+        return true, nil
+    end
+
+    combat_log("floor-recovery-key-failed:" .. tostring(reason or "") .. ":" .. tostring(keycode),
+        "floor recovery key failed key=" .. tostring(keycode) .. " reason=" .. tostring(reason or "") .. " err=" .. tostring(err),
+        0,
+        true)
+    return false, tostring(err or "PressKey failed")
+end
+
+function combat_floor_percent_text(value)
+    local n = tonumber(value)
+    if n == nil then
+        return "?"
+    end
+    return string.format("%.1f", n)
+end
+
+function combat_floor_mp_pair_text(decision)
+    if type(decision) ~= "table" then
+        return "?/?"
+    end
+    return tostring(decision.mp_current or "?") .. "/" .. tostring(decision.mp_max or "?")
+end
+
+function combat_clear_floor_recovery(reason)
+    local state = combat_floor_recovery_state()
+    state.active = false
+    state.started_at = 0
+    state.start_hp = 0
+    state.last_hp = 0
+    state.start_mp_percent = 0
+    state.last_mp_percent = 0
+    state.last_action = ""
+    state.last_reason = tostring(reason or "")
+    runtime.combat.post_loot_maintenance_pending = false
+    runtime.combat.post_loot_maintenance_source = ""
+    runtime.combat.post_loot_maintenance_at = 0
+end
+
+function combat_update_floor_recovery_observation(state, decision)
+    local hp = tonumber(decision and decision.hp)
+    if hp ~= nil and hp > 0 then
+        if (tonumber(state.last_hp) or 0) <= 0 or hp > (tonumber(state.last_hp) or 0) then
+            state.last_hp = hp
+        end
+    end
+    local mp_percent = tonumber(decision and decision.mp_percent)
+    if mp_percent ~= nil then
+        state.last_mp_percent = mp_percent
+    end
+end
+
+function combat_handle_floor_recovery_after_loot(char)
+    local c = runtime.combat
+    local state = combat_floor_recovery_state()
+    local active = state.active == true
+    local pending_after_loot = c.post_loot_maintenance_pending == true
+    if not active and not pending_after_loot then
+        return false
+    end
+
+    local settings = combat_floor_recovery_settings()
+    local decision = combat_floor_recovery_decide({
+        settings = settings,
+        state = state,
+        after_loot_pending = pending_after_loot,
+        char = char,
+        in_combat = (tonumber(c.target_obj) or 0) > 0,
+        loot_pending = (tonumber(c.loot_obj) or 0) > 0,
+        post_kill_pending = (tonumber(c.last_killed_obj) or 0) > 0 or (tonumber(c.post_kill_until) or 0) > 0,
+    })
+
+    local action = tostring(decision and decision.action or "skip")
+    local reason = tostring(decision and decision.reason or "")
+    state.last_action = action
+    state.last_reason = reason
+
+    if action == "idle" then
+        return false
+    end
+
+    if action == "defer" then
+        combat_set_status("floor-recovery-defer", reason, false)
+        combat_log("floor-recovery-defer",
+            "floor recovery deferred reason=" .. reason,
+            0.5,
+            false)
+        return true
+    end
+
+    if action == "skip" then
+        c.post_loot_maintenance_pending = false
+        c.post_loot_maintenance_source = ""
+        c.post_loot_maintenance_at = 0
+        combat_log("floor-recovery-skip",
+            string.format("after-loot floor recovery skipped reason=%s mp=%s raw=%s start=%s recover=%s enabled=%s",
+                reason,
+                combat_floor_percent_text(decision and decision.mp_percent),
+                combat_floor_mp_pair_text(decision),
+                tostring(settings.start_percent),
+                tostring(settings.recover_percent),
+                tostring(settings.enabled == true)),
+            0,
+            true)
+        return false
+    end
+
+    if action == "start" then
+        local source = tostring(c.post_loot_maintenance_source or "")
+        c.post_loot_maintenance_pending = false
+        c.post_loot_maintenance_source = ""
+        c.post_loot_maintenance_at = 0
+        local key_ok, key_err = combat_floor_recovery_press_key(decision.keycode or settings.sit_keycode, "sit")
+        if not key_ok then
+            combat_set_status("floor-recovery-error", tostring(key_err), true)
+            return false
+        end
+        state.active = true
+        state.started_at = now_seconds()
+        state.start_hp = tonumber(decision.hp) or 0
+        state.last_hp = tonumber(decision.hp) or 0
+        state.start_mp_percent = tonumber(decision.mp_percent) or 0
+        state.last_mp_percent = tonumber(decision.mp_percent) or 0
+        combat_auto_off("floor-recovery-start", false)
+        combat_set_status("floor-recovery", "mp=" .. combat_floor_percent_text(decision.mp_percent) .. "%", true)
+        combat_log("floor-recovery-start",
+            string.format("after-loot floor recovery start mp=%s raw=%s start_below=%s recover_to=%s hp=%s source=%s",
+                combat_floor_percent_text(decision.mp_percent),
+                combat_floor_mp_pair_text(decision),
+                tostring(settings.start_percent),
+                tostring(settings.recover_percent),
+                tostring(decision.hp or ""),
+                source),
+            0,
+            true)
+        return true
+    end
+
+    if action == "wait" then
+        combat_update_floor_recovery_observation(state, decision)
+        combat_set_status("floor-recovery", "mp=" .. combat_floor_percent_text(decision.mp_percent) .. "%", false)
+        combat_log("floor-recovery-wait",
+            string.format("floor recovery wait mp=%s raw=%s recover_to=%s hp=%s elapsed=%.1fs",
+                combat_floor_percent_text(decision and decision.mp_percent),
+                combat_floor_mp_pair_text(decision),
+                tostring(settings.recover_percent),
+                tostring(decision and decision.hp or ""),
+                math.max(0, now_seconds() - (tonumber(state.started_at) or now_seconds()))),
+            1.0,
+            false)
+        return true
+    end
+
+    if action == "finish" then
+        local key_ok, key_err = combat_floor_recovery_press_key(decision.keycode or settings.stand_keycode, "stand")
+        if not key_ok then
+            combat_set_status("floor-recovery-stand-failed", tostring(key_err), true)
+            combat_update_floor_recovery_observation(state, decision)
+            return true
+        end
+        combat_log("floor-recovery-done",
+            string.format("floor recovery done mp=%s raw=%s recover_to=%s elapsed=%.1fs",
+                combat_floor_percent_text(decision and decision.mp_percent),
+                combat_floor_mp_pair_text(decision),
+                tostring(settings.recover_percent),
+                math.max(0, now_seconds() - (tonumber(state.started_at) or now_seconds()))),
+            0,
+            true)
+        combat_clear_floor_recovery("recovered")
+        combat_set_status("floor-recovery-done", "mp=" .. combat_floor_percent_text(decision.mp_percent) .. "%", false)
+        return true
+    end
+
+    if action == "cancel" then
+        combat_floor_recovery_press_key(decision.keycode or settings.stand_keycode, "cancel")
+        combat_log("floor-recovery-cancel",
+            string.format("floor recovery cancelled reason=%s mp=%s raw=%s hp=%s start_hp=%s last_hp=%s",
+                reason,
+                combat_floor_percent_text(decision and decision.mp_percent),
+                combat_floor_mp_pair_text(decision),
+                tostring(decision and decision.hp or ""),
+                tostring(state.start_hp or ""),
+                tostring(state.last_hp or "")),
+            0,
+            true)
+        combat_clear_floor_recovery(reason)
+        combat_set_status("floor-recovery-cancel", reason, true)
+        return false
+    end
+
+    c.post_loot_maintenance_pending = false
+    combat_log("floor-recovery-unknown",
+        "floor recovery unknown action=" .. action .. " reason=" .. reason,
+        0,
+        true)
+    return false
+end
+
 function combat_tick()
     if not combat_is_active_enabled() then
         combat_log("inactive",
@@ -5013,13 +5322,21 @@ function combat_tick()
                     0,
                     true)
                 combat_clear_last_kill("not-lootable", false)
+                combat_mark_post_loot_maintenance("post-kill-" .. tostring(decision.reason or reject_reason or "skip"))
                 combat_set_status("post-kill-skip", skip_name, false)
                 return
             end
 
             combat_clear_last_kill("post-kill-none", false)
+            combat_mark_post_loot_maintenance("post-kill-none")
         end
+    end
 
+    if combat_handle_floor_recovery_after_loot(char) then
+        return
+    end
+
+    if cfg.combat.loot_enabled then
         if combat_handle_priority_loot(list, char) then
             return
         end
@@ -11323,6 +11640,39 @@ function normalize_maintenance_rules(rules, default_percent)
     return normalized
 end
 
+function normalize_floor_recovery_config()
+    cfg.supply = cfg.supply or {}
+    local settings = nil
+    local ok_module, module = pcall(require, "aion.floor_recovery")
+    if ok_module and module and type(module.from_config) == "function" then
+        settings = module.from_config(cfg.supply)
+    else
+        local current = type(cfg.supply.floor_recovery) == "table" and cfg.supply.floor_recovery or {}
+        local start_percent = math.max(1, math.min(100, math.floor(tonumber(current.start_percent) or 15)))
+        local recover_percent = math.max(1, math.min(100, math.floor(tonumber(current.recover_percent) or 90)))
+        if recover_percent <= start_percent then
+            recover_percent = math.min(100, start_percent + 1)
+        end
+        settings = {
+            enabled = current.enabled == true,
+            start_percent = start_percent,
+            recover_percent = recover_percent,
+            sit_keycode = math.max(1, math.min(255, math.floor(tonumber(current.sit_keycode) or 56))),
+            stand_keycode = math.max(1, math.min(255, math.floor(tonumber(current.stand_keycode) or 88))),
+            cancel_on_damage = current.cancel_on_damage ~= false,
+        }
+    end
+    cfg.supply.floor_recovery = {
+        enabled = settings.enabled == true,
+        start_percent = settings.start_percent,
+        recover_percent = settings.recover_percent,
+        sit_keycode = settings.sit_keycode,
+        stand_keycode = settings.stand_keycode,
+        cancel_on_damage = settings.cancel_on_damage ~= false,
+    }
+    return cfg.supply.floor_recovery
+end
+
 function normalize_supply_config()
     cfg.supply = cfg.supply or {}
     cfg.supply.hp_percent = math.max(1, math.min(100, tonumber(cfg.supply.hp_percent) or 35))
@@ -11337,6 +11687,7 @@ function normalize_supply_config()
     cfg.supply.sell_rules = tostring(cfg.supply.sell_rules or "")
     cfg.supply.hp_rules = normalize_maintenance_rules(cfg.supply.hp_rules, cfg.supply.hp_percent)
     cfg.supply.mp_rules = normalize_maintenance_rules(cfg.supply.mp_rules, cfg.supply.mp_percent)
+    normalize_floor_recovery_config()
 end
 
 function add_maintenance_rule(kind)
@@ -11439,6 +11790,53 @@ function draw_maintenance_rule_section(kind)
             break
         end
     end
+end
+
+function maintenance_percent_text_input(id, value, fallback)
+    local current = math.floor(tonumber(value) or fallback or 1)
+    imgui.set_next_item_width(72)
+    local changed, text = imgui.input_text(id, tostring(current))
+    if changed and tonumber(text) then
+        return true, math.max(1, math.min(100, math.floor(tonumber(text) or current)))
+    end
+    return false, current
+end
+
+function draw_floor_recovery_section()
+    normalize_supply_config()
+    local rule = cfg.supply.floor_recovery
+    local changed, val
+
+    imgui.text("坐地板维护")
+    imgui.same_line()
+    changed, val = imgui.checkbox("启用##floor_recovery_enabled", rule.enabled == true)
+    if changed then
+        rule.enabled = val == true
+    end
+
+    imgui.text("蓝量低于")
+    imgui.same_line()
+    changed, val = maintenance_percent_text_input("##floor_recovery_start_percent", rule.start_percent, 15)
+    if changed then
+        rule.start_percent = val
+        if (tonumber(rule.recover_percent) or 90) <= rule.start_percent then
+            rule.recover_percent = math.min(100, rule.start_percent + 1)
+        end
+    end
+
+    imgui.same_line()
+    imgui.text("% 坐地板，恢复到")
+    imgui.same_line()
+    changed, val = maintenance_percent_text_input("##floor_recovery_recover_percent", rule.recover_percent, 90)
+    if changed then
+        rule.recover_percent = val
+        if rule.recover_percent <= (tonumber(rule.start_percent) or 15) then
+            rule.recover_percent = math.min(100, (tonumber(rule.start_percent) or 15) + 1)
+        end
+    end
+
+    imgui.same_line()
+    imgui.text("% 起来继续打怪")
 end
 
 KEYCODE_KEYBOARD_ROWS = {
@@ -11616,6 +12014,8 @@ function draw_maintenance_tab()
     normalize_supply_config()
 
     imgui.begin_group()
+    draw_floor_recovery_section()
+    imgui.spacing()
     draw_maintenance_rule_section("hp")
     imgui.spacing()
     draw_maintenance_rule_section("mp")
