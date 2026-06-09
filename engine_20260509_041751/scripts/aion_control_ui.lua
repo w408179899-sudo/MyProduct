@@ -477,6 +477,7 @@ local cfg = {
         mode = 1,
         start_level = 1,
         target_level = 50,
+        move_resend_interval = 0.5,
         npc_interact_settle_seconds = 0.5,
         prefer_quest = true,
         allow_grind = true,
@@ -6220,7 +6221,8 @@ function main_quest_execute_20590(action, state)
             main_quest_set_status("移动失败: aion.nav 不可用")
             return false
         end
-        if not main_quest_action_cooldown(name, 2.0) then
+        local move_interval = math.max(0.2, tonumber(cfg.leveling and cfg.leveling.move_resend_interval) or 0.5)
+        if not main_quest_action_cooldown(name, move_interval) then
             return true
         end
         local ok, moved, err = nav.moveTo(params.x, params.y, params.z)
