@@ -274,6 +274,7 @@ local runtime = {
         current_action_stage = "",
         trace_times = {},
         completed_20590_first_teleport = false,
+        completed_20590_inner_final_move = false,
         completed_20590_inner_teleport = false,
         completed_20590_temple_teleport = false,
         completed_20590_reward = false,
@@ -6198,6 +6199,7 @@ end
 function main_quest_is_move_action(action_name)
     action_name = tostring(action_name or "")
     return action_name == "NavigateToNpc"
+        or action_name == "FinalMoveToNpc"
         or action_name == "FollowRoute"
         or action_name == "WaitRouteComplete"
 end
@@ -6253,6 +6255,7 @@ function main_quest_reset_runtime(reason)
     r.current_action_stage = ""
     r.trace_times = {}
     r.completed_20590_first_teleport = false
+    r.completed_20590_inner_final_move = false
     r.completed_20590_inner_teleport = false
     r.completed_20590_temple_teleport = false
     r.completed_20590_reward = false
@@ -6422,6 +6425,9 @@ function main_quest_start_route(action, state)
     rt.loop = false
     rt.reverse_on_end = false
     rt.main_quest_stage = stage
+    if stage == "inner_npc" then
+        runtime.main_quest.completed_20590_inner_final_move = false
+    end
     main_quest_set_status(string.format(
         "开始主线路径 stage=%s route=%s index=%d/%d nearest=%.1f",
         stage,
@@ -6476,7 +6482,7 @@ function main_quest_execute_20590(action, state)
         return true
     end
 
-    if name == "NavigateToNpc" then
+    if name == "NavigateToNpc" or name == "FinalMoveToNpc" then
         if not ok_nav or not nav or type(nav.moveTo) ~= "function" then
             main_quest_set_status("移动失败: aion.nav 不可用")
             return false
@@ -6498,6 +6504,9 @@ function main_quest_execute_20590(action, state)
             r.last_nav_stage = tostring(params.stage or "")
             r.last_nav_at = now_seconds()
             r.last_nav_distance = tonumber(params.distance) or 0
+            if name == "FinalMoveToNpc" and tostring(params.stage or "") == "inner_npc" then
+                r.completed_20590_inner_final_move = true
+            end
         end
         return ok and moved ~= false
     end
@@ -6732,6 +6741,7 @@ function main_quest_20590_tick()
         waypoint_range = 2,
         dialog_click_x = tonumber(cfg.npc_dialog and cfg.npc_dialog.auto_click_x) or 25,
         route_following_stage = route_stage,
+        inner_final_move_done = runtime.main_quest.completed_20590_inner_final_move == true,
     })
     local dialog_sig = main_quest_dialog_signature(state.dialog)
     if dialog_sig ~= tostring(runtime.main_quest.last_dialog_signature or "") then

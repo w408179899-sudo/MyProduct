@@ -153,12 +153,30 @@ local function run()
         T.assert_eq(next_action.params.route_count, 18)
     end)
 
-    T.test("opens inner npc dialog when near inner npc", function()
+    T.test("final moves to inner npc before opening dialog", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quest = active_quest(2),
             char = { x = 522.3, y = 575.0, z = 322.0 },
             big_map_id = 390010000,
+        })
+
+        T.assert_eq(next_action.name, "FinalMoveToNpc")
+        T.assert_eq(next_action.params.stage, "inner_npc")
+        T.assert_eq(next_action.params.interact_id, 2424368065)
+        T.assert_eq(next_action.params.x, 522.68)
+        T.assert_eq(next_action.params.y, 573.38)
+        T.assert_eq(next_action.params.z, 322.03)
+    end)
+
+    T.test("opens inner npc dialog after final npc move", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quest = active_quest(2),
+            char = { x = 522.3, y = 575.0, z = 322.0 },
+            big_map_id = 390010000,
+        }, nil, {
+            inner_final_move_done = true,
         })
 
         T.assert_eq(next_action.name, "InteractNpc")

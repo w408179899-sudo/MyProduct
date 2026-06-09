@@ -179,11 +179,14 @@ cancel visible=true x=205 y=419
 1. 路径跟随和直接寻路都视为独立 action。
 2. 主线专用路径 `main_quest_20590:*` 仍在 `following=true` 时，不允许执行后续 `InteractNpc/ClickDialog/OK`，只返回 `WaitRouteComplete`。
 3. 从移动类 action（`FollowRoute/NavigateToNpc/WaitRouteComplete`）切到对话类 action（`InteractNpc/ClickDialog/OK`）时，统一等待 `leveling.action_delay_seconds`，默认 `0.5` 秒。
-4. 诊断日志使用 `[AionMainQuest20590Trace]` 前缀，重点看 `dialog-change`、`decision`、`action-switch`、`action-delay`、`interact-before/after`、`click-before/after`。
+4. 第二阶段走完记录路径后，在打开 `시간의 데바 잉그릴` 对话前，额外执行一次 `FinalMoveToNpc`，也就是 `MoveTo(522.68,573.38,322.03)`，成功后再进入 `InteractNpc`。
+5. 诊断日志使用 `[AionMainQuest20590Trace]` 前缀，重点看 `dialog-change`、`decision`、`action-switch`、`action-delay`、`interact-before/after`、`click-before/after`。
 
 相关测试：
 
 ```text
+aion_main_quest_20590: final moves to inner npc before opening dialog
+aion_main_quest_20590: opens inner npc dialog after final npc move
 aion_main_quest_20590: waits for active inner route before opening npc dialog
 aion_main_quest_20590: does not re-interact when inner npc dialog is already open but unknown
 aion_main_quest_20590: does not re-interact when temple npc dialog is already open but unknown

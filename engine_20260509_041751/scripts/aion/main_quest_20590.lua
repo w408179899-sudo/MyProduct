@@ -408,6 +408,21 @@ function M.nextInnerAction(state, quest, opts)
     end
 
     local dialog = state.dialog
+    if type(dialog) ~= "table" and opts.inner_final_move_done ~= true then
+        return action("FinalMoveToNpc", "final move to inner mission npc", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = "inner_npc",
+            interact_id = M.inner_npc.interact_id,
+            npc_name = M.inner_npc.name,
+            x = M.inner_npc.x,
+            y = M.inner_npc.y,
+            z = M.inner_npc.z,
+            distance = dist,
+            range = range,
+        })
+    end
+
     if type(dialog) ~= "table" then
         return action("InteractNpc", "open inner mission npc dialog", {
             quest_id = M.quest_id,
