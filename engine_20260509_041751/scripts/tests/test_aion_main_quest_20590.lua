@@ -135,7 +135,7 @@ local function run()
         T.assert_eq(next_action.params.stage, "first_npc_teleport")
     end)
 
-    T.test("follows recorded inner route when quest step is 2", function()
+    T.test("starts recorded inner route when quest step is 2", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quest = active_quest(2),
@@ -143,9 +143,12 @@ local function run()
             big_map_id = 390010000,
         })
 
-        T.assert_eq(next_action.name, "NavigateToNpc")
+        T.assert_eq(next_action.name, "FollowRoute")
         T.assert_eq(next_action.params.stage, "inner_npc")
         T.assert_eq(next_action.params.interact_id, 2424368065)
+        T.assert_eq(next_action.params.npc_name, "시간의 데바 잉그릴")
+        T.assert_eq(next_action.params.route_name, "main_quest_20590_inner")
+        T.assert_eq(#next_action.params.route_points, 18)
         T.assert_eq(next_action.params.route_index, 2)
         T.assert_eq(next_action.params.route_count, 18)
     end)
@@ -161,6 +164,7 @@ local function run()
         T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.stage, "inner_npc")
         T.assert_eq(next_action.params.interact_id, 2424368065)
+        T.assert_eq(next_action.params.npc_name, "시간의 데바 잉그릴")
     end)
 
     T.test("marks inner npc dialog as simple teleport", function()
@@ -170,7 +174,7 @@ local function run()
             char = { x = 522.3, y = 575.0, z = 322.0 },
             big_map_id = 390010000,
             dialog = {
-                npc_dialog_id = 2424368065,
+                npc_dialog_id = 2427168962,
                 type_text = "select1",
                 dialog_content_id = 1011,
                 quest_id = 0,
@@ -180,6 +184,7 @@ local function run()
         T.assert_eq(next_action.name, "ClickDialogXWaitTeleport")
         T.assert_eq(next_action.params.stage, "inner_npc_teleport")
         T.assert_eq(next_action.params.expected_content_id, 1011)
+        T.assert_eq(next_action.params.npc_name, "시간의 데바 잉그릴")
     end)
 
     T.test("moves to temple npc when quest step is 3", function()

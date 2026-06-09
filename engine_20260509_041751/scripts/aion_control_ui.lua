@@ -478,7 +478,7 @@ local cfg = {
         start_level = 1,
         target_level = 50,
         move_resend_interval = 0.5,
-        npc_interact_settle_seconds = 0.5,
+        npc_interact_settle_seconds = 0,
         prefer_quest = true,
         allow_grind = true,
         allow_gather = false,
@@ -6208,6 +6208,96 @@ function main_quest_action_cooldown(action_name, seconds)
     return true
 end
 
+function main_quest_stop_route(stage, reason)
+    local rt = runtime.route
+    if type(rt) ~= "table" or rt.following ~= true then
+        return
+    end
+    if stage and stage ~= "" and tostring(rt.main_quest_stage or "") ~= tostring(stage) then
+        return
+    end
+    rt.following = false
+    rt.follow_field = nil
+    rt.follow_name = ""
+    rt.points = {}
+    rt.index = 1
+    rt.direction = 1
+    rt.moving_to = nil
+    rt.last_move_at = 0
+    rt.status = "主线路径停止"
+    rt.attach_runtime = false
+    rt.finish_shows_ui = false
+    rt.loop = nil
+    rt.reverse_on_end = nil
+    rt.test_only = false
+    rt.main_quest_stage = ""
+    log_info("[AionMainQuest20590] route stop stage=" .. tostring(stage or "") ..
+        " reason=" .. tostring(reason or ""))
+end
+
+function main_quest_start_route(action, state)
+    local params = type(action.params) == "table" and action.params or {}
+    local points = type(params.route_points) == "table" and params.route_points or {}
+    if #points <= 0 then
+        main_quest_set_status("主线路径失败: route_points 为空")
+        return false
+    end
+    if not ok_nav or not nav or type(nav.moveTo) ~= "function" then
+        main_quest_set_status("主线路径失败: aion.nav 不可用")
+        return false
+    end
+
+    local stage = tostring(params.stage or "")
+    local field = "main_quest_20590:" .. stage
+    local rt = runtime.route
+    if rt.following == true and tostring(rt.follow_field or "") == field then
+        return true
+    end
+
+    main_quest_stop_route(nil, "switch-main-quest-route")
+
+    local start_index = math.max(1, math.min(#points, tonumber(params.route_index) or 1))
+    local start_dist = tonumber(params.nearest_route_distance) or 0
+    if route_nearest_point then
+        local pos = state and state.char
+        if not pos and route_current_position then
+            local pos_ok, current_pos = route_current_position()
+            if pos_ok then
+                pos = current_pos
+            end
+        end
+        if pos then
+            start_index, start_dist = route_nearest_point(points, pos)
+        end
+    end
+
+    rt.following = true
+    rt.follow_field = field
+    rt.follow_name = tostring(params.route_name or field)
+    rt.points = points
+    rt.index = start_index
+    rt.direction = 1
+    rt.moving_to = nil
+    rt.last_move_at = 0
+    rt.laps = 0
+    rt.status = "主线路径移动"
+    rt.error = ""
+    rt.attach_runtime = false
+    rt.finish_shows_ui = false
+    rt.test_only = false
+    rt.loop = false
+    rt.reverse_on_end = false
+    rt.main_quest_stage = stage
+    main_quest_set_status(string.format(
+        "开始主线路径 stage=%s route=%s index=%d/%d nearest=%.1f",
+        stage,
+        rt.follow_name,
+        start_index,
+        #points,
+        start_dist))
+    return true
+end
+
 function main_quest_execute_20590(action, state)
     action = type(action) == "table" and action or {}
     state = type(state) == "table" and state or {}
@@ -6215,6 +6305,10 @@ function main_quest_execute_20590(action, state)
     local r = runtime.main_quest
     local name = tostring(action.name or "")
     local params = type(action.params) == "table" and action.params or {}
+
+    if name == "FollowRoute" then
+        return main_quest_start_route(action, state)
+    end
 
     if name == "NavigateToNpc" then
         if not ok_nav or not nav or type(nav.moveTo) ~= "function" then
@@ -6243,7 +6337,8 @@ function main_quest_execute_20590(action, state)
     end
 
     if name == "InteractNpc" then
-        local settle_seconds = math.max(0, tonumber(cfg.leveling and cfg.leveling.npc_interact_settle_seconds) or 0.5)
+        main_quest_stop_route(tostring(params.stage or ""), "interact-npc")
+        local settle_seconds = math.max(0, tonumber(cfg.leveling and cfg.leveling.npc_interact_settle_seconds) or 0)
         local stage = tostring(params.stage or "")
         local since_nav = now_seconds() - (tonumber(r.last_nav_at) or 0)
         if settle_seconds > 0
@@ -6264,8 +6359,21 @@ function main_quest_execute_20590(action, state)
             main_quest_set_status("打开NPC失败: aion.npc 不可用")
             return false
         end
-        local ok, result, err = npc_runtime.interactId(params.interact_id)
+        local ok, result, err = false, false, nil
+        local npc_name = tostring(params.npc_name or "")
+        if npc_name ~= "" and type(npc_runtime.interactByName) == "function" then
+            ok, result, err = npc_runtime.interactByName(npc_name)
+        end
+        if not ok or result == false then
+            local id_ok, id_result, id_err = npc_runtime.interactId(params.interact_id)
+            if id_ok and id_result ~= false then
+                ok, result, err = id_ok, id_result, id_err
+            else
+                err = tostring(err or "") .. " id_err=" .. tostring(id_err or id_result or "")
+            end
+        end
         main_quest_set_status("打开首个主线NPC对话 interact_id=" .. tostring(params.interact_id) ..
+            " name=" .. tostring(params.npc_name or "") ..
             " result=" .. tostring(result) .. " err=" .. tostring(err or ""))
         return ok and result ~= false
     end

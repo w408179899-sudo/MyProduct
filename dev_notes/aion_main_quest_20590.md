@@ -59,9 +59,11 @@ quest_id=20590
 status_code=3
 req_count=2
 npc=시간의 데바 잉그릴
-interact_id=2424368065
+interact_id=2424368065 / 2427168962
 npc_pos=522.68,573.38,322.03
 ```
+
+注意：这个 NPC 的 `interact_id` 已经出现过变化。自动化不要只依赖固定 `interact_id`，应优先按最近的精确 NPC 名称 `시간의 데바 잉그릴` 交互，再用历史 `interact_id` 兜底。
 
 移动路径：
 

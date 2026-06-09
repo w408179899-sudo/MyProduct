@@ -6,24 +6,28 @@ M.inner_big_map_id = 390010000
 M.temple_big_map_id = 120010000
 M.alder_big_map_id = 220010000
 M.npc = {
+    name = "판데모니움 근위병",
     interact_id = 2147533452,
     x = 1655.94,
     y = 1400.75,
     z = 194.67,
 }
 M.inner_npc = {
+    name = "시간의 데바 잉그릴",
     interact_id = 2424368065,
     x = 522.68,
     y = 573.38,
     z = 322.03,
 }
 M.temple_npc = {
+    name = "발데르",
     interact_id = 2147509246,
     x = 1469.00,
     y = 1466.00,
     z = 177.82,
 }
 M.reward_npc = {
+    name = "아스크",
     interact_id = 2147492916,
     x = 560.99,
     y = 2786.03,
@@ -280,6 +284,7 @@ function M.nextAction(state, runtime, opts)
         return action("NavigateToNpc", "move to first mission npc", {
             quest_id = M.quest_id,
             interact_id = M.npc.interact_id,
+            npc_name = M.npc.name,
             stage = "first_npc",
             x = M.npc.x,
             y = M.npc.y,
@@ -294,6 +299,7 @@ function M.nextAction(state, runtime, opts)
         return action("InteractNpc", "open first mission npc dialog", {
             quest_id = M.quest_id,
             interact_id = M.npc.interact_id,
+            npc_name = M.npc.name,
             stage = "first_npc",
         })
     end
@@ -308,6 +314,7 @@ function M.nextAction(state, runtime, opts)
             type_text = type_text,
             click_x = opts.dialog_click_x or 25,
             interact_id = M.npc.interact_id,
+            npc_name = M.npc.name,
             stage = step.action == "ClickDialogXWaitTeleport" and "first_npc_teleport" or "first_npc",
         })
     end
@@ -358,14 +365,17 @@ function M.nextInnerAction(state, quest, opts)
     if dist > range then
         local target, index, nearest_dist = M.routeTarget(M.inner_route, char, opts.waypoint_range or 2.0)
         target = target or M.inner_npc
-        return action("NavigateToNpc", "move to inner mission npc", {
+        return action("FollowRoute", "follow inner mission route", {
             quest_id = M.quest_id,
             quest_step = M.questStep(quest),
             stage = "inner_npc",
             interact_id = M.inner_npc.interact_id,
+            npc_name = M.inner_npc.name,
             x = target.x,
             y = target.y,
             z = target.z,
+            route_name = "main_quest_20590_inner",
+            route_points = M.inner_route,
             final_x = M.inner_npc.x,
             final_y = M.inner_npc.y,
             final_z = M.inner_npc.z,
@@ -378,12 +388,13 @@ function M.nextInnerAction(state, quest, opts)
     end
 
     local dialog = state.dialog
-    if type(dialog) ~= "table" or number(dialog.npc_dialog_id) ~= M.inner_npc.interact_id then
+    if type(dialog) ~= "table" then
         return action("InteractNpc", "open inner mission npc dialog", {
             quest_id = M.quest_id,
             quest_step = M.questStep(quest),
             stage = "inner_npc",
             interact_id = M.inner_npc.interact_id,
+            npc_name = M.inner_npc.name,
         })
     end
 
@@ -398,7 +409,18 @@ function M.nextInnerAction(state, quest, opts)
             type_text = type_text,
             click_x = opts.dialog_click_x or 25,
             interact_id = M.inner_npc.interact_id,
+            npc_name = M.inner_npc.name,
             stage = "inner_npc_teleport",
+        })
+    end
+
+    if number(dialog.npc_dialog_id) ~= M.inner_npc.interact_id then
+        return action("InteractNpc", "open inner mission npc dialog", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = "inner_npc",
+            interact_id = M.inner_npc.interact_id,
+            npc_name = M.inner_npc.name,
         })
     end
 
@@ -408,6 +430,7 @@ function M.nextInnerAction(state, quest, opts)
         type_text = type_text,
         content_id = number(dialog.dialog_content_id),
         interact_id = M.inner_npc.interact_id,
+        npc_name = M.inner_npc.name,
     })
 end
 
@@ -426,6 +449,7 @@ function M.nextTempleAction(state, quest, opts)
             quest_step = M.questStep(quest),
             stage = "temple_npc",
             interact_id = M.temple_npc.interact_id,
+            npc_name = M.temple_npc.name,
             x = M.temple_npc.x,
             y = M.temple_npc.y,
             z = M.temple_npc.z,
@@ -435,12 +459,13 @@ function M.nextTempleAction(state, quest, opts)
     end
 
     local dialog = state.dialog
-    if type(dialog) ~= "table" or number(dialog.npc_dialog_id) ~= M.temple_npc.interact_id then
+    if type(dialog) ~= "table" then
         return action("InteractNpc", "open temple mission npc dialog", {
             quest_id = M.quest_id,
             quest_step = M.questStep(quest),
             stage = "temple_npc",
             interact_id = M.temple_npc.interact_id,
+            npc_name = M.temple_npc.name,
         })
     end
 
@@ -455,7 +480,18 @@ function M.nextTempleAction(state, quest, opts)
             type_text = type_text,
             click_x = opts.dialog_click_x or 25,
             interact_id = M.temple_npc.interact_id,
+            npc_name = M.temple_npc.name,
             stage = step.action == "ClickDialogXWaitTeleport" and "temple_npc_teleport" or "temple_npc",
+        })
+    end
+
+    if number(dialog.npc_dialog_id) ~= M.temple_npc.interact_id then
+        return action("InteractNpc", "open temple mission npc dialog", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = "temple_npc",
+            interact_id = M.temple_npc.interact_id,
+            npc_name = M.temple_npc.name,
         })
     end
 
@@ -466,6 +502,7 @@ function M.nextTempleAction(state, quest, opts)
         type_text = type_text,
         content_id = number(dialog.dialog_content_id),
         interact_id = M.temple_npc.interact_id,
+        npc_name = M.temple_npc.name,
     })
 end
 
@@ -484,6 +521,7 @@ function M.nextRewardAction(state, quest, opts)
             quest_step = M.questStep(quest),
             stage = "reward_npc",
             interact_id = M.reward_npc.interact_id,
+            npc_name = M.reward_npc.name,
             x = M.reward_npc.x,
             y = M.reward_npc.y,
             z = M.reward_npc.z,
@@ -493,12 +531,13 @@ function M.nextRewardAction(state, quest, opts)
     end
 
     local dialog = state.dialog
-    if type(dialog) ~= "table" or number(dialog.npc_dialog_id) ~= M.reward_npc.interact_id then
+    if type(dialog) ~= "table" then
         return action("InteractNpc", "open reward npc dialog", {
             quest_id = M.quest_id,
             quest_step = M.questStep(quest),
             stage = "reward_npc",
             interact_id = M.reward_npc.interact_id,
+            npc_name = M.reward_npc.name,
         })
     end
 
@@ -513,7 +552,18 @@ function M.nextRewardAction(state, quest, opts)
             type_text = type_text,
             click_x = opts.dialog_click_x or 25,
             interact_id = M.reward_npc.interact_id,
+            npc_name = M.reward_npc.name,
             stage = "reward_npc",
+        })
+    end
+
+    if number(dialog.npc_dialog_id) ~= M.reward_npc.interact_id then
+        return action("InteractNpc", "open reward npc dialog", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = "reward_npc",
+            interact_id = M.reward_npc.interact_id,
+            npc_name = M.reward_npc.name,
         })
     end
 
@@ -524,6 +574,7 @@ function M.nextRewardAction(state, quest, opts)
         type_text = type_text,
         content_id = number(dialog.dialog_content_id),
         interact_id = M.reward_npc.interact_id,
+        npc_name = M.reward_npc.name,
     })
 end
 
