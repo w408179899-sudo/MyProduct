@@ -100,6 +100,9 @@ local function default_login_flow_config()
         agreement_retry_interval_ms = 1000,
         server_submit_attempts = 2,
         server_submit_interval_ms = 450,
+        create_character_recheck_timeout_seconds = 20,
+        create_character_recheck_interval_ms = 1000,
+        create_character_max_attempts = 4,
     }
 end
 
@@ -121,6 +124,9 @@ local function normalize_login_flow_config(flow)
     out.agreement_retry_interval_ms = math.max(250, out.agreement_retry_interval_ms)
     out.server_submit_attempts = math.max(1, math.min(4, math.floor(out.server_submit_attempts)))
     out.server_submit_interval_ms = math.max(150, out.server_submit_interval_ms)
+    out.create_character_recheck_timeout_seconds = math.max(3, out.create_character_recheck_timeout_seconds)
+    out.create_character_recheck_interval_ms = math.max(250, out.create_character_recheck_interval_ms)
+    out.create_character_max_attempts = math.max(1, math.min(8, math.floor(out.create_character_max_attempts)))
     return out
 end
 
@@ -146,6 +152,9 @@ local function load_accounts_config()
                 agreement_retry_interval_ms = get_queue_value("agreement_retry_interval_ms", 1000),
                 server_submit_attempts = get_queue_value("server_submit_attempts", 2),
                 server_submit_interval_ms = get_queue_value("server_submit_interval_ms", 450),
+                create_character_recheck_timeout_seconds = get_queue_value("create_character_recheck_timeout_seconds", 20),
+                create_character_recheck_interval_ms = get_queue_value("create_character_recheck_interval_ms", 1000),
+                create_character_max_attempts = get_queue_value("create_character_max_attempts", 4),
             }),
             items = {},
         }
@@ -168,6 +177,7 @@ local function load_accounts_config()
                 character = {
                     race = tonumber(get_queue_value(prefix .. "race", 0)) or 0,
                     job = tonumber(get_queue_value(prefix .. "job", 0)) or 0,
+                    gender = tonumber(get_queue_value(prefix .. "gender", -1)) or -1,
                 },
                 login = {
                     requested = true,

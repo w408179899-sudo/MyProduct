@@ -51,8 +51,13 @@ local all_test_modules = {
     driver = "tests.test_driver",
     trajectory = "tests.test_trajectory",
     aion_core = "tests.test_aion_core",
+    aion_target_dump = "tests.test_aion_target_dump",
+    aion_quest_snapshot = "tests.test_aion_quest_snapshot",
+    aion_main_quest_20590 = "tests.test_aion_main_quest_20590",
     aion_login_autostart = "tests.test_aion_login_autostart",
+    aion_login_flow_create_character = "tests.test_aion_login_flow_create_character",
     aion_post_kill_loot = "tests.test_aion_post_kill_loot",
+    aion_attack_key_burst = "tests.test_aion_attack_key_burst",
     aion_attack_key_repeat = "tests.test_aion_attack_key_repeat",
     aion_floor_recovery = "tests.test_aion_floor_recovery",
     aion_loot = "tests.test_aion_loot"
@@ -67,8 +72,12 @@ local default_order = {
     "resource", "crypto", "hotkey", "path", "ffi", "asm", "disasm",
     "config", "encoding", "grid", "driver", "trajectory",
     "aion_core",
+    "aion_target_dump",
+    "aion_quest_snapshot",
+    "aion_main_quest_20590",
     "aion_login_autostart",
-    "aion_post_kill_loot", "aion_attack_key_repeat", "aion_floor_recovery", "aion_loot"
+    "aion_login_flow_create_character",
+    "aion_post_kill_loot", "aion_attack_key_burst", "aion_attack_key_repeat", "aion_floor_recovery", "aion_loot"
 }
 
 -- 解析命令行参数

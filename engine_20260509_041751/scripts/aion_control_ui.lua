@@ -10,8 +10,9 @@
       F3       dump 5 UI controls nearest to the mouse position
       F4       dump server selection API details
       F5       dump nearest corpse candidates
+      F6       dump current selected target, character, map, and quest snapshot
       F7       show/hide window
-      F8       start/stop
+      F8       dump current NPC dialog information
       F9       run safe API probe
       F10      pause/resume
       Ctrl+F12 exit
@@ -23,6 +24,9 @@ local ok_entity, entity = pcall(require, "aion.entity")
 local ok_inventory, inventory = pcall(require, "aion.inventory")
 local ok_quest, quest = pcall(require, "aion.quest")
 local ok_combat, combat = pcall(require, "aion.combat")
+ok_target_dump, target_dump = pcall(require, "aion.target_dump")
+ok_quest_snapshot, quest_snapshot = pcall(require, "aion.quest_snapshot")
+ok_main_quest_20590, main_quest_20590 = pcall(require, "aion.main_quest_20590")
 local ok_map, map = pcall(require, "aion.map")
 local ok_nav, nav = pcall(require, "aion.nav")
 local ok_route, route_lib = pcall(require, "aion.route")
@@ -237,6 +241,29 @@ local runtime = {
         last_status = "",
         last_dump = "",
     },
+    target_dump = {
+        last_status = "",
+        last_dump = "",
+    },
+    main_quest = {
+        last_status = "",
+        last_action = "",
+        last_action_at = 0,
+        last_quest_read_at = 0,
+        cached_quest = nil,
+        waiting_teleport = false,
+        teleport_stage = "",
+        teleport_start_pos = nil,
+        teleport_start_big_map_id = 0,
+        last_nav_stage = "",
+        last_nav_at = 0,
+        last_nav_distance = 0,
+        completed_20590_first_teleport = false,
+        completed_20590_inner_teleport = false,
+        completed_20590_temple_teleport = false,
+        completed_20590_reward = false,
+        completed_20590_teleport = false,
+    },
     skill_order = {
         left_index = 1,
         right_index = 1,
@@ -450,6 +477,7 @@ local cfg = {
         mode = 1,
         start_level = 1,
         target_level = 50,
+        npc_interact_settle_seconds = 0.5,
         prefer_quest = true,
         allow_grind = true,
         allow_gather = false,
@@ -1268,13 +1296,6 @@ local function audit_sample()
                 a.kinah_gain = a.kinah_gain + (kinah - a.last_kinah)
             end
             a.last_kinah = kinah
-        end
-    end
-
-    if ok_quest and quest then
-        local quest_ok, quests = quest.list()
-        if quest_ok and quests then
-            a.current.quests = count_array(quests)
         end
     end
 
@@ -3913,6 +3934,93 @@ function loot_test_dump_near_corpses()
     return true
 end
 
+function target_f6_set_status(text)
+    runtime.target_dump = runtime.target_dump or {}
+    runtime.target_dump.last_status = tostring(text or "")
+    set_event("[F6 target] " .. runtime.target_dump.last_status)
+    log_info("[AionTargetF6] " .. runtime.target_dump.last_status)
+end
+
+function target_f6_dump_selected()
+    runtime.target_dump = runtime.target_dump or {}
+    runtime.target_dump.last_dump = ""
+
+    if not ok_core or not core then
+        target_f6_set_status("failed: aion.core unavailable")
+        return false
+    end
+    if not ok_target_dump or not target_dump or type(target_dump.read) ~= "function" then
+        target_f6_set_status("failed: aion.target_dump unavailable " .. tostring(target_dump))
+        return false
+    end
+
+    target_refresh(true)
+    local pid = tonumber(cfg.target and cfg.target.pid) or nil
+    if (not pid or pid <= 0) and type(core.resolvePid) == "function" then
+        pid = tonumber(core.resolvePid()) or nil
+    end
+    if core.ensureInit then
+        local init_ok, init_err = core.ensureInit(pid)
+        if not init_ok then
+            target_f6_set_status("failed: init " .. tostring(init_err))
+            return false
+        end
+    end
+
+    local ok, result, err = target_dump.read({
+        core = core,
+        combat = ok_combat and combat or nil,
+        entity = ok_entity and entity or nil,
+    })
+    if not ok then
+        target_f6_set_status("failed: " .. tostring(err))
+        return false
+    end
+
+    result = type(result) == "table" and result or {}
+    local target_lines = type(result.lines) == "table" and result.lines or {}
+    if #target_lines <= 0 then
+        target_lines = { tostring(result.summary or result.status or "empty target result") }
+    end
+
+    local lines = {}
+    for _, line in ipairs(target_lines) do
+        lines[#lines + 1] = tostring(line or "")
+    end
+
+    if ok_quest_snapshot and quest_snapshot and type(quest_snapshot.read) == "function" then
+        local snap_ok, snap_result, snap_err = quest_snapshot.read({
+            core = core,
+            quest = ok_quest and quest or nil,
+            map = ok_map and map or nil,
+        })
+        if snap_ok then
+            snap_result = type(snap_result) == "table" and snap_result or {}
+            lines[#lines + 1] = ""
+            lines[#lines + 1] = "snapshot status=" .. tostring(snap_result.status or "") ..
+                " summary=" .. tostring(snap_result.summary or "")
+            local snap_lines = type(snap_result.lines) == "table" and snap_result.lines or {}
+            for _, line in ipairs(snap_lines) do
+                lines[#lines + 1] = tostring(line or "")
+            end
+        else
+            lines[#lines + 1] = "snapshot failed: " .. tostring(snap_err)
+        end
+    else
+        lines[#lines + 1] = "snapshot failed: aion.quest_snapshot unavailable " .. tostring(quest_snapshot)
+    end
+
+    log_info("[AionTargetF6] begin status=" .. tostring(result.status or "") .. " summary=" .. tostring(result.summary or ""))
+    for _, line in ipairs(lines) do
+        log_info("[AionTargetF6] " .. tostring(line or ""))
+    end
+    log_info("[AionTargetF6] end")
+
+    runtime.target_dump.last_dump = table.concat(lines, "\n")
+    target_f6_set_status(tostring(result.summary or result.status or "done"))
+    return true
+end
+
 function loot_test_pick_nearest()
     runtime.loot_test = runtime.loot_test or {}
     runtime.loot_test.last_dump = ""
@@ -5083,15 +5191,6 @@ end
 
 function combat_tick()
     if not combat_is_active_enabled() then
-        combat_log("inactive",
-            string.format("inactive running=%s paused=%s primary=%s combat_enabled=%s combat_mode=%s",
-                tostring(runtime.running),
-                tostring(runtime.paused),
-                tostring(cfg.primary_mode),
-                tostring(cfg.combat and cfg.combat.enabled),
-                tostring(cfg.combat and cfg.combat.mode)),
-            nil,
-            false)
         return
     end
 
@@ -5611,16 +5710,21 @@ end
 function npc_dump_current_dialog()
     local ready, npc_runtime, ui_runtime = npc_dialog_prepare_runtime()
     if not ready then
+        log_warn("[AionDialogF8] prepare failed: " .. tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or ""))
         return false
     end
 
     local dialog_ok, info_or_err, dialog_err = npc_runtime.dialog()
     if not dialog_ok then
-        npc_dialog_set_status("读取NPC对话失败: " .. tostring(dialog_err or info_or_err))
+        local message = "读取NPC对话失败: " .. tostring(dialog_err or info_or_err)
+        log_warn("[AionDialogF8] " .. message)
+        npc_dialog_set_status(message)
         return false
     end
     if not info_or_err then
-        npc_dialog_set_status("读取NPC对话失败: 当前没有打开NPC对话框")
+        local message = "读取NPC对话失败: 当前没有打开NPC对话框"
+        log_warn("[AionDialogF8] " .. message)
+        npc_dialog_set_status(message)
         return false
     end
 
@@ -5634,13 +5738,15 @@ function npc_dump_current_dialog()
         tostring(info.next_text or ""),
         tostring(info.has_next),
         tostring(info.content_text or ""))
-    log_info("[NPC-DIALOG] " .. summary)
+    log_info("[AionDialogF8] " .. summary)
 
     cfg.npc_dialog = cfg.npc_dialog or {}
     local depth = math.max(1, tonumber(cfg.npc_dialog.dialog_child_depth) or 6)
     local child_ok, children, child_err = ui_runtime.children("dlg_dialog", depth)
     if not child_ok then
-        npc_dialog_set_status("读取NPC对话子控件失败: " .. tostring(child_err))
+        local message = "读取NPC对话子控件失败: " .. tostring(child_err)
+        log_warn("[AionDialogF8] " .. message)
+        npc_dialog_set_status(message)
         return false
     end
 
@@ -5653,7 +5759,7 @@ function npc_dump_current_dialog()
             local line = npc_dialog_child_label(#capped, child)
             labels[#labels + 1] = line
             lines[#lines + 1] = line
-            log_info("[NPC-DIALOG-CHILD] " .. line)
+            log_info("[AionDialogF8] child " .. line)
             if #capped >= 120 then
                 break
             end
@@ -6004,10 +6110,288 @@ function npc_accept_quest_test()
     return true
 end
 
+function main_quest_set_status(text)
+    runtime.main_quest = runtime.main_quest or {}
+    local message = tostring(text or "")
+    runtime.main_quest.last_status = message
+    set_event("[主线] " .. message)
+    log_info("[AionMainQuest20590] " .. message)
+end
+
+function main_quest_reset_runtime(reason)
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    r.last_status = ""
+    r.last_action = ""
+    r.last_action_at = 0
+    r.last_quest_read_at = 0
+    r.cached_quest = nil
+    r.waiting_teleport = false
+    r.teleport_stage = ""
+    r.teleport_start_pos = nil
+    r.teleport_start_big_map_id = 0
+    r.last_nav_stage = ""
+    r.last_nav_at = 0
+    r.last_nav_distance = 0
+    r.completed_20590_first_teleport = false
+    r.completed_20590_inner_teleport = false
+    r.completed_20590_temple_teleport = false
+    r.completed_20590_reward = false
+    r.completed_20590_teleport = false
+    log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
+end
+
+function main_quest_cached_20590(now)
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+
+    if type(r.cached_quest) == "table"
+        and now - (tonumber(r.last_quest_read_at) or 0) < 3.0 then
+        return r.cached_quest
+    end
+
+    if ok_quest and quest and type(quest.findById) == "function" then
+        local ok, item = quest.findById(20590)
+        r.last_quest_read_at = now
+        if ok then
+            r.cached_quest = item
+            return item
+        end
+    end
+
+    for _, item in ipairs((runtime.bootstrap and runtime.bootstrap.quests) or {}) do
+        if tonumber(item.id) == 20590 then
+            r.cached_quest = item
+            r.last_quest_read_at = now
+            return item
+        end
+    end
+    return r.cached_quest
+end
+
+function main_quest_read_20590_state(now)
+    local state = {}
+    local char_ok, char = core.getCharacter()
+    if char_ok then
+        state.char = char
+    end
+
+    if ok_map and map and type(map.bigMapId) == "function" then
+        local map_ok, big_map_id = map.bigMapId()
+        if map_ok then
+            state.big_map_id = big_map_id
+        end
+    end
+
+    local ready, npc_runtime = npc_dialog_prepare_runtime()
+    if ready and npc_runtime then
+        local dialog_ok, info = npc_runtime.dialog()
+        if dialog_ok then
+            state.dialog = info
+        end
+    end
+
+    state.quest = main_quest_cached_20590(now)
+    return state
+end
+
+function main_quest_action_cooldown(action_name, seconds)
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    local now = now_seconds()
+    if r.last_action == action_name and now - (tonumber(r.last_action_at) or 0) < seconds then
+        return false
+    end
+    r.last_action = action_name
+    r.last_action_at = now
+    return true
+end
+
+function main_quest_execute_20590(action, state)
+    action = type(action) == "table" and action or {}
+    state = type(state) == "table" and state or {}
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    local name = tostring(action.name or "")
+    local params = type(action.params) == "table" and action.params or {}
+
+    if name == "NavigateToNpc" then
+        if not ok_nav or not nav or type(nav.moveTo) ~= "function" then
+            main_quest_set_status("移动失败: aion.nav 不可用")
+            return false
+        end
+        if not main_quest_action_cooldown(name, 2.0) then
+            return true
+        end
+        local ok, moved, err = nav.moveTo(params.x, params.y, params.z)
+        main_quest_set_status(string.format(
+            "前往主线NPC stage=%s route=%s/%s dist=%.1f result=%s err=%s",
+            tostring(params.stage or ""),
+            tostring(params.route_index or ""),
+            tostring(params.route_count or ""),
+            tonumber(params.distance) or 0,
+            tostring(moved),
+            tostring(err or "")))
+        if ok and moved ~= false then
+            r.last_nav_stage = tostring(params.stage or "")
+            r.last_nav_at = now_seconds()
+            r.last_nav_distance = tonumber(params.distance) or 0
+        end
+        return ok and moved ~= false
+    end
+
+    if name == "InteractNpc" then
+        local settle_seconds = math.max(0, tonumber(cfg.leveling and cfg.leveling.npc_interact_settle_seconds) or 0.5)
+        local stage = tostring(params.stage or "")
+        local since_nav = now_seconds() - (tonumber(r.last_nav_at) or 0)
+        if settle_seconds > 0
+            and stage ~= ""
+            and tostring(r.last_nav_stage or "") == stage
+            and since_nav < settle_seconds then
+            if main_quest_action_cooldown("WaitNpcSettle:" .. stage, 0.4) then
+                main_quest_set_status("等待靠近NPC后站稳 stage=" .. stage ..
+                    " wait=" .. string.format("%.1f", settle_seconds - since_nav))
+            end
+            return true
+        end
+        if not main_quest_action_cooldown(name, 1.5) then
+            return true
+        end
+        local ok_npc_runtime, npc_runtime = pcall(require, "aion.npc")
+        if not ok_npc_runtime or not npc_runtime or type(npc_runtime.interactId) ~= "function" then
+            main_quest_set_status("打开NPC失败: aion.npc 不可用")
+            return false
+        end
+        local ok, result, err = npc_runtime.interactId(params.interact_id)
+        main_quest_set_status("打开首个主线NPC对话 interact_id=" .. tostring(params.interact_id) ..
+            " result=" .. tostring(result) .. " err=" .. tostring(err or ""))
+        return ok and result ~= false
+    end
+
+    if name == "ClickDialogX" or name == "ClickDialogXWaitTeleport" then
+        if not main_quest_action_cooldown(name .. ":" .. tostring(params.type_text), 0.8) then
+            return true
+        end
+        local ready, _, ui_runtime = npc_dialog_prepare_runtime()
+        if not ready or not ui_runtime then
+            main_quest_set_status("点击对话失败: NPC对话运行时不可用")
+            return false
+        end
+        local wait_for_teleport = name == "ClickDialogXWaitTeleport"
+        local teleport_stage = tostring(params.stage or "teleport")
+        local teleport_start_pos = state.char
+        local teleport_start_big_map_id = tonumber(state.big_map_id) or 0
+        local ok, line_or_err = npc_click_dialog_x_once(ui_runtime, "quest20590")
+        if ok and wait_for_teleport then
+            r.waiting_teleport = true
+            r.teleport_stage = teleport_stage
+            r.teleport_start_pos = teleport_start_pos
+            r.teleport_start_big_map_id = teleport_start_big_map_id
+        end
+        main_quest_set_status("点击首个主线对话 type=" .. tostring(params.type_text) ..
+            " content=" .. tostring(params.content_id) ..
+            " wait_teleport=" .. tostring(wait_for_teleport) ..
+            " result=" .. tostring(line_or_err))
+        return ok
+    end
+
+    if name == "ClickDialogOkCompleteQuest" then
+        if not main_quest_action_cooldown(name .. ":" .. tostring(params.type_text), 0.8) then
+            return true
+        end
+        local ready, _, ui_runtime = npc_dialog_prepare_runtime()
+        if not ready or not ui_runtime then
+            main_quest_set_status("确认奖励失败: NPC对话运行时不可用")
+            return false
+        end
+        local ok, line_or_err = npc_click_dialog_ok_button(ui_runtime)
+        if ok then
+            r.waiting_teleport = false
+            r.completed_20590_reward = true
+            r.completed_20590_teleport = true
+            r.cached_quest = nil
+            r.last_quest_read_at = 0
+        end
+        main_quest_set_status("确认主线20590奖励 type=" .. tostring(params.type_text) ..
+            " content=" .. tostring(params.content_id) ..
+            " result=" .. tostring(line_or_err))
+        return ok
+    end
+
+    if name == "WaitPositionChanged" then
+        if main_quest_action_cooldown(name, 2.0) then
+            main_quest_set_status("等待首个主线传送坐标变化")
+        end
+        return true
+    end
+
+    if name == "CompleteStep" then
+        r.waiting_teleport = false
+        local stage = tostring(params.stage or action.reason or "")
+        if stage == "first_npc_teleport" then
+            r.completed_20590_first_teleport = true
+            r.completed_20590_teleport = false
+        elseif stage == "inner_npc_teleport" then
+            r.completed_20590_inner_teleport = true
+            r.completed_20590_teleport = true
+        elseif stage == "temple_npc_teleport" then
+            r.completed_20590_temple_teleport = true
+            r.completed_20590_teleport = false
+        end
+        main_quest_set_status("主线20590阶段完成 stage=" .. stage .. " reason=" .. tostring(action.reason or ""))
+        return true
+    end
+
+    if name == "Idle" then
+        return true
+    end
+
+    if main_quest_action_cooldown(name, 2.0) then
+        main_quest_set_status("首个主线阶段未识别: " .. tostring(action.reason or name))
+    end
+    return true
+end
+
+function main_quest_20590_tick()
+    if not runtime.running or runtime.paused then
+        return
+    end
+    if not cfg.leveling or cfg.leveling.enabled ~= true then
+        return
+    end
+    if primary_mode_ids[cfg.primary_mode] ~= "leveling" then
+        return
+    end
+    if not ok_core or not core or not ok_main_quest_20590 or not main_quest_20590 then
+        return
+    end
+    if runtime.main_quest and runtime.main_quest.completed_20590_reward == true then
+        return
+    end
+    local now = now_seconds()
+    local state = main_quest_read_20590_state(now)
+    local action = main_quest_20590.nextAction(state, runtime.main_quest, {
+        npc_range = 4,
+        teleport_min_distance = 20,
+        waypoint_range = 2,
+        dialog_click_x = tonumber(cfg.npc_dialog and cfg.npc_dialog.auto_click_x) or 25,
+    })
+    main_quest_execute_20590(action, state)
+end
+
 local route_start_selected
 local route_stop_follow
 
 local function start_bot()
+    normalize_primary_mode()
+    if primary_mode_ids[cfg.primary_mode] == "leveling" then
+        cfg.leveling = cfg.leveling or {}
+        if cfg.leveling.enabled ~= true then
+            cfg.leveling.enabled = true
+            set_event("自动练级已启用主线目标")
+            log_info("[AionMainQuest20590] auto-enabled leveling quest runner on start")
+        end
+    end
     if type(save_config) == "function" then
         save_config()
     end
@@ -6027,6 +6411,7 @@ local function start_bot()
     end
     sync_combat_enabled_from_primary_mode()
     combat_reset_runtime("start")
+    main_quest_reset_runtime("start")
     runtime.running = true
     runtime.paused = false
     runtime.status = "运行中"
@@ -6044,7 +6429,7 @@ local function start_bot()
         0,
         true)
     set_event("启动: " .. runtime.active_mode)
-    if route_recovery_plan_start then
+    if route_recovery_plan_start and primary_mode_ids[cfg.primary_mode] == "combat" then
         route_recovery_plan_start("script-start")
     end
 end
@@ -6156,6 +6541,8 @@ local function account_default()
             race_name = race_name_by_id(cfg.character and cfg.character.race, "天族"),
             job = tonumber(cfg.character and cfg.character.job) or 0x1,
             job_name = job_name_by_id(cfg.character and cfg.character.job, "剑星"),
+            gender = -1,
+            gender_name = "随机",
         },
         login = {
             status = "idle",
@@ -6281,6 +6668,8 @@ function account_ensure_character(account)
         or 0x1
     account.character.job_name = account.character.job_name
         or job_name_by_id(account.character.job, "剑星")
+    account.character.gender = tonumber(account.character.gender) or -1
+    account.character.gender_name = account.character.gender_name or "随机"
     return account.character
 end
 
@@ -6541,6 +6930,9 @@ function account_publish_login_queue(worker_key, selected_index)
     sys.set_share(account_login_queue_key(worker_key, "enter_game_timeout_seconds"), 120)
     sys.set_share(account_login_queue_key(worker_key, "agreement_timeout_seconds"), 20)
     sys.set_share(account_login_queue_key(worker_key, "agreement_retry_interval_ms"), 500)
+    sys.set_share(account_login_queue_key(worker_key, "create_character_recheck_timeout_seconds"), 20)
+    sys.set_share(account_login_queue_key(worker_key, "create_character_recheck_interval_ms"), 1000)
+    sys.set_share(account_login_queue_key(worker_key, "create_character_max_attempts"), 4)
 
     for index, account in ipairs(account_items()) do
         local selected = selected_index > 0 and index == selected_index
@@ -6560,6 +6952,7 @@ function account_publish_login_queue(worker_key, selected_index)
             local character = account_ensure_character(account)
             sys.set_share(account_login_queue_key(worker_key, prefix .. "race"), tonumber(character and character.race) or 0)
             sys.set_share(account_login_queue_key(worker_key, prefix .. "job"), tonumber(character and character.job) or 0)
+            sys.set_share(account_login_queue_key(worker_key, prefix .. "gender"), tonumber(character and character.gender) or -1)
         end
     end
 
@@ -8902,6 +9295,31 @@ function route_delete_saved(pointsField, nameField, index)
     return true
 end
 
+function route_copy_current(pointsField, nameField)
+    local points_text = tostring(cfg.route[pointsField] or "")
+    if route_trim(points_text) == "" then
+        set_event("复制路径失败: 当前路径为空")
+        return false
+    end
+    if not sys or type(sys.set_clipboard) ~= "function" then
+        set_event("复制路径失败: 剪贴板不可用")
+        return false
+    end
+
+    local ok, result = pcall(sys.set_clipboard, points_text)
+    if not ok or result == false then
+        set_event("复制路径失败: " .. tostring(result))
+        return false
+    end
+
+    local name = route_trim(cfg.route[nameField] or "")
+    if name == "" then
+        name = tostring(pointsField)
+    end
+    set_event("已复制路径: " .. name .. " 点数=" .. tostring(route_point_count(points_text)))
+    return true
+end
+
 function route_selection_summary()
     local parts = {}
     for _, spec in ipairs(route_specs) do
@@ -9674,6 +10092,12 @@ function route_recovery_is_near_combat_route(pos)
 end
 
 function route_recovery_plan_start(reason)
+    normalize_primary_mode()
+    if primary_mode_ids[cfg.primary_mode] ~= "combat" then
+        route_recovery_log("startup recovery skipped primary=" .. tostring(primary_mode_ids[cfg.primary_mode] or ""))
+        return false
+    end
+
     local full, used, threshold = route_inventory_is_full()
     if route_is_dead(tostring(reason or "start") .. ":dead") then
         route_recovery_on_death(tostring(reason or "start") .. ":dead")
@@ -11407,6 +11831,11 @@ local function draw_route_editor(label, nameField, pointsField)
         clear_route(pointsField)
     end
 
+    imgui.same_line()
+    if imgui.button("复制路径##" .. pointsField, 90, 26) then
+        route_copy_current(pointsField, nameField)
+    end
+
     imgui.set_next_item_width(560)
     changed, val = imgui.input_text_multiline("##points_" .. pointsField, cfg.route[pointsField], 560, 105)
     if changed then cfg.route[pointsField] = val end
@@ -12206,7 +12635,7 @@ local function draw_debug_tab()
     imgui.text("F1: 有NPC对话时连续点击X控件；否则扫描附近NPC名字")
     imgui.text("F2: 打印完整UI列表和复活候选子控件到日志")
     imgui.text("F7: 呼出/隐藏窗口")
-    imgui.text("F8: 启动/停止")
+    imgui.text("F8: 打印当前NPC对话信息")
     imgui.text("F9: API 探针")
     imgui.text("F10: 暂停/继续")
     imgui.text("Ctrl+F12: 退出 UI 脚本")
@@ -12282,6 +12711,10 @@ function draw_test_tab()
     imgui.text("说明: 有尸体时点击一次会选最近可拾取目标；距离远会先移动，靠近后自动继续拾取。")
     if imgui.button("遍历最近尸体(F5)", 150, 28) then
         loot_test_dump_near_corpses()
+    end
+    imgui.same_line()
+    if imgui.button("Dump selected target(F6)", 180, 28) then
+        target_f6_dump_selected()
     end
     imgui.set_next_item_width(760)
     changed, val = imgui.input_text_multiline("##loot_test_dump", runtime.loot_test.last_dump or "", 760, 120)
@@ -12634,6 +13067,7 @@ last_f2 = false
 last_f3 = false
 last_f4 = false
 last_f5 = false
+last_f6 = false
 
 while true do
     local ctrl = hotkey.is_pressed(0x11)
@@ -12671,6 +13105,12 @@ while true do
     end
     last_f5 = f5
 
+    f6 = hotkey.is_pressed(0x75)
+    if f6 and not last_f6 then
+        target_f6_dump_selected()
+    end
+    last_f6 = f6
+
     local f7 = hotkey.is_pressed(0x76)
     if f7 and not last_f7 then
         toggle_ui_visible()
@@ -12679,7 +13119,7 @@ while true do
 
     local f8 = hotkey.is_pressed(0x77)
     if f8 and not last_f8 then
-        toggle_start_stop()
+        npc_dump_current_dialog()
     end
     last_f8 = f8
 
@@ -12699,6 +13139,7 @@ while true do
     if route_recovery_tick then
         route_recovery_tick()
     end
+    main_quest_20590_tick()
     combat_tick()
     route_tick()
     background_refresh_tick()

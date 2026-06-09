@@ -6,13 +6,11 @@
     3. Wait for the server selection scene/API and log every visible server key.
     4. Submit the configured server key, retrying once to match manual double-click behavior.
     5. Wait for the character selection scene and log every character entry.
-    6. Select the configured character name, or first available when no name is set.
-    7. Submit the second password if the dialog appears.
-    8. Confirm GetCharacter() returns an in-game character before reporting ready.
-
-    Character creation is intentionally not enabled in this first flow. When
-    GetCharacterList() is empty, the flow fails with a clear log so the next
-    implementation step can add race/job/gender based creation safely.
+    6. Select the configured character name when it exists.
+    7. Create a character from configured race/job when the configured name is
+       missing, using a generated 10-letter English-style name on duplicate.
+    8. Submit the second password if the dialog appears.
+    9. Confirm GetCharacter() returns an in-game character before reporting ready.
 ]]
 
 local ok_core, core = pcall(require, "aion.core")
@@ -28,11 +26,68 @@ local SCENE_USER_AGREEMENT_CONFIRM = 0x9
 local SCENE_SERVER_SELECT = 0xA
 local SCENE_CHARACTER_SELECT = 0xC
 
+local GENERATED_CHARACTER_NAMES = {
+    "Silverleaf",
+    "Amberstone",
+    "Brightwind",
+    "Stormlight",
+    "Frostguard",
+    "Shadowfall",
+    "Nightbloom",
+    "Stonehaven",
+    "Moonwalker",
+    "Starfinder",
+    "Sunbreaker",
+    "Riverstone",
+    "Goldenvale",
+    "Ironcastle",
+    "Swiftarrow",
+    "Crystalbay",
+    "Clearwater",
+    "Greenfield",
+    "Highlander",
+    "Blueforest",
+    "Wildflower",
+    "Winterfall",
+    "Summerwind",
+    "Springvale",
+    "Meadowlark",
+    "Forestglen",
+    "Morningdew",
+    "Silentpath",
+    "Cloudriver",
+    "Brightwood",
+}
+
 local function trim_text(value)
     local text = tostring(value or "")
     text = string.gsub(text, "^%s+", "")
     text = string.gsub(text, "%s+$", "")
     return text
+end
+
+local function random_int(ctx, min_value, max_value)
+    min_value = tonumber(min_value) or 0
+    max_value = tonumber(max_value) or min_value
+    if max_value < min_value then
+        max_value = min_value
+    end
+
+    if ctx and type(ctx.random) == "function" then
+        local ok, value = pcall(ctx.random, min_value, max_value)
+        value = ok and tonumber(value) or nil
+        if value ~= nil then
+            value = math.floor(value)
+            if value < min_value then
+                value = min_value
+            elseif value > max_value then
+                value = max_value
+            end
+            return value
+        end
+    end
+
+    return math.random(min_value, max_value)
 end
 
 local function now_ms(ctx)
@@ -113,6 +168,9 @@ local function default_flow_config()
         agreement_retry_interval_ms = 1000,
         server_submit_attempts = 2,
         server_submit_interval_ms = 450,
+        create_character_recheck_timeout_seconds = 20,
+        create_character_recheck_interval_ms = 1000,
+        create_character_max_attempts = 4,
     }
 end
 
@@ -134,6 +192,9 @@ local function normalize_flow_config(flow)
     out.agreement_retry_interval_ms = math.max(250, out.agreement_retry_interval_ms)
     out.server_submit_attempts = math.max(1, math.min(4, math.floor(out.server_submit_attempts)))
     out.server_submit_interval_ms = math.max(150, out.server_submit_interval_ms)
+    out.create_character_recheck_timeout_seconds = math.max(3, out.create_character_recheck_timeout_seconds)
+    out.create_character_recheck_interval_ms = math.max(250, out.create_character_recheck_interval_ms)
+    out.create_character_max_attempts = math.max(1, math.min(8, math.floor(out.create_character_max_attempts)))
     return out
 end
 
@@ -935,41 +996,189 @@ local function read_character_list(ctx, timeout_seconds, interval_ms)
     return false, nil, "timeout reading character list: " .. tostring(last_err or "unknown")
 end
 
-local function find_character(list, desired_name)
+local function find_character_by_name(list, desired_name)
     desired_name = trim_text(desired_name)
-    if #(list or {}) > 0 then
-        local first = list[1]
-        if desired_name ~= "" and tostring(first.name or "") ~= desired_name then
-            return first, 1, "first_available_configured_name_ignored"
-        end
-        return first, 1, "first_available"
+    if desired_name == "" then
+        return nil, nil, "desired_name_empty"
     end
 
-    return nil, nil, "no_character"
+    for index, char in ipairs(list or {}) do
+        if tostring(char and char.name or "") == desired_name then
+            return char, index, "configured_name"
+        end
+    end
+
+    return nil, nil, "configured_name_missing"
 end
 
-local function select_existing_character(ctx, list)
-    local account = ctx and ctx.account or {}
-    list = list or {}
-    local desired_name = trim_text(account.server and account.server.character_name)
-    if #list <= 0 then
-        if desired_name == "" then
-            return false, "no character on selected server; character_name is required before character creation flow"
+local function remember_character_names(seen, list)
+    seen = type(seen) == "table" and seen or {}
+    for _, char in ipairs(list or {}) do
+        local name = trim_text(char and char.name)
+        if name ~= "" then
+            seen[name] = true
         end
-        return false, "no character on selected server; character creation flow is not enabled yet; configured_name=" .. tostring(desired_name)
+    end
+    return seen
+end
+
+local function generated_character_name(ctx, seen)
+    seen = type(seen) == "table" and seen or {}
+    local count = #GENERATED_CHARACTER_NAMES
+    if count <= 0 then
+        return nil
     end
 
-    local char, char_index, reason = find_character(list, desired_name)
+    local start = random_int(ctx, 1, count)
+    for offset = 0, count - 1 do
+        local index = ((start + offset - 1) % count) + 1
+        local name = GENERATED_CHARACTER_NAMES[index]
+        if not seen[name] then
+            return name
+        end
+    end
+
+    return nil
+end
+
+local function resolve_create_spec(ctx, account)
+    account = type(account) == "table" and account or {}
+    local server = type(account.server) == "table" and account.server or {}
+    local character = type(account.character) == "table" and account.character or {}
+    local race = tonumber(character.race)
+    local job = tonumber(character.job)
+    local gender = tonumber(character.gender)
+    local gender_source = "configured"
+
+    if race ~= 0 and race ~= 1 then
+        race = 0
+    end
+    if job == nil or job <= 0 then
+        job = 0x1
+    end
+    if gender ~= 0 and gender ~= 1 then
+        gender = random_int(ctx, 0, 1)
+        gender_source = "random"
+    end
+
+    return {
+        desired_name = trim_text(server.character_name),
+        race = race,
+        job = job,
+        gender = gender,
+        gender_source = gender_source,
+    }
+end
+
+local function wait_for_character_by_name(ctx, name, timeout_seconds, interval_ms)
+    local deadline = now_ms(ctx) + ((tonumber(timeout_seconds) or 20) * 1000)
+    local last_err = nil
+    while now_ms(ctx) <= deadline do
+        local ok, list, err = account_api.characterList()
+        if ok and type(list) == "table" then
+            log_character_list(ctx, list)
+            local char, index = find_character_by_name(list, name)
+            if char then
+                return true, char, list, "index=" .. tostring(index)
+            end
+        else
+            local err_text = tostring(err or "unknown")
+            if err_text ~= last_err then
+                flow_warn(ctx, "created_character_list_failed", err_text)
+                last_err = err_text
+            end
+        end
+        sleep(ctx, interval_ms or 1000)
+    end
+
+    return false, nil, nil, "timeout waiting for created character name=" .. tostring(name)
+end
+
+local function next_create_name(ctx, spec, seen)
+    spec = type(spec) == "table" and spec or {}
+    seen = type(seen) == "table" and seen or {}
+    local desired_name = trim_text(spec.desired_name)
+    if desired_name ~= "" and not seen[desired_name] then
+        return desired_name, "configured"
+    end
+
+    local generated = generated_character_name(ctx, seen)
+    if generated then
+        return generated, "generated"
+    end
+
+    return nil, "none"
+end
+
+local function create_character_from_config(ctx, initial_list)
+    if not ok_account_api or not account_api or type(account_api.createCharacter) ~= "function" then
+        return false, nil, "aion.account.createCharacter unavailable"
+    end
+
+    local account = ctx and ctx.account or {}
+    local flow_cfg = ctx and ctx.flow_cfg or default_flow_config()
+    local spec = resolve_create_spec(ctx, account)
+    local seen = remember_character_names({}, initial_list)
+    local max_attempts = math.max(1, tonumber(flow_cfg.create_character_max_attempts) or 4)
+    local last_err = nil
+
+    for attempt = 1, max_attempts do
+        local name, name_source = next_create_name(ctx, spec, seen)
+        if not name then
+            return false, nil, "no available generated character name"
+        end
+        seen[name] = true
+
+        set_flow_status(ctx, "creating_character", "name=" .. tostring(name) .. " attempt=" .. tostring(attempt))
+        flow_info(ctx, "create_character_attempt", string.format(
+            "attempt=%s/%s name=%s source=%s gender=%s gender_source=%s race=%s job=%s",
+            tostring(attempt),
+            tostring(max_attempts),
+            tostring(name),
+            tostring(name_source),
+            tostring(spec.gender),
+            tostring(spec.gender_source),
+            tostring(spec.race),
+            tostring(spec.job)))
+
+        local ok, created, err = account_api.createCharacter(name, spec.gender, spec.race, spec.job)
+        if ok and created ~= false then
+            local found_ok, char, latest_list, found_msg = wait_for_character_by_name(
+                ctx,
+                name,
+                flow_cfg.create_character_recheck_timeout_seconds,
+                flow_cfg.create_character_recheck_interval_ms)
+            remember_character_names(seen, latest_list)
+            if found_ok and char then
+                if type(account.server) == "table" then
+                    account.server.character_name = tostring(char.name or name)
+                end
+                flow_info(ctx, "create_character_success", string.format(
+                    "name=%s id=%s level=%s %s",
+                    tostring(char.name or name),
+                    tostring(char.id or ""),
+                    tostring(char.level or ""),
+                    tostring(found_msg or "")))
+                return true, char, nil
+            end
+            last_err = tostring(found_msg or "created character not found")
+            flow_warn(ctx, "create_character_recheck_failed", last_err)
+        else
+            last_err = tostring(err or created or "CreateCharacter returned false")
+            flow_warn(ctx, "create_character_failed", string.format(
+                "name=%s attempt=%s err=%s",
+                tostring(name),
+                tostring(attempt),
+                tostring(last_err)))
+        end
+    end
+
+    return false, nil, "CreateCharacter failed after attempts=" .. tostring(max_attempts) .. " err=" .. tostring(last_err or "unknown")
+end
+
+local function select_character_entry(ctx, char, char_index, reason)
     if not char then
-        return false, "configured character not found: " .. tostring(desired_name)
-    end
-
-    if reason == "first_available_configured_name_ignored" then
-        flow_warn(ctx, "configured_character_ignored", string.format(
-            "configured=%s selected=%s count=%s rule=existing_character_first",
-            tostring(desired_name),
-            tostring(char.name or ""),
-            tostring(#list)))
+        return false, "character entry is missing"
     end
 
     set_flow_status(ctx, "selecting_character", "name=" .. tostring(char.name or "") .. " index=" .. tostring(char_index))
@@ -998,6 +1207,34 @@ local function select_existing_character(ctx, list)
     end
     flow_info(ctx, "character_start_submitted", "button=" .. tostring(start_name_or_err))
     return true, char
+end
+
+local function select_or_create_character(ctx, list)
+    local account = ctx and ctx.account or {}
+    list = list or {}
+    local desired_name = trim_text(account.server and account.server.character_name)
+    local char, char_index, reason = find_character_by_name(list, desired_name)
+    if char then
+        return select_character_entry(ctx, char, char_index, reason)
+    end
+
+    if desired_name ~= "" then
+        flow_warn(ctx, "configured_character_missing_create", string.format(
+            "configured=%s existing_count=%s",
+            tostring(desired_name),
+            tostring(#list)))
+    elseif #list > 0 then
+        flow_warn(ctx, "character_name_empty_create", "existing_count=" .. tostring(#list))
+    else
+        flow_info(ctx, "character_list_empty_create", "creating configured race/job")
+    end
+
+    local create_ok, created_char, create_err = create_character_from_config(ctx, list)
+    if not create_ok then
+        return false, tostring(create_err)
+    end
+
+    return select_character_entry(ctx, created_char, nil, "created_character")
 end
 
 local function current_ingame_character()
@@ -1175,6 +1412,12 @@ local function wait_for_enter_game(ctx, timeout_seconds, interval_ms)
     return false, nil, "timeout waiting for in-game character"
 end
 
+M._test = {
+    findCharacterByName = find_character_by_name,
+    generatedCharacterName = generated_character_name,
+    resolveCreateSpec = resolve_create_spec,
+}
+
 function M.run(ctx)
     ctx = ctx or {}
     local account = ctx.account or {}
@@ -1244,7 +1487,7 @@ function M.run(ctx)
         return false, tostring(chars_err)
     end
 
-    local char_select_ok, selected_char_or_err = select_existing_character(ctx, chars)
+    local char_select_ok, selected_char_or_err = select_or_create_character(ctx, chars)
     if not char_select_ok then
         return false, selected_char_or_err
     end
