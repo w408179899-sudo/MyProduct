@@ -258,6 +258,21 @@ local runtime = {
         last_nav_stage = "",
         last_nav_at = 0,
         last_nav_distance = 0,
+        last_interact_stage = "",
+        last_interact_at = 0,
+        wait_dialog_stage = "",
+        wait_dialog_until = 0,
+        last_dialog_signature = "",
+        last_decision_signature = "",
+        last_decision_log_at = 0,
+        last_route_stop_stage = "",
+        last_route_stop_reason = "",
+        last_route_stop_at = 0,
+        action_delay_until = 0,
+        action_delay_reason = "",
+        current_action_name = "",
+        current_action_stage = "",
+        trace_times = {},
         completed_20590_first_teleport = false,
         completed_20590_inner_teleport = false,
         completed_20590_temple_teleport = false,
@@ -479,6 +494,8 @@ local cfg = {
         target_level = 50,
         move_resend_interval = 0.5,
         npc_interact_settle_seconds = 0,
+        npc_interact_retry_seconds = 3.0,
+        action_delay_seconds = 0.5,
         prefer_quest = true,
         allow_grind = true,
         allow_gather = false,
@@ -6119,6 +6136,92 @@ function main_quest_set_status(text)
     log_info("[AionMainQuest20590] " .. message)
 end
 
+function main_quest_dialog_signature(dialog)
+    if type(dialog) ~= "table" then
+        return "closed"
+    end
+    return "open:npc=" .. tostring(dialog.npc_dialog_id or "") ..
+        ":content=" .. tostring(dialog.dialog_content_id or "") ..
+        ":quest=" .. tostring(dialog.quest_id or "") ..
+        ":type=" .. tostring(dialog.type_text or "") ..
+        ":next=" .. tostring(dialog.next_dialog_id or dialog.next or "")
+end
+
+function main_quest_position_text(pos)
+    if type(pos) ~= "table" then
+        return "nil"
+    end
+    return string.format("%.2f,%.2f,%.2f",
+        tonumber(pos.x) or 0,
+        tonumber(pos.y) or 0,
+        tonumber(pos.z) or 0)
+end
+
+function main_quest_trace(kind, message, min_interval)
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    r.trace_times = r.trace_times or {}
+    local key = tostring(kind or "")
+    local now = now_seconds()
+    local interval = tonumber(min_interval) or 0
+    if interval > 0 and now - (tonumber(r.trace_times[key]) or 0) < interval then
+        return
+    end
+    r.trace_times[key] = now
+    log_info("[AionMainQuest20590Trace] " .. key .. " " .. tostring(message or ""))
+end
+
+function main_quest_delay_seconds()
+    return math.max(0, tonumber(cfg.leveling and cfg.leveling.action_delay_seconds) or 0.5)
+end
+
+function main_quest_set_action_delay(reason)
+    local delay = main_quest_delay_seconds()
+    if delay <= 0 then
+        return
+    end
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    local now = now_seconds()
+    r.action_delay_until = math.max(tonumber(r.action_delay_until) or 0, now + delay)
+    r.action_delay_reason = tostring(reason or "")
+end
+
+function main_quest_action_waits_after_move(action_name)
+    action_name = tostring(action_name or "")
+    return action_name == "InteractNpc"
+        or action_name == "ClickDialogX"
+        or action_name == "ClickDialogXWaitTeleport"
+        or action_name == "ClickDialogOkCompleteQuest"
+end
+
+function main_quest_is_move_action(action_name)
+    action_name = tostring(action_name or "")
+    return action_name == "NavigateToNpc"
+        or action_name == "FollowRoute"
+        or action_name == "WaitRouteComplete"
+end
+
+function main_quest_wait_action_delay(action_name, stage)
+    if not main_quest_action_waits_after_move(action_name) then
+        return false
+    end
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    local now = now_seconds()
+    local until_at = tonumber(r.action_delay_until) or 0
+    if now >= until_at then
+        return false
+    end
+    main_quest_trace("action-delay:" .. tostring(stage or action_name),
+        "next=" .. tostring(action_name or "") ..
+        " stage=" .. tostring(stage or "") ..
+        " remain=" .. string.format("%.2f", until_at - now) ..
+        " reason=" .. tostring(r.action_delay_reason or ""),
+        0.2)
+    return true
+end
+
 function main_quest_reset_runtime(reason)
     runtime.main_quest = runtime.main_quest or {}
     local r = runtime.main_quest
@@ -6134,6 +6237,21 @@ function main_quest_reset_runtime(reason)
     r.last_nav_stage = ""
     r.last_nav_at = 0
     r.last_nav_distance = 0
+    r.last_interact_stage = ""
+    r.last_interact_at = 0
+    r.wait_dialog_stage = ""
+    r.wait_dialog_until = 0
+    r.last_dialog_signature = ""
+    r.last_decision_signature = ""
+    r.last_decision_log_at = 0
+    r.last_route_stop_stage = ""
+    r.last_route_stop_reason = ""
+    r.last_route_stop_at = 0
+    r.action_delay_until = 0
+    r.action_delay_reason = ""
+    r.current_action_name = ""
+    r.current_action_stage = ""
+    r.trace_times = {}
     r.completed_20590_first_teleport = false
     r.completed_20590_inner_teleport = false
     r.completed_20590_temple_teleport = false
@@ -6208,6 +6326,18 @@ function main_quest_action_cooldown(action_name, seconds)
     return true
 end
 
+function main_quest_active_route_stage()
+    local rt = runtime.route
+    if type(rt) ~= "table" or rt.following ~= true then
+        return ""
+    end
+    local field = tostring(rt.follow_field or "")
+    if string.sub(field, 1, #"main_quest_20590:") ~= "main_quest_20590:" then
+        return ""
+    end
+    return tostring(rt.main_quest_stage or string.sub(field, string.len("main_quest_20590:") + 1))
+end
+
 function main_quest_stop_route(stage, reason)
     local rt = runtime.route
     if type(rt) ~= "table" or rt.following ~= true then
@@ -6216,6 +6346,10 @@ function main_quest_stop_route(stage, reason)
     if stage and stage ~= "" and tostring(rt.main_quest_stage or "") ~= tostring(stage) then
         return
     end
+    runtime.main_quest = runtime.main_quest or {}
+    runtime.main_quest.last_route_stop_stage = tostring(rt.main_quest_stage or stage or "")
+    runtime.main_quest.last_route_stop_reason = tostring(reason or "")
+    runtime.main_quest.last_route_stop_at = now_seconds()
     rt.following = false
     rt.follow_field = nil
     rt.follow_name = ""
@@ -6305,9 +6439,41 @@ function main_quest_execute_20590(action, state)
     local r = runtime.main_quest
     local name = tostring(action.name or "")
     local params = type(action.params) == "table" and action.params or {}
+    local stage = tostring(params.stage or "")
+
+    local prev_name = tostring(r.current_action_name or "")
+    local prev_stage = tostring(r.current_action_stage or "")
+    if name ~= prev_name or stage ~= prev_stage then
+        if main_quest_is_move_action(prev_name) and main_quest_action_waits_after_move(name) then
+            main_quest_set_action_delay("action-switch:" .. prev_name .. "->" .. name)
+        end
+        main_quest_trace("action-switch",
+            "from=" .. prev_name .. "/" .. prev_stage ..
+            " to=" .. name .. "/" .. stage ..
+            " pos=" .. main_quest_position_text(state.char) ..
+            " dialog=" .. main_quest_dialog_signature(state.dialog),
+            0)
+        r.current_action_name = name
+        r.current_action_stage = stage
+    end
+
+    if main_quest_wait_action_delay(name, stage) then
+        return true
+    end
 
     if name == "FollowRoute" then
         return main_quest_start_route(action, state)
+    end
+
+    if name == "WaitRouteComplete" then
+        if main_quest_action_cooldown(name .. ":" .. tostring(params.stage or ""), 0.5) then
+            main_quest_trace("wait-route:" .. tostring(params.stage or ""),
+                "stage=" .. tostring(params.stage or "") ..
+                " active_stage=" .. tostring(main_quest_active_route_stage()) ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
+        end
+        return true
     end
 
     if name == "NavigateToNpc" then
@@ -6338,9 +6504,20 @@ function main_quest_execute_20590(action, state)
 
     if name == "InteractNpc" then
         main_quest_stop_route(tostring(params.stage or ""), "interact-npc")
+        local now = now_seconds()
         local settle_seconds = math.max(0, tonumber(cfg.leveling and cfg.leveling.npc_interact_settle_seconds) or 0)
         local stage = tostring(params.stage or "")
-        local since_nav = now_seconds() - (tonumber(r.last_nav_at) or 0)
+        local wait_until = tonumber(r.wait_dialog_until) or 0
+        if stage ~= ""
+            and tostring(r.wait_dialog_stage or "") == stage
+            and now < wait_until then
+            if main_quest_action_cooldown("WaitNpcDialog:" .. stage, 0.4) then
+                main_quest_set_status("waiting npc dialog stage=" .. stage ..
+                    " remain=" .. string.format("%.1f", wait_until - now))
+            end
+            return true
+        end
+        local since_nav = now - (tonumber(r.last_nav_at) or 0)
         if settle_seconds > 0
             and stage ~= ""
             and tostring(r.last_nav_stage or "") == stage
@@ -6351,7 +6528,10 @@ function main_quest_execute_20590(action, state)
             end
             return true
         end
-        if not main_quest_action_cooldown(name, 1.5) then
+        local wait_ms = tonumber(cfg.npc_dialog and cfg.npc_dialog.wait_dialog_ms) or 3000
+        local retry_seconds = math.max(1.0,
+            tonumber(cfg.leveling and cfg.leveling.npc_interact_retry_seconds) or (wait_ms / 1000))
+        if not main_quest_action_cooldown(name, retry_seconds) then
             return true
         end
         local ok_npc_runtime, npc_runtime = pcall(require, "aion.npc")
@@ -6359,6 +6539,13 @@ function main_quest_execute_20590(action, state)
             main_quest_set_status("打开NPC失败: aion.npc 不可用")
             return false
         end
+        main_quest_trace("interact-before:" .. stage,
+            "stage=" .. stage ..
+            " interact_id=" .. tostring(params.interact_id) ..
+            " name=" .. tostring(params.npc_name or "") ..
+            " pos=" .. main_quest_position_text(state.char) ..
+            " dialog=" .. main_quest_dialog_signature(state.dialog),
+            0)
         local ok, result, err = false, false, nil
         local npc_name = tostring(params.npc_name or "")
         if npc_name ~= "" and type(npc_runtime.interactByName) == "function" then
@@ -6375,6 +6562,20 @@ function main_quest_execute_20590(action, state)
         main_quest_set_status("打开首个主线NPC对话 interact_id=" .. tostring(params.interact_id) ..
             " name=" .. tostring(params.npc_name or "") ..
             " result=" .. tostring(result) .. " err=" .. tostring(err or ""))
+        if ok and result ~= false then
+            local after_interact = now_seconds()
+            r.last_interact_stage = stage
+            r.last_interact_at = after_interact
+            r.wait_dialog_stage = stage
+            r.wait_dialog_until = after_interact + math.max(1.0, wait_ms / 1000)
+        end
+        main_quest_trace("interact-after:" .. stage,
+            "stage=" .. stage ..
+            " ok=" .. tostring(ok) ..
+            " result=" .. tostring(result) ..
+            " err=" .. tostring(err or "") ..
+            " wait_dialog_until=" .. tostring(r.wait_dialog_until or 0),
+            0)
         return ok and result ~= false
     end
 
@@ -6382,16 +6583,36 @@ function main_quest_execute_20590(action, state)
         if not main_quest_action_cooldown(name .. ":" .. tostring(params.type_text), 0.8) then
             return true
         end
-        local ready, _, ui_runtime = npc_dialog_prepare_runtime()
+        local ready, npc_runtime, ui_runtime = npc_dialog_prepare_runtime()
         if not ready or not ui_runtime then
             main_quest_set_status("点击对话失败: NPC对话运行时不可用")
             return false
         end
+        r.wait_dialog_stage = ""
+        r.wait_dialog_until = 0
         local wait_for_teleport = name == "ClickDialogXWaitTeleport"
         local teleport_stage = tostring(params.stage or "teleport")
         local teleport_start_pos = state.char
         local teleport_start_big_map_id = tonumber(state.big_map_id) or 0
+        main_quest_trace("click-before:" .. tostring(params.type_text or ""),
+            "action=" .. name ..
+            " stage=" .. tostring(params.stage or "") ..
+            " type=" .. tostring(params.type_text or "") ..
+            " content=" .. tostring(params.content_id or "") ..
+            " expected=" .. tostring(params.expected_content_id or "") ..
+            " dialog=" .. main_quest_dialog_signature(state.dialog) ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
         local ok, line_or_err = npc_click_dialog_x_once(ui_runtime, "quest20590")
+        local after_sig = "unread"
+        if npc_runtime and type(npc_runtime.dialog) == "function" then
+            local dialog_ok, info = npc_runtime.dialog()
+            if dialog_ok then
+                after_sig = main_quest_dialog_signature(info)
+            else
+                after_sig = "read_failed"
+            end
+        end
         if ok and wait_for_teleport then
             r.waiting_teleport = true
             r.teleport_stage = teleport_stage
@@ -6402,6 +6623,12 @@ function main_quest_execute_20590(action, state)
             " content=" .. tostring(params.content_id) ..
             " wait_teleport=" .. tostring(wait_for_teleport) ..
             " result=" .. tostring(line_or_err))
+        main_quest_trace("click-after:" .. tostring(params.type_text or ""),
+            "ok=" .. tostring(ok) ..
+            " result=" .. tostring(line_or_err) ..
+            " after_dialog=" .. after_sig ..
+            " wait_teleport=" .. tostring(wait_for_teleport),
+            0)
         return ok
     end
 
@@ -6414,6 +6641,8 @@ function main_quest_execute_20590(action, state)
             main_quest_set_status("确认奖励失败: NPC对话运行时不可用")
             return false
         end
+        r.wait_dialog_stage = ""
+        r.wait_dialog_until = 0
         local ok, line_or_err = npc_click_dialog_ok_button(ui_runtime)
         if ok then
             r.waiting_teleport = false
@@ -6437,6 +6666,8 @@ function main_quest_execute_20590(action, state)
 
     if name == "CompleteStep" then
         r.waiting_teleport = false
+        r.wait_dialog_stage = ""
+        r.wait_dialog_until = 0
         local stage = tostring(params.stage or action.reason or "")
         if stage == "first_npc_teleport" then
             r.completed_20590_first_teleport = true
@@ -6449,6 +6680,20 @@ function main_quest_execute_20590(action, state)
             r.completed_20590_teleport = false
         end
         main_quest_set_status("主线20590阶段完成 stage=" .. stage .. " reason=" .. tostring(action.reason or ""))
+        return true
+    end
+
+    if name == "DumpDialog" then
+        r.wait_dialog_stage = ""
+        r.wait_dialog_until = 0
+        local dump_key = tostring(params.stage or "") .. ":" .. tostring(params.type_text or "")
+        if main_quest_action_cooldown("DumpDialog:" .. dump_key, 1.0) then
+            main_quest_set_status("unknown npc dialog stage=" .. tostring(params.stage or "") ..
+                " type=" .. tostring(params.type_text or "") ..
+                " content=" .. tostring(params.content_id or "") ..
+                " npc_dialog_id=" .. tostring(params.npc_dialog_id or "") ..
+                " expected_interact_id=" .. tostring(params.interact_id or ""))
+        end
         return true
     end
 
@@ -6480,12 +6725,39 @@ function main_quest_20590_tick()
     end
     local now = now_seconds()
     local state = main_quest_read_20590_state(now)
+    local route_stage = main_quest_active_route_stage()
     local action = main_quest_20590.nextAction(state, runtime.main_quest, {
         npc_range = 4,
         teleport_min_distance = 20,
         waypoint_range = 2,
         dialog_click_x = tonumber(cfg.npc_dialog and cfg.npc_dialog.auto_click_x) or 25,
+        route_following_stage = route_stage,
     })
+    local dialog_sig = main_quest_dialog_signature(state.dialog)
+    if dialog_sig ~= tostring(runtime.main_quest.last_dialog_signature or "") then
+        main_quest_trace("dialog-change",
+            "from=" .. tostring(runtime.main_quest.last_dialog_signature or "") ..
+            " to=" .. dialog_sig ..
+            " pos=" .. main_quest_position_text(state.char) ..
+            " map=" .. tostring(state.big_map_id or "") ..
+            " route_stage=" .. tostring(route_stage),
+            0)
+        runtime.main_quest.last_dialog_signature = dialog_sig
+    end
+    local decision_sig = tostring(action.name or "") ..
+        ":" .. tostring(action.params and action.params.stage or "") ..
+        ":" .. dialog_sig
+    if decision_sig ~= tostring(runtime.main_quest.last_decision_signature or "") then
+        main_quest_trace("decision",
+            "action=" .. tostring(action.name or "") ..
+            " stage=" .. tostring(action.params and action.params.stage or "") ..
+            " reason=" .. tostring(action.reason or "") ..
+            " dialog=" .. dialog_sig ..
+            " pos=" .. main_quest_position_text(state.char) ..
+            " route_stage=" .. tostring(route_stage),
+            0)
+        runtime.main_quest.last_decision_signature = decision_sig
+    end
     main_quest_execute_20590(action, state)
 end
 
@@ -9736,6 +10008,21 @@ route_stop_follow = function(reason, finishRuntime, completedField)
     local show_on_finish = runtime.route.finish_shows_ui
     local completed_field = completedField or runtime.route.completed_field
     local test_only = runtime.route.test_only == true
+    local follow_field = tostring(runtime.route.follow_field or "")
+    local main_quest_stage = tostring(runtime.route.main_quest_stage or "")
+    if was_following
+        and string.sub(follow_field, 1, #"main_quest_20590:") == "main_quest_20590:" then
+        runtime.main_quest = runtime.main_quest or {}
+        runtime.main_quest.last_route_stop_stage = main_quest_stage
+        runtime.main_quest.last_route_stop_reason = tostring(reason or "")
+        runtime.main_quest.last_route_stop_at = now_seconds()
+        main_quest_set_action_delay("route-stop:" .. tostring(reason or ""))
+        main_quest_trace("route-stop:" .. main_quest_stage,
+            "stage=" .. main_quest_stage ..
+            " field=" .. follow_field ..
+            " reason=" .. tostring(reason or ""),
+            0)
+    end
     runtime.route.completed_field = nil
     runtime.route.following = false
     runtime.route.follow_field = nil

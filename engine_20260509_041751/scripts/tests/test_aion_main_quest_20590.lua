@@ -167,6 +167,20 @@ local function run()
         T.assert_eq(next_action.params.npc_name, "시간의 데바 잉그릴")
     end)
 
+    T.test("waits for active inner route before opening npc dialog", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quest = active_quest(2),
+            char = { x = 522.3, y = 575.0, z = 322.0 },
+            big_map_id = 390010000,
+        }, nil, {
+            route_following_stage = "inner_npc",
+        })
+
+        T.assert_eq(next_action.name, "WaitRouteComplete")
+        T.assert_eq(next_action.params.stage, "inner_npc")
+    end)
+
     T.test("marks inner npc dialog as simple teleport", function()
         local quest = load_module()
         local next_action = quest.nextAction({
@@ -185,6 +199,25 @@ local function run()
         T.assert_eq(next_action.params.stage, "inner_npc_teleport")
         T.assert_eq(next_action.params.expected_content_id, 1011)
         T.assert_eq(next_action.params.npc_name, "시간의 데바 잉그릴")
+    end)
+
+    T.test("does not re-interact when inner npc dialog is already open but unknown", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quest = active_quest(2),
+            char = { x = 522.3, y = 575.0, z = 322.0 },
+            big_map_id = 390010000,
+            dialog = {
+                npc_dialog_id = 2427168962,
+                type_text = "unexpected_inner",
+                dialog_content_id = 9999,
+                quest_id = 0,
+            },
+        })
+
+        T.assert_eq(next_action.name, "DumpDialog")
+        T.assert_eq(next_action.params.npc_dialog_id, 2427168962)
+        T.assert_eq(next_action.params.interact_id, 2424368065)
     end)
 
     T.test("moves to temple npc when quest step is 3", function()
@@ -244,6 +277,25 @@ local function run()
             T.assert_eq(next_action.params.expected_content_id, case.content_id)
             T.assert_eq(next_action.params.interact_id, 2147509246)
         end
+    end)
+
+    T.test("does not re-interact when temple npc dialog is already open but unknown", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quest = active_quest(3),
+            char = { x = 1469.0, y = 1465.4, z = 177.8 },
+            big_map_id = 120010000,
+            dialog = {
+                npc_dialog_id = 2147509246,
+                type_text = "unexpected_temple",
+                dialog_content_id = 9999,
+                quest_id = 20590,
+            },
+        })
+
+        T.assert_eq(next_action.name, "DumpDialog")
+        T.assert_eq(next_action.params.npc_dialog_id, 2147509246)
+        T.assert_eq(next_action.params.interact_id, 2147509246)
     end)
 
     T.test("moves to reward npc when quest is ready", function()
@@ -312,6 +364,25 @@ local function run()
         T.assert_eq(confirm_reward.name, "ClickDialogOkCompleteQuest")
         T.assert_eq(confirm_reward.params.expected_content_id, 5)
         T.assert_eq(confirm_reward.params.interact_id, 2147492916)
+    end)
+
+    T.test("does not re-interact when reward dialog is already open but unknown", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quest = ready_quest(),
+            char = { x = 560.9, y = 2785.9, z = 299.0 },
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147492916,
+                type_text = "unexpected_reward",
+                dialog_content_id = 9999,
+                quest_id = 20590,
+            },
+        })
+
+        T.assert_eq(next_action.name, "DumpDialog")
+        T.assert_eq(next_action.params.npc_dialog_id, 2147492916)
+        T.assert_eq(next_action.params.interact_id, 2147492916)
     end)
 
     clear_modules()

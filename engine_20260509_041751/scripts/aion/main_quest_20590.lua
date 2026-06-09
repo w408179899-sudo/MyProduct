@@ -154,6 +154,18 @@ local function action(name, reason, params)
     }
 end
 
+local function waitRouteIfActive(opts, stage, quest)
+    local active_stage = tostring(opts and opts.route_following_stage or "")
+    if active_stage ~= "" and active_stage == tostring(stage or "") then
+        return action("WaitRouteComplete", "wait main quest route complete", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = stage,
+        })
+    end
+    return nil
+end
+
 function M.distanceToNpc(char)
     return distance3(char, M.npc)
 end
@@ -293,6 +305,10 @@ function M.nextAction(state, runtime, opts)
             range = range,
         })
     end
+    local route_wait = waitRouteIfActive(opts, "first_npc", quest)
+    if route_wait then
+        return route_wait
+    end
 
     local dialog = state.dialog
     if type(dialog) ~= "table" then
@@ -386,6 +402,10 @@ function M.nextInnerAction(state, quest, opts)
             range = range,
         })
     end
+    local route_wait = waitRouteIfActive(opts, "inner_npc", quest)
+    if route_wait then
+        return route_wait
+    end
 
     local dialog = state.dialog
     if type(dialog) ~= "table" then
@@ -414,21 +434,12 @@ function M.nextInnerAction(state, quest, opts)
         })
     end
 
-    if number(dialog.npc_dialog_id) ~= M.inner_npc.interact_id then
-        return action("InteractNpc", "open inner mission npc dialog", {
-            quest_id = M.quest_id,
-            quest_step = M.questStep(quest),
-            stage = "inner_npc",
-            interact_id = M.inner_npc.interact_id,
-            npc_name = M.inner_npc.name,
-        })
-    end
-
     return action("DumpDialog", "unknown inner mission dialog stage", {
         quest_id = M.quest_id,
         quest_step = M.questStep(quest),
         type_text = type_text,
         content_id = number(dialog.dialog_content_id),
+        npc_dialog_id = number(dialog.npc_dialog_id),
         interact_id = M.inner_npc.interact_id,
         npc_name = M.inner_npc.name,
     })
@@ -456,6 +467,10 @@ function M.nextTempleAction(state, quest, opts)
             distance = dist,
             range = range,
         })
+    end
+    local route_wait = waitRouteIfActive(opts, "temple_npc", quest)
+    if route_wait then
+        return route_wait
     end
 
     local dialog = state.dialog
@@ -485,22 +500,13 @@ function M.nextTempleAction(state, quest, opts)
         })
     end
 
-    if number(dialog.npc_dialog_id) ~= M.temple_npc.interact_id then
-        return action("InteractNpc", "open temple mission npc dialog", {
-            quest_id = M.quest_id,
-            quest_step = M.questStep(quest),
-            stage = "temple_npc",
-            interact_id = M.temple_npc.interact_id,
-            npc_name = M.temple_npc.name,
-        })
-    end
-
     return action("DumpDialog", "unknown temple mission dialog stage", {
         quest_id = M.quest_id,
         quest_step = M.questStep(quest),
         stage = "temple_npc",
         type_text = type_text,
         content_id = number(dialog.dialog_content_id),
+        npc_dialog_id = number(dialog.npc_dialog_id),
         interact_id = M.temple_npc.interact_id,
         npc_name = M.temple_npc.name,
     })
@@ -528,6 +534,10 @@ function M.nextRewardAction(state, quest, opts)
             distance = dist,
             range = range,
         })
+    end
+    local route_wait = waitRouteIfActive(opts, "reward_npc", quest)
+    if route_wait then
+        return route_wait
     end
 
     local dialog = state.dialog
@@ -557,22 +567,13 @@ function M.nextRewardAction(state, quest, opts)
         })
     end
 
-    if number(dialog.npc_dialog_id) ~= M.reward_npc.interact_id then
-        return action("InteractNpc", "open reward npc dialog", {
-            quest_id = M.quest_id,
-            quest_step = M.questStep(quest),
-            stage = "reward_npc",
-            interact_id = M.reward_npc.interact_id,
-            npc_name = M.reward_npc.name,
-        })
-    end
-
     return action("DumpDialog", "unknown reward dialog stage", {
         quest_id = M.quest_id,
         quest_step = M.questStep(quest),
         stage = "reward_npc",
         type_text = type_text,
         content_id = number(dialog.dialog_content_id),
+        npc_dialog_id = number(dialog.npc_dialog_id),
         interact_id = M.reward_npc.interact_id,
         npc_name = M.reward_npc.name,
     })

@@ -162,3 +162,30 @@ cancel visible=true x=205 y=419
 4. `select_success/content_id=10002` 点击 `x=25`。
 5. `select_quest_reward1/content_id=5` 点击可见 `name=ok` 按钮。
 6. OK 成功后把运行时 `completed_20590_reward=true`，本任务链路停止，避免重复点 NPC。
+
+## 已知问题：对话打开后又关闭
+
+2026-06-09 观察到自动流程里可能出现 NPC 对话刚打开又关闭的现象。高概率原因不是战斗逻辑，而是主线状态机在“已经有对话框，但当前页没有识别到”时又返回 `InteractNpc`。Aion 客户端里重复交互同一个 NPC 可能会切换/关闭当前对话。
+
+处理规则：
+
+1. 只要 `state.dialog` 已经存在，主线任务只允许点击已录制的 `type_text/content_id` 页面。
+2. 如果对话页未知，返回 `DumpDialog` 打印 `stage/type/content/npc_dialog_id/expected_interact_id`，不要再次 `InteractNpc`。
+3. `InteractNpc` 成功后设置短暂 `wait_dialog_stage/wait_dialog_until`，默认按 `npc_dialog.wait_dialog_ms=3000` 等待对话读取，避免读取慢半拍时重复交互。
+4. 已知页点击、领奖 OK、阶段完成时清理等待标记。
+
+补充结构规则：
+
+1. 路径跟随和直接寻路都视为独立 action。
+2. 主线专用路径 `main_quest_20590:*` 仍在 `following=true` 时，不允许执行后续 `InteractNpc/ClickDialog/OK`，只返回 `WaitRouteComplete`。
+3. 从移动类 action（`FollowRoute/NavigateToNpc/WaitRouteComplete`）切到对话类 action（`InteractNpc/ClickDialog/OK`）时，统一等待 `leveling.action_delay_seconds`，默认 `0.5` 秒。
+4. 诊断日志使用 `[AionMainQuest20590Trace]` 前缀，重点看 `dialog-change`、`decision`、`action-switch`、`action-delay`、`interact-before/after`、`click-before/after`。
+
+相关测试：
+
+```text
+aion_main_quest_20590: waits for active inner route before opening npc dialog
+aion_main_quest_20590: does not re-interact when inner npc dialog is already open but unknown
+aion_main_quest_20590: does not re-interact when temple npc dialog is already open but unknown
+aion_main_quest_20590: does not re-interact when reward dialog is already open but unknown
+```
