@@ -11,6 +11,9 @@ M.big_map_id = 220010000
 M.level_move_stage = "quest_20611_level_move"
 M.level_grind_stage = "quest_20611_level_grind"
 M.obelisk_stage = "quest_20611_obelisk"
+M.indicator_title_stage = "quest_20611_indicator_title"
+M.target_link_stage = "quest_20611_target_link"
+M.target_teleport_stage = "quest_20611_target_teleport"
 M.grind_point = {
     x = 194.491,
     y = 2689.982,
@@ -36,6 +39,33 @@ M.obelisk_confirm = {
     x = 684,
     y = 437,
     tolerance = 90,
+}
+M.indicator_title = {
+    parent = "quest_indicator_dialog",
+    name = "prototype",
+    depth = 4,
+}
+M.indicator_entry_names = {
+    "prototype",
+    "htmltext",
+    "title",
+}
+M.indicator_teleport = {
+    parent = "quest_indicator_dialog",
+    name = "teleport",
+    depth = 4,
+}
+M.target_link = {
+    parent = "v3_quest_dialog",
+    x = 463,
+    y = 171,
+    tolerance = 45,
+    depth = 6,
+}
+M.dictionary_teleport = {
+    parent = "dictionary_dialog",
+    name = "teleport_to_npc",
+    depth = 6,
 }
 M.dialog_steps = {
     select_quest = {
@@ -522,23 +552,133 @@ function M.nextObeliskAction(state, runtime, opts, quest)
     })
 end
 
+function M.nextIndicatorEntryName(runtime)
+    local names = M.indicator_entry_names or {}
+    local last = tostring(runtime and runtime.clicked_20611_indicator_entry_name or "")
+    if last ~= "" then
+        for index, name in ipairs(names) do
+            if name == last then
+                return names[(index % #names) + 1] or M.indicator_title.name
+            end
+        end
+    end
+    return M.indicator_title.name
+end
+
+function M.openCurrentTrackerAction(quest, reason, runtime)
+    local qid = quest_id(quest)
+    if qid <= 0 then
+        qid = M.quest_id
+    end
+    local entry_name = M.nextIndicatorEntryName(runtime)
+    return action("ClickUiControl", reason or "open current tracked quest detail", {
+        quest_id = qid,
+        quest_step = M.questStep(quest),
+        stage = M.indicator_title_stage,
+        parent = M.indicator_title.parent,
+        name = entry_name,
+        depth = M.indicator_title.depth,
+        previous_name = tostring(runtime and runtime.clicked_20611_indicator_entry_name or ""),
+    })
+end
+
+function M.currentTrackerTeleportAction(quest, runtime, params)
+    params = params or {}
+    local qid = number(params.quest_id)
+    if qid <= 0 then
+        qid = quest_id(quest)
+    end
+    if qid <= 0 then
+        qid = M.quest_id
+    end
+    return action("ClickUiControlWaitTeleport", "current tracker direct teleport after panel did not open", {
+        quest_id = qid,
+        quest_step = params.quest_step or M.questStep(quest),
+        stage = params.stage or M.target_teleport_stage,
+        parent = M.indicator_teleport.parent,
+        name = M.indicator_teleport.name,
+        depth = M.indicator_teleport.depth,
+        previous_name = tostring(runtime and runtime.clicked_20611_indicator_entry_name or ""),
+        wait_teleport = true,
+    })
+end
+
+function M.nextCurrentQuestTeleportAction(state, runtime, quest, reason, params)
+    state = state or {}
+    runtime = runtime or {}
+    params = params or {}
+    local ui = type(state.ui) == "table" and state.ui or {}
+    if ui.quest_panel_visible ~= true
+        or runtime.clicked_20611_indicator_title ~= true then
+        local last_open_candidate = M.indicator_entry_names[#M.indicator_entry_names]
+        if runtime.clicked_20611_indicator_title == true
+            and tostring(runtime.clicked_20611_indicator_entry_name or "") == tostring(last_open_candidate or "") then
+            return M.currentTrackerTeleportAction(quest, runtime, params)
+        end
+        return M.openCurrentTrackerAction(quest, "open current tracked quest before teleport", runtime)
+    end
+
+    local out = {}
+    for key, value in pairs(params) do
+        out[key] = value
+    end
+    local qid = number(out.quest_id)
+    if qid <= 0 then
+        qid = quest_id(quest)
+    end
+    if qid <= 0 then
+        qid = M.quest_id
+    end
+    out.quest_id = qid
+    out.quest_step = out.quest_step or M.questStep(quest)
+    out.open_panel_key = false
+    out.require_panel_visible = true
+    if out.wait_teleport == nil then
+        out.wait_teleport = true
+    end
+    return action("QuestTeleport", reason or "current quest panel visible; immediate move", out)
+end
+
+function M.nextTargetTeleportAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or state.quest or M.findQuestById(state.quests, M.quest_id)
+
+    if runtime.completed_20611_target_teleport == true then
+        return action("Idle", "quest 20611 target teleport already completed", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = M.target_teleport_stage,
+        })
+    end
+
+    return M.nextCurrentQuestTeleportAction(state, runtime, quest, "quest 20611 quest panel visible; immediate move", {
+        quest_id = M.quest_id,
+        quest_step = M.questStep(quest),
+        stage = M.target_teleport_stage,
+        wait_teleport = true,
+    })
+end
+
 function M.nextAction(state, runtime, opts)
     state = state or {}
     runtime = runtime or {}
     opts = opts or {}
 
+    local teleport_stage = tostring(runtime.teleport_stage or "")
     if runtime.waiting_teleport == true
-        and tostring(runtime.teleport_stage or "") == M.level_move_stage then
+        and (teleport_stage == M.level_move_stage or teleport_stage == M.target_teleport_stage) then
         local detected, reason = M.teleportDetected(state, runtime, opts)
         if detected then
             return action("CompleteQuestTeleport", reason, {
                 quest_id = M.quest_id,
-                stage = M.level_move_stage,
+                stage = teleport_stage,
             })
         end
         return action("WaitPositionChanged", reason, {
             quest_id = M.quest_id,
-            stage = M.level_move_stage,
+            stage = teleport_stage,
             min_distance = opts.teleport_min_distance or 20,
         })
     end
@@ -589,6 +729,9 @@ function M.nextAction(state, runtime, opts)
             if active_qid == M.quest_id and active_step == 1 then
                 return M.nextObeliskAction(state, runtime, opts, active_quest)
             end
+            if active_qid == M.quest_id and active_step == 2 then
+                return M.nextTargetTeleportAction(state, runtime, opts, active_quest)
+            end
             if active_qid == M.quest_id and active_step > 1 then
                 return action("Idle", "quest 20611 next step is not recorded yet", {
                     quest_id = active_qid,
@@ -635,7 +778,7 @@ function M.nextAction(state, runtime, opts)
                             stage = M.level_move_stage,
                         })
                     end
-                    return action("QuestTeleport", "active yellow mission level reached; immediate move", {
+                    return M.nextCurrentQuestTeleportAction(state, runtime, active_quest, "active yellow mission level reached; immediate move", {
                         quest_id = active_qid,
                         quest_step = M.questStep(active_quest),
                         required_level = required_level,
@@ -665,7 +808,7 @@ function M.nextAction(state, runtime, opts)
                 return action("ReadState", "character level unavailable", { quest_id = tracked_level_qid })
             end
             if required_level > 0 and char_level >= required_level then
-                return action("QuestTeleport", "tracked yellow mission level reached; immediate move", {
+                return M.nextCurrentQuestTeleportAction(state, runtime, tracked_quest, "tracked yellow mission level reached; immediate move", {
                     quest_id = tracked_level_qid,
                     quest_step = M.questStep(tracked_quest),
                     required_level = required_level,
@@ -722,7 +865,7 @@ function M.nextAction(state, runtime, opts)
             end
             if runtime.active_20611_grind == true
                 and tostring(runtime.active_20611_grind_stage or "") == M.level_grind_stage then
-                return action("QuestTeleport", "yellow mission level reached; immediate move", {
+                return M.nextCurrentQuestTeleportAction(state, runtime, level_quest, "yellow mission level reached; immediate move", {
                     quest_id = level_qid,
                     quest_step = M.questStep(level_quest),
                     required_level = required_level,
@@ -740,7 +883,7 @@ function M.nextAction(state, runtime, opts)
                     stage = M.level_move_stage,
                 })
             end
-            return action("QuestTeleport", "yellow mission immediate move", {
+            return M.nextCurrentQuestTeleportAction(state, runtime, level_quest, "yellow mission immediate move", {
                 quest_id = level_qid,
                 quest_step = M.questStep(level_quest),
                 required_level = required_level,

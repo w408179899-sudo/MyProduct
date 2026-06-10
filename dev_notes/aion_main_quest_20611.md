@@ -4,7 +4,7 @@
 
 Quest `20611` is the first yellow mission after the level-8 gate.
 
-If the character level is below the quest `lv_num`, keep stationary grind active at the current safe point. Once the recorded target level is reached, call `QuestTeleport(20611)` only after opening the quest panel with `J`.
+If the character level is below the quest `lv_num`, keep stationary grind active at the current safe point. Once the recorded target level is reached, open the current tracked quest detail before calling `QuestTeleport(20611)`.
 
 After `QuestTeleport` succeeds, do not talk to the NPC immediately. Set `waiting_teleport=true` with `teleport_stage=quest_20611_level_move`, then wait until the character position changes by at least `20m` or the map id changes. Only mark `completed_20611_level_move=true` from `CompleteQuestTeleport`.
 
@@ -116,4 +116,62 @@ obelisk confirm action
 obelisk-confirm:quest_20611_obelisk
 visible unnamed popup roots
 POPUP_CHILD
+```
+
+## Current Tracker / Immediate Move
+
+After the obelisk confirmation, the next recorded step is:
+
+```text
+quest=20611 status_code=3 req_count=2
+```
+
+Open the current tracked quest from the right quest tracker first. Do not use plain `J` for this step, because `J` may open the panel without selecting the current quest. A visible `v3_quest_dialog` is not enough by itself; the runner must first record a successful `quest_20611_indicator_title` click in this session. The required flow is:
+
+```text
+ClickUiControl parent=quest_indicator_dialog name=prototype stage=quest_20611_indicator_title
+QuestTeleport(20611) stage=quest_20611_target_teleport only after v3_quest_dialog is visible
+WaitPositionChanged / CompleteQuestTeleport stage=quest_20611_target_teleport
+```
+
+F3 sample for the right quest tracker entry:
+
+```text
+parent=quest_indicator_dialog
+name=prototype
+x=1080 y=260
+```
+
+The child `title` at `x=1095 y=260` was tested on 2026-06-10. `ClickButton` returned success, but the quest detail did not open. Use the `prototype` row container instead.
+
+If `prototype` also clicks without opening `v3_quest_dialog`, rotate through the same row's stable F2-visible text/container candidates without using fixed screen coordinates:
+
+```text
+prototype -> htmltext -> title
+```
+
+The right tracker child named `teleport` is not an open-panel candidate. If the text/container candidates do not open `v3_quest_dialog`, click `quest_indicator_dialog.teleport` as `ClickUiControlWaitTeleport` and immediately enter the normal position-change wait:
+
+```text
+ClickUiControlWaitTeleport parent=quest_indicator_dialog name=teleport stage=quest_20611_target_teleport
+WaitPositionChanged / CompleteQuestTeleport stage=quest_20611_target_teleport
+```
+
+Do not auto-use `over_img` in this flow. It was visible in F3 only while the mouse hovered the row, but F2 showed it as `visible=false` in normal script execution.
+
+Do not treat `dictionary_dialog.teleport_to_npc` visibility as permission to teleport. On 2026-06-10, a stale dictionary dialog was visible on startup and the runner skipped the proper open-current-quest step, then tried to click `teleport_to_npc` directly.
+
+The older blue-link path was observed but is not used by default now:
+
+```text
+v3_quest_dialog target link near x=463 y=171
+```
+
+Runtime flags:
+
+```text
+clicked_20611_indicator_title
+clicked_20611_target_link
+clicked_20611_dictionary_teleport
+completed_20611_target_teleport
 ```

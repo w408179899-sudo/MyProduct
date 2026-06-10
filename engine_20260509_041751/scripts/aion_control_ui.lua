@@ -310,6 +310,11 @@ local runtime = {
         clicked_20611_obelisk_confirm_at = 0,
         obelisk_confirm_wait_until = 0,
         completed_20611_obelisk = false,
+        clicked_20611_indicator_title = false,
+        clicked_20611_indicator_entry_name = "",
+        clicked_20611_target_link = false,
+        clicked_20611_dictionary_teleport = false,
+        completed_20611_target_teleport = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -6622,6 +6627,11 @@ function main_quest_reset_runtime(reason)
     r.clicked_20611_obelisk_confirm_at = 0
     r.obelisk_confirm_wait_until = 0
     r.completed_20611_obelisk = false
+    r.clicked_20611_indicator_title = false
+    r.clicked_20611_indicator_entry_name = ""
+    r.clicked_20611_target_link = false
+    r.clicked_20611_dictionary_teleport = false
+    r.completed_20611_target_teleport = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -6904,7 +6914,10 @@ function main_quest_read_20611_state(now)
     local quest_id = tonumber(state.quest and state.quest.id) or 0
     local quest_step = tonumber(state.quest and state.quest.req_count) or 0
     local r = runtime.main_quest or {}
-    if (quest_id == 20611 and quest_step == 1)
+    local level_blocked_id = tonumber(state.level_blocked_quest and state.level_blocked_quest.id) or 0
+    if quest_id == 20611
+        or level_blocked_id == 20611
+        or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
     end
@@ -7056,7 +7069,7 @@ function main_quest_apply_startup_snapshot(reason)
         " qblue_id=" .. tostring(plan.remote_reward_quest_id or 0) ..
         " qblue=" .. tostring(plan.remote_reward_status or 0) ..
         " stopped_route_stage=" .. tostring(stopped_route_stage or "") ..
-        " build=mq-gate-quest20590-active-id-first-20260609" ..
+        " build=mq-20611-tracker-teleport-wait-20260611" ..
         " flags=" .. flag_text,
         0)
     main_quest_set_status("startup snapshot stage=" .. tostring(plan.stage or "") ..
@@ -7701,10 +7714,20 @@ function main_quest_read_20611_ui_state()
     local out = {
         obelisk_confirm_visible = false,
         obelisk_confirm_detail = "",
+        quest_indicator_entry = false,
+        quest_indicator_entry_detail = "",
+        quest_panel_visible = false,
+        quest_detail_target_link_20611 = false,
+        quest_detail_target_link_20611_detail = "",
+        dictionary_teleport_to_npc = false,
+        dictionary_teleport_to_npc_detail = "",
     }
     local ok_ui_runtime, ui_runtime = pcall(require, "aion.ui")
     if not ok_ui_runtime or not ui_runtime then
         out.obelisk_confirm_detail = "aion.ui unavailable " .. tostring(ui_runtime)
+        out.quest_indicator_entry_detail = out.obelisk_confirm_detail
+        out.quest_detail_target_link_20611_detail = out.obelisk_confirm_detail
+        out.dictionary_teleport_to_npc_detail = out.obelisk_confirm_detail
         return out
     end
     local ctrl, line_or_err = main_quest_find_obelisk_confirm_button(ui_runtime, {
@@ -7714,6 +7737,59 @@ function main_quest_read_20611_ui_state()
     })
     out.obelisk_confirm_visible = ctrl ~= nil
     out.obelisk_confirm_detail = tostring(line_or_err or "")
+    local panel_visible, panel_detail = main_quest_quest_panel_visible()
+    out.quest_panel_visible = panel_visible == true
+    out.quest_panel_detail = tostring(panel_detail or "")
+    if type(ui_runtime.children) == "function" then
+        local ok_indicator, indicator_children, indicator_err = ui_runtime.children("quest_indicator_dialog", 4)
+        if ok_indicator then
+            local entry = main_quest_find_ui_child_by_name(indicator_children, "prototype")
+            out.quest_indicator_entry = entry ~= nil
+            if entry then
+                out.quest_indicator_entry_detail = "obj=" .. tostring(entry.obj or entry.addr or "") ..
+                    " x=" .. tostring(entry.x or "") ..
+                    " y=" .. tostring(entry.y or "")
+            else
+                out.quest_indicator_entry_detail = "quest indicator prototype not found"
+            end
+        else
+            out.quest_indicator_entry_detail = "read quest_indicator_dialog children failed " .. tostring(indicator_err or "")
+        end
+        local ok_quest, quest_children, quest_err = ui_runtime.children("v3_quest_dialog", 6)
+        if ok_quest then
+            local child, dist = main_quest_find_ui_child_at(quest_children, 463, 171, 45)
+            out.quest_detail_target_link_20611 = child ~= nil
+            if child then
+                out.quest_detail_target_link_20611_detail = string.format("obj=%s name=%s x=%.0f y=%.0f dist=%.1f",
+                    tostring(child.obj or child.addr or ""),
+                    tostring(child.name or ""),
+                    tonumber(child.x) or 0,
+                    tonumber(child.y) or 0,
+                    tonumber(dist) or 0)
+            else
+                out.quest_detail_target_link_20611_detail = "quest detail target link not found"
+            end
+        else
+            out.quest_detail_target_link_20611_detail = "read v3_quest_dialog children failed " .. tostring(quest_err or "")
+        end
+        local ok_dictionary, dictionary_children, dictionary_err = ui_runtime.children("dictionary_dialog", 6)
+        if ok_dictionary then
+            local teleport = main_quest_find_ui_child_by_name(dictionary_children, "teleport_to_npc")
+            out.dictionary_teleport_to_npc = teleport ~= nil
+            if teleport then
+                out.dictionary_teleport_to_npc_detail = "obj=" .. tostring(teleport.obj or teleport.addr or "") ..
+                    " name=" .. tostring(teleport.name or "")
+            else
+                out.dictionary_teleport_to_npc_detail = "dictionary teleport_to_npc not found"
+            end
+        else
+            out.dictionary_teleport_to_npc_detail = "read dictionary_dialog children failed " .. tostring(dictionary_err or "")
+        end
+    else
+        out.quest_indicator_entry_detail = "aion.ui.children unavailable"
+        out.quest_detail_target_link_20611_detail = "aion.ui.children unavailable"
+        out.dictionary_teleport_to_npc_detail = "aion.ui.children unavailable"
+    end
     return out
 end
 
@@ -7766,6 +7842,32 @@ function main_quest_execute_20590(action, state)
             main_quest_set_status("等待UI可见 stage=" .. tostring(stage) ..
                 " parent=" .. tostring(params.parent or "") ..
                 " name=" .. tostring(params.name or ""))
+        end
+        return true
+    end
+
+    if name == "OpenQuestPanel" then
+        if not main_quest_action_cooldown(name .. ":" .. tostring(stage), 0.5) then
+            return true
+        end
+        local quest_id = tonumber(params.quest_id) or 0
+        local panel_ready, panel_detail = main_quest_prepare_quest_teleport_panel(quest_id, stage)
+        main_quest_trace("quest-panel-open-action:" .. tostring(stage),
+            "quest=" .. tostring(quest_id) ..
+            " ready=" .. tostring(panel_ready) ..
+            " detail=" .. tostring(panel_detail or "") ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
+        main_quest_set_status("open quest panel quest_id=" .. tostring(quest_id) ..
+            " stage=" .. tostring(stage) ..
+            " result=" .. tostring(panel_detail or ""))
+        if panel_ready then
+            return true
+        end
+        local detail_text = tostring(panel_detail or "")
+        if string.find(detail_text, "press J failed", 1, true)
+            or string.find(detail_text, "aion.remote.pressKey unavailable", 1, true) then
+            return false
         end
         return true
     end
@@ -7858,6 +7960,13 @@ function main_quest_execute_20590(action, state)
                 r.clicked_20610_target_link = true
             elseif stage == "quest_20610_task_teleport" then
                 r.clicked_20610_dictionary_teleport = true
+            elseif stage == "quest_20611_indicator_title" then
+                r.clicked_20611_indicator_title = true
+                r.clicked_20611_indicator_entry_name = tostring(params.name or "")
+            elseif stage == "quest_20611_target_link" then
+                r.clicked_20611_target_link = true
+            elseif stage == "quest_20611_target_teleport" then
+                r.clicked_20611_dictionary_teleport = true
             end
             if name == "ClickUiControlWaitTeleport" then
                 r.waiting_teleport = true
@@ -7871,10 +7980,13 @@ function main_quest_execute_20590(action, state)
             " stage=" .. tostring(stage) ..
             " parent=" .. tostring(params.parent or "") ..
             " name=" .. tostring(params.name or "") ..
+            " previous_name=" .. tostring(params.previous_name or "") ..
             " result=" .. tostring(line_or_err))
         main_quest_trace("ui-click:" .. tostring(stage),
             "action=" .. name ..
             " ok=" .. tostring(click_ok) ..
+            " name=" .. tostring(params.name or "") ..
+            " previous_name=" .. tostring(params.previous_name or "") ..
             " result=" .. tostring(line_or_err) ..
             " pos=" .. main_quest_position_text(state.char),
             0)
@@ -7959,10 +8071,16 @@ function main_quest_execute_20590(action, state)
             main_quest_set_status("quest teleport failed: aion.quest unavailable")
             return false
         end
-        local panel_ready, panel_detail = main_quest_prepare_quest_teleport_panel(quest_id, stage)
+        local panel_ready, panel_detail
+        if params.open_panel_key == false or params.require_panel_visible == true then
+            panel_ready, panel_detail = main_quest_quest_panel_visible()
+        else
+            panel_ready, panel_detail = main_quest_prepare_quest_teleport_panel(quest_id, stage)
+        end
         if not panel_ready then
             main_quest_trace("quest-teleport-wait-panel:" .. tostring(stage),
                 "quest=" .. tostring(quest_id) ..
+                " open_panel_key=" .. tostring(params.open_panel_key ~= false) ..
                 " detail=" .. tostring(panel_detail or "") ..
                 " pos=" .. main_quest_position_text(state.char),
                 0.5)
@@ -8270,8 +8388,14 @@ function main_quest_execute_20590(action, state)
             r.cached_quest_20610 = nil
             r.last_quest_20610_read_at = 0
         elseif tonumber(params.quest_id) == 20611 then
-            r.completed_20611_level_move = true
-            r.level_move_quest_id = tonumber(params.quest_id) or 20611
+            local stage = tostring(params.stage or "")
+            r.clicked_20611_indicator_title = false
+            if stage == "quest_20611_target_teleport" then
+                r.completed_20611_target_teleport = true
+            else
+                r.completed_20611_level_move = true
+                r.level_move_quest_id = tonumber(params.quest_id) or 20611
+            end
             r.cached_quest_20611 = nil
             r.last_quest_20611_read_at = 0
         end
@@ -8614,6 +8738,7 @@ function main_quest_20611_tick()
     local level_required = tonumber(state.level_blocked_quest and state.level_blocked_quest.lv_num) or 0
     local char_level = tonumber(state.char and state.char.level) or 0
     local action_qid = tonumber(action.params and action.params.quest_id) or 0
+    local ui_state = type(state.ui) == "table" and state.ui or {}
     local decision_sig = "20611:" .. tostring(action.name or "") ..
         ":" .. tostring(action.params and action.params.stage or "") ..
         ":" .. tostring(action_qid) ..
@@ -8625,7 +8750,14 @@ function main_quest_20611_tick()
         ":" .. tostring(level_status) ..
         ":" .. tostring(level_required) ..
         ":" .. tostring(char_level) ..
-        ":" .. tostring(runtime.main_quest.active_20611_grind_stage or "")
+        ":" .. tostring(runtime.main_quest.active_20611_grind_stage or "") ..
+        ":" .. tostring(ui_state.quest_indicator_entry == true) ..
+        ":" .. tostring(ui_state.quest_panel_visible == true) ..
+        ":" .. tostring(ui_state.quest_detail_target_link_20611 == true) ..
+        ":" .. tostring(ui_state.dictionary_teleport_to_npc == true) ..
+        ":" .. tostring(runtime.main_quest.clicked_20611_indicator_title == true) ..
+        ":" .. tostring(runtime.main_quest.clicked_20611_indicator_entry_name or "") ..
+        ":" .. tostring(runtime.main_quest.clicked_20611_target_link == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -8643,6 +8775,13 @@ function main_quest_20611_tick()
             " qlevel_required=" .. tostring(level_required) ..
             " char_level=" .. tostring(char_level) ..
             " grind_stage=" .. tostring(runtime.main_quest.active_20611_grind_stage or "") ..
+            " ui_indicator_entry=" .. tostring(ui_state.quest_indicator_entry == true) ..
+            " ui_panel=" .. tostring(ui_state.quest_panel_visible == true) ..
+            " ui_link=" .. tostring(ui_state.quest_detail_target_link_20611 == true) ..
+            " ui_dict=" .. tostring(ui_state.dictionary_teleport_to_npc == true) ..
+            " clicked_indicator_title=" .. tostring(runtime.main_quest.clicked_20611_indicator_title == true) ..
+            " clicked_indicator_name=" .. tostring(runtime.main_quest.clicked_20611_indicator_entry_name or "") ..
+            " clicked_link=" .. tostring(runtime.main_quest.clicked_20611_target_link == true) ..
             " pos=" .. main_quest_position_text(state.char),
             0)
         runtime.main_quest.last_decision_20611_signature = decision_sig

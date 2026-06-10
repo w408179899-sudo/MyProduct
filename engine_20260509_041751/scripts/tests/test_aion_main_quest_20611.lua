@@ -86,6 +86,11 @@ local function run()
             },
             char = { x = 190.96, y = 2693.78, z = 300.62, level = 8 },
             big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            clicked_20611_indicator_title = true,
         })
 
         T.assert_eq(next_action.name, "QuestTeleport")
@@ -93,6 +98,8 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20611_level_move")
         T.assert_eq(next_action.params.required_level, 8)
         T.assert_eq(next_action.params.char_level, 8)
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, true)
         T.assert_eq(next_action.params.wait_teleport, true)
     end)
 
@@ -127,11 +134,15 @@ local function run()
             },
             char = { x = 197.70, y = 2697.09, z = 301.04, level = 10 },
             big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
         }, {
             active_20611_grind = true,
             active_20611_grind_stage = "quest_20611_level_grind",
             level_grind_quest_id = 20611,
             level_grind_required_level = 8,
+            clicked_20611_indicator_title = true,
         })
 
         T.assert_eq(next_action.name, "QuestTeleport")
@@ -139,6 +150,8 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20611_level_move")
         T.assert_eq(next_action.params.required_level, 8)
         T.assert_eq(next_action.params.char_level, 10)
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, true)
         T.assert_eq(next_action.params.wait_teleport, true)
     end)
 
@@ -151,6 +164,11 @@ local function run()
             },
             char = { x = 197.70, y = 2697.09, z = 301.04, level = 10 },
             big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            clicked_20611_indicator_title = true,
         })
 
         T.assert_eq(next_action.name, "QuestTeleport")
@@ -158,6 +176,8 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20611_level_move")
         T.assert_eq(next_action.params.required_level, 8)
         T.assert_eq(next_action.params.char_level, 10)
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, true)
         T.assert_eq(next_action.params.wait_teleport, true)
     end)
 
@@ -362,6 +382,176 @@ local function run()
         T.assert_eq(next_action.name, "ClickObeliskConfirm")
         T.assert_eq(next_action.params.quest_id, 20611)
         T.assert_eq(next_action.params.stage, "quest_20611_obelisk")
+    end)
+
+    T.test("opens current tracked quest before quest 20611 immediate move", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = obelisk_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = false,
+            },
+        })
+
+        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 2)
+        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+        T.assert_eq(next_action.params.parent, "quest_indicator_dialog")
+        T.assert_eq(next_action.params.name, "prototype")
+    end)
+
+    T.test("does not trust visible quest panel before current tracker title click", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = obelisk_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        })
+
+        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+    end)
+
+    T.test("tries next current tracker candidate when previous click did not open panel", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = obelisk_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = false,
+            },
+        }, {
+            clicked_20611_indicator_title = true,
+            clicked_20611_indicator_entry_name = "prototype",
+        })
+
+        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+        T.assert_eq(next_action.params.name, "htmltext")
+        T.assert_eq(next_action.params.previous_name, "prototype")
+    end)
+
+    T.test("waits for position change after current tracker teleport click", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = obelisk_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = false,
+            },
+        }, {
+            clicked_20611_indicator_title = true,
+            clicked_20611_indicator_entry_name = "title",
+        })
+
+        T.assert_eq(next_action.name, "ClickUiControlWaitTeleport")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 2)
+        T.assert_eq(next_action.params.stage, "quest_20611_target_teleport")
+        T.assert_eq(next_action.params.parent, "quest_indicator_dialog")
+        T.assert_eq(next_action.params.name, "teleport")
+        T.assert_eq(next_action.params.previous_name, "title")
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("uses quest 20611 immediate move after current quest panel opens", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = obelisk_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            clicked_20611_indicator_title = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 2)
+        T.assert_eq(next_action.params.stage, "quest_20611_target_teleport")
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, true)
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("does not click stale quest 20611 dictionary teleport before current quest panel", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = obelisk_char(),
+            big_map_id = 220010000,
+            ui = {
+                dictionary_teleport_to_npc = true,
+            },
+        })
+
+        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+    end)
+
+    T.test("waits for quest 20611 target teleport landing", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = obelisk_char(),
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_stage = "quest_20611_target_teleport",
+            teleport_start_pos = obelisk_char(),
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_target_teleport")
+    end)
+
+    T.test("completes quest 20611 target teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = { x = 640.00, y = 2380.00, z = 280.00, level = 10 },
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_stage = "quest_20611_target_teleport",
+            teleport_start_pos = obelisk_char(),
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_target_teleport")
     end)
 
     T.test("does not repeat completed quest 20611 obelisk confirm", function()
