@@ -303,6 +303,7 @@ local runtime = {
         level_grind_quest_id = 0,
         level_grind_required_level = 0,
         completed_20611_grind = false,
+        completed_20611_mission_dialog = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -6106,19 +6107,30 @@ function npc_click_selected_child_then_accept()
     return npc_accept_current_dialog()
 end
 
-function npc_find_dialog_child_by_x(children, target_x, tolerance)
+function npc_find_dialog_child_by_x(children, target_x, tolerance, target_y, y_tolerance)
     local best_child = nil
-    local best_delta = nil
+    local best_score = nil
     local best_index = 0
+    local best_delta = nil
+    local use_y = tonumber(target_y) ~= nil
+    target_y = tonumber(target_y) or 0
+    y_tolerance = math.max(0, tonumber(y_tolerance) or 8)
 
     for index, child in ipairs(children or {}) do
         local obj = tonumber(child and (child.obj or child.addr)) or 0
         local visible = child and child.visible == true
         local x = tonumber(child and child.x) or 0
+        local y = tonumber(child and child.y) or 0
         local delta = math.abs(x - target_x)
-        if obj > 0 and visible and delta <= tolerance then
-            if not best_delta or delta < best_delta then
+        local y_delta = math.abs(y - target_y)
+        if obj > 0 and visible and delta <= tolerance and (not use_y or y_delta <= y_tolerance) then
+            local score = delta
+            if use_y then
+                score = score + y_delta
+            end
+            if not best_score or score < best_score then
                 best_child = child
+                best_score = score
                 best_delta = delta
                 best_index = index
             end
@@ -6150,20 +6162,25 @@ function npc_find_dialog_child_by_name(children, target_name)
     return best_child, best_index
 end
 
-function npc_click_dialog_x_once(ui_runtime, step)
+function npc_click_dialog_x_once(ui_runtime, step, click_x, click_y, click_y_tolerance)
     cfg.npc_dialog = cfg.npc_dialog or {}
     local depth = math.max(1, tonumber(cfg.npc_dialog.dialog_child_depth) or 6)
-    local target_x = tonumber(cfg.npc_dialog.auto_click_x) or 25
+    local target_x = tonumber(click_x) or tonumber(cfg.npc_dialog.auto_click_x) or 25
+    local target_y = tonumber(click_y)
     local tolerance = math.max(0, tonumber(cfg.npc_dialog.auto_click_x_tolerance) or 2)
+    local y_tolerance = math.max(0, tonumber(click_y_tolerance)
+        or tonumber(cfg.npc_dialog.auto_click_y_tolerance)
+        or 8)
 
     local child_ok, children, child_err = ui_runtime.children("dlg_dialog", depth)
     if not child_ok then
         return false, "读取NPC对话子控件失败: " .. tostring(child_err)
     end
 
-    local child, index = npc_find_dialog_child_by_x(children, target_x, tolerance)
+    local child, index = npc_find_dialog_child_by_x(children, target_x, tolerance, target_y, y_tolerance)
     if not child then
-        return false, "dialog child not found x=" .. tostring(target_x)
+        return false, "dialog child not found x=" .. tostring(target_x) ..
+            " y=" .. tostring(target_y or "")
     end
 
     local click_ok, clicked, click_err = ui_runtime.click(child.obj or child.addr)
@@ -6172,7 +6189,10 @@ function npc_click_dialog_x_once(ui_runtime, step)
     end
 
     local line = npc_dialog_child_label(index, child)
-    log_info("[NPC-AUTO-CLICK] step=" .. tostring(step or 1) .. " " .. line)
+    log_info("[NPC-AUTO-CLICK] step=" .. tostring(step or 1) ..
+        " target_x=" .. tostring(target_x) ..
+        " target_y=" .. tostring(target_y or "") ..
+        " " .. line)
     return true, line
 end
 
@@ -6588,6 +6608,7 @@ function main_quest_reset_runtime(reason)
     r.level_grind_quest_id = 0
     r.level_grind_required_level = 0
     r.completed_20611_grind = false
+    r.completed_20611_mission_dialog = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7469,7 +7490,7 @@ function main_quest_execute_20590(action, state)
             r.teleport_start_pos = state.char
             r.teleport_start_big_map_id = tonumber(state.big_map_id) or 0
         end
-        if ok and result ~= false and stage == "quest_20611_level_move" then
+        if ok and result ~= false and stage == "quest_20611_level_move" and not wait_teleport then
             r.completed_20611_level_move = true
             r.level_move_quest_id = quest_id
         end
@@ -7611,7 +7632,11 @@ function main_quest_execute_20590(action, state)
             " dialog=" .. main_quest_dialog_signature(state.dialog) ..
             " pos=" .. main_quest_position_text(state.char),
             0)
-        local ok, line_or_err = npc_click_dialog_x_once(ui_runtime, "quest" .. tostring(params.quest_id or ""))
+        local ok, line_or_err = npc_click_dialog_x_once(ui_runtime,
+            "quest" .. tostring(params.quest_id or ""),
+            params.click_x,
+            params.click_y,
+            params.click_y_tolerance)
         local after_sig = "unread"
         if npc_runtime and type(npc_runtime.dialog) == "function" then
             local dialog_ok, info = npc_runtime.dialog()
@@ -7631,6 +7656,17 @@ function main_quest_execute_20590(action, state)
             r.completed_20610_start_dialog = true
             r.cached_quest_20610 = nil
             r.last_quest_20610_read_at = 0
+            local settle_seconds = math.max(0,
+                tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
+            if settle_seconds > 0 then
+                r.post_dialog_settle_until = math.max(
+                    tonumber(r.post_dialog_settle_until) or 0,
+                    now_seconds() + settle_seconds)
+            end
+        elseif ok and complete_after_click and tonumber(params.quest_id) == 20611 then
+            r.completed_20611_mission_dialog = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
             local settle_seconds = math.max(0,
                 tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
             if settle_seconds > 0 then
@@ -7690,7 +7726,10 @@ function main_quest_execute_20590(action, state)
 
     if name == "WaitPositionChanged" then
         if main_quest_action_cooldown(name, 2.0) then
-            main_quest_set_status("等待首个主线传送坐标变化")
+            main_quest_set_status("waiting quest teleport position change quest_id=" ..
+                tostring(params.quest_id or "") ..
+                " stage=" .. tostring(params.stage or "") ..
+                " min_distance=" .. tostring(params.min_distance or ""))
         end
         return true
     end
@@ -7722,6 +7761,11 @@ function main_quest_execute_20590(action, state)
             r.completed_20610_task_teleport = true
             r.cached_quest_20610 = nil
             r.last_quest_20610_read_at = 0
+        elseif tonumber(params.quest_id) == 20611 then
+            r.completed_20611_level_move = true
+            r.level_move_quest_id = tonumber(params.quest_id) or 20611
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
         end
         main_quest_set_status("complete quest teleport quest_id=" .. tostring(params.quest_id or "") ..
             " stage=" .. tostring(params.stage or "") ..

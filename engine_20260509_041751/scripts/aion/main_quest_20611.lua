@@ -1,4 +1,5 @@
 local M = {}
+local npc_names = require("aion.npc_names")
 
 M.quest_id = 20611
 M.quest_ids = { 20611, 20612, 20613, 20614, 20615 }
@@ -13,6 +14,43 @@ M.grind_point = {
     x = 194.491,
     y = 2689.982,
     z = 300.625,
+}
+M.npc = {
+    name_key = "MQ20611_NPC_001_MISSION",
+    name = npc_names.MQ20611_NPC_001_MISSION,
+    interact_id = 2147503111,
+    x = 586.22,
+    y = 2465.17,
+    z = 278.58,
+}
+M.dialog_steps = {
+    select_quest = {
+        content_id = 10,
+        action = "ClickDialogX",
+        reason = "open quest 20611 mission detail",
+        click_y = 324,
+        click_y_tolerance = 8,
+    },
+    select1 = {
+        content_id = 1011,
+        action = "ClickDialogX",
+        reason = "continue quest 20611 dialog 1",
+    },
+    select1_1 = {
+        content_id = 1012,
+        action = "ClickDialogX",
+        reason = "continue quest 20611 dialog 2",
+    },
+    select1_1_1 = {
+        content_id = 1013,
+        action = "ClickDialogX",
+        reason = "continue quest 20611 dialog 3",
+    },
+    select1_1_1_1 = {
+        content_id = 1014,
+        action = "ClickDialogXCompleteQuest",
+        reason = "complete quest 20611 mission dialog",
+    },
 }
 
 local function number(value)
@@ -106,6 +144,10 @@ end
 
 function M.distanceToGrindPoint(char)
     return distance3(char, M.grind_point)
+end
+
+function M.distanceToNpc(char)
+    return distance3(char, M.npc)
 end
 
 function M.questStep(quest)
@@ -230,10 +272,164 @@ function M.isRemoteRewardDialog(dialog)
         and tostring(dialog.type_text or "") == "select_quest_reward_remote"
 end
 
+function M.isMissionNpcDialog(dialog)
+    return type(dialog) == "table"
+        and number(dialog.npc_dialog_id) == M.npc.interact_id
+end
+
+function M.teleportDetected(state, runtime, opts)
+    opts = opts or {}
+    runtime = runtime or {}
+    local min_distance = number(opts.teleport_min_distance)
+    if min_distance <= 0 then
+        min_distance = 20
+    end
+
+    local current_big_map = number(state and state.big_map_id)
+    local start_big_map = number(runtime.teleport_start_big_map_id)
+    if start_big_map > 0 and current_big_map > 0 and start_big_map ~= current_big_map then
+        return true, "big_map_changed"
+    end
+
+    local start_pos = runtime.teleport_start_pos
+    local char = state and state.char
+    if type(start_pos) == "table" and type(char) == "table" then
+        local dist = distance3(start_pos, char)
+        if dist >= min_distance then
+            return true, "position_changed"
+        end
+    end
+
+    return false, "waiting_position_change"
+end
+
+function M.nextMissionNpcAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or state.quest or M.findQuestById(state.quests, M.quest_id)
+
+    if runtime.completed_20611_mission_dialog == true then
+        return action("Idle", "quest 20611 mission dialog already completed", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = "quest_20611_mission_npc",
+        })
+    end
+
+    local dialog = state.dialog
+    if M.isMissionNpcDialog(dialog) then
+        local type_text = tostring(dialog.type_text or "")
+        local step = M.dialog_steps[type_text]
+        if step then
+            return action(step.action, step.reason, {
+                quest_id = M.quest_id,
+                quest_step = M.questStep(quest),
+                expected_content_id = step.content_id,
+                content_id = number(dialog.dialog_content_id),
+                type_text = type_text,
+                click_x = opts.dialog_click_x or 25,
+                click_y = step.click_y,
+                click_y_tolerance = step.click_y_tolerance,
+                interact_id = M.npc.interact_id,
+                npc_name = M.npc.name,
+                npc_name_key = M.npc.name_key,
+                stage = "quest_20611_mission_npc",
+            })
+        end
+
+        return action("DumpDialog", "unknown quest 20611 mission dialog stage", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            type_text = type_text,
+            content_id = number(dialog.dialog_content_id),
+            npc_dialog_id = number(dialog.npc_dialog_id),
+            interact_id = M.npc.interact_id,
+            npc_name = M.npc.name,
+            npc_name_key = M.npc.name_key,
+            stage = "quest_20611_mission_npc",
+        })
+    end
+
+    if type(dialog) == "table" then
+        return action("DumpDialog", "different npc dialog is already open", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            type_text = tostring(dialog.type_text or ""),
+            content_id = number(dialog.dialog_content_id),
+            npc_dialog_id = number(dialog.npc_dialog_id),
+            interact_id = M.npc.interact_id,
+            npc_name = M.npc.name,
+            npc_name_key = M.npc.name_key,
+            stage = "quest_20611_mission_npc",
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_id })
+    end
+
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.big_map_id then
+        return action("Idle", "quest 20611 mission npc wrong map", {
+            quest_id = M.quest_id,
+            big_map_id = current_big_map,
+            expected_big_map_id = M.big_map_id,
+        })
+    end
+
+    local range = number(opts.npc_range)
+    if range <= 0 then
+        range = 4
+    end
+    local dist = M.distanceToNpc(char)
+    if dist > range then
+        return action("NavigateToNpc", "move to quest 20611 mission npc", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = "quest_20611_mission_npc",
+            interact_id = M.npc.interact_id,
+            npc_name = M.npc.name,
+            npc_name_key = M.npc.name_key,
+            x = M.npc.x,
+            y = M.npc.y,
+            z = M.npc.z,
+            distance = dist,
+            range = range,
+        })
+    end
+
+    return action("InteractNpc", "open quest 20611 mission npc dialog", {
+        quest_id = M.quest_id,
+        quest_step = M.questStep(quest),
+        stage = "quest_20611_mission_npc",
+        interact_id = M.npc.interact_id,
+        npc_name = M.npc.name,
+        npc_name_key = M.npc.name_key,
+    })
+end
+
 function M.nextAction(state, runtime, opts)
     state = state or {}
     runtime = runtime or {}
     opts = opts or {}
+
+    if runtime.waiting_teleport == true
+        and tostring(runtime.teleport_stage or "") == M.level_move_stage then
+        local detected, reason = M.teleportDetected(state, runtime, opts)
+        if detected then
+            return action("CompleteQuestTeleport", reason, {
+                quest_id = M.quest_id,
+                stage = M.level_move_stage,
+            })
+        end
+        return action("WaitPositionChanged", reason, {
+            quest_id = M.quest_id,
+            stage = M.level_move_stage,
+            min_distance = opts.teleport_min_distance or 20,
+        })
+    end
 
     local remote_reward_quest = state.remote_reward_quest or M.findRemoteRewardQuest(state.quests)
     if M.isRemoteRewardDialog(state.dialog) then
@@ -277,6 +473,31 @@ function M.nextAction(state, runtime, opts)
         end
         if M.isQuestActive(active_quest) then
             local active_qid = quest_id(active_quest)
+            local active_step = M.questStep(active_quest)
+            if active_qid == M.quest_id and active_step > 0 then
+                return action("Idle", "quest 20611 next step is not recorded yet", {
+                    quest_id = active_qid,
+                    quest_step = active_step,
+                })
+            end
+            local range = number(opts.npc_range)
+            if range <= 0 then
+                range = 4
+            end
+            local near_mission_npc = type(state.char) == "table"
+                and M.distanceToNpc(state.char) <= range
+            if active_qid == M.quest_id
+                and (M.isMissionNpcDialog(state.dialog) or near_mission_npc) then
+                return M.nextMissionNpcAction(state, runtime, opts, active_quest)
+            end
+            if active_qid == M.quest_id
+                and runtime.completed_20611_level_move == true then
+                return action("Idle", "waiting quest 20611 teleport landing", {
+                    quest_id = active_qid,
+                    quest_step = M.questStep(active_quest),
+                    stage = M.level_move_stage,
+                })
+            end
             local required_level = M.questRequiredLevel(active_quest)
             if required_level <= 0 and number(runtime.level_grind_quest_id) == active_qid then
                 required_level = number(runtime.level_grind_required_level)
@@ -305,7 +526,7 @@ function M.nextAction(state, runtime, opts)
                         required_level = required_level,
                         char_level = char_level,
                         stage = M.level_move_stage,
-                        wait_teleport = false,
+                        wait_teleport = true,
                     })
                 end
             end
@@ -335,7 +556,7 @@ function M.nextAction(state, runtime, opts)
                     required_level = required_level,
                     char_level = char_level,
                     stage = M.level_move_stage,
-                    wait_teleport = false,
+                    wait_teleport = true,
                 })
             end
             return action("WaitLevelGrind", "tracked yellow mission level grind running", {
@@ -392,7 +613,7 @@ function M.nextAction(state, runtime, opts)
                     required_level = required_level,
                     char_level = char_level,
                     stage = M.level_move_stage,
-                    wait_teleport = false,
+                    wait_teleport = true,
                 })
             end
             if runtime.completed_20611_level_move == true
@@ -406,12 +627,12 @@ function M.nextAction(state, runtime, opts)
             end
             return action("QuestTeleport", "yellow mission immediate move", {
                 quest_id = level_qid,
-                quest_step = M.questStep(level_quest),
-                required_level = required_level,
-                char_level = char_level,
-                stage = M.level_move_stage,
-                wait_teleport = false,
-            })
+            quest_step = M.questStep(level_quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.level_move_stage,
+            wait_teleport = true,
+        })
         end
         if runtime.completed_20611_grind == true then
             return action("Idle", "blue grind quest already completed", { quest_id = M.remote_reward_quest_id })

@@ -28,6 +28,10 @@ local function far_char()
     return { x = 223.17, y = 2680.63, z = 295.25 }
 end
 
+local function mission_npc_char()
+    return { x = 586.19, y = 2467.40, z = 278.62, level = 10 }
+end
+
 local function run()
     T.reset()
     T.log("\n=== aion main quest 20611 tests ===")
@@ -85,7 +89,7 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20611_level_move")
         T.assert_eq(next_action.params.required_level, 8)
         T.assert_eq(next_action.params.char_level, 8)
-        T.assert_eq(next_action.params.wait_teleport, false)
+        T.assert_eq(next_action.params.wait_teleport, true)
     end)
 
     T.test("waits while yellow mission level grind is active", function()
@@ -131,7 +135,7 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20611_level_move")
         T.assert_eq(next_action.params.required_level, 8)
         T.assert_eq(next_action.params.char_level, 10)
-        T.assert_eq(next_action.params.wait_teleport, false)
+        T.assert_eq(next_action.params.wait_teleport, true)
     end)
 
     T.test("teleports active yellow mission after restart when level requirement is met", function()
@@ -150,7 +154,47 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20611_level_move")
         T.assert_eq(next_action.params.required_level, 8)
         T.assert_eq(next_action.params.char_level, 10)
-        T.assert_eq(next_action.params.wait_teleport, false)
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("waits for quest 20611 teleport position change before npc dialog", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 8 },
+            },
+            char = { x = 190.96, y = 2693.78, z = 300.62, level = 10 },
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_stage = "quest_20611_level_move",
+            teleport_start_pos = { x = 190.96, y = 2693.78, z = 300.62 },
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_level_move")
+    end)
+
+    T.test("completes quest 20611 teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 8 },
+            },
+            char = mission_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_stage = "quest_20611_level_move",
+            teleport_start_pos = { x = 190.96, y = 2693.78, z = 300.62 },
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_level_move")
     end)
 
     T.test("does not repeat yellow mission immediate move once requested", function()
@@ -168,6 +212,113 @@ local function run()
 
         T.assert_eq(next_action.name, "Idle")
         T.assert_eq(next_action.params.quest_id, 20611)
+    end)
+
+    T.test("opens quest 20611 mission npc after teleport landing", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 8 },
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            char = mission_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_level_move = true,
+            level_move_quest_id = 20611,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_mission_npc")
+        T.assert_eq(next_action.params.interact_id, 2147503111)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_001_MISSION")
+    end)
+
+    T.test("clicks yellow quest entry in quest 20611 npc select list", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 8 },
+            },
+            char = mission_npc_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147503111,
+                dialog_content_id = 10,
+                quest_id = 0,
+                type_text = "select_quest",
+            },
+        }, {
+            completed_20611_level_move = true,
+            level_move_quest_id = 20611,
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogX")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_mission_npc")
+        T.assert_eq(next_action.params.expected_content_id, 10)
+        T.assert_eq(next_action.params.content_id, 10)
+        T.assert_eq(next_action.params.type_text, "select_quest")
+        T.assert_eq(next_action.params.click_x, 25)
+        T.assert_eq(next_action.params.click_y, 324)
+        T.assert_eq(next_action.params.click_y_tolerance, 8)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_001_MISSION")
+    end)
+
+    T.test("continues known quest 20611 mission dialog chain", function()
+        local quest = load_module()
+        local cases = {
+            { type_text = "select1", content_id = 1011, action = "ClickDialogX" },
+            { type_text = "select1_1", content_id = 1012, action = "ClickDialogX" },
+            { type_text = "select1_1_1", content_id = 1013, action = "ClickDialogX" },
+            { type_text = "select1_1_1_1", content_id = 1014, action = "ClickDialogXCompleteQuest" },
+        }
+        for _, case in ipairs(cases) do
+            local next_action = quest.nextAction({
+                quests = {
+                    { id = 20611, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 8 },
+                },
+                char = mission_npc_char(),
+                big_map_id = 220010000,
+                dialog = {
+                    npc_dialog_id = 2147503111,
+                    dialog_content_id = case.content_id,
+                    quest_id = 20611,
+                    type_text = case.type_text,
+                },
+            }, {
+                completed_20611_level_move = true,
+                level_move_quest_id = 20611,
+            })
+
+            T.assert_eq(next_action.name, case.action, case.type_text)
+            T.assert_eq(next_action.params.expected_content_id, case.content_id, case.type_text)
+            T.assert_eq(next_action.params.stage, "quest_20611_mission_npc", case.type_text)
+        end
+    end)
+
+    T.test("does not repeat completed quest 20611 mission dialog", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 1, seq = 1, lv_num = 8 },
+            },
+            char = mission_npc_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147503111,
+                dialog_content_id = 1014,
+                quest_id = 20611,
+                type_text = "select1_1_1_1",
+            },
+        }, {
+            completed_20611_mission_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 1)
     end)
 
     T.test("ignores active 206xx candidates without blue or level-blocked evidence", function()
