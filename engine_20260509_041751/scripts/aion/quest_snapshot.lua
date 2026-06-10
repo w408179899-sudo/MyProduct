@@ -41,6 +41,10 @@ local function status_code(quest)
     return tonumber(quest.status_code)
 end
 
+local function number(value)
+    return tonumber(value) or 0
+end
+
 local function append_line(lines, line)
     lines[#lines + 1] = tostring(line or "")
 end
@@ -132,18 +136,31 @@ end
 
 function M.selectCurrentMainQuest(main_quests)
     local fallback = nil
+    local ready = nil
+    local blocked = nil
     for _, quest in ipairs(main_quests or {}) do
         fallback = fallback or quest
         if status_code(quest) == M.STATUS_DOING then
             return quest
         end
-    end
-    for _, quest in ipairs(main_quests or {}) do
-        if status_code(quest) ~= M.STATUS_DONE then
-            return quest
+        if status_code(quest) == M.STATUS_DONE then
+            ready = ready or quest
+        elseif status_code(quest) == M.STATUS_LEVEL_BLOCKED then
+            if not blocked then
+                blocked = quest
+            else
+                local blocked_seq = number(blocked.seq)
+                local seq = number(quest.seq)
+                local blocked_level = number(blocked.lv_num)
+                local level = number(quest.lv_num)
+                if (seq > 0 and (blocked_seq <= 0 or seq < blocked_seq))
+                    or (seq == blocked_seq and level > 0 and (blocked_level <= 0 or level < blocked_level)) then
+                    blocked = quest
+                end
+            end
         end
     end
-    return fallback
+    return ready or blocked or fallback
 end
 
 function M.buildMainQuestSnapshot(quest_list)

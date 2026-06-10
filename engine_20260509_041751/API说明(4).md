@@ -346,6 +346,10 @@ end
 
 返回当前角色基纳(金币)数量。未初始化或链路无效时返回 `0`。
 
+### `M.GetInventoryMaxSlots() → number`
+
+返回背包最大格子数
+
 ### `M.EquipItem(item_id, equip_pos, unequip) → bool`
 
 穿戴或脱下一件装备。

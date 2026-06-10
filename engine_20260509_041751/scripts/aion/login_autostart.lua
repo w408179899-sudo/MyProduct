@@ -54,8 +54,13 @@ function M.decide(ctx)
         return { action = "none", reason = "runtime-running" }
     end
 
-    if type(runtime.accounts) == "table" and type(runtime.accounts.pending_script) == "table" then
-        return { action = "none", reason = "script-pending" }
+    if type(runtime.accounts) == "table" then
+        if type(runtime.accounts.pending_script) == "table" then
+            return { action = "none", reason = "script-pending" }
+        end
+        if type(runtime.accounts.pending_scripts) == "table" and #runtime.accounts.pending_scripts > 0 then
+            return { action = "none", reason = "script-pending" }
+        end
     end
 
     if M.is_runtime_active(account_runtime.status) then

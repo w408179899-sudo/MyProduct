@@ -96,6 +96,20 @@ local function run()
         T.assert_eq(next_action.params.expected_content_id, 1013)
     end)
 
+    T.test("marks recovered first npc dialog as click and wait for teleport", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quest = active_quest(2),
+            char = near_char(),
+            big_map_id = 120030000,
+            dialog = { type_text = "select10", dialog_content_id = 4080, quest_id = 20590 },
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogXWaitTeleport")
+        T.assert_eq(next_action.params.expected_content_id, 4080)
+        T.assert_eq(next_action.params.stage, "first_npc_teleport")
+    end)
+
     T.test("waits until position changes after final dialog click", function()
         local quest = load_module()
         local waiting = quest.nextAction({
@@ -151,6 +165,19 @@ local function run()
         T.assert_eq(#next_action.params.route_points, 18)
         T.assert_eq(next_action.params.route_index, 2)
         T.assert_eq(next_action.params.route_count, 18)
+    end)
+
+    T.test("uses start map before stale quest step", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quest = active_quest(2),
+            char = far_char(),
+            big_map_id = 120030000,
+        })
+
+        T.assert_eq(next_action.name, "NavigateToNpc")
+        T.assert_eq(next_action.params.stage, "first_npc")
+        T.assert_eq(next_action.params.interact_id, 2147533452)
     end)
 
     T.test("final moves to inner npc before opening dialog", function()

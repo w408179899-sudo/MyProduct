@@ -15,6 +15,7 @@
       F8       dump current NPC dialog information
       F9       run safe API probe
       F10      pause/resume
+      F11      record task-building snapshot
       Ctrl+F12 exit
 ]]
 
@@ -26,9 +27,14 @@ local ok_quest, quest = pcall(require, "aion.quest")
 local ok_combat, combat = pcall(require, "aion.combat")
 ok_target_dump, target_dump = pcall(require, "aion.target_dump")
 ok_quest_snapshot, quest_snapshot = pcall(require, "aion.quest_snapshot")
+ok_task_recorder, task_recorder = pcall(require, "aion.task_recorder")
 ok_main_quest_20590, main_quest_20590 = pcall(require, "aion.main_quest_20590")
+ok_main_quest_20610, main_quest_20610 = pcall(require, "aion.main_quest_20610")
+ok_main_quest_20611, main_quest_20611 = pcall(require, "aion.main_quest_20611")
+ok_main_quest_resume, main_quest_resume = pcall(require, "aion.main_quest_resume")
 local ok_map, map = pcall(require, "aion.map")
 local ok_nav, nav = pcall(require, "aion.nav")
+ok_remote, remote = pcall(require, "aion.remote")
 local ok_route, route_lib = pcall(require, "aion.route")
 local route_load_error = nil
 if not ok_route then
@@ -245,6 +251,10 @@ local runtime = {
         last_status = "",
         last_dump = "",
     },
+    task_record = {
+        last_status = "",
+        last_dump = "",
+    },
     main_quest = {
         last_status = "",
         last_action = "",
@@ -270,6 +280,7 @@ local runtime = {
         last_route_stop_at = 0,
         action_delay_until = 0,
         action_delay_reason = "",
+        post_dialog_settle_until = 0,
         current_action_name = "",
         current_action_stage = "",
         trace_times = {},
@@ -279,6 +290,21 @@ local runtime = {
         completed_20590_temple_teleport = false,
         completed_20590_reward = false,
         completed_20590_teleport = false,
+        completed_20610_start_dialog = false,
+        completed_20610_task_teleport = false,
+        completed_20610_reward = false,
+        clicked_20610_indicator_teleport = false,
+        clicked_20610_target_link = false,
+        clicked_20610_dictionary_teleport = false,
+        completed_20611_level_move = false,
+        level_move_quest_id = 0,
+        active_20611_grind = false,
+        active_20611_grind_stage = "",
+        level_grind_quest_id = 0,
+        level_grind_required_level = 0,
+        completed_20611_grind = false,
+        quest_teleport_panel_key = "",
+        quest_teleport_panel_opened_at = 0,
     },
     skill_order = {
         left_index = 1,
@@ -609,7 +635,11 @@ function combat_allowed_by_primary_mode()
         return true
     end
     if mode == "leveling" then
-        return cfg.leveling and cfg.leveling.allow_grind == true
+        return cfg.leveling
+            and cfg.leveling.allow_grind == true
+            and runtime
+            and runtime.main_quest
+            and runtime.main_quest.active_20611_grind == true
     end
     return false
 end
@@ -2128,6 +2158,18 @@ function combat_is_stationary_enabled()
         and not (route_recovery_blocks_combat and route_recovery_blocks_combat())
         and sync_combat_enabled_from_primary_mode()
         and tonumber(cfg.primary_mode) == 1
+        and tonumber(cfg.combat.mode) == 1
+end
+
+function combat_is_quest_grind_enabled()
+    return runtime.running
+        and not runtime.paused
+        and not (route_recovery_blocks_combat and route_recovery_blocks_combat())
+        and cfg.leveling
+        and cfg.leveling.allow_grind == true
+        and tonumber(cfg.primary_mode) == 2
+        and runtime.main_quest
+        and runtime.main_quest.active_20611_grind == true
         and tonumber(cfg.combat.mode) == 1
 end
 
@@ -3670,7 +3712,17 @@ function combat_open_loot(loot_target, char)
 
     if dist > interact_range then
         if ok_nav and nav then
+            move_trace("loot", loot_target,
+                "reason=loot-move name=" .. tostring(loot_target.name or "") ..
+                " dist=" .. tostring(dist) ..
+                " range=" .. tostring(interact_range),
+                0.5)
             local move_ok, _, move_err = nav.moveTo(loot_target.x or 0, loot_target.y or 0, loot_target.z or 0)
+            move_trace("loot-result", loot_target,
+                "ok=" .. tostring(move_ok) ..
+                " err=" .. tostring(move_err or "") ..
+                " name=" .. tostring(loot_target.name or ""),
+                0.5)
             if not move_ok then
                 combat_set_status("loot-move-failed", tostring(move_err), true)
                 combat_log("loot-move-failed:" .. tostring(loot_key), "loot move failed err=" .. tostring(move_err), 0, true)
@@ -4037,6 +4089,156 @@ function target_f6_dump_selected()
 
     runtime.target_dump.last_dump = table.concat(lines, "\n")
     target_f6_set_status(tostring(result.summary or result.status or "done"))
+    return true
+end
+
+function task_f11_set_status(text)
+    runtime.task_record = runtime.task_record or {}
+    runtime.task_record.last_status = tostring(text or "")
+    set_event("[F11 task] " .. runtime.task_record.last_status)
+    log_info("[AionTaskF11] " .. runtime.task_record.last_status)
+end
+
+function task_f11_failed_result(kind, err)
+    return {
+        status = "failed",
+        summary = tostring(err or ""),
+        lines = { "error kind=" .. tostring(kind or "") .. " message=" .. tostring(err or "") },
+    }
+end
+
+function task_f11_read_snapshot()
+    if not ok_quest_snapshot or not quest_snapshot or type(quest_snapshot.read) ~= "function" then
+        return task_f11_failed_result("snapshot", "aion.quest_snapshot unavailable " .. tostring(quest_snapshot))
+    end
+
+    local call_ok, read_ok, result, err = pcall(quest_snapshot.read, {
+        core = core,
+        quest = ok_quest and quest or nil,
+        map = ok_map and map or nil,
+    })
+    if not call_ok then
+        return task_f11_failed_result("snapshot", read_ok)
+    end
+    if not read_ok then
+        return task_f11_failed_result("snapshot", err or result)
+    end
+    return type(result) == "table" and result or {}
+end
+
+function task_f11_read_target()
+    if not ok_target_dump or not target_dump or type(target_dump.read) ~= "function" then
+        return task_f11_failed_result("target", "aion.target_dump unavailable " .. tostring(target_dump))
+    end
+
+    local call_ok, read_ok, result, err = pcall(target_dump.read, {
+        core = core,
+        combat = ok_combat and combat or nil,
+        entity = ok_entity and entity or nil,
+    })
+    if not call_ok then
+        return task_f11_failed_result("target", read_ok)
+    end
+    if not read_ok then
+        return task_f11_failed_result("target", err or result)
+    end
+    return type(result) == "table" and result or {}
+end
+
+function task_f11_read_dialog()
+    local ok_npc_runtime, npc_runtime = pcall(require, "aion.npc")
+    if not ok_npc_runtime or not npc_runtime or type(npc_runtime.dialog) ~= "function" then
+        return nil, {}, "aion.npc dialog unavailable " .. tostring(npc_runtime)
+    end
+
+    local ok_ui_runtime, ui_runtime = pcall(require, "aion.ui")
+    if not ok_ui_runtime or not ui_runtime or type(ui_runtime.children) ~= "function" then
+        return nil, {}, "aion.ui children unavailable " .. tostring(ui_runtime)
+    end
+
+    local dialog_ok, info_or_err, dialog_err = npc_runtime.dialog()
+    if not dialog_ok then
+        return nil, {}, tostring(dialog_err or info_or_err)
+    end
+    if not info_or_err then
+        return nil, {}, "no open NPC dialog"
+    end
+
+    cfg.npc_dialog = cfg.npc_dialog or {}
+    local depth = math.max(1, tonumber(cfg.npc_dialog.dialog_child_depth) or 6)
+    local child_ok, children, child_err = ui_runtime.children("dlg_dialog", depth)
+    if not child_ok then
+        return info_or_err, {}, "dialog children failed: " .. tostring(child_err)
+    end
+
+    local capped = {}
+    for _, child in ipairs(children or {}) do
+        if child and (tonumber(child.obj or child.addr) or 0) ~= 0 then
+            capped[#capped + 1] = child
+            if #capped >= 120 then
+                break
+            end
+        end
+    end
+    return info_or_err, capped, ""
+end
+
+function task_f11_record_snapshot()
+    runtime.task_record = runtime.task_record or {}
+    runtime.task_record.last_dump = ""
+
+    if not ok_task_recorder or not task_recorder or type(task_recorder.build) ~= "function" then
+        task_f11_set_status("failed: aion.task_recorder unavailable " .. tostring(task_recorder))
+        return false
+    end
+    if not ok_core or not core then
+        task_f11_set_status("failed: aion.core unavailable")
+        return false
+    end
+
+    target_refresh(true)
+    local pid = tonumber(cfg.target and cfg.target.pid) or nil
+    if (not pid or pid <= 0) and type(core.resolvePid) == "function" then
+        pid = tonumber(core.resolvePid()) or nil
+    end
+    if core.ensureInit then
+        local init_ok, init_err = core.ensureInit(pid)
+        if not init_ok then
+            task_f11_set_status("failed: init " .. tostring(init_err))
+            return false
+        end
+    end
+
+    local snapshot = task_f11_read_snapshot()
+    local target = task_f11_read_target()
+    local dialog, dialog_children, dialog_err = task_f11_read_dialog()
+    cfg.npc_dialog = cfg.npc_dialog or {}
+    local result = task_recorder.build({
+        snapshot = snapshot,
+        target = target,
+        dialog = dialog,
+        dialog_error = dialog_err,
+        dialog_children = dialog_children,
+        opts = {
+            dialog_click_x = tonumber(cfg.npc_dialog.auto_click_x) or 25,
+            dialog_click_x_tolerance = math.max(0, tonumber(cfg.npc_dialog.auto_click_x_tolerance) or 2),
+            dialog_child_limit = 40,
+        },
+    })
+    result = type(result) == "table" and result or {}
+    local lines = type(result.lines) == "table" and result.lines or {}
+    if #lines <= 0 then
+        lines = { tostring(result.summary or result.status or "empty task record") }
+    end
+
+    log_info("[AionTaskF11] begin status=" .. tostring(result.status or "") .. " summary=" .. tostring(result.summary or ""))
+    for _, line in ipairs(lines) do
+        log_info("[AionTaskF11] " .. tostring(line or ""))
+    end
+    log_info("[AionTaskF11] end")
+
+    runtime.task_record.last_dump = table.concat(lines, "\n")
+    task_f11_set_status(tostring(result.summary or result.status or "done"))
     return true
 end
 
@@ -4518,7 +4720,16 @@ function combat_move_anchor(reason)
     if tostring(reason or "") ~= "patrol-moving" then
         combat_auto_off(reason or "returning", false)
     end
+    move_trace("combat-anchor", anchor,
+        "reason=" .. tostring(reason or "returning") ..
+        " anchor_dist=" .. tostring(c.anchor_distance or ""),
+        0.5)
     local ok, _, err = nav.moveTo(anchor.x or 0, anchor.y or 0, anchor.z or 0)
+    move_trace("combat-anchor-result", anchor,
+        "reason=" .. tostring(reason or "returning") ..
+        " ok=" .. tostring(ok) ..
+        " err=" .. tostring(err or ""),
+        0.5)
     c.last_move_at = now
     if not ok then
         combat_set_status("return-failed", tostring(err), true)
@@ -4571,6 +4782,14 @@ function combat_stop_movement_for_target(reason)
     end
 
     local ok, _, err = nav.moveTo(pos.x or 0, pos.y or 0, pos.z or 0)
+    move_trace("combat-stop-move", pos,
+        "reason=" .. tostring(reason or "") ..
+        " ok=" .. tostring(ok) ..
+        " err=" .. tostring(err or "") ..
+        " recent_combat=" .. tostring(recent_combat_move) ..
+        " recent_route=" .. tostring(recent_route_move) ..
+        " moving=" .. tostring(moving_state),
+        0.5)
     if ok then
         runtime.combat.last_move_at = 0
         combat_log("stop-move-target",
@@ -5208,13 +5427,18 @@ function combat_handle_floor_recovery_after_loot(char)
     return false
 end
 
-function combat_tick()
-    if not combat_is_active_enabled() then
+function combat_tick(force_stationary)
+    local quest_stationary = force_stationary == true
+    if quest_stationary then
+        if not combat_is_quest_grind_enabled() then
+            return
+        end
+    elseif not combat_is_active_enabled() then
         return
     end
 
     local c = runtime.combat
-    local patrol_mode = combat_is_patrol_enabled()
+    local patrol_mode = (not quest_stationary) and combat_is_patrol_enabled()
     local now = now_seconds()
     local interval = tonumber(cfg.combat.tick_interval) or 0.10
     if c.last_tick_at > 0 and now - c.last_tick_at < interval then
@@ -5531,6 +5755,10 @@ function combat_tick()
             nil,
             false)
     end
+end
+
+function combat_tick_quest_grind()
+    combat_tick(true)
 end
 
 function npc_dialog_set_status(text)
@@ -6172,6 +6400,68 @@ function main_quest_trace(kind, message, min_interval)
     log_info("[AionMainQuest20590Trace] " .. key .. " " .. tostring(message or ""))
 end
 
+function move_trace_status(quest_id)
+    if not ok_quest or not quest or type(quest.findById) ~= "function" then
+        return ""
+    end
+    local ok, item = quest.findById(quest_id)
+    if not ok or type(item) ~= "table" then
+        return "nil"
+    end
+    return "status=" .. tostring(item.status_code or "") ..
+        "/step=" .. tostring(item.req_count or "") ..
+        "/tab=" .. tostring(item.tab or "")
+end
+
+function move_trace(source, target, detail, min_interval)
+    runtime.move_trace = runtime.move_trace or {}
+    local now = now_seconds()
+    local key = tostring(source or "") .. ":" ..
+        string.format("%.1f,%.1f,%.1f",
+            tonumber(target and target.x) or 0,
+            tonumber(target and target.y) or 0,
+            tonumber(target and target.z) or 0)
+    local interval = tonumber(min_interval)
+    if interval == nil then
+        interval = 0.2
+    end
+    if interval > 0 and now - (tonumber(runtime.move_trace[key]) or 0) < interval then
+        return
+    end
+    runtime.move_trace[key] = now
+
+    local char_text = "char=nil"
+    if ok_core and core and type(core.getCharacter) == "function" then
+        local char_ok, char = core.getCharacter()
+        if char_ok and type(char) == "table" then
+            char_text = "char=" .. tostring(char.name or "") ..
+                " level=" .. tostring(char.level or "") ..
+                " pos=" .. main_quest_position_text(char)
+        end
+    end
+
+    local route_state = runtime.route or {}
+    local combat_state = runtime.combat or {}
+    local mq = runtime.main_quest or {}
+    log_info("[AionMoveTrace] source=" .. tostring(source or "") ..
+        " target=" .. main_quest_position_text(target) ..
+        " " .. char_text ..
+        " q20590=" .. move_trace_status(20590) ..
+        " q20610=" .. move_trace_status(20610) ..
+        " q24340=" .. move_trace_status(24340) ..
+        " q24341=" .. move_trace_status(24341) ..
+        " running=" .. tostring(runtime.running) ..
+        " paused=" .. tostring(runtime.paused) ..
+        " route_following=" .. tostring(route_state.following) ..
+        " route=" .. tostring(route_state.follow_field or "") .. ":" .. tostring(route_state.index or "") ..
+        " combat_mode=" .. tostring(combat_state.mode or "") ..
+        " combat_status=" .. tostring(combat_state.status or "") ..
+        " mq20590_done=" .. tostring(mq.completed_20590_reward) ..
+        " mq20610_done=" .. tostring(mq.completed_20610_reward) ..
+        " mq20611_active=" .. tostring(mq.active_20611_grind) ..
+        " detail=" .. tostring(detail or ""))
+end
+
 function main_quest_delay_seconds()
     return math.max(0, tonumber(cfg.leveling and cfg.leveling.action_delay_seconds) or 0.5)
 end
@@ -6193,12 +6483,15 @@ function main_quest_action_waits_after_move(action_name)
     return action_name == "InteractNpc"
         or action_name == "ClickDialogX"
         or action_name == "ClickDialogXWaitTeleport"
+        or action_name == "ClickDialogXCompleteQuest"
         or action_name == "ClickDialogOkCompleteQuest"
+        or action_name == "StartStationaryGrind"
 end
 
 function main_quest_is_move_action(action_name)
     action_name = tostring(action_name or "")
     return action_name == "NavigateToNpc"
+        or action_name == "NavigateToGrindPoint"
         or action_name == "FinalMoveToNpc"
         or action_name == "FollowRoute"
         or action_name == "WaitRouteComplete"
@@ -6224,6 +6517,23 @@ function main_quest_wait_action_delay(action_name, stage)
     return true
 end
 
+function main_quest_target_available(stage)
+    if not ok_core or not core or type(core.getCharacter) ~= "function" then
+        main_quest_trace("target-unavailable:" .. tostring(stage or ""),
+            "skip main quest tick: aion.core unavailable",
+            1.0)
+        return false
+    end
+    local char_ok, char_or_err = core.getCharacter()
+    if char_ok and type(char_or_err) == "table" then
+        return true
+    end
+    main_quest_trace("target-unavailable:" .. tostring(stage or ""),
+        "skip main quest tick err=" .. tostring(char_or_err),
+        1.0)
+    return false
+end
+
 function main_quest_reset_runtime(reason)
     runtime.main_quest = runtime.main_quest or {}
     local r = runtime.main_quest
@@ -6232,6 +6542,10 @@ function main_quest_reset_runtime(reason)
     r.last_action_at = 0
     r.last_quest_read_at = 0
     r.cached_quest = nil
+    r.cached_quest_20610 = nil
+    r.last_quest_20610_read_at = 0
+    r.cached_quest_20611 = nil
+    r.last_quest_20611_read_at = 0
     r.waiting_teleport = false
     r.teleport_stage = ""
     r.teleport_start_pos = nil
@@ -6251,6 +6565,7 @@ function main_quest_reset_runtime(reason)
     r.last_route_stop_at = 0
     r.action_delay_until = 0
     r.action_delay_reason = ""
+    r.post_dialog_settle_until = 0
     r.current_action_name = ""
     r.current_action_stage = ""
     r.trace_times = {}
@@ -6260,6 +6575,21 @@ function main_quest_reset_runtime(reason)
     r.completed_20590_temple_teleport = false
     r.completed_20590_reward = false
     r.completed_20590_teleport = false
+    r.completed_20610_start_dialog = false
+    r.completed_20610_task_teleport = false
+    r.completed_20610_reward = false
+    r.clicked_20610_indicator_teleport = false
+    r.clicked_20610_target_link = false
+    r.clicked_20610_dictionary_teleport = false
+    r.completed_20611_level_move = false
+    r.level_move_quest_id = 0
+    r.active_20611_grind = false
+    r.active_20611_grind_stage = ""
+    r.level_grind_quest_id = 0
+    r.level_grind_required_level = 0
+    r.completed_20611_grind = false
+    r.quest_teleport_panel_key = ""
+    r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
 end
 
@@ -6291,6 +6621,82 @@ function main_quest_cached_20590(now)
     return r.cached_quest
 end
 
+function main_quest_cached_20610(now)
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+
+    if type(r.cached_quest_20610) == "table"
+        and now - (tonumber(r.last_quest_20610_read_at) or 0) < 3.0 then
+        return r.cached_quest_20610
+    end
+
+    if ok_quest and quest and type(quest.findById) == "function" then
+        local ok, item = quest.findById(20610)
+        r.last_quest_20610_read_at = now
+        if ok then
+            r.cached_quest_20610 = item
+            return item
+        end
+    end
+
+    for _, item in ipairs((runtime.bootstrap and runtime.bootstrap.quests) or {}) do
+        if tonumber(item.id) == 20610 then
+            r.cached_quest_20610 = item
+            r.last_quest_20610_read_at = now
+            return item
+        end
+    end
+    return r.cached_quest_20610
+end
+
+function main_quest_cached_20611(now)
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+
+    if type(r.cached_quest_20611) == "table"
+        and now - (tonumber(r.last_quest_20611_read_at) or 0) < 3.0 then
+        return r.cached_quest_20611
+    end
+
+    if ok_quest and quest and type(quest.findById) == "function" then
+        local ok, item = quest.findById(20611)
+        r.last_quest_20611_read_at = now
+        if ok then
+            r.cached_quest_20611 = item
+            return item
+        end
+    end
+
+    for _, item in ipairs((runtime.bootstrap and runtime.bootstrap.quests) or {}) do
+        if tonumber(item.id) == 20611 then
+            r.cached_quest_20611 = item
+            r.last_quest_20611_read_at = now
+            return item
+        end
+    end
+    return r.cached_quest_20611
+end
+
+function main_quest_later_tasks_blocked(now)
+    if not ok_core or not core or type(core.getCharacter) ~= "function" then
+        return false, "character unavailable"
+    end
+    local char_ok, char = core.getCharacter()
+    if char_ok and type(char) == "table" then
+        local level = tonumber(char.level) or 0
+        runtime.audit = runtime.audit or {}
+        runtime.audit.current = runtime.audit.current or {}
+        runtime.audit.current.name = tostring(char.name or "")
+        runtime.audit.current.level = level
+    end
+
+    local quest_20590 = main_quest_cached_20590(now or now_seconds())
+    if tonumber(quest_20590 and quest_20590.status_code) == 3 then
+        return true, "quest20590-active"
+    end
+    return false, ""
+end
+
 function main_quest_read_20590_state(now)
     local state = {}
     local char_ok, char = core.getCharacter()
@@ -6317,6 +6723,307 @@ function main_quest_read_20590_state(now)
     return state
 end
 
+function main_quest_ui_child_visible(child)
+    return type(child) == "table"
+        and child.visible == true
+        and (tonumber(child.obj or child.addr) or 0) ~= 0
+end
+
+function main_quest_find_ui_child_by_name(children, wanted_name)
+    wanted_name = tostring(wanted_name or "")
+    for _, child in ipairs(children or {}) do
+        if main_quest_ui_child_visible(child)
+            and tostring(child.name or "") == wanted_name then
+            return child
+        end
+    end
+    return nil
+end
+
+function main_quest_find_ui_child_at(children, x, y, tolerance)
+    x = tonumber(x) or 0
+    y = tonumber(y) or 0
+    tolerance = math.max(1, tonumber(tolerance) or 20)
+    local best = nil
+    local best_dist = math.huge
+    for _, child in ipairs(children or {}) do
+        if main_quest_ui_child_visible(child) then
+            local cx = tonumber(child.x)
+            local cy = tonumber(child.y)
+            if cx and cy then
+                local dx = cx - x
+                local dy = cy - y
+                local dist = math.sqrt(dx * dx + dy * dy)
+                if dist <= tolerance and dist < best_dist then
+                    best = child
+                    best_dist = dist
+                end
+            end
+        end
+    end
+    return best, best_dist
+end
+
+function main_quest_read_20610_ui_state()
+    local out = {}
+    local ok_ui_runtime, ui_runtime = pcall(require, "aion.ui")
+    if not ok_ui_runtime or not ui_runtime or type(ui_runtime.children) ~= "function" then
+        out.err = "aion.ui unavailable " .. tostring(ui_runtime)
+        return out
+    end
+
+    local ok_indicator, indicator_children = ui_runtime.children("quest_indicator_dialog", 6)
+    if ok_indicator then
+        out.quest_indicator_teleport = main_quest_find_ui_child_by_name(indicator_children, "teleport") ~= nil
+    end
+
+    local ok_quest, quest_children = ui_runtime.children("v3_quest_dialog", 6)
+    if ok_quest then
+        out.quest_detail_target_link = main_quest_find_ui_child_at(quest_children, 424, 254, 25) ~= nil
+    end
+
+    local ok_dictionary, dictionary_children = ui_runtime.children("dictionary_dialog", 6)
+    if ok_dictionary then
+        out.dictionary_teleport_to_npc = main_quest_find_ui_child_by_name(dictionary_children, "teleport_to_npc") ~= nil
+    end
+
+    return out
+end
+
+function main_quest_read_20610_state(now)
+    local state = {}
+    local r = runtime.main_quest or {}
+    local post_dialog_settle_until = tonumber(r.post_dialog_settle_until) or 0
+    local settling_after_dialog = post_dialog_settle_until > 0 and (tonumber(now) or now_seconds()) < post_dialog_settle_until
+    local char_ok, char = core.getCharacter()
+    if char_ok then
+        state.char = char
+    end
+
+    if ok_map and map and type(map.bigMapId) == "function" then
+        local map_ok, big_map_id = map.bigMapId()
+        if map_ok then
+            state.big_map_id = big_map_id
+        end
+    end
+
+    if not settling_after_dialog then
+        local ready, npc_runtime = npc_dialog_prepare_runtime()
+        if ready and npc_runtime then
+            local dialog_ok, info = npc_runtime.dialog()
+            if dialog_ok then
+                state.dialog = info
+            end
+        end
+    end
+
+    if settling_after_dialog then
+        state.quest = r.cached_quest_20610
+        state.ui = { post_dialog_settle = true }
+    else
+        state.quest = main_quest_cached_20610(now)
+        state.ui = main_quest_read_20610_ui_state()
+    end
+    return state
+end
+
+function main_quest_read_20611_state(now)
+    local state = {}
+    local char_ok, char = core.getCharacter()
+    if char_ok then
+        state.char = char
+    end
+
+    if ok_map and map and type(map.bigMapId) == "function" then
+        local map_ok, big_map_id = map.bigMapId()
+        if map_ok then
+            state.big_map_id = big_map_id
+        end
+    end
+
+    local ready, npc_runtime = npc_dialog_prepare_runtime()
+    if ready and npc_runtime then
+        local dialog_ok, info = npc_runtime.dialog()
+        if dialog_ok then
+            state.dialog = info
+        end
+    end
+
+    if ok_quest and quest and type(quest.list) == "function" then
+        local list_ok, list = quest.list()
+        if list_ok and type(list) == "table" then
+            state.quests = list
+            if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.findQuest) == "function" then
+                state.quest = main_quest_20611.findQuest(list)
+            end
+            if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.findRemoteRewardQuest) == "function" then
+                state.remote_reward_quest = main_quest_20611.findRemoteRewardQuest(list)
+            end
+            if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.findLevelBlockedQuest) == "function" then
+                state.level_blocked_quest = main_quest_20611.findLevelBlockedQuest(list)
+            end
+        end
+    end
+    if type(state.quest) ~= "table" then
+        state.quest = main_quest_cached_20611(now)
+    end
+    return state
+end
+
+function main_quest_is_20611_blue_task_id(id)
+    if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.isRemoteRewardQuestId) == "function" then
+        return main_quest_20611.isRemoteRewardQuestId(id)
+    end
+    local qid = tonumber(id) or 0
+    return qid == 24340 or qid == 24341
+end
+
+function main_quest_stop_20611_grind(reason, mark_completed)
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    r.active_20611_grind = false
+    r.active_20611_grind_stage = ""
+    r.level_grind_quest_id = 0
+    r.level_grind_required_level = 0
+    if mark_completed == true then
+        r.completed_20611_grind = true
+    end
+    r.cached_quest_20611 = nil
+    r.last_quest_20611_read_at = 0
+    runtime.combat = runtime.combat or {}
+    runtime.combat.target_obj = 0
+    runtime.combat.target_name = ""
+    runtime.combat.target_distance = 0
+    if type(combat_auto_off) == "function" then
+        combat_auto_off(tostring(reason or "quest-20611-grind-stop"), true)
+    end
+    if type(sync_combat_enabled_from_primary_mode) == "function" then
+        sync_combat_enabled_from_primary_mode()
+    end
+end
+
+function main_quest_read_startup_snapshot()
+    local snapshot = {
+        char = nil,
+        big_map_id = 0,
+        quests = {},
+        dialog = nil,
+    }
+
+    if ok_core and core and type(core.getCharacter) == "function" then
+        local char_ok, char = core.getCharacter()
+        if char_ok and type(char) == "table" then
+            snapshot.char = char
+            runtime.audit = runtime.audit or {}
+            runtime.audit.current = runtime.audit.current or {}
+            runtime.audit.current.name = tostring(char.name or "")
+            runtime.audit.current.level = tonumber(char.level) or 0
+        end
+    end
+
+    if ok_map and map then
+        if type(map.bigMapId) == "function" then
+            local map_ok, big_map_id = map.bigMapId()
+            if map_ok then
+                snapshot.big_map_id = tonumber(big_map_id) or 0
+            end
+        end
+        if type(map.current) == "function" then
+            local cur_ok, cur_map = map.current()
+            if cur_ok and type(cur_map) == "table" then
+                snapshot.map = cur_map
+                runtime.bootstrap = runtime.bootstrap or {}
+                runtime.bootstrap.map_name = cur_map.region or cur_map.name_cn or cur_map.name_en or ""
+                runtime.audit.current.map = runtime.bootstrap.map_name
+            end
+        end
+    end
+
+    if ok_quest and quest and type(quest.list) == "function" then
+        local quest_ok, quests = quest.list()
+        if quest_ok and type(quests) == "table" then
+            snapshot.quests = quests
+            runtime.bootstrap = runtime.bootstrap or {}
+            runtime.bootstrap.quests = quests
+            runtime.bootstrap.quest_count = count_array(quests)
+            runtime.audit.current.quests = runtime.bootstrap.quest_count
+        end
+    end
+
+    local ready, npc_runtime = npc_dialog_prepare_runtime()
+    if ready and npc_runtime and type(npc_runtime.dialog) == "function" then
+        local dialog_ok, info = npc_runtime.dialog()
+        if dialog_ok and type(info) == "table" then
+            snapshot.dialog = info
+        end
+    end
+
+    return snapshot
+end
+
+function main_quest_apply_startup_snapshot(reason)
+    if not ok_main_quest_resume or not main_quest_resume or type(main_quest_resume.plan) ~= "function" then
+        main_quest_trace("startup-snapshot",
+            "skip reason=" .. tostring(reason or "") .. " resume_module_unavailable=" .. tostring(main_quest_resume),
+            0)
+        return false
+    end
+
+    local snapshot = main_quest_read_startup_snapshot()
+    local plan = main_quest_resume.plan(snapshot)
+    local flags = type(plan.flags) == "table" and plan.flags or {}
+    local stopped_route_stage = ""
+    if type(main_quest_active_route_stage) == "function" then
+        stopped_route_stage = main_quest_active_route_stage()
+    end
+    if stopped_route_stage ~= "" and type(main_quest_stop_route) == "function" then
+        main_quest_stop_route(stopped_route_stage, "startup-snapshot:" .. tostring(plan.stage or ""))
+    end
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    for key, value in pairs(flags) do
+        r[key] = value
+    end
+    r.startup_snapshot_stage = tostring(plan.stage or "")
+    r.startup_snapshot_reason = tostring(plan.reason or "")
+    r.startup_snapshot_character = tostring(plan.character_name or "")
+    r.startup_snapshot_level = tonumber(plan.level) or 0
+    r.startup_snapshot_big_map_id = tonumber(plan.big_map_id) or 0
+    r.cached_quest = nil
+    r.cached_quest_20610 = nil
+    r.cached_quest_20611 = nil
+    r.last_quest_read_at = 0
+    r.last_quest_20610_read_at = 0
+    r.last_quest_20611_read_at = 0
+
+    local flag_text = ""
+    for key, value in pairs(flags) do
+        flag_text = flag_text .. tostring(key) .. "=" .. tostring(value) .. " "
+    end
+    main_quest_trace("startup-snapshot",
+        "reason=" .. tostring(reason or "") ..
+        " stage=" .. tostring(plan.stage or "") ..
+        " why=" .. tostring(plan.reason or "") ..
+        " char=" .. tostring(plan.character_name or "") ..
+        " level=" .. tostring(plan.level or "") ..
+        " map=" .. tostring(plan.big_map_id or "") ..
+        " quests=" .. tostring(plan.quest_count or 0) ..
+        " q20590=" .. tostring(plan.quest_20590_status or 0) ..
+        " q20610=" .. tostring(plan.quest_20610_status or 0) ..
+        " qlevel_id=" .. tostring(plan.level_blocked_quest_id or 0) ..
+        " qlevel=" .. tostring(plan.level_blocked_status or 0) ..
+        " qblue_id=" .. tostring(plan.remote_reward_quest_id or 0) ..
+        " qblue=" .. tostring(plan.remote_reward_status or 0) ..
+        " stopped_route_stage=" .. tostring(stopped_route_stage or "") ..
+        " build=mq-gate-quest20590-active-id-first-20260609" ..
+        " flags=" .. flag_text,
+        0)
+    main_quest_set_status("startup snapshot stage=" .. tostring(plan.stage or "") ..
+        " char=" .. tostring(plan.character_name or "") ..
+        " level=" .. tostring(plan.level or ""))
+    return true
+end
+
 function main_quest_action_cooldown(action_name, seconds)
     runtime.main_quest = runtime.main_quest or {}
     local r = runtime.main_quest
@@ -6327,6 +7034,77 @@ function main_quest_action_cooldown(action_name, seconds)
     r.last_action = action_name
     r.last_action_at = now
     return true
+end
+
+function main_quest_ui_obj_visible(obj)
+    if type(obj) ~= "table" then
+        return false
+    end
+    if obj.visible == false then
+        return false
+    end
+    return obj.visible == true
+        or (tonumber(obj.addr or obj.obj) or 0) ~= 0
+end
+
+function main_quest_quest_panel_visible()
+    local ok_ui_runtime, ui_runtime = pcall(require, "aion.ui")
+    if not ok_ui_runtime or not ui_runtime or type(ui_runtime.find) ~= "function" then
+        return false, "aion.ui unavailable " .. tostring(ui_runtime)
+    end
+
+    local find_ok, obj, find_err = ui_runtime.find("v3_quest_dialog")
+    if not find_ok then
+        return false, tostring(find_err or "FindUIObj failed")
+    end
+    if main_quest_ui_obj_visible(obj) then
+        return true, "v3_quest_dialog visible"
+    end
+    return false, "v3_quest_dialog not visible"
+end
+
+function main_quest_prepare_quest_teleport_panel(quest_id, stage)
+    local visible, detail = main_quest_quest_panel_visible()
+    if visible then
+        return true, detail
+    end
+
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    local key = tostring(stage or "") .. ":" .. tostring(quest_id or "")
+    local now = now_seconds()
+    local last_key = tostring(r.quest_teleport_panel_key or "")
+    local last_opened_at = tonumber(r.quest_teleport_panel_opened_at) or 0
+    local settle_seconds = math.max(0.5, tonumber(cfg.leveling and cfg.leveling.quest_panel_settle_seconds) or 1.0)
+    if last_key == key and now - last_opened_at < settle_seconds then
+        main_quest_set_status("waiting quest panel before teleport quest_id=" .. tostring(quest_id or "") ..
+            " stage=" .. tostring(stage or "") ..
+            " remain=" .. string.format("%.1f", settle_seconds - (now - last_opened_at)) ..
+            " detail=" .. tostring(detail or ""))
+        return false, "waiting quest panel"
+    end
+
+    if not ok_remote or not remote or type(remote.pressKey) ~= "function" then
+        return false, "aion.remote.pressKey unavailable " .. tostring(remote)
+    end
+
+    local press_ok, pressed, press_err = remote.pressKey(0x4A)
+    r.quest_teleport_panel_key = key
+    r.quest_teleport_panel_opened_at = now
+    main_quest_trace("quest-panel-open:" .. tostring(stage or ""),
+        "quest=" .. tostring(quest_id or "") ..
+        " key=J" ..
+        " ok=" .. tostring(press_ok) ..
+        " result=" .. tostring(pressed) ..
+        " err=" .. tostring(press_err or "") ..
+        " visible_detail=" .. tostring(detail or ""),
+        0)
+    if not press_ok or pressed == false then
+        return false, "press J failed: " .. tostring(press_err or pressed or "")
+    end
+    main_quest_set_status("opening quest panel before teleport quest_id=" .. tostring(quest_id or "") ..
+        " stage=" .. tostring(stage or ""))
+    return false, "opening quest panel"
 end
 
 function main_quest_active_route_stage()
@@ -6438,6 +7216,59 @@ function main_quest_start_route(action, state)
     return true
 end
 
+function main_quest_click_ui_control_by_name(ui_runtime, parent, wanted_name, depth)
+    local child_ok, children, child_err = ui_runtime.children(parent, math.max(1, tonumber(depth) or 6))
+    if not child_ok then
+        return false, "read children failed parent=" .. tostring(parent) .. " err=" .. tostring(child_err)
+    end
+    local child = main_quest_find_ui_child_by_name(children, wanted_name)
+    if not child then
+        return false, "ui child not found parent=" .. tostring(parent) .. " name=" .. tostring(wanted_name)
+    end
+    local obj = child.obj or child.addr
+    local click_ok, clicked, click_err = ui_runtime.click(obj)
+    if not click_ok or clicked == false then
+        return false, "click failed parent=" .. tostring(parent) ..
+            " name=" .. tostring(wanted_name) ..
+            " obj=" .. tostring(obj) ..
+            " err=" .. tostring(click_err or clicked)
+    end
+    return true, string.format("clicked parent=%s name=%s obj=%s x=%.0f y=%.0f",
+        tostring(parent),
+        tostring(wanted_name),
+        tostring(obj),
+        tonumber(child.x) or 0,
+        tonumber(child.y) or 0)
+end
+
+function main_quest_click_ui_control_at(ui_runtime, parent, x, y, tolerance, depth)
+    local child_ok, children, child_err = ui_runtime.children(parent, math.max(1, tonumber(depth) or 6))
+    if not child_ok then
+        return false, "read children failed parent=" .. tostring(parent) .. " err=" .. tostring(child_err)
+    end
+    local child, dist = main_quest_find_ui_child_at(children, x, y, tolerance)
+    if not child then
+        return false, "ui child not found parent=" .. tostring(parent) ..
+            " x=" .. tostring(x) ..
+            " y=" .. tostring(y) ..
+            " tolerance=" .. tostring(tolerance)
+    end
+    local obj = child.obj or child.addr
+    local click_ok, clicked, click_err = ui_runtime.click(obj)
+    if not click_ok or clicked == false then
+        return false, "click failed parent=" .. tostring(parent) ..
+            " obj=" .. tostring(obj) ..
+            " err=" .. tostring(click_err or clicked)
+    end
+    return true, string.format("clicked parent=%s obj=%s name=%s x=%.0f y=%.0f dist=%.1f",
+        tostring(parent),
+        tostring(obj),
+        tostring(child.name or ""),
+        tonumber(child.x) or 0,
+        tonumber(child.y) or 0,
+        tonumber(dist) or 0)
+end
+
 function main_quest_execute_20590(action, state)
     action = type(action) == "table" and action or {}
     state = type(state) == "table" and state or {}
@@ -6482,7 +7313,16 @@ function main_quest_execute_20590(action, state)
         return true
     end
 
-    if name == "NavigateToNpc" or name == "FinalMoveToNpc" then
+    if name == "WaitUiControlVisible" then
+        if main_quest_action_cooldown(name .. ":" .. tostring(stage), 0.5) then
+            main_quest_set_status("等待UI可见 stage=" .. tostring(stage) ..
+                " parent=" .. tostring(params.parent or "") ..
+                " name=" .. tostring(params.name or ""))
+        end
+        return true
+    end
+
+    if name == "NavigateToNpc" or name == "FinalMoveToNpc" or name == "NavigateToGrindPoint" then
         if not ok_nav or not nav or type(nav.moveTo) ~= "function" then
             main_quest_set_status("移动失败: aion.nav 不可用")
             return false
@@ -6491,7 +7331,27 @@ function main_quest_execute_20590(action, state)
         if not main_quest_action_cooldown(name, move_interval) then
             return true
         end
+        local target = { x = params.x, y = params.y, z = params.z }
+        local quest_id = tostring(params.quest_id or "")
+        local source = "main-quest"
+        if quest_id ~= "" then
+            source = source .. "-" .. quest_id
+        end
+        move_trace(source, target,
+            "action=" .. name ..
+            " stage=" .. tostring(params.stage or "") ..
+            " route=" .. tostring(params.route_index or "") .. "/" .. tostring(params.route_count or "") ..
+            " dist=" .. tostring(params.distance or "") ..
+            " state_pos=" .. main_quest_position_text(state.char),
+            0)
         local ok, moved, err = nav.moveTo(params.x, params.y, params.z)
+        move_trace(source .. "-result", target,
+            "action=" .. name ..
+            " stage=" .. tostring(params.stage or "") ..
+            " ok=" .. tostring(ok) ..
+            " moved=" .. tostring(moved) ..
+            " err=" .. tostring(err or ""),
+            0)
         main_quest_set_status(string.format(
             "前往主线NPC stage=%s route=%s/%s dist=%.1f result=%s err=%s",
             tostring(params.stage or ""),
@@ -6511,15 +7371,141 @@ function main_quest_execute_20590(action, state)
         return ok and moved ~= false
     end
 
+    if name == "ClickUiControl" or name == "ClickUiControlAt" or name == "ClickUiControlWaitTeleport" then
+        local post_dialog_settle_until = tonumber(r.post_dialog_settle_until) or 0
+        local now = now_seconds()
+        if now < post_dialog_settle_until then
+            if main_quest_action_cooldown("PostDialogSettle:" .. tostring(stage), 0.4) then
+                main_quest_set_status("等待对话完成后稳定 stage=" .. tostring(stage) ..
+                    " remain=" .. string.format("%.1f", post_dialog_settle_until - now))
+            end
+            return true
+        end
+        if not main_quest_action_cooldown(name .. ":" .. tostring(stage), 0.8) then
+            return true
+        end
+        local ok_ui_runtime, ui_runtime = pcall(require, "aion.ui")
+        if not ok_ui_runtime or not ui_runtime or type(ui_runtime.click) ~= "function" then
+            main_quest_set_status("ui click failed: aion.ui unavailable " .. tostring(ui_runtime))
+            return false
+        end
+        local click_ok, line_or_err
+        if name == "ClickUiControlAt" then
+            click_ok, line_or_err = main_quest_click_ui_control_at(ui_runtime,
+                params.parent,
+                params.x,
+                params.y,
+                params.tolerance,
+                params.depth)
+        else
+            click_ok, line_or_err = main_quest_click_ui_control_by_name(ui_runtime,
+                params.parent,
+                params.name,
+                params.depth)
+        end
+        if click_ok then
+            if stage == "quest_20610_indicator_teleport" then
+                r.clicked_20610_indicator_teleport = true
+            elseif stage == "quest_20610_target_link" then
+                r.clicked_20610_target_link = true
+            elseif stage == "quest_20610_task_teleport" then
+                r.clicked_20610_dictionary_teleport = true
+            end
+            if name == "ClickUiControlWaitTeleport" then
+                r.waiting_teleport = true
+                r.teleport_stage = tostring(params.stage or "")
+                r.teleport_start_pos = state.char
+                r.teleport_start_big_map_id = tonumber(state.big_map_id) or 0
+            end
+        end
+        main_quest_set_status("ui click action=" .. name ..
+            " quest_id=" .. tostring(params.quest_id or "") ..
+            " stage=" .. tostring(stage) ..
+            " parent=" .. tostring(params.parent or "") ..
+            " name=" .. tostring(params.name or "") ..
+            " result=" .. tostring(line_or_err))
+        main_quest_trace("ui-click:" .. tostring(stage),
+            "action=" .. name ..
+            " ok=" .. tostring(click_ok) ..
+            " result=" .. tostring(line_or_err) ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
+        return click_ok
+    end
+
+    if name == "QuestTeleport" then
+        if not main_quest_action_cooldown(name .. ":" .. tostring(stage), 1.0) then
+            return true
+        end
+        local quest_id = tonumber(params.quest_id) or 0
+        if stage == "quest_20611_level_move" and r.active_20611_grind == true then
+            main_quest_stop_20611_grind("quest-20611-level-reached-before-panel", false)
+        end
+        if not ok_quest or not quest or type(quest.questTeleport) ~= "function" then
+            main_quest_set_status("quest teleport failed: aion.quest unavailable")
+            return false
+        end
+        local panel_ready, panel_detail = main_quest_prepare_quest_teleport_panel(quest_id, stage)
+        if not panel_ready then
+            main_quest_trace("quest-teleport-wait-panel:" .. tostring(stage),
+                "quest=" .. tostring(quest_id) ..
+                " detail=" .. tostring(panel_detail or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0.5)
+            return true
+        end
+        local teleport_id = nil
+        if type(quest.questTeleportId) == "function" then
+            local id_ok, id_value = quest.questTeleportId(quest_id)
+            if id_ok and tonumber(id_value) and tonumber(id_value) >= 0 then
+                teleport_id = tonumber(id_value)
+            end
+        end
+        local ok, result, err = quest.questTeleport(quest_id, teleport_id)
+        local wait_teleport = params.wait_teleport ~= false
+        if ok and result ~= false and wait_teleport then
+            r.waiting_teleport = true
+            r.teleport_stage = tostring(params.stage or "")
+            r.teleport_start_pos = state.char
+            r.teleport_start_big_map_id = tonumber(state.big_map_id) or 0
+        end
+        if ok and result ~= false and stage == "quest_20611_level_move" then
+            r.completed_20611_level_move = true
+            r.level_move_quest_id = quest_id
+        end
+        if ok and result ~= false then
+            r.quest_teleport_panel_key = ""
+            r.quest_teleport_panel_opened_at = 0
+        end
+        main_quest_set_status("quest teleport quest_id=" .. tostring(quest_id) ..
+            " stage=" .. tostring(stage) ..
+            " teleport_id=" .. tostring(teleport_id or "") ..
+            " wait_teleport=" .. tostring(wait_teleport) ..
+            " panel=" .. tostring(panel_detail or "") ..
+            " result=" .. tostring(result) ..
+            " err=" .. tostring(err or ""))
+        main_quest_trace("quest-teleport:" .. tostring(stage),
+            "quest=" .. tostring(quest_id) ..
+            " ok=" .. tostring(ok) ..
+            " result=" .. tostring(result) ..
+            " teleport_id=" .. tostring(teleport_id or "") ..
+            " wait_teleport=" .. tostring(wait_teleport) ..
+            " panel=" .. tostring(panel_detail or "") ..
+            " err=" .. tostring(err or "") ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
+        return ok and result ~= false
+    end
+
     if name == "InteractNpc" then
         main_quest_stop_route(tostring(params.stage or ""), "interact-npc")
         local now = now_seconds()
         local settle_seconds = math.max(0, tonumber(cfg.leveling and cfg.leveling.npc_interact_settle_seconds) or 0)
         local stage = tostring(params.stage or "")
         local wait_until = tonumber(r.wait_dialog_until) or 0
-        if stage ~= ""
-            and tostring(r.wait_dialog_stage or "") == stage
-            and now < wait_until then
+        local waiting_same_stage = stage ~= "" and tostring(r.wait_dialog_stage or "") == stage
+        local dialog_timeout_after_interact = waiting_same_stage and wait_until > 0 and now >= wait_until
+        if waiting_same_stage and now < wait_until then
             if main_quest_action_cooldown("WaitNpcDialog:" .. stage, 0.4) then
                 main_quest_set_status("waiting npc dialog stage=" .. stage ..
                     " remain=" .. string.format("%.1f", wait_until - now))
@@ -6544,32 +7530,42 @@ function main_quest_execute_20590(action, state)
             return true
         end
         local ok_npc_runtime, npc_runtime = pcall(require, "aion.npc")
-        if not ok_npc_runtime or not npc_runtime or type(npc_runtime.interactId) ~= "function" then
-            main_quest_set_status("打开NPC失败: aion.npc 不可用")
+        if not ok_npc_runtime or not npc_runtime or type(npc_runtime.interactByName) ~= "function" then
+            main_quest_set_status("打开NPC失败: aion.npc 名字交互不可用")
             return false
         end
         main_quest_trace("interact-before:" .. stage,
             "stage=" .. stage ..
-            " interact_id=" .. tostring(params.interact_id) ..
+            " legacy_interact_id=" .. tostring(params.interact_id) ..
+            " name_key=" .. tostring(params.npc_name_key or params.name_key or "") ..
             " name=" .. tostring(params.npc_name or "") ..
             " pos=" .. main_quest_position_text(state.char) ..
             " dialog=" .. main_quest_dialog_signature(state.dialog),
             0)
         local ok, result, err = false, false, nil
         local npc_name = tostring(params.npc_name or "")
-        if npc_name ~= "" and type(npc_runtime.interactByName) == "function" then
-            ok, result, err = npc_runtime.interactByName(npc_name)
+        local npc_name_key = tostring(params.npc_name_key or params.name_key or "")
+        local interact_method = "name"
+        if npc_name == "" then
+            main_quest_set_status("打开NPC失败: npc_name 为空 stage=" .. stage ..
+                " name_key=" .. npc_name_key ..
+                " legacy_interact_id=" .. tostring(params.interact_id or ""))
+            return false
         end
-        if not ok or result == false then
-            local id_ok, id_result, id_err = npc_runtime.interactId(params.interact_id)
-            if id_ok and id_result ~= false then
-                ok, result, err = id_ok, id_result, id_err
-            else
-                err = tostring(err or "") .. " id_err=" .. tostring(id_err or id_result or "")
-            end
+        if dialog_timeout_after_interact then
+            main_quest_trace("interact-name-retry:" .. stage,
+                "stage=" .. stage ..
+                " legacy_interact_id=" .. tostring(params.interact_id) ..
+                " name_key=" .. npc_name_key ..
+                " name=" .. tostring(params.npc_name or "") ..
+                " reason=dialog_timeout_after_interact",
+                0)
         end
-        main_quest_set_status("打开首个主线NPC对话 interact_id=" .. tostring(params.interact_id) ..
+        ok, result, err = npc_runtime.interactByName(npc_name)
+        main_quest_set_status("打开主线NPC对话 by_name name_key=" .. npc_name_key ..
+            " legacy_interact_id=" .. tostring(params.interact_id) ..
             " name=" .. tostring(params.npc_name or "") ..
+            " method=" .. tostring(interact_method) ..
             " result=" .. tostring(result) .. " err=" .. tostring(err or ""))
         if ok and result ~= false then
             local after_interact = now_seconds()
@@ -6582,13 +7578,15 @@ function main_quest_execute_20590(action, state)
             "stage=" .. stage ..
             " ok=" .. tostring(ok) ..
             " result=" .. tostring(result) ..
+            " method=" .. tostring(interact_method) ..
+            " name_key=" .. npc_name_key ..
             " err=" .. tostring(err or "") ..
             " wait_dialog_until=" .. tostring(r.wait_dialog_until or 0),
             0)
         return ok and result ~= false
     end
 
-    if name == "ClickDialogX" or name == "ClickDialogXWaitTeleport" then
+    if name == "ClickDialogX" or name == "ClickDialogXWaitTeleport" or name == "ClickDialogXCompleteQuest" then
         if not main_quest_action_cooldown(name .. ":" .. tostring(params.type_text), 0.8) then
             return true
         end
@@ -6600,6 +7598,7 @@ function main_quest_execute_20590(action, state)
         r.wait_dialog_stage = ""
         r.wait_dialog_until = 0
         local wait_for_teleport = name == "ClickDialogXWaitTeleport"
+        local complete_after_click = name == "ClickDialogXCompleteQuest"
         local teleport_stage = tostring(params.stage or "teleport")
         local teleport_start_pos = state.char
         local teleport_start_big_map_id = tonumber(state.big_map_id) or 0
@@ -6612,7 +7611,7 @@ function main_quest_execute_20590(action, state)
             " dialog=" .. main_quest_dialog_signature(state.dialog) ..
             " pos=" .. main_quest_position_text(state.char),
             0)
-        local ok, line_or_err = npc_click_dialog_x_once(ui_runtime, "quest20590")
+        local ok, line_or_err = npc_click_dialog_x_once(ui_runtime, "quest" .. tostring(params.quest_id or ""))
         local after_sig = "unread"
         if npc_runtime and type(npc_runtime.dialog) == "function" then
             local dialog_ok, info = npc_runtime.dialog()
@@ -6628,15 +7627,29 @@ function main_quest_execute_20590(action, state)
             r.teleport_start_pos = teleport_start_pos
             r.teleport_start_big_map_id = teleport_start_big_map_id
         end
+        if ok and complete_after_click and tonumber(params.quest_id) == 20610 then
+            r.completed_20610_start_dialog = true
+            r.cached_quest_20610 = nil
+            r.last_quest_20610_read_at = 0
+            local settle_seconds = math.max(0,
+                tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
+            if settle_seconds > 0 then
+                r.post_dialog_settle_until = math.max(
+                    tonumber(r.post_dialog_settle_until) or 0,
+                    now_seconds() + settle_seconds)
+            end
+        end
         main_quest_set_status("点击首个主线对话 type=" .. tostring(params.type_text) ..
             " content=" .. tostring(params.content_id) ..
             " wait_teleport=" .. tostring(wait_for_teleport) ..
+            " complete_after_click=" .. tostring(complete_after_click) ..
             " result=" .. tostring(line_or_err))
         main_quest_trace("click-after:" .. tostring(params.type_text or ""),
             "ok=" .. tostring(ok) ..
             " result=" .. tostring(line_or_err) ..
             " after_dialog=" .. after_sig ..
-            " wait_teleport=" .. tostring(wait_for_teleport),
+            " wait_teleport=" .. tostring(wait_for_teleport) ..
+            " complete_after_click=" .. tostring(complete_after_click),
             0)
         return ok
     end
@@ -6655,10 +7668,19 @@ function main_quest_execute_20590(action, state)
         local ok, line_or_err = npc_click_dialog_ok_button(ui_runtime)
         if ok then
             r.waiting_teleport = false
-            r.completed_20590_reward = true
-            r.completed_20590_teleport = true
-            r.cached_quest = nil
-            r.last_quest_read_at = 0
+            if tonumber(params.quest_id) == 20610 then
+                r.completed_20610_reward = true
+                r.completed_20610_task_teleport = true
+                r.cached_quest_20610 = nil
+                r.last_quest_20610_read_at = 0
+            elseif main_quest_is_20611_blue_task_id(params.quest_id) then
+                main_quest_stop_20611_grind("quest-20611-remote-reward-ok", true)
+            else
+                r.completed_20590_reward = true
+                r.completed_20590_teleport = true
+                r.cached_quest = nil
+                r.last_quest_read_at = 0
+            end
         end
         main_quest_set_status("确认主线20590奖励 type=" .. tostring(params.type_text) ..
             " content=" .. tostring(params.content_id) ..
@@ -6689,6 +7711,162 @@ function main_quest_execute_20590(action, state)
             r.completed_20590_teleport = false
         end
         main_quest_set_status("主线20590阶段完成 stage=" .. stage .. " reason=" .. tostring(action.reason or ""))
+        return true
+    end
+
+    if name == "CompleteQuestTeleport" then
+        r.waiting_teleport = false
+        r.wait_dialog_stage = ""
+        r.wait_dialog_until = 0
+        if tonumber(params.quest_id) == 20610 then
+            r.completed_20610_task_teleport = true
+            r.cached_quest_20610 = nil
+            r.last_quest_20610_read_at = 0
+        end
+        main_quest_set_status("complete quest teleport quest_id=" .. tostring(params.quest_id or "") ..
+            " stage=" .. tostring(params.stage or "") ..
+            " reason=" .. tostring(action.reason or ""))
+        return true
+    end
+
+    if name == "CompleteQuest" then
+        r.waiting_teleport = false
+        r.wait_dialog_stage = ""
+        r.wait_dialog_until = 0
+        if tonumber(params.quest_id) == 20610 then
+            r.completed_20610_start_dialog = true
+            r.cached_quest_20610 = nil
+            r.last_quest_20610_read_at = 0
+        end
+        main_quest_set_status("complete main quest quest_id=" .. tostring(params.quest_id or "") ..
+            " stage=" .. tostring(params.stage or "") ..
+            " reason=" .. tostring(action.reason or ""))
+        return true
+    end
+
+    if name == "OpenQuestSubmit" then
+        if not main_quest_action_cooldown(name .. ":" .. tostring(params.quest_id or ""), 1.0) then
+            return true
+        end
+        main_quest_stop_20611_grind("quest-20611-reward-ready", false)
+        if not ok_quest or not quest or type(quest.openSubmit) ~= "function" then
+            main_quest_set_status("open quest submit failed: aion.quest unavailable")
+            return false
+        end
+        local quest_id = tonumber(params.quest_id) or 0
+        local submit_ok, opened, submit_err = quest.openSubmit(quest_id)
+        local ok = submit_ok == true and opened ~= false
+        if ok and main_quest_is_20611_blue_task_id(quest_id) then
+            r.opened_20611_remote_reward = true
+        end
+        main_quest_set_status("open quest submit quest_id=" .. tostring(quest_id) ..
+            " stage=" .. tostring(params.stage or "") ..
+            " result=" .. tostring(opened) ..
+            " err=" .. tostring(submit_err or ""))
+        main_quest_trace("open-submit:" .. tostring(params.stage or ""),
+            "quest=" .. tostring(quest_id) ..
+            " ok=" .. tostring(ok) ..
+            " result=" .. tostring(opened) ..
+            " err=" .. tostring(submit_err or ""),
+            0)
+        return ok
+    end
+
+    if name == "StartStationaryGrind" then
+        local grind_stage = tostring(params.stage or "")
+        r.active_20611_grind = true
+        r.active_20611_grind_stage = grind_stage
+        if grind_stage == "quest_20611_level_grind" then
+            r.level_grind_quest_id = tonumber(params.quest_id) or 0
+            r.level_grind_required_level = tonumber(params.until_level or params.required_level) or 0
+            r.completed_20611_level_move = false
+            r.level_move_quest_id = 0
+        else
+            r.completed_20611_grind = false
+            r.level_grind_quest_id = 0
+            r.level_grind_required_level = 0
+        end
+        r.cached_quest_20611 = nil
+        r.last_quest_20611_read_at = 0
+
+        cfg.combat = cfg.combat or {}
+        cfg.combat.mode = 1
+        cfg.combat.enabled = true
+        cfg.combat.anchor_enabled = true
+        cfg.combat.anchor_x = tonumber(params.x) or 0
+        cfg.combat.anchor_y = tonumber(params.y) or 0
+        cfg.combat.anchor_z = tonumber(params.z) or 0
+
+        runtime.combat = runtime.combat or {}
+        runtime.combat.mode = "stationary"
+        runtime.combat.anchor = {
+            x = cfg.combat.anchor_x,
+            y = cfg.combat.anchor_y,
+            z = cfg.combat.anchor_z,
+        }
+        runtime.combat.target_obj = 0
+        runtime.combat.target_name = ""
+        runtime.combat.target_distance = 0
+        runtime.combat.anchor_distance = 0
+        runtime.combat.last_move_at = 0
+        if type(sync_combat_enabled_from_primary_mode) == "function" then
+            sync_combat_enabled_from_primary_mode()
+        end
+        if type(combat_auto_off) == "function" then
+            combat_auto_off(grind_stage == "quest_20611_level_grind" and "quest-20611-level-grind-start" or "quest-20611-grind-start", false)
+        end
+        if type(combat_set_status) == "function" then
+            combat_set_status(grind_stage == "quest_20611_level_grind" and "level-grind" or "quest-grind", string.format("%.2f,%.2f,%.2f",
+                tonumber(params.x) or 0,
+                tonumber(params.y) or 0,
+                tonumber(params.z) or 0), true)
+        end
+        main_quest_set_status("quest 20611 stationary grind started stage=" .. grind_stage ..
+            " until_level=" .. tostring(params.until_level or params.required_level or "") ..
+            " char_level=" .. tostring(params.char_level or ""))
+        main_quest_trace("grind-start",
+            string.format("quest=%s stage=%s anchor=%.2f,%.2f,%.2f step=%s char_level=%s until_level=%s",
+                tostring(params.quest_id or ""),
+                grind_stage,
+                tonumber(params.x) or 0,
+                tonumber(params.y) or 0,
+                tonumber(params.z) or 0,
+                tostring(params.quest_step or ""),
+                tostring(params.char_level or ""),
+                tostring(params.until_level or params.required_level or "")),
+            0)
+        return true
+    end
+
+    if name == "WaitLevelGrind" then
+        if main_quest_action_cooldown(name .. ":" .. tostring(params.quest_id or ""), 2.0) then
+            main_quest_set_status("level grind running quest_id=" .. tostring(params.quest_id or "") ..
+                " level=" .. tostring(params.char_level or "") ..
+                "/" .. tostring(params.required_level or ""))
+        end
+        return true
+    end
+
+    if name == "WaitQuestComplete" then
+        if main_quest_action_cooldown(name .. ":" .. tostring(params.quest_id or ""), 2.0) then
+            main_quest_set_status("quest " .. tostring(params.quest_id or "") ..
+                " grind running step=" .. tostring(params.quest_step or ""))
+        end
+        return true
+    end
+
+    if name == "CompleteQuestGrind" then
+        local is_blue_grind = tonumber(params.quest_id) == 20611
+            or main_quest_is_20611_blue_task_id(params.quest_id)
+        if not is_blue_grind and ok_main_quest_20611 and main_quest_20611
+            and type(main_quest_20611.isQuestKnown) == "function" then
+            is_blue_grind = main_quest_20611.isQuestKnown({ id = tonumber(params.quest_id) or 0 })
+        end
+        if is_blue_grind then
+            main_quest_stop_20611_grind("quest-20611-grind-complete", true)
+        end
+        main_quest_set_status("quest grind complete quest_id=" .. tostring(params.quest_id or "") ..
+            " step=" .. tostring(params.quest_step or ""))
         return true
     end
 
@@ -6733,6 +7911,17 @@ function main_quest_20590_tick()
         return
     end
     local now = now_seconds()
+    if not main_quest_target_available("20590") then
+        return
+    end
+    if ok_main_quest_20610 and main_quest_20610 then
+        local quest_20610 = main_quest_cached_20610(now)
+        if main_quest_20610.isQuestKnown(quest_20610)
+            and (main_quest_20610.isQuestActive(quest_20610) or main_quest_20610.isQuestDone(quest_20610)) then
+            runtime.main_quest.completed_20590_reward = true
+            return
+        end
+    end
     local state = main_quest_read_20590_state(now)
     local route_stage = main_quest_active_route_stage()
     local action = main_quest_20590.nextAction(state, runtime.main_quest, {
@@ -6771,6 +7960,154 @@ function main_quest_20590_tick()
     main_quest_execute_20590(action, state)
 end
 
+function main_quest_20610_tick()
+    if not runtime.running or runtime.paused then
+        return
+    end
+    if not cfg.leveling or cfg.leveling.enabled ~= true then
+        return
+    end
+    if primary_mode_ids[cfg.primary_mode] ~= "leveling" then
+        return
+    end
+    if not ok_core or not core or not ok_main_quest_20610 or not main_quest_20610 then
+        return
+    end
+    if runtime.main_quest and runtime.main_quest.completed_20610_reward == true then
+        return
+    end
+    local now = now_seconds()
+    local blocked, block_reason = main_quest_later_tasks_blocked(now)
+    if blocked then
+        main_quest_trace("stage-gate:20610",
+            "blocked=" .. tostring(block_reason or "") .. " run 20590 first",
+            1.0)
+        return
+    end
+    if not main_quest_target_available("20610") then
+        return
+    end
+    local state = main_quest_read_20610_state(now)
+    local route_stage = main_quest_active_route_stage()
+    local action = main_quest_20610.nextAction(state, runtime.main_quest, {
+        npc_range = 4,
+        dialog_click_x = tonumber(cfg.npc_dialog and cfg.npc_dialog.auto_click_x) or 25,
+        route_following_stage = route_stage,
+    })
+    local dialog_sig = main_quest_dialog_signature(state.dialog)
+    if dialog_sig ~= tostring(runtime.main_quest.last_dialog_signature or "") then
+        main_quest_trace("dialog-change",
+            "quest=20610" ..
+            " from=" .. tostring(runtime.main_quest.last_dialog_signature or "") ..
+            " to=" .. dialog_sig ..
+            " pos=" .. main_quest_position_text(state.char) ..
+            " map=" .. tostring(state.big_map_id or "") ..
+            " route_stage=" .. tostring(route_stage),
+            0)
+        runtime.main_quest.last_dialog_signature = dialog_sig
+    end
+    local decision_sig = "20610:" .. tostring(action.name or "") ..
+        ":" .. tostring(action.params and action.params.stage or "") ..
+        ":" .. dialog_sig
+    if decision_sig ~= tostring(runtime.main_quest.last_decision_signature or "") then
+        main_quest_trace("decision",
+            "quest=20610" ..
+            " action=" .. tostring(action.name or "") ..
+            " stage=" .. tostring(action.params and action.params.stage or "") ..
+            " reason=" .. tostring(action.reason or "") ..
+            " dialog=" .. dialog_sig ..
+            " pos=" .. main_quest_position_text(state.char) ..
+            " route_stage=" .. tostring(route_stage),
+            0)
+        runtime.main_quest.last_decision_signature = decision_sig
+    end
+    main_quest_execute_20590(action, state)
+end
+
+function main_quest_20611_tick()
+    if not runtime.running or runtime.paused then
+        return
+    end
+    if not cfg.leveling or cfg.leveling.enabled ~= true then
+        return
+    end
+    if primary_mode_ids[cfg.primary_mode] ~= "leveling" then
+        return
+    end
+    if not ok_core or not core or not ok_main_quest_20611 or not main_quest_20611 then
+        return
+    end
+    local now = now_seconds()
+    local blocked, block_reason = main_quest_later_tasks_blocked(now)
+    if blocked then
+        if runtime.main_quest.active_20611_grind == true then
+            main_quest_stop_20611_grind("quest-20611-blocked-" .. tostring(block_reason or ""), false)
+        end
+        main_quest_trace("stage-gate:20611",
+            "blocked=" .. tostring(block_reason or "") .. " run 20590 first",
+            1.0)
+        return
+    end
+    if not main_quest_target_available("20611") then
+        return
+    end
+    local state = main_quest_read_20611_state(now)
+    local action = main_quest_20611.nextAction(state, runtime.main_quest, {
+        grind_point_range = 10,
+    })
+    local remote_qid = tonumber(state.remote_reward_quest and state.remote_reward_quest.id) or 0
+    local remote_status = tonumber(state.remote_reward_quest and state.remote_reward_quest.status_code) or 0
+    local level_qid = tonumber(state.level_blocked_quest and state.level_blocked_quest.id) or 0
+    local level_status = tonumber(state.level_blocked_quest and state.level_blocked_quest.status_code) or 0
+    local level_required = tonumber(state.level_blocked_quest and state.level_blocked_quest.lv_num) or 0
+    local char_level = tonumber(state.char and state.char.level) or 0
+    local action_qid = tonumber(action.params and action.params.quest_id) or 0
+    local decision_sig = "20611:" .. tostring(action.name or "") ..
+        ":" .. tostring(action.params and action.params.stage or "") ..
+        ":" .. tostring(action_qid) ..
+        ":" .. tostring(state.quest and state.quest.status_code or "") ..
+        ":" .. tostring(state.quest and state.quest.req_count or "") ..
+        ":" .. tostring(remote_qid) ..
+        ":" .. tostring(remote_status) ..
+        ":" .. tostring(level_qid) ..
+        ":" .. tostring(level_status) ..
+        ":" .. tostring(level_required) ..
+        ":" .. tostring(char_level) ..
+        ":" .. tostring(runtime.main_quest.active_20611_grind_stage or "")
+    if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
+        main_quest_trace("decision",
+            "quest=20611" ..
+            " action=" .. tostring(action.name or "") ..
+            " action_qid=" .. tostring(action_qid) ..
+            " stage=" .. tostring(action.params and action.params.stage or "") ..
+            " reason=" .. tostring(action.reason or "") ..
+            " quest_status=" .. tostring(state.quest and state.quest.status_code or "") ..
+            " quest_step=" .. tostring(state.quest and state.quest.req_count or "") ..
+            " qblue_id=" .. tostring(remote_qid) ..
+            " qblue_status=" .. tostring(remote_status) ..
+            " qblue_step=" .. tostring(state.remote_reward_quest and state.remote_reward_quest.req_count or "") ..
+            " qlevel_id=" .. tostring(level_qid) ..
+            " qlevel_status=" .. tostring(level_status) ..
+            " qlevel_required=" .. tostring(level_required) ..
+            " char_level=" .. tostring(char_level) ..
+            " grind_stage=" .. tostring(runtime.main_quest.active_20611_grind_stage or "") ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
+        runtime.main_quest.last_decision_20611_signature = decision_sig
+    end
+    if tostring(action.name or "") == "Idle"
+        and main_quest_is_20611_blue_task_id(action.params and action.params.quest_id)
+        and runtime.main_quest.active_20611_grind == true then
+        main_quest_stop_20611_grind("quest-20611-no-blue-task-active", false)
+    end
+    if tostring(action.name or "") == "Idle"
+        and tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20611_level_grind"
+        and runtime.main_quest.active_20611_grind == true then
+        main_quest_stop_20611_grind("quest-20611-level-grind-idle", false)
+    end
+    main_quest_execute_20590(action, state)
+end
+
 local route_start_selected
 local route_stop_follow
 
@@ -6804,6 +8141,9 @@ local function start_bot()
     sync_combat_enabled_from_primary_mode()
     combat_reset_runtime("start")
     main_quest_reset_runtime("start")
+    if primary_mode_ids[cfg.primary_mode] == "leveling" then
+        main_quest_apply_startup_snapshot("start")
+    end
     runtime.running = true
     runtime.paused = false
     runtime.status = "运行中"
@@ -8198,23 +9538,108 @@ end
 local function account_start_runtime_all()
     local count = 0
     for index, account in ipairs(account_items()) do
-        if account.enabled and tonumber(account.target and account.target.pid) and tonumber(account.target.pid) > 0 then
-            if account_start_runtime_worker(account, index) then
+        if account.enabled then
+            if account_queue_local_script("start", account, index) then
                 count = count + 1
             end
         end
     end
-    runtime.accounts.last_status = "runtime started count=" .. tostring(count)
+    runtime.accounts.last_status = "script start queued count=" .. tostring(count)
+    set_event("全部启动已排队: " .. tostring(count))
 end
 
 local function account_stop_runtime_all()
     local count = 0
-    for _, account in ipairs(account_items()) do
-        if account_stop_runtime_worker(account) then
+    for index, account in ipairs(account_items()) do
+        if account_queue_local_script("stop", account, index) then
             count = count + 1
         end
     end
-    runtime.accounts.last_status = "runtime stop requested count=" .. tostring(count)
+    runtime.accounts.last_status = "script stop queued count=" .. tostring(count)
+    set_event("全部停止已排队: " .. tostring(count))
+end
+
+function account_enqueue_pending_script(action, index)
+    local request = {
+        action = tostring(action or ""),
+        index = tonumber(index) or runtime.accounts.selected_index or 1,
+    }
+
+    if type(runtime.accounts.pending_script) ~= "table" then
+        runtime.accounts.pending_script = request
+        return
+    end
+
+    if type(runtime.accounts.pending_scripts) ~= "table" then
+        runtime.accounts.pending_scripts = {}
+    end
+    table.insert(runtime.accounts.pending_scripts, request)
+end
+
+function account_pop_pending_script()
+    local pending = runtime.accounts.pending_script
+    if type(pending) == "table" then
+        runtime.accounts.pending_script = nil
+        return pending
+    end
+
+    local queue = runtime.accounts.pending_scripts
+    if type(queue) == "table" and #queue > 0 then
+        return table.remove(queue, 1)
+    end
+
+    return nil
+end
+
+function account_has_pending_script_request()
+    if type(runtime.accounts.pending_script) == "table" then
+        return true
+    end
+    return type(runtime.accounts.pending_scripts) == "table" and #runtime.accounts.pending_scripts > 0
+end
+
+function account_queue_local_script(action, account, index)
+    if not account then
+        runtime.accounts.last_status = "script " .. tostring(action) .. " queue failed: no account selected"
+        set_event("脚本请求失败: 未选择账号")
+        return false
+    end
+
+    local action_text = tostring(action or "")
+    if action_text ~= "start" and action_text ~= "stop" then
+        runtime.accounts.last_status = "script queue failed: bad action " .. tostring(action)
+        set_event("脚本请求失败: 未知动作 " .. tostring(action))
+        return false
+    end
+
+    local account_index = tonumber(index) or account_index_of(account)
+    if account_index <= 0 then
+        account_index = tonumber(runtime.accounts.selected_index) or 1
+    end
+
+    if not account.runtime then
+        account.runtime = {}
+    end
+
+    account_enqueue_pending_script(action_text, account_index)
+
+    if action_text == "start" then
+        account.runtime.status = "queued_start"
+        account.runtime.message = "start queued"
+        runtime.accounts.selected_index = account_index
+        runtime.accounts.settings_window_visible = false
+        runtime.ui_visible = true
+        runtime.accounts.last_status = "script start queued: " .. account_display_name(account)
+        set_event("脚本启动已排队" .. account_display_name(account))
+    elseif action_text == "stop" then
+        account.runtime.status = "queued_stop"
+        account.runtime.message = "stop queued"
+        runtime.accounts.last_status = "script stop queued: " .. account_display_name(account)
+        set_event("脚本停止已排队" .. account_display_name(account))
+    end
+
+    account.runtime.updated_at = now_seconds()
+    return true
 end
 
 local function account_bind_current_target(account)
@@ -8363,53 +9788,11 @@ local function account_stop_local_script(account)
     return account_stop_runtime_worker(account)
 end
 
-function account_queue_local_script(action, account, index)
-    if not account then
-        runtime.accounts.last_status = "script " .. tostring(action) .. " queue failed: no account selected"
-        set_event("脚本请求失败: 未选择账号")
-        return false
-    end
-
-    local account_index = tonumber(index) or runtime.accounts.selected_index or 1
-    runtime.accounts.pending_script = {
-        action = tostring(action or ""),
-        index = account_index,
-    }
-
-    if not account.runtime then
-        account.runtime = {}
-    end
-    if action == "start" then
-        account.runtime.status = "queued_start"
-        account.runtime.message = "start queued"
-        runtime.accounts.selected_index = account_index
-        runtime.accounts.settings_window_visible = false
-        runtime.ui_visible = true
-        runtime.accounts.last_status = "script start queued: " .. account_display_name(account)
-        set_event("脚本启动已排队" .. account_display_name(account))
-    elseif action == "stop" then
-        account.runtime.status = "queued_stop"
-        account.runtime.message = "stop queued"
-        runtime.accounts.last_status = "script stop queued: " .. account_display_name(account)
-        set_event("脚本停止已排队" .. account_display_name(account))
-    else
-        runtime.accounts.pending_script = nil
-        runtime.accounts.last_status = "script queue failed: bad action " .. tostring(action)
-        set_event("脚本请求失败: 未知动作 " .. tostring(action))
-        return false
-    end
-
-    account.runtime.updated_at = now_seconds()
-    return true
-end
-
 function account_process_pending_script()
-    local pending = runtime.accounts.pending_script
+    local pending = account_pop_pending_script()
     if type(pending) ~= "table" then
         return
     end
-
-    runtime.accounts.pending_script = nil
 
     local index = tonumber(pending.index) or runtime.accounts.selected_index or 1
     local account = account_items()[index]
@@ -9387,6 +10770,9 @@ function ui_test_f2_dump()
     add_parent("start_dialog")
     add_parent("user_agreement_dialog")
     add_parent("dlg_dialog")
+    add_parent("quest_indicator_dialog")
+    add_parent("v3_quest_dialog")
+    add_parent("dictionary_dialog")
     add_parent("loot_dialog")
     add_parent("dlg_loot")
 
@@ -10653,7 +12039,20 @@ local function route_send_move(target)
         tostring(type(r.points) == "table" and #r.points or ""),
         route_format_pos(target)))
 
+    move_trace("route", target,
+        "name=" .. tostring(r.follow_name or "") ..
+        " field=" .. tostring(r.follow_field or "") ..
+        " index=" .. tostring(r.index or "") .. "/" .. tostring(type(r.points) == "table" and #r.points or "") ..
+        " reason=route_send_move",
+        0)
     local ok, _, err = nav.moveTo(target.x, target.y, target.z)
+    move_trace("route-result", target,
+        "name=" .. tostring(r.follow_name or "") ..
+        " field=" .. tostring(r.follow_field or "") ..
+        " index=" .. tostring(r.index or "") .. "/" .. tostring(type(r.points) == "table" and #r.points or "") ..
+        " ok=" .. tostring(ok) ..
+        " err=" .. tostring(err or ""),
+        0)
     if not ok then
         return false, err or "MoveTo failed"
     end
@@ -13466,18 +14865,19 @@ end
 
 hotkey.start(10)
 
-local last_f7 = false
-local last_f8 = false
-local last_f9 = false
-local last_f10 = false
+last_f7 = false
+last_f8 = false
+last_f9 = false
+last_f10 = false
 last_f2 = false
 last_f3 = false
 last_f4 = false
 last_f5 = false
 last_f6 = false
+last_f11 = false
 
 while true do
-    local ctrl = hotkey.is_pressed(0x11)
+    ctrl = hotkey.is_pressed(0x11)
     if ctrl and hotkey.is_pressed(0x7B) then
         log_info("Aion 控制台UI 退出")
         break
@@ -13518,35 +14918,44 @@ while true do
     end
     last_f6 = f6
 
-    local f7 = hotkey.is_pressed(0x76)
+    f7 = hotkey.is_pressed(0x76)
     if f7 and not last_f7 then
         toggle_ui_visible()
     end
     last_f7 = f7
 
-    local f8 = hotkey.is_pressed(0x77)
+    f8 = hotkey.is_pressed(0x77)
     if f8 and not last_f8 then
         npc_dump_current_dialog()
     end
     last_f8 = f8
 
-    local f9 = hotkey.is_pressed(0x78)
+    f9 = hotkey.is_pressed(0x78)
     if f9 and not last_f9 then
         run_probe()
     end
     last_f9 = f9
 
-    local f10 = hotkey.is_pressed(0x79)
+    f10 = hotkey.is_pressed(0x79)
     if f10 and not last_f10 then
         toggle_pause()
     end
     last_f10 = f10
+
+    f11 = hotkey.is_pressed(0x7A)
+    if f11 and not last_f11 then
+        task_f11_record_snapshot()
+    end
+    last_f11 = f11
 
     bootstrap_tick()
     if route_recovery_tick then
         route_recovery_tick()
     end
     main_quest_20590_tick()
+    main_quest_20610_tick()
+    main_quest_20611_tick()
+    combat_tick_quest_grind()
     combat_tick()
     route_tick()
     background_refresh_tick()

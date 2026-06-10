@@ -1,4 +1,5 @@
 local M = {}
+local npc_names = require("aion.npc_names")
 
 M.quest_id = 20590
 M.start_big_map_id = 120030000
@@ -6,28 +7,32 @@ M.inner_big_map_id = 390010000
 M.temple_big_map_id = 120010000
 M.alder_big_map_id = 220010000
 M.npc = {
-    name = "판데모니움 근위병",
+    name_key = "MQ20590_NPC_001_START",
+    name = npc_names.MQ20590_NPC_001_START,
     interact_id = 2147533452,
     x = 1655.94,
     y = 1400.75,
     z = 194.67,
 }
 M.inner_npc = {
-    name = "시간의 데바 잉그릴",
+    name_key = "MQ20590_NPC_002_INNER",
+    name = npc_names.MQ20590_NPC_002_INNER,
     interact_id = 2424368065,
     x = 522.68,
     y = 573.38,
     z = 322.03,
 }
 M.temple_npc = {
-    name = "발데르",
+    name_key = "MQ20590_NPC_003_TEMPLE",
+    name = npc_names.MQ20590_NPC_003_TEMPLE,
     interact_id = 2147509246,
     x = 1469.00,
     y = 1466.00,
     z = 177.82,
 }
 M.reward_npc = {
-    name = "아스크",
+    name_key = "MQ20590_NPC_004_REWARD",
+    name = npc_names.MQ20590_NPC_004_REWARD,
     interact_id = 2147492916,
     x = 560.99,
     y = 2786.03,
@@ -75,6 +80,11 @@ M.dialog_steps = {
         content_id = 1013,
         action = "ClickDialogXWaitTeleport",
         reason = "final dialog triggers teleport",
+    },
+    select10 = {
+        content_id = 4080,
+        action = "ClickDialogXWaitTeleport",
+        reason = "recovery first dialog triggers teleport",
     },
 }
 
@@ -273,10 +283,10 @@ function M.nextAction(state, runtime, opts)
         return action("Idle", "quest 20590 is not active", { quest_id = M.quest_id })
     end
 
-    if current_big_map == M.temple_big_map_id or quest_step >= 3 then
+    if current_big_map == M.temple_big_map_id then
         return M.nextTempleAction(state, quest, opts)
     end
-    if current_big_map == M.inner_big_map_id or quest_step >= 2 then
+    if current_big_map == M.inner_big_map_id then
         return M.nextInnerAction(state, quest, opts)
     end
 
@@ -285,6 +295,17 @@ function M.nextAction(state, runtime, opts)
             quest_id = M.quest_id,
             stage = "first_npc_teleport",
         })
+    end
+
+    -- Map-specific branches are safer than quest req_count. Use req_count only
+    -- when the current map cannot be read.
+    if current_big_map <= 0 then
+        if quest_step >= 3 then
+            return M.nextTempleAction(state, quest, opts)
+        end
+        if quest_step >= 2 then
+            return M.nextInnerAction(state, quest, opts)
+        end
     end
 
     local range = number(opts.npc_range)
@@ -316,6 +337,7 @@ function M.nextAction(state, runtime, opts)
             quest_id = M.quest_id,
             interact_id = M.npc.interact_id,
             npc_name = M.npc.name,
+            npc_name_key = M.npc.name_key,
             stage = "first_npc",
         })
     end
@@ -430,6 +452,7 @@ function M.nextInnerAction(state, quest, opts)
             stage = "inner_npc",
             interact_id = M.inner_npc.interact_id,
             npc_name = M.inner_npc.name,
+            npc_name_key = M.inner_npc.name_key,
         })
     end
 
@@ -496,6 +519,7 @@ function M.nextTempleAction(state, quest, opts)
             stage = "temple_npc",
             interact_id = M.temple_npc.interact_id,
             npc_name = M.temple_npc.name,
+            npc_name_key = M.temple_npc.name_key,
         })
     end
 
@@ -563,6 +587,7 @@ function M.nextRewardAction(state, quest, opts)
             stage = "reward_npc",
             interact_id = M.reward_npc.interact_id,
             npc_name = M.reward_npc.name,
+            npc_name_key = M.reward_npc.name_key,
         })
     end
 

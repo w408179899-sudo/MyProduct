@@ -92,6 +92,16 @@ local function run()
         T.assert_eq(decision.reason, "script-pending")
     end)
 
+    T.test("pending script queue does not queue another start", function()
+        local ctx = base_ctx()
+        ctx.runtime.accounts.pending_scripts = {
+            { action = "start", index = 1 },
+        }
+        local decision = autostart.decide(ctx)
+        T.assert_eq(decision.action, "none")
+        T.assert_eq(decision.reason, "script-pending")
+    end)
+
     T.test("active account runtime does not queue another start", function()
         local ctx = base_ctx()
         ctx.account.runtime.status = "queued_start"

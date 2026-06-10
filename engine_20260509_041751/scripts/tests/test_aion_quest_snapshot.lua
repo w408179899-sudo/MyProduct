@@ -103,6 +103,21 @@ local function run()
         T.assert_contains(text, "main_quest[2] id=100")
     end)
 
+    T.test("selects earliest level-blocked main quest by seq", function()
+        local snapshot = install_mocks({
+            quests = {
+                { id = 20615, tab_name = mission_tab, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+                { id = 20611, tab_name = mission_tab, status_code = 6, req_count = 0, seq = 1, lv_num = 8 },
+                { id = 20612, tab_name = mission_tab, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+        })
+
+        local ok, result, err = snapshot.read()
+        T.assert_true(ok, err)
+        local text = joined(result)
+        T.assert_contains(text, "main_quest.snapshot total=3 doing=0 ready=0 level_blocked=3 current_id=20611 current_step=0")
+    end)
+
     T.test("reports empty main quest snapshot", function()
         local snapshot = install_mocks({
             quests = {
