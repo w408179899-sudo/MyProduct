@@ -32,6 +32,10 @@ local function mission_npc_char()
     return { x = 586.19, y = 2467.40, z = 278.62, level = 10 }
 end
 
+local function obelisk_char()
+    return { x = 584.72, y = 2466.97, z = 278.62, level = 10 }
+end
+
 local function run()
     T.reset()
     T.log("\n=== aion main quest 20611 tests ===")
@@ -298,22 +302,78 @@ local function run()
         end
     end)
 
-    T.test("does not repeat completed quest 20611 mission dialog", function()
+    T.test("opens quest 20611 obelisk after mission dialog", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
                 { id = 20611, tab = 0, status_code = 3, req_count = 1, seq = 1, lv_num = 8 },
             },
-            char = mission_npc_char(),
+            char = obelisk_char(),
             big_map_id = 220010000,
-            dialog = {
-                npc_dialog_id = 2147503111,
-                dialog_content_id = 1014,
-                quest_id = 20611,
-                type_text = "select1_1_1_1",
+        }, {
+            completed_20611_mission_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 1)
+        T.assert_eq(next_action.params.stage, "quest_20611_obelisk")
+        T.assert_eq(next_action.params.interact_id, 2147505051)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_002_OBELISK")
+    end)
+
+    T.test("clicks quest 20611 obelisk confirm after npc interaction", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 1, seq = 1, lv_num = 8 },
+            },
+            char = obelisk_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_mission_dialog = true,
+            opened_20611_obelisk = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickObeliskConfirm")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 1)
+        T.assert_eq(next_action.params.stage, "quest_20611_obelisk")
+        T.assert_eq(next_action.params.confirm_x, 684)
+        T.assert_eq(next_action.params.confirm_y, 437)
+        T.assert_eq(next_action.params.confirm_tolerance, 90)
+    end)
+
+    T.test("clicks quest 20611 obelisk confirm when popup is visible after restart", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 1, seq = 1, lv_num = 8 },
+            },
+            char = obelisk_char(),
+            big_map_id = 220010000,
+            ui = {
+                obelisk_confirm_visible = true,
             },
         }, {
             completed_20611_mission_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickObeliskConfirm")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_obelisk")
+    end)
+
+    T.test("does not repeat completed quest 20611 obelisk confirm", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 1, seq = 1, lv_num = 8 },
+            },
+            char = obelisk_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_obelisk = true,
         })
 
         T.assert_eq(next_action.name, "Idle")

@@ -10,6 +10,7 @@ M.remote_reward_quest_ids = { 24340, 24341 }
 M.big_map_id = 220010000
 M.level_move_stage = "quest_20611_level_move"
 M.level_grind_stage = "quest_20611_level_grind"
+M.obelisk_stage = "quest_20611_obelisk"
 M.grind_point = {
     x = 194.491,
     y = 2689.982,
@@ -22,6 +23,19 @@ M.npc = {
     x = 586.22,
     y = 2465.17,
     z = 278.58,
+}
+M.obelisk = {
+    name_key = "MQ20611_NPC_002_OBELISK",
+    name = npc_names.MQ20611_NPC_002_OBELISK,
+    interact_id = 2147505051,
+    x = 587.69,
+    y = 2467.10,
+    z = 278.79,
+}
+M.obelisk_confirm = {
+    x = 684,
+    y = 437,
+    tolerance = 90,
 }
 M.dialog_steps = {
     select_quest = {
@@ -150,6 +164,10 @@ function M.distanceToNpc(char)
     return distance3(char, M.npc)
 end
 
+function M.distanceToObelisk(char)
+    return distance3(char, M.obelisk)
+end
+
 function M.questStep(quest)
     return number(quest and quest.req_count)
 end
@@ -275,6 +293,12 @@ end
 function M.isMissionNpcDialog(dialog)
     return type(dialog) == "table"
         and number(dialog.npc_dialog_id) == M.npc.interact_id
+end
+
+function M.isObeliskConfirmVisible(state)
+    return type(state) == "table"
+        and type(state.ui) == "table"
+        and state.ui.obelisk_confirm_visible == true
 end
 
 function M.teleportDetected(state, runtime, opts)
@@ -410,6 +434,94 @@ function M.nextMissionNpcAction(state, runtime, opts, quest)
     })
 end
 
+function M.nextObeliskAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or state.quest or M.findQuestById(state.quests, M.quest_id)
+
+    if runtime.completed_20611_obelisk == true then
+        return action("Idle", "quest 20611 obelisk already confirmed", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = M.obelisk_stage,
+        })
+    end
+
+    if M.isObeliskConfirmVisible(state) or runtime.opened_20611_obelisk == true then
+        return action("ClickObeliskConfirm", "confirm quest 20611 obelisk registration", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = M.obelisk_stage,
+            npc_name = M.obelisk.name,
+            npc_name_key = M.obelisk.name_key,
+            confirm_x = M.obelisk_confirm.x,
+            confirm_y = M.obelisk_confirm.y,
+            confirm_tolerance = M.obelisk_confirm.tolerance,
+        })
+    end
+
+    if type(state.dialog) == "table" then
+        return action("DumpDialog", "different npc dialog is already open before obelisk confirm", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            type_text = tostring(state.dialog.type_text or ""),
+            content_id = number(state.dialog.dialog_content_id),
+            npc_dialog_id = number(state.dialog.npc_dialog_id),
+            interact_id = M.obelisk.interact_id,
+            npc_name = M.obelisk.name,
+            npc_name_key = M.obelisk.name_key,
+            stage = M.obelisk_stage,
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_id })
+    end
+
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.big_map_id then
+        return action("Idle", "quest 20611 obelisk wrong map", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            big_map_id = current_big_map,
+            expected_big_map_id = M.big_map_id,
+            stage = M.obelisk_stage,
+        })
+    end
+
+    local range = number(opts.npc_range)
+    if range <= 0 then
+        range = 4
+    end
+    local dist = M.distanceToObelisk(char)
+    if dist > range then
+        return action("NavigateToNpc", "move to quest 20611 obelisk", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = M.obelisk_stage,
+            interact_id = M.obelisk.interact_id,
+            npc_name = M.obelisk.name,
+            npc_name_key = M.obelisk.name_key,
+            x = M.obelisk.x,
+            y = M.obelisk.y,
+            z = M.obelisk.z,
+            distance = dist,
+            range = range,
+        })
+    end
+
+    return action("InteractNpc", "open quest 20611 obelisk confirm popup", {
+        quest_id = M.quest_id,
+        quest_step = M.questStep(quest),
+        stage = M.obelisk_stage,
+        interact_id = M.obelisk.interact_id,
+        npc_name = M.obelisk.name,
+        npc_name_key = M.obelisk.name_key,
+    })
+end
+
 function M.nextAction(state, runtime, opts)
     state = state or {}
     runtime = runtime or {}
@@ -474,7 +586,10 @@ function M.nextAction(state, runtime, opts)
         if M.isQuestActive(active_quest) then
             local active_qid = quest_id(active_quest)
             local active_step = M.questStep(active_quest)
-            if active_qid == M.quest_id and active_step > 0 then
+            if active_qid == M.quest_id and active_step == 1 then
+                return M.nextObeliskAction(state, runtime, opts, active_quest)
+            end
+            if active_qid == M.quest_id and active_step > 1 then
                 return action("Idle", "quest 20611 next step is not recorded yet", {
                     quest_id = active_qid,
                     quest_step = active_step,
@@ -627,12 +742,12 @@ function M.nextAction(state, runtime, opts)
             end
             return action("QuestTeleport", "yellow mission immediate move", {
                 quest_id = level_qid,
-            quest_step = M.questStep(level_quest),
-            required_level = required_level,
-            char_level = char_level,
-            stage = M.level_move_stage,
-            wait_teleport = true,
-        })
+                quest_step = M.questStep(level_quest),
+                required_level = required_level,
+                char_level = char_level,
+                stage = M.level_move_stage,
+                wait_teleport = true,
+            })
         end
         if runtime.completed_20611_grind == true then
             return action("Idle", "blue grind quest already completed", { quest_id = M.remote_reward_quest_id })

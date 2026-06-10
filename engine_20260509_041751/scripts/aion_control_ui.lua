@@ -304,6 +304,12 @@ local runtime = {
         level_grind_required_level = 0,
         completed_20611_grind = false,
         completed_20611_mission_dialog = false,
+        opened_20611_obelisk = false,
+        opened_20611_obelisk_at = 0,
+        clicked_20611_obelisk_confirm = false,
+        clicked_20611_obelisk_confirm_at = 0,
+        obelisk_confirm_wait_until = 0,
+        completed_20611_obelisk = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -6505,6 +6511,7 @@ function main_quest_action_waits_after_move(action_name)
         or action_name == "ClickDialogXWaitTeleport"
         or action_name == "ClickDialogXCompleteQuest"
         or action_name == "ClickDialogOkCompleteQuest"
+        or action_name == "ClickObeliskConfirm"
         or action_name == "StartStationaryGrind"
 end
 
@@ -6609,6 +6616,12 @@ function main_quest_reset_runtime(reason)
     r.level_grind_required_level = 0
     r.completed_20611_grind = false
     r.completed_20611_mission_dialog = false
+    r.opened_20611_obelisk = false
+    r.opened_20611_obelisk_at = 0
+    r.clicked_20611_obelisk_confirm = false
+    r.clicked_20611_obelisk_confirm_at = 0
+    r.obelisk_confirm_wait_until = 0
+    r.completed_20611_obelisk = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -6887,6 +6900,13 @@ function main_quest_read_20611_state(now)
     end
     if type(state.quest) ~= "table" then
         state.quest = main_quest_cached_20611(now)
+    end
+    local quest_id = tonumber(state.quest and state.quest.id) or 0
+    local quest_step = tonumber(state.quest and state.quest.req_count) or 0
+    local r = runtime.main_quest or {}
+    if (quest_id == 20611 and quest_step == 1)
+        or r.opened_20611_obelisk == true then
+        state.ui = main_quest_read_20611_ui_state()
     end
     return state
 end
@@ -7290,6 +7310,413 @@ function main_quest_click_ui_control_at(ui_runtime, parent, x, y, tolerance, dep
         tonumber(dist) or 0)
 end
 
+function main_quest_obelisk_confirm_button_names()
+    return {
+        "yes",
+        "ok",
+        "accept",
+        "confirm",
+        "apply",
+        "btn_yes",
+        "button_yes",
+        "dialog_yes",
+        "confirm_yes",
+        "agreement_yes",
+    }
+end
+
+function main_quest_lower_text(value)
+    return string.lower(tostring(value or ""))
+end
+
+function main_quest_obelisk_button_name_matches(name)
+    local lower = main_quest_lower_text(name)
+    if lower == "" or lower == "(no-name)" then
+        return false
+    end
+    for _, candidate in ipairs(main_quest_obelisk_confirm_button_names()) do
+        if lower == candidate then
+            return true
+        end
+    end
+    if string.find(lower, "yes", 1, true) and not string.find(lower, "no", 1, true) then
+        return true
+    end
+    if string.find(lower, "ok", 1, true) then
+        return true
+    end
+    if string.find(lower, "confirm", 1, true) then
+        return true
+    end
+    return false
+end
+
+function main_quest_obelisk_confirm_excluded(ctrl)
+    local name = main_quest_lower_text(ctrl and ctrl.name)
+    local parent = main_quest_lower_text(ctrl and ctrl.parent)
+    local text = name .. " " .. parent
+    local excluded = {
+        "move_state_dialog",
+        "static_forward",
+        "static_backward",
+        "static_leftward",
+        "static_rightward",
+        "chat_dialog",
+        "chat_option",
+        "chat_tab",
+        "quickbar",
+        "minimap",
+    }
+    for _, token in ipairs(excluded) do
+        if string.find(text, token, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+function main_quest_obelisk_coord_candidate(ctrl)
+    if main_quest_obelisk_confirm_excluded(ctrl) then
+        return false
+    end
+    local name = main_quest_lower_text(ctrl and ctrl.name)
+    local parent = main_quest_lower_text(ctrl and ctrl.parent)
+    if main_quest_obelisk_button_name_matches(name) then
+        return true
+    end
+    if string.find(name, "button", 1, true) or string.find(name, "btn", 1, true) then
+        return true
+    end
+    if string.find(parent, "dialog", 1, true)
+        or string.find(parent, "popup", 1, true)
+        or string.find(parent, "message", 1, true)
+        or string.find(parent, "confirm", 1, true) then
+        return true
+    end
+    return false
+end
+
+function main_quest_obelisk_confirm_line(ctrl, reason, dist)
+    return string.format("%s obj=%s name=%s parent=%s x=%.0f y=%.0f dist=%.1f",
+        tostring(reason or "obelisk-confirm"),
+        tostring(ctrl and (ctrl.obj or ctrl.addr) or ""),
+        tostring(ctrl and ctrl.name or ""),
+        tostring(ctrl and ctrl.parent or ""),
+        tonumber(ctrl and ctrl.x) or 0,
+        tonumber(ctrl and ctrl.y) or 0,
+        tonumber(dist) or 0)
+end
+
+function main_quest_visible_popup_roots(ui_runtime, params)
+    params = type(params) == "table" and params or {}
+    if type(ui_runtime.list) ~= "function" then
+        return {}, "aion.ui list unavailable"
+    end
+    local list_ok, list, list_err = ui_runtime.list(true)
+    if not list_ok then
+        return {}, "ui list failed: " .. tostring(list_err)
+    end
+
+    local roots = {}
+    for _, ctrl in ipairs(list or {}) do
+        local obj = tonumber(ctrl and (ctrl.obj or ctrl.addr)) or 0
+        local name = main_quest_lower_text(ctrl and ctrl.name)
+        local layer = tonumber(ctrl and ctrl.layer) or 0
+        local x = tonumber(ctrl and ctrl.x) or 0
+        local y = tonumber(ctrl and ctrl.y) or 0
+        local unnamed = name == "" or name == "(no-name)"
+        if obj > 0 and main_quest_ui_obj_visible(ctrl)
+            and layer >= 2
+            and unnamed
+            and x >= 250 and x <= 850
+            and y >= 120 and y <= 520 then
+            roots[#roots + 1] = ctrl
+        end
+    end
+    return roots, nil
+end
+
+function main_quest_obelisk_popup_root_visible(ui_runtime, params)
+    params = type(params) == "table" and params or {}
+    local roots, root_err = main_quest_visible_popup_roots(ui_runtime, params)
+    if #roots <= 0 then
+        return false, tostring(root_err or "popup root not visible")
+    end
+
+    for _, ctrl in ipairs(roots) do
+        local x = tonumber(ctrl and ctrl.x) or 0
+        local y = tonumber(ctrl and ctrl.y) or 0
+        if x >= 480 and x <= 540
+            and y >= 280 and y <= 330 then
+            return true, main_quest_obelisk_confirm_line(ctrl, "popup-root", 0)
+        end
+    end
+
+    return false, "popup root not visible"
+end
+
+function main_quest_find_obelisk_common_alert_button(ui_runtime, params)
+    params = type(params) == "table" and params or {}
+    if params.allow_common_alert == false then
+        return nil, "common_alert disabled"
+    end
+
+    local require_root = params.require_popup_root ~= false
+    local root_line = ""
+    if require_root then
+        local root_visible, root_detail = main_quest_obelisk_popup_root_visible(ui_runtime, params)
+        root_line = tostring(root_detail or "")
+        if not root_visible then
+            return nil, "common_alert root not visible: " .. root_line
+        end
+    end
+
+    if type(ui_runtime.children) ~= "function" then
+        return nil, "aion.ui children unavailable"
+    end
+    local child_ok, children, child_err = ui_runtime.children("common_alert_dialog", 6)
+    if not child_ok then
+        return nil, "common_alert children failed: " .. tostring(child_err)
+    end
+
+    local cancels = {}
+    for index, child in ipairs(children or {}) do
+        local name = main_quest_lower_text(child and child.name)
+        if main_quest_ui_child_visible(child) and name == "cancel" then
+            cancels[#cancels + 1] = {
+                index = index,
+                child = child,
+            }
+        end
+    end
+
+    if #cancels >= 2 then
+        local picked = cancels[1]
+        local child = picked.child
+        local line = main_quest_obelisk_confirm_line(child,
+            "common_alert_dialog.cancel[" .. tostring(picked.index) .. "]",
+            0)
+        if root_line ~= "" then
+            line = line .. " root=" .. root_line
+        end
+        return child, line
+    end
+
+    return nil, "common_alert confirm cancel pair not found count=" .. tostring(#cancels)
+end
+
+function main_quest_score_obelisk_child(child)
+    if not main_quest_ui_child_visible(child) then
+        return nil
+    end
+    local name = main_quest_lower_text(child and child.name)
+    local score = 0
+    if main_quest_obelisk_button_name_matches(name) then
+        score = score + 120
+    end
+    if name == "resurrect_ok" then
+        score = score + 120
+    end
+    if string.find(name, "ok", 1, true)
+        or string.find(name, "yes", 1, true)
+        or string.find(name, "accept", 1, true)
+        or string.find(name, "confirm", 1, true) then
+        score = score + 80
+    end
+    if name == "cancel" then
+        score = score + 20
+    end
+    if string.find(name, "no", 1, true)
+        or string.find(name, "refuse", 1, true)
+        or string.find(name, "close", 1, true) then
+        score = score - 120
+    end
+    if score <= 0 then
+        return nil
+    end
+    return score
+end
+
+function main_quest_find_obelisk_popup_root_child(ui_runtime, params)
+    params = type(params) == "table" and params or {}
+    local roots, root_err = main_quest_visible_popup_roots(ui_runtime, params)
+    if #roots <= 0 then
+        return nil, tostring(root_err or "no visible popup root")
+    end
+    if type(ui_runtime.children) ~= "function" then
+        return nil, "aion.ui children unavailable"
+    end
+
+    local best = nil
+    local best_root = nil
+    local best_score = nil
+    local best_index = 0
+    local details = {}
+
+    for _, root in ipairs(roots) do
+        local root_obj = root.obj or root.addr
+        local child_ok, children, child_err = ui_runtime.children(root_obj, 8)
+        if child_ok then
+            details[#details + 1] = "root=" .. tostring(root_obj) ..
+                " children=" .. tostring(#(children or {}))
+            for index, child in ipairs(children or {}) do
+                local score = main_quest_score_obelisk_child(child)
+                if score and (not best_score or score > best_score) then
+                    best = child
+                    best_root = root
+                    best_score = score
+                    best_index = index
+                end
+            end
+        else
+            details[#details + 1] = "root=" .. tostring(root_obj) ..
+                " children_failed=" .. tostring(child_err)
+        end
+    end
+
+    if best then
+        return best, main_quest_obelisk_confirm_line(best,
+            "popup-root-child[" .. tostring(best_index) .. "]" ..
+            " root=" .. tostring(best_root and (best_root.obj or best_root.addr) or "") ..
+            " score=" .. tostring(best_score),
+            0)
+    end
+
+    if params.allow_popup_root_click == true and #roots == 1 then
+        local root = roots[1]
+        return root, main_quest_obelisk_confirm_line(root, "popup-root-direct", 0)
+    end
+
+    return nil, "popup root child not found; " .. table.concat(details, "; ")
+end
+
+function main_quest_find_obelisk_confirm_button(ui_runtime, params)
+    params = type(params) == "table" and params or {}
+    local target_x = tonumber(params.confirm_x or params.x) or 684
+    local target_y = tonumber(params.confirm_y or params.y) or 437
+    local tolerance = math.max(1, tonumber(params.confirm_tolerance or params.tolerance) or 90)
+
+    if type(ui_runtime.find) == "function" then
+        for _, name in ipairs(main_quest_obelisk_confirm_button_names()) do
+            local find_ok, ctrl = ui_runtime.find(name)
+            if find_ok and main_quest_ui_obj_visible(ctrl)
+                and not main_quest_obelisk_confirm_excluded(ctrl) then
+                return ctrl, main_quest_obelisk_confirm_line(ctrl, "find-name:" .. name, 0)
+            end
+        end
+    end
+
+    local root_child, root_child_line = main_quest_find_obelisk_popup_root_child(ui_runtime, params)
+    if root_child then
+        return root_child, root_child_line
+    end
+
+    local alert_ctrl, alert_line = main_quest_find_obelisk_common_alert_button(ui_runtime, params)
+    if alert_ctrl then
+        return alert_ctrl, alert_line
+    end
+
+    if type(ui_runtime.list) ~= "function" then
+        return nil, "aion.ui list unavailable"
+    end
+
+    local list_ok, list, list_err = ui_runtime.list(true)
+    if not list_ok then
+        return nil, "ui list failed: " .. tostring(list_err)
+    end
+
+    local best = nil
+    local best_reason = ""
+    local best_score = math.huge
+    local best_dist = 0
+    for _, ctrl in ipairs(list or {}) do
+        local obj = tonumber(ctrl and (ctrl.obj or ctrl.addr)) or 0
+        if obj > 0 and main_quest_ui_obj_visible(ctrl)
+            and not main_quest_obelisk_confirm_excluded(ctrl) then
+            local x = tonumber(ctrl.x)
+            local y = tonumber(ctrl.y)
+            local dist = math.huge
+            if x and y then
+                local dx = x - target_x
+                local dy = y - target_y
+                dist = math.sqrt(dx * dx + dy * dy)
+            end
+
+            local by_name = main_quest_obelisk_button_name_matches(ctrl.name)
+            local by_coord = dist <= tolerance and main_quest_obelisk_coord_candidate(ctrl)
+            if by_name or by_coord then
+                local score = dist
+                local reason = "coord"
+                if by_name then
+                    score = math.min(dist, tolerance)
+                    reason = "list-name"
+                else
+                    score = 1000 + dist
+                end
+                if score < best_score then
+                    best = ctrl
+                    best_reason = reason
+                    best_score = score
+                    best_dist = dist
+                end
+            end
+        end
+    end
+
+    if best then
+        return best, main_quest_obelisk_confirm_line(best, best_reason, best_dist)
+    end
+
+    return nil, "obelisk confirm button not found near x=" .. tostring(target_x) ..
+        " y=" .. tostring(target_y) ..
+        " tolerance=" .. tostring(tolerance)
+end
+
+function main_quest_click_obelisk_confirm(ui_runtime, params)
+    local ctrl, line_or_err = main_quest_find_obelisk_confirm_button(ui_runtime, params)
+    if not ctrl then
+        return false, line_or_err
+    end
+    local obj = ctrl.obj or ctrl.addr
+    local click_ok, clicked, click_err = ui_runtime.click(obj)
+    if not click_ok or clicked == false then
+        return false, "obelisk confirm click failed obj=" .. tostring(obj) ..
+            " err=" .. tostring(click_err or clicked)
+    end
+    return true, "clicked " .. tostring(line_or_err)
+end
+
+function main_quest_press_obelisk_confirm_key(reason)
+    if not ok_remote or not remote or type(remote.pressKey) ~= "function" then
+        return false, "aion.remote.pressKey unavailable"
+    end
+    local press_ok, pressed, press_err = remote.pressKey(0x0D)
+    if press_ok and pressed ~= false then
+        return true, "pressed Enter fallback reason=" .. tostring(reason or "")
+    end
+    return false, "press Enter failed: " .. tostring(press_err or pressed)
+end
+
+function main_quest_read_20611_ui_state()
+    local out = {
+        obelisk_confirm_visible = false,
+        obelisk_confirm_detail = "",
+    }
+    local ok_ui_runtime, ui_runtime = pcall(require, "aion.ui")
+    if not ok_ui_runtime or not ui_runtime then
+        out.obelisk_confirm_detail = "aion.ui unavailable " .. tostring(ui_runtime)
+        return out
+    end
+    local ctrl, line_or_err = main_quest_find_obelisk_confirm_button(ui_runtime, {
+        confirm_x = 684,
+        confirm_y = 437,
+        confirm_tolerance = 90,
+    })
+    out.obelisk_confirm_visible = ctrl ~= nil
+    out.obelisk_confirm_detail = tostring(line_or_err or "")
+    return out
+end
+
 function main_quest_execute_20590(action, state)
     action = type(action) == "table" and action or {}
     state = type(state) == "table" and state or {}
@@ -7454,6 +7881,72 @@ function main_quest_execute_20590(action, state)
         return click_ok
     end
 
+    if name == "ClickObeliskConfirm" then
+        if not main_quest_action_cooldown(name .. ":" .. tostring(stage), 0.8) then
+            return true
+        end
+        local ok_ui_runtime, ui_runtime = pcall(require, "aion.ui")
+        if not ok_ui_runtime or not ui_runtime or type(ui_runtime.click) ~= "function" then
+            main_quest_set_status("obelisk confirm failed: aion.ui unavailable " .. tostring(ui_runtime))
+            return false
+        end
+        r.wait_dialog_stage = ""
+        r.wait_dialog_until = 0
+        local click_params = {}
+        for key, value in pairs(params) do
+            click_params[key] = value
+        end
+        click_params.allow_common_alert = true
+        if r.opened_20611_obelisk == true then
+            click_params.require_popup_root = false
+            click_params.allow_popup_root_click = true
+        end
+        local click_ok, line_or_err = main_quest_click_obelisk_confirm(ui_runtime, click_params)
+        if not click_ok and r.opened_20611_obelisk == true then
+            local key_ok, key_line = main_quest_press_obelisk_confirm_key(line_or_err)
+            if key_ok then
+                click_ok = true
+                line_or_err = key_line
+            else
+                line_or_err = tostring(line_or_err) .. "; " .. tostring(key_line)
+            end
+        end
+        if click_ok then
+            local now = now_seconds()
+            r.opened_20611_obelisk = false
+            r.opened_20611_obelisk_at = 0
+            r.clicked_20611_obelisk_confirm = true
+            r.clicked_20611_obelisk_confirm_at = now
+            r.obelisk_confirm_wait_until = now + 2.0
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+        else
+            local now = now_seconds()
+            local opened_at = tonumber(r.opened_20611_obelisk_at) or 0
+            if opened_at > 0 and now - opened_at > 4.0 then
+                r.opened_20611_obelisk = false
+                r.opened_20611_obelisk_at = 0
+            end
+        end
+        main_quest_set_status("obelisk confirm action quest_id=" .. tostring(params.quest_id or "") ..
+            " stage=" .. tostring(stage) ..
+            " result=" .. tostring(line_or_err))
+        main_quest_trace("obelisk-confirm:" .. tostring(stage),
+            "ok=" .. tostring(click_ok) ..
+            " result=" .. tostring(line_or_err) ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
+        if click_ok then
+            return true
+        end
+        local result_text = tostring(line_or_err or "")
+        if string.find(result_text, "not found", 1, true)
+            or string.find(result_text, "ui list failed", 1, true) then
+            return true
+        end
+        return false
+    end
+
     if name == "QuestTeleport" then
         if not main_quest_action_cooldown(name .. ":" .. tostring(stage), 1.0) then
             return true
@@ -7526,6 +8019,14 @@ function main_quest_execute_20590(action, state)
         local wait_until = tonumber(r.wait_dialog_until) or 0
         local waiting_same_stage = stage ~= "" and tostring(r.wait_dialog_stage or "") == stage
         local dialog_timeout_after_interact = waiting_same_stage and wait_until > 0 and now >= wait_until
+        local confirm_wait_until = tonumber(r.obelisk_confirm_wait_until) or 0
+        if stage == "quest_20611_obelisk" and now < confirm_wait_until then
+            if main_quest_action_cooldown("WaitObeliskConfirm:" .. stage, 0.4) then
+                main_quest_set_status("waiting obelisk confirm settle stage=" .. stage ..
+                    " remain=" .. string.format("%.1f", confirm_wait_until - now))
+            end
+            return true
+        end
         if waiting_same_stage and now < wait_until then
             if main_quest_action_cooldown("WaitNpcDialog:" .. stage, 0.4) then
                 main_quest_set_status("waiting npc dialog stage=" .. stage ..
@@ -7592,8 +8093,15 @@ function main_quest_execute_20590(action, state)
             local after_interact = now_seconds()
             r.last_interact_stage = stage
             r.last_interact_at = after_interact
-            r.wait_dialog_stage = stage
-            r.wait_dialog_until = after_interact + math.max(1.0, wait_ms / 1000)
+            if stage == "quest_20611_obelisk" then
+                r.opened_20611_obelisk = true
+                r.opened_20611_obelisk_at = after_interact
+                r.wait_dialog_stage = ""
+                r.wait_dialog_until = 0
+            else
+                r.wait_dialog_stage = stage
+                r.wait_dialog_until = after_interact + math.max(1.0, wait_ms / 1000)
+            end
         end
         main_quest_trace("interact-after:" .. stage,
             "stage=" .. stage ..
@@ -10834,6 +11342,45 @@ function ui_test_f2_dump()
                     " " .. ui_test_control_label(child, index))
             end
             log_info("[AionUIF2] children end parent=" .. tostring(parent))
+        end
+    end
+
+    local popup_roots = {}
+    for _, ctrl in ipairs(list or {}) do
+        local obj = tonumber(ctrl and (ctrl.obj or ctrl.addr)) or 0
+        local name = string.lower(tostring(ctrl and ctrl.name or ""))
+        local layer = tonumber(ctrl and ctrl.layer) or 0
+        local x = tonumber(ctrl and ctrl.x) or 0
+        local y = tonumber(ctrl and ctrl.y) or 0
+        if obj > 0
+            and ctrl.visible == true
+            and layer >= 2
+            and (name == "" or name == "(no-name)")
+            and x >= 250 and x <= 850
+            and y >= 120 and y <= 520 then
+            popup_roots[#popup_roots + 1] = ctrl
+        end
+    end
+    log_info("[AionUIF2] visible unnamed popup roots count=" .. tostring(#popup_roots))
+    for root_index, root in ipairs(popup_roots) do
+        local root_obj = root.obj or root.addr
+        log_info("[AionUIF2] popup root " .. tostring(root_index) ..
+            " obj=" .. tostring(root_obj) ..
+            " x=" .. tostring(root.x or "") ..
+            " y=" .. tostring(root.y or ""))
+        local child_ok, children, child_err = ui_runtime.children(root_obj, depth)
+        if not child_ok then
+            log_warn("[AionUIF2] popup root children obj=" .. tostring(root_obj) ..
+                " failed: " .. tostring(child_err))
+        else
+            children = children or {}
+            log_info("[AionUIF2] popup root children begin obj=" .. tostring(root_obj) ..
+                " depth=" .. tostring(depth) .. " count=" .. tostring(#children))
+            for index, child in ipairs(children) do
+                log_info("[AionUIF2] POPUP_CHILD root=" .. tostring(root_obj) ..
+                    " " .. ui_test_control_label(child, index))
+            end
+            log_info("[AionUIF2] popup root children end obj=" .. tostring(root_obj))
         end
     end
 

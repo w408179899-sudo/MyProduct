@@ -8,6 +8,7 @@ local M = {
     MQ20610_NPC_002_REWARD = "구헤이툰",
 
     MQ20611_NPC_001_MISSION = "리네비르",
+    MQ20611_NPC_002_OBELISK = "키벨리스크",
 }
 
 return M
