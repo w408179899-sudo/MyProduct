@@ -32,6 +32,7 @@ ok_main_quest_20590, main_quest_20590 = pcall(require, "aion.main_quest_20590")
 ok_main_quest_20610, main_quest_20610 = pcall(require, "aion.main_quest_20610")
 ok_main_quest_20611, main_quest_20611 = pcall(require, "aion.main_quest_20611")
 ok_main_quest_resume, main_quest_resume = pcall(require, "aion.main_quest_resume")
+ok_main_quest_combat_guard, main_quest_combat_guard = pcall(require, "aion.main_quest_combat_guard")
 local ok_map, map = pcall(require, "aion.map")
 local ok_nav, nav = pcall(require, "aion.nav")
 ok_remote, remote = pcall(require, "aion.remote")
@@ -311,6 +312,12 @@ local runtime = {
         quest_grind_authorized_quest_id = 0,
         quest_grind_authorized_until = 0,
         quest_grind_authorized_action = "",
+        combat_guard_active = false,
+        combat_guard_until = 0,
+        combat_guard_reason = "",
+        combat_guard_action = "",
+        combat_guard_last_hp = 0,
+        combat_guard_last_damage_at = 0,
         completed_20611_grind = false,
         completed_20611_mission_dialog = false,
         opened_20611_obelisk = false,
@@ -664,13 +671,16 @@ function combat_allowed_by_primary_mode()
         return true
     end
     if mode == "leveling" then
-        return cfg.leveling
+        local guard_authorized = type(main_quest_combat_guard_authorized) == "function"
+            and main_quest_combat_guard_authorized()
+        local grind_authorized = cfg.leveling
             and cfg.leveling.allow_grind == true
             and runtime
             and runtime.main_quest
             and runtime.main_quest.active_20611_grind == true
             and type(main_quest_grind_authorized) == "function"
             and main_quest_grind_authorized()
+        return guard_authorized or grind_authorized
     end
     return false
 end
@@ -1083,6 +1093,29 @@ function main_quest_grind_authorized()
         end
     end
     return true
+end
+
+function main_quest_combat_guard_authorized()
+    local r = runtime and runtime.main_quest or nil
+    if type(r) ~= "table" or r.combat_guard_active ~= true then
+        return false
+    end
+    if now_seconds() > (tonumber(r.combat_guard_until) or 0) then
+        r.combat_guard_active = false
+        r.combat_guard_reason = "expired"
+        r.combat_guard_action = ""
+        return false
+    end
+    return true
+end
+
+function main_quest_clear_combat_guard(reason)
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    r.combat_guard_active = false
+    r.combat_guard_until = 0
+    r.combat_guard_reason = tostring(reason or "")
+    r.combat_guard_action = ""
 end
 
 button_feedback = {
@@ -2275,16 +2308,21 @@ function combat_is_stationary_enabled()
 end
 
 function combat_is_quest_grind_enabled()
-    return runtime.running
-        and not runtime.paused
-        and not (route_recovery_blocks_combat and route_recovery_blocks_combat())
-        and cfg.leveling
+    local guard_authorized = type(main_quest_combat_guard_authorized) == "function"
+        and main_quest_combat_guard_authorized()
+    local grind_authorized = cfg.leveling
         and cfg.leveling.allow_grind == true
-        and tonumber(cfg.primary_mode) == 2
         and runtime.main_quest
         and runtime.main_quest.active_20611_grind == true
         and type(main_quest_grind_authorized) == "function"
         and main_quest_grind_authorized()
+    return runtime.running
+        and not runtime.paused
+        and not (route_recovery_blocks_combat and route_recovery_blocks_combat())
+        and cfg.leveling
+        and tonumber(cfg.primary_mode) == 2
+        and runtime.main_quest
+        and (grind_authorized or guard_authorized)
         and tonumber(cfg.combat.mode) == 1
 end
 
@@ -6660,6 +6698,227 @@ function main_quest_wait_action_delay(action_name, stage)
     return true
 end
 
+function main_quest_combat_guard_char_hp(char)
+    if type(char) ~= "table" then
+        return nil
+    end
+    return tonumber(char.hp or char.HP or char.cur_hp or char.current_hp)
+end
+
+function main_quest_combat_guard_recent_damage(char, now)
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    now = tonumber(now) or now_seconds()
+    local hp = main_quest_combat_guard_char_hp(char)
+    if hp ~= nil and hp > 0 then
+        local last_hp = tonumber(r.combat_guard_last_hp) or 0
+        if last_hp > 0 and hp < last_hp then
+            r.combat_guard_last_damage_at = now
+        end
+        r.combat_guard_last_hp = hp
+    end
+    local last_damage = tonumber(r.combat_guard_last_damage_at) or 0
+    local window = math.max(0.5, tonumber(cfg.leveling and cfg.leveling.combat_guard_damage_window_seconds) or 3.0)
+    return last_damage > 0 and now - last_damage <= window
+end
+
+function main_quest_combat_guard_entity_alive(e)
+    if type(e) ~= "table" then
+        return false
+    end
+    if (tonumber(e.type) or 0) ~= 2 then
+        return false
+    end
+    if type(combat_target_end_reason) == "function"
+        and combat_target_end_reason(e) ~= nil then
+        return false
+    end
+    if e.dead == true then
+        return false
+    end
+    local mhp = tonumber(e.mhp or e.max_hp) or 0
+    local hp = tonumber(e.hp) or 0
+    return mhp <= 0 or hp > 0
+end
+
+function main_quest_combat_guard_auto_on()
+    if not ok_combat or not combat or type(combat.isAutoBattleOn) ~= "function" then
+        return false
+    end
+    local ok, value = combat.isAutoBattleOn()
+    return ok == true and value == true
+end
+
+function main_quest_combat_guard_current_entity(list)
+    if not ok_combat or not combat or type(combat.currentTarget) ~= "function" then
+        return nil
+    end
+    local ok, current = combat.currentTarget()
+    if not ok or type(current) ~= "table" then
+        return nil
+    end
+    local current_obj = tonumber(current.obj or current.IEntity or 0) or 0
+    local current_id = tonumber(current.id or 0) or 0
+    if current_obj <= 0 and current_id <= 0 then
+        return nil
+    end
+    for _, e in ipairs(list or {}) do
+        local obj = type(combat_entity_obj) == "function"
+            and combat_entity_obj(e)
+            or tonumber(e.obj or e.IEntity or 0) or 0
+        local id = tonumber(e.id) or 0
+        if (current_obj > 0 and obj == current_obj) or (current_id > 0 and id == current_id) then
+            return e
+        end
+    end
+    return nil
+end
+
+function main_quest_combat_guard_live_target(state, recent_damage)
+    if not ok_entity or not entity or type(entity.list) ~= "function" then
+        return false, "", nil
+    end
+    local ok, list = entity.list()
+    if not ok then
+        return false, "", nil
+    end
+    list = list or {}
+    local c = runtime.combat or {}
+    local tracked_obj = tonumber(c.target_obj) or 0
+    if tracked_obj > 0 and type(combat_find_entity_by_obj) == "function" then
+        local tracked = combat_find_entity_by_obj(list, tracked_obj)
+        if main_quest_combat_guard_entity_alive(tracked) then
+            return true, "tracked-target", tracked
+        end
+        if not tracked and type(combat_current_target_matches_obj) == "function"
+            and combat_current_target_matches_obj(tracked_obj) then
+            return true, "tracked-current", nil
+        end
+    end
+
+    local current = main_quest_combat_guard_current_entity(list)
+    if main_quest_combat_guard_entity_alive(current) then
+        local hp = tonumber(current.hp) or 0
+        local mhp = tonumber(current.mhp or current.max_hp) or 0
+        local damaged_target = mhp > 0 and hp > 0 and hp < mhp
+        if recent_damage == true or damaged_target or main_quest_combat_guard_auto_on() then
+            return true, "current-target", current
+        end
+    end
+
+    return false, "", nil
+end
+
+function main_quest_combat_guard_pending_loot(now)
+    local c = runtime.combat or {}
+    if (tonumber(c.loot_obj) or 0) > 0 then
+        return true
+    end
+    local last_killed = tonumber(c.last_killed_obj) or 0
+    local post_until = tonumber(c.post_kill_until) or 0
+    return last_killed > 0 and post_until > (tonumber(now) or now_seconds())
+end
+
+function main_quest_start_combat_guard(action, state, reason, target)
+    runtime.main_quest = runtime.main_quest or {}
+    runtime.combat = runtime.combat or {}
+    cfg.combat = cfg.combat or {}
+    local r = runtime.main_quest
+    local now = now_seconds()
+    local ttl = math.max(0.5, tonumber(cfg.leveling and cfg.leveling.combat_guard_ttl_seconds) or 1.5)
+    local char = type(state) == "table" and state.char or nil
+
+    r.combat_guard_active = true
+    r.combat_guard_until = now + ttl
+    r.combat_guard_reason = tostring(reason or "")
+    r.combat_guard_action = tostring(action and action.name or "")
+
+    cfg.combat.mode = 1
+    cfg.combat.enabled = true
+    if type(char) == "table" then
+        cfg.combat.anchor_enabled = true
+        cfg.combat.anchor_x = tonumber(char.x) or 0
+        cfg.combat.anchor_y = tonumber(char.y) or 0
+        cfg.combat.anchor_z = tonumber(char.z) or 0
+        runtime.combat.mode = "stationary"
+        runtime.combat.anchor = {
+            x = cfg.combat.anchor_x,
+            y = cfg.combat.anchor_y,
+            z = cfg.combat.anchor_z,
+        }
+        runtime.combat.anchor_distance = 0
+    end
+    if type(sync_combat_enabled_from_primary_mode) == "function" then
+        sync_combat_enabled_from_primary_mode()
+    end
+
+    local target_text = ""
+    if type(target) == "table" then
+        local obj = type(combat_entity_obj) == "function" and combat_entity_obj(target) or 0
+        target_text = " target=" .. tostring(target.name or "") ..
+            " hp=" .. tostring(target.hp or "") .. "/" .. tostring(target.mhp or target.max_hp or "") ..
+            " obj=" .. tostring(obj)
+    end
+    if main_quest_action_cooldown("combat-guard:" .. tostring(reason or "") .. ":" .. tostring(action and action.name or ""), 1.0) then
+        main_quest_set_status("main quest waits for combat guard reason=" .. tostring(reason or "") ..
+            " action=" .. tostring(action and action.name or ""))
+        main_quest_trace("combat-guard",
+            "block action=" .. tostring(action and action.name or "") ..
+            " stage=" .. tostring(action and action.params and action.params.stage or "") ..
+            " reason=" .. tostring(reason or "") ..
+            target_text ..
+            " pos=" .. main_quest_position_text(char),
+            0)
+    end
+end
+
+function main_quest_combat_guard_blocks_action(action, state)
+    if not ok_main_quest_combat_guard or not main_quest_combat_guard
+        or type(main_quest_combat_guard.shouldBlock) ~= "function" then
+        return false
+    end
+    if not runtime.running or runtime.paused then
+        return false
+    end
+    if primary_mode_ids[cfg.primary_mode] ~= "leveling" then
+        return false
+    end
+    state = state or {}
+    local now = now_seconds()
+    local char = state.char
+    if type(char) ~= "table" and ok_core and core and type(core.getCharacter) == "function" then
+        local ok, current_char = core.getCharacter()
+        if ok and type(current_char) == "table" then
+            char = current_char
+            state.char = char
+        end
+    end
+
+    local recent_damage = main_quest_combat_guard_recent_damage(char, now)
+    if type(main_quest_combat_guard.actionInterruptible) == "function"
+        and not main_quest_combat_guard.actionInterruptible(action) then
+        return false
+    end
+    local live_target, live_reason, target = main_quest_combat_guard_live_target(state, recent_damage)
+    local pending_loot = main_quest_combat_guard_pending_loot(now)
+    local block, reason = main_quest_combat_guard.shouldBlock({
+        action = action,
+        live_target = live_target,
+        live_reason = live_reason,
+        recent_damage = recent_damage,
+        pending_loot = pending_loot,
+    })
+    if not block then
+        if not recent_damage and not pending_loot then
+            main_quest_clear_combat_guard(reason)
+        end
+        return false
+    end
+
+    main_quest_start_combat_guard(action, state, reason, target)
+    return true
+end
+
 function main_quest_target_available(stage)
     if not ok_core or not core or type(core.getCharacter) ~= "function" then
         main_quest_trace("target-unavailable:" .. tostring(stage or ""),
@@ -6738,6 +6997,12 @@ function main_quest_reset_runtime(reason)
     r.quest_grind_authorized_action = ""
     r.quest_grind_authorized_reason = ""
     r.quest_grind_authorized_clear_reason = ""
+    r.combat_guard_active = false
+    r.combat_guard_until = 0
+    r.combat_guard_reason = ""
+    r.combat_guard_action = ""
+    r.combat_guard_last_hp = 0
+    r.combat_guard_last_damage_at = 0
     r.completed_20611_grind = false
     r.completed_20611_mission_dialog = false
     r.opened_20611_obelisk = false
@@ -7993,6 +8258,11 @@ function main_quest_execute_20590(action, state)
         if authorizes_grind and type(main_quest_clear_grind_authorization) == "function" then
             main_quest_clear_grind_authorization("action-delay:" .. name)
         end
+        return true
+    end
+
+    if type(main_quest_combat_guard_blocks_action) == "function"
+        and main_quest_combat_guard_blocks_action(action, state) then
         return true
     end
 
