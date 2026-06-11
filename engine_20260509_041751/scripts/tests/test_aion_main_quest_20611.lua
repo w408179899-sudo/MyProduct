@@ -40,6 +40,22 @@ local function target_npc_char()
     return { x = 589.70, y = 2450.37, z = 278.38, level = 10 }
 end
 
+local function hotspot_reward_char()
+    return { x = 491.90, y = 2299.41, z = 248.75, level = 10 }
+end
+
+local function hotspot_reward_level11_char()
+    return { x = 491.90, y = 2299.41, z = 248.75, level = 11 }
+end
+
+local function quest_20612_start_point_char()
+    return { x = 477.20, y = 2304.30, z = 250.70, level = 11 }
+end
+
+local function quest_20612_start_npc_char()
+    return { x = 493.00, y = 2299.00, z = 248.50, level = 11 }
+end
+
 local function run()
     T.reset()
     T.log("\n=== aion main quest 20611 tests ===")
@@ -55,6 +71,8 @@ local function run()
         T.assert_eq(next_action.name, "NavigateToGrindPoint")
         T.assert_eq(next_action.params.quest_id, CURRENT_BLUE_TASK)
         T.assert_eq(next_action.params.stage, "quest_20611_grind")
+        T.assert_nil(next_action.params.requires_combat)
+        T.assert_nil(next_action.params.task_step)
         T.assert_eq(next_action.params.x, 194.491)
         T.assert_eq(next_action.params.y, 2689.982)
         T.assert_eq(next_action.params.z, 300.625)
@@ -75,9 +93,403 @@ local function run()
         T.assert_eq(next_action.name, "StartStationaryGrind")
         T.assert_eq(next_action.params.quest_id, 20611)
         T.assert_eq(next_action.params.stage, "quest_20611_level_grind")
+        T.assert_eq(next_action.params.requires_combat, true)
+        T.assert_eq(next_action.params.task_step, "grind")
         T.assert_eq(next_action.params.required_level, 8)
         T.assert_eq(next_action.params.char_level, 6)
         T.assert_eq(next_action.params.until_level, 8)
+    end)
+
+    T.test("opens hotspot reward npc instead of starting next level grind", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 4, req_count = 3, seq = 0, lv_num = 8 },
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            char = hotspot_reward_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_hotspot_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 3)
+        T.assert_eq(next_action.params.stage, "quest_20611_hotspot_reward_npc")
+        T.assert_eq(next_action.params.interact_id, 2147515597)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_004_HOTSPOT_REWARD")
+        T.assert_eq(next_action.params.allow_interact_id_fallback, true)
+    end)
+
+    T.test("starts quest 20612 level grind after hotspot reward below level 11", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            char = hotspot_reward_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_hotspot_reward = true,
+        })
+
+        T.assert_eq(next_action.name, "StartStationaryGrind")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20612_level_grind")
+        T.assert_eq(next_action.params.requires_combat, true)
+        T.assert_eq(next_action.params.task_step, "grind")
+        T.assert_eq(next_action.params.required_level, 11)
+        T.assert_eq(next_action.params.char_level, 10)
+        T.assert_eq(next_action.params.until_level, 11)
+    end)
+
+    T.test("waits while quest 20612 level grind is active", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            char = hotspot_reward_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_hotspot_reward = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20612_level_grind",
+            level_grind_quest_id = 20612,
+            level_grind_required_level = 11,
+        })
+
+        T.assert_eq(next_action.name, "WaitLevelGrind")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20612_level_grind")
+        T.assert_eq(next_action.params.requires_combat, true)
+        T.assert_eq(next_action.params.task_step, "grind")
+        T.assert_eq(next_action.params.required_level, 11)
+        T.assert_eq(next_action.params.char_level, 10)
+    end)
+
+    T.test("moves to quest 20612 start point after reaching level 11", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            char = hotspot_reward_level11_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_hotspot_reward = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20612_level_grind",
+            level_grind_quest_id = 20612,
+            level_grind_required_level = 11,
+        })
+
+        T.assert_eq(next_action.name, "NavigateToNpc")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20612_start_npc")
+        T.assert_eq(next_action.params.x, 477.137)
+        T.assert_eq(next_action.params.y, 2304.421)
+        T.assert_eq(next_action.params.z, 250.734)
+    end)
+
+    T.test("moves to quest 20612 start point before talking to npc", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 3, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = hotspot_reward_level11_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_hotspot_reward = true,
+        })
+
+        T.assert_eq(next_action.name, "NavigateToNpc")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.quest_step, 0)
+        T.assert_eq(next_action.params.stage, "quest_20612_start_npc")
+        T.assert_eq(next_action.params.x, 477.137)
+        T.assert_eq(next_action.params.y, 2304.421)
+        T.assert_eq(next_action.params.z, 250.734)
+        T.assert_eq(next_action.params.interact_id, 2147515597)
+    end)
+
+    T.test("moves before clicking quest 20612 dialog when not at recorded point", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 3, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            char = hotspot_reward_level11_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147515597,
+                dialog_content_id = 10,
+                quest_id = 0,
+                type_text = "select_quest",
+            },
+        })
+
+        T.assert_eq(next_action.name, "NavigateToNpc")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20612_start_npc")
+        T.assert_eq(next_action.params.x, 477.137)
+        T.assert_eq(next_action.params.y, 2304.421)
+        T.assert_eq(next_action.params.z, 250.734)
+    end)
+
+    T.test("moves from quest 20612 start point to npc before interacting", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 3, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            char = quest_20612_start_point_char(),
+            big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "NavigateToNpc")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20612_start_npc")
+        T.assert_eq(next_action.params.x, 493.15)
+        T.assert_eq(next_action.params.y, 2298.88)
+        T.assert_eq(next_action.params.z, 248.42)
+        T.assert_eq(next_action.params.mark_20612_start_point_reached, true)
+    end)
+
+    T.test("opens quest 20612 start npc after reaching npc", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 3, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            char = quest_20612_start_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            reached_20612_start_point = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20612_start_npc")
+        T.assert_eq(next_action.params.interact_id, 2147515597)
+        T.assert_eq(next_action.params.allow_interact_id_fallback, true)
+        T.assert_eq(next_action.params.mark_20612_start_point_reached, true)
+    end)
+
+    T.test("continuous x-clicks quest 20612 start npc select list", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 3, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            char = quest_20612_start_npc_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147515597,
+                dialog_content_id = 10,
+                quest_id = 0,
+                type_text = "select_quest",
+            },
+        }, {
+            reached_20612_start_point = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.quest_step, 0)
+        T.assert_eq(next_action.params.stage, "quest_20612_start_npc")
+        T.assert_eq(next_action.params.expected_content_id, 10)
+        T.assert_eq(next_action.params.content_id, 10)
+        T.assert_eq(next_action.params.type_text, "select_quest")
+        T.assert_eq(next_action.params.click_x, 25)
+        T.assert_eq(next_action.params.interact_id, 2147515597)
+    end)
+
+    T.test("opens current tracker after quest 20612 start npc dialog is completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 3, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = quest_20612_start_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20612_start_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+        T.assert_eq(next_action.params.parent, "quest_indicator_dialog")
+        T.assert_eq(next_action.params.name, "prototype")
+    end)
+
+    T.test("calls quest 20612 teleport after current tracker panel opens", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 3, req_count = 1, seq = 2, lv_num = 11 },
+            },
+            char = quest_20612_start_npc_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            completed_20612_start_dialog = true,
+            clicked_20611_indicator_title = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.quest_step, 1)
+        T.assert_eq(next_action.params.stage, "quest_20612_task_teleport")
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, true)
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("opens current tracker instead of grinding when quest 20612 is done and 20613 is level blocked", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 4, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = quest_20612_start_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20612_start_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+    end)
+
+    T.test("calls next tracked quest teleport after quest 20612 is done before grinding 20613", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 4, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = quest_20612_start_npc_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            completed_20612_start_dialog = true,
+            clicked_20611_indicator_title = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.after_quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20612_task_teleport")
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, true)
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("resumes quest 20612 task teleport at step 1 after restart", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 3, req_count = 1, seq = 2, lv_num = 11 },
+            },
+            char = quest_20612_start_npc_char(),
+            big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+    end)
+
+    T.test("waits for quest 20612 task teleport landing", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 3, req_count = 1, seq = 2, lv_num = 11 },
+            },
+            char = quest_20612_start_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_stage = "quest_20612_task_teleport",
+            teleport_start_pos = quest_20612_start_npc_char(),
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20612_task_teleport")
+    end)
+
+    T.test("waits for post quest 20612 teleport using actual tracked quest id", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 4, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = quest_20612_start_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_quest_id = 20613,
+            teleport_stage = "quest_20612_task_teleport",
+            teleport_start_pos = quest_20612_start_npc_char(),
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20612_task_teleport")
+    end)
+
+    T.test("completes quest 20612 task teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 3, req_count = 1, seq = 2, lv_num = 11 },
+            },
+            char = { x = 520.00, y = 2260.00, z = 249.00, level = 11 },
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_stage = "quest_20612_task_teleport",
+            teleport_start_pos = quest_20612_start_npc_char(),
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20612_task_teleport")
+    end)
+
+    T.test("idles after quest 20612 task teleport is completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 3, req_count = 1, seq = 2, lv_num = 11 },
+            },
+            char = { x = 520.00, y = 2260.00, z = 249.00, level = 11 },
+            big_map_id = 220010000,
+        }, {
+            completed_20612_start_dialog = true,
+            completed_20612_task_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.stage, "quest_20612_task_teleport")
     end)
 
     T.test("uses earliest level blocked yellow mission immediate move after reaching level", function()
@@ -585,6 +997,68 @@ local function run()
         T.assert_eq(next_action.params.wait_teleport, true)
     end)
 
+    T.test("resumes quest 20611 hotspot teleport after target npc advances to step 3", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 3, seq = 1, lv_num = 8 },
+            },
+            char = target_npc_char(),
+            big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "MapNodeTeleportByName")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 3)
+        T.assert_eq(next_action.params.stage, "quest_20611_hotspot_teleport")
+        T.assert_eq(next_action.params.node_id, 66)
+    end)
+
+    T.test("opens hotspot reward npc after restart at hotspot", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 3, seq = 1, lv_num = 8 },
+            },
+            char = hotspot_reward_char(),
+            big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 3)
+        T.assert_eq(next_action.params.stage, "quest_20611_hotspot_reward_npc")
+        T.assert_eq(next_action.params.interact_id, 2147515597)
+    end)
+
+    T.test("continuous x-clicks quest 20611 hotspot reward npc dialog", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 4, req_count = 3, seq = 0, lv_num = 8 },
+            },
+            char = hotspot_reward_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147515597,
+                dialog_content_id = 10002,
+                quest_id = 20611,
+                type_text = "select_success",
+            },
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 3)
+        T.assert_eq(next_action.params.stage, "quest_20611_hotspot_reward_npc")
+        T.assert_eq(next_action.params.expected_content_id, 10002)
+        T.assert_eq(next_action.params.content_id, 10002)
+        T.assert_eq(next_action.params.type_text, "select_success")
+        T.assert_eq(next_action.params.click_x, 25)
+        T.assert_eq(next_action.params.interact_id, 2147515597)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_004_HOTSPOT_REWARD")
+    end)
+
     T.test("dumps unknown quest 20611 target npc dialog pages", function()
         local quest = load_module()
         local next_action = quest.nextAction({
@@ -722,18 +1196,20 @@ local function run()
         T.assert_eq(next_action.params.quest_step, 1)
     end)
 
-    T.test("ignores active 206xx candidates without blue or level-blocked evidence", function()
+    T.test("idles on unrecorded active 206xx steps", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
                 { id = 20612, status_code = 3, req_count = 2 },
+                { id = 20613, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
             },
             char = far_char(),
             big_map_id = 220010000,
         })
 
         T.assert_eq(next_action.name, "Idle")
-        T.assert_eq(next_action.params.quest_id, quest.remote_reward_quest_id)
+        T.assert_eq(next_action.params.quest_id, 20612)
+        T.assert_eq(next_action.params.quest_step, 2)
     end)
 
     T.test("starts stationary grind when active and near", function()

@@ -230,3 +230,20 @@ completed_20611_hotspot_teleport
 ```
 
 `ClickDialogXContinuous stage=quest_20611_target_npc` sets `completed_20611_target_dialog=true` after the dialog chain succeeds. The next action then returns `MapNodeTeleportByName` and only marks this stage complete after the character position changes.
+
+## Hotspot Reward NPC
+
+After the hotspot map-node teleport lands, do not start the next level-blocked grind automatically. The next recorded step is a nearby NPC dialog:
+
+```text
+stage=quest_20611_hotspot_reward_npc
+quest=20611 status_code=4 req_count=3
+map=220010000 DF1_SZ_Luminare_Q1
+char_pos=491.90,2299.41,248.75
+npc_interact_id=2147515597
+npc_pos=493.15,2298.88,248.42
+dialog type=select_success content_id=10002 next=HACTION_SELECT_QUEST_REWARD
+action=ClickDialogXContinuous x=25
+```
+
+Use `InteractNpc` for `2147515597` after landing, with interact-id fallback allowed for this stage because the recorded NPC name may be encoding-sensitive. Once the dialog is open, run `ClickDialogXContinuous stage=quest_20611_hotspot_reward_npc`. When the continuous x-click closes/finishes the dialog, set `completed_20611_hotspot_reward=true` and idle until the next step is recorded.

@@ -45,6 +45,9 @@ local ok_profile_io, profile_io = pcall(require, "aion.profile_io")
 local ok_target, target_lib = pcall(require, "aion.target")
 ok_login_autostart, login_autostart = pcall(require, "aion.login_autostart")
 
+local ATTACK_KEYCODE = 67 -- VK_C
+local ATTACK_KEY_LABEL = "C"
+
 local runtime = {
     running = false,
     paused = false,
@@ -262,6 +265,7 @@ local runtime = {
         last_quest_read_at = 0,
         cached_quest = nil,
         waiting_teleport = false,
+        teleport_quest_id = 0,
         teleport_stage = "",
         teleport_start_pos = nil,
         teleport_start_big_map_id = 0,
@@ -302,6 +306,11 @@ local runtime = {
         active_20611_grind_stage = "",
         level_grind_quest_id = 0,
         level_grind_required_level = 0,
+        quest_grind_authorized = false,
+        quest_grind_authorized_stage = "",
+        quest_grind_authorized_quest_id = 0,
+        quest_grind_authorized_until = 0,
+        quest_grind_authorized_action = "",
         completed_20611_grind = false,
         completed_20611_mission_dialog = false,
         opened_20611_obelisk = false,
@@ -317,6 +326,10 @@ local runtime = {
         completed_20611_target_teleport = false,
         completed_20611_target_dialog = false,
         completed_20611_hotspot_teleport = false,
+        completed_20611_hotspot_reward = false,
+        reached_20612_start_point = false,
+        completed_20612_start_dialog = false,
+        completed_20612_task_teleport = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -403,7 +416,7 @@ local cfg = {
         tick_interval = 0.10,
         move_resend_interval = 2.0,
         attack_trigger_mode = 1,
-        attack_keycode = 49,
+        attack_keycode = ATTACK_KEYCODE,
         attack_key_repeat_interval_ms = 1000,
         target_no_damage_seconds = 6.0,
         target_ignore_seconds = 20.0,
@@ -539,6 +552,7 @@ local cfg = {
         action_delay_seconds = 0.5,
         prefer_quest = true,
         allow_grind = true,
+        quest_grind_authorization_ttl_seconds = 0.75,
         allow_gather = false,
         learn_skills = true,
         equip_upgrades = true,
@@ -654,6 +668,8 @@ function combat_allowed_by_primary_mode()
             and runtime
             and runtime.main_quest
             and runtime.main_quest.active_20611_grind == true
+            and type(main_quest_grind_authorized) == "function"
+            and main_quest_grind_authorized()
     end
     return false
 end
@@ -719,7 +735,7 @@ function normalize_combat_mode()
     end
     cfg.combat.mode = math.max(1, math.min(#combat_modes, tonumber(cfg.combat.mode) or 1))
     cfg.combat.attack_trigger_mode = tonumber(cfg.combat.attack_trigger_mode) == 2 and 2 or 1
-    cfg.combat.attack_keycode = 49
+    cfg.combat.attack_keycode = ATTACK_KEYCODE
     local ok_repeat, repeat_key = pcall(require, "aion.attack_key_repeat")
     if ok_repeat and repeat_key and type(repeat_key.from_config) == "function" then
         local settings = repeat_key.from_config(cfg.combat)
@@ -984,6 +1000,88 @@ local function now_seconds()
         return sys.time() / 1000
     end
     return os.clock()
+end
+
+function main_quest_is_grind_stage(stage)
+    stage = tostring(stage or "")
+    return stage == "quest_20611_grind"
+        or stage == "quest_20611_level_grind"
+        or stage == "quest_20612_level_grind"
+end
+
+function main_quest_action_authorizes_grind(action)
+    if type(action) ~= "table" then
+        return false
+    end
+    local name = tostring(action.name or "")
+    local params = type(action.params) == "table" and action.params or {}
+    if params.requires_combat ~= true or tostring(params.task_step or "") ~= "grind" then
+        return false
+    end
+    if name ~= "StartStationaryGrind"
+        and name ~= "WaitLevelGrind"
+        and name ~= "WaitQuestComplete" then
+        return false
+    end
+    return main_quest_is_grind_stage(params.stage)
+end
+
+function main_quest_clear_grind_authorization(reason)
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    r.quest_grind_authorized = false
+    r.quest_grind_authorized_stage = ""
+    r.quest_grind_authorized_quest_id = 0
+    r.quest_grind_authorized_until = 0
+    r.quest_grind_authorized_action = ""
+    r.quest_grind_authorized_clear_reason = tostring(reason or "")
+end
+
+function main_quest_authorize_grind(action, reason)
+    if not main_quest_action_authorizes_grind(action) then
+        return false
+    end
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    local params = type(action.params) == "table" and action.params or {}
+    local ttl = tonumber(cfg and cfg.leveling and cfg.leveling.quest_grind_authorization_ttl_seconds) or 0.75
+    ttl = math.max(0.20, math.min(3.00, ttl))
+    r.quest_grind_authorized = true
+    r.quest_grind_authorized_stage = tostring(params.stage or "")
+    r.quest_grind_authorized_quest_id = tonumber(params.quest_id) or 0
+    r.quest_grind_authorized_action = tostring(action.name or "")
+    r.quest_grind_authorized_until = now_seconds() + ttl
+    r.quest_grind_authorized_reason = tostring(reason or action.reason or "")
+    return true
+end
+
+function main_quest_grind_authorized()
+    local r = runtime and runtime.main_quest or nil
+    if type(r) ~= "table" or r.quest_grind_authorized ~= true then
+        return false
+    end
+    local stage = tostring(r.quest_grind_authorized_stage or "")
+    if not main_quest_is_grind_stage(stage) then
+        main_quest_clear_grind_authorization("invalid-stage")
+        return false
+    end
+    if now_seconds() > (tonumber(r.quest_grind_authorized_until) or 0) then
+        main_quest_clear_grind_authorization("expired")
+        return false
+    end
+    if r.active_20611_grind ~= true then
+        return false
+    end
+    if tostring(r.active_20611_grind_stage or "") ~= stage then
+        return false
+    end
+    if stage == "quest_20611_level_grind" or stage == "quest_20612_level_grind" then
+        local auth_qid = tonumber(r.quest_grind_authorized_quest_id) or 0
+        if auth_qid <= 0 or auth_qid ~= (tonumber(r.level_grind_quest_id) or 0) then
+            return false
+        end
+    end
+    return true
 end
 
 button_feedback = {
@@ -2184,6 +2282,8 @@ function combat_is_quest_grind_enabled()
         and tonumber(cfg.primary_mode) == 2
         and runtime.main_quest
         and runtime.main_quest.active_20611_grind == true
+        and type(main_quest_grind_authorized) == "function"
+        and main_quest_grind_authorized()
         and tonumber(cfg.combat.mode) == 1
 end
 
@@ -4588,10 +4688,10 @@ end
 function combat_auto_off(reason, force_log)
     if type(combat_uses_attack_key) == "function" and combat_uses_attack_key() then
         combat_log("auto-off-skip:" .. tostring(reason or "manual"),
-            "auto battle off skipped because attack trigger is key1",
+            "auto battle off skipped because attack trigger is key" .. ATTACK_KEY_LABEL,
             force_log and 0 or 1.0,
             force_log == true)
-        return false, "key1-trigger"
+        return false, "key" .. ATTACK_KEY_LABEL .. "-trigger"
     end
     if ok_combat and combat and not cfg.combat.keep_auto_battle then
         local c = runtime.combat
@@ -4847,7 +4947,7 @@ function combat_send_attack_key(target, obj, reason)
         return false, "aion.remote unavailable"
     end
 
-    local keycode = 49
+    local keycode = tonumber(cfg.combat and cfg.combat.attack_keycode) or ATTACK_KEYCODE
     local key_started = now_seconds()
     local ok, _, err = remote_runtime.pressKey(keycode)
     local key_ms = math.max(0, (now_seconds() - key_started) * 1000)
@@ -4855,8 +4955,9 @@ function combat_send_attack_key(target, obj, reason)
         c.last_attack_key_at = now_seconds()
         c.last_attack_key_obj = obj
         combat_log("attack-key:" .. tostring(obj),
-            string.format("attack key sent key=%s(main 1) reason=%s name=%s obj=%s key_ms=%.0f",
+            string.format("attack key sent key=%s(%s) reason=%s name=%s obj=%s key_ms=%.0f",
                 tostring(keycode),
+                ATTACK_KEY_LABEL,
                 tostring(reason or ""),
                 tostring(target and target.name or ""),
                 tostring(obj),
@@ -4953,7 +5054,7 @@ function combat_engage_target(target)
     local use_attack_key = combat_uses_attack_key()
     local force_auto_on = false
     local auto_handled = false
-    local auto_state = use_attack_key and "key1-new-target" or "new-target"
+    local auto_state = use_attack_key and ("key" .. ATTACK_KEY_LABEL .. "-new-target") or "new-target"
     if not same_target then
         local select_started = now_seconds()
         local select_ok, selected, select_err = combat.selectTarget(obj)
@@ -4982,7 +5083,7 @@ function combat_engage_target(target)
                 combat_set_status("attack-key-failed", tostring(key_state), true)
                 return false
             end
-            auto_state = "key1-" .. tostring(key_state or "sent")
+            auto_state = "key" .. ATTACK_KEY_LABEL .. "-" .. tostring(key_state or "sent")
         else
             c.force_auto_until = now_seconds() + (tonumber(cfg.combat.auto_force_window) or 0.60)
             c.last_force_auto_at = 0
@@ -5026,7 +5127,7 @@ function combat_engage_target(target)
             combat_set_status("attack-key-failed", tostring(key_state), true)
             return false
         end
-        auto_state = "key1-" .. tostring(key_state or "wait")
+        auto_state = "key" .. ATTACK_KEY_LABEL .. "-" .. tostring(key_state or "wait")
     elseif force_window_active
         and now_seconds() - (tonumber(c.last_force_auto_at) or 0) >= (tonumber(cfg.combat.auto_force_interval) or 0.10) then
         force_auto_on = true
@@ -5097,7 +5198,7 @@ function combat_engage_target(target)
             tostring(target.hp or ""),
             tostring(target.mhp or ""),
             tostring(same_target),
-            use_attack_key and "key1" or "auto_battle",
+            use_attack_key and ("key" .. ATTACK_KEY_LABEL) or "auto_battle",
             tostring(should_auto_on),
             tostring(force_auto_on),
             tostring(auto_state),
@@ -6587,6 +6688,7 @@ function main_quest_reset_runtime(reason)
     r.cached_quest_20611 = nil
     r.last_quest_20611_read_at = 0
     r.waiting_teleport = false
+    r.teleport_quest_id = 0
     r.teleport_stage = ""
     r.teleport_start_pos = nil
     r.teleport_start_big_map_id = 0
@@ -6627,6 +6729,13 @@ function main_quest_reset_runtime(reason)
     r.active_20611_grind_stage = ""
     r.level_grind_quest_id = 0
     r.level_grind_required_level = 0
+    r.quest_grind_authorized = false
+    r.quest_grind_authorized_stage = ""
+    r.quest_grind_authorized_quest_id = 0
+    r.quest_grind_authorized_until = 0
+    r.quest_grind_authorized_action = ""
+    r.quest_grind_authorized_reason = ""
+    r.quest_grind_authorized_clear_reason = ""
     r.completed_20611_grind = false
     r.completed_20611_mission_dialog = false
     r.opened_20611_obelisk = false
@@ -6642,6 +6751,10 @@ function main_quest_reset_runtime(reason)
     r.completed_20611_target_teleport = false
     r.completed_20611_target_dialog = false
     r.completed_20611_hotspot_teleport = false
+    r.completed_20611_hotspot_reward = false
+    r.reached_20612_start_point = false
+    r.completed_20612_start_dialog = false
+    r.completed_20612_task_teleport = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -6926,7 +7039,10 @@ function main_quest_read_20611_state(now)
     local r = runtime.main_quest or {}
     local level_blocked_id = tonumber(state.level_blocked_quest and state.level_blocked_quest.id) or 0
     if quest_id == 20611
+        or quest_id == 20612
         or level_blocked_id == 20611
+        or level_blocked_id == 20612
+        or r.completed_20612_start_dialog == true
         or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
@@ -6949,6 +7065,9 @@ function main_quest_stop_20611_grind(reason, mark_completed)
     r.active_20611_grind_stage = ""
     r.level_grind_quest_id = 0
     r.level_grind_required_level = 0
+    if type(main_quest_clear_grind_authorization) == "function" then
+        main_quest_clear_grind_authorization(reason or "quest-20611-grind-stop")
+    end
     if mark_completed == true then
         r.completed_20611_grind = true
     end
@@ -7074,6 +7193,10 @@ function main_quest_apply_startup_snapshot(reason)
         " quests=" .. tostring(plan.quest_count or 0) ..
         " q20590=" .. tostring(plan.quest_20590_status or 0) ..
         " q20610=" .. tostring(plan.quest_20610_status or 0) ..
+        " q20611=" .. tostring(plan.quest_20611_status or 0) ..
+        " q20611_step=" .. tostring(plan.quest_20611_step or 0) ..
+        " q20612=" .. tostring(plan.quest_20612_status or 0) ..
+        " q20612_step=" .. tostring(plan.quest_20612_step or 0) ..
         " qlevel_id=" .. tostring(plan.level_blocked_quest_id or 0) ..
         " qlevel=" .. tostring(plan.level_blocked_status or 0) ..
         " qblue_id=" .. tostring(plan.remote_reward_quest_id or 0) ..
@@ -7811,6 +7934,11 @@ function main_quest_execute_20590(action, state)
     local name = tostring(action.name or "")
     local params = type(action.params) == "table" and action.params or {}
     local stage = tostring(params.stage or "")
+    local authorizes_grind = type(main_quest_action_authorizes_grind) == "function"
+        and main_quest_action_authorizes_grind(action)
+    if not authorizes_grind and type(main_quest_clear_grind_authorization) == "function" then
+        main_quest_clear_grind_authorization("action:" .. name)
+    end
 
     local prev_name = tostring(r.current_action_name or "")
     local prev_stage = tostring(r.current_action_stage or "")
@@ -7829,6 +7957,9 @@ function main_quest_execute_20590(action, state)
     end
 
     if main_quest_wait_action_delay(name, stage) then
+        if authorizes_grind and type(main_quest_clear_grind_authorization) == "function" then
+            main_quest_clear_grind_authorization("action-delay:" .. name)
+        end
         return true
     end
 
@@ -7924,6 +8055,9 @@ function main_quest_execute_20590(action, state)
             r.last_nav_stage = tostring(params.stage or "")
             r.last_nav_at = now_seconds()
             r.last_nav_distance = tonumber(params.distance) or 0
+            if params.mark_20612_start_point_reached == true then
+                r.reached_20612_start_point = true
+            end
             if name == "FinalMoveToNpc" and tostring(params.stage or "") == "inner_npc" then
                 r.completed_20590_inner_final_move = true
             end
@@ -7980,6 +8114,7 @@ function main_quest_execute_20590(action, state)
             end
             if name == "ClickUiControlWaitTeleport" then
                 r.waiting_teleport = true
+                r.teleport_quest_id = tonumber(params.quest_id) or 0
                 r.teleport_stage = tostring(params.stage or "")
                 r.teleport_start_pos = state.char
                 r.teleport_start_big_map_id = tonumber(state.big_map_id) or 0
@@ -8124,6 +8259,7 @@ function main_quest_execute_20590(action, state)
         local ok, result, err = map.nodeTeleport(node_id, price)
         if ok and result ~= false and params.wait_teleport ~= false then
             r.waiting_teleport = true
+            r.teleport_quest_id = tonumber(params.quest_id) or 0
             r.teleport_stage = tostring(stage or "")
             r.teleport_start_pos = state.char
             r.teleport_start_big_map_id = tonumber(state.big_map_id) or big_map_id
@@ -8265,6 +8401,7 @@ function main_quest_execute_20590(action, state)
         local wait_teleport = params.wait_teleport ~= false
         if ok and result ~= false and wait_teleport then
             r.waiting_teleport = true
+            r.teleport_quest_id = quest_id
             r.teleport_stage = tostring(params.stage or "")
             r.teleport_start_pos = state.char
             r.teleport_start_big_map_id = tonumber(state.big_map_id) or 0
@@ -8353,8 +8490,10 @@ function main_quest_execute_20590(action, state)
         local ok, result, err = false, false, nil
         local npc_name = tostring(params.npc_name or "")
         local npc_name_key = tostring(params.npc_name_key or params.name_key or "")
+        local legacy_interact_id = tonumber(params.interact_id) or 0
+        local allow_interact_id_fallback = params.allow_interact_id_fallback == true
         local interact_method = "name"
-        if npc_name == "" then
+        if npc_name == "" and not (allow_interact_id_fallback and legacy_interact_id > 0) then
             main_quest_set_status("打开NPC失败: npc_name 为空 stage=" .. stage ..
                 " name_key=" .. npc_name_key ..
                 " legacy_interact_id=" .. tostring(params.interact_id or ""))
@@ -8369,7 +8508,16 @@ function main_quest_execute_20590(action, state)
                 " reason=dialog_timeout_after_interact",
                 0)
         end
-        ok, result, err = npc_runtime.interactByName(npc_name)
+        if npc_name ~= "" then
+            ok, result, err = npc_runtime.interactByName(npc_name)
+        end
+        if (not ok or result == false)
+            and allow_interact_id_fallback
+            and legacy_interact_id > 0
+            and type(npc_runtime.interactId) == "function" then
+            interact_method = npc_name ~= "" and "id-fallback" or "id"
+            ok, result, err = npc_runtime.interactId(legacy_interact_id)
+        end
         main_quest_set_status("打开主线NPC对话 by_name name_key=" .. npc_name_key ..
             " legacy_interact_id=" .. tostring(params.interact_id) ..
             " name=" .. tostring(params.npc_name or "") ..
@@ -8379,6 +8527,9 @@ function main_quest_execute_20590(action, state)
             local after_interact = now_seconds()
             r.last_interact_stage = stage
             r.last_interact_at = after_interact
+            if params.mark_20612_start_point_reached == true then
+                r.reached_20612_start_point = true
+            end
             if stage == "quest_20611_obelisk" then
                 r.opened_20611_obelisk = true
                 r.opened_20611_obelisk_at = after_interact
@@ -8431,11 +8582,25 @@ function main_quest_execute_20590(action, state)
         })
         local continuous_finished = continuous_result == "closed" or continuous_result == "limit_ok"
         if ok then
-            if tonumber(params.quest_id) == 20611 then
+            local continuous_quest_id = tonumber(params.quest_id) or 0
+            local continuous_stage = tostring(params.stage or "")
+            if continuous_quest_id == 20611 then
                 r.cached_quest_20611 = nil
                 r.last_quest_20611_read_at = 0
-                if tostring(params.stage or "") == "quest_20611_target_npc" and continuous_finished then
+                if continuous_stage == "quest_20611_target_npc" and continuous_finished then
                     r.completed_20611_target_dialog = true
+                end
+                if continuous_stage == "quest_20611_hotspot_reward_npc" and continuous_finished then
+                    r.completed_20611_hotspot_reward = true
+                end
+            elseif continuous_quest_id == 20612 then
+                r.cached_quest_20611 = nil
+                r.last_quest_20611_read_at = 0
+                if params.mark_20612_start_point_reached == true then
+                    r.reached_20612_start_point = true
+                end
+                if continuous_stage == "quest_20612_start_npc" and continuous_finished then
+                    r.completed_20612_start_dialog = true
                 end
             end
             local settle_seconds = math.max(0,
@@ -8503,6 +8668,7 @@ function main_quest_execute_20590(action, state)
         end
         if ok and wait_for_teleport then
             r.waiting_teleport = true
+            r.teleport_quest_id = tonumber(params.quest_id) or 0
             r.teleport_stage = teleport_stage
             r.teleport_start_pos = teleport_start_pos
             r.teleport_start_big_map_id = teleport_start_big_map_id
@@ -8610,6 +8776,7 @@ function main_quest_execute_20590(action, state)
 
     if name == "CompleteMapNodeTeleport" then
         r.waiting_teleport = false
+        r.teleport_quest_id = 0
         r.wait_dialog_stage = ""
         r.wait_dialog_until = 0
         local stage = tostring(params.stage or "")
@@ -8631,14 +8798,20 @@ function main_quest_execute_20590(action, state)
 
     if name == "CompleteQuestTeleport" then
         r.waiting_teleport = false
+        r.teleport_quest_id = 0
         r.wait_dialog_stage = ""
         r.wait_dialog_until = 0
-        if tonumber(params.quest_id) == 20610 then
+        local stage = tostring(params.stage or "")
+        if stage == "quest_20612_task_teleport" then
+            r.clicked_20611_indicator_title = false
+            r.completed_20612_task_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+        elseif tonumber(params.quest_id) == 20610 then
             r.completed_20610_task_teleport = true
             r.cached_quest_20610 = nil
             r.last_quest_20610_read_at = 0
         elseif tonumber(params.quest_id) == 20611 then
-            local stage = tostring(params.stage or "")
             r.clicked_20611_indicator_title = false
             if stage == "quest_20611_target_teleport" then
                 r.completed_20611_target_teleport = true
@@ -8700,9 +8873,11 @@ function main_quest_execute_20590(action, state)
 
     if name == "StartStationaryGrind" then
         local grind_stage = tostring(params.stage or "")
+        local is_level_grind = grind_stage == "quest_20611_level_grind"
+            or grind_stage == "quest_20612_level_grind"
         r.active_20611_grind = true
         r.active_20611_grind_stage = grind_stage
-        if grind_stage == "quest_20611_level_grind" then
+        if is_level_grind then
             r.level_grind_quest_id = tonumber(params.quest_id) or 0
             r.level_grind_required_level = tonumber(params.until_level or params.required_level) or 0
             r.completed_20611_level_move = false
@@ -8711,6 +8886,9 @@ function main_quest_execute_20590(action, state)
             r.completed_20611_grind = false
             r.level_grind_quest_id = 0
             r.level_grind_required_level = 0
+        end
+        if type(main_quest_authorize_grind) == "function" then
+            main_quest_authorize_grind(action, "start")
         end
         r.cached_quest_20611 = nil
         r.last_quest_20611_read_at = 0
@@ -8739,10 +8917,10 @@ function main_quest_execute_20590(action, state)
             sync_combat_enabled_from_primary_mode()
         end
         if type(combat_auto_off) == "function" then
-            combat_auto_off(grind_stage == "quest_20611_level_grind" and "quest-20611-level-grind-start" or "quest-20611-grind-start", false)
+            combat_auto_off(is_level_grind and ("quest-" .. tostring(params.quest_id or "") .. "-level-grind-start") or "quest-20611-grind-start", false)
         end
         if type(combat_set_status) == "function" then
-            combat_set_status(grind_stage == "quest_20611_level_grind" and "level-grind" or "quest-grind", string.format("%.2f,%.2f,%.2f",
+            combat_set_status(is_level_grind and "level-grind" or "quest-grind", string.format("%.2f,%.2f,%.2f",
                 tonumber(params.x) or 0,
                 tonumber(params.y) or 0,
                 tonumber(params.z) or 0), true)
@@ -8765,6 +8943,9 @@ function main_quest_execute_20590(action, state)
     end
 
     if name == "WaitLevelGrind" then
+        if type(main_quest_authorize_grind) == "function" then
+            main_quest_authorize_grind(action, "wait-level")
+        end
         if main_quest_action_cooldown(name .. ":" .. tostring(params.quest_id or ""), 2.0) then
             main_quest_set_status("level grind running quest_id=" .. tostring(params.quest_id or "") ..
                 " level=" .. tostring(params.char_level or "") ..
@@ -8774,6 +8955,9 @@ function main_quest_execute_20590(action, state)
     end
 
     if name == "WaitQuestComplete" then
+        if type(main_quest_authorize_grind) == "function" then
+            main_quest_authorize_grind(action, "wait-quest")
+        end
         if main_quest_action_cooldown(name .. ":" .. tostring(params.quest_id or ""), 2.0) then
             main_quest_set_status("quest " .. tostring(params.quest_id or "") ..
                 " grind running step=" .. tostring(params.quest_step or ""))
@@ -8987,9 +9171,27 @@ function main_quest_20611_tick()
     local level_status = tonumber(state.level_blocked_quest and state.level_blocked_quest.status_code) or 0
     local level_required = tonumber(state.level_blocked_quest and state.level_blocked_quest.lv_num) or 0
     local char_level = tonumber(state.char and state.char.level) or 0
+    local quest_20612_snapshot = nil
+    local quest_20613_snapshot = nil
+    if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.findQuestById) == "function" then
+        quest_20612_snapshot = main_quest_20611.findQuestById(state.quests, 20612)
+        quest_20613_snapshot = main_quest_20611.findQuestById(state.quests, 20613)
+    end
+    local q20612_status = tonumber(quest_20612_snapshot and quest_20612_snapshot.status_code) or 0
+    local q20612_step = tonumber(quest_20612_snapshot and quest_20612_snapshot.req_count) or 0
+    local q20613_status = tonumber(quest_20613_snapshot and quest_20613_snapshot.status_code) or 0
+    local q20613_step = tonumber(quest_20613_snapshot and quest_20613_snapshot.req_count) or 0
     local action_qid = tonumber(action.params and action.params.quest_id) or 0
+    local action_name = tostring(action.name or "")
+    local action_authorizes_grind = type(main_quest_action_authorizes_grind) == "function"
+        and main_quest_action_authorizes_grind(action)
     local ui_state = type(state.ui) == "table" and state.ui or {}
-    local decision_sig = "20611:" .. tostring(action.name or "") ..
+    if action_qid == 20612
+        and runtime.main_quest.active_20611_grind == true
+        and not action_authorizes_grind then
+        main_quest_stop_20611_grind("quest-20612-recorded-step", false)
+    end
+    local decision_sig = "20611:" .. action_name ..
         ":" .. tostring(action.params and action.params.stage or "") ..
         ":" .. tostring(action_qid) ..
         ":" .. tostring(state.quest and state.quest.status_code or "") ..
@@ -9000,6 +9202,10 @@ function main_quest_20611_tick()
         ":" .. tostring(level_status) ..
         ":" .. tostring(level_required) ..
         ":" .. tostring(char_level) ..
+        ":" .. tostring(q20612_status) ..
+        ":" .. tostring(q20612_step) ..
+        ":" .. tostring(q20613_status) ..
+        ":" .. tostring(q20613_step) ..
         ":" .. tostring(runtime.main_quest.active_20611_grind_stage or "") ..
         ":" .. tostring(ui_state.quest_indicator_entry == true) ..
         ":" .. tostring(ui_state.quest_panel_visible == true) ..
@@ -9009,11 +9215,14 @@ function main_quest_20611_tick()
         ":" .. tostring(runtime.main_quest.clicked_20611_indicator_entry_name or "") ..
         ":" .. tostring(runtime.main_quest.clicked_20611_target_link == true) ..
         ":" .. tostring(runtime.main_quest.completed_20611_target_dialog == true) ..
-        ":" .. tostring(runtime.main_quest.completed_20611_hotspot_teleport == true)
+        ":" .. tostring(runtime.main_quest.completed_20611_hotspot_teleport == true) ..
+        ":" .. tostring(runtime.main_quest.reached_20612_start_point == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20612_start_dialog == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20612_task_teleport == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
-            " action=" .. tostring(action.name or "") ..
+            " action=" .. action_name ..
             " action_qid=" .. tostring(action_qid) ..
             " stage=" .. tostring(action.params and action.params.stage or "") ..
             " reason=" .. tostring(action.reason or "") ..
@@ -9026,6 +9235,10 @@ function main_quest_20611_tick()
             " qlevel_status=" .. tostring(level_status) ..
             " qlevel_required=" .. tostring(level_required) ..
             " char_level=" .. tostring(char_level) ..
+            " q20612_status=" .. tostring(q20612_status) ..
+            " q20612_step=" .. tostring(q20612_step) ..
+            " q20613_status=" .. tostring(q20613_status) ..
+            " q20613_step=" .. tostring(q20613_step) ..
             " grind_stage=" .. tostring(runtime.main_quest.active_20611_grind_stage or "") ..
             " ui_indicator_entry=" .. tostring(ui_state.quest_indicator_entry == true) ..
             " ui_panel=" .. tostring(ui_state.quest_panel_visible == true) ..
@@ -9036,6 +9249,12 @@ function main_quest_20611_tick()
             " clicked_link=" .. tostring(runtime.main_quest.clicked_20611_target_link == true) ..
             " target_dialog_done=" .. tostring(runtime.main_quest.completed_20611_target_dialog == true) ..
             " hotspot_done=" .. tostring(runtime.main_quest.completed_20611_hotspot_teleport == true) ..
+            " q20612_point_done=" .. tostring(runtime.main_quest.reached_20612_start_point == true) ..
+            " q20612_start_done=" .. tostring(runtime.main_quest.completed_20612_start_dialog == true) ..
+            " q20612_teleport_done=" .. tostring(runtime.main_quest.completed_20612_task_teleport == true) ..
+            " waiting_teleport=" .. tostring(runtime.main_quest.waiting_teleport == true) ..
+            " teleport_qid=" .. tostring(runtime.main_quest.teleport_quest_id or 0) ..
+            " teleport_stage=" .. tostring(runtime.main_quest.teleport_stage or "") ..
             " pos=" .. main_quest_position_text(state.char),
             0)
         runtime.main_quest.last_decision_20611_signature = decision_sig
@@ -9046,7 +9265,8 @@ function main_quest_20611_tick()
         main_quest_stop_20611_grind("quest-20611-no-blue-task-active", false)
     end
     if tostring(action.name or "") == "Idle"
-        and tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20611_level_grind"
+        and (tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20611_level_grind"
+            or tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20612_level_grind")
         and runtime.main_quest.active_20611_grind == true then
         main_quest_stop_20611_grind("quest-20611-level-grind-idle", false)
     end
@@ -13845,12 +14065,14 @@ local function draw_combat_tab()
     changed, val = imgui.checkbox("使用游戏自动战斗", tonumber(cfg.combat.attack_trigger_mode) == 2)
     if changed then cfg.combat.attack_trigger_mode = val and 2 or 1 end
     if tonumber(cfg.combat.attack_trigger_mode) ~= 2 then
-        imgui.text(string.format("Key mode: press main 1 every %dms while target is alive, keycode 49",
-            tonumber(cfg.combat.attack_key_repeat_interval_ms) or 1000))
+        imgui.text(string.format("Key mode: press %s every %dms while target is alive, keycode %d",
+            ATTACK_KEY_LABEL,
+            tonumber(cfg.combat.attack_key_repeat_interval_ms) or 1000,
+            ATTACK_KEYCODE))
     end
 
     imgui.set_next_item_width(90)
-    changed, val = imgui.input_int("Press1 interval ms", cfg.combat.attack_key_repeat_interval_ms)
+    changed, val = imgui.input_int("Press C interval ms", cfg.combat.attack_key_repeat_interval_ms)
     if changed then cfg.combat.attack_key_repeat_interval_ms = math.max(250, math.min(3000, val)) end
 
     imgui.set_next_item_width(90)

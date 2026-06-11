@@ -190,6 +190,100 @@ local function run()
         T.assert_eq(plan.flags.level_move_quest_id, 0)
     end)
 
+    T.test("active quest 20612 start resumes task flow instead of grind inference", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20612", level = 11 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20612, status_code = 3, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, status_code = 6, seq = 3, lv_num = 14 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20612_start")
+        T.assert_eq(plan.quest_20612_status, 3)
+        T.assert_eq(plan.quest_20612_step, 0)
+        T.assert_eq(plan.flags.completed_20611_hotspot_reward, true)
+        T.assert_eq(plan.flags.completed_20612_start_dialog, false)
+        T.assert_eq(plan.flags.completed_20612_task_teleport, false)
+        T.assert_eq(plan.flags.active_20611_grind, false)
+    end)
+
+    T.test("active quest 20612 step one resumes task teleport", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20612", level = 11 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20612, status_code = 3, req_count = 1, seq = 2, lv_num = 11 },
+                { id = 20613, status_code = 6, seq = 3, lv_num = 14 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20612_task_teleport")
+        T.assert_eq(plan.quest_20612_step, 1)
+        T.assert_eq(plan.flags.completed_20611_hotspot_reward, true)
+        T.assert_eq(plan.flags.completed_20612_start_dialog, true)
+        T.assert_eq(plan.flags.completed_20612_task_teleport, false)
+        T.assert_eq(plan.flags.active_20611_grind, false)
+    end)
+
+    T.test("done quest 20612 resumes post dialog task teleport before 20613 grind", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20612Done", level = 11 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20612, status_code = 4, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20612_task_teleport")
+        T.assert_eq(plan.quest_20612_status, 4)
+        T.assert_eq(plan.level_blocked_quest_id, 20613)
+        T.assert_eq(plan.flags.completed_20611_hotspot_reward, true)
+        T.assert_eq(plan.flags.completed_20612_start_dialog, true)
+        T.assert_eq(plan.flags.completed_20612_task_teleport, false)
+        T.assert_eq(plan.flags.active_20611_grind, false)
+    end)
+
+    T.test("quest 20612 level blocked resumes its own level gate after 20611", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20612", level = 10 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20612, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20612_level_blocked")
+        T.assert_eq(plan.level_blocked_quest_id, 20612)
+        T.assert_eq(plan.flags.completed_20611_hotspot_reward, true)
+        T.assert_eq(plan.flags.completed_20612_start_dialog, false)
+        T.assert_eq(plan.flags.active_20611_grind, false)
+    end)
+
+    T.test("quest 20611 hotspot reward snapshot is not treated as quest 20612 grind", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20611", level = 11 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20611, status_code = 4, req_count = 3, seq = 1, lv_num = 8 },
+                { id = 20612, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20611_hotspot_reward")
+        T.assert_eq(plan.flags.completed_20611_hotspot_teleport, true)
+        T.assert_eq(plan.flags.completed_20611_hotspot_reward, false)
+        T.assert_nil(plan.flags.completed_20612_start_dialog)
+    end)
+
     clear_modules()
     return T.report("aion_main_quest_resume")
 end

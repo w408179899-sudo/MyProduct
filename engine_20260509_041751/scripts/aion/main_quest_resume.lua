@@ -16,6 +16,30 @@ local function status_code(quest)
     return number(quest and quest.status_code)
 end
 
+local function quest_step(quest)
+    return number(quest and quest.req_count)
+end
+
+local function mark_after_20610(flags)
+    flags.completed_20590_reward = true
+    flags.completed_20610_start_dialog = true
+    flags.completed_20610_task_teleport = true
+    flags.completed_20610_reward = true
+    flags.active_20611_grind = false
+    flags.active_20611_grind_stage = ""
+    flags.level_grind_quest_id = 0
+    flags.level_grind_required_level = 0
+end
+
+local function mark_after_20611(flags)
+    mark_after_20610(flags)
+    flags.completed_20611_grind = false
+    flags.completed_20611_hotspot_reward = true
+    flags.reached_20612_start_point = false
+    flags.completed_20612_start_dialog = false
+    flags.completed_20612_task_teleport = false
+end
+
 function M.findQuest(quests, id)
     id = number(id)
     for _, quest in ipairs(quests or {}) do
@@ -104,6 +128,8 @@ function M.plan(snapshot)
 
     local q20590 = M.findQuest(quests, 20590)
     local q20610 = M.findQuest(quests, 20610)
+    local q20611 = M.findQuest(quests, 20611)
+    local q20612 = M.findQuest(quests, 20612)
     local remote_reward = M.findRemoteRewardQuest(quests)
     local level_blocked = M.findLevelBlockedQuest(quests)
     local remote_reward_id = quest_id(remote_reward)
@@ -151,6 +177,34 @@ function M.plan(snapshot)
         flags.completed_20590_reward = true
         stage = "20610_active"
         reason = "quest 20610 is active"
+    elseif status_code(q20612) == 3 then
+        mark_after_20611(flags)
+        if quest_step(q20612) >= 1 then
+            flags.completed_20612_start_dialog = true
+            stage = "20612_task_teleport"
+            reason = "quest 20612 is active after start dialog"
+        else
+            stage = "20612_start"
+            reason = "quest 20612 is active at start dialog"
+        end
+    elseif status_code(q20612) == 4
+        and status_code(level_blocked) == 6
+        and quest_id(level_blocked) > 20612 then
+        mark_after_20611(flags)
+        flags.completed_20612_start_dialog = true
+        flags.completed_20612_task_teleport = false
+        stage = "20612_task_teleport"
+        reason = "quest 20612 is done; task teleport before later level grind"
+    elseif status_code(q20611) == 4 and quest_step(q20611) == 3 then
+        mark_after_20610(flags)
+        flags.completed_20611_hotspot_teleport = true
+        flags.completed_20611_hotspot_reward = false
+        stage = "20611_hotspot_reward"
+        reason = "quest 20611 is ready for hotspot reward"
+    elseif status_code(q20611) == 3 then
+        mark_after_20610(flags)
+        stage = "20611_active"
+        reason = "quest 20611 is active"
     elseif status_code(q20590) == 4 then
         stage = "20590"
         reason = "quest 20590 is done and needs reward flow"
@@ -166,7 +220,16 @@ function M.plan(snapshot)
         flags.completed_20611_grind = false
         flags.completed_20611_level_move = false
         flags.level_move_quest_id = 0
-        stage = "20611_level_blocked"
+        if quest_id(level_blocked) == 20612
+            and not (status_code(q20611) == 4 and quest_step(q20611) == 3) then
+            flags.completed_20611_hotspot_reward = true
+            flags.reached_20612_start_point = false
+            flags.completed_20612_start_dialog = false
+            flags.completed_20612_task_teleport = false
+            stage = "20612_level_blocked"
+        else
+            stage = "20611_level_blocked"
+        end
         reason = "yellow mission " .. tostring(quest_id(level_blocked)) .. " is level blocked"
     elseif level <= 1 then
         stage = "20590"
@@ -183,6 +246,10 @@ function M.plan(snapshot)
         quest_count = #quests,
         quest_20590_status = status_code(q20590),
         quest_20610_status = status_code(q20610),
+        quest_20611_status = status_code(q20611),
+        quest_20611_step = quest_step(q20611),
+        quest_20612_status = status_code(q20612),
+        quest_20612_step = quest_step(q20612),
         level_blocked_quest_id = quest_id(level_blocked),
         level_blocked_status = status_code(level_blocked),
         remote_reward_quest_id = remote_reward_id,
