@@ -23,28 +23,28 @@ M.reward_npc = {
 M.dialog_steps = {
     select_quest = {
         content_id = 10,
-        action = "ClickDialogX",
-        reason = "open quest 20610 detail",
+        action = "ClickDialogXContinuous",
+        reason = "complete quest 20610 opening dialog by continuous x-click",
     },
     select1 = {
         content_id = 1011,
-        action = "ClickDialogX",
-        reason = "continue quest 20610 dialog 1",
+        action = "ClickDialogXContinuous",
+        reason = "complete quest 20610 opening dialog by continuous x-click",
     },
     select1_1 = {
         content_id = 1012,
-        action = "ClickDialogX",
-        reason = "continue quest 20610 dialog 2",
+        action = "ClickDialogXContinuous",
+        reason = "complete quest 20610 opening dialog by continuous x-click",
     },
     select1_1_1 = {
         content_id = 1013,
-        action = "ClickDialogX",
-        reason = "continue quest 20610 dialog 3",
+        action = "ClickDialogXContinuous",
+        reason = "complete quest 20610 opening dialog by continuous x-click",
     },
     select1_1_1_1 = {
         content_id = 1014,
-        action = "ClickDialogXCompleteQuest",
-        reason = "complete quest 20610 opening dialog",
+        action = "ClickDialogXContinuous",
+        reason = "complete quest 20610 opening dialog by continuous x-click",
     },
 }
 
@@ -131,6 +131,14 @@ function M.isRewardDialog(dialog)
     end
     return M.reward_dialog_steps[tostring(dialog.type_text or "")] ~= nil
         and number(dialog.npc_dialog_id) == M.reward_npc.interact_id
+end
+
+function M.isStartDialog(dialog)
+    if type(dialog) ~= "table" then
+        return false
+    end
+    return M.dialog_steps[tostring(dialog.type_text or "")] ~= nil
+        and number(dialog.npc_dialog_id) == M.npc.interact_id
 end
 
 function M.teleportDetected(state, runtime, opts)
@@ -240,6 +248,37 @@ function M.nextRewardAction(state, runtime, opts, quest)
     })
 end
 
+function M.nextStartDialogAction(state, opts, quest)
+    opts = opts or {}
+    local dialog = state and state.dialog
+    local type_text = tostring(dialog and dialog.type_text or "")
+    local step = M.dialog_steps[type_text]
+    if step then
+        return action(step.action, step.reason, {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            expected_content_id = step.content_id,
+            content_id = number(dialog.dialog_content_id),
+            type_text = type_text,
+            click_x = opts.dialog_click_x or 25,
+            interact_id = M.npc.interact_id,
+            npc_name = M.npc.name,
+            stage = "quest_20610_npc",
+        })
+    end
+
+    return action("DumpDialog", "unknown quest 20610 dialog stage", {
+        quest_id = M.quest_id,
+        quest_step = M.questStep(quest),
+        type_text = type_text,
+        content_id = number(dialog and dialog.dialog_content_id),
+        npc_dialog_id = number(dialog and dialog.npc_dialog_id),
+        interact_id = M.npc.interact_id,
+        npc_name = M.npc.name,
+        stage = "quest_20610_npc",
+    })
+end
+
 function M.nextAction(state, runtime, opts)
     state = state or {}
     runtime = runtime or {}
@@ -262,6 +301,11 @@ function M.nextAction(state, runtime, opts)
     end
 
     local quest = state.quest or M.findQuest(state.quests)
+    if runtime.completed_20610_start_dialog ~= true
+        and M.isStartDialog(state.dialog) then
+        return M.nextStartDialogAction(state, opts, quest)
+    end
+
     if runtime.completed_20610_start_dialog == true
         and runtime.completed_20610_task_teleport ~= true then
         return M.nextTaskTeleportAction(state, runtime, opts, quest)
@@ -332,32 +376,7 @@ function M.nextAction(state, runtime, opts)
         })
     end
 
-    local type_text = tostring(dialog.type_text or "")
-    local step = M.dialog_steps[type_text]
-    if step then
-        return action(step.action, step.reason, {
-            quest_id = M.quest_id,
-            quest_step = M.questStep(quest),
-            expected_content_id = step.content_id,
-            content_id = number(dialog.dialog_content_id),
-            type_text = type_text,
-            click_x = opts.dialog_click_x or 25,
-            interact_id = M.npc.interact_id,
-            npc_name = M.npc.name,
-            stage = "quest_20610_npc",
-        })
-    end
-
-    return action("DumpDialog", "unknown quest 20610 dialog stage", {
-        quest_id = M.quest_id,
-        quest_step = M.questStep(quest),
-        type_text = type_text,
-        content_id = number(dialog.dialog_content_id),
-        npc_dialog_id = number(dialog.npc_dialog_id),
-        interact_id = M.npc.interact_id,
-        npc_name = M.npc.name,
-        stage = "quest_20610_npc",
-    })
+    return M.nextStartDialogAction(state, opts, quest)
 end
 
 return M

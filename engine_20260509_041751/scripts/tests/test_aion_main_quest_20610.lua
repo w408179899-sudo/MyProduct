@@ -65,11 +65,11 @@ local function run()
     T.test("clicks recorded quest 20610 dialog chain", function()
         local quest = load_module()
         local cases = {
-            { type_text = "select_quest", content_id = 10, action = "ClickDialogX" },
-            { type_text = "select1", content_id = 1011, action = "ClickDialogX" },
-            { type_text = "select1_1", content_id = 1012, action = "ClickDialogX" },
-            { type_text = "select1_1_1", content_id = 1013, action = "ClickDialogX" },
-            { type_text = "select1_1_1_1", content_id = 1014, action = "ClickDialogXCompleteQuest" },
+            { type_text = "select_quest", content_id = 10, action = "ClickDialogXContinuous" },
+            { type_text = "select1", content_id = 1011, action = "ClickDialogXContinuous" },
+            { type_text = "select1_1", content_id = 1012, action = "ClickDialogXContinuous" },
+            { type_text = "select1_1_1", content_id = 1013, action = "ClickDialogXContinuous" },
+            { type_text = "select1_1_1_1", content_id = 1014, action = "ClickDialogXContinuous" },
         }
 
         for _, case in ipairs(cases) do
@@ -104,6 +104,26 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20610)
         T.assert_eq(next_action.params.stage, "quest_20610_task_teleport")
         T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("prioritizes opened quest 20610 npc dialog before task teleport", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quest = done_quest(),
+            char = near_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147514375,
+                type_text = "select1",
+                dialog_content_id = 1011,
+                quest_id = 20610,
+            },
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.params.stage, "quest_20610_npc")
+        T.assert_eq(next_action.params.expected_content_id, 1011)
+        T.assert_eq(next_action.params.interact_id, 2147514375)
     end)
 
     T.test("quest teleport ignores resolution-dependent ui coordinates", function()

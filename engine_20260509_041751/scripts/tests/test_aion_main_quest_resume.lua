@@ -190,6 +190,53 @@ local function run()
         T.assert_eq(plan.flags.level_move_quest_id, 0)
     end)
 
+    T.test("active 20612 does not override earlier 20611 level block on resume", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Ordered", level = 7 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20612, status_code = 3, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20611, status_code = 6, req_count = 0, seq = 1, lv_num = 8 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20611_level_blocked")
+        T.assert_eq(plan.level_blocked_quest_id, 20611)
+        T.assert_eq(plan.flags.completed_20611_level_move, false)
+    end)
+
+    T.test("remote reward does not override active 20610 on resume", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Ordered", level = 7 },
+            big_map_id = 220010000,
+            quests = {
+                { id = CURRENT_BLUE_TASK, tab = 1, status_code = 4, req_count = 5 },
+                { id = 20610, status_code = 3, req_count = 0 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20610_active")
+        T.assert_eq(plan.flags.completed_20590_reward, true)
+        T.assert_nil(plan.flags.completed_20610_reward)
+    end)
+
+    T.test("active 20612 does not override active 20611 on resume", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Ordered", level = 10 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20612, status_code = 3, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20611, status_code = 3, req_count = 1, seq = 1, lv_num = 8 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20611_active")
+        T.assert_eq(plan.quest_20611_status, 3)
+    end)
+
     T.test("active quest 20612 start resumes task flow instead of grind inference", function()
         local resume = load_module()
         local plan = resume.plan({
@@ -207,6 +254,7 @@ local function run()
         T.assert_eq(plan.flags.completed_20611_hotspot_reward, true)
         T.assert_eq(plan.flags.completed_20612_start_dialog, false)
         T.assert_eq(plan.flags.completed_20612_task_teleport, false)
+        T.assert_eq(plan.flags.completed_20612_reward_dialog, false)
         T.assert_eq(plan.flags.active_20611_grind, false)
     end)
 
@@ -226,6 +274,7 @@ local function run()
         T.assert_eq(plan.flags.completed_20611_hotspot_reward, true)
         T.assert_eq(plan.flags.completed_20612_start_dialog, true)
         T.assert_eq(plan.flags.completed_20612_task_teleport, false)
+        T.assert_eq(plan.flags.completed_20612_reward_dialog, false)
         T.assert_eq(plan.flags.active_20611_grind, false)
     end)
 
@@ -246,6 +295,25 @@ local function run()
         T.assert_eq(plan.flags.completed_20611_hotspot_reward, true)
         T.assert_eq(plan.flags.completed_20612_start_dialog, true)
         T.assert_eq(plan.flags.completed_20612_task_teleport, false)
+        T.assert_eq(plan.flags.completed_20612_reward_dialog, false)
+        T.assert_eq(plan.flags.active_20611_grind, false)
+    end)
+
+    T.test("done quest 20612 at reward npc resumes npc dialog before 20613 grind", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20612Done", level = 11, x = 1047.94, y = 2203.23, z = 262.36 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20612, status_code = 4, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20612_reward")
+        T.assert_eq(plan.flags.completed_20612_start_dialog, true)
+        T.assert_eq(plan.flags.completed_20612_task_teleport, true)
+        T.assert_eq(plan.flags.completed_20612_reward_dialog, false)
         T.assert_eq(plan.flags.active_20611_grind, false)
     end)
 
@@ -264,6 +332,7 @@ local function run()
         T.assert_eq(plan.level_blocked_quest_id, 20612)
         T.assert_eq(plan.flags.completed_20611_hotspot_reward, true)
         T.assert_eq(plan.flags.completed_20612_start_dialog, false)
+        T.assert_eq(plan.flags.completed_20612_reward_dialog, false)
         T.assert_eq(plan.flags.active_20611_grind, false)
     end)
 

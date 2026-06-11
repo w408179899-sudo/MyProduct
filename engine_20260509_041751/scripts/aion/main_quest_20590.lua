@@ -63,69 +63,69 @@ M.inner_route = {
 M.dialog_steps = {
     select_quest = {
         content_id = 10,
-        action = "ClickDialogX",
-        reason = "open quest detail",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete first npc dialog chain by continuous x-click",
     },
     select1 = {
         content_id = 1011,
-        action = "ClickDialogX",
-        reason = "continue first dialog",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete first npc dialog chain by continuous x-click",
     },
     select1_1 = {
         content_id = 1012,
-        action = "ClickDialogX",
-        reason = "continue first dialog before teleport",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete first npc dialog chain by continuous x-click",
     },
     select1_1_1 = {
         content_id = 1013,
-        action = "ClickDialogXWaitTeleport",
-        reason = "final dialog triggers teleport",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete first npc dialog chain and wait for teleport",
     },
     select10 = {
         content_id = 4080,
-        action = "ClickDialogXWaitTeleport",
-        reason = "recovery first dialog triggers teleport",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete recovered first npc dialog chain and wait for teleport",
     },
 }
 
 M.inner_dialog_steps = {
     select1 = {
         content_id = 1011,
-        action = "ClickDialogXWaitTeleport",
-        reason = "inner npc simple teleport",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete inner npc dialog chain and wait for teleport",
     },
 }
 
 M.temple_dialog_steps = {
     select_quest = {
         content_id = 10,
-        action = "ClickDialogX",
-        reason = "open temple quest detail",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete temple npc dialog chain by continuous x-click",
     },
     select4 = {
         content_id = 2034,
-        action = "ClickDialogX",
-        reason = "continue temple dialog 1",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete temple npc dialog chain by continuous x-click",
     },
     select4_1 = {
         content_id = 2035,
-        action = "ClickDialogX",
-        reason = "continue temple dialog 2",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete temple npc dialog chain by continuous x-click",
     },
     select4_1_1 = {
         content_id = 2036,
-        action = "ClickDialogX",
-        reason = "continue temple dialog 3",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete temple npc dialog chain by continuous x-click",
     },
     select4_1_1_1 = {
         content_id = 2037,
-        action = "ClickDialogX",
-        reason = "continue temple dialog 4",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete temple npc dialog chain by continuous x-click",
     },
     select4_2 = {
         content_id = 2120,
-        action = "ClickDialogXWaitTeleport",
-        reason = "temple dialog completes and teleports",
+        action = "ClickDialogXContinuousWaitTeleport",
+        reason = "complete temple npc dialog chain and wait for teleport",
     },
 }
 
@@ -220,6 +220,18 @@ function M.isQuestKnown(quest)
         and number(quest.id) == M.quest_id
 end
 
+function M.isRewardDialog(dialog)
+    if type(dialog) ~= "table" then
+        return false
+    end
+    local type_text = tostring(dialog.type_text or "")
+    if M.reward_dialog_steps[type_text] == nil then
+        return false
+    end
+    local dialog_quest_id = number(dialog.quest_id)
+    return dialog_quest_id == M.quest_id
+end
+
 function M.teleportDetected(state, runtime, opts)
     opts = opts or {}
     runtime = runtime or {}
@@ -275,7 +287,9 @@ function M.nextAction(state, runtime, opts)
 
     local current_big_map = number(state.big_map_id)
     local quest_step = M.questStep(quest)
-    if M.isQuestReady(quest) or (current_big_map == M.alder_big_map_id and M.isQuestKnown(quest)) then
+    if M.isRewardDialog(state.dialog)
+        or M.isQuestReady(quest)
+        or (current_big_map == M.alder_big_map_id and M.isQuestKnown(quest)) then
         return M.nextRewardAction(state, quest, opts)
     end
 
@@ -353,7 +367,9 @@ function M.nextAction(state, runtime, opts)
             click_x = opts.dialog_click_x or 25,
             interact_id = M.npc.interact_id,
             npc_name = M.npc.name,
-            stage = step.action == "ClickDialogXWaitTeleport" and "first_npc_teleport" or "first_npc",
+            stage = (step.action == "ClickDialogXWaitTeleport"
+                or step.action == "ClickDialogXContinuousWaitTeleport")
+                and "first_npc_teleport" or "first_npc",
         })
     end
 
@@ -535,7 +551,9 @@ function M.nextTempleAction(state, quest, opts)
             click_x = opts.dialog_click_x or 25,
             interact_id = M.temple_npc.interact_id,
             npc_name = M.temple_npc.name,
-            stage = step.action == "ClickDialogXWaitTeleport" and "temple_npc_teleport" or "temple_npc",
+            stage = (step.action == "ClickDialogXWaitTeleport"
+                or step.action == "ClickDialogXContinuousWaitTeleport")
+                and "temple_npc_teleport" or "temple_npc",
         })
     end
 
@@ -559,6 +577,36 @@ function M.nextRewardAction(state, quest, opts)
         range = 4
     end
 
+    local dialog = state.dialog
+    if type(dialog) == "table" then
+        local type_text = tostring(dialog.type_text or "")
+        local step = M.reward_dialog_steps[type_text]
+        if step then
+            return action(step.action, step.reason, {
+                quest_id = M.quest_id,
+                quest_step = M.questStep(quest),
+                expected_content_id = step.content_id,
+                content_id = number(dialog.dialog_content_id),
+                type_text = type_text,
+                click_x = opts.dialog_click_x or 25,
+                interact_id = M.reward_npc.interact_id,
+                npc_name = M.reward_npc.name,
+                stage = "reward_npc",
+            })
+        end
+
+        return action("DumpDialog", "unknown reward dialog stage", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = "reward_npc",
+            type_text = type_text,
+            content_id = number(dialog.dialog_content_id),
+            npc_dialog_id = number(dialog.npc_dialog_id),
+            interact_id = M.reward_npc.interact_id,
+            npc_name = M.reward_npc.name,
+        })
+    end
+
     local dist = M.distanceToRewardNpc(char)
     if dist > range then
         return action("NavigateToNpc", "move to reward npc", {
@@ -579,43 +627,13 @@ function M.nextRewardAction(state, quest, opts)
         return route_wait
     end
 
-    local dialog = state.dialog
-    if type(dialog) ~= "table" then
-        return action("InteractNpc", "open reward npc dialog", {
-            quest_id = M.quest_id,
-            quest_step = M.questStep(quest),
-            stage = "reward_npc",
-            interact_id = M.reward_npc.interact_id,
-            npc_name = M.reward_npc.name,
-            npc_name_key = M.reward_npc.name_key,
-        })
-    end
-
-    local type_text = tostring(dialog.type_text or "")
-    local step = M.reward_dialog_steps[type_text]
-    if step then
-        return action(step.action, step.reason, {
-            quest_id = M.quest_id,
-            quest_step = M.questStep(quest),
-            expected_content_id = step.content_id,
-            content_id = number(dialog.dialog_content_id),
-            type_text = type_text,
-            click_x = opts.dialog_click_x or 25,
-            interact_id = M.reward_npc.interact_id,
-            npc_name = M.reward_npc.name,
-            stage = "reward_npc",
-        })
-    end
-
-    return action("DumpDialog", "unknown reward dialog stage", {
+    return action("InteractNpc", "open reward npc dialog", {
         quest_id = M.quest_id,
         quest_step = M.questStep(quest),
         stage = "reward_npc",
-        type_text = type_text,
-        content_id = number(dialog.dialog_content_id),
-        npc_dialog_id = number(dialog.npc_dialog_id),
         interact_id = M.reward_npc.interact_id,
         npc_name = M.reward_npc.name,
+        npc_name_key = M.reward_npc.name_key,
     })
 end
 

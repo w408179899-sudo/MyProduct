@@ -330,6 +330,7 @@ local runtime = {
         reached_20612_start_point = false,
         completed_20612_start_dialog = false,
         completed_20612_task_teleport = false,
+        completed_20612_reward_dialog = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -6378,13 +6379,13 @@ function npc_continuous_click_dialog_x(opts)
         npc_dialog_set_status("F1连续点击达到上限: " .. tostring(clicked_count) ..
             " 次，已补点OK，最后 " .. tostring(last_line) ..
             "，OK=" .. tostring(ok_line_or_err))
-        return true
+        return true, "limit_ok"
     end
 
     npc_dialog_set_status("F1连续点击达到上限: " .. tostring(clicked_count) ..
         " 次，补点OK失败: " .. tostring(ok_line_or_err) ..
         "，最后 " .. tostring(last_line))
-    return clicked_count > 0
+    return clicked_count > 0, "limit_reached"
 end
 
 function npc_f1_action()
@@ -6621,6 +6622,7 @@ function main_quest_action_waits_after_move(action_name)
     return action_name == "InteractNpc"
         or action_name == "ClickDialogX"
         or action_name == "ClickDialogXContinuous"
+        or action_name == "ClickDialogXContinuousWaitTeleport"
         or action_name == "ClickDialogXWaitTeleport"
         or action_name == "ClickDialogXCompleteQuest"
         or action_name == "ClickDialogOkCompleteQuest"
@@ -6755,6 +6757,7 @@ function main_quest_reset_runtime(reason)
     r.reached_20612_start_point = false
     r.completed_20612_start_dialog = false
     r.completed_20612_task_teleport = false
+    r.completed_20612_reward_dialog = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -6844,7 +6847,23 @@ function main_quest_cached_20611(now)
     return r.cached_quest_20611
 end
 
-function main_quest_later_tasks_blocked(now)
+function main_quest_20590_reward_dialog_open()
+    if not ok_main_quest_20590 or not main_quest_20590
+        or type(main_quest_20590.isRewardDialog) ~= "function" then
+        return false
+    end
+    local ready, npc_runtime = npc_dialog_prepare_runtime()
+    if not ready or not npc_runtime or type(npc_runtime.dialog) ~= "function" then
+        return false
+    end
+    local ok, info = npc_runtime.dialog()
+    if ok and main_quest_20590.isRewardDialog(info) then
+        return true
+    end
+    return false
+end
+
+function main_quest_later_tasks_blocked(now, target_stage)
     if not ok_core or not core or type(core.getCharacter) ~= "function" then
         return false, "character unavailable"
     end
@@ -6860,6 +6879,20 @@ function main_quest_later_tasks_blocked(now)
     local quest_20590 = main_quest_cached_20590(now or now_seconds())
     if tonumber(quest_20590 and quest_20590.status_code) == 3 then
         return true, "quest20590-active"
+    end
+    if main_quest_20590_reward_dialog_open() then
+        return true, "quest20590-reward-dialog"
+    end
+    if tostring(target_stage or "") == "20611"
+        and runtime.main_quest
+        and runtime.main_quest.completed_20610_reward ~= true
+        and ok_main_quest_20610 and main_quest_20610 then
+        local quest_20610 = main_quest_cached_20610(now or now_seconds())
+        if main_quest_20610.isQuestKnown(quest_20610)
+            and (main_quest_20610.isQuestActive(quest_20610)
+                or main_quest_20610.isQuestDone(quest_20610)) then
+            return true, "quest20610-unfinished"
+        end
     end
     return false, ""
 end
@@ -8552,7 +8585,7 @@ function main_quest_execute_20590(action, state)
         return ok and result ~= false
     end
 
-    if name == "ClickDialogXContinuous" then
+    if name == "ClickDialogXContinuous" or name == "ClickDialogXContinuousWaitTeleport" then
         if not main_quest_action_cooldown(name .. ":" .. tostring(params.stage or params.type_text), 1.0) then
             return true
         end
@@ -8563,6 +8596,11 @@ function main_quest_execute_20590(action, state)
         end
         r.wait_dialog_stage = ""
         r.wait_dialog_until = 0
+        local wait_for_teleport = name == "ClickDialogXContinuousWaitTeleport"
+            or params.wait_teleport == true
+        local teleport_stage = tostring(params.stage or "teleport")
+        local teleport_start_pos = state.char
+        local teleport_start_big_map_id = tonumber(state.big_map_id) or 0
         main_quest_trace("click-continuous-before:" .. tostring(params.type_text or ""),
             "action=" .. name ..
             " stage=" .. tostring(params.stage or "") ..
@@ -8570,6 +8608,7 @@ function main_quest_execute_20590(action, state)
             " content=" .. tostring(params.content_id or "") ..
             " expected=" .. tostring(params.expected_content_id or "") ..
             " click_x=" .. tostring(params.click_x or "") ..
+            " wait_teleport=" .. tostring(wait_for_teleport) ..
             " dialog=" .. main_quest_dialog_signature(state.dialog) ..
             " pos=" .. main_quest_position_text(state.char),
             0)
@@ -8581,12 +8620,28 @@ function main_quest_execute_20590(action, state)
             delay_ms = params.delay_ms,
         })
         local continuous_finished = continuous_result == "closed" or continuous_result == "limit_ok"
+        if ok and wait_for_teleport then
+            r.waiting_teleport = true
+            r.teleport_quest_id = tonumber(params.quest_id) or 0
+            r.teleport_stage = teleport_stage
+            r.teleport_start_pos = teleport_start_pos
+            r.teleport_start_big_map_id = teleport_start_big_map_id
+        end
         if ok then
             local continuous_quest_id = tonumber(params.quest_id) or 0
             local continuous_stage = tostring(params.stage or "")
-            if continuous_quest_id == 20611 then
+            if continuous_quest_id == 20610 then
+                r.cached_quest_20610 = nil
+                r.last_quest_20610_read_at = 0
+                if continuous_stage == "quest_20610_npc" and continuous_finished then
+                    r.completed_20610_start_dialog = true
+                end
+            elseif continuous_quest_id == 20611 then
                 r.cached_quest_20611 = nil
                 r.last_quest_20611_read_at = 0
+                if continuous_stage == "quest_20611_mission_npc" and continuous_finished then
+                    r.completed_20611_mission_dialog = true
+                end
                 if continuous_stage == "quest_20611_target_npc" and continuous_finished then
                     r.completed_20611_target_dialog = true
                 end
@@ -8602,6 +8657,10 @@ function main_quest_execute_20590(action, state)
                 if continuous_stage == "quest_20612_start_npc" and continuous_finished then
                     r.completed_20612_start_dialog = true
                 end
+                if continuous_stage == "quest_20612_reward_npc" and continuous_finished then
+                    r.completed_20612_task_teleport = true
+                    r.completed_20612_reward_dialog = true
+                end
             end
             local settle_seconds = math.max(0,
                 tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
@@ -8616,12 +8675,14 @@ function main_quest_execute_20590(action, state)
             " stage=" .. tostring(params.stage or "") ..
             " type=" .. tostring(params.type_text or "") ..
             " click_x=" .. tostring(params.click_x or "") ..
+            " wait_teleport=" .. tostring(wait_for_teleport) ..
             " result=" .. tostring(ok) ..
             " finish=" .. tostring(continuous_result or "") ..
             " status=" .. status)
         main_quest_trace("click-continuous-after:" .. tostring(params.type_text or ""),
             "ok=" .. tostring(ok) ..
             " finish=" .. tostring(continuous_result or "") ..
+            " wait_teleport=" .. tostring(wait_for_teleport) ..
             " status=" .. status,
             0)
         return ok
@@ -9017,22 +9078,26 @@ function main_quest_20590_tick()
     if not ok_core or not core or not ok_main_quest_20590 or not main_quest_20590 then
         return
     end
-    if runtime.main_quest and runtime.main_quest.completed_20590_reward == true then
-        return
-    end
     local now = now_seconds()
     if not main_quest_target_available("20590") then
+        return
+    end
+    local state = main_quest_read_20590_state(now)
+    local reward_dialog_open = type(main_quest_20590.isRewardDialog) == "function"
+        and main_quest_20590.isRewardDialog(state.dialog)
+    if runtime.main_quest and runtime.main_quest.completed_20590_reward == true
+        and not reward_dialog_open then
         return
     end
     if ok_main_quest_20610 and main_quest_20610 then
         local quest_20610 = main_quest_cached_20610(now)
         if main_quest_20610.isQuestKnown(quest_20610)
-            and (main_quest_20610.isQuestActive(quest_20610) or main_quest_20610.isQuestDone(quest_20610)) then
+            and (main_quest_20610.isQuestActive(quest_20610) or main_quest_20610.isQuestDone(quest_20610))
+            and not reward_dialog_open then
             runtime.main_quest.completed_20590_reward = true
             return
         end
     end
-    local state = main_quest_read_20590_state(now)
     local route_stage = main_quest_active_route_stage()
     local action = main_quest_20590.nextAction(state, runtime.main_quest, {
         npc_range = 4,
@@ -9087,10 +9152,10 @@ function main_quest_20610_tick()
         return
     end
     local now = now_seconds()
-    local blocked, block_reason = main_quest_later_tasks_blocked(now)
+    local blocked, block_reason = main_quest_later_tasks_blocked(now, "20610")
     if blocked then
         main_quest_trace("stage-gate:20610",
-            "blocked=" .. tostring(block_reason or "") .. " run 20590 first",
+            "blocked=" .. tostring(block_reason or "") .. " run earlier task first",
             1.0)
         return
     end
@@ -9148,13 +9213,13 @@ function main_quest_20611_tick()
         return
     end
     local now = now_seconds()
-    local blocked, block_reason = main_quest_later_tasks_blocked(now)
+    local blocked, block_reason = main_quest_later_tasks_blocked(now, "20611")
     if blocked then
         if runtime.main_quest.active_20611_grind == true then
             main_quest_stop_20611_grind("quest-20611-blocked-" .. tostring(block_reason or ""), false)
         end
         main_quest_trace("stage-gate:20611",
-            "blocked=" .. tostring(block_reason or "") .. " run 20590 first",
+            "blocked=" .. tostring(block_reason or "") .. " run earlier task first",
             1.0)
         return
     end
@@ -9218,7 +9283,8 @@ function main_quest_20611_tick()
         ":" .. tostring(runtime.main_quest.completed_20611_hotspot_teleport == true) ..
         ":" .. tostring(runtime.main_quest.reached_20612_start_point == true) ..
         ":" .. tostring(runtime.main_quest.completed_20612_start_dialog == true) ..
-        ":" .. tostring(runtime.main_quest.completed_20612_task_teleport == true)
+        ":" .. tostring(runtime.main_quest.completed_20612_task_teleport == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20612_reward_dialog == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -9252,6 +9318,7 @@ function main_quest_20611_tick()
             " q20612_point_done=" .. tostring(runtime.main_quest.reached_20612_start_point == true) ..
             " q20612_start_done=" .. tostring(runtime.main_quest.completed_20612_start_dialog == true) ..
             " q20612_teleport_done=" .. tostring(runtime.main_quest.completed_20612_task_teleport == true) ..
+            " q20612_reward_done=" .. tostring(runtime.main_quest.completed_20612_reward_dialog == true) ..
             " waiting_teleport=" .. tostring(runtime.main_quest.waiting_teleport == true) ..
             " teleport_qid=" .. tostring(runtime.main_quest.teleport_quest_id or 0) ..
             " teleport_stage=" .. tostring(runtime.main_quest.teleport_stage or "") ..
