@@ -6231,15 +6231,19 @@ function npc_click_dialog_ok_button(ui_runtime)
     return true, line
 end
 
-function npc_continuous_click_dialog_x()
+function npc_continuous_click_dialog_x(opts)
+    opts = opts or {}
     local ready, npc_runtime, ui_runtime = npc_dialog_prepare_runtime()
     if not ready then
         return false
     end
 
     cfg.npc_dialog = cfg.npc_dialog or {}
-    local max_steps = math.max(1, tonumber(cfg.npc_dialog.auto_click_steps) or 8)
-    local delay_ms = math.max(50, tonumber(cfg.npc_dialog.auto_click_delay_ms) or 450)
+    local max_steps = math.max(1, tonumber(opts.max_steps) or tonumber(cfg.npc_dialog.auto_click_steps) or 8)
+    local delay_ms = math.max(50, tonumber(opts.delay_ms) or tonumber(cfg.npc_dialog.auto_click_delay_ms) or 450)
+    local click_x = tonumber(opts.click_x) or tonumber(cfg.npc_dialog.auto_click_x) or 25
+    local click_y = tonumber(opts.click_y)
+    local click_y_tolerance = tonumber(opts.click_y_tolerance)
     local clicked_count = 0
     local last_line = ""
 
@@ -6254,7 +6258,7 @@ function npc_continuous_click_dialog_x()
             return clicked_count > 0
         end
 
-        local click_ok, line_or_err = npc_click_dialog_x_once(ui_runtime, step)
+        local click_ok, line_or_err = npc_click_dialog_x_once(ui_runtime, step, click_x, click_y, click_y_tolerance)
         if not click_ok then
             npc_dialog_set_status("F1连续点击停止: " .. tostring(line_or_err) ..
                 "，已点击 " .. tostring(clicked_count) .. " 次")
@@ -6513,6 +6517,7 @@ function main_quest_action_waits_after_move(action_name)
     action_name = tostring(action_name or "")
     return action_name == "InteractNpc"
         or action_name == "ClickDialogX"
+        or action_name == "ClickDialogXContinuous"
         or action_name == "ClickDialogXWaitTeleport"
         or action_name == "ClickDialogXCompleteQuest"
         or action_name == "ClickDialogOkCompleteQuest"
@@ -7069,7 +7074,7 @@ function main_quest_apply_startup_snapshot(reason)
         " qblue_id=" .. tostring(plan.remote_reward_quest_id or 0) ..
         " qblue=" .. tostring(plan.remote_reward_status or 0) ..
         " stopped_route_stage=" .. tostring(stopped_route_stage or "") ..
-        " build=mq-20611-tracker-teleport-wait-20260611" ..
+        " build=mq-20611-target-npc-continuous-x-20260611" ..
         " flags=" .. flag_text,
         0)
     main_quest_set_status("startup snapshot stage=" .. tostring(plan.stage or "") ..
@@ -8231,6 +8236,61 @@ function main_quest_execute_20590(action, state)
             " wait_dialog_until=" .. tostring(r.wait_dialog_until or 0),
             0)
         return ok and result ~= false
+    end
+
+    if name == "ClickDialogXContinuous" then
+        if not main_quest_action_cooldown(name .. ":" .. tostring(params.stage or params.type_text), 1.0) then
+            return true
+        end
+        local ready = npc_dialog_prepare_runtime()
+        if not ready then
+            main_quest_set_status("continuous dialog x-click failed: NPC dialog runtime unavailable")
+            return false
+        end
+        r.wait_dialog_stage = ""
+        r.wait_dialog_until = 0
+        main_quest_trace("click-continuous-before:" .. tostring(params.type_text or ""),
+            "action=" .. name ..
+            " stage=" .. tostring(params.stage or "") ..
+            " type=" .. tostring(params.type_text or "") ..
+            " content=" .. tostring(params.content_id or "") ..
+            " expected=" .. tostring(params.expected_content_id or "") ..
+            " click_x=" .. tostring(params.click_x or "") ..
+            " dialog=" .. main_quest_dialog_signature(state.dialog) ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
+        local ok = npc_continuous_click_dialog_x({
+            click_x = params.click_x,
+            click_y = params.click_y,
+            click_y_tolerance = params.click_y_tolerance,
+            max_steps = params.max_steps,
+            delay_ms = params.delay_ms,
+        })
+        if ok then
+            if tonumber(params.quest_id) == 20611 then
+                r.cached_quest_20611 = nil
+                r.last_quest_20611_read_at = 0
+            end
+            local settle_seconds = math.max(0,
+                tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
+            if settle_seconds > 0 then
+                r.post_dialog_settle_until = math.max(
+                    tonumber(r.post_dialog_settle_until) or 0,
+                    now_seconds() + settle_seconds)
+            end
+        end
+        local status = tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or "")
+        main_quest_set_status("continuous dialog x-click quest_id=" .. tostring(params.quest_id or "") ..
+            " stage=" .. tostring(params.stage or "") ..
+            " type=" .. tostring(params.type_text or "") ..
+            " click_x=" .. tostring(params.click_x or "") ..
+            " result=" .. tostring(ok) ..
+            " status=" .. status)
+        main_quest_trace("click-continuous-after:" .. tostring(params.type_text or ""),
+            "ok=" .. tostring(ok) ..
+            " status=" .. status,
+            0)
+        return ok
     end
 
     if name == "ClickDialogX" or name == "ClickDialogXWaitTeleport" or name == "ClickDialogXCompleteQuest" then

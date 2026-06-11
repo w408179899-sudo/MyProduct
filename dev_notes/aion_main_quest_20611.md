@@ -175,3 +175,32 @@ clicked_20611_target_link
 clicked_20611_dictionary_teleport
 completed_20611_target_teleport
 ```
+
+## Target NPC
+
+After the right tracker teleport, the next recorded state is still quest `20611` with `status_code=3 req_count=2`, but the character is next to `울고른`:
+
+```text
+target=울고른
+interact_id=2147520815
+npc_pos=589.35,2450.16,278.38
+char_pos=589.70,2450.37,278.38
+distance=0.41
+dialog=open
+npc_dialog_id=2147520815
+content_id=10
+type=select_quest
+```
+
+Use centralized NPC name key `MQ20611_NPC_003_TARGET`. If the character is already near this NPC, handle this stage directly even if `completed_20611_target_teleport` was not set by an older run.
+
+The first target NPC dialog entry is child `[06]` at `x=24.67 y=171.53`, but this NPC should use the same continuous x-click helper as the NPC test button:
+
+```text
+ClickDialogXContinuous stage=quest_20611_target_npc
+click_x=25
+```
+
+This action repeatedly reads the current NPC dialog and clicks the visible `dlg_dialog` child nearest `x=25` until the dialog closes or the configured click limit is reached.
+
+Do not apply continuous x-click globally. It is only for explicitly recorded dialog stages that are known to be linear x=25 chains. Unknown target NPC pages should still dump first, then be added to `target_dialog_steps` only after observation.

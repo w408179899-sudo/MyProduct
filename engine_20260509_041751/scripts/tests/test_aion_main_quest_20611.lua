@@ -36,6 +36,10 @@ local function obelisk_char()
     return { x = 584.72, y = 2466.97, z = 278.62, level = 10 }
 end
 
+local function target_npc_char()
+    return { x = 589.70, y = 2450.37, z = 278.38, level = 10 }
+end
+
 local function run()
     T.reset()
     T.log("\n=== aion main quest 20611 tests ===")
@@ -494,6 +498,91 @@ local function run()
         T.assert_eq(next_action.params.open_panel_key, false)
         T.assert_eq(next_action.params.require_panel_visible, true)
         T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("opens quest 20611 target npc after target teleport landing", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = target_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_target_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 2)
+        T.assert_eq(next_action.params.stage, "quest_20611_target_npc")
+        T.assert_eq(next_action.params.interact_id, 2147520815)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_003_TARGET")
+    end)
+
+    T.test("opens quest 20611 target npc when already near target", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = target_npc_char(),
+            big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.stage, "quest_20611_target_npc")
+        T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_003_TARGET")
+    end)
+
+    T.test("continuously clicks x in quest 20611 target npc select list", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = target_npc_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147520815,
+                dialog_content_id = 10,
+                quest_id = 0,
+                type_text = "select_quest",
+            },
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 2)
+        T.assert_eq(next_action.params.stage, "quest_20611_target_npc")
+        T.assert_eq(next_action.params.expected_content_id, 10)
+        T.assert_eq(next_action.params.content_id, 10)
+        T.assert_eq(next_action.params.type_text, "select_quest")
+        T.assert_eq(next_action.params.click_x, 25)
+        T.assert_eq(next_action.params.interact_id, 2147520815)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_003_TARGET")
+    end)
+
+    T.test("dumps unknown quest 20611 target npc dialog pages", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = target_npc_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147520815,
+                dialog_content_id = 1201,
+                quest_id = 20611,
+                type_text = "select_target_followup",
+            },
+        })
+
+        T.assert_eq(next_action.name, "DumpDialog")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_target_npc")
+        T.assert_eq(next_action.params.content_id, 1201)
     end)
 
     T.test("does not click stale quest 20611 dictionary teleport before current quest panel", function()

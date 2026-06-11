@@ -35,6 +35,14 @@ M.obelisk = {
     y = 2467.10,
     z = 278.79,
 }
+M.target_npc = {
+    name_key = "MQ20611_NPC_003_TARGET",
+    name = npc_names.MQ20611_NPC_003_TARGET,
+    interact_id = 2147520815,
+    x = 589.35,
+    y = 2450.16,
+    z = 278.38,
+}
 M.obelisk_confirm = {
     x = 684,
     y = 437,
@@ -94,6 +102,13 @@ M.dialog_steps = {
         content_id = 1014,
         action = "ClickDialogXCompleteQuest",
         reason = "complete quest 20611 mission dialog",
+    },
+}
+M.target_dialog_steps = {
+    select_quest = {
+        content_id = 10,
+        action = "ClickDialogXContinuous",
+        reason = "accept quest 20611 target npc dialog by continuous x-click",
     },
 }
 
@@ -196,6 +211,10 @@ end
 
 function M.distanceToObelisk(char)
     return distance3(char, M.obelisk)
+end
+
+function M.distanceToTargetNpc(char)
+    return distance3(char, M.target_npc)
 end
 
 function M.questStep(quest)
@@ -323,6 +342,11 @@ end
 function M.isMissionNpcDialog(dialog)
     return type(dialog) == "table"
         and number(dialog.npc_dialog_id) == M.npc.interact_id
+end
+
+function M.isTargetNpcDialog(dialog)
+    return type(dialog) == "table"
+        and number(dialog.npc_dialog_id) == M.target_npc.interact_id
 end
 
 function M.isObeliskConfirmVisible(state)
@@ -552,6 +576,112 @@ function M.nextObeliskAction(state, runtime, opts, quest)
     })
 end
 
+function M.nextTargetNpcAction(state, runtime, opts, quest)
+    state = state or {}
+    opts = opts or {}
+    quest = quest or state.quest or M.findQuestById(state.quests, M.quest_id)
+
+    local dialog = state.dialog
+    if M.isTargetNpcDialog(dialog) then
+        local type_text = tostring(dialog.type_text or "")
+        local step = M.target_dialog_steps[type_text]
+        if step then
+            local expected_content_id = number(step.content_id)
+            if expected_content_id <= 0 then
+                expected_content_id = number(dialog.dialog_content_id)
+            end
+            return action(step.action, step.reason, {
+                quest_id = M.quest_id,
+                quest_step = M.questStep(quest),
+                expected_content_id = expected_content_id,
+                content_id = number(dialog.dialog_content_id),
+                type_text = type_text,
+                click_x = opts.dialog_click_x or 25,
+                click_y = step.click_y,
+                click_y_tolerance = step.click_y_tolerance,
+                max_steps = step.max_steps,
+                delay_ms = step.delay_ms,
+                interact_id = M.target_npc.interact_id,
+                npc_name = M.target_npc.name,
+                npc_name_key = M.target_npc.name_key,
+                stage = "quest_20611_target_npc",
+            })
+        end
+
+        return action("DumpDialog", "unknown quest 20611 target npc dialog stage", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            type_text = type_text,
+            content_id = number(dialog.dialog_content_id),
+            npc_dialog_id = number(dialog.npc_dialog_id),
+            interact_id = M.target_npc.interact_id,
+            npc_name = M.target_npc.name,
+            npc_name_key = M.target_npc.name_key,
+            stage = "quest_20611_target_npc",
+        })
+    end
+
+    if type(dialog) == "table" then
+        return action("DumpDialog", "different npc dialog is already open before target npc", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            type_text = tostring(dialog.type_text or ""),
+            content_id = number(dialog.dialog_content_id),
+            npc_dialog_id = number(dialog.npc_dialog_id),
+            interact_id = M.target_npc.interact_id,
+            npc_name = M.target_npc.name,
+            npc_name_key = M.target_npc.name_key,
+            stage = "quest_20611_target_npc",
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_id })
+    end
+
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.big_map_id then
+        return action("Idle", "quest 20611 target npc wrong map", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            big_map_id = current_big_map,
+            expected_big_map_id = M.big_map_id,
+            stage = "quest_20611_target_npc",
+        })
+    end
+
+    local range = number(opts.npc_range)
+    if range <= 0 then
+        range = 4
+    end
+    local dist = M.distanceToTargetNpc(char)
+    if dist > range then
+        return action("NavigateToNpc", "move to quest 20611 target npc", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = "quest_20611_target_npc",
+            interact_id = M.target_npc.interact_id,
+            npc_name = M.target_npc.name,
+            npc_name_key = M.target_npc.name_key,
+            x = M.target_npc.x,
+            y = M.target_npc.y,
+            z = M.target_npc.z,
+            distance = dist,
+            range = range,
+        })
+    end
+
+    return action("InteractNpc", "open quest 20611 target npc dialog", {
+        quest_id = M.quest_id,
+        quest_step = M.questStep(quest),
+        stage = "quest_20611_target_npc",
+        interact_id = M.target_npc.interact_id,
+        npc_name = M.target_npc.name,
+        npc_name_key = M.target_npc.name_key,
+    })
+end
+
 function M.nextIndicatorEntryName(runtime)
     local names = M.indicator_entry_names or {}
     local last = tostring(runtime and runtime.clicked_20611_indicator_entry_name or "")
@@ -661,6 +791,27 @@ function M.nextTargetTeleportAction(state, runtime, opts, quest)
     })
 end
 
+function M.nextTargetStepAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or state.quest or M.findQuestById(state.quests, M.quest_id)
+
+    local range = number(opts.npc_range)
+    if range <= 0 then
+        range = 4
+    end
+    local near_target_npc = type(state.char) == "table"
+        and M.distanceToTargetNpc(state.char) <= range
+    if M.isTargetNpcDialog(state.dialog)
+        or near_target_npc
+        or runtime.completed_20611_target_teleport == true then
+        return M.nextTargetNpcAction(state, runtime, opts, quest)
+    end
+
+    return M.nextTargetTeleportAction(state, runtime, opts, quest)
+end
+
 function M.nextAction(state, runtime, opts)
     state = state or {}
     runtime = runtime or {}
@@ -730,7 +881,7 @@ function M.nextAction(state, runtime, opts)
                 return M.nextObeliskAction(state, runtime, opts, active_quest)
             end
             if active_qid == M.quest_id and active_step == 2 then
-                return M.nextTargetTeleportAction(state, runtime, opts, active_quest)
+                return M.nextTargetStepAction(state, runtime, opts, active_quest)
             end
             if active_qid == M.quest_id and active_step > 1 then
                 return action("Idle", "quest 20611 next step is not recorded yet", {
