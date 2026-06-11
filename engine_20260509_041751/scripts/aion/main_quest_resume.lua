@@ -80,6 +80,14 @@ local function mark_after_20613(flags)
     flags.completed_20614_reward_dialog = false
 end
 
+local function mark_after_20614(flags)
+    mark_after_20613(flags)
+    flags.completed_20614_task_teleport = true
+    flags.completed_20614_start_dialog = true
+    flags.completed_20614_after_start_teleport = true
+    flags.completed_20614_reward_dialog = true
+end
+
 function M.findQuest(quests, id)
     id = number(id)
     for _, quest in ipairs(quests or {}) do
@@ -206,6 +214,7 @@ function M.plan(snapshot)
     local q20611 = M.findQuest(quests, 20611)
     local q20612 = M.findQuest(quests, 20612)
     local q20614 = M.findQuest(quests, 20614)
+    local q20615 = M.findQuest(quests, 20615)
     local remote_reward = M.findRemoteRewardQuest(quests)
     local level_blocked = M.findLevelBlockedQuest(quests)
     local level_blocked_id = quest_id(level_blocked)
@@ -309,6 +318,10 @@ function M.plan(snapshot)
             stage = "20614_after_start_teleport"
             reason = "quest 20614 is done after start dialog and still needs task teleport"
         end
+    elseif status_code(q20615) == 6 then
+        mark_after_20614(flags)
+        stage = "20615_level_blocked"
+        reason = "quest 20615 is level blocked and needs level 20 grind"
     elseif status_code(q20590) == 4 then
         stage = "20590"
         reason = "quest 20590 is done and needs reward flow"
@@ -324,7 +337,10 @@ function M.plan(snapshot)
         flags.completed_20611_grind = false
         flags.completed_20611_level_move = false
         flags.level_move_quest_id = 0
-        if level_blocked_id >= 20614 then
+        if level_blocked_id >= 20615 then
+            mark_after_20614(flags)
+            stage = tostring(level_blocked_id) .. "_level_blocked"
+        elseif level_blocked_id >= 20614 then
             mark_after_20613(flags)
             stage = tostring(level_blocked_id) .. "_level_blocked"
         elseif level_blocked_id == 20612

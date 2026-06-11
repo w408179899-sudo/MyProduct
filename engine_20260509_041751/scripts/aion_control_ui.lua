@@ -1031,6 +1031,7 @@ function main_quest_is_level_grind_stage(stage)
         or stage == "quest_20612_level_grind"
         or stage == "quest_20613_level14_grind"
         or stage == "quest_20614_level17_grind"
+        or stage == "quest_20615_level20_grind"
 end
 
 function main_quest_is_grind_stage(stage)
@@ -7379,6 +7380,7 @@ function main_quest_read_20611_state(now)
         or level_blocked_id == 20612
         or level_blocked_id == 20613
         or level_blocked_id == 20614
+        or level_blocked_id == 20615
         or r.completed_20612_start_dialog == true
         or r.completed_20612_reward_dialog == true
         or r.completed_20613_start_dialog == true
@@ -9864,6 +9866,10 @@ function main_quest_20611_tick()
         quest_20614_route_waypoint_radius = 6,
         quest_20614_route_final_radius = 2.5,
         quest_20614_route_resend_interval = 0.5,
+        quest_20615_level20_grind_point_range = 3,
+        quest_20615_route_waypoint_radius = 6,
+        quest_20615_route_final_radius = 2.5,
+        quest_20615_route_resend_interval = 0.5,
     })
     local remote_qid = tonumber(state.remote_reward_quest and state.remote_reward_quest.id) or 0
     local remote_status = tonumber(state.remote_reward_quest and state.remote_reward_quest.status_code) or 0

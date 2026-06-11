@@ -76,6 +76,10 @@ local function quest_20614_reward_npc_char()
     return { x = 600.78, y = 1480.36, z = 299.94, level = 17 }
 end
 
+local function quest_20615_level20_grind_char(level)
+    return { x = 666.23, y = 1535.34, z = 294.01, level = level or 17 }
+end
+
 local function post_20612_level14_grind_char(level)
     return { x = 1093.60, y = 2247.10, z = 254.25, level = level or 11 }
 end
@@ -1560,6 +1564,94 @@ local function run()
         T.assert_eq(next_action.name, "Idle")
         T.assert_eq(next_action.params.quest_id, 20614)
         T.assert_eq(next_action.params.stage, "quest_20614_reward_npc")
+    end)
+
+    T.test("follows quest 20615 level 20 grind route after quest 20614 reward", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = quest_20614_reward_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20613_after_start_reward_dialog = true,
+            completed_20614_task_teleport = true,
+            completed_20614_start_dialog = true,
+            completed_20614_after_start_teleport = true,
+            completed_20614_reward_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "FollowRoute")
+        T.assert_eq(next_action.params.quest_id, 20615)
+        T.assert_eq(next_action.params.stage, "quest_20615_level20_grind")
+        T.assert_eq(next_action.params.route_name, "main_quest_20615_level20_grind")
+        T.assert_eq(next_action.params.route_count, 44)
+        T.assert_eq(next_action.params.final_x, 666.227)
+        T.assert_eq(next_action.params.final_y, 1535.341)
+        T.assert_eq(next_action.params.final_z, 294.009)
+        T.assert_eq(next_action.params.main_quest_smooth_route, true)
+    end)
+
+    T.test("starts quest 20615 level 20 grind at route end", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = quest_20615_level20_grind_char(17),
+            big_map_id = 220010000,
+        }, {
+            completed_20614_reward_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "StartStationaryGrind")
+        T.assert_eq(next_action.params.quest_id, 20615)
+        T.assert_eq(next_action.params.stage, "quest_20615_level20_grind")
+        T.assert_eq(next_action.params.required_level, 20)
+        T.assert_eq(next_action.params.char_level, 17)
+        T.assert_eq(next_action.params.until_level, 20)
+    end)
+
+    T.test("waits while quest 20615 level 20 grind is active", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = quest_20615_level20_grind_char(18),
+            big_map_id = 220010000,
+        }, {
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20615_level20_grind",
+            level_grind_quest_id = 20615,
+            level_grind_required_level = 20,
+        })
+
+        T.assert_eq(next_action.name, "WaitLevelGrind")
+        T.assert_eq(next_action.params.quest_id, 20615)
+        T.assert_eq(next_action.params.stage, "quest_20615_level20_grind")
+        T.assert_eq(next_action.params.required_level, 20)
+        T.assert_eq(next_action.params.char_level, 18)
+    end)
+
+    T.test("idles after quest 20615 reaches level 20", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = quest_20615_level20_grind_char(20),
+            big_map_id = 220010000,
+        }, {
+            completed_20614_reward_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20615)
+        T.assert_eq(next_action.params.stage, "quest_20615_level20_grind")
+        T.assert_eq(next_action.params.required_level, 20)
+        T.assert_eq(next_action.params.char_level, 20)
     end)
 
     T.test("does not start quest 20614 level grind after quest 20613 start dialog", function()

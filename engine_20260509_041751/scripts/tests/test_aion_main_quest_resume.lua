@@ -405,6 +405,23 @@ local function run()
         T.assert_eq(plan.flags.completed_20614_reward_dialog, false)
     end)
 
+    T.test("level blocked quest 20615 resumes level 20 grind", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20615", level = 17 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20615, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20615_level_blocked")
+        T.assert_eq(plan.flags.completed_20614_task_teleport, true)
+        T.assert_eq(plan.flags.completed_20614_start_dialog, true)
+        T.assert_eq(plan.flags.completed_20614_after_start_teleport, true)
+        T.assert_eq(plan.flags.completed_20614_reward_dialog, true)
+    end)
+
     T.test("quest 20611 hotspot reward snapshot is not treated as quest 20612 grind", function()
         local resume = load_module()
         local plan = resume.plan({
