@@ -60,6 +60,14 @@ local function quest_20612_reward_npc_char()
     return { x = 1047.94, y = 2203.23, z = 262.36, level = 11 }
 end
 
+local function quest_20613_start_npc_char()
+    return { x = 1048.52, y = 2198.80, z = 262.33, level = 14 }
+end
+
+local function quest_20613_after_start_reward_npc_char()
+    return { x = 944.00, y = 1701.69, z = 259.66, level = 14 }
+end
+
 local function post_20612_level14_grind_char(level)
     return { x = 1093.60, y = 2247.10, z = 254.25, level = level or 11 }
 end
@@ -676,12 +684,12 @@ local function run()
         T.assert_eq(next_action.params.char_level, 13)
     end)
 
-    T.test("idles after fixed post quest 20612 grind reaches level 14", function()
+    T.test("opens current tracker after fixed post quest 20612 grind reaches level 14", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
                 { id = 20612, tab = 0, status_code = 4, req_count = 0, seq = 2, lv_num = 11 },
-                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
             },
             char = post_20612_level14_grind_char(14),
             big_map_id = 220010000,
@@ -695,11 +703,501 @@ local function run()
             level_grind_required_level = 14,
         })
 
+        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+        T.assert_eq(next_action.params.parent, "quest_indicator_dialog")
+    end)
+
+    T.test("opens current tracker for active quest 20613 after restart", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = { x = 1103.14, y = 2225.12, z = 253.32, level = 14 },
+            big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.quest_step, 0)
+        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+    end)
+
+    T.test("calls quest 20613 teleport after current tracker panel opens", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+            },
+            char = { x = 1103.14, y = 2225.12, z = 253.32, level = 14 },
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            clicked_20611_indicator_title = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.quest_step, 0)
+        T.assert_eq(next_action.params.stage, "quest_20613_task_teleport")
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, true)
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("waits for quest 20613 task teleport landing", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = { x = 1103.14, y = 2225.12, z = 253.32, level = 14 },
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_quest_id = 20613,
+            teleport_stage = "quest_20613_task_teleport",
+            teleport_start_pos = { x = 1103.14, y = 2225.12, z = 253.32, level = 14 },
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_task_teleport")
+    end)
+
+    T.test("completes quest 20613 task teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = { x = 1150.00, y = 2190.00, z = 250.00, level = 14 },
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_quest_id = 20613,
+            teleport_stage = "quest_20613_task_teleport",
+            teleport_start_pos = { x = 1103.14, y = 2225.12, z = 253.32, level = 14 },
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_task_teleport")
+    end)
+
+    T.test("moves to quest 20613 start npc after task teleport", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = { x = 1150.00, y = 2190.00, z = 250.00, level = 14 },
+            big_map_id = 220010000,
+        }, {
+            completed_20613_task_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "NavigateToNpc")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_start_npc")
+        T.assert_eq(next_action.params.interact_id, 2147495609)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20613_NPC_001_START")
+        T.assert_eq(next_action.params.x, 1050.70)
+        T.assert_eq(next_action.params.y, 2201.12)
+        T.assert_eq(next_action.params.z, 262.81)
+    end)
+
+    T.test("opens quest 20613 start npc dialog after task teleport", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20613_task_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_start_npc")
+        T.assert_eq(next_action.params.interact_id, 2147495609)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20613_NPC_001_START")
+        T.assert_eq(next_action.params.allow_interact_id_fallback, true)
+        T.assert_eq(next_action.params.after_open_continuous_x, true)
+        T.assert_eq(next_action.params.after_open_expected_content_id, 10)
+        T.assert_eq(next_action.params.click_x, 25)
+    end)
+
+    T.test("opens quest 20613 start npc dialog after landing even when teleport flag is missing", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+        }, {})
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_start_npc")
+        T.assert_eq(next_action.params.interact_id, 2147495609)
+        T.assert_eq(next_action.params.after_open_continuous_x, true)
+    end)
+
+    T.test("keeps quest 20613 task teleport when active quest is not near landing npc", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = { x = 1103.14, y = 2225.12, z = 253.32, level = 14 },
+            big_map_id = 220010000,
+        }, {})
+
+        T.assert_eq(next_action.name, "OpenCurrentQuestTracker")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_task_teleport")
+    end)
+
+    T.test("continuous x-clicks opened quest 20613 start npc dialog", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147495609,
+                dialog_content_id = 10,
+                quest_id = 0,
+                type_text = "select_quest",
+            },
+        }, {
+            completed_20613_task_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_start_npc")
+        T.assert_eq(next_action.params.expected_content_id, 10)
+        T.assert_eq(next_action.params.content_id, 10)
+        T.assert_eq(next_action.params.type_text, "select_quest")
+        T.assert_eq(next_action.params.click_x, 25)
+        T.assert_eq(next_action.params.interact_id, 2147495609)
+    end)
+
+    T.test("continuous x-clicks quest 20613 start npc dialog by content id fallback", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147495609,
+                content_id = 10,
+                quest_id = 0,
+                type_text = "",
+            },
+        }, {
+            completed_20613_task_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_start_npc")
+        T.assert_eq(next_action.params.expected_content_id, 10)
+        T.assert_eq(next_action.params.content_id, 10)
+        T.assert_eq(next_action.params.type_text, "select_quest")
+        T.assert_eq(next_action.params.click_x, 25)
+    end)
+
+    T.test("opens current tracker after quest 20613 start dialog is completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 1, seq = 3, lv_num = 14 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20613_task_teleport = true,
+            completed_20613_start_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.quest_step, 1)
+        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+        T.assert_eq(next_action.params.parent, "quest_indicator_dialog")
+    end)
+
+    T.test("calls quest 20613 after-start teleport after current tracker panel opens", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 1, seq = 3, lv_num = 14 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            completed_20613_task_teleport = true,
+            completed_20613_start_dialog = true,
+            clicked_20611_indicator_title = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.quest_step, 1)
+        T.assert_eq(next_action.params.stage, "quest_20613_after_start_teleport")
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, true)
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("uses quest 20613 step progress to start after-start teleport when dialog flag is missing", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 1, seq = 3, lv_num = 14 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            completed_20613_task_teleport = true,
+            clicked_20611_indicator_title = true,
+            completed_20612_reward_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.quest_step, 1)
+        T.assert_eq(next_action.params.stage, "quest_20613_after_start_teleport")
+    end)
+
+    T.test("uses quest 20613 done status to start after-start teleport after restart", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 4, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            clicked_20611_indicator_title = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_after_start_teleport")
+    end)
+
+    T.test("does not restart level 14 grind after quest 20613 task teleport is done", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = { x = 1048.52, y = 2198.80, z = 262.33, level = 13 },
+            big_map_id = 220010000,
+        }, {
+            completed_20612_reward_dialog = true,
+            completed_20613_task_teleport = true,
+        })
+
+        T.assert_true(next_action.name ~= "StartStationaryGrind", "20613 teleport flow must not restart level grind")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_start_npc")
+    end)
+
+    T.test("waits for quest 20613 after-start teleport landing", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 1, seq = 3, lv_num = 14 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_quest_id = 20613,
+            teleport_stage = "quest_20613_after_start_teleport",
+            teleport_start_pos = quest_20613_start_npc_char(),
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_after_start_teleport")
+    end)
+
+    T.test("completes quest 20613 after-start teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 1, seq = 3, lv_num = 14 },
+            },
+            char = { x = 1000.00, y = 2150.00, z = 260.00, level = 14 },
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_quest_id = 20613,
+            teleport_stage = "quest_20613_after_start_teleport",
+            teleport_start_pos = quest_20613_start_npc_char(),
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_after_start_teleport")
+    end)
+
+    T.test("opens quest 20613 after-start reward npc after teleport complete", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 4, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = quest_20613_after_start_reward_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20613_task_teleport = true,
+            completed_20613_start_dialog = true,
+            completed_20613_after_start_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_after_start_reward_npc")
+        T.assert_eq(next_action.params.interact_id, 2147507242)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20613_NPC_002_AFTER_START_REWARD")
+        T.assert_eq(next_action.params.allow_interact_id_fallback, true)
+        T.assert_eq(next_action.params.after_open_continuous_x, true)
+        T.assert_eq(next_action.params.after_open_expected_content_id, 10002)
+        T.assert_eq(next_action.params.click_x, 25)
+    end)
+
+    T.test("continuous x-clicks opened quest 20613 after-start reward npc dialog", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 4, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = quest_20613_after_start_reward_npc_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147507242,
+                dialog_content_id = 10002,
+                content_id = 10002,
+                quest_id = 20613,
+                type_text = "select_success",
+            },
+        }, {
+            completed_20613_task_teleport = true,
+            completed_20613_start_dialog = true,
+            completed_20613_after_start_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_after_start_reward_npc")
+        T.assert_eq(next_action.params.expected_content_id, 10002)
+        T.assert_eq(next_action.params.content_id, 10002)
+        T.assert_eq(next_action.params.type_text, "select_success")
+        T.assert_eq(next_action.params.click_x, 25)
+        T.assert_eq(next_action.params.interact_id, 2147507242)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20613_NPC_002_AFTER_START_REWARD")
+    end)
+
+    T.test("uses reward npc dialog after landing even when teleport flag is missing", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 4, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = quest_20613_after_start_reward_npc_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147507242,
+                dialog_content_id = 10002,
+                content_id = 10002,
+                quest_id = 20613,
+                type_text = "select_success",
+            },
+        }, {})
+
+        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_after_start_reward_npc")
+    end)
+
+    T.test("idles after quest 20613 after-start reward dialog completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = quest_20613_after_start_reward_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20613_task_teleport = true,
+            completed_20613_start_dialog = true,
+            completed_20613_after_start_teleport = true,
+            completed_20613_after_start_reward_dialog = true,
+        })
+
         T.assert_eq(next_action.name, "Idle")
         T.assert_eq(next_action.params.quest_id, 20613)
-        T.assert_eq(next_action.params.stage, "quest_20613_level14_grind")
-        T.assert_eq(next_action.params.required_level, 14)
-        T.assert_eq(next_action.params.char_level, 14)
+        T.assert_eq(next_action.params.stage, "quest_20613_after_start_reward_npc")
+    end)
+
+    T.test("does not start quest 20614 level grind after quest 20613 start dialog", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = quest_20613_after_start_reward_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20613_task_teleport = true,
+            completed_20613_start_dialog = true,
+            completed_20613_after_start_teleport = true,
+        })
+
+        T.assert_true(next_action.name ~= "StartStationaryGrind", "20614 grind must wait for 20613 reward dialog")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_after_start_reward_npc")
     end)
 
     T.test("idles after quest 20612 task teleport is completed", function()
