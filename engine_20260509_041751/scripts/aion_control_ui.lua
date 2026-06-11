@@ -315,6 +315,8 @@ local runtime = {
         clicked_20611_target_link = false,
         clicked_20611_dictionary_teleport = false,
         completed_20611_target_teleport = false,
+        completed_20611_target_dialog = false,
+        completed_20611_hotspot_teleport = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -6251,18 +6253,18 @@ function npc_continuous_click_dialog_x(opts)
         local dialog_ok, info_or_err, dialog_err = npc_runtime.dialog()
         if not dialog_ok then
             npc_dialog_set_status("F1连续点击停止: 读取对话失败 " .. tostring(dialog_err or info_or_err))
-            return clicked_count > 0
+            return clicked_count > 0, "dialog_read_failed"
         end
         if not info_or_err then
             npc_dialog_set_status("F1连续点击完成: 对话框已关闭，点击 " .. tostring(clicked_count) .. " 次")
-            return clicked_count > 0
+            return clicked_count > 0, "closed"
         end
 
         local click_ok, line_or_err = npc_click_dialog_x_once(ui_runtime, step, click_x, click_y, click_y_tolerance)
         if not click_ok then
             npc_dialog_set_status("F1连续点击停止: " .. tostring(line_or_err) ..
                 "，已点击 " .. tostring(clicked_count) .. " 次")
-            return clicked_count > 0
+            return clicked_count > 0, "click_failed"
         end
 
         clicked_count = clicked_count + 1
@@ -6522,6 +6524,7 @@ function main_quest_action_waits_after_move(action_name)
         or action_name == "ClickDialogXCompleteQuest"
         or action_name == "ClickDialogOkCompleteQuest"
         or action_name == "ClickObeliskConfirm"
+        or action_name == "MapNodeTeleportByName"
         or action_name == "StartStationaryGrind"
 end
 
@@ -6637,6 +6640,8 @@ function main_quest_reset_runtime(reason)
     r.clicked_20611_target_link = false
     r.clicked_20611_dictionary_teleport = false
     r.completed_20611_target_teleport = false
+    r.completed_20611_target_dialog = false
+    r.completed_20611_hotspot_teleport = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7074,7 +7079,7 @@ function main_quest_apply_startup_snapshot(reason)
         " qblue_id=" .. tostring(plan.remote_reward_quest_id or 0) ..
         " qblue=" .. tostring(plan.remote_reward_status or 0) ..
         " stopped_route_stage=" .. tostring(stopped_route_stage or "") ..
-        " build=mq-20611-target-npc-continuous-x-20260611" ..
+        " build=mq-20611-hotspot-map-teleport-20260611" ..
         " flags=" .. flag_text,
         0)
     main_quest_set_status("startup snapshot stage=" .. tostring(plan.stage or "") ..
@@ -7998,6 +8003,164 @@ function main_quest_execute_20590(action, state)
         return click_ok
     end
 
+    if name == "MapNodeTeleportByName" then
+        local post_dialog_settle_until = tonumber(r.post_dialog_settle_until) or 0
+        local now = now_seconds()
+        if now < post_dialog_settle_until then
+            if main_quest_action_cooldown("PostDialogSettle:" .. tostring(stage), 0.4) then
+                main_quest_set_status("绛夊緟瀵硅瘽瀹屾垚鍚庡湴鍥句紶閫?stage=" .. tostring(stage) ..
+                    " remain=" .. string.format("%.1f", post_dialog_settle_until - now))
+            end
+            return true
+        end
+        if not main_quest_action_cooldown(name .. ":" .. tostring(stage), 1.0) then
+            return true
+        end
+        if not ok_map or not map or type(map.nodes) ~= "function" or type(map.nodeTeleport) ~= "function" then
+            main_quest_set_status("map node teleport failed: aion.map unavailable")
+            return false
+        end
+        if ok_core and core and type(core.ensureInit) == "function" then
+            local init_ok, init_err = core.ensureInit(tonumber(cfg.target.pid) or nil)
+            if not init_ok then
+                main_quest_set_status("map node teleport init failed: " .. tostring(init_err))
+                return false
+            end
+        end
+
+        local big_map_id = tonumber(params.big_map_id) or tonumber(state.big_map_id) or 0
+        if big_map_id <= 0 and type(map.bigMapId) == "function" then
+            local id_ok, id_value, id_err = map.bigMapId()
+            if id_ok then
+                big_map_id = tonumber(id_value) or 0
+            else
+                main_quest_trace("map-node-teleport-big-map:" .. tostring(stage),
+                    "read failed err=" .. tostring(id_err or ""),
+                    0)
+            end
+        end
+
+        local list_ok, nodes, list_err = map.nodes(big_map_id > 0 and big_map_id or nil)
+        if not list_ok then
+            main_quest_set_status("map node teleport list failed: " .. tostring(list_err))
+            return false
+        end
+
+        local wanted_name = tostring(params.node_name or "")
+        local wanted_name_en = tostring(params.node_name_en or "")
+        local wanted_id = tonumber(params.node_id) or 0
+        local selected = nil
+        local selected_index = 0
+        local match_type = ""
+
+        for index, node in ipairs(nodes or {}) do
+            local node_name = tostring(node.name or "")
+            local node_name_en = tostring(node.name_en or "")
+            if (wanted_name ~= "" and (node_name == wanted_name or node_name_en == wanted_name))
+                or (wanted_name_en ~= "" and (node_name == wanted_name_en or node_name_en == wanted_name_en)) then
+                selected = node
+                selected_index = index
+                match_type = "name"
+                break
+            end
+        end
+        if not selected and wanted_id > 0 then
+            for index, node in ipairs(nodes or {}) do
+                if tonumber(node.node_id or node.id or 0) == wanted_id then
+                    selected = node
+                    selected_index = index
+                    match_type = "id"
+                    break
+                end
+            end
+        end
+
+        if not selected then
+            main_quest_set_status("map node teleport target not found name=" .. wanted_name ..
+                " name_en=" .. wanted_name_en ..
+                " id=" .. tostring(wanted_id) ..
+                " count=" .. tostring(count_array(nodes or {})))
+            main_quest_trace("map-node-teleport-not-found:" .. tostring(stage),
+                "quest=" .. tostring(params.quest_id or "") ..
+                " big_map_id=" .. tostring(big_map_id) ..
+                " name=" .. wanted_name ..
+                " name_en=" .. wanted_name_en ..
+                " id=" .. tostring(wanted_id) ..
+                " count=" .. tostring(count_array(nodes or {})),
+                0)
+            return false
+        end
+
+        local node_id = tonumber(selected.node_id or selected.id or 0) or 0
+        local price = tonumber(selected.price)
+        if price == nil then
+            price = tonumber(params.price) or 0
+        end
+        if node_id <= 0 then
+            main_quest_set_status("map node teleport failed: invalid node_id match=" .. match_type)
+            return false
+        end
+
+        if type(map.canTeleport) == "function" then
+            local can_ok, can_value, can_err = map.canTeleport()
+            if can_ok and can_value ~= true then
+                main_quest_set_status("map node teleport waiting: IsCanTeleport=false stage=" .. tostring(stage) ..
+                    " node_id=" .. tostring(node_id))
+                main_quest_trace("map-node-teleport-wait-can:" .. tostring(stage),
+                    "quest=" .. tostring(params.quest_id or "") ..
+                    " node_id=" .. tostring(node_id) ..
+                    " name=" .. tostring(selected.name or "") ..
+                    " name_en=" .. tostring(selected.name_en or "") ..
+                    " pos=" .. main_quest_position_text(state.char),
+                    0.5)
+                return true
+            elseif not can_ok then
+                main_quest_trace("map-node-teleport-can-failed:" .. tostring(stage),
+                    "err=" .. tostring(can_err or "") .. " will_attempt=true",
+                    0)
+            end
+        end
+
+        local ok, result, err = map.nodeTeleport(node_id, price)
+        if ok and result ~= false and params.wait_teleport ~= false then
+            r.waiting_teleport = true
+            r.teleport_stage = tostring(stage or "")
+            r.teleport_start_pos = state.char
+            r.teleport_start_big_map_id = tonumber(state.big_map_id) or big_map_id
+        end
+        if ok and result ~= false and tonumber(params.quest_id) == 20611 then
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+        end
+
+        local label = ""
+        if type(teleport_node_label) == "function" then
+            label = teleport_node_label(selected, selected_index)
+        else
+            label = tostring(selected.name or selected.name_en or node_id)
+        end
+        main_quest_set_status("map node teleport call quest_id=" .. tostring(params.quest_id or "") ..
+            " stage=" .. tostring(stage) ..
+            " match=" .. match_type ..
+            " node=" .. label ..
+            " result=" .. tostring(result) ..
+            " err=" .. tostring(err or ""))
+        main_quest_trace("map-node-teleport:" .. tostring(stage),
+            "quest=" .. tostring(params.quest_id or "") ..
+            " ok=" .. tostring(ok) ..
+            " result=" .. tostring(result) ..
+            " match=" .. match_type ..
+            " node_id=" .. tostring(node_id) ..
+            " price=" .. tostring(price) ..
+            " name=" .. tostring(selected.name or "") ..
+            " name_en=" .. tostring(selected.name_en or "") ..
+            " big_map_id=" .. tostring(big_map_id) ..
+            " err=" .. tostring(err or "") ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
+        return ok and result ~= false
+    end
+
     if name == "ClickObeliskConfirm" then
         if not main_quest_action_cooldown(name .. ":" .. tostring(stage), 0.8) then
             return true
@@ -8259,17 +8422,21 @@ function main_quest_execute_20590(action, state)
             " dialog=" .. main_quest_dialog_signature(state.dialog) ..
             " pos=" .. main_quest_position_text(state.char),
             0)
-        local ok = npc_continuous_click_dialog_x({
+        local ok, continuous_result = npc_continuous_click_dialog_x({
             click_x = params.click_x,
             click_y = params.click_y,
             click_y_tolerance = params.click_y_tolerance,
             max_steps = params.max_steps,
             delay_ms = params.delay_ms,
         })
+        local continuous_finished = continuous_result == "closed" or continuous_result == "limit_ok"
         if ok then
             if tonumber(params.quest_id) == 20611 then
                 r.cached_quest_20611 = nil
                 r.last_quest_20611_read_at = 0
+                if tostring(params.stage or "") == "quest_20611_target_npc" and continuous_finished then
+                    r.completed_20611_target_dialog = true
+                end
             end
             local settle_seconds = math.max(0,
                 tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
@@ -8285,9 +8452,11 @@ function main_quest_execute_20590(action, state)
             " type=" .. tostring(params.type_text or "") ..
             " click_x=" .. tostring(params.click_x or "") ..
             " result=" .. tostring(ok) ..
+            " finish=" .. tostring(continuous_result or "") ..
             " status=" .. status)
         main_quest_trace("click-continuous-after:" .. tostring(params.type_text or ""),
             "ok=" .. tostring(ok) ..
+            " finish=" .. tostring(continuous_result or "") ..
             " status=" .. status,
             0)
         return ok
@@ -8436,6 +8605,27 @@ function main_quest_execute_20590(action, state)
             r.completed_20590_teleport = false
         end
         main_quest_set_status("主线20590阶段完成 stage=" .. stage .. " reason=" .. tostring(action.reason or ""))
+        return true
+    end
+
+    if name == "CompleteMapNodeTeleport" then
+        r.waiting_teleport = false
+        r.wait_dialog_stage = ""
+        r.wait_dialog_until = 0
+        local stage = tostring(params.stage or "")
+        if tonumber(params.quest_id) == 20611 and stage == "quest_20611_hotspot_teleport" then
+            r.completed_20611_hotspot_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+        end
+        main_quest_set_status("complete map node teleport quest_id=" .. tostring(params.quest_id or "") ..
+            " stage=" .. tostring(stage) ..
+            " reason=" .. tostring(action.reason or ""))
+        main_quest_trace("map-node-teleport-complete:" .. tostring(stage),
+            "quest=" .. tostring(params.quest_id or "") ..
+            " reason=" .. tostring(action.reason or "") ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
         return true
     end
 
@@ -8817,7 +9007,9 @@ function main_quest_20611_tick()
         ":" .. tostring(ui_state.dictionary_teleport_to_npc == true) ..
         ":" .. tostring(runtime.main_quest.clicked_20611_indicator_title == true) ..
         ":" .. tostring(runtime.main_quest.clicked_20611_indicator_entry_name or "") ..
-        ":" .. tostring(runtime.main_quest.clicked_20611_target_link == true)
+        ":" .. tostring(runtime.main_quest.clicked_20611_target_link == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20611_target_dialog == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20611_hotspot_teleport == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -8842,6 +9034,8 @@ function main_quest_20611_tick()
             " clicked_indicator_title=" .. tostring(runtime.main_quest.clicked_20611_indicator_title == true) ..
             " clicked_indicator_name=" .. tostring(runtime.main_quest.clicked_20611_indicator_entry_name or "") ..
             " clicked_link=" .. tostring(runtime.main_quest.clicked_20611_target_link == true) ..
+            " target_dialog_done=" .. tostring(runtime.main_quest.completed_20611_target_dialog == true) ..
+            " hotspot_done=" .. tostring(runtime.main_quest.completed_20611_hotspot_teleport == true) ..
             " pos=" .. main_quest_position_text(state.char),
             0)
         runtime.main_quest.last_decision_20611_signature = decision_sig

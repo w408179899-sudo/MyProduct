@@ -563,6 +563,28 @@ local function run()
         T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_003_TARGET")
     end)
 
+    T.test("teleports quest 20611 to hotspot after target npc dialog", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = target_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_target_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "MapNodeTeleportByName")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 2)
+        T.assert_eq(next_action.params.stage, "quest_20611_hotspot_teleport")
+        T.assert_eq(next_action.params.node_name, "투나프레 호수")
+        T.assert_eq(next_action.params.node_name_en, "HOTSPOT_DF1_04")
+        T.assert_eq(next_action.params.node_id, 66)
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
     T.test("dumps unknown quest 20611 target npc dialog pages", function()
         local quest = load_module()
         local next_action = quest.nextAction({
@@ -621,6 +643,46 @@ local function run()
         T.assert_eq(next_action.name, "WaitPositionChanged")
         T.assert_eq(next_action.params.quest_id, 20611)
         T.assert_eq(next_action.params.stage, "quest_20611_target_teleport")
+    end)
+
+    T.test("waits for quest 20611 hotspot map node teleport landing", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = target_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_stage = "quest_20611_hotspot_teleport",
+            teleport_start_pos = target_npc_char(),
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_hotspot_teleport")
+    end)
+
+    T.test("completes quest 20611 hotspot map node teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 2, seq = 1, lv_num = 8 },
+            },
+            char = { x = 491.00, y = 2301.00, z = 300.00, level = 10 },
+            big_map_id = 220010000,
+        }, {
+            waiting_teleport = true,
+            teleport_stage = "quest_20611_hotspot_teleport",
+            teleport_start_pos = target_npc_char(),
+            teleport_start_big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteMapNodeTeleport")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_hotspot_teleport")
     end)
 
     T.test("completes quest 20611 target teleport after position changes", function()

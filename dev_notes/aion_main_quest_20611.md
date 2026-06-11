@@ -204,3 +204,29 @@ click_x=25
 This action repeatedly reads the current NPC dialog and clicks the visible `dlg_dialog` child nearest `x=25` until the dialog closes or the configured click limit is reached.
 
 Do not apply continuous x-click globally. It is only for explicitly recorded dialog stages that are known to be linear x=25 chains. Unknown target NPC pages should still dump first, then be added to `target_dialog_steps` only after observation.
+
+## Hotspot Map Teleport
+
+After the target NPC dialog finishes, the game opens the `M` map automatically. The next recorded step is not a fixed UI-coordinate click. Use the same map-node API path as the Test tab:
+
+```text
+AionData.GetMapNodeList(big_map_id)
+match node.name == 투나프레 호수 or node.name_en == HOTSPOT_DF1_04
+AionData.NodeTeleport(node_id=66, price=0)
+WaitPositionChanged / CompleteMapNodeTeleport stage=quest_20611_hotspot_teleport
+```
+
+Recorded node:
+
+```text
+03. 투나프레 호수 / HOTSPOT_DF1_04  id=66  price=0  pos=491.0,2301.0,300.0
+```
+
+Runtime flags:
+
+```text
+completed_20611_target_dialog
+completed_20611_hotspot_teleport
+```
+
+`ClickDialogXContinuous stage=quest_20611_target_npc` sets `completed_20611_target_dialog=true` after the dialog chain succeeds. The next action then returns `MapNodeTeleportByName` and only marks this stage complete after the character position changes.

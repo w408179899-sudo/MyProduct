@@ -14,6 +14,7 @@ M.obelisk_stage = "quest_20611_obelisk"
 M.indicator_title_stage = "quest_20611_indicator_title"
 M.target_link_stage = "quest_20611_target_link"
 M.target_teleport_stage = "quest_20611_target_teleport"
+M.hotspot_teleport_stage = "quest_20611_hotspot_teleport"
 M.grind_point = {
     x = 194.491,
     y = 2689.982,
@@ -42,6 +43,14 @@ M.target_npc = {
     x = 589.35,
     y = 2450.16,
     z = 278.38,
+}
+M.hotspot_node = {
+    name = "투나프레 호수",
+    name_en = "HOTSPOT_DF1_04",
+    node_id = 66,
+    x = 491.0,
+    y = 2301.0,
+    z = 300.0,
 }
 M.obelisk_confirm = {
     x = 684,
@@ -791,6 +800,34 @@ function M.nextTargetTeleportAction(state, runtime, opts, quest)
     })
 end
 
+function M.nextHotspotTeleportAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or state.quest or M.findQuestById(state.quests, M.quest_id)
+
+    if runtime.completed_20611_hotspot_teleport == true then
+        return action("Idle", "quest 20611 hotspot teleport already completed", {
+            quest_id = M.quest_id,
+            quest_step = M.questStep(quest),
+            stage = M.hotspot_teleport_stage,
+        })
+    end
+
+    return action("MapNodeTeleportByName", "teleport quest 20611 to hotspot node", {
+        quest_id = M.quest_id,
+        quest_step = M.questStep(quest),
+        stage = M.hotspot_teleport_stage,
+        node_name = M.hotspot_node.name,
+        node_name_en = M.hotspot_node.name_en,
+        node_id = M.hotspot_node.node_id,
+        x = M.hotspot_node.x,
+        y = M.hotspot_node.y,
+        z = M.hotspot_node.z,
+        wait_teleport = true,
+    })
+end
+
 function M.nextTargetStepAction(state, runtime, opts, quest)
     state = state or {}
     runtime = runtime or {}
@@ -803,9 +840,13 @@ function M.nextTargetStepAction(state, runtime, opts, quest)
     end
     local near_target_npc = type(state.char) == "table"
         and M.distanceToTargetNpc(state.char) <= range
-    if M.isTargetNpcDialog(state.dialog)
-        or near_target_npc
-        or runtime.completed_20611_target_teleport == true then
+    if M.isTargetNpcDialog(state.dialog) then
+        return M.nextTargetNpcAction(state, runtime, opts, quest)
+    end
+    if runtime.completed_20611_target_dialog == true then
+        return M.nextHotspotTeleportAction(state, runtime, opts, quest)
+    end
+    if near_target_npc or runtime.completed_20611_target_teleport == true then
         return M.nextTargetNpcAction(state, runtime, opts, quest)
     end
 
@@ -819,9 +860,17 @@ function M.nextAction(state, runtime, opts)
 
     local teleport_stage = tostring(runtime.teleport_stage or "")
     if runtime.waiting_teleport == true
-        and (teleport_stage == M.level_move_stage or teleport_stage == M.target_teleport_stage) then
+        and (teleport_stage == M.level_move_stage
+            or teleport_stage == M.target_teleport_stage
+            or teleport_stage == M.hotspot_teleport_stage) then
         local detected, reason = M.teleportDetected(state, runtime, opts)
         if detected then
+            if teleport_stage == M.hotspot_teleport_stage then
+                return action("CompleteMapNodeTeleport", reason, {
+                    quest_id = M.quest_id,
+                    stage = teleport_stage,
+                })
+            end
             return action("CompleteQuestTeleport", reason, {
                 quest_id = M.quest_id,
                 stage = teleport_stage,
