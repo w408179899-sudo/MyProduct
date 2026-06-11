@@ -336,6 +336,75 @@ local function run()
         T.assert_eq(plan.flags.active_20611_grind, false)
     end)
 
+    T.test("active quest 20614 step zero resumes first task teleport", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20614", level = 17 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20614, status_code = 3, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20614_active")
+        T.assert_eq(plan.flags.completed_20614_task_teleport, false)
+        T.assert_eq(plan.flags.completed_20614_start_dialog, false)
+        T.assert_eq(plan.flags.completed_20614_after_start_teleport, false)
+    end)
+
+    T.test("active quest 20614 progressed resumes after-start task teleport", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20614", level = 17 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20614, status_code = 3, req_count = 1, seq = 4, lv_num = 17 },
+                { id = 20615, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20614_after_start_teleport")
+        T.assert_eq(plan.flags.completed_20614_task_teleport, true)
+        T.assert_eq(plan.flags.completed_20614_start_dialog, true)
+        T.assert_eq(plan.flags.completed_20614_after_start_teleport, false)
+    end)
+
+    T.test("done quest 20614 resumes after-start task teleport", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20614", level = 17 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20614, status_code = 4, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20614_after_start_teleport")
+        T.assert_eq(plan.flags.completed_20614_task_teleport, true)
+        T.assert_eq(plan.flags.completed_20614_start_dialog, true)
+        T.assert_eq(plan.flags.completed_20614_after_start_teleport, false)
+    end)
+
+    T.test("done quest 20614 at reward npc resumes reward dialog", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20614", level = 17, x = 600.78, y = 1480.36, z = 299.94 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20614, status_code = 4, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20614_reward")
+        T.assert_eq(plan.flags.completed_20614_task_teleport, true)
+        T.assert_eq(plan.flags.completed_20614_start_dialog, true)
+        T.assert_eq(plan.flags.completed_20614_after_start_teleport, true)
+        T.assert_eq(plan.flags.completed_20614_reward_dialog, false)
+    end)
+
     T.test("quest 20611 hotspot reward snapshot is not treated as quest 20612 grind", function()
         local resume = load_module()
         local plan = resume.plan({

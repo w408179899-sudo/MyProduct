@@ -342,6 +342,10 @@ local runtime = {
         completed_20613_start_dialog = false,
         completed_20613_after_start_teleport = false,
         completed_20613_after_start_reward_dialog = false,
+        completed_20614_task_teleport = false,
+        completed_20614_start_dialog = false,
+        completed_20614_after_start_teleport = false,
+        completed_20614_reward_dialog = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -1017,12 +1021,26 @@ local function now_seconds()
     return os.clock()
 end
 
-function main_quest_is_grind_stage(stage)
+function main_quest_is_level_grind_stage(stage)
     stage = tostring(stage or "")
-    return stage == "quest_20611_grind"
-        or stage == "quest_20611_level_grind"
+    if ok_main_quest_20611 and main_quest_20611
+        and type(main_quest_20611.isLevelGrindStage) == "function" then
+        return main_quest_20611.isLevelGrindStage(stage)
+    end
+    return stage == "quest_20611_level_grind"
         or stage == "quest_20612_level_grind"
         or stage == "quest_20613_level14_grind"
+        or stage == "quest_20614_level17_grind"
+end
+
+function main_quest_is_grind_stage(stage)
+    stage = tostring(stage or "")
+    if ok_main_quest_20611 and main_quest_20611
+        and type(main_quest_20611.isGrindStage) == "function" then
+        return main_quest_20611.isGrindStage(stage)
+    end
+    return stage == "quest_20611_grind"
+        or main_quest_is_level_grind_stage(stage)
 end
 
 function main_quest_action_authorizes_grind(action)
@@ -1091,9 +1109,7 @@ function main_quest_grind_authorized()
     if tostring(r.active_20611_grind_stage or "") ~= stage then
         return false
     end
-    if stage == "quest_20611_level_grind"
-        or stage == "quest_20612_level_grind"
-        or stage == "quest_20613_level14_grind" then
+    if main_quest_is_level_grind_stage(stage) then
         local auth_qid = tonumber(r.quest_grind_authorized_quest_id) or 0
         if auth_qid <= 0 or auth_qid ~= (tonumber(r.level_grind_quest_id) or 0) then
             return false
@@ -6973,6 +6989,10 @@ function main_quest_reset_runtime(reason)
     r.last_route_stop_stage = ""
     r.last_route_stop_reason = ""
     r.last_route_stop_at = 0
+    r.smooth_route = {
+        active = false,
+        stage = "",
+    }
     r.action_delay_until = 0
     r.action_delay_reason = ""
     r.post_dialog_settle_until = 0
@@ -7034,6 +7054,10 @@ function main_quest_reset_runtime(reason)
     r.completed_20613_start_dialog = false
     r.completed_20613_after_start_teleport = false
     r.completed_20613_after_start_reward_dialog = false
+    r.completed_20614_task_teleport = false
+    r.completed_20614_start_dialog = false
+    r.completed_20614_after_start_teleport = false
+    r.completed_20614_reward_dialog = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7350,14 +7374,20 @@ function main_quest_read_20611_state(now)
     if quest_id == 20611
         or quest_id == 20612
         or quest_id == 20613
+        or quest_id == 20614
         or level_blocked_id == 20611
         or level_blocked_id == 20612
         or level_blocked_id == 20613
+        or level_blocked_id == 20614
         or r.completed_20612_start_dialog == true
         or r.completed_20612_reward_dialog == true
         or r.completed_20613_start_dialog == true
         or r.completed_20613_after_start_teleport == true
         or r.completed_20613_after_start_reward_dialog == true
+        or r.completed_20614_task_teleport == true
+        or r.completed_20614_start_dialog == true
+        or r.completed_20614_after_start_teleport == true
+        or r.completed_20614_reward_dialog == true
         or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
@@ -7609,7 +7639,45 @@ function main_quest_prepare_quest_teleport_panel(quest_id, stage)
     return false, "opening quest panel"
 end
 
+function main_quest_active_smooth_route_stage()
+    local r = runtime and runtime.main_quest or nil
+    local sr = type(r) == "table" and r.smooth_route or nil
+    if type(sr) ~= "table" or sr.active ~= true then
+        return ""
+    end
+    return tostring(sr.stage or "")
+end
+
+function main_quest_stop_smooth_route(stage, reason)
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    local sr = r.smooth_route
+    if type(sr) ~= "table" or sr.active ~= true then
+        return false
+    end
+    if stage and stage ~= "" and tostring(sr.stage or "") ~= tostring(stage) then
+        return false
+    end
+    r.last_route_stop_stage = tostring(sr.stage or stage or "")
+    r.last_route_stop_reason = tostring(reason or "")
+    r.last_route_stop_at = now_seconds()
+    r.smooth_route = {
+        active = false,
+        stage = "",
+        reason = tostring(reason or ""),
+    }
+    main_quest_trace("smooth-route-stop:" .. tostring(stage or ""),
+        "stage=" .. tostring(r.last_route_stop_stage or "") ..
+        " reason=" .. tostring(reason or ""),
+        0)
+    return true
+end
+
 function main_quest_active_route_stage()
+    local smooth_stage = main_quest_active_smooth_route_stage()
+    if smooth_stage ~= "" then
+        return smooth_stage
+    end
     local rt = runtime.route
     if type(rt) ~= "table" or rt.following ~= true then
         return ""
@@ -7622,12 +7690,13 @@ function main_quest_active_route_stage()
 end
 
 function main_quest_stop_route(stage, reason)
+    local stopped_smooth = main_quest_stop_smooth_route(stage, reason)
     local rt = runtime.route
     if type(rt) ~= "table" or rt.following ~= true then
-        return
+        return stopped_smooth
     end
     if stage and stage ~= "" and tostring(rt.main_quest_stage or "") ~= tostring(stage) then
-        return
+        return stopped_smooth
     end
     runtime.main_quest = runtime.main_quest or {}
     runtime.main_quest.last_route_stop_stage = tostring(rt.main_quest_stage or stage or "")
@@ -7650,10 +7719,87 @@ function main_quest_stop_route(stage, reason)
     rt.main_quest_stage = ""
     log_info("[AionMainQuest20590] route stop stage=" .. tostring(stage or "") ..
         " reason=" .. tostring(reason or ""))
+    return true
+end
+
+function main_quest_start_smooth_route(action, state)
+    action = type(action) == "table" and action or {}
+    local params = type(action.params) == "table" and action.params or {}
+    local points = type(params.route_points) == "table" and params.route_points or {}
+    if #points <= 0 then
+        main_quest_set_status("main quest smooth route failed: route_points empty")
+        return false
+    end
+    if not ok_nav or not nav or type(nav.moveTo) ~= "function" then
+        main_quest_set_status("main quest smooth route failed: aion.nav unavailable")
+        return false
+    end
+
+    local stage = tostring(params.stage or "")
+    runtime.main_quest = runtime.main_quest or {}
+    local r = runtime.main_quest
+    local sr = r.smooth_route
+    if type(sr) == "table"
+        and sr.active == true
+        and tostring(sr.stage or "") == stage
+        and tostring(sr.route_name or "") == tostring(params.route_name or "") then
+        return true
+    end
+
+    main_quest_stop_route(nil, "switch-main-quest-smooth-route")
+
+    local start_index = math.max(1, math.min(#points, tonumber(params.route_index) or 1))
+    local start_dist = tonumber(params.nearest_route_distance) or 0
+    if route_nearest_point then
+        local pos = state and state.char
+        if not pos and route_current_position then
+            local pos_ok, current_pos = route_current_position()
+            if pos_ok then
+                pos = current_pos
+            end
+        end
+        if pos then
+            start_index, start_dist = route_nearest_point(points, pos)
+        end
+    end
+
+    r.smooth_route = {
+        active = true,
+        stage = stage,
+        route_name = tostring(params.route_name or "main_quest_smooth_route"),
+        points = points,
+        index = start_index,
+        moving_to = nil,
+        last_move_at = 0,
+        waypoint_radius = math.max(0.5, tonumber(params.waypoint_radius) or 6),
+        final_radius = math.max(0.5, tonumber(params.final_radius) or 2.5),
+        resend_interval = math.max(0.2, tonumber(params.resend_interval) or 0.5),
+        move_timeout = math.max(1.0, tonumber(params.move_timeout) or tonumber(cfg.route and cfg.route.move_timeout) or 12),
+        max_retries = math.max(0, tonumber(params.max_retries) or tonumber(cfg.route and cfg.route.max_waypoint_retries) or 2),
+        max_skip = math.max(1, tonumber(params.smooth_max_skip) or 50),
+        status = "moving",
+        error = "",
+    }
+    main_quest_set_status(string.format(
+        "start main quest smooth route stage=%s route=%s index=%d/%d nearest=%.1f",
+        stage,
+        r.smooth_route.route_name,
+        start_index,
+        #points,
+        start_dist))
+    main_quest_trace("smooth-route-start:" .. stage,
+        "route=" .. tostring(r.smooth_route.route_name) ..
+        " index=" .. tostring(start_index) .. "/" .. tostring(#points) ..
+        " nearest=" .. string.format("%.1f", tonumber(start_dist) or 0),
+        0)
+    return true
 end
 
 function main_quest_start_route(action, state)
     local params = type(action.params) == "table" and action.params or {}
+    if params.main_quest_smooth_route == true then
+        return main_quest_start_smooth_route(action, state)
+    end
     local points = type(params.route_points) == "table" and params.route_points or {}
     if #points <= 0 then
         main_quest_set_status("主线路径失败: route_points 为空")
@@ -8688,8 +8834,31 @@ function main_quest_execute_20590(action, state)
             return true
         end
         local quest_id = tonumber(params.quest_id) or 0
+        if quest_id == 20614 or string.find(tostring(stage), "quest_20614", 1, true) then
+            main_quest_trace("q20614-quest-teleport-enter:" .. tostring(stage),
+                "quest_id=" .. tostring(quest_id) ..
+                " quest_step=" .. tostring(params.quest_step or "") ..
+                " quest_status=" .. tostring(params.quest_status or "") ..
+                " quest_req_count=" .. tostring(params.quest_req_count or "") ..
+                " source_stage=" .. tostring(params.source_stage or "") ..
+                " start_done=" .. tostring(r.completed_20614_start_dialog == true) ..
+                " task_teleport_done=" .. tostring(r.completed_20614_task_teleport == true) ..
+                " after_start_teleport_done=" .. tostring(r.completed_20614_after_start_teleport == true) ..
+                " waiting_teleport=" .. tostring(r.waiting_teleport == true) ..
+                " teleport_stage=" .. tostring(r.teleport_stage or "") ..
+                " open_panel_key=" .. tostring(params.open_panel_key ~= false) ..
+                " require_panel_visible=" .. tostring(params.require_panel_visible == true) ..
+                " cached_panel_key=" .. tostring(r.quest_teleport_panel_key or "") ..
+                " cached_panel_at=" .. tostring(r.quest_teleport_panel_opened_at or 0) ..
+                " dialog=" .. main_quest_dialog_signature(state.dialog) ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
+        end
         if stage == "quest_20611_level_move" and r.active_20611_grind == true then
             main_quest_stop_20611_grind("quest-20611-level-reached-before-panel", false)
+        end
+        if stage == "quest_20614_task_teleport" and r.active_20611_grind == true then
+            main_quest_stop_20611_grind("quest-20614-level-reached-before-panel", false)
         end
         if not ok_quest or not quest or type(quest.questTeleport) ~= "function" then
             main_quest_set_status("quest teleport failed: aion.quest unavailable")
@@ -8706,16 +8875,35 @@ function main_quest_execute_20590(action, state)
                 "quest=" .. tostring(quest_id) ..
                 " open_panel_key=" .. tostring(params.open_panel_key ~= false) ..
                 " detail=" .. tostring(panel_detail or "") ..
+                " cached_panel_key=" .. tostring(r.quest_teleport_panel_key or "") ..
+                " cached_panel_at=" .. tostring(r.quest_teleport_panel_opened_at or 0) ..
                 " pos=" .. main_quest_position_text(state.char),
                 0.5)
             return true
         end
+        if quest_id == 20614 or string.find(tostring(stage), "quest_20614", 1, true) then
+            main_quest_trace("q20614-quest-panel-ready:" .. tostring(stage),
+                "quest_id=" .. tostring(quest_id) ..
+                " detail=" .. tostring(panel_detail or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
+        end
         local teleport_id = nil
+        local id_ok, id_value, id_err = nil, nil, nil
         if type(quest.questTeleportId) == "function" then
-            local id_ok, id_value = quest.questTeleportId(quest_id)
+            id_ok, id_value, id_err = quest.questTeleportId(quest_id)
             if id_ok and tonumber(id_value) and tonumber(id_value) >= 0 then
                 teleport_id = tonumber(id_value)
             end
+        end
+        if quest_id == 20614 or string.find(tostring(stage), "quest_20614", 1, true) then
+            main_quest_trace("q20614-quest-teleport-id:" .. tostring(stage),
+                "quest_id=" .. tostring(quest_id) ..
+                " id_ok=" .. tostring(id_ok) ..
+                " id_value=" .. tostring(id_value or "") ..
+                " teleport_id=" .. tostring(teleport_id or "") ..
+                " id_err=" .. tostring(id_err or ""),
+                0)
         end
         local ok, result, err = quest.questTeleport(quest_id, teleport_id)
         local wait_teleport = params.wait_teleport ~= false
@@ -8751,6 +8939,18 @@ function main_quest_execute_20590(action, state)
             " err=" .. tostring(err or "") ..
             " pos=" .. main_quest_position_text(state.char),
             0)
+        if quest_id == 20614 or string.find(tostring(stage), "quest_20614", 1, true) then
+            main_quest_trace("q20614-quest-teleport-result:" .. tostring(stage),
+                "quest_id=" .. tostring(quest_id) ..
+                " ok=" .. tostring(ok) ..
+                " result=" .. tostring(result) ..
+                " err=" .. tostring(err or "") ..
+                " wait_teleport=" .. tostring(wait_teleport) ..
+                " runtime_waiting=" .. tostring(r.waiting_teleport == true) ..
+                " runtime_teleport_stage=" .. tostring(r.teleport_stage or "") ..
+                " start_pos=" .. main_quest_position_text(r.teleport_start_pos),
+                0)
+        end
         return ok and result ~= false
     end
 
@@ -8887,6 +9087,31 @@ function main_quest_execute_20590(action, state)
                                 r.completed_20613_after_start_teleport = true
                                 r.completed_20613_after_start_reward_dialog = true
                             end
+                        elseif continuous_quest_id == 20614 then
+                            r.cached_quest_20611 = nil
+                            r.last_quest_20611_read_at = 0
+                            local marked_20614_start = false
+                            local marked_20614_reward = false
+                            if stage == "quest_20614_start_npc" then
+                                r.completed_20614_start_dialog = true
+                                r.post_dialog_settle_until = 0
+                                marked_20614_start = true
+                            end
+                            if stage == "quest_20614_reward_npc" and continuous_finished then
+                                r.completed_20614_reward_dialog = true
+                                marked_20614_reward = true
+                            end
+                            main_quest_trace("q20614-start-dialog-continuous:" .. stage,
+                                "source=interact-after-open" ..
+                                " quest=" .. tostring(continuous_quest_id) ..
+                                " finish=" .. tostring(continuous_result or "") ..
+                                " continuous_finished=" .. tostring(continuous_finished == true) ..
+                                " marked_start_dialog=" .. tostring(marked_20614_start == true) ..
+                                " marked_reward_dialog=" .. tostring(marked_20614_reward == true) ..
+                                " runtime_start_dialog_done=" .. tostring(r.completed_20614_start_dialog == true) ..
+                                " runtime_reward_done=" .. tostring(r.completed_20614_reward_dialog == true) ..
+                                " status=" .. tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or ""),
+                                0)
                         end
                         local settle_seconds = math.max(0,
                             tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
@@ -8964,9 +9189,15 @@ function main_quest_execute_20590(action, state)
             r.teleport_start_pos = teleport_start_pos
             r.teleport_start_big_map_id = teleport_start_big_map_id
         end
+        local continuous_quest_id = tonumber(params.quest_id) or 0
+        local continuous_stage = tostring(params.stage or "")
+        local mark_20614_start_after_click = continuous_quest_id == 20614
+            and continuous_stage == "quest_20614_start_npc"
+        if mark_20614_start_after_click then
+            r.completed_20614_start_dialog = true
+            r.post_dialog_settle_until = 0
+        end
         if ok then
-            local continuous_quest_id = tonumber(params.quest_id) or 0
-            local continuous_stage = tostring(params.stage or "")
             if continuous_quest_id == 20610 then
                 r.cached_quest_20610 = nil
                 r.last_quest_20610_read_at = 0
@@ -9008,6 +9239,25 @@ function main_quest_execute_20590(action, state)
                     r.completed_20613_after_start_teleport = true
                     r.completed_20613_after_start_reward_dialog = true
                 end
+            elseif continuous_quest_id == 20614 then
+                r.cached_quest_20611 = nil
+                r.last_quest_20611_read_at = 0
+                local marked_20614_reward = false
+                if continuous_stage == "quest_20614_reward_npc" and continuous_finished then
+                    r.completed_20614_reward_dialog = true
+                    marked_20614_reward = true
+                end
+                main_quest_trace("q20614-start-dialog-continuous:" .. continuous_stage,
+                    "source=click-dialog-action" ..
+                    " quest=" .. tostring(continuous_quest_id) ..
+                    " finish=" .. tostring(continuous_result or "") ..
+                    " continuous_finished=" .. tostring(continuous_finished == true) ..
+                    " marked_start_dialog=" .. tostring(mark_20614_start_after_click == true) ..
+                    " marked_reward_dialog=" .. tostring(marked_20614_reward == true) ..
+                    " runtime_start_dialog_done=" .. tostring(r.completed_20614_start_dialog == true) ..
+                    " runtime_reward_done=" .. tostring(r.completed_20614_reward_dialog == true) ..
+                    " status=" .. tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or ""),
+                    0)
             end
             local settle_seconds = math.max(0,
                 tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
@@ -9225,6 +9475,28 @@ function main_quest_execute_20590(action, state)
             r.completed_20613_after_start_teleport = true
             r.cached_quest_20611 = nil
             r.last_quest_20611_read_at = 0
+        elseif stage == "quest_20614_task_teleport" then
+            r.clicked_20611_indicator_title = false
+            r.completed_20614_task_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            main_quest_trace("q20614-complete-teleport:" .. stage,
+                "quest=" .. tostring(params.quest_id or "") ..
+                " completed_task_tp=" .. tostring(r.completed_20614_task_teleport == true) ..
+                " reason=" .. tostring(action.reason or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
+        elseif stage == "quest_20614_after_start_teleport" then
+            r.clicked_20611_indicator_title = false
+            r.completed_20614_after_start_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            main_quest_trace("q20614-complete-teleport:" .. stage,
+                "quest=" .. tostring(params.quest_id or "") ..
+                " completed_after_start_tp=" .. tostring(r.completed_20614_after_start_teleport == true) ..
+                " reason=" .. tostring(action.reason or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
         elseif tonumber(params.quest_id) == 20610 then
             r.completed_20610_task_teleport = true
             r.cached_quest_20610 = nil
@@ -9291,9 +9563,7 @@ function main_quest_execute_20590(action, state)
 
     if name == "StartStationaryGrind" then
         local grind_stage = tostring(params.stage or "")
-        local is_level_grind = grind_stage == "quest_20611_level_grind"
-            or grind_stage == "quest_20612_level_grind"
-            or grind_stage == "quest_20613_level14_grind"
+        local is_level_grind = main_quest_is_level_grind_stage(grind_stage)
         r.active_20611_grind = true
         r.active_20611_grind_stage = grind_stage
         if is_level_grind then
@@ -9585,8 +9855,15 @@ function main_quest_20611_tick()
         return
     end
     local state = main_quest_read_20611_state(now)
+    local route_stage = main_quest_active_route_stage()
     local action = main_quest_20611.nextAction(state, runtime.main_quest, {
         grind_point_range = 10,
+        route_following_stage = route_stage,
+        waypoint_range = 2,
+        quest_20614_level17_grind_point_range = 3,
+        quest_20614_route_waypoint_radius = 6,
+        quest_20614_route_final_radius = 2.5,
+        quest_20614_route_resend_interval = 0.5,
     })
     local remote_qid = tonumber(state.remote_reward_quest and state.remote_reward_quest.id) or 0
     local remote_status = tonumber(state.remote_reward_quest and state.remote_reward_quest.status_code) or 0
@@ -9596,14 +9873,18 @@ function main_quest_20611_tick()
     local char_level = tonumber(state.char and state.char.level) or 0
     local quest_20612_snapshot = nil
     local quest_20613_snapshot = nil
+    local quest_20614_snapshot = nil
     if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.findQuestById) == "function" then
         quest_20612_snapshot = main_quest_20611.findQuestById(state.quests, 20612)
         quest_20613_snapshot = main_quest_20611.findQuestById(state.quests, 20613)
+        quest_20614_snapshot = main_quest_20611.findQuestById(state.quests, 20614)
     end
     local q20612_status = tonumber(quest_20612_snapshot and quest_20612_snapshot.status_code) or 0
     local q20612_step = tonumber(quest_20612_snapshot and quest_20612_snapshot.req_count) or 0
     local q20613_status = tonumber(quest_20613_snapshot and quest_20613_snapshot.status_code) or 0
     local q20613_step = tonumber(quest_20613_snapshot and quest_20613_snapshot.req_count) or 0
+    local q20614_status = tonumber(quest_20614_snapshot and quest_20614_snapshot.status_code) or 0
+    local q20614_step = tonumber(quest_20614_snapshot and quest_20614_snapshot.req_count) or 0
     local action_qid = tonumber(action.params and action.params.quest_id) or 0
     local action_name = tostring(action.name or "")
     local action_authorizes_grind = type(main_quest_action_authorizes_grind) == "function"
@@ -9618,6 +9899,40 @@ function main_quest_20611_tick()
             or q20613_status == 4)
     local q20613_after_start_pending = q20613_after_start_teleport_pending
         or q20613_after_start_reward_pending
+    local q20614_after_start_teleport_pending = runtime.main_quest.completed_20614_after_start_teleport ~= true
+        and q20614_status == 3
+        and (runtime.main_quest.completed_20614_start_dialog == true
+            or q20614_step > 0)
+    if q20614_status > 0
+        or action_qid == 20614
+        or runtime.main_quest.completed_20614_task_teleport == true
+        or runtime.main_quest.completed_20614_start_dialog == true
+        or runtime.main_quest.completed_20614_after_start_teleport == true then
+        local settle_until = tonumber(runtime.main_quest.post_dialog_settle_until) or 0
+        local settle_remain = math.max(0, settle_until - now_seconds())
+        main_quest_trace("q20614-decision",
+            "action=" .. action_name ..
+            " action_stage=" .. tostring(action.params and action.params.stage or "") ..
+            " action_reason=" .. tostring(action.reason or "") ..
+            " action_qid=" .. tostring(action_qid) ..
+            " q20614_status=" .. tostring(q20614_status) ..
+            " q20614_step=" .. tostring(q20614_step) ..
+            " q20614_lv=" .. tostring(quest_20614_snapshot and quest_20614_snapshot.lv_num or "") ..
+            " q20614_pending_after_start_tp=" .. tostring(q20614_after_start_teleport_pending == true) ..
+            " task_tp_done=" .. tostring(runtime.main_quest.completed_20614_task_teleport == true) ..
+            " start_dialog_done=" .. tostring(runtime.main_quest.completed_20614_start_dialog == true) ..
+            " after_start_tp_done=" .. tostring(runtime.main_quest.completed_20614_after_start_teleport == true) ..
+            " waiting_teleport=" .. tostring(runtime.main_quest.waiting_teleport == true) ..
+            " teleport_qid=" .. tostring(runtime.main_quest.teleport_quest_id or 0) ..
+            " teleport_stage=" .. tostring(runtime.main_quest.teleport_stage or "") ..
+            " dialog=" .. main_quest_dialog_signature(state.dialog) ..
+            " ui_panel=" .. tostring(ui_state.quest_panel_visible == true) ..
+            " panel_key=" .. tostring(runtime.main_quest.quest_teleport_panel_key or "") ..
+            " panel_opened_at=" .. tostring(runtime.main_quest.quest_teleport_panel_opened_at or 0) ..
+            " settle_remain=" .. string.format("%.1f", settle_remain) ..
+            " pos=" .. main_quest_position_text(state.char),
+            0.5)
+    end
     if runtime.main_quest.active_20611_grind == true
         and (runtime.main_quest.completed_20613_task_teleport == true
             or runtime.main_quest.completed_20613_start_dialog == true
@@ -9682,7 +9997,13 @@ function main_quest_20611_tick()
         ":" .. tostring(runtime.main_quest.completed_20613_after_start_reward_dialog == true) ..
         ":" .. tostring(q20613_after_start_teleport_pending == true) ..
         ":" .. tostring(q20613_after_start_reward_pending == true) ..
-        ":" .. tostring(q20613_after_start_pending == true)
+        ":" .. tostring(q20613_after_start_pending == true) ..
+        ":" .. tostring(q20614_status) ..
+        ":" .. tostring(q20614_step) ..
+        ":" .. tostring(runtime.main_quest.completed_20614_task_teleport == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20614_start_dialog == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20614_after_start_teleport == true) ..
+        ":" .. tostring(q20614_after_start_teleport_pending == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -9703,6 +10024,8 @@ function main_quest_20611_tick()
             " q20612_step=" .. tostring(q20612_step) ..
             " q20613_status=" .. tostring(q20613_status) ..
             " q20613_step=" .. tostring(q20613_step) ..
+            " q20614_status=" .. tostring(q20614_status) ..
+            " q20614_step=" .. tostring(q20614_step) ..
             " grind_stage=" .. tostring(runtime.main_quest.active_20611_grind_stage or "") ..
             " ui_indicator_entry=" .. tostring(ui_state.quest_indicator_entry == true) ..
             " ui_panel=" .. tostring(ui_state.quest_panel_visible == true) ..
@@ -9721,6 +10044,10 @@ function main_quest_20611_tick()
             " q20613_start_done=" .. tostring(runtime.main_quest.completed_20613_start_dialog == true) ..
             " q20613_after_start_teleport_done=" .. tostring(runtime.main_quest.completed_20613_after_start_teleport == true) ..
             " q20613_after_start_reward_done=" .. tostring(runtime.main_quest.completed_20613_after_start_reward_dialog == true) ..
+            " q20614_task_tp_done=" .. tostring(runtime.main_quest.completed_20614_task_teleport == true) ..
+            " q20614_start_dialog_done=" .. tostring(runtime.main_quest.completed_20614_start_dialog == true) ..
+            " q20614_after_start_tp_done=" .. tostring(runtime.main_quest.completed_20614_after_start_teleport == true) ..
+            " q20614_after_start_tp_pending=" .. tostring(q20614_after_start_teleport_pending == true) ..
             " q20613_after_start_teleport_pending=" .. tostring(q20613_after_start_teleport_pending == true) ..
             " q20613_after_start_reward_pending=" .. tostring(q20613_after_start_reward_pending == true) ..
             " q20613_after_start_pending=" .. tostring(q20613_after_start_pending == true) ..
@@ -9737,9 +10064,7 @@ function main_quest_20611_tick()
         main_quest_stop_20611_grind("quest-20611-no-blue-task-active", false)
     end
     if tostring(action.name or "") == "Idle"
-        and (tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20611_level_grind"
-            or tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20612_level_grind"
-            or tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20613_level14_grind")
+        and main_quest_is_level_grind_stage(runtime.main_quest.active_20611_grind_stage)
         and runtime.main_quest.active_20611_grind == true then
         main_quest_stop_20611_grind("quest-20611-level-grind-idle", false)
     end
@@ -13111,6 +13436,7 @@ route_stop_follow = function(reason, finishRuntime, completedField)
     runtime.route.loop = nil
     runtime.route.reverse_on_end = nil
     runtime.route.test_only = false
+    runtime.route.main_quest_stage = ""
 
     if was_following then
         set_event("停止路径: " .. tostring(reason or "手动停止"))
@@ -13197,6 +13523,7 @@ local function route_start_follow(pointsField, nameField, attachRuntime, opts)
     runtime.route.test_only = opts.test_only == true
     runtime.route.loop = opts.loop
     runtime.route.reverse_on_end = opts.reverse_on_end
+    runtime.route.main_quest_stage = ""
     local start_point = points[start_index]
     log_info(string.format("[AionRoute] start name=%s field=%s points=%d index=%d nearest_dist=%.1f start_nearest=%s target=%s attach=%s",
         tostring(runtime.route.follow_name),
@@ -13870,6 +14197,155 @@ local function route_follow_tick()
     r.moving_to.last_sent_at = now
     r.last_move_at = now
     r.status = string.format("移动中 %d/%d 距离 %.1f", r.index, #r.points, dist)
+end
+
+local function main_quest_smooth_route_radius(sr)
+    local points = type(sr and sr.points) == "table" and sr.points or {}
+    local radius = tonumber(sr and sr.waypoint_radius) or 6
+    if #points > 0 and tonumber(sr and sr.index) == #points then
+        radius = tonumber(sr and sr.final_radius) or radius
+    end
+    return math.max(0.5, radius)
+end
+
+local function main_quest_smooth_route_send_move(sr, target)
+    if not target then
+        return false, "target is nil"
+    end
+    move_trace("main-quest-smooth-route", target,
+        "stage=" .. tostring(sr.stage or "") ..
+        " route=" .. tostring(sr.route_name or "") ..
+        " index=" .. tostring(sr.index or "") .. "/" .. tostring(type(sr.points) == "table" and #sr.points or ""),
+        0)
+    local ok, _, err = nav.moveTo(target.x, target.y, target.z)
+    move_trace("main-quest-smooth-route-result", target,
+        "stage=" .. tostring(sr.stage or "") ..
+        " ok=" .. tostring(ok) ..
+        " err=" .. tostring(err or ""),
+        0)
+    if not ok then
+        return false, err or "MoveTo failed"
+    end
+    return true, nil
+end
+
+local function main_quest_smooth_route_advance(sr)
+    local points = type(sr.points) == "table" and sr.points or {}
+    local old_index = tonumber(sr.index) or 1
+    if old_index >= #points then
+        main_quest_stop_smooth_route(sr.stage, "smooth-route-complete")
+        return false
+    end
+    sr.index = old_index + 1
+    sr.moving_to = nil
+    sr.status = string.format("smooth route next %d/%d", sr.index, #points)
+    return true
+end
+
+function main_quest_smooth_route_tick()
+    if not runtime.running or runtime.paused then
+        return
+    end
+    local r = runtime.main_quest
+    local sr = type(r) == "table" and r.smooth_route or nil
+    if type(sr) ~= "table" or sr.active ~= true then
+        return
+    end
+
+    if cfg.route.stop_on_death and route_is_dead("main-quest-smooth-route-dead") then
+        main_quest_stop_smooth_route(sr.stage, "death")
+        if route_recovery_on_death then
+            route_recovery_on_death("main-quest-smooth-route-dead")
+        end
+        return
+    end
+    if not ok_core or not core or not ok_nav or not nav or type(nav.moveTo) ~= "function" then
+        main_quest_stop_smooth_route(sr.stage, "api-unavailable")
+        return
+    end
+
+    local ok, pos, err = core.getPosition()
+    if not ok or not pos then
+        sr.error = "position read failed: " .. tostring(err)
+        main_quest_stop_smooth_route(sr.stage, sr.error)
+        return
+    end
+
+    local points = type(sr.points) == "table" and sr.points or {}
+    local target = points[tonumber(sr.index) or 1]
+    if not target then
+        main_quest_stop_smooth_route(sr.stage, "route-ended")
+        return
+    end
+
+    local radius = main_quest_smooth_route_radius(sr)
+    local dist = core.distance3(pos, target)
+    local max_skip = math.min(#points, math.max(1, tonumber(sr.max_skip) or 50))
+    local skipped = 0
+    while dist <= radius and skipped < max_skip do
+        if not main_quest_smooth_route_advance(sr) then
+            return
+        end
+        target = points[tonumber(sr.index) or 1]
+        if not target then
+            main_quest_stop_smooth_route(sr.stage, "route-ended")
+            return
+        end
+        radius = main_quest_smooth_route_radius(sr)
+        dist = core.distance3(pos, target)
+        skipped = skipped + 1
+    end
+    if skipped > 0 then
+        main_quest_trace("smooth-route-skip:" .. tostring(sr.stage or ""),
+            "skipped=" .. tostring(skipped) ..
+            " index=" .. tostring(sr.index or "") .. "/" .. tostring(#points) ..
+            " dist=" .. string.format("%.1f", tonumber(dist) or 0) ..
+            " radius=" .. string.format("%.1f", tonumber(radius) or 0),
+            0.5)
+    end
+
+    local now = now_seconds()
+    if type(sr.moving_to) ~= "table" or tonumber(sr.moving_to.index) ~= tonumber(sr.index) then
+        sr.moving_to = {
+            index = sr.index,
+            started_at = now,
+            last_sent_at = 0,
+            tries = 0,
+        }
+    end
+
+    local moving = sr.moving_to
+    local timeout = math.max(1.0, tonumber(sr.move_timeout) or 12)
+    if now - (tonumber(moving.started_at) or now) > timeout then
+        local max_retries = math.max(0, tonumber(sr.max_retries) or 2)
+        if (tonumber(moving.tries) or 0) < max_retries then
+            moving.tries = (tonumber(moving.tries) or 0) + 1
+            moving.started_at = now
+            moving.last_sent_at = 0
+        else
+            sr.error = "smooth route waypoint timeout index=" .. tostring(sr.index or "")
+            main_quest_stop_smooth_route(sr.stage, sr.error)
+            return
+        end
+    end
+
+    local resend = math.max(0.2, tonumber(sr.resend_interval) or 0.5)
+    if (tonumber(moving.last_sent_at) or 0) > 0
+        and now - (tonumber(moving.last_sent_at) or 0) < resend then
+        sr.status = string.format("smooth route moving %d/%d dist %.1f", tonumber(sr.index) or 1, #points, dist)
+        return
+    end
+
+    local move_ok, move_err = main_quest_smooth_route_send_move(sr, target)
+    if not move_ok then
+        sr.error = "smooth route move failed: " .. tostring(move_err)
+        main_quest_stop_smooth_route(sr.stage, sr.error)
+        return
+    end
+
+    moving.last_sent_at = now
+    sr.last_move_at = now
+    sr.status = string.format("smooth route moving %d/%d dist %.1f", tonumber(sr.index) or 1, #points, dist)
 end
 
 local function route_record_tick()
@@ -16634,6 +17110,7 @@ while true do
     main_quest_20590_tick()
     main_quest_20610_tick()
     main_quest_20611_tick()
+    main_quest_smooth_route_tick()
     combat_tick_quest_grind()
     combat_tick()
     route_tick()

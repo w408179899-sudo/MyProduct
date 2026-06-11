@@ -10,6 +10,12 @@ M.quest_20612_reward_npc = {
     y = 2201.12,
     z = 262.81,
 }
+M.quest_20614_reward_npc = {
+    interact_id = 2147511075,
+    x = 602.85,
+    y = 1480.65,
+    z = 299.79,
+}
 
 local function number(value)
     return tonumber(value) or 0
@@ -56,6 +62,22 @@ local function mark_after_20611(flags)
     flags.completed_20612_start_dialog = false
     flags.completed_20612_task_teleport = false
     flags.completed_20612_reward_dialog = false
+end
+
+local function mark_after_20613(flags)
+    mark_after_20611(flags)
+    flags.reached_20612_start_point = true
+    flags.completed_20612_start_dialog = true
+    flags.completed_20612_task_teleport = true
+    flags.completed_20612_reward_dialog = true
+    flags.completed_20613_task_teleport = true
+    flags.completed_20613_start_dialog = true
+    flags.completed_20613_after_start_teleport = true
+    flags.completed_20613_after_start_reward_dialog = true
+    flags.completed_20614_task_teleport = false
+    flags.completed_20614_start_dialog = false
+    flags.completed_20614_after_start_teleport = false
+    flags.completed_20614_reward_dialog = false
 end
 
 function M.findQuest(quests, id)
@@ -154,6 +176,24 @@ function M.isNearQuest20612RewardNpc(snapshot)
     return distance3(snapshot.char, M.quest_20612_reward_npc) <= 4
 end
 
+function M.isQuest20614RewardNpcDialog(dialog)
+    return type(dialog) == "table"
+        and number(dialog.npc_dialog_id) == M.quest_20614_reward_npc.interact_id
+        and (number(dialog.quest_id) == 0 or number(dialog.quest_id) == 20614)
+end
+
+function M.isNearQuest20614RewardNpc(snapshot)
+    snapshot = snapshot or {}
+    if type(snapshot.char) ~= "table" then
+        return false
+    end
+    local current_big_map = number(snapshot.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.big_map_id then
+        return false
+    end
+    return distance3(snapshot.char, M.quest_20614_reward_npc) <= 4
+end
+
 function M.plan(snapshot)
     snapshot = snapshot or {}
     local char = type(snapshot.char) == "table" and snapshot.char or {}
@@ -165,6 +205,7 @@ function M.plan(snapshot)
     local q20610 = M.findQuest(quests, 20610)
     local q20611 = M.findQuest(quests, 20611)
     local q20612 = M.findQuest(quests, 20612)
+    local q20614 = M.findQuest(quests, 20614)
     local remote_reward = M.findRemoteRewardQuest(quests)
     local level_blocked = M.findLevelBlockedQuest(quests)
     local level_blocked_id = quest_id(level_blocked)
@@ -225,7 +266,7 @@ function M.plan(snapshot)
         end
     elseif status_code(q20612) == 4
         and status_code(level_blocked) == 6
-        and level_blocked_id > 20612 then
+        and level_blocked_id == 20613 then
         local at_reward_npc = M.isQuest20612RewardNpcDialog(dialog)
             or M.isNearQuest20612RewardNpc(snapshot)
         mark_after_20611(flags)
@@ -238,6 +279,35 @@ function M.plan(snapshot)
         else
             stage = "20612_task_teleport"
             reason = "quest 20612 is done; task teleport before later level grind"
+        end
+    elseif status_code(q20614) == 3 then
+        mark_after_20613(flags)
+        if quest_step(q20614) > 0 then
+            flags.completed_20614_task_teleport = true
+            flags.completed_20614_start_dialog = true
+            stage = "20614_after_start_teleport"
+            reason = "quest 20614 is active after start dialog and needs task teleport"
+        else
+            flags.completed_20614_task_teleport = false
+            flags.completed_20614_start_dialog = false
+            stage = "20614_active"
+            reason = "quest 20614 is active and needs task teleport"
+        end
+        flags.completed_20614_after_start_teleport = false
+    elseif status_code(q20614) == 4 then
+        local at_reward_npc = M.isQuest20614RewardNpcDialog(dialog)
+            or M.isNearQuest20614RewardNpc(snapshot)
+        mark_after_20613(flags)
+        flags.completed_20614_task_teleport = true
+        flags.completed_20614_start_dialog = true
+        flags.completed_20614_after_start_teleport = at_reward_npc
+        flags.completed_20614_reward_dialog = false
+        if at_reward_npc then
+            stage = "20614_reward"
+            reason = "quest 20614 is done and character is at reward npc"
+        else
+            stage = "20614_after_start_teleport"
+            reason = "quest 20614 is done after start dialog and still needs task teleport"
         end
     elseif status_code(q20590) == 4 then
         stage = "20590"
@@ -254,7 +324,10 @@ function M.plan(snapshot)
         flags.completed_20611_grind = false
         flags.completed_20611_level_move = false
         flags.level_move_quest_id = 0
-        if level_blocked_id == 20612
+        if level_blocked_id >= 20614 then
+            mark_after_20613(flags)
+            stage = tostring(level_blocked_id) .. "_level_blocked"
+        elseif level_blocked_id == 20612
             and not (status_code(q20611) == 4 and quest_step(q20611) == 3) then
             flags.completed_20611_hotspot_reward = true
             flags.reached_20612_start_point = false
