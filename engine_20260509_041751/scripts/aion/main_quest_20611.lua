@@ -22,10 +22,18 @@ M.quest_20612_level_grind_stage = "quest_20612_level_grind"
 M.quest_20612_start_stage = "quest_20612_start_npc"
 M.quest_20612_teleport_stage = "quest_20612_task_teleport"
 M.quest_20612_reward_stage = "quest_20612_reward_npc"
+M.quest_20613_id = 20613
+M.quest_20613_level_grind_stage = "quest_20613_level14_grind"
+M.post_20612_level14_required_level = 14
 M.grind_point = {
     x = 194.491,
     y = 2689.982,
     z = 300.625,
+}
+M.post_20612_level14_grind_point = {
+    x = 1093.552,
+    y = 2247.044,
+    z = 254.250,
 }
 M.npc = {
     name_key = "MQ20611_NPC_001_MISSION",
@@ -317,6 +325,10 @@ end
 
 function M.distanceToQuest20612RewardNpc(char)
     return distance3(char, M.quest_20612_reward_npc)
+end
+
+function M.distanceToPost20612Level14GrindPoint(char)
+    return distance3(char, M.post_20612_level14_grind_point)
 end
 
 function M.isNearQuest20612RewardNpc(state, opts)
@@ -1465,6 +1477,107 @@ function M.nextQuest20612LevelGateAction(state, runtime, opts, quest)
     return M.nextQuest20612StartAction(state, runtime, opts, quest)
 end
 
+function M.nextPostQuest20612Level14GrindAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or M.findQuestById(state.quests, M.quest_20613_id)
+
+    if type(state.dialog) == "table" then
+        return action("Idle", "waiting quest 20612 reward dialog close before level 14 grind", {
+            quest_id = M.quest_20613_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20613_level_grind_stage,
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_20613_id })
+    end
+
+    local required_level = number(opts.post_20612_level14_required_level)
+    if required_level <= 0 then
+        required_level = M.post_20612_level14_required_level
+    end
+    local char_level = number(char.level)
+    if char_level <= 0 then
+        return action("ReadState", "character level unavailable", { quest_id = M.quest_20613_id })
+    end
+
+    if char_level >= required_level then
+        return action("Idle", "post quest 20612 level 14 grind complete; wait next instruction", {
+            quest_id = M.quest_20613_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20613_level_grind_stage,
+        })
+    end
+
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.big_map_id then
+        return action("Idle", "post quest 20612 level 14 grind wrong map", {
+            quest_id = M.quest_20613_id,
+            quest_step = M.questStep(quest),
+            big_map_id = current_big_map,
+            expected_big_map_id = M.big_map_id,
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20613_level_grind_stage,
+        })
+    end
+
+    local active_stage = tostring(runtime.active_20611_grind_stage or "")
+    if runtime.active_20611_grind == true
+        and active_stage == M.quest_20613_level_grind_stage
+        and number(runtime.level_grind_quest_id) == M.quest_20613_id then
+        return action("WaitLevelGrind", "post quest 20612 level 14 grind running", {
+            quest_id = M.quest_20613_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20613_level_grind_stage,
+        })
+    end
+
+    local range = number(opts.post_20612_level14_grind_point_range)
+    if range <= 0 then
+        range = number(opts.grind_point_range)
+    end
+    if range <= 0 then
+        range = 10
+    end
+    local point = M.post_20612_level14_grind_point
+    local dist = M.distanceToPost20612Level14GrindPoint(char)
+    if dist > range then
+        return action("NavigateToGrindPoint", "move to post quest 20612 level 14 grind point", {
+            quest_id = M.quest_20613_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20613_level_grind_stage,
+            x = point.x,
+            y = point.y,
+            z = point.z,
+            distance = dist,
+            range = range,
+        })
+    end
+
+    return action("StartStationaryGrind", "start post quest 20612 level 14 grind", {
+        quest_id = M.quest_20613_id,
+        quest_step = M.questStep(quest),
+        required_level = required_level,
+        char_level = char_level,
+        until_level = required_level,
+        stage = M.quest_20613_level_grind_stage,
+        x = point.x,
+        y = point.y,
+        z = point.z,
+    })
+end
+
 function M.nextAction(state, runtime, opts)
     state = state or {}
     runtime = runtime or {}
@@ -1581,6 +1694,15 @@ function M.nextAction(state, runtime, opts)
     end
     if allow_quest_20612_flow and quest_20612_done_task_teleport_ready then
         return M.nextQuest20612TaskTeleportAction(state, runtime, opts, level_quest_after_20612)
+    end
+
+    local post_20612_level14_ready = runtime.completed_20612_reward_dialog == true
+        or (M.isQuestLevelBlocked(level_quest_after_20612)
+            and quest_id(level_quest_after_20612) == M.quest_20613_id
+            and not M.isQuestKnown(quest_20612))
+    if post_20612_level14_ready then
+        local quest_20613 = M.findQuestById(state.quests, M.quest_20613_id)
+        return M.nextPostQuest20612Level14GrindAction(state, runtime, opts, quest_20613 or level_quest_after_20612)
     end
 
     if runtime.completed_20611_hotspot_reward == true

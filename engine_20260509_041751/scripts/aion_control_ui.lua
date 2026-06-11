@@ -1018,6 +1018,7 @@ function main_quest_is_grind_stage(stage)
     return stage == "quest_20611_grind"
         or stage == "quest_20611_level_grind"
         or stage == "quest_20612_level_grind"
+        or stage == "quest_20613_level14_grind"
 end
 
 function main_quest_action_authorizes_grind(action)
@@ -1086,7 +1087,9 @@ function main_quest_grind_authorized()
     if tostring(r.active_20611_grind_stage or "") ~= stage then
         return false
     end
-    if stage == "quest_20611_level_grind" or stage == "quest_20612_level_grind" then
+    if stage == "quest_20611_level_grind"
+        or stage == "quest_20612_level_grind"
+        or stage == "quest_20613_level14_grind" then
         local auth_qid = tonumber(r.quest_grind_authorized_quest_id) or 0
         if auth_qid <= 0 or auth_qid ~= (tonumber(r.level_grind_quest_id) or 0) then
             return false
@@ -9206,6 +9209,7 @@ function main_quest_execute_20590(action, state)
         local grind_stage = tostring(params.stage or "")
         local is_level_grind = grind_stage == "quest_20611_level_grind"
             or grind_stage == "quest_20612_level_grind"
+            or grind_stage == "quest_20613_level14_grind"
         r.active_20611_grind = true
         r.active_20611_grind_stage = grind_stage
         if is_level_grind then
@@ -9603,7 +9607,8 @@ function main_quest_20611_tick()
     end
     if tostring(action.name or "") == "Idle"
         and (tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20611_level_grind"
-            or tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20612_level_grind")
+            or tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20612_level_grind"
+            or tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20613_level14_grind")
         and runtime.main_quest.active_20611_grind == true then
         main_quest_stop_20611_grind("quest-20611-level-grind-idle", false)
     end

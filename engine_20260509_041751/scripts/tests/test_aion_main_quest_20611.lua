@@ -60,6 +60,10 @@ local function quest_20612_reward_npc_char()
     return { x = 1047.94, y = 2203.23, z = 262.36, level = 11 }
 end
 
+local function post_20612_level14_grind_char(level)
+    return { x = 1093.60, y = 2247.10, z = 254.25, level = level or 11 }
+end
+
 local function run()
     T.reset()
     T.log("\n=== aion main quest 20611 tests ===")
@@ -573,7 +577,7 @@ local function run()
         T.assert_eq(next_action.params.interact_id, 2147495609)
     end)
 
-    T.test("starts quest 20613 level grind only after quest 20612 reward dialog", function()
+    T.test("moves to fixed level 14 grind point after quest 20612 reward dialog", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -588,11 +592,114 @@ local function run()
             completed_20612_reward_dialog = true,
         })
 
-        T.assert_eq(next_action.name, "StartStationaryGrind")
+        T.assert_eq(next_action.name, "NavigateToGrindPoint")
         T.assert_eq(next_action.params.quest_id, 20613)
-        T.assert_eq(next_action.params.stage, "quest_20611_level_grind")
+        T.assert_eq(next_action.params.stage, "quest_20613_level14_grind")
+        T.assert_eq(next_action.params.x, 1093.552)
+        T.assert_eq(next_action.params.y, 2247.044)
+        T.assert_eq(next_action.params.z, 254.250)
         T.assert_eq(next_action.params.required_level, 14)
         T.assert_eq(next_action.params.char_level, 11)
+    end)
+
+    T.test("starts fixed post quest 20612 grind when at level 14 point", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 4, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = post_20612_level14_grind_char(11),
+            big_map_id = 220010000,
+        }, {
+            completed_20612_start_dialog = true,
+            completed_20612_task_teleport = true,
+            completed_20612_reward_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "StartStationaryGrind")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_level14_grind")
+        T.assert_eq(next_action.params.required_level, 14)
+        T.assert_eq(next_action.params.char_level, 11)
+        T.assert_eq(next_action.params.until_level, 14)
+        T.assert_eq(next_action.params.requires_combat, true)
+        T.assert_eq(next_action.params.task_step, "grind")
+        T.assert_eq(next_action.params.x, 1093.552)
+        T.assert_eq(next_action.params.y, 2247.044)
+        T.assert_eq(next_action.params.z, 254.250)
+    end)
+
+    T.test("uses fixed level 14 grind point when quest 20612 is gone", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = quest_20612_reward_npc_char(),
+            big_map_id = 220010000,
+        })
+
+        T.assert_eq(next_action.name, "NavigateToGrindPoint")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_level14_grind")
+        T.assert_eq(next_action.params.required_level, 14)
+        T.assert_eq(next_action.params.char_level, 11)
+        T.assert_eq(next_action.params.x, 1093.552)
+        T.assert_eq(next_action.params.y, 2247.044)
+        T.assert_eq(next_action.params.z, 254.250)
+    end)
+
+    T.test("waits during fixed post quest 20612 level 14 grind", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 4, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = post_20612_level14_grind_char(13),
+            big_map_id = 220010000,
+        }, {
+            completed_20612_start_dialog = true,
+            completed_20612_task_teleport = true,
+            completed_20612_reward_dialog = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20613_level14_grind",
+            level_grind_quest_id = 20613,
+            level_grind_required_level = 14,
+        })
+
+        T.assert_eq(next_action.name, "WaitLevelGrind")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_level14_grind")
+        T.assert_eq(next_action.params.required_level, 14)
+        T.assert_eq(next_action.params.char_level, 13)
+    end)
+
+    T.test("idles after fixed post quest 20612 grind reaches level 14", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20612, tab = 0, status_code = 4, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = post_20612_level14_grind_char(14),
+            big_map_id = 220010000,
+        }, {
+            completed_20612_start_dialog = true,
+            completed_20612_task_teleport = true,
+            completed_20612_reward_dialog = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20613_level14_grind",
+            level_grind_quest_id = 20613,
+            level_grind_required_level = 14,
+        })
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_level14_grind")
+        T.assert_eq(next_action.params.required_level, 14)
+        T.assert_eq(next_action.params.char_level, 14)
     end)
 
     T.test("idles after quest 20612 task teleport is completed", function()
