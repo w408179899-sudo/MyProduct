@@ -108,6 +108,10 @@ local function quest_20620_after_obelisk_npc_char(level)
     return { x = 194.74, y = 2269.09, z = 438.87, level = level or 20 }
 end
 
+local function quest_20621_level22_grind_char(level)
+    return { x = 174.508, y = 2298.396, z = 438.510, level = level or 20 }
+end
+
 local function post_20612_level14_grind_char(level)
     return { x = 1093.60, y = 2247.10, z = 254.25, level = level or 11 }
 end
@@ -2810,6 +2814,101 @@ local function run()
         T.assert_eq(next_action.name, "Idle")
         T.assert_eq(next_action.params.quest_id, 20620)
         T.assert_eq(next_action.params.stage, "quest_20620_after_obelisk_npc")
+    end)
+
+    T.test("moves to quest 20621 level 22 grind point after quest 20620 completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+                { id = 20622, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 25 },
+            },
+            char = quest_20620_after_obelisk_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_obelisk_npc_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "NavigateToGrindPoint")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_level22_grind")
+        T.assert_eq(next_action.params.required_level, 22)
+        T.assert_eq(next_action.params.char_level, 20)
+        T.assert_eq(next_action.params.x, 174.508)
+        T.assert_eq(next_action.params.y, 2298.396)
+        T.assert_eq(next_action.params.z, 438.510)
+    end)
+
+    T.test("starts quest 20621 level 22 grind at fixed point", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+                { id = 20622, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 25 },
+            },
+            char = quest_20621_level22_grind_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_obelisk_npc_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "StartStationaryGrind")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_level22_grind")
+        T.assert_eq(next_action.params.required_level, 22)
+        T.assert_eq(next_action.params.char_level, 20)
+        T.assert_eq(next_action.params.until_level, 22)
+        T.assert_eq(next_action.params.requires_combat, true)
+        T.assert_eq(next_action.params.task_step, "grind")
+        T.assert_eq(next_action.params.x, 174.508)
+        T.assert_eq(next_action.params.y, 2298.396)
+        T.assert_eq(next_action.params.z, 438.510)
+    end)
+
+    T.test("waits while quest 20621 level 22 grind is active", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20621_level22_grind_char(21),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_obelisk_npc_dialog = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20621_level22_grind",
+            level_grind_quest_id = 20621,
+            level_grind_required_level = 22,
+        })
+
+        T.assert_eq(next_action.name, "WaitLevelGrind")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_level22_grind")
+        T.assert_eq(next_action.params.required_level, 22)
+        T.assert_eq(next_action.params.char_level, 21)
+    end)
+
+    T.test("idles after quest 20621 reaches level 22", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20621_level22_grind_char(22),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_obelisk_npc_dialog = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20621_level22_grind",
+            level_grind_quest_id = 20621,
+            level_grind_required_level = 22,
+        })
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_level22_grind")
+        T.assert_eq(next_action.params.required_level, 22)
+        T.assert_eq(next_action.params.char_level, 22)
     end)
 
     T.test("does not retry quest 20620 task teleport after stigma completed when teleport flag is missing", function()

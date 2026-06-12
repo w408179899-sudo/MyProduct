@@ -2,7 +2,7 @@ local M = {}
 local npc_names = require("aion.npc_names")
 
 M.quest_id = 20611
-M.quest_ids = { 20611, 20612, 20613, 20614, 20615, 20620 }
+M.quest_ids = { 20611, 20612, 20613, 20614, 20615, 20620, 20621 }
 M.quest_id_min = 20611
 M.quest_id_max = 20699
 M.remote_reward_quest_id = 24340
@@ -53,6 +53,9 @@ M.quest_20620_after_stigma_npc_stage = "quest_20620_after_stigma_npc"
 M.quest_20620_obelisk_stage = "quest_20620_obelisk"
 M.quest_20620_after_obelisk_teleport_stage = "quest_20620_after_obelisk_teleport"
 M.quest_20620_after_obelisk_npc_stage = "quest_20620_after_obelisk_npc"
+M.quest_20621_id = 20621
+M.quest_20621_level_grind_stage = "quest_20621_level22_grind"
+M.quest_20621_level22_required_level = 22
 M.post_20612_level14_required_level = 14
 M.grind_point = {
     x = 194.491,
@@ -63,6 +66,12 @@ M.post_20612_level14_grind_point = {
     x = 1093.552,
     y = 2247.044,
     z = 254.250,
+}
+M.quest_20621_level22_grind_point = {
+    x = 174.508,
+    y = 2298.396,
+    z = 438.510,
+    big_map_id = 220020000,
 }
 M.quest_20614_level17_route = {
     { x = 940.295, y = 1707.646, z = 259.500 },
@@ -615,6 +624,7 @@ function M.isLevelGrindStage(stage)
         or stage == M.quest_20613_level_grind_stage
         or stage == M.quest_20614_level_grind_stage
         or stage == M.quest_20615_level_grind_stage
+        or stage == M.quest_20621_level_grind_stage
 end
 
 function M.isGrindStage(stage)
@@ -681,6 +691,10 @@ end
 
 function M.distanceToQuest20615Level20GrindPoint(char)
     return distance3(char, M.quest_20615_level20_grind_point)
+end
+
+function M.distanceToQuest20621Level22GrindPoint(char)
+    return distance3(char, M.quest_20621_level22_grind_point)
 end
 
 function M.distanceToQuest20615TargetNpc(char)
@@ -4155,6 +4169,120 @@ function M.nextQuest20615Level20GrindAction(state, runtime, opts, quest)
     })
 end
 
+function M.nextQuest20621Level22GrindAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or M.findQuestById(state.quests, M.quest_20621_id)
+    if type(quest) ~= "table" then
+        quest = {
+            id = M.quest_20621_id,
+            status_code = 6,
+            req_count = 0,
+            lv_num = M.quest_20621_level22_required_level,
+        }
+    end
+
+    if type(state.dialog) == "table" then
+        return action("Idle", "waiting dialog close before quest 20621 level 22 grind", {
+            quest_id = M.quest_20621_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20621_level_grind_stage,
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_20621_id })
+    end
+
+    local required_level = number(opts.quest_20621_level22_required_level)
+    if required_level <= 0 then
+        required_level = M.questRequiredLevel(quest)
+    end
+    if required_level <= 0 then
+        required_level = M.quest_20621_level22_required_level
+    end
+
+    local char_level = number(char.level)
+    if char_level <= 0 then
+        return action("ReadState", "character level unavailable", { quest_id = M.quest_20621_id })
+    end
+
+    if char_level >= required_level then
+        return action("Idle", "quest 20621 level 22 reached; wait next instruction", {
+            quest_id = M.quest_20621_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20621_level_grind_stage,
+        })
+    end
+
+    local point = M.quest_20621_level22_grind_point
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= number(point.big_map_id) then
+        return action("Idle", "quest 20621 level 22 grind wrong map", {
+            quest_id = M.quest_20621_id,
+            quest_step = M.questStep(quest),
+            big_map_id = current_big_map,
+            expected_big_map_id = number(point.big_map_id),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20621_level_grind_stage,
+        })
+    end
+
+    local active_stage = tostring(runtime.active_20611_grind_stage or "")
+    if runtime.active_20611_grind == true
+        and active_stage == M.quest_20621_level_grind_stage
+        and number(runtime.level_grind_quest_id) == M.quest_20621_id then
+        return action("WaitLevelGrind", "quest 20621 level 22 grind running", {
+            quest_id = M.quest_20621_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20621_level_grind_stage,
+        })
+    end
+
+    local range = number(opts.quest_20621_level22_grind_point_range)
+    if range <= 0 then
+        range = number(opts.grind_point_range)
+    end
+    if range <= 0 then
+        range = 4
+    end
+
+    local dist = M.distanceToQuest20621Level22GrindPoint(char)
+    if dist > range then
+        return action("NavigateToGrindPoint", "move to quest 20621 level 22 grind point", {
+            quest_id = M.quest_20621_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20621_level_grind_stage,
+            x = point.x,
+            y = point.y,
+            z = point.z,
+            distance = dist,
+            range = range,
+        })
+    end
+
+    return action("StartStationaryGrind", "start quest 20621 level 22 grind", {
+        quest_id = M.quest_20621_id,
+        quest_step = M.questStep(quest),
+        required_level = required_level,
+        char_level = char_level,
+        until_level = required_level,
+        stage = M.quest_20621_level_grind_stage,
+        x = point.x,
+        y = point.y,
+        z = point.z,
+    })
+end
+
 function M.nextAction(state, runtime, opts)
     state = state or {}
     runtime = runtime or {}
@@ -4233,6 +4361,7 @@ function M.nextAction(state, runtime, opts)
     local quest_20614 = M.findQuestById(state.quests, M.quest_20614_id)
     local quest_20615 = M.findQuestById(state.quests, M.quest_20615_id)
     local quest_20620 = M.findQuestById(state.quests, M.quest_20620_id)
+    local quest_20621 = M.findQuestById(state.quests, M.quest_20621_id)
     if M.isMissionNpcDialog(state.dialog)
         and runtime.completed_20611_mission_dialog ~= true then
         return M.nextMissionNpcAction(state, runtime, opts, quest_20611)
@@ -4592,6 +4721,15 @@ function M.nextAction(state, runtime, opts)
         and runtime.completed_20620_start_dialog ~= true
     if quest_20620_start_ready then
         return M.nextQuest20620StartNpcAction(state, runtime, opts, quest_20620)
+    end
+
+    local quest_20620_cleared_for_20621 = runtime.completed_20620_after_obelisk_npc_dialog == true
+        or not M.isQuestKnown(quest_20620)
+    local quest_20621_level_ready = M.isQuestLevelBlocked(quest_20621)
+        or (runtime.active_20611_grind == true
+            and tostring(runtime.active_20611_grind_stage or "") == M.quest_20621_level_grind_stage)
+    if quest_20621_level_ready and quest_20620_cleared_for_20621 then
+        return M.nextQuest20621Level22GrindAction(state, runtime, opts, quest_20621)
     end
 
     if runtime.completed_20611_hotspot_reward == true
