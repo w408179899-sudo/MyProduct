@@ -354,6 +354,9 @@ local runtime = {
         completed_20620_start_dialog = false,
         completed_20620_task_teleport = false,
         completed_20620_after_teleport_npc_dialog = false,
+        completed_20620_stigma_socket = false,
+        completed_20620_after_stigma_teleport = false,
+        completed_20620_after_stigma_npc_dialog = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -6714,6 +6717,80 @@ function main_quest_trace(kind, message, min_interval)
     log_info("[AionMainQuest20590Trace] " .. key .. " " .. tostring(message or ""))
 end
 
+function main_quest_inventory_item_label(item)
+    if type(item) ~= "table" then
+        return ""
+    end
+    return tostring(item.text or item.name or "") ..
+        " cat=" .. tostring(item.cat_name or "") ..
+        " slot=" .. tostring(item.slot_name or "") ..
+        " info=" .. tostring(item.item_info_id or "")
+end
+
+function main_quest_keyword_list(value)
+    local out = {}
+    if type(value) == "table" then
+        for _, item in ipairs(value) do
+            local text = tostring(item or "")
+            if text ~= "" then
+                out[#out + 1] = text
+            end
+        end
+    else
+        local text = tostring(value or "")
+        if text ~= "" then
+            out[#out + 1] = text
+        end
+    end
+    return out
+end
+
+function main_quest_find_inventory_item_by_keywords(items, keywords, prefer_keyword)
+    keywords = main_quest_keyword_list(keywords)
+    prefer_keyword = tostring(prefer_keyword or "")
+    local best = nil
+    local best_score = -1
+    local matched = {}
+    for _, item in ipairs(items or {}) do
+        if type(item) == "table" then
+            local item_id = tonumber(item.id) or 0
+            if item_id > 0 then
+                local label = main_quest_inventory_item_label(item)
+                local score = 0
+                if prefer_keyword ~= "" and string.find(label, prefer_keyword, 1, true) then
+                    score = score + 100
+                end
+                for _, keyword in ipairs(keywords) do
+                    if keyword ~= "" and string.find(label, keyword, 1, true) then
+                        score = score + 10
+                    end
+                end
+                if score > 0 then
+                    matched[#matched + 1] = "id=" .. tostring(item_id) .. " " .. label
+                    if score > best_score then
+                        best = item
+                        best_score = score
+                    end
+                end
+            end
+        end
+    end
+    return best, best_score, matched
+end
+
+function main_quest_inventory_match_summary(matches, limit)
+    limit = math.max(1, tonumber(limit) or 5)
+    local parts = {}
+    for i, text in ipairs(matches or {}) do
+        if i > limit then
+            parts[#parts + 1] = "...+" .. tostring(#matches - limit)
+            break
+        end
+        parts[#parts + 1] = text
+    end
+    return table.concat(parts, " | ")
+end
+
 function move_trace_status(quest_id)
     if not ok_quest or not quest or type(quest.findById) ~= "function" then
         return ""
@@ -6804,6 +6881,7 @@ function main_quest_action_waits_after_move(action_name)
         or action_name == "ClickObeliskConfirm"
         or action_name == "MapNodeTeleportByName"
         or action_name == "BigMapTeleport"
+        or action_name == "UseQuestStigmaStone"
         or action_name == "StartStationaryGrind"
 end
 
@@ -7181,6 +7259,9 @@ function main_quest_reset_runtime(reason)
     r.completed_20620_start_dialog = false
     r.completed_20620_task_teleport = false
     r.completed_20620_after_teleport_npc_dialog = false
+    r.completed_20620_stigma_socket = false
+    r.completed_20620_after_stigma_teleport = false
+    r.completed_20620_after_stigma_npc_dialog = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7523,6 +7604,9 @@ function main_quest_read_20611_state(now)
         or r.completed_20620_start_dialog == true
         or r.completed_20620_task_teleport == true
         or r.completed_20620_after_teleport_npc_dialog == true
+        or r.completed_20620_stigma_socket == true
+        or r.completed_20620_after_stigma_teleport == true
+        or r.completed_20620_after_stigma_npc_dialog == true
         or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
@@ -9135,6 +9219,90 @@ function main_quest_execute_20590(action, state)
         return false
     end
 
+    if name == "UseQuestStigmaStone" then
+        if not main_quest_action_cooldown(name .. ":" .. tostring(stage), 1.5) then
+            return true
+        end
+        if tonumber(params.quest_id) == 20620
+            and stage == "quest_20620_socket_stigma"
+            and r.completed_20620_stigma_socket == true then
+            return true
+        end
+        if not ok_inventory or not inventory
+            or type(inventory.list) ~= "function"
+            or type(inventory.useItem) ~= "function" then
+            main_quest_set_status("后台镶嵌烙印失败: aion.inventory 不可用")
+            return false
+        end
+
+        local list_ok, items, list_err = inventory.list()
+        if not list_ok or type(items) ~= "table" then
+            main_quest_set_status("后台镶嵌烙印失败: 读取背包失败 " .. tostring(list_err or ""))
+            main_quest_trace("stigma-use-list-failed:" .. tostring(stage),
+                "quest=" .. tostring(params.quest_id or "") ..
+                " err=" .. tostring(list_err or ""),
+                0)
+            return false
+        end
+
+        local item, score, matches = main_quest_find_inventory_item_by_keywords(
+            items,
+            params.item_keywords,
+            params.prefer_keyword)
+        local match_summary = main_quest_inventory_match_summary(matches, 6)
+        if type(item) ~= "table" then
+            main_quest_set_status("等待后台镶嵌烙印: 未在背包列表找到烙印石 count=" ..
+                tostring(count_array(items)) ..
+                " keywords=" .. table.concat(main_quest_keyword_list(params.item_keywords), "/"))
+            main_quest_trace("stigma-use-not-found:" .. tostring(stage),
+                "quest=" .. tostring(params.quest_id or "") ..
+                " count=" .. tostring(count_array(items)) ..
+                " keywords=" .. table.concat(main_quest_keyword_list(params.item_keywords), "/") ..
+                " matches=" .. tostring(match_summary),
+                1.5)
+            return true
+        end
+
+        local item_id = tonumber(item.id) or 0
+        local item_label = main_quest_inventory_item_label(item)
+        local use_ok, used, use_err = inventory.useItem(item_id)
+        local success = use_ok == true and used ~= false
+        if success then
+            if tonumber(params.quest_id) == 20620 and stage == "quest_20620_socket_stigma" then
+                r.completed_20620_stigma_socket = true
+                r.cached_quest_20611 = nil
+                r.last_quest_20611_read_at = 0
+            end
+            main_quest_set_status("后台镶嵌烙印 UseItem item_id=" .. tostring(item_id) ..
+                " stage=" .. tostring(stage) ..
+                " score=" .. tostring(score) ..
+                " item=" .. item_label)
+            main_quest_trace("stigma-use-success:" .. tostring(stage),
+                "quest=" .. tostring(params.quest_id or "") ..
+                " item_id=" .. tostring(item_id) ..
+                " score=" .. tostring(score) ..
+                " item=" .. item_label ..
+                " used=" .. tostring(used),
+                0)
+            return true
+        end
+
+        main_quest_set_status("后台镶嵌烙印失败 UseItem item_id=" .. tostring(item_id) ..
+            " stage=" .. tostring(stage) ..
+            " result=" .. tostring(used) ..
+            " err=" .. tostring(use_err or "") ..
+            " item=" .. item_label)
+        main_quest_trace("stigma-use-failed:" .. tostring(stage),
+            "quest=" .. tostring(params.quest_id or "") ..
+            " item_id=" .. tostring(item_id) ..
+            " score=" .. tostring(score) ..
+            " result=" .. tostring(used) ..
+            " err=" .. tostring(use_err or "") ..
+            " matches=" .. tostring(match_summary),
+            0)
+        return false
+    end
+
     if name == "QuestTeleport" then
         if not main_quest_action_cooldown(name .. ":" .. tostring(stage), 1.0) then
             return true
@@ -9177,7 +9345,9 @@ function main_quest_execute_20590(action, state)
         local direct_quest_id_only = params.direct_quest_id_only == true
         if direct_quest_id_only then
             if (quest_id == 20615 and stage == "quest_20615_after_big_map_task_teleport")
-                or (quest_id == 20620 and stage == "quest_20620_task_teleport") then
+                or (quest_id == 20620 and (
+                    stage == "quest_20620_task_teleport"
+                    or stage == "quest_20620_after_stigma_teleport")) then
                 panel_ready = true
                 panel_detail = "direct_quest_id_only"
             else
@@ -9504,6 +9674,13 @@ function main_quest_execute_20590(action, state)
                             r.completed_20620_after_teleport_npc_dialog = true
                             r.cached_quest_20611 = nil
                             r.last_quest_20611_read_at = 0
+                        elseif continuous_quest_id == 20620
+                            and stage == "quest_20620_after_stigma_npc"
+                            and continuous_finished then
+                            r.clicked_20611_indicator_title = false
+                            r.completed_20620_after_stigma_npc_dialog = true
+                            r.cached_quest_20611 = nil
+                            r.last_quest_20611_read_at = 0
                         end
                         local settle_seconds = math.max(0,
                             tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
@@ -9525,6 +9702,8 @@ function main_quest_execute_20590(action, state)
                             tostring(r.completed_20620_start_dialog == true) ..
                         " completed_20620_after_teleport_npc_dialog=" ..
                             tostring(r.completed_20620_after_teleport_npc_dialog == true) ..
+                        " completed_20620_after_stigma_npc_dialog=" ..
+                            tostring(r.completed_20620_after_stigma_npc_dialog == true) ..
                         " status=" .. tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or ""),
                         0)
                 else
@@ -9628,6 +9807,20 @@ function main_quest_execute_20590(action, state)
                     tonumber(r.post_dialog_settle_until) or 0,
                     now_seconds() + settle_seconds)
             end
+        elseif ok and continuous_quest_id == 20620
+            and continuous_stage == "quest_20620_after_stigma_npc"
+            and continuous_finished then
+            r.clicked_20611_indicator_title = false
+            r.completed_20620_after_stigma_npc_dialog = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            local settle_seconds = math.max(0,
+                tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
+            if settle_seconds > 0 then
+                r.post_dialog_settle_until = math.max(
+                    tonumber(r.post_dialog_settle_until) or 0,
+                    now_seconds() + settle_seconds)
+            end
         end
         local status = tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or "")
         main_quest_set_status("continuous last-option dialog quest_id=" .. tostring(params.quest_id or "") ..
@@ -9645,6 +9838,8 @@ function main_quest_execute_20590(action, state)
             " completed_20620_start_dialog=" .. tostring(r.completed_20620_start_dialog == true) ..
             " completed_20620_after_teleport_npc_dialog=" ..
                 tostring(r.completed_20620_after_teleport_npc_dialog == true) ..
+            " completed_20620_after_stigma_npc_dialog=" ..
+                tostring(r.completed_20620_after_stigma_npc_dialog == true) ..
             " status=" .. status,
             0)
         return ok
@@ -10057,6 +10252,18 @@ function main_quest_execute_20590(action, state)
             main_quest_trace("q20620-complete-teleport:" .. stage,
                 "quest=" .. tostring(params.quest_id or "") ..
                 " completed_task_tp=" .. tostring(r.completed_20620_task_teleport == true) ..
+                " reason=" .. tostring(action.reason or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
+        elseif stage == "quest_20620_after_stigma_teleport" then
+            r.clicked_20611_indicator_title = false
+            r.completed_20620_after_stigma_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            main_quest_trace("q20620-complete-teleport:" .. stage,
+                "quest=" .. tostring(params.quest_id or "") ..
+                " completed_after_stigma_tp=" ..
+                    tostring(r.completed_20620_after_stigma_teleport == true) ..
                 " reason=" .. tostring(action.reason or "") ..
                 " pos=" .. main_quest_position_text(state.char),
                 0)
@@ -10512,6 +10719,11 @@ function main_quest_20611_tick()
             " q20620_task_tp_done=" .. tostring(runtime.main_quest.completed_20620_task_teleport == true) ..
             " q20620_after_tp_npc_done=" ..
                 tostring(runtime.main_quest.completed_20620_after_teleport_npc_dialog == true) ..
+            " q20620_stigma_done=" .. tostring(runtime.main_quest.completed_20620_stigma_socket == true) ..
+            " q20620_after_stigma_tp_done=" ..
+                tostring(runtime.main_quest.completed_20620_after_stigma_teleport == true) ..
+            " q20620_after_stigma_npc_done=" ..
+                tostring(runtime.main_quest.completed_20620_after_stigma_npc_dialog == true) ..
             " waiting_teleport=" .. tostring(runtime.main_quest.waiting_teleport == true) ..
             " teleport_qid=" .. tostring(runtime.main_quest.teleport_quest_id or 0) ..
             " teleport_stage=" .. tostring(runtime.main_quest.teleport_stage or "") ..
@@ -10605,7 +10817,10 @@ function main_quest_20611_tick()
         ":" .. tostring(q20620_step) ..
         ":" .. tostring(runtime.main_quest.completed_20620_start_dialog == true) ..
         ":" .. tostring(runtime.main_quest.completed_20620_task_teleport == true) ..
-        ":" .. tostring(runtime.main_quest.completed_20620_after_teleport_npc_dialog == true)
+        ":" .. tostring(runtime.main_quest.completed_20620_after_teleport_npc_dialog == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20620_stigma_socket == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20620_after_stigma_teleport == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20620_after_stigma_npc_dialog == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -10664,6 +10879,11 @@ function main_quest_20611_tick()
             " q20620_task_tp_done=" .. tostring(runtime.main_quest.completed_20620_task_teleport == true) ..
             " q20620_after_tp_npc_done=" ..
                 tostring(runtime.main_quest.completed_20620_after_teleport_npc_dialog == true) ..
+            " q20620_stigma_done=" .. tostring(runtime.main_quest.completed_20620_stigma_socket == true) ..
+            " q20620_after_stigma_tp_done=" ..
+                tostring(runtime.main_quest.completed_20620_after_stigma_teleport == true) ..
+            " q20620_after_stigma_npc_done=" ..
+                tostring(runtime.main_quest.completed_20620_after_stigma_npc_dialog == true) ..
             " q20614_after_start_tp_pending=" .. tostring(q20614_after_start_teleport_pending == true) ..
             " q20613_after_start_teleport_pending=" .. tostring(q20613_after_start_teleport_pending == true) ..
             " q20613_after_start_reward_pending=" .. tostring(q20613_after_start_reward_pending == true) ..
