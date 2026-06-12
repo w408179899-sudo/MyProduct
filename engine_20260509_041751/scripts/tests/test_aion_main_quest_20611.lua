@@ -2608,6 +2608,29 @@ local function run()
         T.assert_eq(next_action.params.direct_quest_id_only, true)
     end)
 
+    T.test("recovers quest 20620 after-obelisk teleport from done snapshot when runtime flag is missing", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 4, req_count = 4, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_obelisk_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            completed_20620_task_teleport = true,
+            completed_20620_after_teleport_npc_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.quest_step, 4)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_obelisk_teleport")
+        T.assert_eq(next_action.params.direct_quest_id_only, true)
+    end)
+
     T.test("waits for quest 20620 after-obelisk teleport landing after call", function()
         local quest = load_module()
         local next_action = quest.nextAction({
