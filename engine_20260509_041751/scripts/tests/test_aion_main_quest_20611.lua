@@ -2582,11 +2582,11 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20620_obelisk")
     end)
 
-    T.test("idles after quest 20620 obelisk confirmed", function()
+    T.test("starts quest 20620 after-obelisk teleport after obelisk confirmed", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
-                { id = 20620, tab = 0, status_code = 3, req_count = 4, seq = 0, lv_num = 20 },
+                { id = 20620, tab = 0, status_code = 3, req_count = 5, seq = 0, lv_num = 20 },
                 { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
             },
             char = quest_20620_obelisk_char(20),
@@ -2602,9 +2602,96 @@ local function run()
             completed_20620_obelisk = true,
         })
 
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_obelisk_teleport")
+        T.assert_eq(next_action.params.direct_quest_id_only, true)
+    end)
+
+    T.test("waits for quest 20620 after-obelisk teleport landing after call", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 5, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_obelisk_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            completed_20620_task_teleport = true,
+            completed_20620_after_teleport_npc_dialog = true,
+            completed_20620_stigma_socket = true,
+            completed_20620_after_stigma_teleport = true,
+            completed_20620_after_stigma_npc_dialog = true,
+            completed_20620_obelisk = true,
+            waiting_teleport = true,
+            teleport_quest_id = 20620,
+            teleport_stage = "quest_20620_after_obelisk_teleport",
+            teleport_start_pos = quest_20620_obelisk_char(20),
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_obelisk_teleport")
+    end)
+
+    T.test("completes quest 20620 after-obelisk teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 5, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = { x = 320.00, y = 2380.00, z = 446.00, level = 20 },
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            completed_20620_task_teleport = true,
+            completed_20620_after_teleport_npc_dialog = true,
+            completed_20620_stigma_socket = true,
+            completed_20620_after_stigma_teleport = true,
+            completed_20620_after_stigma_npc_dialog = true,
+            completed_20620_obelisk = true,
+            waiting_teleport = true,
+            teleport_quest_id = 20620,
+            teleport_stage = "quest_20620_after_obelisk_teleport",
+            teleport_start_pos = quest_20620_obelisk_char(20),
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_obelisk_teleport")
+    end)
+
+    T.test("idles after quest 20620 after-obelisk teleport completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 5, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_obelisk_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            completed_20620_task_teleport = true,
+            completed_20620_after_teleport_npc_dialog = true,
+            completed_20620_stigma_socket = true,
+            completed_20620_after_stigma_teleport = true,
+            completed_20620_after_stigma_npc_dialog = true,
+            completed_20620_obelisk = true,
+            completed_20620_after_obelisk_teleport = true,
+        })
+
         T.assert_eq(next_action.name, "Idle")
         T.assert_eq(next_action.params.quest_id, 20620)
-        T.assert_eq(next_action.params.stage, "quest_20620_obelisk")
+        T.assert_eq(next_action.params.stage, "quest_20620_after_obelisk_teleport")
     end)
 
     T.test("does not retry quest 20620 task teleport after stigma completed when teleport flag is missing", function()
