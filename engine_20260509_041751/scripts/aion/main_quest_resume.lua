@@ -22,6 +22,13 @@ M.quest_20615_target_npc = {
     y = 2450.16,
     z = 278.38,
 }
+M.quest_20615_morheim_npc = {
+    interact_id = 2147488159,
+    x = 224.83,
+    y = 2415.82,
+    z = 454.11,
+    big_map_id = 220020000,
+}
 
 local function number(value)
     return tonumber(value) or 0
@@ -96,6 +103,7 @@ local function mark_after_20614(flags)
     flags.completed_20615_target_dialog = false
     flags.completed_20615_big_map_teleport = false
     flags.completed_20615_after_big_map_task_teleport = false
+    flags.completed_20615_morheim_npc_dialog = false
 end
 
 function M.findQuest(quests, id)
@@ -230,6 +238,24 @@ function M.isNearQuest20615TargetNpc(snapshot)
     return distance3(snapshot.char, M.quest_20615_target_npc) <= 4
 end
 
+function M.isQuest20615MorheimNpcDialog(dialog)
+    return type(dialog) == "table"
+        and number(dialog.npc_dialog_id) == M.quest_20615_morheim_npc.interact_id
+        and (number(dialog.quest_id) == 0 or number(dialog.quest_id) == 20615)
+end
+
+function M.isNearQuest20615MorheimNpc(snapshot)
+    snapshot = snapshot or {}
+    if type(snapshot.char) ~= "table" then
+        return false
+    end
+    local current_big_map = number(snapshot.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.quest_20615_morheim_npc.big_map_id then
+        return false
+    end
+    return distance3(snapshot.char, M.quest_20615_morheim_npc) <= 4
+end
+
 function M.plan(snapshot)
     snapshot = snapshot or {}
     local char = type(snapshot.char) == "table" and snapshot.char or {}
@@ -355,6 +381,9 @@ function M.plan(snapshot)
             or M.isNearQuest20615TargetNpc(snapshot)
         local current_big_map = number(snapshot.big_map_id)
         local after_big_map_teleport = current_big_map > 0 and current_big_map ~= M.big_map_id
+        local at_morheim_npc = after_big_map_teleport
+            and (M.isQuest20615MorheimNpcDialog(dialog)
+                or M.isNearQuest20615MorheimNpc(snapshot))
         mark_after_20614(flags)
         flags.completed_20615_task_teleport = at_target_npc
             or quest_step(q20615) > 0
@@ -362,8 +391,12 @@ function M.plan(snapshot)
         flags.completed_20615_target_dialog = quest_step(q20615) > 0
             or after_big_map_teleport
         flags.completed_20615_big_map_teleport = after_big_map_teleport
-        flags.completed_20615_after_big_map_task_teleport = false
-        if after_big_map_teleport then
+        flags.completed_20615_after_big_map_task_teleport = at_morheim_npc
+        flags.completed_20615_morheim_npc_dialog = false
+        if at_morheim_npc then
+            stage = "20615_morheim_npc"
+            reason = "quest 20615 is active and character is at Morheim npc"
+        elseif after_big_map_teleport then
             stage = "20615_after_big_map_task_teleport"
             reason = "quest 20615 is active on another big map and needs its task teleport"
         elseif quest_step(q20615) > 0 then
@@ -379,12 +412,19 @@ function M.plan(snapshot)
     elseif status_code(q20615) == 4 then
         local current_big_map = number(snapshot.big_map_id)
         local after_big_map_teleport = current_big_map > 0 and current_big_map ~= M.big_map_id
+        local at_morheim_npc = after_big_map_teleport
+            and (M.isQuest20615MorheimNpcDialog(dialog)
+                or M.isNearQuest20615MorheimNpc(snapshot))
         mark_after_20614(flags)
         flags.completed_20615_task_teleport = true
         flags.completed_20615_target_dialog = true
         flags.completed_20615_big_map_teleport = after_big_map_teleport
-        flags.completed_20615_after_big_map_task_teleport = false
-        if after_big_map_teleport then
+        flags.completed_20615_after_big_map_task_teleport = at_morheim_npc
+        flags.completed_20615_morheim_npc_dialog = false
+        if at_morheim_npc then
+            stage = "20615_morheim_npc"
+            reason = "quest 20615 is done and character is at Morheim npc"
+        elseif after_big_map_teleport then
             stage = "20615_after_big_map_task_teleport"
             reason = "quest 20615 is done on another big map and needs its task teleport"
         else

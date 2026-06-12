@@ -41,6 +41,7 @@ M.quest_20615_teleport_stage = "quest_20615_task_teleport"
 M.quest_20615_target_stage = "quest_20615_target_npc"
 M.quest_20615_big_map_teleport_stage = "quest_20615_big_map_teleport"
 M.quest_20615_after_big_map_teleport_stage = "quest_20615_after_big_map_task_teleport"
+M.quest_20615_morheim_npc_stage = "quest_20615_morheim_npc"
 M.quest_20615_level20_required_level = 20
 M.post_20612_level14_required_level = 14
 M.grind_point = {
@@ -189,6 +190,15 @@ M.quest_20615_big_map_teleport = {
     min_lv = 20,
     name = "Morheim",
     expected_big_map_id = 220020000,
+}
+M.quest_20615_morheim_npc = {
+    name_key = "MQ20615_NPC_001_MORHEIM_AEGIR",
+    name = "",
+    interact_id = 2147488159,
+    x = 224.83,
+    y = 2415.82,
+    z = 454.11,
+    big_map_id = 220020000,
 }
 M.hotspot_node = {
     name = "투나프레 호수",
@@ -615,6 +625,10 @@ function M.distanceToQuest20615TargetNpc(char)
     return distance3(char, M.quest_20615_target_npc)
 end
 
+function M.distanceToQuest20615MorheimNpc(char)
+    return distance3(char, M.quest_20615_morheim_npc)
+end
+
 function M.isNearQuest20612RewardNpc(state, opts)
     state = state or {}
     opts = opts or {}
@@ -715,6 +729,23 @@ function M.isNearQuest20615TargetNpc(state, opts)
         range = 4
     end
     return M.distanceToQuest20615TargetNpc(state.char) <= range
+end
+
+function M.isNearQuest20615MorheimNpc(state, opts)
+    state = state or {}
+    opts = opts or {}
+    if type(state.char) ~= "table" then
+        return false
+    end
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.quest_20615_morheim_npc.big_map_id then
+        return false
+    end
+    local range = number(opts.npc_range)
+    if range <= 0 then
+        range = 4
+    end
+    return M.distanceToQuest20615MorheimNpc(state.char) <= range
 end
 
 function M.questStep(quest)
@@ -964,6 +995,15 @@ end
 function M.isQuest20615TargetNpcDialog(dialog)
     if type(dialog) ~= "table"
         or number(dialog.npc_dialog_id) ~= M.quest_20615_target_npc.interact_id then
+        return false
+    end
+    local dialog_qid = number(dialog.quest_id)
+    return dialog_qid <= 0 or dialog_qid == M.quest_20615_id
+end
+
+function M.isQuest20615MorheimNpcDialog(dialog)
+    if type(dialog) ~= "table"
+        or number(dialog.npc_dialog_id) ~= M.quest_20615_morheim_npc.interact_id then
         return false
     end
     local dialog_qid = number(dialog.quest_id)
@@ -2138,11 +2178,13 @@ function M.nextQuest20615AfterBigMapTaskTeleportAction(state, runtime, opts, que
     quest = quest or M.findQuestById(state.quests, M.quest_20615_id)
 
     if runtime.completed_20615_after_big_map_task_teleport == true then
-        return action("Idle", "quest 20615 after big map task teleport completed; wait next instruction", {
-            quest_id = M.quest_20615_id,
-            quest_step = M.questStep(quest),
-            stage = M.quest_20615_after_big_map_teleport_stage,
-        })
+        return M.nextQuest20615MorheimNpcAction(state, runtime, opts, quest)
+    end
+
+    if runtime.completed_20615_morheim_npc_dialog == true
+        or M.isQuest20615MorheimNpcDialog(state.dialog)
+        or M.isNearQuest20615MorheimNpc(state, opts) then
+        return M.nextQuest20615MorheimNpcAction(state, runtime, opts, quest)
     end
 
     if type(state.dialog) == "table" then
@@ -2172,6 +2214,100 @@ function M.nextQuest20615AfterBigMapTaskTeleportAction(state, runtime, opts, que
         direct_quest_id_only = true,
         open_panel_key = false,
         require_panel_visible = false,
+    })
+end
+
+function M.nextQuest20615MorheimNpcAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or M.findQuestById(state.quests, M.quest_20615_id)
+
+    if runtime.completed_20615_morheim_npc_dialog == true then
+        return action("Idle", "quest 20615 Morheim npc dialog completed; wait next instruction", {
+            quest_id = M.quest_20615_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20615_morheim_npc_stage,
+        })
+    end
+
+    local dialog = state.dialog
+    if M.isQuest20615MorheimNpcDialog(dialog) then
+        return action("ClickDialogLastContinuousOk", "complete quest 20615 Morheim npc dialog by last-option chain", {
+            quest_id = M.quest_20615_id,
+            quest_step = M.questStep(quest),
+            type_text = tostring(dialog.type_text or ""),
+            content_id = dialog_content_id(dialog),
+            npc_dialog_id = number(dialog.npc_dialog_id),
+            interact_id = M.quest_20615_morheim_npc.interact_id,
+            npc_name = M.quest_20615_morheim_npc.name,
+            npc_name_key = M.quest_20615_morheim_npc.name_key,
+            click_x = opts.dialog_click_x or 25,
+            stage = M.quest_20615_morheim_npc_stage,
+        })
+    end
+
+    if type(dialog) == "table" then
+        return action("DumpDialog", "different npc dialog is already open before quest 20615 Morheim npc", {
+            quest_id = M.quest_20615_id,
+            quest_step = M.questStep(quest),
+            type_text = tostring(dialog.type_text or ""),
+            content_id = dialog_content_id(dialog),
+            npc_dialog_id = number(dialog.npc_dialog_id),
+            interact_id = M.quest_20615_morheim_npc.interact_id,
+            npc_name = M.quest_20615_morheim_npc.name,
+            npc_name_key = M.quest_20615_morheim_npc.name_key,
+            stage = M.quest_20615_morheim_npc_stage,
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_20615_id })
+    end
+
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.quest_20615_morheim_npc.big_map_id then
+        return action("Idle", "quest 20615 Morheim npc wrong map", {
+            quest_id = M.quest_20615_id,
+            quest_step = M.questStep(quest),
+            big_map_id = current_big_map,
+            expected_big_map_id = M.quest_20615_morheim_npc.big_map_id,
+            stage = M.quest_20615_morheim_npc_stage,
+        })
+    end
+
+    local range = number(opts.npc_range)
+    if range <= 0 then
+        range = 4
+    end
+    local dist = M.distanceToQuest20615MorheimNpc(char)
+    if dist > range then
+        return action("NavigateToNpc", "move to quest 20615 Morheim npc", {
+            quest_id = M.quest_20615_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20615_morheim_npc_stage,
+            interact_id = M.quest_20615_morheim_npc.interact_id,
+            npc_name = M.quest_20615_morheim_npc.name,
+            npc_name_key = M.quest_20615_morheim_npc.name_key,
+            x = M.quest_20615_morheim_npc.x,
+            y = M.quest_20615_morheim_npc.y,
+            z = M.quest_20615_morheim_npc.z,
+            distance = dist,
+            range = range,
+        })
+    end
+
+    return action("InteractNpc", "open quest 20615 Morheim npc dialog", {
+        quest_id = M.quest_20615_id,
+        quest_step = M.questStep(quest),
+        stage = M.quest_20615_morheim_npc_stage,
+        interact_id = M.quest_20615_morheim_npc.interact_id,
+        npc_name = M.quest_20615_morheim_npc.name,
+        npc_name_key = M.quest_20615_morheim_npc.name_key,
+        allow_interact_id_fallback = true,
+        after_open_continuous_last = true,
+        click_x = opts.dialog_click_x or 25,
     })
 end
 
@@ -3218,6 +3354,12 @@ function M.nextAction(state, runtime, opts)
         and (runtime.completed_20615_task_teleport == true
             or M.isQuestActive(quest_20615)) then
         return M.nextQuest20615BigMapTeleportAction(state, runtime, opts, quest_20615)
+    end
+    if M.isQuest20615MorheimNpcDialog(state.dialog)
+        and runtime.completed_20615_morheim_npc_dialog ~= true
+        and (runtime.completed_20615_after_big_map_task_teleport == true
+            or M.isQuestDone(quest_20615)) then
+        return M.nextQuest20615MorheimNpcAction(state, runtime, opts, quest_20615)
     end
     if M.isTargetNpcDialog(state.dialog)
         and runtime.completed_20611_target_dialog ~= true then

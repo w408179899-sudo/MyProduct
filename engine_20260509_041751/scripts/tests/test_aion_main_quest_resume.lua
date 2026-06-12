@@ -525,6 +525,46 @@ local function run()
         T.assert_eq(plan.flags.completed_20615_after_big_map_task_teleport, false)
     end)
 
+    T.test("done quest 20615 near Morheim npc resumes npc dialog", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20615", level = 20, x = 224.60, y = 2416.30, z = 454.56 },
+            big_map_id = 220020000,
+            quests = {
+                { id = 20615, status_code = 4, req_count = 0, seq = 0, lv_num = 20 },
+                { id = 20620, status_code = 3, req_count = 0, seq = 0, lv_num = 20 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20615_morheim_npc")
+        T.assert_eq(plan.flags.completed_20615_task_teleport, true)
+        T.assert_eq(plan.flags.completed_20615_target_dialog, true)
+        T.assert_eq(plan.flags.completed_20615_big_map_teleport, true)
+        T.assert_eq(plan.flags.completed_20615_after_big_map_task_teleport, true)
+        T.assert_eq(plan.flags.completed_20615_morheim_npc_dialog, false)
+    end)
+
+    T.test("open quest 20615 Morheim npc dialog resumes npc dialog", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20615", level = 20, x = 224.60, y = 2416.30, z = 454.56 },
+            big_map_id = 220020000,
+            dialog = {
+                npc_dialog_id = 2147488159,
+                quest_id = 20615,
+                type_text = "select_success",
+            },
+            quests = {
+                { id = 20615, status_code = 4, req_count = 0, seq = 0, lv_num = 20 },
+                { id = 20620, status_code = 3, req_count = 0, seq = 0, lv_num = 20 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20615_morheim_npc")
+        T.assert_eq(plan.flags.completed_20615_after_big_map_task_teleport, true)
+        T.assert_eq(plan.flags.completed_20615_morheim_npc_dialog, false)
+    end)
+
     T.test("quest 20611 hotspot reward snapshot is not treated as quest 20612 grind", function()
         local resume = load_module()
         local plan = resume.plan({

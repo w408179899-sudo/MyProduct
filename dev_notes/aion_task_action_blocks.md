@@ -232,6 +232,13 @@
 - 最后一页可能只剩 `ok` 按钮的流程
 - 例如 20615 落地后和 `울고른` 对话
 
+Alias:
+- "最新 call 对话条方式"
+- "最后一条连续 call"
+- "连续最后一个，最后 OK 兜底"
+
+All three mean `ClickDialogLastContinuousOk`: repeatedly call/click the last visible dialog option, then use OK as fallback when no normal option remains.
+
 ### `ClickDialogXWaitTeleport`
 
 用途：点 X 后会触发传送。
