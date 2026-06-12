@@ -348,6 +348,7 @@ local runtime = {
         completed_20614_reward_dialog = false,
         completed_20615_task_teleport = false,
         completed_20615_target_dialog = false,
+        completed_20615_big_map_teleport = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -6797,6 +6798,7 @@ function main_quest_action_waits_after_move(action_name)
         or action_name == "ClickDialogOkCompleteQuest"
         or action_name == "ClickObeliskConfirm"
         or action_name == "MapNodeTeleportByName"
+        or action_name == "BigMapTeleport"
         or action_name == "StartStationaryGrind"
 end
 
@@ -7168,6 +7170,7 @@ function main_quest_reset_runtime(reason)
     r.completed_20614_reward_dialog = false
     r.completed_20615_task_teleport = false
     r.completed_20615_target_dialog = false
+    r.completed_20615_big_map_teleport = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7501,6 +7504,8 @@ function main_quest_read_20611_state(now)
         or r.completed_20614_after_start_teleport == true
         or r.completed_20614_reward_dialog == true
         or r.completed_20615_task_teleport == true
+        or r.completed_20615_target_dialog == true
+        or r.completed_20615_big_map_teleport == true
         or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
@@ -7655,6 +7660,10 @@ function main_quest_apply_startup_snapshot(reason)
         " q20611_step=" .. tostring(plan.quest_20611_step or 0) ..
         " q20612=" .. tostring(plan.quest_20612_status or 0) ..
         " q20612_step=" .. tostring(plan.quest_20612_step or 0) ..
+        " q20614=" .. tostring(plan.quest_20614_status or 0) ..
+        " q20614_step=" .. tostring(plan.quest_20614_step or 0) ..
+        " q20615=" .. tostring(plan.quest_20615_status or 0) ..
+        " q20615_step=" .. tostring(plan.quest_20615_step or 0) ..
         " qlevel_id=" .. tostring(plan.level_blocked_quest_id or 0) ..
         " qlevel=" .. tostring(plan.level_blocked_status or 0) ..
         " qblue_id=" .. tostring(plan.remote_reward_quest_id or 0) ..
@@ -8876,6 +8885,173 @@ function main_quest_execute_20590(action, state)
         return ok and result ~= false
     end
 
+    if name == "BigMapTeleport" then
+        local post_dialog_settle_until = tonumber(r.post_dialog_settle_until) or 0
+        local now = now_seconds()
+        if now < post_dialog_settle_until then
+            if main_quest_action_cooldown("PostDialogSettle:" .. tostring(stage), 0.4) then
+                main_quest_set_status("waiting post dialog settle before big map teleport stage=" ..
+                    tostring(stage) .. " remain=" .. string.format("%.1f", post_dialog_settle_until - now))
+            end
+            return true
+        end
+        if not main_quest_action_cooldown(name .. ":" .. tostring(stage), 1.0) then
+            return true
+        end
+        if not ok_map or not map or type(map.bigMapTeleport) ~= "function" then
+            main_quest_set_status("big map teleport failed: aion.map unavailable")
+            return false
+        end
+        if ok_core and core and type(core.ensureInit) == "function" then
+            local init_ok, init_err = core.ensureInit(tonumber(cfg.target.pid) or nil)
+            if not init_ok then
+                main_quest_set_status("big map teleport init failed: " .. tostring(init_err))
+                return false
+            end
+        end
+
+        local wanted_slot = tonumber(params.slot) or 0
+        local wanted_price = tonumber(params.price)
+        local wanted_min_lv = tonumber(params.min_lv)
+        local wanted_name = tostring(params.target_name or params.name or "")
+        local selected = nil
+        local selected_index = 0
+        local match_type = ""
+        local list_count = 0
+        local list_err = nil
+
+        if type(map.bigMapTeleports) == "function" then
+            local list_ok, teleports, err = map.bigMapTeleports()
+            if list_ok then
+                list_count = count_array(teleports or {})
+                for index, item in ipairs(teleports or {}) do
+                    if wanted_slot > 0 and tonumber(item.slot) == wanted_slot then
+                        selected = item
+                        selected_index = index
+                        match_type = "slot"
+                        break
+                    end
+                end
+                if not selected and wanted_name ~= "" then
+                    for index, item in ipairs(teleports or {}) do
+                        local item_name = tostring(item.name or item.name_en or "")
+                        if item_name == wanted_name then
+                            selected = item
+                            selected_index = index
+                            match_type = "name"
+                            break
+                        end
+                    end
+                end
+                if not selected and wanted_price ~= nil then
+                    for index, item in ipairs(teleports or {}) do
+                        local price_match = tonumber(item.price) == wanted_price
+                        local level_match = wanted_min_lv == nil or tonumber(item.min_lv) == wanted_min_lv
+                        if price_match and level_match then
+                            selected = item
+                            selected_index = index
+                            match_type = "price"
+                            break
+                        end
+                    end
+                end
+            else
+                list_err = err
+                main_quest_trace("big-map-teleport-list-failed:" .. tostring(stage),
+                    "err=" .. tostring(err or "") .. " will_use_slot=" .. tostring(wanted_slot),
+                    0)
+            end
+        end
+
+        local slot = wanted_slot
+        local price = wanted_price
+        if selected then
+            slot = tonumber(selected.slot) or slot
+            price = tonumber(selected.price) or price
+            if wanted_price ~= nil and tonumber(selected.price) ~= nil and tonumber(selected.price) ~= wanted_price then
+                main_quest_set_status("big map teleport price mismatch stage=" .. tostring(stage) ..
+                    " slot=" .. tostring(slot) ..
+                    " expected=" .. tostring(wanted_price) ..
+                    " actual=" .. tostring(selected.price))
+                main_quest_trace("big-map-teleport-price-mismatch:" .. tostring(stage),
+                    "quest=" .. tostring(params.quest_id or "") ..
+                    " slot=" .. tostring(slot) ..
+                    " expected_price=" .. tostring(wanted_price) ..
+                    " actual_price=" .. tostring(selected.price),
+                    0)
+                return false
+            end
+        elseif slot <= 0 then
+            main_quest_set_status("big map teleport target not found name=" .. wanted_name ..
+                " price=" .. tostring(wanted_price or "") ..
+                " min_lv=" .. tostring(wanted_min_lv or "") ..
+                " count=" .. tostring(list_count) ..
+                " err=" .. tostring(list_err or ""))
+            return false
+        else
+            match_type = "slot_direct"
+        end
+
+        if slot <= 0 then
+            main_quest_set_status("big map teleport failed: invalid slot")
+            return false
+        end
+
+        if type(map.canTeleport) == "function" then
+            local can_ok, can_value, can_err = map.canTeleport()
+            if can_ok and can_value ~= true then
+                main_quest_set_status("big map teleport waiting: IsCanTeleport=false stage=" ..
+                    tostring(stage) .. " slot=" .. tostring(slot))
+                main_quest_trace("big-map-teleport-wait-can:" .. tostring(stage),
+                    "quest=" .. tostring(params.quest_id or "") ..
+                    " slot=" .. tostring(slot) ..
+                    " price=" .. tostring(price or "") ..
+                    " pos=" .. main_quest_position_text(state.char),
+                    0.5)
+                return true
+            elseif not can_ok then
+                main_quest_trace("big-map-teleport-can-failed:" .. tostring(stage),
+                    "err=" .. tostring(can_err or "") .. " will_attempt=true",
+                    0)
+            end
+        end
+
+        local ok, result, err = map.bigMapTeleport(slot)
+        if ok and result ~= false and params.wait_teleport ~= false then
+            r.waiting_teleport = true
+            r.teleport_quest_id = tonumber(params.quest_id) or 0
+            r.teleport_stage = tostring(stage or "")
+            r.teleport_start_pos = state.char
+            r.teleport_start_big_map_id = tonumber(state.big_map_id) or 0
+        end
+        if ok and result ~= false and tonumber(params.quest_id) == 20615 then
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+        end
+
+        main_quest_set_status("big map teleport call quest_id=" .. tostring(params.quest_id or "") ..
+            " stage=" .. tostring(stage) ..
+            " match=" .. tostring(match_type) ..
+            " slot=" .. tostring(slot) ..
+            " price=" .. tostring(price or "") ..
+            " result=" .. tostring(result) ..
+            " err=" .. tostring(err or ""))
+        main_quest_trace("big-map-teleport:" .. tostring(stage),
+            "quest=" .. tostring(params.quest_id or "") ..
+            " ok=" .. tostring(ok) ..
+            " result=" .. tostring(result) ..
+            " match=" .. tostring(match_type) ..
+            " slot=" .. tostring(slot) ..
+            " price=" .. tostring(price or "") ..
+            " selected_index=" .. tostring(selected_index) ..
+            " target_name=" .. tostring(wanted_name) ..
+            " expected_big_map_id=" .. tostring(params.expected_big_map_id or "") ..
+            " err=" .. tostring(err or "") ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
+        return ok and result ~= false
+    end
+
     if name == "ClickObeliskConfirm" then
         if not main_quest_action_cooldown(name .. ":" .. tostring(stage), 0.8) then
             return true
@@ -9675,6 +9851,32 @@ function main_quest_execute_20590(action, state)
         return true
     end
 
+    if name == "CompleteBigMapTeleport" then
+        r.waiting_teleport = false
+        r.teleport_quest_id = 0
+        r.wait_dialog_stage = ""
+        r.wait_dialog_until = 0
+        local stage = tostring(params.stage or "")
+        if tonumber(params.quest_id) == 20615 and stage == "quest_20615_big_map_teleport" then
+            r.completed_20615_big_map_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+        end
+        main_quest_set_status("complete big map teleport quest_id=" .. tostring(params.quest_id or "") ..
+            " stage=" .. tostring(stage) ..
+            " reason=" .. tostring(action.reason or ""))
+        main_quest_trace("big-map-teleport-complete:" .. tostring(stage),
+            "quest=" .. tostring(params.quest_id or "") ..
+            " reason=" .. tostring(action.reason or "") ..
+            " completed_20615_big_map_teleport=" ..
+                tostring(r.completed_20615_big_map_teleport == true) ..
+            " big_map_id=" .. tostring(state.big_map_id or "") ..
+            " expected_big_map_id=" .. tostring(params.expected_big_map_id or "") ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
+        return true
+    end
+
     if name == "CompleteQuestTeleport" then
         r.waiting_teleport = false
         r.teleport_quest_id = 0
@@ -10166,6 +10368,7 @@ function main_quest_20611_tick()
             " after_start_tp_done=" .. tostring(runtime.main_quest.completed_20614_after_start_teleport == true) ..
             " q20615_task_tp_done=" .. tostring(runtime.main_quest.completed_20615_task_teleport == true) ..
             " q20615_target_dialog_done=" .. tostring(runtime.main_quest.completed_20615_target_dialog == true) ..
+            " q20615_big_map_tp_done=" .. tostring(runtime.main_quest.completed_20615_big_map_teleport == true) ..
             " waiting_teleport=" .. tostring(runtime.main_quest.waiting_teleport == true) ..
             " teleport_qid=" .. tostring(runtime.main_quest.teleport_quest_id or 0) ..
             " teleport_stage=" .. tostring(runtime.main_quest.teleport_stage or "") ..
@@ -10251,7 +10454,8 @@ function main_quest_20611_tick()
         ":" .. tostring(q20615_status) ..
         ":" .. tostring(q20615_step) ..
         ":" .. tostring(runtime.main_quest.completed_20615_task_teleport == true) ..
-        ":" .. tostring(runtime.main_quest.completed_20615_target_dialog == true)
+        ":" .. tostring(runtime.main_quest.completed_20615_target_dialog == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20615_big_map_teleport == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -10299,6 +10503,7 @@ function main_quest_20611_tick()
             " q20614_after_start_tp_done=" .. tostring(runtime.main_quest.completed_20614_after_start_teleport == true) ..
             " q20615_task_tp_done=" .. tostring(runtime.main_quest.completed_20615_task_teleport == true) ..
             " q20615_target_dialog_done=" .. tostring(runtime.main_quest.completed_20615_target_dialog == true) ..
+            " q20615_big_map_tp_done=" .. tostring(runtime.main_quest.completed_20615_big_map_teleport == true) ..
             " q20614_after_start_tp_pending=" .. tostring(q20614_after_start_teleport_pending == true) ..
             " q20613_after_start_teleport_pending=" .. tostring(q20613_after_start_teleport_pending == true) ..
             " q20613_after_start_reward_pending=" .. tostring(q20613_after_start_reward_pending == true) ..

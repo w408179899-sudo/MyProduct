@@ -39,6 +39,7 @@ M.quest_20615_id = 20615
 M.quest_20615_level_grind_stage = "quest_20615_level20_grind"
 M.quest_20615_teleport_stage = "quest_20615_task_teleport"
 M.quest_20615_target_stage = "quest_20615_target_npc"
+M.quest_20615_big_map_teleport_stage = "quest_20615_big_map_teleport"
 M.quest_20615_level20_required_level = 20
 M.post_20612_level14_required_level = 14
 M.grind_point = {
@@ -180,6 +181,13 @@ M.quest_20615_target_npc = {
     x = 589.35,
     y = 2450.16,
     z = 278.38,
+}
+M.quest_20615_big_map_teleport = {
+    slot = 0x07,
+    price = 1200,
+    min_lv = 20,
+    name = "Morheim",
+    expected_big_map_id = 220020000,
 }
 M.hotspot_node = {
     name = "투나프레 호수",
@@ -1989,11 +1997,7 @@ function M.nextQuest20615TargetNpcAction(state, runtime, opts, quest)
     quest = quest or M.findQuestById(state.quests, M.quest_20615_id)
 
     if runtime.completed_20615_target_dialog == true then
-        return action("Idle", "quest 20615 target npc dialog completed; wait next instruction", {
-            quest_id = M.quest_20615_id,
-            quest_step = M.questStep(quest),
-            stage = M.quest_20615_target_stage,
-        })
+        return M.nextQuest20615BigMapTeleportAction(state, runtime, opts, quest)
     end
 
     local dialog = state.dialog
@@ -2073,6 +2077,60 @@ function M.nextQuest20615TargetNpcAction(state, runtime, opts, quest)
         allow_interact_id_fallback = true,
         after_open_continuous_last = true,
         click_x = opts.dialog_click_x or 25,
+    })
+end
+
+function M.nextQuest20615BigMapTeleportAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or M.findQuestById(state.quests, M.quest_20615_id)
+
+    if runtime.completed_20615_big_map_teleport == true then
+        return action("Idle", "quest 20615 big map teleport completed; wait next instruction", {
+            quest_id = M.quest_20615_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20615_big_map_teleport_stage,
+        })
+    end
+
+    if type(state.dialog) == "table" then
+        return action("Idle", "quest 20615 big map teleport waits for dialog close", {
+            quest_id = M.quest_20615_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20615_big_map_teleport_stage,
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_20615_id })
+    end
+
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.big_map_id then
+        return action("CompleteBigMapTeleport", "quest 20615 already left alder big map", {
+            quest_id = M.quest_20615_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20615_big_map_teleport_stage,
+            slot = M.quest_20615_big_map_teleport.slot,
+            price = M.quest_20615_big_map_teleport.price,
+            start_big_map_id = M.big_map_id,
+            big_map_id = current_big_map,
+            expected_big_map_id = M.quest_20615_big_map_teleport.expected_big_map_id,
+        })
+    end
+
+    return action("BigMapTeleport", "quest 20615 teleport to Morheim big map", {
+        quest_id = M.quest_20615_id,
+        quest_step = M.questStep(quest),
+        stage = M.quest_20615_big_map_teleport_stage,
+        slot = M.quest_20615_big_map_teleport.slot,
+        price = M.quest_20615_big_map_teleport.price,
+        min_lv = M.quest_20615_big_map_teleport.min_lv,
+        target_name = M.quest_20615_big_map_teleport.name,
+        expected_big_map_id = M.quest_20615_big_map_teleport.expected_big_map_id,
+        wait_teleport = true,
     })
 end
 
@@ -3048,7 +3106,8 @@ function M.nextAction(state, runtime, opts)
             or teleport_stage == M.quest_20613_after_start_teleport_stage
             or teleport_stage == M.quest_20614_teleport_stage
             or teleport_stage == M.quest_20614_after_start_teleport_stage
-            or teleport_stage == M.quest_20615_teleport_stage) then
+            or teleport_stage == M.quest_20615_teleport_stage
+            or teleport_stage == M.quest_20615_big_map_teleport_stage) then
         local waiting_qid = number(runtime.teleport_quest_id)
         if waiting_qid <= 0 then
             if teleport_stage == M.quest_20612_teleport_stage then
@@ -3059,7 +3118,8 @@ function M.nextAction(state, runtime, opts)
             elseif teleport_stage == M.quest_20614_teleport_stage
                 or teleport_stage == M.quest_20614_after_start_teleport_stage then
                 waiting_qid = M.quest_20614_id
-            elseif teleport_stage == M.quest_20615_teleport_stage then
+            elseif teleport_stage == M.quest_20615_teleport_stage
+                or teleport_stage == M.quest_20615_big_map_teleport_stage then
                 waiting_qid = M.quest_20615_id
             else
                 waiting_qid = M.quest_id
@@ -3067,6 +3127,15 @@ function M.nextAction(state, runtime, opts)
         end
         local detected, reason = M.teleportDetected(state, runtime, opts)
         if detected then
+            if teleport_stage == M.quest_20615_big_map_teleport_stage then
+                return action("CompleteBigMapTeleport", reason, {
+                    quest_id = M.quest_20615_id,
+                    stage = teleport_stage,
+                    slot = M.quest_20615_big_map_teleport.slot,
+                    price = M.quest_20615_big_map_teleport.price,
+                    expected_big_map_id = M.quest_20615_big_map_teleport.expected_big_map_id,
+                })
+            end
             if teleport_stage == M.hotspot_teleport_stage then
                 return action("CompleteMapNodeTeleport", reason, {
                     quest_id = M.quest_id,
@@ -3099,6 +3168,13 @@ function M.nextAction(state, runtime, opts)
         and (runtime.completed_20615_task_teleport == true
             or M.isQuestActive(quest_20615)) then
         return M.nextQuest20615TargetNpcAction(state, runtime, opts, quest_20615)
+    end
+    if M.isQuest20615TargetNpcDialog(state.dialog)
+        and runtime.completed_20615_target_dialog == true
+        and runtime.completed_20615_big_map_teleport ~= true
+        and (runtime.completed_20615_task_teleport == true
+            or M.isQuestActive(quest_20615)) then
+        return M.nextQuest20615BigMapTeleportAction(state, runtime, opts, quest_20615)
     end
     if M.isTargetNpcDialog(state.dialog)
         and runtime.completed_20611_target_dialog ~= true then
@@ -3298,6 +3374,20 @@ function M.nextAction(state, runtime, opts)
             or M.isNearQuest20615TargetNpc(state, opts))
     if quest_20615_target_ready then
         return M.nextQuest20615TargetNpcAction(state, runtime, opts, quest_20615)
+    end
+    local quest_20615_big_map_teleport_ready = (M.isQuestActive(quest_20615) or M.isQuestDone(quest_20615))
+        and quest_20614_cleared_for_20615
+        and runtime.completed_20615_big_map_teleport ~= true
+        and (runtime.completed_20615_target_dialog == true
+            or M.questStep(quest_20615) > 0
+            or M.isQuestDone(quest_20615))
+    if quest_20615_big_map_teleport_ready then
+        return M.nextQuest20615BigMapTeleportAction(state, runtime, opts, quest_20615)
+    end
+    if (M.isQuestActive(quest_20615) or M.isQuestDone(quest_20615))
+        and quest_20614_cleared_for_20615
+        and runtime.completed_20615_big_map_teleport == true then
+        return M.nextQuest20615BigMapTeleportAction(state, runtime, opts, quest_20615)
     end
     local quest_20615_active_teleport_ready = M.isQuestActive(quest_20615)
         and M.questStep(quest_20615) == 0

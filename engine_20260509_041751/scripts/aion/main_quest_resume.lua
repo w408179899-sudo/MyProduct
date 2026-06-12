@@ -94,6 +94,7 @@ local function mark_after_20614(flags)
     flags.completed_20614_reward_dialog = true
     flags.completed_20615_task_teleport = false
     flags.completed_20615_target_dialog = false
+    flags.completed_20615_big_map_teleport = false
 end
 
 function M.findQuest(quests, id)
@@ -351,15 +352,41 @@ function M.plan(snapshot)
     elseif status_code(q20615) == 3 then
         local at_target_npc = M.isQuest20615TargetNpcDialog(dialog)
             or M.isNearQuest20615TargetNpc(snapshot)
+        local current_big_map = number(snapshot.big_map_id)
+        local after_big_map_teleport = current_big_map > 0 and current_big_map ~= M.big_map_id
         mark_after_20614(flags)
         flags.completed_20615_task_teleport = at_target_npc
-        flags.completed_20615_target_dialog = false
-        if at_target_npc then
+            or quest_step(q20615) > 0
+            or after_big_map_teleport
+        flags.completed_20615_target_dialog = quest_step(q20615) > 0
+            or after_big_map_teleport
+        flags.completed_20615_big_map_teleport = after_big_map_teleport
+        if after_big_map_teleport then
+            stage = "20615_big_map_landed"
+            reason = "quest 20615 is active and character is already on another big map"
+        elseif quest_step(q20615) > 0 then
+            stage = "20615_big_map_teleport"
+            reason = "quest 20615 has progressed past target npc and needs big map teleport"
+        elseif at_target_npc then
             stage = "20615_target_npc"
             reason = "quest 20615 is active and character is at target npc"
         else
             stage = "20615_active"
             reason = "quest 20615 is active and needs task teleport"
+        end
+    elseif status_code(q20615) == 4 then
+        local current_big_map = number(snapshot.big_map_id)
+        local after_big_map_teleport = current_big_map > 0 and current_big_map ~= M.big_map_id
+        mark_after_20614(flags)
+        flags.completed_20615_task_teleport = true
+        flags.completed_20615_target_dialog = true
+        flags.completed_20615_big_map_teleport = after_big_map_teleport
+        if after_big_map_teleport then
+            stage = "20615_big_map_landed"
+            reason = "quest 20615 is done and character is already on another big map"
+        else
+            stage = "20615_big_map_teleport"
+            reason = "quest 20615 is done after target dialog and needs big map teleport"
         end
     elseif status_code(q20590) == 4 then
         stage = "20590"
@@ -437,6 +464,10 @@ function M.plan(snapshot)
         quest_20611_step = quest_step(q20611),
         quest_20612_status = status_code(q20612),
         quest_20612_step = quest_step(q20612),
+        quest_20614_status = status_code(q20614),
+        quest_20614_step = quest_step(q20614),
+        quest_20615_status = status_code(q20615),
+        quest_20615_step = quest_step(q20615),
         level_blocked_quest_id = level_blocked_id,
         level_blocked_status = status_code(level_blocked),
         remote_reward_quest_id = remote_reward_id,

@@ -84,6 +84,7 @@
 
 - `CompleteQuestTeleport`
 - `CompleteMapNodeTeleport`
+- `CompleteBigMapTeleport`
 
 ## 移动类
 
@@ -387,6 +388,41 @@ depth = 4
 - 先打开右侧任务追踪或任务面板。
 - 确认 `v3_quest_dialog` 可见后再调用。
 - 调用后如果会移动，接 `WaitPositionChanged`。
+
+### `BigMapTeleport`
+
+用途：调用大地图传送列表里的跨大地图传送。
+
+需要信息：
+
+- `slot`
+- `price`
+- `min_lv`
+- `target_name`
+- `quest_id`
+- `quest_step`
+- `stage`
+- `wait_teleport`
+- 可选：`expected_big_map_id`
+
+重要规则：
+
+- `slot` 不是地图 id，是 `GetBigMapTeleports()` / `BIG_MAP_TELEPORTS` 里的传送列表序号。
+- 执行器优先按 `slot` 匹配，找不到列表时可以用已知 slot 直接调用。
+- 调用成功后写 `waiting_teleport=true`，后续只等坐标或 `big_map_id` 变化，不重复 call。
+- 适合从一张大地图传送到另一张大地图，例如 20615 的 `Morheim / 모르헤임`，slot `0x07`，费用 1200。
+
+### `CompleteBigMapTeleport`
+
+用途：确认大地图传送结束，并写入对应 runtime 标记。
+
+需要信息：
+
+- `quest_id`
+- `stage`
+- 可选：`slot`
+- 可选：`price`
+- 可选：`expected_big_map_id`
 
 ### `CompleteQuestTeleport`
 

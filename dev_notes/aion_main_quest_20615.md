@@ -2,11 +2,12 @@
 
 ## 当前已实现步骤
 
-20615 当前已实现三段：
+20615 当前已实现四段：
 
 1. 20614 奖励完成后，走到记录终点并启动任务专用定点挂机，到 20 级停止。
 2. 任务快照变成 `20615 status_code=3 req_count=0` 后，打开右侧当前追踪任务并执行任务传送。
 3. 任务传送落地后，和 `울고른` 对话；对话采用连续点最后一条，最后 OK 兜底。
+4. NPC 对话完成后，调用大地图传送到 `Morheim / 모르헤임`，费用 1200，slot `0x07`。
 
 阶段名：
 
@@ -113,7 +114,48 @@ ClickDialogLastContinuousOk stage=quest_20615_target_npc
 1. NPC 是 `울고른`，和 20611 target NPC 共用 `interact_id=2147520815`，但 20615 必须走独立阶段，不能按 20611 target dialog 完成。
 2. 打开对话后连续调用“点击最后一条”。
 3. 如果已经没有可点选项或达到点击上限，点 `ok` 兜底。
-4. 完成后设置 `completed_20615_target_dialog=true`，然后等待下一步 F11。
+4. 完成后设置 `completed_20615_target_dialog=true`，进入 `quest_20615_big_map_teleport`。
+
+## NPC 对话后的大地图传送
+
+截图信息：
+
+```text
+目标大地图=Morheim / 모르헤임
+费用=1200
+slot=0x07
+min_lv=20
+起点 big_map_id=220010000
+预计目标 big_map_id=220020000
+```
+
+阶段名：
+
+```text
+quest_20615_big_map_teleport
+```
+
+执行顺序：
+
+```text
+BigMapTeleport slot=0x07 price=1200 stage=quest_20615_big_map_teleport
+WaitPositionChanged / CompleteBigMapTeleport stage=quest_20615_big_map_teleport
+```
+
+说明：
+
+1. 这一步不是 `QuestTeleport`，也不是据点 `NodeTeleport`，使用 `AionData.BigMapTeleport(slot)`。
+2. 执行器会先读 `GetBigMapTeleports()`，优先按 slot `0x07` 匹配，并校验费用 1200。
+3. `BigMapTeleport` 成功调用一次后立即设置 `waiting_teleport=true`，后续只等待坐标或 `big_map_id` 变化，不重复 call。
+4. 检测到 `big_map_id` 从 `220010000` 变为其它大地图后，执行 `CompleteBigMapTeleport`。
+5. 完成后设置 `completed_20615_big_map_teleport=true`，然后等待下一步 F11。
+
+实测日志：
+
+```text
+20615 目标 NPC 对话完成后，任务会变为 status_code=4 req_count=0。
+这个状态仍然需要执行 quest_20615_big_map_teleport，不能按通用已完成任务 Idle。
+```
 
 ## 等级挂机执行顺序
 

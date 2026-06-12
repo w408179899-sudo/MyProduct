@@ -459,6 +459,54 @@ local function run()
         T.assert_eq(plan.flags.completed_20615_target_dialog, false)
     end)
 
+    T.test("progressed quest 20615 resumes big map teleport", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20615", level = 20, x = 587.72, y = 2451.15, z = 278.38 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20615, status_code = 3, req_count = 1, seq = 0, lv_num = 20 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20615_big_map_teleport")
+        T.assert_eq(plan.flags.completed_20615_task_teleport, true)
+        T.assert_eq(plan.flags.completed_20615_target_dialog, true)
+        T.assert_eq(plan.flags.completed_20615_big_map_teleport, false)
+    end)
+
+    T.test("done quest 20615 resumes big map teleport", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20615", level = 20, x = 587.72, y = 2451.15, z = 278.38 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20615, status_code = 4, req_count = 0, seq = 0, lv_num = 20 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20615_big_map_teleport")
+        T.assert_eq(plan.flags.completed_20615_task_teleport, true)
+        T.assert_eq(plan.flags.completed_20615_target_dialog, true)
+        T.assert_eq(plan.flags.completed_20615_big_map_teleport, false)
+    end)
+
+    T.test("quest 20615 on another big map resumes after big map teleport", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "Q20615", level = 20, x = 100, y = 100, z = 100 },
+            big_map_id = 220020000,
+            quests = {
+                { id = 20615, status_code = 3, req_count = 1, seq = 0, lv_num = 20 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20615_big_map_landed")
+        T.assert_eq(plan.flags.completed_20615_task_teleport, true)
+        T.assert_eq(plan.flags.completed_20615_target_dialog, true)
+        T.assert_eq(plan.flags.completed_20615_big_map_teleport, true)
+    end)
+
     T.test("quest 20611 hotspot reward snapshot is not treated as quest 20612 grind", function()
         local resume = load_module()
         local plan = resume.plan({
