@@ -17,6 +17,7 @@ local interruptible_actions = {
     ClickObeliskConfirm = true,
     MapNodeTeleportByName = true,
     OpenQuestSubmit = true,
+    SubmitBlueQuest = true,
 }
 
 local combat_actions = {

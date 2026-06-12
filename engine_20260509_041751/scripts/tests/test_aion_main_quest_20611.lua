@@ -20,6 +20,10 @@ local function remote_active_quest(step, id)
     return { id = id or CURRENT_BLUE_TASK, tab = 1, status_code = 3, req_count = step or 0 }
 end
 
+local function passive_blue_ready_quest(id)
+    return { id = id or 24400, tab = 1, status_code = 4, req_count = 20, lv_num = 21 }
+end
+
 local function near_char()
     return { x = 194.60, y = 2689.90, z = 300.60 }
 end
@@ -2888,7 +2892,133 @@ local function run()
         T.assert_eq(next_action.params.char_level, 21)
     end)
 
-    T.test("idles after quest 20621 reaches level 22", function()
+    T.test("submits completed passive blue quest during active level grind", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                passive_blue_ready_quest(24400),
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20621_level22_grind_char(21),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_obelisk_npc_dialog = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20621_level22_grind",
+            level_grind_quest_id = 20621,
+            level_grind_required_level = 22,
+        }, {
+            now_seconds = 100,
+        })
+
+        T.assert_eq(next_action.name, "SubmitBlueQuest")
+        T.assert_eq(next_action.params.quest_id, 24400)
+        T.assert_eq(next_action.params.stage, "level_grind_blue_submit")
+        T.assert_eq(next_action.params.grind_stage, "quest_20621_level22_grind")
+        T.assert_eq(next_action.params.level_grind_quest_id, 20621)
+        T.assert_eq(next_action.params.tab, 1)
+        T.assert_eq(next_action.params.status_code, 4)
+        T.assert_eq(next_action.params.req_count, 20)
+    end)
+
+    T.test("submits completed passive blue quest during earlier level grind", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                passive_blue_ready_quest(24400),
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            char = mission_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_hotspot_reward = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20612_level_grind",
+            level_grind_quest_id = 20612,
+            level_grind_required_level = 11,
+        }, {
+            now_seconds = 100,
+        })
+
+        T.assert_eq(next_action.name, "SubmitBlueQuest")
+        T.assert_eq(next_action.params.quest_id, 24400)
+        T.assert_eq(next_action.params.stage, "level_grind_blue_submit")
+        T.assert_eq(next_action.params.grind_stage, "quest_20612_level_grind")
+        T.assert_eq(next_action.params.level_grind_quest_id, 20612)
+    end)
+
+    T.test("keeps legacy remote reward blue quest out of level grind submit", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                remote_reward_quest(CURRENT_BLUE_TASK),
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20621_level22_grind_char(21),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_obelisk_npc_dialog = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20621_level22_grind",
+            level_grind_quest_id = 20621,
+            level_grind_required_level = 22,
+        }, {
+            now_seconds = 100,
+        })
+
+        T.assert_eq(next_action.name, "WaitLevelGrind")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_level22_grind")
+    end)
+
+    T.test("continues level grind while passive blue submit is on cooldown", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                passive_blue_ready_quest(24400),
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20621_level22_grind_char(21),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_obelisk_npc_dialog = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20621_level22_grind",
+            level_grind_quest_id = 20621,
+            level_grind_required_level = 22,
+            last_blue_submit_quest_id = 24400,
+            last_blue_submit_at = 99,
+        }, {
+            now_seconds = 100,
+            blue_submit_cooldown_seconds = 3,
+        })
+
+        T.assert_eq(next_action.name, "WaitLevelGrind")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_level22_grind")
+    end)
+
+    T.test("does not submit passive blue quest before level grind is active", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                passive_blue_ready_quest(24400),
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20621_level22_grind_char(21),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_obelisk_npc_dialog = true,
+        }, {
+            now_seconds = 100,
+        })
+
+        T.assert_eq(next_action.name, "StartStationaryGrind")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_level22_grind")
+    end)
+
+    T.test("calls quest 20621 task teleport after reaching level 22", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -2904,11 +3034,79 @@ local function run()
             level_grind_required_level = 22,
         })
 
-        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.name, "QuestTeleport")
         T.assert_eq(next_action.params.quest_id, 20621)
-        T.assert_eq(next_action.params.stage, "quest_20621_level22_grind")
+        T.assert_eq(next_action.params.stage, "quest_20621_task_teleport")
         T.assert_eq(next_action.params.required_level, 22)
         T.assert_eq(next_action.params.char_level, 22)
+        T.assert_eq(next_action.params.wait_teleport, true)
+        T.assert_eq(next_action.params.direct_quest_id_only, true)
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, false)
+    end)
+
+    T.test("calls quest 20621 task teleport after grind runtime is cleared", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20621, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 22 },
+                { id = 20622, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 25 },
+            },
+            char = quest_20621_level22_grind_char(22),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_obelisk_npc_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_task_teleport")
+        T.assert_eq(next_action.params.required_level, 22)
+        T.assert_eq(next_action.params.char_level, 22)
+        T.assert_eq(next_action.params.direct_quest_id_only, true)
+    end)
+
+    T.test("completes quest 20621 task teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20621, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = { x = 250.00, y = 2350.00, z = 445.00, level = 22 },
+            big_map_id = 220020000,
+        }, {
+            waiting_teleport = true,
+            teleport_quest_id = 20621,
+            teleport_stage = "quest_20621_task_teleport",
+            teleport_start_pos = quest_20621_level22_grind_char(22),
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_task_teleport")
+    end)
+
+    T.test("idles after quest 20621 task teleport is completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20621_level22_grind_char(22),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_obelisk_npc_dialog = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20621_level22_grind",
+            level_grind_quest_id = 20621,
+            level_grind_required_level = 22,
+            completed_20621_task_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_task_teleport")
     end)
 
     T.test("does not retry quest 20620 task teleport after stigma completed when teleport flag is missing", function()

@@ -55,7 +55,11 @@ M.quest_20620_after_obelisk_teleport_stage = "quest_20620_after_obelisk_teleport
 M.quest_20620_after_obelisk_npc_stage = "quest_20620_after_obelisk_npc"
 M.quest_20621_id = 20621
 M.quest_20621_level_grind_stage = "quest_20621_level22_grind"
+M.quest_20621_teleport_stage = "quest_20621_task_teleport"
 M.quest_20621_level22_required_level = 22
+M.level_grind_blue_submit_stage = "level_grind_blue_submit"
+M.passive_blue_submit_tab = 1
+M.passive_blue_submit_cooldown_seconds = 3
 M.post_20612_level14_required_level = 14
 M.grind_point = {
     x = 194.491,
@@ -615,6 +619,75 @@ local function is_supported_quest_id(id)
         end
     end
     return false
+end
+
+function M.isReadyPassiveBlueSubmitQuest(quest)
+    if type(quest) ~= "table" then
+        return false
+    end
+    local id = quest_id(quest)
+    if id <= 0 or is_supported_quest_id(id) or M.isRemoteRewardQuestId(id) then
+        return false
+    end
+    if number(quest.status_code) ~= M.STATUS_DONE then
+        return false
+    end
+    local tab = number(quest.tab)
+    local tab_name = tostring(quest.tab_name or "")
+    return tab == M.passive_blue_submit_tab
+        or tab_name == "任务"
+        or tab_name == "制作委托"
+end
+
+function M.findReadyPassiveBlueSubmitQuest(quests)
+    for _, quest in ipairs(quests or {}) do
+        if M.isReadyPassiveBlueSubmitQuest(quest) then
+            return quest
+        end
+    end
+    return nil
+end
+
+function M.nextLevelGrindBlueSubmitAction(state, runtime, opts)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    local active_stage = tostring(runtime.active_20611_grind_stage or "")
+    local level_qid = number(runtime.level_grind_quest_id)
+    if runtime.active_20611_grind ~= true
+        or not M.isLevelGrindStage(active_stage)
+        or level_qid <= 0
+        or type(state.dialog) == "table" then
+        return nil
+    end
+
+    local blue_quest = M.findReadyPassiveBlueSubmitQuest(state.quests)
+    if type(blue_quest) ~= "table" then
+        return nil
+    end
+
+    local qid = quest_id(blue_quest)
+    local now = number(opts.now_seconds)
+    local cooldown = number(opts.blue_submit_cooldown_seconds)
+    if cooldown <= 0 then
+        cooldown = M.passive_blue_submit_cooldown_seconds
+    end
+    if now > 0
+        and number(runtime.last_blue_submit_quest_id) == qid
+        and now - number(runtime.last_blue_submit_at) < cooldown then
+        return nil
+    end
+
+    return action("SubmitBlueQuest", "submit completed passive blue quest during level grind", {
+        quest_id = qid,
+        quest_step = M.questStep(blue_quest),
+        status_code = number(blue_quest.status_code),
+        tab = number(blue_quest.tab),
+        req_count = number(blue_quest.req_count),
+        level_grind_quest_id = level_qid,
+        stage = M.level_grind_blue_submit_stage,
+        grind_stage = active_stage,
+    })
 end
 
 function M.isLevelGrindStage(stage)
@@ -4210,13 +4283,7 @@ function M.nextQuest20621Level22GrindAction(state, runtime, opts, quest)
     end
 
     if char_level >= required_level then
-        return action("Idle", "quest 20621 level 22 reached; wait next instruction", {
-            quest_id = M.quest_20621_id,
-            quest_step = M.questStep(quest),
-            required_level = required_level,
-            char_level = char_level,
-            stage = M.quest_20621_level_grind_stage,
-        })
+        return M.nextQuest20621TaskTeleportAction(state, runtime, opts, quest)
     end
 
     local point = M.quest_20621_level22_grind_point
@@ -4283,6 +4350,65 @@ function M.nextQuest20621Level22GrindAction(state, runtime, opts, quest)
     })
 end
 
+function M.nextQuest20621TaskTeleportAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or M.findQuestById(state.quests, M.quest_20621_id)
+
+    if type(state.dialog) == "table" then
+        return action("Idle", "quest 20621 task teleport waits for dialog close", {
+            quest_id = M.quest_20621_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20621_teleport_stage,
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_20621_id })
+    end
+
+    local required_level = number(opts.quest_20621_level22_required_level)
+    if required_level <= 0 then
+        required_level = M.questRequiredLevel(quest)
+    end
+    if required_level <= 0 then
+        required_level = M.quest_20621_level22_required_level
+    end
+
+    local char_level = number(char.level)
+    if char_level <= 0 then
+        return action("ReadState", "character level unavailable", { quest_id = M.quest_20621_id })
+    end
+
+    if char_level < required_level then
+        return M.nextQuest20621Level22GrindAction(state, runtime, opts, quest)
+    end
+
+    if runtime.completed_20621_task_teleport == true then
+        return action("Idle", "quest 20621 task teleport completed; wait next instruction", {
+            quest_id = M.quest_20621_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20621_teleport_stage,
+        })
+    end
+
+    return action("QuestTeleport", "quest 20621 level 22 reached; task teleport", {
+        quest_id = M.quest_20621_id,
+        quest_step = M.questStep(quest),
+        required_level = required_level,
+        char_level = char_level,
+        stage = M.quest_20621_teleport_stage,
+        wait_teleport = true,
+        direct_quest_id_only = true,
+        open_panel_key = false,
+        require_panel_visible = false,
+    })
+end
+
 function M.nextAction(state, runtime, opts)
     state = state or {}
     runtime = runtime or {}
@@ -4303,7 +4429,8 @@ function M.nextAction(state, runtime, opts)
             or teleport_stage == M.quest_20615_after_big_map_teleport_stage
             or teleport_stage == M.quest_20620_teleport_stage
             or teleport_stage == M.quest_20620_after_stigma_teleport_stage
-            or teleport_stage == M.quest_20620_after_obelisk_teleport_stage) then
+            or teleport_stage == M.quest_20620_after_obelisk_teleport_stage
+            or teleport_stage == M.quest_20621_teleport_stage) then
         local waiting_qid = number(runtime.teleport_quest_id)
         if waiting_qid <= 0 then
             if teleport_stage == M.quest_20612_teleport_stage then
@@ -4322,6 +4449,8 @@ function M.nextAction(state, runtime, opts)
                 or teleport_stage == M.quest_20620_after_stigma_teleport_stage
                 or teleport_stage == M.quest_20620_after_obelisk_teleport_stage then
                 waiting_qid = M.quest_20620_id
+            elseif teleport_stage == M.quest_20621_teleport_stage then
+                waiting_qid = M.quest_20621_id
             else
                 waiting_qid = M.quest_id
             end
@@ -4402,6 +4531,11 @@ function M.nextAction(state, runtime, opts)
     if M.isHotspotRewardNpcDialog(state.dialog)
         and runtime.completed_20611_hotspot_reward ~= true then
         return M.nextHotspotRewardAction(state, runtime, opts, quest_20611)
+    end
+
+    local level_grind_blue_submit_action = M.nextLevelGrindBlueSubmitAction(state, runtime, opts)
+    if level_grind_blue_submit_action then
+        return level_grind_blue_submit_action
     end
 
     local sequential_quest = M.findSequentialQuest(state.quests, runtime)
@@ -4862,6 +4996,9 @@ function M.nextAction(state, runtime, opts)
                     return M.nextQuest20620AfterTeleportNpcAction(state, runtime, opts, active_quest)
                 end
                 return M.nextQuest20620TaskTeleportAction(state, runtime, opts, active_quest)
+            end
+            if active_qid == M.quest_20621_id and active_step == 0 then
+                return M.nextQuest20621TaskTeleportAction(state, runtime, opts, active_quest)
             end
             if active_qid > M.quest_id then
                 return action("Idle", "active yellow mission next step is not recorded yet", {

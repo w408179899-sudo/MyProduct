@@ -364,6 +364,7 @@ local runtime = {
         completed_20620_obelisk = false,
         completed_20620_after_obelisk_teleport = false,
         completed_20620_after_obelisk_npc_dialog = false,
+        completed_20621_task_teleport = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -7276,6 +7277,7 @@ function main_quest_reset_runtime(reason)
     r.completed_20620_obelisk = false
     r.completed_20620_after_obelisk_teleport = false
     r.completed_20620_after_obelisk_npc_dialog = false
+    r.completed_20621_task_teleport = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7625,6 +7627,7 @@ function main_quest_read_20611_state(now)
         or r.completed_20620_obelisk == true
         or r.completed_20620_after_obelisk_teleport == true
         or r.completed_20620_after_obelisk_npc_dialog == true
+        or r.completed_20621_task_teleport == true
         or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
@@ -9372,6 +9375,9 @@ function main_quest_execute_20590(action, state)
         if stage == "quest_20615_task_teleport" and r.active_20611_grind == true then
             main_quest_stop_20611_grind("quest-20615-level-reached-before-panel", false)
         end
+        if stage == "quest_20621_task_teleport" and r.active_20611_grind == true then
+            main_quest_stop_20611_grind("quest-20621-level-reached-before-panel", false)
+        end
         if not ok_quest or not quest or type(quest.questTeleport) ~= "function" then
             main_quest_set_status("quest teleport failed: aion.quest unavailable")
             return false
@@ -9383,7 +9389,8 @@ function main_quest_execute_20590(action, state)
                 or (quest_id == 20620 and (
                     stage == "quest_20620_task_teleport"
                     or stage == "quest_20620_after_stigma_teleport"
-                    or stage == "quest_20620_after_obelisk_teleport")) then
+                    or stage == "quest_20620_after_obelisk_teleport"))
+                or (quest_id == 20621 and stage == "quest_20621_task_teleport") then
                 panel_ready = true
                 panel_detail = "direct_quest_id_only"
             else
@@ -10346,6 +10353,17 @@ function main_quest_execute_20590(action, state)
                 " reason=" .. tostring(action.reason or "") ..
                 " pos=" .. main_quest_position_text(state.char),
                 0)
+        elseif stage == "quest_20621_task_teleport" then
+            r.clicked_20611_indicator_title = false
+            r.completed_20621_task_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            main_quest_trace("q20621-complete-teleport:" .. stage,
+                "quest=" .. tostring(params.quest_id or "") ..
+                " completed_task_tp=" .. tostring(r.completed_20621_task_teleport == true) ..
+                " reason=" .. tostring(action.reason or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
         elseif tonumber(params.quest_id) == 20610 then
             r.completed_20610_task_teleport = true
             r.cached_quest_20610 = nil
@@ -10406,6 +10424,39 @@ function main_quest_execute_20590(action, state)
             " ok=" .. tostring(ok) ..
             " result=" .. tostring(opened) ..
             " err=" .. tostring(submit_err or ""),
+            0)
+        return ok
+    end
+
+    if name == "SubmitBlueQuest" then
+        local quest_id = tonumber(params.quest_id) or 0
+        if not main_quest_action_cooldown(name .. ":" .. tostring(quest_id), 0.5) then
+            return true
+        end
+        r.last_blue_submit_quest_id = quest_id
+        r.last_blue_submit_at = now_seconds()
+        if not ok_quest or not quest or type(quest.submitBlue) ~= "function" then
+            main_quest_set_status("submit blue quest failed: aion.quest unavailable")
+            return false
+        end
+        local submit_ok, submitted, submit_err = quest.submitBlue(quest_id)
+        local ok = submit_ok == true and submitted ~= false
+        r.cached_quest_20611 = nil
+        r.last_quest_20611_read_at = 0
+        main_quest_set_status("submit blue quest quest_id=" .. tostring(quest_id) ..
+            " stage=" .. tostring(params.stage or "") ..
+            " result=" .. tostring(submitted) ..
+            " err=" .. tostring(submit_err or ""))
+        main_quest_trace("submit-blue:" .. tostring(params.stage or ""),
+            "quest=" .. tostring(quest_id) ..
+            " ok=" .. tostring(ok) ..
+            " result=" .. tostring(submitted) ..
+            " err=" .. tostring(submit_err or "") ..
+            " tab=" .. tostring(params.tab or "") ..
+            " status=" .. tostring(params.status_code or "") ..
+            " req_count=" .. tostring(params.req_count or "") ..
+            " level_grind_qid=" .. tostring(params.level_grind_quest_id or "") ..
+            " grind_stage=" .. tostring(params.grind_stage or ""),
             0)
         return ok
     end
@@ -10717,6 +10768,7 @@ function main_quest_20611_tick()
         quest_20615_route_waypoint_radius = 6,
         quest_20615_route_final_radius = 2.5,
         quest_20615_route_resend_interval = 0.5,
+        now_seconds = now,
     })
     local remote_qid = tonumber(state.remote_reward_quest and state.remote_reward_quest.id) or 0
     local remote_status = tonumber(state.remote_reward_quest and state.remote_reward_quest.status_code) or 0

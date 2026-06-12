@@ -2,15 +2,12 @@
 
 ## 当前已录制流程
 
-20621 在 20620 完成后进入等级门槛阶段。
-
-当前只实现第一步：
+20621 在 20620 完成后进入等级门槛阶段，目前已实现两步：
 
 ```text
 1. quest_20621_level22_grind
+2. quest_20621_task_teleport
 ```
-
-到 22 级后不自动点任务传送，等待下一步指令。
 
 ## 阶段一：固定点打怪升到 22 级
 
@@ -48,10 +45,53 @@ StartStationaryGrind stage=quest_20621_level22_grind until_level=22
 WaitLevelGrind stage=quest_20621_level22_grind
 ```
 
-到达 22 级后：
+练级期间如果出现已完成的被动蓝色任务：
 
 ```text
-Idle stage=quest_20621_level22_grind
+tab=1
+status_code=4
 ```
 
-注意：本阶段到 22 级后只停在 Idle，等待下一步录制；不自动执行 20621 任务传送。
+会走后台 `SubmitBlueQuest` 提交，不打开 UI，不停止当前练级流程。
+
+## 阶段二：达到 22 级后任务传送
+
+阶段名：
+
+```text
+quest_20621_task_teleport
+```
+
+触发条件：
+
+```text
+char_level >= 22
+completed_20621_task_teleport ~= true
+```
+
+执行动作：
+
+```text
+QuestTeleport quest_id=20621 stage=quest_20621_task_teleport
+```
+
+本阶段使用后台任务传送 call：
+
+```text
+direct_quest_id_only=true
+wait_teleport=true
+```
+
+传送完成后记录：
+
+```text
+completed_20621_task_teleport=true
+```
+
+落地后暂时停在：
+
+```text
+Idle stage=quest_20621_task_teleport
+```
+
+等待下一步 F11 录制。
