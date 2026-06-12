@@ -351,6 +351,9 @@ local runtime = {
         completed_20615_big_map_teleport = false,
         completed_20615_after_big_map_task_teleport = false,
         completed_20615_morheim_npc_dialog = false,
+        completed_20620_start_dialog = false,
+        completed_20620_task_teleport = false,
+        completed_20620_after_teleport_npc_dialog = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -7175,6 +7178,9 @@ function main_quest_reset_runtime(reason)
     r.completed_20615_big_map_teleport = false
     r.completed_20615_after_big_map_task_teleport = false
     r.completed_20615_morheim_npc_dialog = false
+    r.completed_20620_start_dialog = false
+    r.completed_20620_task_teleport = false
+    r.completed_20620_after_teleport_npc_dialog = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7493,11 +7499,13 @@ function main_quest_read_20611_state(now)
         or quest_id == 20613
         or quest_id == 20614
         or quest_id == 20615
+        or quest_id == 20620
         or level_blocked_id == 20611
         or level_blocked_id == 20612
         or level_blocked_id == 20613
         or level_blocked_id == 20614
         or level_blocked_id == 20615
+        or level_blocked_id == 20620
         or r.completed_20612_start_dialog == true
         or r.completed_20612_reward_dialog == true
         or r.completed_20613_start_dialog == true
@@ -7512,6 +7520,9 @@ function main_quest_read_20611_state(now)
         or r.completed_20615_big_map_teleport == true
         or r.completed_20615_after_big_map_task_teleport == true
         or r.completed_20615_morheim_npc_dialog == true
+        or r.completed_20620_start_dialog == true
+        or r.completed_20620_task_teleport == true
+        or r.completed_20620_after_teleport_npc_dialog == true
         or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
@@ -9165,7 +9176,8 @@ function main_quest_execute_20590(action, state)
         local panel_ready, panel_detail
         local direct_quest_id_only = params.direct_quest_id_only == true
         if direct_quest_id_only then
-            if quest_id == 20615 and stage == "quest_20615_after_big_map_task_teleport" then
+            if (quest_id == 20615 and stage == "quest_20615_after_big_map_task_teleport")
+                or (quest_id == 20620 and stage == "quest_20620_task_teleport") then
                 panel_ready = true
                 panel_detail = "direct_quest_id_only"
             else
@@ -9478,6 +9490,20 @@ function main_quest_execute_20590(action, state)
                             r.completed_20615_morheim_npc_dialog = true
                             r.cached_quest_20611 = nil
                             r.last_quest_20611_read_at = 0
+                        elseif continuous_quest_id == 20620
+                            and stage == "quest_20620_start_npc"
+                            and continuous_finished then
+                            r.clicked_20611_indicator_title = false
+                            r.completed_20620_start_dialog = true
+                            r.cached_quest_20611 = nil
+                            r.last_quest_20611_read_at = 0
+                        elseif continuous_quest_id == 20620
+                            and stage == "quest_20620_after_teleport_npc"
+                            and continuous_finished then
+                            r.clicked_20611_indicator_title = false
+                            r.completed_20620_after_teleport_npc_dialog = true
+                            r.cached_quest_20611 = nil
+                            r.last_quest_20611_read_at = 0
                         end
                         local settle_seconds = math.max(0,
                             tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
@@ -9495,6 +9521,10 @@ function main_quest_execute_20590(action, state)
                             tostring(r.completed_20615_target_dialog == true) ..
                         " completed_20615_morheim_npc_dialog=" ..
                             tostring(r.completed_20615_morheim_npc_dialog == true) ..
+                        " completed_20620_start_dialog=" ..
+                            tostring(r.completed_20620_start_dialog == true) ..
+                        " completed_20620_after_teleport_npc_dialog=" ..
+                            tostring(r.completed_20620_after_teleport_npc_dialog == true) ..
                         " status=" .. tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or ""),
                         0)
                 else
@@ -9570,6 +9600,34 @@ function main_quest_execute_20590(action, state)
                     tonumber(r.post_dialog_settle_until) or 0,
                     now_seconds() + settle_seconds)
             end
+        elseif ok and continuous_quest_id == 20620
+            and continuous_stage == "quest_20620_start_npc"
+            and continuous_finished then
+            r.clicked_20611_indicator_title = false
+            r.completed_20620_start_dialog = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            local settle_seconds = math.max(0,
+                tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
+            if settle_seconds > 0 then
+                r.post_dialog_settle_until = math.max(
+                    tonumber(r.post_dialog_settle_until) or 0,
+                    now_seconds() + settle_seconds)
+            end
+        elseif ok and continuous_quest_id == 20620
+            and continuous_stage == "quest_20620_after_teleport_npc"
+            and continuous_finished then
+            r.clicked_20611_indicator_title = false
+            r.completed_20620_after_teleport_npc_dialog = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            local settle_seconds = math.max(0,
+                tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
+            if settle_seconds > 0 then
+                r.post_dialog_settle_until = math.max(
+                    tonumber(r.post_dialog_settle_until) or 0,
+                    now_seconds() + settle_seconds)
+            end
         end
         local status = tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or "")
         main_quest_set_status("continuous last-option dialog quest_id=" .. tostring(params.quest_id or "") ..
@@ -9584,6 +9642,9 @@ function main_quest_execute_20590(action, state)
             " completed_20615_target_dialog=" .. tostring(r.completed_20615_target_dialog == true) ..
             " completed_20615_morheim_npc_dialog=" ..
                 tostring(r.completed_20615_morheim_npc_dialog == true) ..
+            " completed_20620_start_dialog=" .. tostring(r.completed_20620_start_dialog == true) ..
+            " completed_20620_after_teleport_npc_dialog=" ..
+                tostring(r.completed_20620_after_teleport_npc_dialog == true) ..
             " status=" .. status,
             0)
         return ok
@@ -9988,6 +10049,17 @@ function main_quest_execute_20590(action, state)
                 " reason=" .. tostring(action.reason or "") ..
                 " pos=" .. main_quest_position_text(state.char),
                 0)
+        elseif stage == "quest_20620_task_teleport" then
+            r.clicked_20611_indicator_title = false
+            r.completed_20620_task_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            main_quest_trace("q20620-complete-teleport:" .. stage,
+                "quest=" .. tostring(params.quest_id or "") ..
+                " completed_task_tp=" .. tostring(r.completed_20620_task_teleport == true) ..
+                " reason=" .. tostring(action.reason or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
         elseif tonumber(params.quest_id) == 20610 then
             r.completed_20610_task_teleport = true
             r.cached_quest_20610 = nil
@@ -10370,11 +10442,13 @@ function main_quest_20611_tick()
     local quest_20613_snapshot = nil
     local quest_20614_snapshot = nil
     local quest_20615_snapshot = nil
+    local quest_20620_snapshot = nil
     if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.findQuestById) == "function" then
         quest_20612_snapshot = main_quest_20611.findQuestById(state.quests, 20612)
         quest_20613_snapshot = main_quest_20611.findQuestById(state.quests, 20613)
         quest_20614_snapshot = main_quest_20611.findQuestById(state.quests, 20614)
         quest_20615_snapshot = main_quest_20611.findQuestById(state.quests, 20615)
+        quest_20620_snapshot = main_quest_20611.findQuestById(state.quests, 20620)
     end
     local q20612_status = tonumber(quest_20612_snapshot and quest_20612_snapshot.status_code) or 0
     local q20612_step = tonumber(quest_20612_snapshot and quest_20612_snapshot.req_count) or 0
@@ -10384,6 +10458,8 @@ function main_quest_20611_tick()
     local q20614_step = tonumber(quest_20614_snapshot and quest_20614_snapshot.req_count) or 0
     local q20615_status = tonumber(quest_20615_snapshot and quest_20615_snapshot.status_code) or 0
     local q20615_step = tonumber(quest_20615_snapshot and quest_20615_snapshot.req_count) or 0
+    local q20620_status = tonumber(quest_20620_snapshot and quest_20620_snapshot.status_code) or 0
+    local q20620_step = tonumber(quest_20620_snapshot and quest_20620_snapshot.req_count) or 0
     local action_qid = tonumber(action.params and action.params.quest_id) or 0
     local action_name = tostring(action.name or "")
     local action_authorizes_grind = type(main_quest_action_authorizes_grind) == "function"
@@ -10419,6 +10495,8 @@ function main_quest_20611_tick()
             " q20614_lv=" .. tostring(quest_20614_snapshot and quest_20614_snapshot.lv_num or "") ..
             " q20615_status=" .. tostring(q20615_status) ..
             " q20615_step=" .. tostring(q20615_step) ..
+            " q20620_status=" .. tostring(q20620_status) ..
+            " q20620_step=" .. tostring(q20620_step) ..
             " q20614_pending_after_start_tp=" .. tostring(q20614_after_start_teleport_pending == true) ..
             " task_tp_done=" .. tostring(runtime.main_quest.completed_20614_task_teleport == true) ..
             " start_dialog_done=" .. tostring(runtime.main_quest.completed_20614_start_dialog == true) ..
@@ -10430,6 +10508,10 @@ function main_quest_20611_tick()
                 tostring(runtime.main_quest.completed_20615_after_big_map_task_teleport == true) ..
             " q20615_morheim_npc_done=" ..
                 tostring(runtime.main_quest.completed_20615_morheim_npc_dialog == true) ..
+            " q20620_start_done=" .. tostring(runtime.main_quest.completed_20620_start_dialog == true) ..
+            " q20620_task_tp_done=" .. tostring(runtime.main_quest.completed_20620_task_teleport == true) ..
+            " q20620_after_tp_npc_done=" ..
+                tostring(runtime.main_quest.completed_20620_after_teleport_npc_dialog == true) ..
             " waiting_teleport=" .. tostring(runtime.main_quest.waiting_teleport == true) ..
             " teleport_qid=" .. tostring(runtime.main_quest.teleport_quest_id or 0) ..
             " teleport_stage=" .. tostring(runtime.main_quest.teleport_stage or "") ..
@@ -10518,7 +10600,12 @@ function main_quest_20611_tick()
         ":" .. tostring(runtime.main_quest.completed_20615_target_dialog == true) ..
         ":" .. tostring(runtime.main_quest.completed_20615_big_map_teleport == true) ..
         ":" .. tostring(runtime.main_quest.completed_20615_after_big_map_task_teleport == true) ..
-        ":" .. tostring(runtime.main_quest.completed_20615_morheim_npc_dialog == true)
+        ":" .. tostring(runtime.main_quest.completed_20615_morheim_npc_dialog == true) ..
+        ":" .. tostring(q20620_status) ..
+        ":" .. tostring(q20620_step) ..
+        ":" .. tostring(runtime.main_quest.completed_20620_start_dialog == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20620_task_teleport == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20620_after_teleport_npc_dialog == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -10543,6 +10630,8 @@ function main_quest_20611_tick()
             " q20614_step=" .. tostring(q20614_step) ..
             " q20615_status=" .. tostring(q20615_status) ..
             " q20615_step=" .. tostring(q20615_step) ..
+            " q20620_status=" .. tostring(q20620_status) ..
+            " q20620_step=" .. tostring(q20620_step) ..
             " grind_stage=" .. tostring(runtime.main_quest.active_20611_grind_stage or "") ..
             " ui_indicator_entry=" .. tostring(ui_state.quest_indicator_entry == true) ..
             " ui_panel=" .. tostring(ui_state.quest_panel_visible == true) ..
@@ -10571,6 +10660,10 @@ function main_quest_20611_tick()
                 tostring(runtime.main_quest.completed_20615_after_big_map_task_teleport == true) ..
             " q20615_morheim_npc_done=" ..
                 tostring(runtime.main_quest.completed_20615_morheim_npc_dialog == true) ..
+            " q20620_start_done=" .. tostring(runtime.main_quest.completed_20620_start_dialog == true) ..
+            " q20620_task_tp_done=" .. tostring(runtime.main_quest.completed_20620_task_teleport == true) ..
+            " q20620_after_tp_npc_done=" ..
+                tostring(runtime.main_quest.completed_20620_after_teleport_npc_dialog == true) ..
             " q20614_after_start_tp_pending=" .. tostring(q20614_after_start_teleport_pending == true) ..
             " q20613_after_start_teleport_pending=" .. tostring(q20613_after_start_teleport_pending == true) ..
             " q20613_after_start_reward_pending=" .. tostring(q20613_after_start_reward_pending == true) ..

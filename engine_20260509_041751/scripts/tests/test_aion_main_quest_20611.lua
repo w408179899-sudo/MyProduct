@@ -88,6 +88,14 @@ local function quest_20615_morheim_npc_char(level)
     return { x = 224.60, y = 2416.30, z = 454.56, level = level or 20 }
 end
 
+local function quest_20620_start_npc_char(level)
+    return { x = 224.60, y = 2416.30, z = 454.56, level = level or 20 }
+end
+
+local function quest_20620_after_teleport_npc_char(level)
+    return { x = 233.55, y = 2324.88, z = 446.17, level = level or 20 }
+end
+
 local function post_20612_level14_grind_char(level)
     return { x = 1093.60, y = 2247.10, z = 254.25, level = level or 11 }
 end
@@ -2106,6 +2114,247 @@ local function run()
         T.assert_eq(next_action.name, "Idle")
         T.assert_eq(next_action.params.quest_id, 20615)
         T.assert_eq(next_action.params.stage, "quest_20615_morheim_npc")
+    end)
+
+    T.test("opens quest 20620 start npc after quest 20615 is absent", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 0, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_start_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_start_npc")
+        T.assert_eq(next_action.params.interact_id, 2147488159)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_001_START_AEGIR")
+        T.assert_eq(next_action.params.allow_interact_id_fallback, true)
+        T.assert_eq(next_action.params.after_open_continuous_last, true)
+        T.assert_eq(next_action.params.click_x, 25)
+    end)
+
+    T.test("continuous last-option clicks opened quest 20620 start npc dialog", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 0, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_start_npc_char(20),
+            big_map_id = 220020000,
+            dialog = {
+                npc_dialog_id = 2147488159,
+                dialog_content_id = 12,
+                content_id = 12,
+                quest_id = 20620,
+                type_text = "select_quest",
+            },
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_start_npc")
+        T.assert_eq(next_action.params.content_id, 12)
+        T.assert_eq(next_action.params.type_text, "select_quest")
+        T.assert_eq(next_action.params.interact_id, 2147488159)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_001_START_AEGIR")
+        T.assert_eq(next_action.params.click_x, 25)
+    end)
+
+    T.test("calls quest 20620 task teleport after start npc dialog completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 0, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_start_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_task_teleport")
+        T.assert_eq(next_action.params.direct_quest_id_only, true)
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, false)
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("calls quest 20620 task teleport after quest step advances", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 1, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_start_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_task_teleport")
+        T.assert_eq(next_action.params.direct_quest_id_only, true)
+    end)
+
+    T.test("waits for quest 20620 task teleport landing after call", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 1, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_start_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            waiting_teleport = true,
+            teleport_quest_id = 20620,
+            teleport_stage = "quest_20620_task_teleport",
+            teleport_start_pos = quest_20620_start_npc_char(20),
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_task_teleport")
+    end)
+
+    T.test("completes quest 20620 task teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 1, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = { x = 260.00, y = 2460.00, z = 455.00, level = 20 },
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            waiting_teleport = true,
+            teleport_quest_id = 20620,
+            teleport_stage = "quest_20620_task_teleport",
+            teleport_start_pos = quest_20620_start_npc_char(20),
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_task_teleport")
+    end)
+
+    T.test("opens quest 20620 after-teleport npc after task teleport completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 1, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_after_teleport_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            completed_20620_task_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_teleport_npc")
+        T.assert_eq(next_action.params.interact_id, 2147511717)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_002_AFTER_TELEPORT")
+        T.assert_eq(next_action.params.allow_interact_id_fallback, true)
+        T.assert_eq(next_action.params.after_open_continuous_last, true)
+        T.assert_eq(next_action.params.click_x, 25)
+    end)
+
+    T.test("opens quest 20620 after-teleport npc when already near target", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 1, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_after_teleport_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_teleport_npc")
+        T.assert_eq(next_action.params.interact_id, 2147511717)
+    end)
+
+    T.test("continuous last-option clicks opened quest 20620 after-teleport npc dialog", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 1, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_after_teleport_npc_char(20),
+            big_map_id = 220020000,
+            dialog = {
+                npc_dialog_id = 2147511717,
+                dialog_content_id = 21,
+                content_id = 21,
+                quest_id = 20620,
+                type_text = "select_quest",
+            },
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            completed_20620_task_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_teleport_npc")
+        T.assert_eq(next_action.params.content_id, 21)
+        T.assert_eq(next_action.params.type_text, "select_quest")
+        T.assert_eq(next_action.params.interact_id, 2147511717)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_002_AFTER_TELEPORT")
+        T.assert_eq(next_action.params.click_x, 25)
+    end)
+
+    T.test("idles after quest 20620 after-teleport npc dialog completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 1, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_after_teleport_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            completed_20620_task_teleport = true,
+            completed_20620_after_teleport_npc_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_teleport_npc")
     end)
 
     T.test("does not start quest 20614 level grind after quest 20613 start dialog", function()
