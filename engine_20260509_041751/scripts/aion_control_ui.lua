@@ -357,6 +357,11 @@ local runtime = {
         completed_20620_stigma_socket = false,
         completed_20620_after_stigma_teleport = false,
         completed_20620_after_stigma_npc_dialog = false,
+        opened_20620_obelisk = false,
+        opened_20620_obelisk_at = 0,
+        clicked_20620_obelisk_confirm = false,
+        clicked_20620_obelisk_confirm_at = 0,
+        completed_20620_obelisk = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -7262,6 +7267,11 @@ function main_quest_reset_runtime(reason)
     r.completed_20620_stigma_socket = false
     r.completed_20620_after_stigma_teleport = false
     r.completed_20620_after_stigma_npc_dialog = false
+    r.opened_20620_obelisk = false
+    r.opened_20620_obelisk_at = 0
+    r.clicked_20620_obelisk_confirm = false
+    r.clicked_20620_obelisk_confirm_at = 0
+    r.completed_20620_obelisk = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7607,6 +7617,8 @@ function main_quest_read_20611_state(now)
         or r.completed_20620_stigma_socket == true
         or r.completed_20620_after_stigma_teleport == true
         or r.completed_20620_after_stigma_npc_dialog == true
+        or r.opened_20620_obelisk == true
+        or r.completed_20620_obelisk == true
         or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
@@ -9169,12 +9181,14 @@ function main_quest_execute_20590(action, state)
             click_params[key] = value
         end
         click_params.allow_common_alert = true
-        if r.opened_20611_obelisk == true then
+        local opened_obelisk = (stage == "quest_20611_obelisk" and r.opened_20611_obelisk == true)
+            or (stage == "quest_20620_obelisk" and r.opened_20620_obelisk == true)
+        if opened_obelisk then
             click_params.require_popup_root = false
             click_params.allow_popup_root_click = true
         end
         local click_ok, line_or_err = main_quest_click_obelisk_confirm(ui_runtime, click_params)
-        if not click_ok and r.opened_20611_obelisk == true then
+        if not click_ok and opened_obelisk then
             local key_ok, key_line = main_quest_press_obelisk_confirm_key(line_or_err)
             if key_ok then
                 click_ok = true
@@ -9185,19 +9199,34 @@ function main_quest_execute_20590(action, state)
         end
         if click_ok then
             local now = now_seconds()
-            r.opened_20611_obelisk = false
-            r.opened_20611_obelisk_at = 0
-            r.clicked_20611_obelisk_confirm = true
-            r.clicked_20611_obelisk_confirm_at = now
+            if stage == "quest_20620_obelisk" then
+                r.opened_20620_obelisk = false
+                r.opened_20620_obelisk_at = 0
+                r.clicked_20620_obelisk_confirm = true
+                r.clicked_20620_obelisk_confirm_at = now
+                r.completed_20620_obelisk = true
+            else
+                r.opened_20611_obelisk = false
+                r.opened_20611_obelisk_at = 0
+                r.clicked_20611_obelisk_confirm = true
+                r.clicked_20611_obelisk_confirm_at = now
+            end
             r.obelisk_confirm_wait_until = now + 2.0
             r.cached_quest_20611 = nil
             r.last_quest_20611_read_at = 0
         else
             local now = now_seconds()
-            local opened_at = tonumber(r.opened_20611_obelisk_at) or 0
+            local opened_at = stage == "quest_20620_obelisk"
+                and (tonumber(r.opened_20620_obelisk_at) or 0)
+                or (tonumber(r.opened_20611_obelisk_at) or 0)
             if opened_at > 0 and now - opened_at > 4.0 then
-                r.opened_20611_obelisk = false
-                r.opened_20611_obelisk_at = 0
+                if stage == "quest_20620_obelisk" then
+                    r.opened_20620_obelisk = false
+                    r.opened_20620_obelisk_at = 0
+                else
+                    r.opened_20611_obelisk = false
+                    r.opened_20611_obelisk_at = 0
+                end
             end
         end
         main_quest_set_status("obelisk confirm action quest_id=" .. tostring(params.quest_id or "") ..
@@ -9457,7 +9486,8 @@ function main_quest_execute_20590(action, state)
         local waiting_same_stage = stage ~= "" and tostring(r.wait_dialog_stage or "") == stage
         local dialog_timeout_after_interact = waiting_same_stage and wait_until > 0 and now >= wait_until
         local confirm_wait_until = tonumber(r.obelisk_confirm_wait_until) or 0
-        if stage == "quest_20611_obelisk" and now < confirm_wait_until then
+        if (stage == "quest_20611_obelisk" or stage == "quest_20620_obelisk")
+            and now < confirm_wait_until then
             if main_quest_action_cooldown("WaitObeliskConfirm:" .. stage, 0.4) then
                 main_quest_set_status("waiting obelisk confirm settle stage=" .. stage ..
                     " remain=" .. string.format("%.1f", confirm_wait_until - now))
@@ -9547,6 +9577,11 @@ function main_quest_execute_20590(action, state)
             if stage == "quest_20611_obelisk" then
                 r.opened_20611_obelisk = true
                 r.opened_20611_obelisk_at = after_interact
+                r.wait_dialog_stage = ""
+                r.wait_dialog_until = 0
+            elseif stage == "quest_20620_obelisk" then
+                r.opened_20620_obelisk = true
+                r.opened_20620_obelisk_at = after_interact
                 r.wait_dialog_stage = ""
                 r.wait_dialog_until = 0
             else
@@ -10724,6 +10759,7 @@ function main_quest_20611_tick()
                 tostring(runtime.main_quest.completed_20620_after_stigma_teleport == true) ..
             " q20620_after_stigma_npc_done=" ..
                 tostring(runtime.main_quest.completed_20620_after_stigma_npc_dialog == true) ..
+            " q20620_obelisk_done=" .. tostring(runtime.main_quest.completed_20620_obelisk == true) ..
             " waiting_teleport=" .. tostring(runtime.main_quest.waiting_teleport == true) ..
             " teleport_qid=" .. tostring(runtime.main_quest.teleport_quest_id or 0) ..
             " teleport_stage=" .. tostring(runtime.main_quest.teleport_stage or "") ..
@@ -10820,7 +10856,8 @@ function main_quest_20611_tick()
         ":" .. tostring(runtime.main_quest.completed_20620_after_teleport_npc_dialog == true) ..
         ":" .. tostring(runtime.main_quest.completed_20620_stigma_socket == true) ..
         ":" .. tostring(runtime.main_quest.completed_20620_after_stigma_teleport == true) ..
-        ":" .. tostring(runtime.main_quest.completed_20620_after_stigma_npc_dialog == true)
+        ":" .. tostring(runtime.main_quest.completed_20620_after_stigma_npc_dialog == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20620_obelisk == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -10884,6 +10921,7 @@ function main_quest_20611_tick()
                 tostring(runtime.main_quest.completed_20620_after_stigma_teleport == true) ..
             " q20620_after_stigma_npc_done=" ..
                 tostring(runtime.main_quest.completed_20620_after_stigma_npc_dialog == true) ..
+            " q20620_obelisk_done=" .. tostring(runtime.main_quest.completed_20620_obelisk == true) ..
             " q20614_after_start_tp_pending=" .. tostring(q20614_after_start_teleport_pending == true) ..
             " q20613_after_start_teleport_pending=" .. tostring(q20613_after_start_teleport_pending == true) ..
             " q20613_after_start_reward_pending=" .. tostring(q20613_after_start_reward_pending == true) ..

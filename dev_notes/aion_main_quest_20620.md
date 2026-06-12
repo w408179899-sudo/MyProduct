@@ -13,6 +13,7 @@
 4. quest_20620_socket_stigma
 5. quest_20620_after_stigma_teleport
 6. quest_20620_after_stigma_npc
+7. quest_20620_obelisk
 ```
 
 后续普通 NPC 对话默认使用 `ClickDialogLastContinuousOk`。
@@ -307,12 +308,77 @@ ClickDialogLastContinuousOk stage=quest_20620_after_stigma_npc
 completed_20620_after_stigma_npc_dialog=true
 ```
 
+## 阶段七：立复活点
+
+阶段名：
+
+```text
+quest_20620_obelisk
+```
+
+F11 快照：
+
+```text
+quest_id=20620
+status_code=3
+req_count=4
+big_map_id=220020000
+char_pos=269.49,2340.11,443.74
+target_id=50
+target_interact_id=2147499094
+target_pos=268.00,2338.62,443.75
+target_dist=2.11
+dialog=closed
+```
+
+目标：
+
+```text
+name_key=MQ20620_NPC_004_OBELISK
+interact_id=2147499094
+x=268.00
+y=2338.62
+z=443.75
+big_map_id=220020000
+```
+
+触发条件：
+
+```text
+quest_id=20620
+req_count=4
+completed_20620_after_stigma_npc_dialog=true
+completed_20620_obelisk~=true
+```
+
+执行方式仿照 20611 主线立复活点：
+
+```text
+InteractNpc stage=quest_20620_obelisk interact_id=2147499094
+ClickObeliskConfirm stage=quest_20620_obelisk
+```
+
+交互说明：
+
+```text
+NPC 名字在 F11 中是乱码，不依赖名字。
+InteractNpc 使用 allow_interact_id_fallback=true，通过 interact_id 打开复活点确认弹窗。
+确认弹窗复用已有 ClickObeliskConfirm 逻辑。
+```
+
+完成标记：
+
+```text
+completed_20620_obelisk=true
+```
+
 ## 防回退约束
 
 ```text
 如果 completed_20620_after_teleport_npc_dialog=true、
 completed_20620_stigma_socket=true
 completed_20620_after_stigma_teleport=true
-或 completed_20620_after_stigma_npc_dialog=true，
+completed_20620_after_stigma_npc_dialog=true
+或 completed_20620_obelisk=true，
 即使 completed_20620_task_teleport 标记丢失，也不能回退执行 quest_20620_task_teleport。
 ```
