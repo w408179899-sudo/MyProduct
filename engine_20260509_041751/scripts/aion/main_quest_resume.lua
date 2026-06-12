@@ -95,6 +95,7 @@ local function mark_after_20614(flags)
     flags.completed_20615_task_teleport = false
     flags.completed_20615_target_dialog = false
     flags.completed_20615_big_map_teleport = false
+    flags.completed_20615_after_big_map_task_teleport = false
 end
 
 function M.findQuest(quests, id)
@@ -361,9 +362,10 @@ function M.plan(snapshot)
         flags.completed_20615_target_dialog = quest_step(q20615) > 0
             or after_big_map_teleport
         flags.completed_20615_big_map_teleport = after_big_map_teleport
+        flags.completed_20615_after_big_map_task_teleport = false
         if after_big_map_teleport then
-            stage = "20615_big_map_landed"
-            reason = "quest 20615 is active and character is already on another big map"
+            stage = "20615_after_big_map_task_teleport"
+            reason = "quest 20615 is active on another big map and needs its task teleport"
         elseif quest_step(q20615) > 0 then
             stage = "20615_big_map_teleport"
             reason = "quest 20615 has progressed past target npc and needs big map teleport"
@@ -381,9 +383,10 @@ function M.plan(snapshot)
         flags.completed_20615_task_teleport = true
         flags.completed_20615_target_dialog = true
         flags.completed_20615_big_map_teleport = after_big_map_teleport
+        flags.completed_20615_after_big_map_task_teleport = false
         if after_big_map_teleport then
-            stage = "20615_big_map_landed"
-            reason = "quest 20615 is done and character is already on another big map"
+            stage = "20615_after_big_map_task_teleport"
+            reason = "quest 20615 is done on another big map and needs its task teleport"
         else
             stage = "20615_big_map_teleport"
             reason = "quest 20615 is done after target dialog and needs big map teleport"

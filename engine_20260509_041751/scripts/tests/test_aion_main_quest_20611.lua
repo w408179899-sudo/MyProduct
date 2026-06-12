@@ -1921,11 +1921,12 @@ local function run()
         T.assert_eq(next_action.params.price, 1200)
     end)
 
-    T.test("idles after quest 20615 big map teleport completed", function()
+    T.test("calls quest 20615 direct task teleport after big map teleport even with another task", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
-                { id = 20615, tab = 0, status_code = 3, req_count = 1, seq = 0, lv_num = 20 },
+                { id = 20615, tab = 0, status_code = 4, req_count = 0, seq = 0, lv_num = 20 },
+                { id = 24340, tab = 1, status_code = 4, req_count = 0, seq = 0, lv_num = 20 },
             },
             char = { x = 100.00, y = 100.00, z = 100.00, level = 20 },
             big_map_id = 220020000,
@@ -1936,9 +1937,87 @@ local function run()
             completed_20615_big_map_teleport = true,
         })
 
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20615)
+        T.assert_eq(next_action.params.stage, "quest_20615_after_big_map_task_teleport")
+        T.assert_eq(next_action.params.direct_quest_id_only, true)
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, false)
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("waits for quest 20615 after big map task teleport landing after call", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20615, tab = 0, status_code = 4, req_count = 0, seq = 0, lv_num = 20 },
+                { id = 24340, tab = 1, status_code = 4, req_count = 0, seq = 0, lv_num = 20 },
+            },
+            char = { x = 100.00, y = 100.00, z = 100.00, level = 20 },
+            big_map_id = 220020000,
+        }, {
+            completed_20614_reward_dialog = true,
+            completed_20615_task_teleport = true,
+            completed_20615_target_dialog = true,
+            completed_20615_big_map_teleport = true,
+            waiting_teleport = true,
+            teleport_quest_id = 20615,
+            teleport_stage = "quest_20615_after_big_map_task_teleport",
+            teleport_start_pos = { x = 100.00, y = 100.00, z = 100.00, level = 20 },
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20615)
+        T.assert_eq(next_action.params.stage, "quest_20615_after_big_map_task_teleport")
+    end)
+
+    T.test("completes quest 20615 after big map task teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20615, tab = 0, status_code = 4, req_count = 0, seq = 0, lv_num = 20 },
+                { id = 24340, tab = 1, status_code = 4, req_count = 0, seq = 0, lv_num = 20 },
+            },
+            char = { x = 180.00, y = 140.00, z = 100.00, level = 20 },
+            big_map_id = 220020000,
+        }, {
+            completed_20614_reward_dialog = true,
+            completed_20615_task_teleport = true,
+            completed_20615_target_dialog = true,
+            completed_20615_big_map_teleport = true,
+            waiting_teleport = true,
+            teleport_quest_id = 20615,
+            teleport_stage = "quest_20615_after_big_map_task_teleport",
+            teleport_start_pos = { x = 100.00, y = 100.00, z = 100.00, level = 20 },
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20615)
+        T.assert_eq(next_action.params.stage, "quest_20615_after_big_map_task_teleport")
+    end)
+
+    T.test("idles after quest 20615 after big map task teleport completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20615, tab = 0, status_code = 4, req_count = 0, seq = 0, lv_num = 20 },
+                { id = 24340, tab = 1, status_code = 4, req_count = 0, seq = 0, lv_num = 20 },
+            },
+            char = { x = 180.00, y = 140.00, z = 100.00, level = 20 },
+            big_map_id = 220020000,
+        }, {
+            completed_20614_reward_dialog = true,
+            completed_20615_task_teleport = true,
+            completed_20615_target_dialog = true,
+            completed_20615_big_map_teleport = true,
+            completed_20615_after_big_map_task_teleport = true,
+        })
+
         T.assert_eq(next_action.name, "Idle")
         T.assert_eq(next_action.params.quest_id, 20615)
-        T.assert_eq(next_action.params.stage, "quest_20615_big_map_teleport")
+        T.assert_eq(next_action.params.stage, "quest_20615_after_big_map_task_teleport")
     end)
 
     T.test("does not start quest 20614 level grind after quest 20613 start dialog", function()

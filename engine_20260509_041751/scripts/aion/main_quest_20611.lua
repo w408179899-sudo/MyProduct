@@ -40,6 +40,7 @@ M.quest_20615_level_grind_stage = "quest_20615_level20_grind"
 M.quest_20615_teleport_stage = "quest_20615_task_teleport"
 M.quest_20615_target_stage = "quest_20615_target_npc"
 M.quest_20615_big_map_teleport_stage = "quest_20615_big_map_teleport"
+M.quest_20615_after_big_map_teleport_stage = "quest_20615_after_big_map_task_teleport"
 M.quest_20615_level20_required_level = 20
 M.post_20612_level14_required_level = 14
 M.grind_point = {
@@ -2087,11 +2088,7 @@ function M.nextQuest20615BigMapTeleportAction(state, runtime, opts, quest)
     quest = quest or M.findQuestById(state.quests, M.quest_20615_id)
 
     if runtime.completed_20615_big_map_teleport == true then
-        return action("Idle", "quest 20615 big map teleport completed; wait next instruction", {
-            quest_id = M.quest_20615_id,
-            quest_step = M.questStep(quest),
-            stage = M.quest_20615_big_map_teleport_stage,
-        })
+        return M.nextQuest20615AfterBigMapTaskTeleportAction(state, runtime, opts, quest)
     end
 
     if type(state.dialog) == "table" then
@@ -2131,6 +2128,50 @@ function M.nextQuest20615BigMapTeleportAction(state, runtime, opts, quest)
         target_name = M.quest_20615_big_map_teleport.name,
         expected_big_map_id = M.quest_20615_big_map_teleport.expected_big_map_id,
         wait_teleport = true,
+    })
+end
+
+function M.nextQuest20615AfterBigMapTaskTeleportAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or M.findQuestById(state.quests, M.quest_20615_id)
+
+    if runtime.completed_20615_after_big_map_task_teleport == true then
+        return action("Idle", "quest 20615 after big map task teleport completed; wait next instruction", {
+            quest_id = M.quest_20615_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20615_after_big_map_teleport_stage,
+        })
+    end
+
+    if type(state.dialog) == "table" then
+        return action("Idle", "quest 20615 after big map task teleport waits for dialog close", {
+            quest_id = M.quest_20615_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20615_after_big_map_teleport_stage,
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_20615_id })
+    end
+
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map == M.big_map_id
+        and runtime.completed_20615_big_map_teleport ~= true then
+        return M.nextQuest20615BigMapTeleportAction(state, runtime, opts, quest)
+    end
+
+    return action("QuestTeleport", "quest 20615 direct task teleport after big map landing", {
+        quest_id = M.quest_20615_id,
+        quest_step = M.questStep(quest),
+        stage = M.quest_20615_after_big_map_teleport_stage,
+        wait_teleport = true,
+        direct_quest_id_only = true,
+        open_panel_key = false,
+        require_panel_visible = false,
     })
 end
 
@@ -3107,7 +3148,8 @@ function M.nextAction(state, runtime, opts)
             or teleport_stage == M.quest_20614_teleport_stage
             or teleport_stage == M.quest_20614_after_start_teleport_stage
             or teleport_stage == M.quest_20615_teleport_stage
-            or teleport_stage == M.quest_20615_big_map_teleport_stage) then
+            or teleport_stage == M.quest_20615_big_map_teleport_stage
+            or teleport_stage == M.quest_20615_after_big_map_teleport_stage) then
         local waiting_qid = number(runtime.teleport_quest_id)
         if waiting_qid <= 0 then
             if teleport_stage == M.quest_20612_teleport_stage then
@@ -3119,7 +3161,8 @@ function M.nextAction(state, runtime, opts)
                 or teleport_stage == M.quest_20614_after_start_teleport_stage then
                 waiting_qid = M.quest_20614_id
             elseif teleport_stage == M.quest_20615_teleport_stage
-                or teleport_stage == M.quest_20615_big_map_teleport_stage then
+                or teleport_stage == M.quest_20615_big_map_teleport_stage
+                or teleport_stage == M.quest_20615_after_big_map_teleport_stage then
                 waiting_qid = M.quest_20615_id
             else
                 waiting_qid = M.quest_id
@@ -3387,7 +3430,7 @@ function M.nextAction(state, runtime, opts)
     if (M.isQuestActive(quest_20615) or M.isQuestDone(quest_20615))
         and quest_20614_cleared_for_20615
         and runtime.completed_20615_big_map_teleport == true then
-        return M.nextQuest20615BigMapTeleportAction(state, runtime, opts, quest_20615)
+        return M.nextQuest20615AfterBigMapTaskTeleportAction(state, runtime, opts, quest_20615)
     end
     local quest_20615_active_teleport_ready = M.isQuestActive(quest_20615)
         and M.questStep(quest_20615) == 0

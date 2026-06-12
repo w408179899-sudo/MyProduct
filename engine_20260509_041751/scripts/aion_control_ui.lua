@@ -349,6 +349,7 @@ local runtime = {
         completed_20615_task_teleport = false,
         completed_20615_target_dialog = false,
         completed_20615_big_map_teleport = false,
+        completed_20615_after_big_map_task_teleport = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -7171,6 +7172,7 @@ function main_quest_reset_runtime(reason)
     r.completed_20615_task_teleport = false
     r.completed_20615_target_dialog = false
     r.completed_20615_big_map_teleport = false
+    r.completed_20615_after_big_map_task_teleport = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7506,6 +7508,7 @@ function main_quest_read_20611_state(now)
         or r.completed_20615_task_teleport == true
         or r.completed_20615_target_dialog == true
         or r.completed_20615_big_map_teleport == true
+        or r.completed_20615_after_big_map_task_teleport == true
         or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
@@ -9157,7 +9160,21 @@ function main_quest_execute_20590(action, state)
             return false
         end
         local panel_ready, panel_detail
-        if params.open_panel_key == false or params.require_panel_visible == true then
+        local direct_quest_id_only = params.direct_quest_id_only == true
+        if direct_quest_id_only then
+            if quest_id == 20615 and stage == "quest_20615_after_big_map_task_teleport" then
+                panel_ready = true
+                panel_detail = "direct_quest_id_only"
+            else
+                main_quest_set_status("quest teleport direct mode rejected quest_id=" ..
+                    tostring(quest_id) .. " stage=" .. tostring(stage))
+                main_quest_trace("quest-teleport-direct-rejected:" .. tostring(stage),
+                    "quest=" .. tostring(quest_id) ..
+                    " allowed=false pos=" .. main_quest_position_text(state.char),
+                    0)
+                return false
+            end
+        elseif params.open_panel_key == false or params.require_panel_visible == true then
             panel_ready, panel_detail = main_quest_quest_panel_visible()
         else
             panel_ready, panel_detail = main_quest_prepare_quest_teleport_panel(quest_id, stage)
@@ -9931,6 +9948,18 @@ function main_quest_execute_20590(action, state)
                 " reason=" .. tostring(action.reason or "") ..
                 " pos=" .. main_quest_position_text(state.char),
                 0)
+        elseif stage == "quest_20615_after_big_map_task_teleport" then
+            r.clicked_20611_indicator_title = false
+            r.completed_20615_after_big_map_task_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            main_quest_trace("q20615-complete-teleport:" .. stage,
+                "quest=" .. tostring(params.quest_id or "") ..
+                " completed_after_big_map_task_tp=" ..
+                    tostring(r.completed_20615_after_big_map_task_teleport == true) ..
+                " reason=" .. tostring(action.reason or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
         elseif tonumber(params.quest_id) == 20610 then
             r.completed_20610_task_teleport = true
             r.cached_quest_20610 = nil
@@ -10369,6 +10398,8 @@ function main_quest_20611_tick()
             " q20615_task_tp_done=" .. tostring(runtime.main_quest.completed_20615_task_teleport == true) ..
             " q20615_target_dialog_done=" .. tostring(runtime.main_quest.completed_20615_target_dialog == true) ..
             " q20615_big_map_tp_done=" .. tostring(runtime.main_quest.completed_20615_big_map_teleport == true) ..
+            " q20615_after_big_map_task_tp_done=" ..
+                tostring(runtime.main_quest.completed_20615_after_big_map_task_teleport == true) ..
             " waiting_teleport=" .. tostring(runtime.main_quest.waiting_teleport == true) ..
             " teleport_qid=" .. tostring(runtime.main_quest.teleport_quest_id or 0) ..
             " teleport_stage=" .. tostring(runtime.main_quest.teleport_stage or "") ..
@@ -10455,7 +10486,8 @@ function main_quest_20611_tick()
         ":" .. tostring(q20615_step) ..
         ":" .. tostring(runtime.main_quest.completed_20615_task_teleport == true) ..
         ":" .. tostring(runtime.main_quest.completed_20615_target_dialog == true) ..
-        ":" .. tostring(runtime.main_quest.completed_20615_big_map_teleport == true)
+        ":" .. tostring(runtime.main_quest.completed_20615_big_map_teleport == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20615_after_big_map_task_teleport == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -10504,6 +10536,8 @@ function main_quest_20611_tick()
             " q20615_task_tp_done=" .. tostring(runtime.main_quest.completed_20615_task_teleport == true) ..
             " q20615_target_dialog_done=" .. tostring(runtime.main_quest.completed_20615_target_dialog == true) ..
             " q20615_big_map_tp_done=" .. tostring(runtime.main_quest.completed_20615_big_map_teleport == true) ..
+            " q20615_after_big_map_task_tp_done=" ..
+                tostring(runtime.main_quest.completed_20615_after_big_map_task_teleport == true) ..
             " q20614_after_start_tp_pending=" .. tostring(q20614_after_start_teleport_pending == true) ..
             " q20613_after_start_teleport_pending=" .. tostring(q20613_after_start_teleport_pending == true) ..
             " q20613_after_start_reward_pending=" .. tostring(q20613_after_start_reward_pending == true) ..
