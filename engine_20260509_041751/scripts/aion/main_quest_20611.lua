@@ -52,6 +52,7 @@ M.quest_20620_after_stigma_teleport_stage = "quest_20620_after_stigma_teleport"
 M.quest_20620_after_stigma_npc_stage = "quest_20620_after_stigma_npc"
 M.quest_20620_obelisk_stage = "quest_20620_obelisk"
 M.quest_20620_after_obelisk_teleport_stage = "quest_20620_after_obelisk_teleport"
+M.quest_20620_after_obelisk_npc_stage = "quest_20620_after_obelisk_npc"
 M.post_20612_level14_required_level = 14
 M.grind_point = {
     x = 194.491,
@@ -243,6 +244,15 @@ M.quest_20620_obelisk = {
     x = 268.00,
     y = 2338.62,
     z = 443.75,
+    big_map_id = 220020000,
+}
+M.quest_20620_after_obelisk_npc = {
+    name_key = "MQ20620_NPC_005_AFTER_OBELISK",
+    name = "",
+    interact_id = 2147535533,
+    x = 193.00,
+    y = 2268.50,
+    z = 439.12,
     big_map_id = 220020000,
 }
 M.quest_20620_stigma_keywords = {
@@ -697,6 +707,10 @@ function M.distanceToQuest20620Obelisk(char)
     return distance3(char, M.quest_20620_obelisk)
 end
 
+function M.distanceToQuest20620AfterObeliskNpc(char)
+    return distance3(char, M.quest_20620_after_obelisk_npc)
+end
+
 function M.isNearQuest20612RewardNpc(state, opts)
     state = state or {}
     opts = opts or {}
@@ -882,6 +896,23 @@ function M.isNearQuest20620Obelisk(state, opts)
         range = 4
     end
     return M.distanceToQuest20620Obelisk(state.char) <= range
+end
+
+function M.isNearQuest20620AfterObeliskNpc(state, opts)
+    state = state or {}
+    opts = opts or {}
+    if type(state.char) ~= "table" then
+        return false
+    end
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.quest_20620_after_obelisk_npc.big_map_id then
+        return false
+    end
+    local range = number(opts.npc_range)
+    if range <= 0 then
+        range = 4
+    end
+    return M.distanceToQuest20620AfterObeliskNpc(state.char) <= range
 end
 
 function M.questStep(quest)
@@ -1176,6 +1207,15 @@ end
 function M.isQuest20620AfterStigmaNpcDialog(dialog)
     if type(dialog) ~= "table"
         or number(dialog.npc_dialog_id) ~= M.quest_20620_after_stigma_npc.interact_id then
+        return false
+    end
+    local dialog_qid = number(dialog.quest_id)
+    return dialog_qid <= 0 or dialog_qid == M.quest_20620_id
+end
+
+function M.isQuest20620AfterObeliskNpcDialog(dialog)
+    if type(dialog) ~= "table"
+        or number(dialog.npc_dialog_id) ~= M.quest_20620_after_obelisk_npc.interact_id then
         return false
     end
     local dialog_qid = number(dialog.quest_id)
@@ -2583,6 +2623,10 @@ function M.nextQuest20620TaskTeleportAction(state, runtime, opts, quest)
     opts = opts or {}
     quest = quest or M.findQuestById(state.quests, M.quest_20620_id)
 
+    if runtime.completed_20620_after_obelisk_npc_dialog == true then
+        return M.nextQuest20620AfterObeliskNpcAction(state, runtime, opts, quest)
+    end
+
     if runtime.completed_20620_after_obelisk_teleport == true then
         return M.nextQuest20620AfterObeliskTeleportAction(state, runtime, opts, quest)
     end
@@ -2732,6 +2776,10 @@ function M.nextQuest20620SocketStigmaAction(state, runtime, opts, quest)
     opts = opts or {}
     quest = quest or M.findQuestById(state.quests, M.quest_20620_id)
 
+    if runtime.completed_20620_after_obelisk_npc_dialog == true then
+        return M.nextQuest20620AfterObeliskNpcAction(state, runtime, opts, quest)
+    end
+
     if runtime.completed_20620_after_obelisk_teleport == true then
         return M.nextQuest20620AfterObeliskTeleportAction(state, runtime, opts, quest)
     end
@@ -2770,6 +2818,10 @@ function M.nextQuest20620AfterStigmaTeleportAction(state, runtime, opts, quest)
     runtime = runtime or {}
     opts = opts or {}
     quest = quest or M.findQuestById(state.quests, M.quest_20620_id)
+
+    if runtime.completed_20620_after_obelisk_npc_dialog == true then
+        return M.nextQuest20620AfterObeliskNpcAction(state, runtime, opts, quest)
+    end
 
     if runtime.completed_20620_after_obelisk_teleport == true then
         return M.nextQuest20620AfterObeliskTeleportAction(state, runtime, opts, quest)
@@ -2820,6 +2872,10 @@ function M.nextQuest20620AfterStigmaNpcAction(state, runtime, opts, quest)
     runtime = runtime or {}
     opts = opts or {}
     quest = quest or M.findQuestById(state.quests, M.quest_20620_id)
+
+    if runtime.completed_20620_after_obelisk_npc_dialog == true then
+        return M.nextQuest20620AfterObeliskNpcAction(state, runtime, opts, quest)
+    end
 
     if runtime.completed_20620_after_obelisk_teleport == true then
         return M.nextQuest20620AfterObeliskTeleportAction(state, runtime, opts, quest)
@@ -2923,6 +2979,10 @@ function M.nextQuest20620ObeliskAction(state, runtime, opts, quest)
     opts = opts or {}
     quest = quest or M.findQuestById(state.quests, M.quest_20620_id)
 
+    if runtime.completed_20620_after_obelisk_npc_dialog == true then
+        return M.nextQuest20620AfterObeliskNpcAction(state, runtime, opts, quest)
+    end
+
     if runtime.completed_20620_after_obelisk_teleport == true then
         return M.nextQuest20620AfterObeliskTeleportAction(state, runtime, opts, quest)
     end
@@ -3012,12 +3072,17 @@ function M.nextQuest20620AfterObeliskTeleportAction(state, runtime, opts, quest)
     opts = opts or {}
     quest = quest or M.findQuestById(state.quests, M.quest_20620_id)
 
+    if runtime.completed_20620_after_obelisk_npc_dialog == true then
+        return M.nextQuest20620AfterObeliskNpcAction(state, runtime, opts, quest)
+    end
+
     if runtime.completed_20620_after_obelisk_teleport == true then
-        return action("Idle", "quest 20620 after-obelisk teleport completed; wait next instruction", {
-            quest_id = M.quest_20620_id,
-            quest_step = M.questStep(quest),
-            stage = M.quest_20620_after_obelisk_teleport_stage,
-        })
+        return M.nextQuest20620AfterObeliskNpcAction(state, runtime, opts, quest)
+    end
+
+    if M.isQuest20620AfterObeliskNpcDialog(state.dialog)
+        or M.isNearQuest20620AfterObeliskNpc(state, opts) then
+        return M.nextQuest20620AfterObeliskNpcAction(state, runtime, opts, quest)
     end
 
     if type(state.dialog) == "table" then
@@ -3036,6 +3101,100 @@ function M.nextQuest20620AfterObeliskTeleportAction(state, runtime, opts, quest)
         direct_quest_id_only = true,
         open_panel_key = false,
         require_panel_visible = false,
+    })
+end
+
+function M.nextQuest20620AfterObeliskNpcAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or M.findQuestById(state.quests, M.quest_20620_id)
+
+    if runtime.completed_20620_after_obelisk_npc_dialog == true then
+        return action("Idle", "quest 20620 after-obelisk npc dialog completed; wait next instruction", {
+            quest_id = M.quest_20620_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20620_after_obelisk_npc_stage,
+        })
+    end
+
+    local dialog = state.dialog
+    if M.isQuest20620AfterObeliskNpcDialog(dialog) then
+        return action("ClickDialogLastContinuousOk", "complete quest 20620 after-obelisk npc dialog by last-option chain", {
+            quest_id = M.quest_20620_id,
+            quest_step = M.questStep(quest),
+            type_text = tostring(dialog.type_text or ""),
+            content_id = dialog_content_id(dialog),
+            npc_dialog_id = number(dialog.npc_dialog_id),
+            interact_id = M.quest_20620_after_obelisk_npc.interact_id,
+            npc_name = M.quest_20620_after_obelisk_npc.name,
+            npc_name_key = M.quest_20620_after_obelisk_npc.name_key,
+            click_x = opts.dialog_click_x or 25,
+            stage = M.quest_20620_after_obelisk_npc_stage,
+        })
+    end
+
+    if type(dialog) == "table" then
+        return action("DumpDialog", "different npc dialog is already open before quest 20620 after-obelisk npc", {
+            quest_id = M.quest_20620_id,
+            quest_step = M.questStep(quest),
+            type_text = tostring(dialog.type_text or ""),
+            content_id = dialog_content_id(dialog),
+            npc_dialog_id = number(dialog.npc_dialog_id),
+            interact_id = M.quest_20620_after_obelisk_npc.interact_id,
+            npc_name = M.quest_20620_after_obelisk_npc.name,
+            npc_name_key = M.quest_20620_after_obelisk_npc.name_key,
+            stage = M.quest_20620_after_obelisk_npc_stage,
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_20620_id })
+    end
+
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.quest_20620_after_obelisk_npc.big_map_id then
+        return action("Idle", "quest 20620 after-obelisk npc wrong map", {
+            quest_id = M.quest_20620_id,
+            quest_step = M.questStep(quest),
+            big_map_id = current_big_map,
+            expected_big_map_id = M.quest_20620_after_obelisk_npc.big_map_id,
+            stage = M.quest_20620_after_obelisk_npc_stage,
+        })
+    end
+
+    local range = number(opts.npc_range)
+    if range <= 0 then
+        range = 4
+    end
+    local dist = M.distanceToQuest20620AfterObeliskNpc(char)
+    if dist > range then
+        return action("NavigateToNpc", "move to quest 20620 after-obelisk npc", {
+            quest_id = M.quest_20620_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20620_after_obelisk_npc_stage,
+            interact_id = M.quest_20620_after_obelisk_npc.interact_id,
+            npc_name = M.quest_20620_after_obelisk_npc.name,
+            npc_name_key = M.quest_20620_after_obelisk_npc.name_key,
+            x = M.quest_20620_after_obelisk_npc.x,
+            y = M.quest_20620_after_obelisk_npc.y,
+            z = M.quest_20620_after_obelisk_npc.z,
+            distance = dist,
+            range = range,
+        })
+    end
+
+    return action("InteractNpc", "open quest 20620 after-obelisk npc dialog", {
+        quest_id = M.quest_20620_id,
+        quest_step = M.questStep(quest),
+        stage = M.quest_20620_after_obelisk_npc_stage,
+        interact_id = M.quest_20620_after_obelisk_npc.interact_id,
+        npc_name = M.quest_20620_after_obelisk_npc.name,
+        npc_name_key = M.quest_20620_after_obelisk_npc.name_key,
+        allow_interact_id_fallback = true,
+        after_open_continuous_last = true,
+        click_x = opts.dialog_click_x or 25,
     })
 end
 
@@ -4335,10 +4494,26 @@ function M.nextAction(state, runtime, opts)
             quest_20615_level_quest or quest_20615)
     end
 
+    local quest_20620_after_obelisk_npc_ready = (M.isQuestActive(quest_20620) or M.isQuestDone(quest_20620))
+        and (runtime.completed_20620_after_obelisk_teleport == true
+            or runtime.completed_20620_after_obelisk_npc_dialog == true
+            or M.isQuest20620AfterObeliskNpcDialog(state.dialog)
+            or M.isNearQuest20620AfterObeliskNpc(state, opts))
+        and (runtime.completed_20620_obelisk == true
+            or runtime.completed_20620_after_obelisk_teleport == true
+            or runtime.completed_20620_after_obelisk_npc_dialog == true
+            or M.isQuest20620AfterObeliskTeleportSnapshot(quest_20620))
+        and (runtime.completed_20615_morheim_npc_dialog == true
+            or not M.isQuestKnown(quest_20615))
+    if quest_20620_after_obelisk_npc_ready then
+        return M.nextQuest20620AfterObeliskNpcAction(state, runtime, opts, quest_20620)
+    end
+
     local quest_20620_after_obelisk_teleport_ready = (M.isQuestActive(quest_20620) or M.isQuestDone(quest_20620))
         and (runtime.completed_20620_obelisk == true
             or M.isQuest20620AfterObeliskTeleportSnapshot(quest_20620))
         and runtime.completed_20620_after_obelisk_teleport ~= true
+        and runtime.completed_20620_after_obelisk_npc_dialog ~= true
         and (runtime.completed_20615_morheim_npc_dialog == true
             or not M.isQuestKnown(quest_20615))
     if quest_20620_after_obelisk_teleport_ready then
@@ -4350,7 +4525,8 @@ function M.nextAction(state, runtime, opts)
             or runtime.completed_20620_after_stigma_teleport == true
             or runtime.completed_20620_after_stigma_npc_dialog == true
             or runtime.completed_20620_obelisk == true
-            or runtime.completed_20620_after_obelisk_teleport == true)
+            or runtime.completed_20620_after_obelisk_teleport == true
+            or runtime.completed_20620_after_obelisk_npc_dialog == true)
         and (runtime.completed_20615_morheim_npc_dialog == true
             or not M.isQuestKnown(quest_20615)) then
         return M.nextQuest20620SocketStigmaAction(state, runtime, opts, quest_20620)

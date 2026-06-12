@@ -15,6 +15,7 @@
 6. quest_20620_after_stigma_npc
 7. quest_20620_obelisk
 8. quest_20620_after_obelisk_teleport
+9. quest_20620_after_obelisk_npc
 ```
 
 后续普通 NPC 对话默认使用 `ClickDialogLastContinuousOk`。
@@ -414,6 +415,65 @@ teleport_stage=quest_20620_after_obelisk_teleport
 completed_20620_after_obelisk_teleport=true
 ```
 
+## 阶段九：立复活点后传送落地 NPC 对话
+
+阶段名：
+
+```text
+quest_20620_after_obelisk_npc
+```
+
+F11 快照：
+
+```text
+quest_id=20620
+status_code=4
+req_count=4
+big_map_id=220020000
+char_pos=194.74,2269.09,438.87
+target_id=65522
+target_interact_id=2147535533
+target_pos=193.00,2268.50,439.12
+target_dist=1.86
+dialog=closed
+```
+
+NPC：
+
+```text
+name_key=MQ20620_NPC_005_AFTER_OBELISK
+interact_id=2147535533
+x=193.00
+y=2268.50
+z=439.12
+big_map_id=220020000
+```
+
+触发条件：
+
+```text
+quest_id=20620
+status_code=4
+req_count=4
+completed_20620_after_obelisk_teleport=true
+completed_20620_after_obelisk_npc_dialog~=true
+```
+
+如果运行时传送完成标记丢失，但当前角色已经在这个 NPC 附近或已打开这个 NPC 对话，也直接进入本阶段，避免重复 call `quest_20620_after_obelisk_teleport`。
+
+执行顺序：
+
+```text
+InteractNpc stage=quest_20620_after_obelisk_npc interact_id=2147535533
+ClickDialogLastContinuousOk stage=quest_20620_after_obelisk_npc
+```
+
+完成标记：
+
+```text
+completed_20620_after_obelisk_npc_dialog=true
+```
+
 ## 防回退约束
 
 ```text
@@ -423,5 +483,6 @@ completed_20620_after_stigma_teleport=true
 completed_20620_after_stigma_npc_dialog=true
 completed_20620_obelisk=true
 或 completed_20620_after_obelisk_teleport=true，
+或 completed_20620_after_obelisk_npc_dialog=true，
 即使 completed_20620_task_teleport 标记丢失，也不能回退执行 quest_20620_task_teleport。
 ```
