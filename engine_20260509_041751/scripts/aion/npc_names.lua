@@ -13,6 +13,7 @@ local M = {
     MQ20611_NPC_004_HOTSPOT_REWARD = "氤茧Μ韥?",
     MQ20613_NPC_001_START = "雼る箘",
     MQ20613_NPC_002_AFTER_START_REWARD = "",
+    MQ20621_NPC_002_AFTER_DIALOG_TELEPORT = "할프단",
 }
 
 return M
