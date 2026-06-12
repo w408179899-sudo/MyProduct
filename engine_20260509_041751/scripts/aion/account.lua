@@ -27,8 +27,8 @@ function M.characterList()
     return true, list or {}, nil
 end
 
-function M.selectCharacter(charOrIndex)
-    return core.first("AionData.SelectCharacter", data.SelectCharacter, charOrIndex)
+function M.selectCharacter(index)
+    return core.first("AionData.SelectCharacter", data.SelectCharacter, index)
 end
 
 function M.createCharacter(name, gender, race, jobId)

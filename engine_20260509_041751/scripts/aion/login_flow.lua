@@ -1150,6 +1150,7 @@ local function create_character_from_config(ctx, initial_list)
                 flow_cfg.create_character_recheck_interval_ms)
             remember_character_names(seen, latest_list)
             if found_ok and char then
+                local _, char_index = find_character_by_name(latest_list, char.name or name)
                 if type(account.server) == "table" then
                     account.server.character_name = tostring(char.name or name)
                 end
@@ -1159,7 +1160,7 @@ local function create_character_from_config(ctx, initial_list)
                     tostring(char.id or ""),
                     tostring(char.level or ""),
                     tostring(found_msg or "")))
-                return true, char, nil
+                return true, { char = char, index = char_index }, nil
             end
             last_err = tostring(found_msg or "created character not found")
             flow_warn(ctx, "create_character_recheck_failed", last_err)
@@ -1180,6 +1181,10 @@ local function select_character_entry(ctx, char, char_index, reason)
     if not char then
         return false, "character entry is missing"
     end
+    char_index = tonumber(char_index) or 0
+    if char_index <= 0 then
+        return false, "character index is missing name=" .. tostring(char.name or "")
+    end
 
     set_flow_status(ctx, "selecting_character", "name=" .. tostring(char.name or "") .. " index=" .. tostring(char_index))
     flow_info(ctx, "select_character", string.format(
@@ -1191,7 +1196,7 @@ local function select_character_entry(ctx, char, char_index, reason)
         tostring(char.level or ""),
         tostring(char.addr or "")))
 
-    local ok, selected, err = account_api.selectCharacter(char)
+    local ok, selected, err = account_api.selectCharacter(char_index)
     if not ok or selected == false then
         return false, "SelectCharacter failed name=" .. tostring(char.name or "") .. " err=" .. tostring(err or selected)
     end
@@ -1234,7 +1239,8 @@ local function select_or_create_character(ctx, list)
         return false, tostring(create_err)
     end
 
-    return select_character_entry(ctx, created_char, nil, "created_character")
+    local created_entry = type(created_char) == "table" and created_char or {}
+    return select_character_entry(ctx, created_entry.char, created_entry.index, "created_character")
 end
 
 local function current_ingame_character()

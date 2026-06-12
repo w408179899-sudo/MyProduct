@@ -149,9 +149,15 @@ local function install_mocks(opts)
             state.chars[#state.chars + 1] = char
             return true, true, nil
         end,
-        selectCharacter = function(char)
-            state.select_calls[#state.select_calls + 1] = char
-            state.selected = char
+        selectCharacter = function(index)
+            state.select_calls[#state.select_calls + 1] = index
+            if type(index) ~= "number" then
+                return true, false, "index expected"
+            end
+            state.selected = state.chars[index]
+            if not state.selected then
+                return true, false, "character index missing"
+            end
             state.entered = true
             return true, true, nil
         end,
@@ -230,6 +236,7 @@ local function run()
         T.assert_true(ok, message)
         T.assert_eq(state.selected_server_key, 2)
         T.assert_eq(#state.create_calls, 0)
+        T.assert_eq(state.select_calls[1], 1)
         T.assert_eq(state.selected.name, "Guardhero")
         T.assert_contains(message, "Guardhero")
     end)
@@ -248,6 +255,7 @@ local function run()
         T.assert_eq(state.create_calls[1].gender, 0)
         T.assert_eq(state.create_calls[1].race, 1)
         T.assert_eq(state.create_calls[1].job, 0x2)
+        T.assert_eq(state.select_calls[1], 2)
         T.assert_eq(state.selected.name, "Wantedhero")
         T.assert_eq(account.server.character_name, "Wantedhero")
     end)
@@ -265,6 +273,7 @@ local function run()
         T.assert_eq(state.create_calls[2].name, "Silverleaf")
         T.assert_eq(#state.create_calls[2].name, 10)
         T.assert_true(string.match(state.create_calls[2].name, "^%a+$") ~= nil)
+        T.assert_eq(state.select_calls[1], 1)
         T.assert_eq(state.selected.name, "Silverleaf")
         T.assert_eq(account.server.character_name, "Silverleaf")
     end)

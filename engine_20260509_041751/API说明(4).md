@@ -151,7 +151,7 @@ local map   = data.GetCurrentMap()
 
 | 参数 | 类型 | 说明 |
 |---|---|---|
-| `char_or_index` | table 或 int | 传 `GetCharacterList()[i]` 的整条 entry，或 1-based 下标 |
+| `char_or_index` |  1-第一个下标 |
 
 示例：
 
@@ -275,6 +275,7 @@ end
 | `move_state` | u32 | 移动状态 (0=未移动, 2=移动中) |
 | `hp` / `mhp` | u32 | 当前/最大 HP |
 | `mp` / `mmp` | u32 | 当前/最大 MP |
+| `dp` / `mdp` | u16 | 当前/最大 神力 |
 | `exp` / `max_exp` | u32 | 当前/最大经验 |
 | `hit` | u32 | 命中 |
 | `guardian` | u32 | 守护者潜力 |
@@ -604,6 +605,32 @@ for _, q in ipairs(data.GetQuestList()) do
         and q.status_code == 4 then
         data.OpenQuestSubmit(q.id)
         break
+    end
+end
+```
+
+### `M.SubmitBlueQuest(quest_id) → bool`
+
+**直接提交**蓝色任务（已完成），**不需要弹出任务面板**
+
+适用"任务"或"制作委托"分类，**不适用"使命"任务**。任务状态必须为 `已完成`（`status_code == 4`）。
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `quest_id` | int | 已完成任务的 id（取自 `GetQuestList()` 项的 `id`，且 `status_code == 4`） |
+
+提交成功返回 `true`；未初始化或任务 id 非法返回 `false`。
+
+> 使用此函数无需先打开任务面板，直接发包提交
+
+示例：
+
+```lua
+-- 直接提交所有 "已完成" 状态的蓝色任务
+for _, q in ipairs(data.GetQuestList()) do
+    if (q.tab_name == "任务" or q.tab_name == "制作委托")
+        and q.status_code == 4 then
+        data.SubmitBlueQuest(q.id)
     end
 end
 ```
