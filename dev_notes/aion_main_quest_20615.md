@@ -2,7 +2,11 @@
 
 ## 当前已实现步骤
 
-20615 当前只实现等级门槛前置流程：20614 奖励完成后，走到记录终点并启动任务专用定点挂机，到 20 级停止。
+20615 当前已实现三段：
+
+1. 20614 奖励完成后，走到记录终点并启动任务专用定点挂机，到 20 级停止。
+2. 任务快照变成 `20615 status_code=3 req_count=0` 后，打开右侧当前追踪任务并执行任务传送。
+3. 任务传送落地后，和 `울고른` 对话；对话采用连续点最后一条，最后 OK 兜底。
 
 阶段名：
 
@@ -40,7 +44,78 @@ completed_20614_reward_dialog=true
 
 这样可以避免 20614 奖励还没点完就提前跑去挂机。
 
-## 执行顺序
+## 20 级后的任务传送
+
+F11 快照：
+
+```text
+character=HiBroHiI
+level=20
+map=오델라 재배지
+big_map_id=220010000
+quest_id=20615
+status_code=3
+req_count=0
+char_pos=665.95,1536.75,294.27
+dialog=closed
+target=no_target
+```
+
+执行顺序：
+
+```text
+ClickUiControl parent=quest_indicator_dialog name=prototype stage=quest_20611_indicator_title
+QuestTeleport(20615) stage=quest_20615_task_teleport
+WaitPositionChanged / CompleteQuestTeleport stage=quest_20615_task_teleport
+```
+
+说明：
+
+1. 先打开右侧当前追踪任务，不直接按固定坐标。
+2. 面板可见后才调用 `QuestTeleport(20615)`。
+3. 调用 20615 传送前，停止 `quest_20615_level20_grind` 等级挂机。
+4. 传送完成后设置 `completed_20615_task_teleport=true`，进入 `quest_20615_target_npc`。
+
+## 落地后的 NPC 对话
+
+F11 快照：
+
+```text
+character=HiBroHiI
+level=20
+map=알데르 마을
+big_map_id=220010000
+quest_id=20615
+status_code=3
+req_count=0
+char_pos=587.72,2451.15,278.38
+target=울고른
+target_interact_id=2147520815
+target_dist=1.90
+target_pos=589.35,2450.16,278.38
+dialog=closed
+```
+
+阶段名：
+
+```text
+quest_20615_target_npc
+```
+
+执行顺序：
+
+```text
+InteractNpc interact_id=2147520815 stage=quest_20615_target_npc
+ClickDialogLastContinuousOk stage=quest_20615_target_npc
+```
+
+说明：
+1. NPC 是 `울고른`，和 20611 target NPC 共用 `interact_id=2147520815`，但 20615 必须走独立阶段，不能按 20611 target dialog 完成。
+2. 打开对话后连续调用“点击最后一条”。
+3. 如果已经没有可点选项或达到点击上限，点 `ok` 兜底。
+4. 完成后设置 `completed_20615_target_dialog=true`，然后等待下一步 F11。
+
+## 等级挂机执行顺序
 
 1. 如果当前有 NPC 对话打开，先等待对话关闭。
 2. 读取角色等级，目标等级取任务 `lv_num`，兜底为 20。

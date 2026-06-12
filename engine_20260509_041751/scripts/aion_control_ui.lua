@@ -346,6 +346,8 @@ local runtime = {
         completed_20614_start_dialog = false,
         completed_20614_after_start_teleport = false,
         completed_20614_reward_dialog = false,
+        completed_20615_task_teleport = false,
+        completed_20615_target_dialog = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -6284,6 +6286,35 @@ function npc_click_selected_child_then_accept()
     return npc_accept_current_dialog()
 end
 
+function npc_click_last_dialog_option()
+    local ready, npc_runtime = npc_dialog_prepare_runtime()
+    if not ready then
+        return false
+    end
+    if not npc_runtime or type(npc_runtime.clickLastDialogOption) ~= "function" then
+        npc_dialog_set_status("click last dialog option failed: aion.npc.clickLastDialogOption unavailable")
+        return false
+    end
+
+    cfg.npc_dialog = cfg.npc_dialog or {}
+    local ok, option, err = npc_runtime.clickLastDialogOption({
+        depth = math.max(1, tonumber(cfg.npc_dialog.dialog_child_depth) or 6),
+        click_x = tonumber(cfg.npc_dialog.auto_click_x) or 25,
+        click_x_tolerance = math.max(0, tonumber(cfg.npc_dialog.auto_click_x_tolerance) or 2),
+    })
+    if not ok then
+        npc_dialog_set_status("click last dialog option failed: " .. tostring(err or option))
+        return false
+    end
+
+    local index = tonumber(option and option.option_index) or 0
+    local count = tonumber(option and option.option_count) or 0
+    local line = npc_dialog_child_label(index, option)
+    log_info("[NPC-LAST-OPTION] count=" .. tostring(count) .. " " .. line)
+    npc_dialog_set_status("clicked last dialog option: count=" .. tostring(count) .. " " .. line)
+    return true
+end
+
 function npc_find_dialog_child_by_x(children, target_x, tolerance, target_y, y_tolerance)
     local best_child = nil
     local best_score = nil
@@ -6445,6 +6476,82 @@ function npc_continuous_click_dialog_x(opts)
     end
 
     npc_dialog_set_status("F1连续点击达到上限: " .. tostring(clicked_count) ..
+        " 次，补点OK失败: " .. tostring(ok_line_or_err) ..
+        "，最后 " .. tostring(last_line))
+    return clicked_count > 0, "limit_reached"
+end
+
+function npc_continuous_click_dialog_last_option(opts)
+    opts = opts or {}
+    local ready, npc_runtime, ui_runtime = npc_dialog_prepare_runtime()
+    if not ready then
+        return false
+    end
+    if not ui_runtime then
+        npc_dialog_set_status("连续点击最后一条失败: UI runtime unavailable")
+        return false, "ui_runtime_unavailable"
+    end
+    if not npc_runtime or type(npc_runtime.clickLastDialogOption) ~= "function" then
+        npc_dialog_set_status("连续点击最后一条失败: aion.npc.clickLastDialogOption unavailable")
+        return false, "last_option_unavailable"
+    end
+
+    cfg.npc_dialog = cfg.npc_dialog or {}
+    local max_steps = math.max(1, tonumber(opts.max_steps) or tonumber(cfg.npc_dialog.auto_click_steps) or 8)
+    local delay_ms = math.max(50, tonumber(opts.delay_ms) or tonumber(cfg.npc_dialog.auto_click_delay_ms) or 450)
+    local click_x = tonumber(opts.click_x) or tonumber(cfg.npc_dialog.auto_click_x) or 25
+    local click_x_tolerance = math.max(0, tonumber(opts.click_x_tolerance)
+        or tonumber(cfg.npc_dialog.auto_click_x_tolerance) or 2)
+    local depth = math.max(1, tonumber(opts.depth) or tonumber(cfg.npc_dialog.dialog_child_depth) or 6)
+    local clicked_count = 0
+    local last_line = ""
+
+    for step = 1, max_steps do
+        local dialog_ok, info_or_err, dialog_err = npc_runtime.dialog()
+        if not dialog_ok then
+            npc_dialog_set_status("连续点击最后一条停止: 读取对话失败 " .. tostring(dialog_err or info_or_err))
+            return clicked_count > 0, "dialog_read_failed"
+        end
+        if not info_or_err then
+            npc_dialog_set_status("连续点击最后一条完成: 对话框已关闭，点击 " .. tostring(clicked_count) .. " 次")
+            return clicked_count > 0, "closed"
+        end
+
+        local ok, option, err = npc_runtime.clickLastDialogOption({
+            depth = depth,
+            click_x = click_x,
+            click_x_tolerance = click_x_tolerance,
+        })
+        if not ok then
+            local ok_clicked, ok_line_or_err = npc_click_dialog_ok_button(ui_runtime)
+            if ok_clicked then
+                npc_dialog_set_status("连续点击最后一条完成: 无可点选项，已补点OK，点击 " ..
+                    tostring(clicked_count) .. " 次，OK=" .. tostring(ok_line_or_err))
+                return true, "ok_fallback"
+            end
+            npc_dialog_set_status("连续点击最后一条停止: " .. tostring(err or option) ..
+                "，补点OK失败: " .. tostring(ok_line_or_err) ..
+                "，已点击 " .. tostring(clicked_count) .. " 次")
+            return clicked_count > 0, "click_failed"
+        end
+
+        clicked_count = clicked_count + 1
+        last_line = npc_dialog_child_label(tonumber(option and option.option_index) or 0, option)
+        log_info("[NPC-LAST-CONTINUOUS] step=" .. tostring(step) ..
+            " count=" .. tostring(tonumber(option and option.option_count) or 0) ..
+            " " .. last_line)
+        sleep(delay_ms)
+    end
+
+    local ok_clicked, ok_line_or_err = npc_click_dialog_ok_button(ui_runtime)
+    if ok_clicked then
+        npc_dialog_set_status("连续点击最后一条达到上限: " .. tostring(clicked_count) ..
+            " 次，已补点OK，最后 " .. tostring(last_line) ..
+            "，OK=" .. tostring(ok_line_or_err))
+        return true, "limit_ok"
+    end
+
+    npc_dialog_set_status("连续点击最后一条达到上限: " .. tostring(clicked_count) ..
         " 次，补点OK失败: " .. tostring(ok_line_or_err) ..
         "，最后 " .. tostring(last_line))
     return clicked_count > 0, "limit_reached"
@@ -7059,6 +7166,8 @@ function main_quest_reset_runtime(reason)
     r.completed_20614_start_dialog = false
     r.completed_20614_after_start_teleport = false
     r.completed_20614_reward_dialog = false
+    r.completed_20615_task_teleport = false
+    r.completed_20615_target_dialog = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7376,6 +7485,7 @@ function main_quest_read_20611_state(now)
         or quest_id == 20612
         or quest_id == 20613
         or quest_id == 20614
+        or quest_id == 20615
         or level_blocked_id == 20611
         or level_blocked_id == 20612
         or level_blocked_id == 20613
@@ -7390,6 +7500,7 @@ function main_quest_read_20611_state(now)
         or r.completed_20614_start_dialog == true
         or r.completed_20614_after_start_teleport == true
         or r.completed_20614_reward_dialog == true
+        or r.completed_20615_task_teleport == true
         or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
@@ -8862,6 +8973,9 @@ function main_quest_execute_20590(action, state)
         if stage == "quest_20614_task_teleport" and r.active_20611_grind == true then
             main_quest_stop_20611_grind("quest-20614-level-reached-before-panel", false)
         end
+        if stage == "quest_20615_task_teleport" and r.active_20611_grind == true then
+            main_quest_stop_20611_grind("quest-20615-level-reached-before-panel", false)
+        end
         if not ok_quest or not quest or type(quest.questTeleport) ~= "function" then
             main_quest_set_status("quest teleport failed: aion.quest unavailable")
             return false
@@ -9136,6 +9250,55 @@ function main_quest_execute_20590(action, state)
                         0)
                 end
             end
+            if params.after_open_continuous_last == true then
+                local wait_ok, dialog_or_err = false, nil
+                if type(npc_runtime.waitDialog) == "function" then
+                    wait_ok, dialog_or_err = npc_runtime.waitDialog(wait_ms)
+                end
+                if wait_ok then
+                    local click_ok, continuous_result = npc_continuous_click_dialog_last_option({
+                        click_x = params.click_x,
+                        max_steps = params.max_steps,
+                        delay_ms = params.delay_ms,
+                    })
+                    local continuous_finished = continuous_result == "closed"
+                        or continuous_result == "ok_fallback"
+                        or continuous_result == "limit_ok"
+                    if click_ok then
+                        r.wait_dialog_stage = ""
+                        r.wait_dialog_until = 0
+                        local continuous_quest_id = tonumber(params.quest_id) or 0
+                        if continuous_quest_id == 20615
+                            and stage == "quest_20615_target_npc"
+                            and continuous_finished then
+                            r.clicked_20611_indicator_title = false
+                            r.completed_20615_target_dialog = true
+                            r.cached_quest_20611 = nil
+                            r.last_quest_20611_read_at = 0
+                        end
+                        local settle_seconds = math.max(0,
+                            tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
+                        if settle_seconds > 0 then
+                            r.post_dialog_settle_until = math.max(
+                                tonumber(r.post_dialog_settle_until) or 0,
+                                now_seconds() + settle_seconds)
+                        end
+                    end
+                    main_quest_trace("interact-after-continuous-last:" .. stage,
+                        "quest=" .. tostring(params.quest_id or "") ..
+                        " click_ok=" .. tostring(click_ok) ..
+                        " finish=" .. tostring(continuous_result or "") ..
+                        " completed_20615_target_dialog=" ..
+                            tostring(r.completed_20615_target_dialog == true) ..
+                        " status=" .. tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or ""),
+                        0)
+                else
+                    main_quest_trace("interact-after-continuous-last-wait:" .. stage,
+                        "quest=" .. tostring(params.quest_id or "") ..
+                        " wait_ok=false err=" .. tostring(dialog_or_err or ""),
+                        0)
+                end
+            end
         end
         main_quest_trace("interact-after:" .. stage,
             "stage=" .. stage ..
@@ -9147,6 +9310,62 @@ function main_quest_execute_20590(action, state)
             " wait_dialog_until=" .. tostring(r.wait_dialog_until or 0),
             0)
         return ok and result ~= false
+    end
+
+    if name == "ClickDialogLastContinuousOk" then
+        if not main_quest_action_cooldown(name .. ":" .. tostring(params.stage or params.type_text), 1.0) then
+            return true
+        end
+        r.wait_dialog_stage = ""
+        r.wait_dialog_until = 0
+        main_quest_trace("click-last-continuous-before:" .. tostring(params.type_text or ""),
+            "action=" .. name ..
+            " stage=" .. tostring(params.stage or "") ..
+            " type=" .. tostring(params.type_text or "") ..
+            " content=" .. tostring(params.content_id or "") ..
+            " click_x=" .. tostring(params.click_x or "") ..
+            " dialog=" .. main_quest_dialog_signature(state.dialog) ..
+            " pos=" .. main_quest_position_text(state.char),
+            0)
+        local ok, continuous_result = npc_continuous_click_dialog_last_option({
+            click_x = params.click_x,
+            max_steps = params.max_steps,
+            delay_ms = params.delay_ms,
+        })
+        local continuous_finished = continuous_result == "closed"
+            or continuous_result == "ok_fallback"
+            or continuous_result == "limit_ok"
+        local continuous_quest_id = tonumber(params.quest_id) or 0
+        local continuous_stage = tostring(params.stage or "")
+        if ok and continuous_quest_id == 20615
+            and continuous_stage == "quest_20615_target_npc"
+            and continuous_finished then
+            r.clicked_20611_indicator_title = false
+            r.completed_20615_target_dialog = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            local settle_seconds = math.max(0,
+                tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
+            if settle_seconds > 0 then
+                r.post_dialog_settle_until = math.max(
+                    tonumber(r.post_dialog_settle_until) or 0,
+                    now_seconds() + settle_seconds)
+            end
+        end
+        local status = tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or "")
+        main_quest_set_status("continuous last-option dialog quest_id=" .. tostring(params.quest_id or "") ..
+            " stage=" .. tostring(params.stage or "") ..
+            " type=" .. tostring(params.type_text or "") ..
+            " result=" .. tostring(ok) ..
+            " finish=" .. tostring(continuous_result or "") ..
+            " status=" .. status)
+        main_quest_trace("click-last-continuous-after:" .. tostring(params.type_text or ""),
+            "ok=" .. tostring(ok) ..
+            " finish=" .. tostring(continuous_result or "") ..
+            " completed_20615_target_dialog=" .. tostring(r.completed_20615_target_dialog == true) ..
+            " status=" .. status,
+            0)
+        return ok
     end
 
     if name == "ClickDialogXContinuous" or name == "ClickDialogXContinuousWaitTeleport" then
@@ -9496,6 +9715,17 @@ function main_quest_execute_20590(action, state)
             main_quest_trace("q20614-complete-teleport:" .. stage,
                 "quest=" .. tostring(params.quest_id or "") ..
                 " completed_after_start_tp=" .. tostring(r.completed_20614_after_start_teleport == true) ..
+                " reason=" .. tostring(action.reason or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
+        elseif stage == "quest_20615_task_teleport" then
+            r.clicked_20611_indicator_title = false
+            r.completed_20615_task_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            main_quest_trace("q20615-complete-teleport:" .. stage,
+                "quest=" .. tostring(params.quest_id or "") ..
+                " completed_task_tp=" .. tostring(r.completed_20615_task_teleport == true) ..
                 " reason=" .. tostring(action.reason or "") ..
                 " pos=" .. main_quest_position_text(state.char),
                 0)
@@ -9880,10 +10110,12 @@ function main_quest_20611_tick()
     local quest_20612_snapshot = nil
     local quest_20613_snapshot = nil
     local quest_20614_snapshot = nil
+    local quest_20615_snapshot = nil
     if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.findQuestById) == "function" then
         quest_20612_snapshot = main_quest_20611.findQuestById(state.quests, 20612)
         quest_20613_snapshot = main_quest_20611.findQuestById(state.quests, 20613)
         quest_20614_snapshot = main_quest_20611.findQuestById(state.quests, 20614)
+        quest_20615_snapshot = main_quest_20611.findQuestById(state.quests, 20615)
     end
     local q20612_status = tonumber(quest_20612_snapshot and quest_20612_snapshot.status_code) or 0
     local q20612_step = tonumber(quest_20612_snapshot and quest_20612_snapshot.req_count) or 0
@@ -9891,6 +10123,8 @@ function main_quest_20611_tick()
     local q20613_step = tonumber(quest_20613_snapshot and quest_20613_snapshot.req_count) or 0
     local q20614_status = tonumber(quest_20614_snapshot and quest_20614_snapshot.status_code) or 0
     local q20614_step = tonumber(quest_20614_snapshot and quest_20614_snapshot.req_count) or 0
+    local q20615_status = tonumber(quest_20615_snapshot and quest_20615_snapshot.status_code) or 0
+    local q20615_step = tonumber(quest_20615_snapshot and quest_20615_snapshot.req_count) or 0
     local action_qid = tonumber(action.params and action.params.quest_id) or 0
     local action_name = tostring(action.name or "")
     local action_authorizes_grind = type(main_quest_action_authorizes_grind) == "function"
@@ -9924,10 +10158,14 @@ function main_quest_20611_tick()
             " q20614_status=" .. tostring(q20614_status) ..
             " q20614_step=" .. tostring(q20614_step) ..
             " q20614_lv=" .. tostring(quest_20614_snapshot and quest_20614_snapshot.lv_num or "") ..
+            " q20615_status=" .. tostring(q20615_status) ..
+            " q20615_step=" .. tostring(q20615_step) ..
             " q20614_pending_after_start_tp=" .. tostring(q20614_after_start_teleport_pending == true) ..
             " task_tp_done=" .. tostring(runtime.main_quest.completed_20614_task_teleport == true) ..
             " start_dialog_done=" .. tostring(runtime.main_quest.completed_20614_start_dialog == true) ..
             " after_start_tp_done=" .. tostring(runtime.main_quest.completed_20614_after_start_teleport == true) ..
+            " q20615_task_tp_done=" .. tostring(runtime.main_quest.completed_20615_task_teleport == true) ..
+            " q20615_target_dialog_done=" .. tostring(runtime.main_quest.completed_20615_target_dialog == true) ..
             " waiting_teleport=" .. tostring(runtime.main_quest.waiting_teleport == true) ..
             " teleport_qid=" .. tostring(runtime.main_quest.teleport_quest_id or 0) ..
             " teleport_stage=" .. tostring(runtime.main_quest.teleport_stage or "") ..
@@ -10009,7 +10247,11 @@ function main_quest_20611_tick()
         ":" .. tostring(runtime.main_quest.completed_20614_task_teleport == true) ..
         ":" .. tostring(runtime.main_quest.completed_20614_start_dialog == true) ..
         ":" .. tostring(runtime.main_quest.completed_20614_after_start_teleport == true) ..
-        ":" .. tostring(q20614_after_start_teleport_pending == true)
+        ":" .. tostring(q20614_after_start_teleport_pending == true) ..
+        ":" .. tostring(q20615_status) ..
+        ":" .. tostring(q20615_step) ..
+        ":" .. tostring(runtime.main_quest.completed_20615_task_teleport == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20615_target_dialog == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -10032,6 +10274,8 @@ function main_quest_20611_tick()
             " q20613_step=" .. tostring(q20613_step) ..
             " q20614_status=" .. tostring(q20614_status) ..
             " q20614_step=" .. tostring(q20614_step) ..
+            " q20615_status=" .. tostring(q20615_status) ..
+            " q20615_step=" .. tostring(q20615_step) ..
             " grind_stage=" .. tostring(runtime.main_quest.active_20611_grind_stage or "") ..
             " ui_indicator_entry=" .. tostring(ui_state.quest_indicator_entry == true) ..
             " ui_panel=" .. tostring(ui_state.quest_panel_visible == true) ..
@@ -10053,6 +10297,8 @@ function main_quest_20611_tick()
             " q20614_task_tp_done=" .. tostring(runtime.main_quest.completed_20614_task_teleport == true) ..
             " q20614_start_dialog_done=" .. tostring(runtime.main_quest.completed_20614_start_dialog == true) ..
             " q20614_after_start_tp_done=" .. tostring(runtime.main_quest.completed_20614_after_start_teleport == true) ..
+            " q20615_task_tp_done=" .. tostring(runtime.main_quest.completed_20615_task_teleport == true) ..
+            " q20615_target_dialog_done=" .. tostring(runtime.main_quest.completed_20615_target_dialog == true) ..
             " q20614_after_start_tp_pending=" .. tostring(q20614_after_start_teleport_pending == true) ..
             " q20613_after_start_teleport_pending=" .. tostring(q20613_after_start_teleport_pending == true) ..
             " q20613_after_start_reward_pending=" .. tostring(q20613_after_start_reward_pending == true) ..
@@ -16005,6 +16251,11 @@ local function draw_leveling_tab()
     imgui.same_line()
     if imgui.button("点击后接任务", 140, 28) then
         npc_click_selected_child_then_accept()
+    end
+
+    imgui.same_line()
+    if imgui.button("Click last option", 140, 28) then
+        npc_click_last_dialog_option()
     end
 
     imgui.same_line()

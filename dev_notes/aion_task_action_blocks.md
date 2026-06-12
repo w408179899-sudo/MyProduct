@@ -212,6 +212,25 @@
 - 已知不需要选奖励、不需要分支选择的对话
 - F11 里只需要指定起始页，例如 `type_text=select_quest`、`dialog_content_id=10`
 
+### `ClickDialogLastContinuousOk`
+
+用途：连续点当前 NPC 对话里的最后一条可点选项，最后用 OK 兜底。
+
+需要信息：
+
+- `quest_id`
+- `stage`
+- `npc_dialog_id`
+- `interact_id`
+- 可选：`type_text`、`content_id`
+- 可选：`click_x`、`max_steps`、`delay_ms`
+
+适合：
+
+- 对话分支不固定，但始终要选最后一条的任务链
+- 最后一页可能只剩 `ok` 按钮的流程
+- 例如 20615 落地后和 `울고른` 对话
+
 ### `ClickDialogXWaitTeleport`
 
 用途：点 X 后会触发传送。

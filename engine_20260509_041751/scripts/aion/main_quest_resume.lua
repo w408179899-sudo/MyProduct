@@ -16,6 +16,12 @@ M.quest_20614_reward_npc = {
     y = 1480.65,
     z = 299.79,
 }
+M.quest_20615_target_npc = {
+    interact_id = 2147520815,
+    x = 589.35,
+    y = 2450.16,
+    z = 278.38,
+}
 
 local function number(value)
     return tonumber(value) or 0
@@ -86,6 +92,8 @@ local function mark_after_20614(flags)
     flags.completed_20614_start_dialog = true
     flags.completed_20614_after_start_teleport = true
     flags.completed_20614_reward_dialog = true
+    flags.completed_20615_task_teleport = false
+    flags.completed_20615_target_dialog = false
 end
 
 function M.findQuest(quests, id)
@@ -200,6 +208,24 @@ function M.isNearQuest20614RewardNpc(snapshot)
         return false
     end
     return distance3(snapshot.char, M.quest_20614_reward_npc) <= 4
+end
+
+function M.isQuest20615TargetNpcDialog(dialog)
+    return type(dialog) == "table"
+        and number(dialog.npc_dialog_id) == M.quest_20615_target_npc.interact_id
+        and (number(dialog.quest_id) == 0 or number(dialog.quest_id) == 20615)
+end
+
+function M.isNearQuest20615TargetNpc(snapshot)
+    snapshot = snapshot or {}
+    if type(snapshot.char) ~= "table" then
+        return false
+    end
+    local current_big_map = number(snapshot.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.big_map_id then
+        return false
+    end
+    return distance3(snapshot.char, M.quest_20615_target_npc) <= 4
 end
 
 function M.plan(snapshot)
@@ -322,6 +348,19 @@ function M.plan(snapshot)
         mark_after_20614(flags)
         stage = "20615_level_blocked"
         reason = "quest 20615 is level blocked and needs level 20 grind"
+    elseif status_code(q20615) == 3 then
+        local at_target_npc = M.isQuest20615TargetNpcDialog(dialog)
+            or M.isNearQuest20615TargetNpc(snapshot)
+        mark_after_20614(flags)
+        flags.completed_20615_task_teleport = at_target_npc
+        flags.completed_20615_target_dialog = false
+        if at_target_npc then
+            stage = "20615_target_npc"
+            reason = "quest 20615 is active and character is at target npc"
+        else
+            stage = "20615_active"
+            reason = "quest 20615 is active and needs task teleport"
+        end
     elseif status_code(q20590) == 4 then
         stage = "20590"
         reason = "quest 20590 is done and needs reward flow"
