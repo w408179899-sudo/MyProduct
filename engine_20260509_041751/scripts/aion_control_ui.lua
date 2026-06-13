@@ -355,6 +355,7 @@ local runtime = {
         completed_20620_task_teleport = false,
         completed_20620_after_teleport_npc_dialog = false,
         completed_20620_stigma_socket = false,
+        completed_20620_after_stigma_return_npc_dialog = false,
         completed_20620_after_stigma_teleport = false,
         completed_20620_after_stigma_npc_dialog = false,
         opened_20620_obelisk = false,
@@ -7274,6 +7275,7 @@ function main_quest_reset_runtime(reason)
     r.completed_20620_task_teleport = false
     r.completed_20620_after_teleport_npc_dialog = false
     r.completed_20620_stigma_socket = false
+    r.completed_20620_after_stigma_return_npc_dialog = false
     r.completed_20620_after_stigma_teleport = false
     r.completed_20620_after_stigma_npc_dialog = false
     r.opened_20620_obelisk = false
@@ -7640,6 +7642,7 @@ function main_quest_read_20611_state(now)
         or r.completed_20620_task_teleport == true
         or r.completed_20620_after_teleport_npc_dialog == true
         or r.completed_20620_stigma_socket == true
+        or r.completed_20620_after_stigma_return_npc_dialog == true
         or r.completed_20620_after_stigma_teleport == true
         or r.completed_20620_after_stigma_npc_dialog == true
         or r.opened_20620_obelisk == true
@@ -9805,6 +9808,13 @@ function main_quest_execute_20590(action, state)
                             r.cached_quest_20611 = nil
                             r.last_quest_20611_read_at = 0
                         elseif continuous_quest_id == 20620
+                            and stage == "quest_20620_after_stigma_return_npc"
+                            and continuous_finished then
+                            r.clicked_20611_indicator_title = false
+                            r.completed_20620_after_stigma_return_npc_dialog = true
+                            r.cached_quest_20611 = nil
+                            r.last_quest_20611_read_at = 0
+                        elseif continuous_quest_id == 20620
                             and stage == "quest_20620_after_stigma_npc"
                             and continuous_finished then
                             r.clicked_20611_indicator_title = false
@@ -9860,6 +9870,8 @@ function main_quest_execute_20590(action, state)
                             tostring(r.completed_20620_start_dialog == true) ..
                         " completed_20620_after_teleport_npc_dialog=" ..
                             tostring(r.completed_20620_after_teleport_npc_dialog == true) ..
+                        " completed_20620_after_stigma_return_npc_dialog=" ..
+                            tostring(r.completed_20620_after_stigma_return_npc_dialog == true) ..
                         " completed_20620_after_stigma_npc_dialog=" ..
                             tostring(r.completed_20620_after_stigma_npc_dialog == true) ..
                         " completed_20620_after_obelisk_npc_dialog=" ..
@@ -9974,6 +9986,20 @@ function main_quest_execute_20590(action, state)
                     now_seconds() + settle_seconds)
             end
         elseif ok and continuous_quest_id == 20620
+            and continuous_stage == "quest_20620_after_stigma_return_npc"
+            and continuous_finished then
+            r.clicked_20611_indicator_title = false
+            r.completed_20620_after_stigma_return_npc_dialog = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            local settle_seconds = math.max(0,
+                tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
+            if settle_seconds > 0 then
+                r.post_dialog_settle_until = math.max(
+                    tonumber(r.post_dialog_settle_until) or 0,
+                    now_seconds() + settle_seconds)
+            end
+        elseif ok and continuous_quest_id == 20620
             and continuous_stage == "quest_20620_after_stigma_npc"
             and continuous_finished then
             r.clicked_20611_indicator_title = false
@@ -10060,6 +10086,8 @@ function main_quest_execute_20590(action, state)
             " completed_20620_start_dialog=" .. tostring(r.completed_20620_start_dialog == true) ..
             " completed_20620_after_teleport_npc_dialog=" ..
                 tostring(r.completed_20620_after_teleport_npc_dialog == true) ..
+            " completed_20620_after_stigma_return_npc_dialog=" ..
+                tostring(r.completed_20620_after_stigma_return_npc_dialog == true) ..
             " completed_20620_after_stigma_npc_dialog=" ..
                 tostring(r.completed_20620_after_stigma_npc_dialog == true) ..
             " completed_20620_after_obelisk_npc_dialog=" ..
@@ -11054,6 +11082,8 @@ function main_quest_20611_tick()
             " q20620_after_tp_npc_done=" ..
                 tostring(runtime.main_quest.completed_20620_after_teleport_npc_dialog == true) ..
             " q20620_stigma_done=" .. tostring(runtime.main_quest.completed_20620_stigma_socket == true) ..
+            " q20620_after_stigma_return_npc_done=" ..
+                tostring(runtime.main_quest.completed_20620_after_stigma_return_npc_dialog == true) ..
             " q20620_after_stigma_tp_done=" ..
                 tostring(runtime.main_quest.completed_20620_after_stigma_teleport == true) ..
             " q20620_after_stigma_npc_done=" ..
@@ -11218,6 +11248,7 @@ function main_quest_20611_tick()
         ":" .. tostring(runtime.main_quest.completed_20620_task_teleport == true) ..
         ":" .. tostring(runtime.main_quest.completed_20620_after_teleport_npc_dialog == true) ..
         ":" .. tostring(runtime.main_quest.completed_20620_stigma_socket == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20620_after_stigma_return_npc_dialog == true) ..
         ":" .. tostring(runtime.main_quest.completed_20620_after_stigma_teleport == true) ..
         ":" .. tostring(runtime.main_quest.completed_20620_after_stigma_npc_dialog == true) ..
         ":" .. tostring(runtime.main_quest.completed_20620_obelisk == true) ..
@@ -11306,6 +11337,8 @@ function main_quest_20611_tick()
             " q20620_after_tp_npc_done=" ..
                 tostring(runtime.main_quest.completed_20620_after_teleport_npc_dialog == true) ..
             " q20620_stigma_done=" .. tostring(runtime.main_quest.completed_20620_stigma_socket == true) ..
+            " q20620_after_stigma_return_npc_done=" ..
+                tostring(runtime.main_quest.completed_20620_after_stigma_return_npc_dialog == true) ..
             " q20620_after_stigma_tp_done=" ..
                 tostring(runtime.main_quest.completed_20620_after_stigma_teleport == true) ..
             " q20620_after_stigma_npc_done=" ..

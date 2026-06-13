@@ -2410,7 +2410,7 @@ local function run()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
-                { id = 20620, tab = 0, status_code = 3, req_count = 1, seq = 0, lv_num = 20 },
+                { id = 20620, tab = 0, status_code = 3, req_count = 2, seq = 0, lv_num = 20 },
                 { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
             },
             char = quest_20620_after_teleport_npc_char(20),
@@ -2428,7 +2428,7 @@ local function run()
         T.assert_eq(next_action.params.prefer_keyword, "파멸의 방패")
     end)
 
-    T.test("starts quest 20620 after-stigma teleport after stigma socket completed", function()
+    T.test("opens quest 20620 after-stigma return npc after stigma socket completed", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -2443,6 +2443,83 @@ local function run()
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
             completed_20620_stigma_socket = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_return_npc")
+        T.assert_eq(next_action.params.interact_id, 2147511717)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_002_AFTER_TELEPORT")
+        T.assert_eq(next_action.params.after_open_continuous_last, true)
+    end)
+
+    T.test("clicks quest 20620 after-stigma return npc dialog with last continuous ok", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 2, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_after_teleport_npc_char(20),
+            big_map_id = 220020000,
+            dialog = {
+                quest_id = 20620,
+                npc_dialog_id = 2147511717,
+                type_text = "select_quest",
+                dialog_content_id = 10,
+            },
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            completed_20620_task_teleport = true,
+            completed_20620_after_teleport_npc_dialog = true,
+            completed_20620_stigma_socket = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_return_npc")
+        T.assert_eq(next_action.params.content_id, 10)
+        T.assert_eq(next_action.params.type_text, "select_quest")
+        T.assert_eq(next_action.params.interact_id, 2147511717)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_002_AFTER_TELEPORT")
+    end)
+
+    T.test("opens quest 20620 after-stigma return npc at step 2", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 2, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_after_teleport_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_return_npc")
+        T.assert_eq(next_action.params.interact_id, 2147511717)
+    end)
+
+    T.test("starts quest 20620 after-stigma teleport after return npc dialog completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 2, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_after_teleport_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            completed_20620_task_teleport = true,
+            completed_20620_after_teleport_npc_dialog = true,
+            completed_20620_stigma_socket = true,
+            completed_20620_after_stigma_return_npc_dialog = true,
         })
 
         T.assert_eq(next_action.name, "QuestTeleport")
@@ -2466,6 +2543,7 @@ local function run()
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
             completed_20620_stigma_socket = true,
+            completed_20620_after_stigma_return_npc_dialog = true,
             waiting_teleport = true,
             teleport_quest_id = 20620,
             teleport_stage = "quest_20620_after_stigma_teleport",
@@ -2493,6 +2571,7 @@ local function run()
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
             completed_20620_stigma_socket = true,
+            completed_20620_after_stigma_return_npc_dialog = true,
             waiting_teleport = true,
             teleport_quest_id = 20620,
             teleport_stage = "quest_20620_after_stigma_teleport",
@@ -2520,6 +2599,7 @@ local function run()
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
             completed_20620_stigma_socket = true,
+            completed_20620_after_stigma_return_npc_dialog = true,
             completed_20620_after_stigma_teleport = true,
         })
 
@@ -3752,7 +3832,7 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20622_after_npc_task_teleport")
     end)
 
-    T.test("does not retry quest 20620 task teleport after stigma completed when teleport flag is missing", function()
+    T.test("opens quest 20620 after-stigma return npc after stigma completed when teleport flag is missing", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -3769,9 +3849,10 @@ local function run()
             completed_20620_stigma_socket = true,
         })
 
-        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20620)
-        T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_teleport")
+        T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_return_npc")
+        T.assert_eq(next_action.params.interact_id, 2147511717)
     end)
 
     T.test("does not start quest 20614 level grind after quest 20613 start dialog", function()
