@@ -2,7 +2,7 @@ local M = {}
 local npc_names = require("aion.npc_names")
 
 M.quest_id = 20611
-M.quest_ids = { 20611, 20612, 20613, 20614, 20615, 20620, 20621 }
+M.quest_ids = { 20611, 20612, 20613, 20614, 20615, 20620, 20621, 20622 }
 M.quest_id_min = 20611
 M.quest_id_max = 20699
 M.remote_reward_quest_id = 24340
@@ -61,6 +61,8 @@ M.quest_20621_after_dialog_teleport_stage = "quest_20621_after_dialog_teleport"
 M.quest_20621_after_dialog_teleport_npc_stage = "quest_20621_after_dialog_teleport_npc"
 M.quest_20621_level22_required_level = 22
 M.quest_20622_id = 20622
+M.quest_20622_level_grind_stage = "quest_20622_level25_grind"
+M.quest_20622_level25_required_level = 25
 M.level_grind_blue_submit_stage = "level_grind_blue_submit"
 M.passive_blue_submit_tab = 1
 M.passive_blue_submit_cooldown_seconds = 3
@@ -81,6 +83,89 @@ M.quest_20621_level22_grind_point = {
     z = 438.510,
     big_map_id = 220020000,
 }
+M.quest_20622_level25_route = {
+    { x = 412.223, y = 1851.753, z = 442.514 },
+    { x = 411.139, y = 1852.281, z = 442.583 },
+    { x = 409.310, y = 1853.221, z = 442.743 },
+    { x = 407.495, y = 1854.214, z = 442.916 },
+    { x = 405.690, y = 1855.201, z = 442.977 },
+    { x = 403.876, y = 1856.191, z = 442.810 },
+    { x = 401.932, y = 1856.974, z = 442.580 },
+    { x = 400.058, y = 1857.722, z = 442.472 },
+    { x = 398.162, y = 1858.480, z = 442.250 },
+    { x = 396.239, y = 1859.249, z = 441.884 },
+    { x = 394.307, y = 1860.022, z = 441.509 },
+    { x = 392.340, y = 1860.809, z = 441.250 },
+    { x = 390.293, y = 1861.500, z = 440.969 },
+    { x = 388.238, y = 1861.915, z = 440.672 },
+    { x = 386.236, y = 1862.320, z = 440.340 },
+    { x = 384.166, y = 1862.873, z = 439.788 },
+    { x = 382.153, y = 1863.491, z = 439.750 },
+    { x = 380.193, y = 1864.154, z = 439.978 },
+    { x = 378.174, y = 1864.836, z = 440.000 },
+    { x = 376.130, y = 1865.311, z = 439.843 },
+    { x = 374.077, y = 1865.654, z = 439.874 },
+    { x = 372.054, y = 1865.242, z = 440.072 },
+    { x = 370.021, y = 1864.596, z = 440.161 },
+    { x = 368.049, y = 1863.948, z = 440.125 },
+    { x = 366.417, y = 1862.581, z = 440.125 },
+    { x = 364.836, y = 1861.243, z = 440.078 },
+    { x = 363.201, y = 1859.859, z = 439.932 },
+    { x = 361.778, y = 1858.240, z = 439.629 },
+    { x = 360.573, y = 1856.631, z = 439.275 },
+    { x = 359.325, y = 1854.964, z = 438.911 },
+    { x = 358.106, y = 1853.337, z = 438.597 },
+    { x = 356.798, y = 1851.749, z = 438.350 },
+    { x = 355.485, y = 1850.148, z = 438.218 },
+    { x = 354.142, y = 1848.510, z = 438.134 },
+    { x = 352.821, y = 1846.899, z = 437.942 },
+    { x = 351.488, y = 1845.281, z = 437.660 },
+    { x = 350.165, y = 1843.687, z = 437.461 },
+    { x = 348.801, y = 1842.047, z = 437.329 },
+    { x = 347.460, y = 1840.434, z = 437.337 },
+    { x = 346.119, y = 1838.822, z = 437.411 },
+    { x = 344.850, y = 1837.296, z = 437.449 },
+    { x = 343.480, y = 1835.677, z = 437.585 },
+    { x = 342.146, y = 1834.140, z = 438.079 },
+    { x = 340.739, y = 1832.521, z = 438.591 },
+    { x = 339.343, y = 1830.913, z = 439.022 },
+    { x = 337.961, y = 1829.322, z = 439.430 },
+    { x = 336.161, y = 1828.329, z = 440.081 },
+    { x = 334.423, y = 1827.257, z = 440.615 },
+    { x = 332.858, y = 1825.919, z = 440.937 },
+    { x = 331.265, y = 1824.555, z = 440.956 },
+    { x = 329.597, y = 1823.363, z = 440.939 },
+    { x = 327.607, y = 1822.566, z = 441.134 },
+    { x = 325.719, y = 1821.810, z = 441.358 },
+    { x = 323.736, y = 1821.167, z = 442.084 },
+    { x = 321.654, y = 1820.984, z = 442.864 },
+    { x = 319.636, y = 1820.976, z = 443.148 },
+    { x = 317.538, y = 1821.176, z = 443.274 },
+    { x = 315.557, y = 1820.831, z = 443.654 },
+    { x = 314.524, y = 1818.899, z = 444.071 },
+    { x = 313.319, y = 1817.339, z = 444.773 },
+    { x = 311.605, y = 1816.247, z = 446.137 },
+    { x = 309.804, y = 1815.302, z = 446.564 },
+    { x = 307.922, y = 1814.273, z = 446.761 },
+    { x = 306.101, y = 1813.516, z = 447.219 },
+    { x = 304.034, y = 1813.184, z = 448.018 },
+    { x = 301.990, y = 1812.856, z = 448.572 },
+    { x = 299.971, y = 1812.531, z = 448.594 },
+    { x = 297.947, y = 1812.199, z = 448.848 },
+    { x = 295.931, y = 1811.853, z = 449.263 },
+    { x = 293.909, y = 1811.392, z = 449.625 },
+    { x = 292.109, y = 1810.489, z = 449.625 },
+    { x = 290.472, y = 1809.186, z = 449.822 },
+    { x = 288.809, y = 1807.794, z = 450.087 },
+    { x = 287.109, y = 1806.514, z = 450.329 },
+    { x = 285.462, y = 1805.250, z = 450.648 },
+    { x = 284.185, y = 1803.652, z = 450.987 },
+    { x = 283.009, y = 1802.176, z = 451.484 },
+    { x = 282.731, y = 1800.671, z = 451.631 },
+    { x = 282.523, y = 1799.503, z = 451.719 },
+}
+M.quest_20622_level25_grind_point = M.quest_20622_level25_route[#M.quest_20622_level25_route]
+M.quest_20622_level25_grind_point.big_map_id = 220020000
 M.quest_20614_level17_route = {
     { x = 940.295, y = 1707.646, z = 259.500 },
     { x = 938.978, y = 1707.956, z = 259.500 },
@@ -720,6 +805,7 @@ function M.isLevelGrindStage(stage)
         or stage == M.quest_20614_level_grind_stage
         or stage == M.quest_20615_level_grind_stage
         or stage == M.quest_20621_level_grind_stage
+        or stage == M.quest_20622_level_grind_stage
 end
 
 function M.isGrindStage(stage)
@@ -790,6 +876,10 @@ end
 
 function M.distanceToQuest20621Level22GrindPoint(char)
     return distance3(char, M.quest_20621_level22_grind_point)
+end
+
+function M.distanceToQuest20622Level25GrindPoint(char)
+    return distance3(char, M.quest_20622_level25_grind_point)
 end
 
 function M.distanceToQuest20615TargetNpc(char)
@@ -4439,6 +4529,150 @@ function M.nextQuest20621Level22GrindAction(state, runtime, opts, quest)
     })
 end
 
+function M.nextQuest20622Level25GrindAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or M.findQuestById(state.quests, M.quest_20622_id)
+    if type(quest) ~= "table" then
+        quest = {
+            id = M.quest_20622_id,
+            status_code = 6,
+            req_count = 0,
+            lv_num = M.quest_20622_level25_required_level,
+        }
+    end
+
+    if type(state.dialog) == "table" then
+        return action("Idle", "waiting dialog close before quest 20622 level 25 grind", {
+            quest_id = M.quest_20622_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20622_level_grind_stage,
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_20622_id })
+    end
+
+    local required_level = number(opts.quest_20622_level25_required_level)
+    if required_level <= 0 then
+        required_level = M.questRequiredLevel(quest)
+    end
+    if required_level <= 0 then
+        required_level = M.quest_20622_level25_required_level
+    end
+
+    local char_level = number(char.level)
+    if char_level <= 0 then
+        return action("ReadState", "character level unavailable", { quest_id = M.quest_20622_id })
+    end
+
+    if char_level >= required_level then
+        return action("Idle", "quest 20622 level 25 reached; wait next instruction", {
+            quest_id = M.quest_20622_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20622_level_grind_stage,
+        })
+    end
+
+    local point = M.quest_20622_level25_grind_point
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= number(point.big_map_id) then
+        return action("Idle", "quest 20622 level 25 grind wrong map", {
+            quest_id = M.quest_20622_id,
+            quest_step = M.questStep(quest),
+            big_map_id = current_big_map,
+            expected_big_map_id = number(point.big_map_id),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20622_level_grind_stage,
+        })
+    end
+
+    local active_stage = tostring(runtime.active_20611_grind_stage or "")
+    if runtime.active_20611_grind == true
+        and active_stage == M.quest_20622_level_grind_stage
+        and number(runtime.level_grind_quest_id) == M.quest_20622_id then
+        return action("WaitLevelGrind", "quest 20622 level 25 grind running", {
+            quest_id = M.quest_20622_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20622_level_grind_stage,
+        })
+    end
+
+    local route_wait = wait_route_if_active(
+        opts,
+        M.quest_20622_level_grind_stage,
+        M.quest_20622_id,
+        quest)
+    if route_wait then
+        return route_wait
+    end
+
+    local range = number(opts.quest_20622_level25_grind_point_range)
+    if range <= 0 then
+        range = number(opts.grind_point_range)
+    end
+    if range <= 0 then
+        range = 4
+    end
+
+    local dist = M.distanceToQuest20622Level25GrindPoint(char)
+    if dist > range then
+        local target, index, nearest_dist = route_target(
+            M.quest_20622_level25_route,
+            char,
+            opts.waypoint_range or 2.0)
+        target = target or point
+        return action("FollowRoute", "follow quest 20622 level 25 grind route", {
+            quest_id = M.quest_20622_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20622_level_grind_stage,
+            x = target.x,
+            y = target.y,
+            z = target.z,
+            route_name = "main_quest_20622_level25_grind",
+            route_points = M.quest_20622_level25_route,
+            final_x = point.x,
+            final_y = point.y,
+            final_z = point.z,
+            route_index = index,
+            route_count = #M.quest_20622_level25_route,
+            nearest_route_distance = nearest_dist,
+            main_quest_smooth_route = true,
+            waypoint_radius = number(opts.quest_20622_route_waypoint_radius) > 0
+                and number(opts.quest_20622_route_waypoint_radius) or 6,
+            final_radius = number(opts.quest_20622_route_final_radius) > 0
+                and number(opts.quest_20622_route_final_radius) or 2.5,
+            resend_interval = number(opts.quest_20622_route_resend_interval) > 0
+                and number(opts.quest_20622_route_resend_interval) or 0.5,
+            smooth_max_skip = 50,
+            distance = dist,
+            range = range,
+        })
+    end
+
+    return action("StartStationaryGrind", "start quest 20622 level 25 grind", {
+        quest_id = M.quest_20622_id,
+        quest_step = M.questStep(quest),
+        required_level = required_level,
+        char_level = char_level,
+        until_level = required_level,
+        stage = M.quest_20622_level_grind_stage,
+        x = point.x,
+        y = point.y,
+        z = point.z,
+    })
+end
+
 function M.nextQuest20621TaskTeleportAction(state, runtime, opts, quest)
     state = state or {}
     runtime = runtime or {}
@@ -5235,6 +5469,16 @@ function M.nextAction(state, runtime, opts)
             and tostring(runtime.active_20611_grind_stage or "") == M.quest_20621_level_grind_stage)
     if quest_20621_level_ready and quest_20620_cleared_for_20621 then
         return M.nextQuest20621Level22GrindAction(state, runtime, opts, quest_20621)
+    end
+
+    local quest_20622_level_ready = M.isQuestLevelBlocked(quest_20622)
+        or (runtime.active_20611_grind == true
+            and tostring(runtime.active_20611_grind_stage or "") == M.quest_20622_level_grind_stage)
+    local quest_20621_cleared_for_20622 = runtime.completed_20621_after_dialog_teleport_npc_dialog == true
+        or M.isQuestDone(quest_20621)
+        or not M.isQuestKnown(quest_20621)
+    if quest_20622_level_ready and quest_20621_cleared_for_20622 then
+        return M.nextQuest20622Level25GrindAction(state, runtime, opts, quest_20622)
     end
 
     if runtime.completed_20611_hotspot_reward == true
