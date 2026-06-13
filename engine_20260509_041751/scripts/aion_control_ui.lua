@@ -368,6 +368,9 @@ local runtime = {
         completed_20621_after_teleport_npc_dialog = false,
         completed_20621_after_dialog_teleport = false,
         completed_20621_after_dialog_teleport_npc_dialog = false,
+        completed_20622_task_teleport = false,
+        completed_20622_after_teleport_npc_dialog = false,
+        completed_20622_after_npc_task_teleport = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -7284,6 +7287,9 @@ function main_quest_reset_runtime(reason)
     r.completed_20621_after_teleport_npc_dialog = false
     r.completed_20621_after_dialog_teleport = false
     r.completed_20621_after_dialog_teleport_npc_dialog = false
+    r.completed_20622_task_teleport = false
+    r.completed_20622_after_teleport_npc_dialog = false
+    r.completed_20622_after_npc_task_teleport = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7585,6 +7591,13 @@ function main_quest_read_20611_state(now)
             if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.findRemoteRewardQuest) == "function" then
                 state.remote_reward_quest = main_quest_20611.findRemoteRewardQuest(list)
             end
+            if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.findPassiveBlueQuest) == "function" then
+                state.passive_blue_quest = main_quest_20611.findPassiveBlueQuest(list)
+            end
+            if ok_main_quest_20611 and main_quest_20611
+                and type(main_quest_20611.findReadyPassiveBlueSubmitQuest) == "function" then
+                state.ready_passive_blue_submit_quest = main_quest_20611.findReadyPassiveBlueSubmitQuest(list)
+            end
             if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.findLevelBlockedQuest) == "function" then
                 state.level_blocked_quest = main_quest_20611.findLevelBlockedQuest(list)
             end
@@ -7637,6 +7650,9 @@ function main_quest_read_20611_state(now)
         or r.completed_20621_after_teleport_npc_dialog == true
         or r.completed_20621_after_dialog_teleport == true
         or r.completed_20621_after_dialog_teleport_npc_dialog == true
+        or r.completed_20622_task_teleport == true
+        or r.completed_20622_after_teleport_npc_dialog == true
+        or r.completed_20622_after_npc_task_teleport == true
         or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
@@ -9388,6 +9404,9 @@ function main_quest_execute_20590(action, state)
             and r.active_20611_grind == true then
             main_quest_stop_20611_grind("quest-20621-level-reached-before-panel", false)
         end
+        if stage == "quest_20622_task_teleport" and r.active_20611_grind == true then
+            main_quest_stop_20611_grind("quest-20622-level-reached-before-panel", false)
+        end
         if not ok_quest or not quest or type(quest.questTeleport) ~= "function" then
             main_quest_set_status("quest teleport failed: aion.quest unavailable")
             return false
@@ -9402,7 +9421,10 @@ function main_quest_execute_20590(action, state)
                     or stage == "quest_20620_after_obelisk_teleport"))
                 or (quest_id == 20621 and (
                     stage == "quest_20621_task_teleport"
-                    or stage == "quest_20621_after_dialog_teleport")) then
+                    or stage == "quest_20621_after_dialog_teleport"))
+                or (quest_id == 20622 and (
+                    stage == "quest_20622_task_teleport"
+                    or stage == "quest_20622_after_npc_task_teleport")) then
                 panel_ready = true
                 panel_detail = "direct_quest_id_only"
             else
@@ -9418,6 +9440,28 @@ function main_quest_execute_20590(action, state)
             panel_ready, panel_detail = main_quest_quest_panel_visible()
         else
             panel_ready, panel_detail = main_quest_prepare_quest_teleport_panel(quest_id, stage)
+        end
+        if quest_id == 20622
+            or stage == "quest_20622_task_teleport"
+            or stage == "quest_20622_after_npc_task_teleport" then
+            main_quest_trace("q20622-quest-teleport-enter:" .. tostring(stage),
+                "quest_id=" .. tostring(quest_id) ..
+                " quest_step=" .. tostring(params.quest_step or "") ..
+                " required_level=" .. tostring(params.required_level or "") ..
+                " char_level=" .. tostring(params.char_level or "") ..
+                " direct_quest_id_only=" .. tostring(direct_quest_id_only) ..
+                " panel_ready=" .. tostring(panel_ready == true) ..
+                " panel_detail=" .. tostring(panel_detail or "") ..
+                " active_grind=" .. tostring(r.active_20611_grind == true) ..
+                " active_stage=" .. tostring(r.active_20611_grind_stage or "") ..
+                " task_teleport_done=" .. tostring(r.completed_20622_task_teleport == true) ..
+                " after_tp_npc_done=" .. tostring(r.completed_20622_after_teleport_npc_dialog == true) ..
+                " after_npc_task_tp_done=" .. tostring(r.completed_20622_after_npc_task_teleport == true) ..
+                " waiting_teleport=" .. tostring(r.waiting_teleport == true) ..
+                " teleport_stage=" .. tostring(r.teleport_stage or "") ..
+                " dialog=" .. main_quest_dialog_signature(state.dialog) ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
         end
         if not panel_ready then
             main_quest_trace("quest-teleport-wait-panel:" .. tostring(stage),
@@ -9447,6 +9491,17 @@ function main_quest_execute_20590(action, state)
         end
         if quest_id == 20614 or string.find(tostring(stage), "quest_20614", 1, true) then
             main_quest_trace("q20614-quest-teleport-id:" .. tostring(stage),
+                "quest_id=" .. tostring(quest_id) ..
+                " id_ok=" .. tostring(id_ok) ..
+                " id_value=" .. tostring(id_value or "") ..
+                " teleport_id=" .. tostring(teleport_id or "") ..
+                " id_err=" .. tostring(id_err or ""),
+                0)
+        end
+        if quest_id == 20622
+            or stage == "quest_20622_task_teleport"
+            or stage == "quest_20622_after_npc_task_teleport" then
+            main_quest_trace("q20622-quest-teleport-id:" .. tostring(stage),
                 "quest_id=" .. tostring(quest_id) ..
                 " id_ok=" .. tostring(id_ok) ..
                 " id_value=" .. tostring(id_value or "") ..
@@ -9490,6 +9545,20 @@ function main_quest_execute_20590(action, state)
             0)
         if quest_id == 20614 or string.find(tostring(stage), "quest_20614", 1, true) then
             main_quest_trace("q20614-quest-teleport-result:" .. tostring(stage),
+                "quest_id=" .. tostring(quest_id) ..
+                " ok=" .. tostring(ok) ..
+                " result=" .. tostring(result) ..
+                " err=" .. tostring(err or "") ..
+                " wait_teleport=" .. tostring(wait_teleport) ..
+                " runtime_waiting=" .. tostring(r.waiting_teleport == true) ..
+                " runtime_teleport_stage=" .. tostring(r.teleport_stage or "") ..
+                " start_pos=" .. main_quest_position_text(r.teleport_start_pos),
+                0)
+        end
+        if quest_id == 20622
+            or stage == "quest_20622_task_teleport"
+            or stage == "quest_20622_after_npc_task_teleport" then
+            main_quest_trace("q20622-quest-teleport-result:" .. tostring(stage),
                 "quest_id=" .. tostring(quest_id) ..
                 " ok=" .. tostring(ok) ..
                 " result=" .. tostring(result) ..
@@ -9763,6 +9832,13 @@ function main_quest_execute_20590(action, state)
                             r.completed_20621_after_dialog_teleport_npc_dialog = true
                             r.cached_quest_20611 = nil
                             r.last_quest_20611_read_at = 0
+                        elseif continuous_quest_id == 20622
+                            and stage == "quest_20622_after_teleport_npc"
+                            and continuous_finished then
+                            r.clicked_20611_indicator_title = false
+                            r.completed_20622_after_teleport_npc_dialog = true
+                            r.cached_quest_20611 = nil
+                            r.last_quest_20611_read_at = 0
                         end
                         local settle_seconds = math.max(0,
                             tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
@@ -9792,6 +9868,8 @@ function main_quest_execute_20590(action, state)
                             tostring(r.completed_20621_after_teleport_npc_dialog == true) ..
                         " completed_20621_after_dialog_teleport_npc_dialog=" ..
                             tostring(r.completed_20621_after_dialog_teleport_npc_dialog == true) ..
+                        " completed_20622_after_teleport_npc_dialog=" ..
+                            tostring(r.completed_20622_after_teleport_npc_dialog == true) ..
                         " status=" .. tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or ""),
                         0)
                 else
@@ -9951,6 +10029,20 @@ function main_quest_execute_20590(action, state)
                     tonumber(r.post_dialog_settle_until) or 0,
                     now_seconds() + settle_seconds)
             end
+        elseif ok and continuous_quest_id == 20622
+            and continuous_stage == "quest_20622_after_teleport_npc"
+            and continuous_finished then
+            r.clicked_20611_indicator_title = false
+            r.completed_20622_after_teleport_npc_dialog = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            local settle_seconds = math.max(0,
+                tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
+            if settle_seconds > 0 then
+                r.post_dialog_settle_until = math.max(
+                    tonumber(r.post_dialog_settle_until) or 0,
+                    now_seconds() + settle_seconds)
+            end
         end
         local status = tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or "")
         main_quest_set_status("continuous last-option dialog quest_id=" .. tostring(params.quest_id or "") ..
@@ -9976,6 +10068,8 @@ function main_quest_execute_20590(action, state)
                 tostring(r.completed_20621_after_teleport_npc_dialog == true) ..
             " completed_20621_after_dialog_teleport_npc_dialog=" ..
                 tostring(r.completed_20621_after_dialog_teleport_npc_dialog == true) ..
+            " completed_20622_after_teleport_npc_dialog=" ..
+                tostring(r.completed_20622_after_teleport_npc_dialog == true) ..
             " status=" .. status,
             0)
         return ok
@@ -10241,8 +10335,7 @@ function main_quest_execute_20590(action, state)
         if main_quest_action_cooldown(name, 2.0) then
             main_quest_set_status("waiting quest teleport position change quest_id=" ..
                 tostring(params.quest_id or "") ..
-                " stage=" .. tostring(params.stage or "") ..
-                " min_distance=" .. tostring(params.min_distance or ""))
+                " stage=" .. tostring(params.stage or ""))
         end
         return true
     end
@@ -10435,6 +10528,29 @@ function main_quest_execute_20590(action, state)
                 "quest=" .. tostring(params.quest_id or "") ..
                 " completed_after_dialog_tp=" ..
                     tostring(r.completed_20621_after_dialog_teleport == true) ..
+                " reason=" .. tostring(action.reason or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
+        elseif stage == "quest_20622_task_teleport" then
+            r.clicked_20611_indicator_title = false
+            r.completed_20622_task_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            main_quest_trace("q20622-complete-teleport:" .. stage,
+                "quest=" .. tostring(params.quest_id or "") ..
+                " completed_task_tp=" .. tostring(r.completed_20622_task_teleport == true) ..
+                " reason=" .. tostring(action.reason or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
+        elseif stage == "quest_20622_after_npc_task_teleport" then
+            r.clicked_20611_indicator_title = false
+            r.completed_20622_after_npc_task_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            main_quest_trace("q20622-complete-teleport:" .. stage,
+                "quest=" .. tostring(params.quest_id or "") ..
+                " completed_after_npc_task_tp=" ..
+                    tostring(r.completed_20622_after_npc_task_teleport == true) ..
                 " reason=" .. tostring(action.reason or "") ..
                 " pos=" .. main_quest_position_text(state.char),
                 0)
@@ -10703,7 +10819,6 @@ function main_quest_20590_tick()
     local route_stage = main_quest_active_route_stage()
     local action = main_quest_20590.nextAction(state, runtime.main_quest, {
         npc_range = 4,
-        teleport_min_distance = 20,
         waypoint_range = 2,
         dialog_click_x = tonumber(cfg.npc_dialog and cfg.npc_dialog.auto_click_x) or 25,
         route_following_stage = route_stage,
@@ -10832,6 +10947,7 @@ function main_quest_20611_tick()
     local route_stage = main_quest_active_route_stage()
     local action = main_quest_20611.nextAction(state, runtime.main_quest, {
         grind_point_range = 10,
+        quest_20611_level8_grind_point_range = 3,
         route_following_stage = route_stage,
         waypoint_range = 2,
         quest_20614_level17_grind_point_range = 3,
@@ -10846,6 +10962,9 @@ function main_quest_20611_tick()
     })
     local remote_qid = tonumber(state.remote_reward_quest and state.remote_reward_quest.id) or 0
     local remote_status = tonumber(state.remote_reward_quest and state.remote_reward_quest.status_code) or 0
+    local passive_blue_qid = tonumber(state.passive_blue_quest and state.passive_blue_quest.id) or 0
+    local passive_blue_status = tonumber(state.passive_blue_quest and state.passive_blue_quest.status_code) or 0
+    local ready_blue_qid = tonumber(state.ready_passive_blue_submit_quest and state.ready_passive_blue_submit_quest.id) or 0
     local level_qid = tonumber(state.level_blocked_quest and state.level_blocked_quest.id) or 0
     local level_status = tonumber(state.level_blocked_quest and state.level_blocked_quest.status_code) or 0
     local level_required = tonumber(state.level_blocked_quest and state.level_blocked_quest.lv_num) or 0
@@ -10855,12 +10974,16 @@ function main_quest_20611_tick()
     local quest_20614_snapshot = nil
     local quest_20615_snapshot = nil
     local quest_20620_snapshot = nil
+    local quest_20621_snapshot = nil
+    local quest_20622_snapshot = nil
     if ok_main_quest_20611 and main_quest_20611 and type(main_quest_20611.findQuestById) == "function" then
         quest_20612_snapshot = main_quest_20611.findQuestById(state.quests, 20612)
         quest_20613_snapshot = main_quest_20611.findQuestById(state.quests, 20613)
         quest_20614_snapshot = main_quest_20611.findQuestById(state.quests, 20614)
         quest_20615_snapshot = main_quest_20611.findQuestById(state.quests, 20615)
         quest_20620_snapshot = main_quest_20611.findQuestById(state.quests, 20620)
+        quest_20621_snapshot = main_quest_20611.findQuestById(state.quests, 20621)
+        quest_20622_snapshot = main_quest_20611.findQuestById(state.quests, 20622)
     end
     local q20612_status = tonumber(quest_20612_snapshot and quest_20612_snapshot.status_code) or 0
     local q20612_step = tonumber(quest_20612_snapshot and quest_20612_snapshot.req_count) or 0
@@ -10872,6 +10995,12 @@ function main_quest_20611_tick()
     local q20615_step = tonumber(quest_20615_snapshot and quest_20615_snapshot.req_count) or 0
     local q20620_status = tonumber(quest_20620_snapshot and quest_20620_snapshot.status_code) or 0
     local q20620_step = tonumber(quest_20620_snapshot and quest_20620_snapshot.req_count) or 0
+    local q20621_status = tonumber(quest_20621_snapshot and quest_20621_snapshot.status_code) or 0
+    local q20621_step = tonumber(quest_20621_snapshot and quest_20621_snapshot.req_count) or 0
+    local q20621_level = tonumber(quest_20621_snapshot and quest_20621_snapshot.lv_num) or 0
+    local q20622_status = tonumber(quest_20622_snapshot and quest_20622_snapshot.status_code) or 0
+    local q20622_step = tonumber(quest_20622_snapshot and quest_20622_snapshot.req_count) or 0
+    local q20622_level = tonumber(quest_20622_snapshot and quest_20622_snapshot.lv_num) or 0
     local action_qid = tonumber(action.params and action.params.quest_id) or 0
     local action_name = tostring(action.name or "")
     local action_authorizes_grind = type(main_quest_action_authorizes_grind) == "function"
@@ -10945,6 +11074,50 @@ function main_quest_20611_tick()
             " pos=" .. main_quest_position_text(state.char),
             0.5)
     end
+    if q20622_status > 0
+        or action_qid == 20622
+        or runtime.main_quest.completed_20622_task_teleport == true
+        or runtime.main_quest.completed_20622_after_teleport_npc_dialog == true
+        or runtime.main_quest.completed_20622_after_npc_task_teleport == true
+        or tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20622_level25_grind"
+        or tostring(runtime.main_quest.teleport_stage or "") == "quest_20622_task_teleport"
+        or tostring(runtime.main_quest.teleport_stage or "") == "quest_20622_after_npc_task_teleport" then
+        main_quest_trace("q20622-decision",
+            "action=" .. action_name ..
+            " action_stage=" .. tostring(action.params and action.params.stage or "") ..
+            " action_reason=" .. tostring(action.reason or "") ..
+            " action_qid=" .. tostring(action_qid) ..
+            " q20621_status=" .. tostring(q20621_status) ..
+            " q20621_step=" .. tostring(q20621_step) ..
+            " q20621_lv=" .. tostring(q20621_level) ..
+            " q20622_status=" .. tostring(q20622_status) ..
+            " q20622_step=" .. tostring(q20622_step) ..
+            " q20622_lv=" .. tostring(q20622_level) ..
+            " char_level=" .. tostring(char_level) ..
+            " level_qid=" .. tostring(level_qid) ..
+            " level_status=" .. tostring(level_status) ..
+            " level_required=" .. tostring(level_required) ..
+            " active_grind=" .. tostring(runtime.main_quest.active_20611_grind == true) ..
+            " grind_stage=" .. tostring(runtime.main_quest.active_20611_grind_stage or "") ..
+            " level_grind_qid=" .. tostring(runtime.main_quest.level_grind_quest_id or "") ..
+            " level_grind_required=" .. tostring(runtime.main_quest.level_grind_required_level or "") ..
+            " q20621_final_done=" ..
+                tostring(runtime.main_quest.completed_20621_after_dialog_teleport_npc_dialog == true) ..
+            " q20622_task_tp_done=" .. tostring(runtime.main_quest.completed_20622_task_teleport == true) ..
+            " q20622_after_tp_npc_done=" ..
+                tostring(runtime.main_quest.completed_20622_after_teleport_npc_dialog == true) ..
+            " q20622_after_npc_task_tp_done=" ..
+                tostring(runtime.main_quest.completed_20622_after_npc_task_teleport == true) ..
+            " waiting_teleport=" .. tostring(runtime.main_quest.waiting_teleport == true) ..
+            " teleport_qid=" .. tostring(runtime.main_quest.teleport_quest_id or 0) ..
+            " teleport_stage=" .. tostring(runtime.main_quest.teleport_stage or "") ..
+            " dialog=" .. main_quest_dialog_signature(state.dialog) ..
+            " ui_panel=" .. tostring(ui_state.quest_panel_visible == true) ..
+            " panel_key=" .. tostring(runtime.main_quest.quest_teleport_panel_key or "") ..
+            " panel_opened_at=" .. tostring(runtime.main_quest.quest_teleport_panel_opened_at or 0) ..
+            " pos=" .. main_quest_position_text(state.char),
+            0.5)
+    end
     if runtime.main_quest.active_20611_grind == true
         and (runtime.main_quest.completed_20613_task_teleport == true
             or runtime.main_quest.completed_20613_start_dialog == true
@@ -10974,6 +11147,18 @@ function main_quest_20611_tick()
         and not action_authorizes_grind then
         main_quest_stop_20611_grind("quest-" .. tostring(action_qid) .. "-recorded-step", false)
     end
+    if action_qid == 20611
+        and runtime.main_quest.active_20611_grind == true
+        and tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20611_level_grind"
+        and not action_authorizes_grind then
+        local active_required_level = tonumber(runtime.main_quest.level_grind_required_level) or 0
+        if active_required_level <= 0 then
+            active_required_level = level_required
+        end
+        if active_required_level > 0 and char_level >= active_required_level then
+            main_quest_stop_20611_grind("quest-20611-level-reached-before-next-action", false)
+        end
+    end
     local decision_sig = "20611:" .. action_name ..
         ":" .. tostring(action.params and action.params.stage or "") ..
         ":" .. tostring(action_qid) ..
@@ -10981,6 +11166,10 @@ function main_quest_20611_tick()
         ":" .. tostring(state.quest and state.quest.req_count or "") ..
         ":" .. tostring(remote_qid) ..
         ":" .. tostring(remote_status) ..
+        ":" .. tostring(passive_blue_qid) ..
+        ":" .. tostring(passive_blue_status) ..
+        ":" .. tostring(state.passive_blue_quest and state.passive_blue_quest.req_count or "") ..
+        ":" .. tostring(ready_blue_qid) ..
         ":" .. tostring(level_qid) ..
         ":" .. tostring(level_status) ..
         ":" .. tostring(level_required) ..
@@ -11033,7 +11222,20 @@ function main_quest_20611_tick()
         ":" .. tostring(runtime.main_quest.completed_20620_after_stigma_npc_dialog == true) ..
         ":" .. tostring(runtime.main_quest.completed_20620_obelisk == true) ..
         ":" .. tostring(runtime.main_quest.completed_20620_after_obelisk_teleport == true) ..
-        ":" .. tostring(runtime.main_quest.completed_20620_after_obelisk_npc_dialog == true)
+        ":" .. tostring(runtime.main_quest.completed_20620_after_obelisk_npc_dialog == true) ..
+        ":" .. tostring(q20621_status) ..
+        ":" .. tostring(q20621_step) ..
+        ":" .. tostring(q20621_level) ..
+        ":" .. tostring(q20622_status) ..
+        ":" .. tostring(q20622_step) ..
+        ":" .. tostring(q20622_level) ..
+        ":" .. tostring(runtime.main_quest.completed_20621_task_teleport == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20621_after_teleport_npc_dialog == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20621_after_dialog_teleport == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20621_after_dialog_teleport_npc_dialog == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20622_task_teleport == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20622_after_teleport_npc_dialog == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20622_after_npc_task_teleport == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -11046,6 +11248,11 @@ function main_quest_20611_tick()
             " qblue_id=" .. tostring(remote_qid) ..
             " qblue_status=" .. tostring(remote_status) ..
             " qblue_step=" .. tostring(state.remote_reward_quest and state.remote_reward_quest.req_count or "") ..
+            " qpassive_blue_id=" .. tostring(passive_blue_qid) ..
+            " qpassive_blue_status=" .. tostring(passive_blue_status) ..
+            " qpassive_blue_step=" .. tostring(state.passive_blue_quest and state.passive_blue_quest.req_count or "") ..
+            " qpassive_blue_lv=" .. tostring(state.passive_blue_quest and state.passive_blue_quest.lv_num or "") ..
+            " qpassive_blue_ready_id=" .. tostring(ready_blue_qid) ..
             " qlevel_id=" .. tostring(level_qid) ..
             " qlevel_status=" .. tostring(level_status) ..
             " qlevel_required=" .. tostring(level_required) ..
@@ -11060,6 +11267,12 @@ function main_quest_20611_tick()
             " q20615_step=" .. tostring(q20615_step) ..
             " q20620_status=" .. tostring(q20620_status) ..
             " q20620_step=" .. tostring(q20620_step) ..
+            " q20621_status=" .. tostring(q20621_status) ..
+            " q20621_step=" .. tostring(q20621_step) ..
+            " q20621_lv=" .. tostring(q20621_level) ..
+            " q20622_status=" .. tostring(q20622_status) ..
+            " q20622_step=" .. tostring(q20622_step) ..
+            " q20622_lv=" .. tostring(q20622_level) ..
             " grind_stage=" .. tostring(runtime.main_quest.active_20611_grind_stage or "") ..
             " ui_indicator_entry=" .. tostring(ui_state.quest_indicator_entry == true) ..
             " ui_panel=" .. tostring(ui_state.quest_panel_visible == true) ..
@@ -11102,6 +11315,18 @@ function main_quest_20611_tick()
                 tostring(runtime.main_quest.completed_20620_after_obelisk_teleport == true) ..
             " q20620_after_obelisk_npc_done=" ..
                 tostring(runtime.main_quest.completed_20620_after_obelisk_npc_dialog == true) ..
+            " q20621_task_tp_done=" .. tostring(runtime.main_quest.completed_20621_task_teleport == true) ..
+            " q20621_after_tp_npc_done=" ..
+                tostring(runtime.main_quest.completed_20621_after_teleport_npc_dialog == true) ..
+            " q20621_after_dialog_tp_done=" ..
+                tostring(runtime.main_quest.completed_20621_after_dialog_teleport == true) ..
+            " q20621_final_npc_done=" ..
+                tostring(runtime.main_quest.completed_20621_after_dialog_teleport_npc_dialog == true) ..
+            " q20622_task_tp_done=" .. tostring(runtime.main_quest.completed_20622_task_teleport == true) ..
+            " q20622_after_tp_npc_done=" ..
+                tostring(runtime.main_quest.completed_20622_after_teleport_npc_dialog == true) ..
+            " q20622_after_npc_task_tp_done=" ..
+                tostring(runtime.main_quest.completed_20622_after_npc_task_teleport == true) ..
             " q20614_after_start_tp_pending=" .. tostring(q20614_after_start_teleport_pending == true) ..
             " q20613_after_start_teleport_pending=" .. tostring(q20613_after_start_teleport_pending == true) ..
             " q20613_after_start_reward_pending=" .. tostring(q20613_after_start_reward_pending == true) ..

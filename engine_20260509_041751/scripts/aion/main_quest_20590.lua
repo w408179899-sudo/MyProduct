@@ -156,6 +156,18 @@ local function distance3(a, b)
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+local function position_changed(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" then
+        return false
+    end
+    local ax, ay, az = tonumber(a.x), tonumber(a.y), tonumber(a.z)
+    local bx, by, bz = tonumber(b.x), tonumber(b.y), tonumber(b.z)
+    if not ax or not ay or not az or not bx or not by or not bz then
+        return false
+    end
+    return ax ~= bx or ay ~= by or az ~= bz
+end
+
 local function action(name, reason, params)
     return {
         name = name,
@@ -235,24 +247,11 @@ end
 function M.teleportDetected(state, runtime, opts)
     opts = opts or {}
     runtime = runtime or {}
-    local min_distance = number(opts.teleport_min_distance)
-    if min_distance <= 0 then
-        min_distance = 20
-    end
-
-    local current_big_map = number(state and state.big_map_id)
-    local start_big_map = number(runtime.teleport_start_big_map_id)
-    if start_big_map > 0 and current_big_map > 0 and start_big_map ~= current_big_map then
-        return true, "big_map_changed"
-    end
 
     local start_pos = runtime.teleport_start_pos
     local char = state and state.char
-    if type(start_pos) == "table" and type(char) == "table" then
-        local dist = distance3(start_pos, char)
-        if dist >= min_distance then
-            return true, "position_changed"
-        end
+    if position_changed(start_pos, char) then
+        return true, "position_changed"
     end
 
     return false, "waiting_position_change"
@@ -274,7 +273,6 @@ function M.nextAction(state, runtime, opts)
         return action("WaitPositionChanged", reason, {
             quest_id = M.quest_id,
             stage = tostring(runtime.teleport_stage or "teleport"),
-            min_distance = opts.teleport_min_distance or 20,
         })
     end
 

@@ -118,7 +118,7 @@ local function run()
         local quest = load_module()
         local waiting = quest.nextAction({
             quest = active_quest(),
-            char = { x = 1657, y = 1401, z = 194.67 },
+            char = { x = 1656, y = 1401, z = 194.67 },
             big_map_id = 120030000,
         }, {
             waiting_teleport = true,
@@ -127,7 +127,7 @@ local function run()
         })
         local completed = quest.nextAction({
             quest = active_quest(),
-            char = { x = 1700, y = 1450, z = 200 },
+            char = { x = 1656.5, y = 1401, z = 194.67 },
             big_map_id = 120030000,
         }, {
             waiting_teleport = true,

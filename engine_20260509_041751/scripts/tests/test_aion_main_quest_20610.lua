@@ -166,7 +166,7 @@ local function run()
         })
         local completed = quest.nextAction({
             quest = done_quest(),
-            char = { x = 600, y = 2800, z = 299.5 },
+            char = { x = 564.5, y = 2785.0, z = 299.5 },
             big_map_id = 220010000,
         }, {
             waiting_teleport = true,
@@ -179,6 +179,7 @@ local function run()
         T.assert_eq(click.params.stage, "quest_20610_task_teleport")
         T.assert_eq(waiting.name, "WaitPositionChanged")
         T.assert_eq(completed.name, "CompleteQuestTeleport")
+        T.assert_eq(completed.reason, "position_changed")
     end)
 
     T.test("quest teleport does not depend on stale dictionary ui", function()
