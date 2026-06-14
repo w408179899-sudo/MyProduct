@@ -2,11 +2,14 @@
 
 ## 当前已录制流程
 
-20622 当前只实现第一步：
+20622 当前已实现四步：
 
 1. `quest_20622_level25_grind`：沿指定路径移动到终点，在终点挂机升级到 25 级。
+2. `quest_20622_task_teleport`：到 25 级后 call 20622 任务传送。
+3. `quest_20622_after_teleport_npc`：传送落地后和 `할프단` 对话，使用 `ClickDialogLastContinuousOk`。
+4. `quest_20622_after_npc_task_teleport`：`할프단` 对话完成后 call 20622 任务传送。
 
-到 25 级后脚本只返回等待状态，不会自动传送、对话或进入后续任务。下一步需要新的 F11 信息后再继续补。
+第二次任务传送完成后脚本返回等待状态，不会自动进入后续任务或蓝色任务。下一步需要新的 F11 信息后再继续补。
 
 ## F11 状态
 
@@ -20,6 +23,22 @@
 - 目标：无
 - 对话：关闭
 
+## 落地后 F11 状态
+
+- 任务：`20622`
+- 阶段：`step=0`
+- 地图：`220020000`
+- 角色等级：`25`
+- 任务状态：`status_code=4`
+- 任务需求等级：`lv_num=25`
+- 角色坐标：`413.21, 1854.39, 442.45`
+- 目标 NPC：`할프단`
+- 目标 ID：`65524`
+- 交互 ID：`2147520888`
+- 目标坐标：`414.75, 1848.00, 442.53`
+- 距离：`6.57`
+- 对话：关闭
+
 ## 阶段一：走路径并挂机到 25 级
 
 - 阶段名：`quest_20622_level25_grind`
@@ -29,8 +48,58 @@
   - 距离终点较远时执行 `FollowRoute`
   - 到达终点附近后执行 `StartStationaryGrind`
   - 挂机中执行 `WaitLevelGrind`
-  - 角色达到 25 级后执行 `Idle`，等待下一步录制
+  - 角色达到 25 级后进入 `quest_20622_task_teleport`
 - 终点挂机坐标：`282.523, 1799.503, 451.719`
+
+## 阶段二：20622 任务传送
+
+- 阶段名：`quest_20622_task_teleport`
+- 触发条件：20622 等级阻塞阶段已达到 25 级。
+- 执行动作：`QuestTeleport`
+- 传送参数：
+  - `quest_id=20622`
+  - `direct_quest_id_only=true`
+  - `wait_teleport=true`
+  - `open_panel_key=false`
+  - `require_panel_visible=false`
+- 完成判定：等待角色坐标变化后执行 `CompleteQuestTeleport`，并记录 `completed_20622_task_teleport=true`。
+- 完成后：进入 `quest_20622_after_teleport_npc`，只处理落地后的 `할프단` 对话。
+
+## 阶段三：落地后和 할프단 对话
+
+- 阶段名：`quest_20622_after_teleport_npc`
+- 触发条件：
+  - `completed_20622_task_teleport=true`；或
+  - 对话窗口已经是 `20622 / 할프단`；或
+  - 20622 为 `status_code=4`，并且角色在 `할프단` 附近。
+- 执行动作：
+  - 不在 NPC 范围内时执行 `NavigateToNpc`
+  - 到 NPC 范围内时执行 `InteractNpc`
+  - 对话打开后执行 `ClickDialogLastContinuousOk`
+- NPC 匹配：
+  - 名字：`할프단`
+  - 名字 key：`MQ20622_NPC_001_AFTER_TELEPORT`
+  - 交互 ID：`2147520888`
+  - 禁用交互 ID 兜底：`allow_interact_id_fallback=false`
+- 完成判定：连续最后一条 + OK 结束后记录 `completed_20622_after_teleport_npc_dialog=true`。
+- 完成后：进入 `quest_20622_after_npc_task_teleport`，只执行 20622 任务传送。
+
+## 阶段四：对话后 20622 任务传送
+
+- 阶段名：`quest_20622_after_npc_task_teleport`
+- 触发条件：
+  - `completed_20622_after_teleport_npc_dialog=true`
+  - 或脚本重启后 runtime 标记丢失，但 20622 已是 `status_code=4`，且 20623 等级门槛已经出现。
+- 执行动作：`QuestTeleport`
+- 传送参数：
+  - `quest_id=20622`
+  - `direct_quest_id_only=true`
+  - `wait_teleport=true`
+  - `open_panel_key=false`
+  - `require_panel_visible=false`
+- 完成判定：只比较传送前记录的角色坐标和当前角色坐标；坐标变化后执行 `CompleteQuestTeleport`，并记录 `completed_20622_after_npc_task_teleport=true`。
+- 约束：不记录、不判断目标落点坐标；不使用落地位置、NPC 距离或地图目标点作为完成条件。
+- 完成后：执行 `Idle` 等待下一步指令，不继续打怪、不交蓝色任务、不进入后续主线。
 
 ## 路径
 

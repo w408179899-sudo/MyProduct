@@ -372,6 +372,7 @@ local runtime = {
         completed_20622_task_teleport = false,
         completed_20622_after_teleport_npc_dialog = false,
         completed_20622_after_npc_task_teleport = false,
+        completed_20622_after_npc_teleport_npc_dialog = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -7292,6 +7293,7 @@ function main_quest_reset_runtime(reason)
     r.completed_20622_task_teleport = false
     r.completed_20622_after_teleport_npc_dialog = false
     r.completed_20622_after_npc_task_teleport = false
+    r.completed_20622_after_npc_teleport_npc_dialog = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -9849,6 +9851,13 @@ function main_quest_execute_20590(action, state)
                             r.completed_20622_after_teleport_npc_dialog = true
                             r.cached_quest_20611 = nil
                             r.last_quest_20611_read_at = 0
+                        elseif continuous_quest_id == 20622
+                            and stage == "quest_20622_after_npc_teleport_npc"
+                            and continuous_finished then
+                            r.clicked_20611_indicator_title = false
+                            r.completed_20622_after_npc_teleport_npc_dialog = true
+                            r.cached_quest_20611 = nil
+                            r.last_quest_20611_read_at = 0
                         end
                         local settle_seconds = math.max(0,
                             tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
@@ -9882,6 +9891,8 @@ function main_quest_execute_20590(action, state)
                             tostring(r.completed_20621_after_dialog_teleport_npc_dialog == true) ..
                         " completed_20622_after_teleport_npc_dialog=" ..
                             tostring(r.completed_20622_after_teleport_npc_dialog == true) ..
+                        " completed_20622_after_npc_teleport_npc_dialog=" ..
+                            tostring(r.completed_20622_after_npc_teleport_npc_dialog == true) ..
                         " status=" .. tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or ""),
                         0)
                 else
@@ -10069,6 +10080,20 @@ function main_quest_execute_20590(action, state)
                     tonumber(r.post_dialog_settle_until) or 0,
                     now_seconds() + settle_seconds)
             end
+        elseif ok and continuous_quest_id == 20622
+            and continuous_stage == "quest_20622_after_npc_teleport_npc"
+            and continuous_finished then
+            r.clicked_20611_indicator_title = false
+            r.completed_20622_after_npc_teleport_npc_dialog = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            local settle_seconds = math.max(0,
+                tonumber(cfg.leveling and cfg.leveling.post_dialog_settle_seconds) or 2.0)
+            if settle_seconds > 0 then
+                r.post_dialog_settle_until = math.max(
+                    tonumber(r.post_dialog_settle_until) or 0,
+                    now_seconds() + settle_seconds)
+            end
         end
         local status = tostring(runtime.npc_dialog and runtime.npc_dialog.last_status or "")
         main_quest_set_status("continuous last-option dialog quest_id=" .. tostring(params.quest_id or "") ..
@@ -10098,6 +10123,8 @@ function main_quest_execute_20590(action, state)
                 tostring(r.completed_20621_after_dialog_teleport_npc_dialog == true) ..
             " completed_20622_after_teleport_npc_dialog=" ..
                 tostring(r.completed_20622_after_teleport_npc_dialog == true) ..
+            " completed_20622_after_npc_teleport_npc_dialog=" ..
+                tostring(r.completed_20622_after_npc_teleport_npc_dialog == true) ..
             " status=" .. status,
             0)
         return ok
@@ -11109,6 +11136,7 @@ function main_quest_20611_tick()
         or runtime.main_quest.completed_20622_task_teleport == true
         or runtime.main_quest.completed_20622_after_teleport_npc_dialog == true
         or runtime.main_quest.completed_20622_after_npc_task_teleport == true
+        or runtime.main_quest.completed_20622_after_npc_teleport_npc_dialog == true
         or tostring(runtime.main_quest.active_20611_grind_stage or "") == "quest_20622_level25_grind"
         or tostring(runtime.main_quest.teleport_stage or "") == "quest_20622_task_teleport"
         or tostring(runtime.main_quest.teleport_stage or "") == "quest_20622_after_npc_task_teleport" then
@@ -11138,6 +11166,8 @@ function main_quest_20611_tick()
                 tostring(runtime.main_quest.completed_20622_after_teleport_npc_dialog == true) ..
             " q20622_after_npc_task_tp_done=" ..
                 tostring(runtime.main_quest.completed_20622_after_npc_task_teleport == true) ..
+            " q20622_after_npc_tp_npc_done=" ..
+                tostring(runtime.main_quest.completed_20622_after_npc_teleport_npc_dialog == true) ..
             " waiting_teleport=" .. tostring(runtime.main_quest.waiting_teleport == true) ..
             " teleport_qid=" .. tostring(runtime.main_quest.teleport_quest_id or 0) ..
             " teleport_stage=" .. tostring(runtime.main_quest.teleport_stage or "") ..
@@ -11266,7 +11296,8 @@ function main_quest_20611_tick()
         ":" .. tostring(runtime.main_quest.completed_20621_after_dialog_teleport_npc_dialog == true) ..
         ":" .. tostring(runtime.main_quest.completed_20622_task_teleport == true) ..
         ":" .. tostring(runtime.main_quest.completed_20622_after_teleport_npc_dialog == true) ..
-        ":" .. tostring(runtime.main_quest.completed_20622_after_npc_task_teleport == true)
+        ":" .. tostring(runtime.main_quest.completed_20622_after_npc_task_teleport == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20622_after_npc_teleport_npc_dialog == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..
@@ -11360,6 +11391,8 @@ function main_quest_20611_tick()
                 tostring(runtime.main_quest.completed_20622_after_teleport_npc_dialog == true) ..
             " q20622_after_npc_task_tp_done=" ..
                 tostring(runtime.main_quest.completed_20622_after_npc_task_teleport == true) ..
+            " q20622_after_npc_tp_npc_done=" ..
+                tostring(runtime.main_quest.completed_20622_after_npc_teleport_npc_dialog == true) ..
             " q20614_after_start_tp_pending=" .. tostring(q20614_after_start_teleport_pending == true) ..
             " q20613_after_start_teleport_pending=" .. tostring(q20613_after_start_teleport_pending == true) ..
             " q20613_after_start_reward_pending=" .. tostring(q20613_after_start_reward_pending == true) ..
