@@ -1,28 +1,33 @@
 local M = {}
+local main_quest_20611 = require("aion.main_quest_20611")
 
 M.remote_reward_quest_id = 24340
 M.remote_reward_quest_ids = { 24340, 24341 }
 M.main_quest_ids = { 20611, 20612, 20613, 20614, 20615, 20620 }
 M.big_map_id = 220010000
 M.quest_20612_reward_npc = {
+    name = main_quest_20611.quest_20612_reward_npc.name,
     interact_id = 2147495609,
     x = 1050.70,
     y = 2201.12,
     z = 262.81,
 }
 M.quest_20614_reward_npc = {
+    name = main_quest_20611.quest_20614_reward_npc.name,
     interact_id = 2147511075,
     x = 602.85,
     y = 1480.65,
     z = 299.79,
 }
 M.quest_20615_target_npc = {
+    name = main_quest_20611.quest_20615_target_npc.name,
     interact_id = 2147520815,
     x = 589.35,
     y = 2450.16,
     z = 278.38,
 }
 M.quest_20615_morheim_npc = {
+    name = main_quest_20611.quest_20615_morheim_npc.name,
     interact_id = 2147488159,
     x = 224.83,
     y = 2415.82,
@@ -30,6 +35,7 @@ M.quest_20615_morheim_npc = {
     big_map_id = 220020000,
 }
 M.quest_20620_start_npc = {
+    name = main_quest_20611.quest_20620_start_npc.name,
     interact_id = 2147488159,
     x = 224.83,
     y = 2415.82,
@@ -37,6 +43,7 @@ M.quest_20620_start_npc = {
     big_map_id = 220020000,
 }
 M.quest_20620_after_teleport_npc = {
+    name = main_quest_20611.quest_20620_after_teleport_npc.name,
     interact_id = 2147511717,
     x = 234.21,
     y = 2321.90,
@@ -46,6 +53,28 @@ M.quest_20620_after_teleport_npc = {
 
 local function number(value)
     return tonumber(value) or 0
+end
+
+local function trim_text(value)
+    local text = tostring(value or "")
+    text = string.gsub(text, "^%s+", "")
+    text = string.gsub(text, "%s+$", "")
+    return text
+end
+
+local function dialog_matches_npc_name(dialog, npc)
+    if type(dialog) ~= "table" or type(npc) ~= "table" then
+        return false
+    end
+    local expected_name = trim_text(npc.name)
+    if expected_name == "" then
+        return false
+    end
+    local actual_name = trim_text(dialog.npc_name or dialog.name or dialog.target_name)
+    if actual_name == "" then
+        return true
+    end
+    return actual_name == expected_name
 end
 
 local function quest_id(quest)
@@ -212,8 +241,7 @@ function M.isRemoteRewardDialog(dialog)
 end
 
 function M.isQuest20612RewardNpcDialog(dialog)
-    return type(dialog) == "table"
-        and number(dialog.npc_dialog_id) == M.quest_20612_reward_npc.interact_id
+    return dialog_matches_npc_name(dialog, M.quest_20612_reward_npc)
 end
 
 function M.isNearQuest20612RewardNpc(snapshot)
@@ -229,8 +257,7 @@ function M.isNearQuest20612RewardNpc(snapshot)
 end
 
 function M.isQuest20614RewardNpcDialog(dialog)
-    return type(dialog) == "table"
-        and number(dialog.npc_dialog_id) == M.quest_20614_reward_npc.interact_id
+    return dialog_matches_npc_name(dialog, M.quest_20614_reward_npc)
         and (number(dialog.quest_id) == 0 or number(dialog.quest_id) == 20614)
 end
 
@@ -247,8 +274,7 @@ function M.isNearQuest20614RewardNpc(snapshot)
 end
 
 function M.isQuest20615TargetNpcDialog(dialog)
-    return type(dialog) == "table"
-        and number(dialog.npc_dialog_id) == M.quest_20615_target_npc.interact_id
+    return dialog_matches_npc_name(dialog, M.quest_20615_target_npc)
         and (number(dialog.quest_id) == 0 or number(dialog.quest_id) == 20615)
 end
 
@@ -265,8 +291,7 @@ function M.isNearQuest20615TargetNpc(snapshot)
 end
 
 function M.isQuest20615MorheimNpcDialog(dialog)
-    return type(dialog) == "table"
-        and number(dialog.npc_dialog_id) == M.quest_20615_morheim_npc.interact_id
+    return dialog_matches_npc_name(dialog, M.quest_20615_morheim_npc)
         and (number(dialog.quest_id) == 0 or number(dialog.quest_id) == 20615)
 end
 
@@ -283,8 +308,7 @@ function M.isNearQuest20615MorheimNpc(snapshot)
 end
 
 function M.isQuest20620StartNpcDialog(dialog)
-    return type(dialog) == "table"
-        and number(dialog.npc_dialog_id) == M.quest_20620_start_npc.interact_id
+    return dialog_matches_npc_name(dialog, M.quest_20620_start_npc)
         and (number(dialog.quest_id) == 0 or number(dialog.quest_id) == 20620)
 end
 
@@ -301,8 +325,7 @@ function M.isNearQuest20620StartNpc(snapshot)
 end
 
 function M.isQuest20620AfterTeleportNpcDialog(dialog)
-    return type(dialog) == "table"
-        and number(dialog.npc_dialog_id) == M.quest_20620_after_teleport_npc.interact_id
+    return dialog_matches_npc_name(dialog, M.quest_20620_after_teleport_npc)
         and (number(dialog.quest_id) == 0 or number(dialog.quest_id) == 20620)
 end
 
@@ -343,6 +366,11 @@ function M.plan(snapshot)
     local flags = {}
     local stage = "unknown"
     local reason = "no recognized quest snapshot"
+    local function has_earlier_level_block(id)
+        return status_code(level_blocked) == 6
+            and level_blocked_id > 0
+            and level_blocked_id < number(id)
+    end
 
     if status_code(q20590) == 3 then
         stage = "20590"
@@ -380,7 +408,8 @@ function M.plan(snapshot)
         flags.level_move_quest_id = 0
         stage = "20611_level_blocked"
         reason = "yellow mission " .. tostring(level_blocked_id) .. " is level blocked"
-    elseif status_code(q20612) == 3 then
+    elseif status_code(q20612) == 3
+        and not has_earlier_level_block(20612) then
         mark_after_20611(flags)
         if quest_step(q20612) >= 1 then
             flags.completed_20612_start_dialog = true
@@ -392,7 +421,8 @@ function M.plan(snapshot)
         end
     elseif status_code(q20612) == 4
         and status_code(level_blocked) == 6
-        and level_blocked_id == 20613 then
+        and level_blocked_id == 20613
+        and not has_earlier_level_block(20612) then
         local at_reward_npc = M.isQuest20612RewardNpcDialog(dialog)
             or M.isNearQuest20612RewardNpc(snapshot)
         mark_after_20611(flags)
@@ -406,7 +436,8 @@ function M.plan(snapshot)
             stage = "20612_task_teleport"
             reason = "quest 20612 is done; task teleport before later level grind"
         end
-    elseif status_code(q20614) == 3 then
+    elseif status_code(q20614) == 3
+        and not has_earlier_level_block(20614) then
         mark_after_20613(flags)
         if quest_step(q20614) > 0 then
             flags.completed_20614_task_teleport = true
@@ -420,7 +451,8 @@ function M.plan(snapshot)
             reason = "quest 20614 is active and needs task teleport"
         end
         flags.completed_20614_after_start_teleport = false
-    elseif status_code(q20614) == 4 then
+    elseif status_code(q20614) == 4
+        and not has_earlier_level_block(20614) then
         local at_reward_npc = M.isQuest20614RewardNpcDialog(dialog)
             or M.isNearQuest20614RewardNpc(snapshot)
         mark_after_20613(flags)
@@ -435,11 +467,13 @@ function M.plan(snapshot)
             stage = "20614_after_start_teleport"
             reason = "quest 20614 is done after start dialog and still needs task teleport"
         end
-    elseif status_code(q20615) == 6 then
+    elseif status_code(q20615) == 6
+        and not has_earlier_level_block(20615) then
         mark_after_20614(flags)
         stage = "20615_level_blocked"
         reason = "quest 20615 is level blocked and needs level 20 grind"
-    elseif status_code(q20615) == 3 then
+    elseif status_code(q20615) == 3
+        and not has_earlier_level_block(20615) then
         local at_target_npc = M.isQuest20615TargetNpcDialog(dialog)
             or M.isNearQuest20615TargetNpc(snapshot)
         local current_big_map = number(snapshot.big_map_id)
@@ -472,7 +506,8 @@ function M.plan(snapshot)
             stage = "20615_active"
             reason = "quest 20615 is active and needs task teleport"
         end
-    elseif status_code(q20615) == 4 then
+    elseif status_code(q20615) == 4
+        and not has_earlier_level_block(20615) then
         local current_big_map = number(snapshot.big_map_id)
         local after_big_map_teleport = current_big_map > 0 and current_big_map ~= M.big_map_id
         local at_morheim_npc = after_big_map_teleport
@@ -494,7 +529,8 @@ function M.plan(snapshot)
             stage = "20615_big_map_teleport"
             reason = "quest 20615 is done after target dialog and needs big map teleport"
         end
-    elseif status_code(q20620) == 3 then
+    elseif status_code(q20620) == 3
+        and not has_earlier_level_block(20620) then
         local at_start_npc = M.isQuest20620StartNpcDialog(dialog)
             or M.isNearQuest20620StartNpc(snapshot)
         local at_after_teleport_npc = M.isQuest20620AfterTeleportNpcDialog(dialog)
@@ -525,7 +561,8 @@ function M.plan(snapshot)
             stage = "20620_start_npc"
             reason = "quest 20620 is active and needs start npc dialog"
         end
-    elseif status_code(q20620) == 4 then
+    elseif status_code(q20620) == 4
+        and not has_earlier_level_block(20620) then
         mark_after_20615(flags)
         flags.completed_20620_start_dialog = true
         flags.completed_20620_task_teleport = true

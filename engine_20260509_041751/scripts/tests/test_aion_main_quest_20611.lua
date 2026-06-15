@@ -160,6 +160,10 @@ local function quest_20623_after_teleport_npc_char(level)
     return { x = 1031.41, y = 2031.84, z = 221.04, level = level or 28 }
 end
 
+local function quest_20623_after_dialog_teleport_npc_char(level)
+    return { x = 1195.96, y = 2917.14, z = 279.42, level = level or 28 }
+end
+
 local function post_20612_level14_grind_char(level)
     return { x = 1093.60, y = 2247.10, z = 254.25, level = level or 11 }
 end
@@ -302,7 +306,7 @@ local function run()
         T.assert_eq(next_action.params.char_level, 10)
     end)
 
-    T.test("moves to quest 20612 start point after reaching level 11", function()
+    T.test("completes quest 20612 level grind after reaching level 11", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -318,12 +322,12 @@ local function run()
             level_grind_required_level = 11,
         })
 
-        T.assert_eq(next_action.name, "NavigateToNpc")
+        T.assert_eq(next_action.name, "CompleteLevelGrind")
         T.assert_eq(next_action.params.quest_id, 20612)
-        T.assert_eq(next_action.params.stage, "quest_20612_start_npc")
-        T.assert_eq(next_action.params.x, 477.137)
-        T.assert_eq(next_action.params.y, 2304.421)
-        T.assert_eq(next_action.params.z, 250.734)
+        T.assert_eq(next_action.params.stage, "quest_20612_level_grind")
+        T.assert_eq(next_action.params.next_stage, "quest_20612_start_npc")
+        T.assert_eq(next_action.params.required_level, 11)
+        T.assert_eq(next_action.params.char_level, 11)
     end)
 
     T.test("moves to quest 20612 start point before talking to npc", function()
@@ -412,7 +416,7 @@ local function run()
         T.assert_eq(next_action.params.mark_20612_start_point_reached, true)
     end)
 
-    T.test("continuous x-clicks quest 20612 start npc select list", function()
+    T.test("last-option chains quest 20612 start npc select list", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -430,7 +434,7 @@ local function run()
             reached_20612_start_point = true,
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20612)
         T.assert_eq(next_action.params.quest_step, 0)
         T.assert_eq(next_action.params.stage, "quest_20612_start_npc")
@@ -459,7 +463,7 @@ local function run()
             reached_20612_start_point = true,
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20612)
         T.assert_eq(next_action.params.stage, "quest_20612_start_npc")
         T.assert_eq(next_action.params.expected_content_id, 10)
@@ -651,6 +655,8 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20612)
         T.assert_eq(next_action.params.stage, "quest_20612_reward_npc")
         T.assert_eq(next_action.params.interact_id, 2147495609)
+        T.assert_eq(next_action.params.npc_name, "다비")
+        T.assert_eq(next_action.params.npc_name_key, "MQ20612_NPC_001_REWARD")
         T.assert_eq(next_action.params.allow_interact_id_fallback, true)
     end)
 
@@ -673,7 +679,7 @@ local function run()
         T.assert_eq(next_action.params.interact_id, 2147495609)
     end)
 
-    T.test("continuous x-clicks opened quest 20612 reward npc dialog", function()
+    T.test("last-option chains opened quest 20612 reward npc dialog", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -683,7 +689,7 @@ local function run()
             char = quest_20612_reward_npc_char(),
             big_map_id = 220010000,
             dialog = {
-                npc_dialog_id = 2147495609,
+                npc_dialog_id = 2147510982,
                 dialog_content_id = 10002,
                 quest_id = 20612,
                 type_text = "select_success",
@@ -692,7 +698,7 @@ local function run()
             completed_20612_start_dialog = true,
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20612)
         T.assert_eq(next_action.params.stage, "quest_20612_reward_npc")
         T.assert_eq(next_action.params.expected_content_id, 10002)
@@ -801,7 +807,7 @@ local function run()
         T.assert_eq(next_action.params.char_level, 13)
     end)
 
-    T.test("opens current tracker after fixed post quest 20612 grind reaches level 14", function()
+    T.test("completes fixed post quest 20612 grind after reaching level 14", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -820,10 +826,12 @@ local function run()
             level_grind_required_level = 14,
         })
 
-        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.name, "CompleteLevelGrind")
         T.assert_eq(next_action.params.quest_id, 20613)
-        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
-        T.assert_eq(next_action.params.parent, "quest_indicator_dialog")
+        T.assert_eq(next_action.params.stage, "quest_20613_level14_grind")
+        T.assert_eq(next_action.params.next_stage, "quest_20613_task_teleport")
+        T.assert_eq(next_action.params.required_level, 14)
+        T.assert_eq(next_action.params.char_level, 14)
     end)
 
     T.test("opens current tracker for active quest 20613 after restart", function()
@@ -927,6 +935,7 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20613)
         T.assert_eq(next_action.params.stage, "quest_20613_start_npc")
         T.assert_eq(next_action.params.interact_id, 2147495609)
+        T.assert_eq(next_action.params.npc_name, "다비")
         T.assert_eq(next_action.params.npc_name_key, "MQ20613_NPC_001_START")
         T.assert_eq(next_action.params.x, 1050.70)
         T.assert_eq(next_action.params.y, 2201.12)
@@ -988,7 +997,7 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20613_task_teleport")
     end)
 
-    T.test("continuous x-clicks opened quest 20613 start npc dialog", function()
+    T.test("last-option chains opened quest 20613 start npc dialog", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -1006,7 +1015,7 @@ local function run()
             completed_20613_task_teleport = true,
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20613)
         T.assert_eq(next_action.params.stage, "quest_20613_start_npc")
         T.assert_eq(next_action.params.expected_content_id, 10)
@@ -1016,7 +1025,7 @@ local function run()
         T.assert_eq(next_action.params.interact_id, 2147495609)
     end)
 
-    T.test("continuous x-clicks quest 20613 start npc dialog by content id fallback", function()
+    T.test("last-option chains quest 20613 start npc dialog by content id fallback", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -1034,13 +1043,37 @@ local function run()
             completed_20613_task_teleport = true,
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20613)
         T.assert_eq(next_action.params.stage, "quest_20613_start_npc")
         T.assert_eq(next_action.params.expected_content_id, 10)
         T.assert_eq(next_action.params.content_id, 10)
         T.assert_eq(next_action.params.type_text, "select_quest")
         T.assert_eq(next_action.params.click_x, 25)
+    end)
+
+    T.test("routes no-name quest 20613 dialog by last interact stage", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+            dialog = {
+                npc_dialog_id = 2147510982,
+                content_id = 10,
+                quest_id = 0,
+                type_text = "select_quest",
+            },
+        }, {
+            completed_20613_task_teleport = true,
+            last_interact_stage = "quest_20613_start_npc",
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_start_npc")
     end)
 
     T.test("opens current tracker after quest 20613 start dialog is completed", function()
@@ -1133,6 +1166,31 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20613_after_start_teleport")
     end)
 
+    T.test("does not skip quest 20613 after-start teleport from stale runtime flag", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 4, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            completed_20613_task_teleport = true,
+            completed_20613_start_dialog = true,
+            completed_20613_after_start_teleport = true,
+            clicked_20611_indicator_title = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_after_start_teleport")
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
     T.test("does not restart level 14 grind after quest 20613 task teleport is done", function()
         local quest = load_module()
         local next_action = quest.nextAction({
@@ -1210,15 +1268,16 @@ local function run()
         T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20613)
         T.assert_eq(next_action.params.stage, "quest_20613_after_start_reward_npc")
-        T.assert_eq(next_action.params.interact_id, 2147507242)
+        T.assert_eq(next_action.params.interact_id, 2147492704)
         T.assert_eq(next_action.params.npc_name_key, "MQ20613_NPC_002_AFTER_START_REWARD")
+        T.assert_eq(next_action.params.npc_name, "미요우")
         T.assert_eq(next_action.params.allow_interact_id_fallback, true)
         T.assert_eq(next_action.params.after_open_continuous_x, true)
         T.assert_eq(next_action.params.after_open_expected_content_id, 10002)
         T.assert_eq(next_action.params.click_x, 25)
     end)
 
-    T.test("continuous x-clicks opened quest 20613 after-start reward npc dialog", function()
+    T.test("last-option chains opened quest 20613 after-start reward npc dialog", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -1229,7 +1288,8 @@ local function run()
             char = quest_20613_after_start_reward_npc_char(),
             big_map_id = 220010000,
             dialog = {
-                npc_dialog_id = 2147507242,
+                npc_dialog_id = 2147492704,
+                npc_name = "미요우",
                 dialog_content_id = 10002,
                 content_id = 10002,
                 quest_id = 20613,
@@ -1241,14 +1301,14 @@ local function run()
             completed_20613_after_start_teleport = true,
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20613)
         T.assert_eq(next_action.params.stage, "quest_20613_after_start_reward_npc")
         T.assert_eq(next_action.params.expected_content_id, 10002)
         T.assert_eq(next_action.params.content_id, 10002)
         T.assert_eq(next_action.params.type_text, "select_success")
         T.assert_eq(next_action.params.click_x, 25)
-        T.assert_eq(next_action.params.interact_id, 2147507242)
+        T.assert_eq(next_action.params.interact_id, 2147492704)
         T.assert_eq(next_action.params.npc_name_key, "MQ20613_NPC_002_AFTER_START_REWARD")
     end)
 
@@ -1263,7 +1323,8 @@ local function run()
             char = quest_20613_after_start_reward_npc_char(),
             big_map_id = 220010000,
             dialog = {
-                npc_dialog_id = 2147507242,
+                npc_dialog_id = 2147492704,
+                npc_name = "미요우",
                 dialog_content_id = 10002,
                 content_id = 10002,
                 quest_id = 20613,
@@ -1271,12 +1332,12 @@ local function run()
             },
         }, {})
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20613)
         T.assert_eq(next_action.params.stage, "quest_20613_after_start_reward_npc")
     end)
 
-    T.test("idles after quest 20613 after-start reward dialog completed", function()
+    T.test("starts quest 20614 only after quest 20613 leaves snapshot", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -1292,7 +1353,53 @@ local function run()
             completed_20613_after_start_reward_dialog = true,
         })
 
-        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.name, "FollowRoute")
+        T.assert_eq(next_action.params.quest_id, 20614)
+        T.assert_eq(next_action.params.stage, "quest_20614_level17_grind")
+    end)
+
+    T.test("keeps quest 20613 active step before stale flags can start quest 20614", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 3, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = quest_20613_start_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20612_reward_dialog = true,
+            completed_20613_task_teleport = true,
+            completed_20613_start_dialog = true,
+            completed_20613_after_start_teleport = true,
+            completed_20613_after_start_reward_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20613)
+        T.assert_eq(next_action.params.stage, "quest_20613_start_npc")
+    end)
+
+    T.test("keeps quest 20613 reward step before stale flags can start quest 20614", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20613, tab = 0, status_code = 4, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = quest_20613_after_start_reward_npc_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20612_reward_dialog = true,
+            completed_20613_task_teleport = true,
+            completed_20613_start_dialog = true,
+            completed_20613_after_start_teleport = true,
+            completed_20613_after_start_reward_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20613)
         T.assert_eq(next_action.params.stage, "quest_20613_after_start_reward_npc")
     end)
@@ -1358,16 +1465,16 @@ local function run()
         T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20614)
         T.assert_eq(next_action.params.stage, "quest_20614_start_npc")
-        T.assert_eq(next_action.params.interact_id, 2147507242)
+        T.assert_eq(next_action.params.interact_id, 2147492704)
         T.assert_eq(next_action.params.npc_name_key, "MQ20614_NPC_001_START")
         T.assert_eq(next_action.params.npc_name, "미요우")
-        T.assert_eq(next_action.params.allow_interact_id_fallback, true)
+        T.assert_eq(next_action.params.allow_interact_id_fallback, false)
         T.assert_eq(next_action.params.after_open_continuous_x, true)
         T.assert_eq(next_action.params.after_open_expected_content_id, 10)
         T.assert_eq(next_action.params.click_x, 25)
     end)
 
-    T.test("continuous x-clicks opened quest 20614 start npc dialog", function()
+    T.test("last-option chains opened quest 20614 start npc dialog", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -1377,7 +1484,8 @@ local function run()
             char = quest_20614_start_npc_char(),
             big_map_id = 220010000,
             dialog = {
-                npc_dialog_id = 2147507242,
+                npc_dialog_id = 2147492704,
+                npc_name = "미요우",
                 dialog_content_id = 10,
                 content_id = 10,
                 quest_id = 0,
@@ -1388,14 +1496,14 @@ local function run()
             completed_20614_task_teleport = true,
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20614)
         T.assert_eq(next_action.params.stage, "quest_20614_start_npc")
         T.assert_eq(next_action.params.expected_content_id, 10)
         T.assert_eq(next_action.params.content_id, 10)
         T.assert_eq(next_action.params.type_text, "select_quest")
         T.assert_eq(next_action.params.click_x, 25)
-        T.assert_eq(next_action.params.interact_id, 2147507242)
+        T.assert_eq(next_action.params.interact_id, 2147492704)
         T.assert_eq(next_action.params.npc_name_key, "MQ20614_NPC_001_START")
     end)
 
@@ -1493,6 +1601,32 @@ local function run()
         T.assert_eq(next_action.params.require_panel_visible, true)
     end)
 
+    T.test("does not skip quest 20614 after-start teleport from stale runtime flag", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20614, tab = 0, status_code = 4, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            char = quest_20614_start_npc_char(),
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            completed_20613_after_start_reward_dialog = true,
+            completed_20614_task_teleport = true,
+            completed_20614_start_dialog = true,
+            completed_20614_after_start_teleport = true,
+            clicked_20611_indicator_title = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20614)
+        T.assert_eq(next_action.params.stage, "quest_20614_after_start_teleport")
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
     T.test("opens current tracker for quest 20614 after-start teleport even if start dialog snapshot is stale", function()
         local quest = load_module()
         local next_action = quest.nextAction({
@@ -1503,7 +1637,8 @@ local function run()
             char = quest_20614_start_npc_char(),
             big_map_id = 220010000,
             dialog = {
-                npc_dialog_id = 2147507242,
+                npc_dialog_id = 2147492704,
+                npc_name = "미요우",
                 dialog_content_id = 10,
                 content_id = 10,
                 quest_id = 0,
@@ -1515,12 +1650,12 @@ local function run()
             completed_20614_start_dialog = true,
         })
 
-        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20614)
-        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+        T.assert_eq(next_action.params.stage, "quest_20614_start_npc")
     end)
 
-    T.test("opens current tracker for quest 20614 after-start teleport after npc interaction", function()
+    T.test("keeps quest 20614 start npc pending after npc interaction until dialog completes", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -1591,7 +1726,7 @@ local function run()
         T.assert_eq(next_action.params.click_x, 25)
     end)
 
-    T.test("continuous x-clicks opened quest 20614 reward npc dialog", function()
+    T.test("last-option chains opened quest 20614 reward npc dialog", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -1614,7 +1749,7 @@ local function run()
             completed_20614_after_start_teleport = true,
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20614)
         T.assert_eq(next_action.params.stage, "quest_20614_reward_npc")
         T.assert_eq(next_action.params.expected_content_id, 10002)
@@ -1644,7 +1779,7 @@ local function run()
             },
         }, {})
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20614)
         T.assert_eq(next_action.params.stage, "quest_20614_reward_npc")
     end)
@@ -1775,10 +1910,12 @@ local function run()
             level_grind_required_level = 20,
         })
 
-        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.name, "CompleteLevelGrind")
         T.assert_eq(next_action.params.quest_id, 20615)
-        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
-        T.assert_eq(next_action.params.parent, "quest_indicator_dialog")
+        T.assert_eq(next_action.params.stage, "quest_20615_level20_grind")
+        T.assert_eq(next_action.params.next_stage, "quest_20615_task_teleport")
+        T.assert_eq(next_action.params.required_level, 20)
+        T.assert_eq(next_action.params.char_level, 20)
     end)
 
     T.test("calls quest 20615 task teleport after current tracker panel opens", function()
@@ -2367,9 +2504,10 @@ local function run()
         T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20620)
         T.assert_eq(next_action.params.stage, "quest_20620_after_teleport_npc")
-        T.assert_eq(next_action.params.interact_id, 2147511717)
+        T.assert_eq(next_action.params.interact_id, 2147504921)
         T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_002_AFTER_TELEPORT")
-        T.assert_eq(next_action.params.allow_interact_id_fallback, true)
+        T.assert_eq(next_action.params.npc_name, "헤너르")
+        T.assert_eq(next_action.params.allow_interact_id_fallback, false)
         T.assert_eq(next_action.params.after_open_continuous_last, true)
         T.assert_eq(next_action.params.click_x, 25)
     end)
@@ -2391,7 +2529,7 @@ local function run()
         T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20620)
         T.assert_eq(next_action.params.stage, "quest_20620_after_teleport_npc")
-        T.assert_eq(next_action.params.interact_id, 2147511717)
+        T.assert_eq(next_action.params.interact_id, 2147504921)
     end)
 
     T.test("continuous last-option clicks opened quest 20620 after-teleport npc dialog", function()
@@ -2404,7 +2542,8 @@ local function run()
             char = quest_20620_after_teleport_npc_char(20),
             big_map_id = 220020000,
             dialog = {
-                npc_dialog_id = 2147511717,
+                npc_dialog_id = 2147504921,
+                npc_name = "헤너르",
                 dialog_content_id = 21,
                 content_id = 21,
                 quest_id = 20620,
@@ -2421,7 +2560,7 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20620_after_teleport_npc")
         T.assert_eq(next_action.params.content_id, 21)
         T.assert_eq(next_action.params.type_text, "select_quest")
-        T.assert_eq(next_action.params.interact_id, 2147511717)
+        T.assert_eq(next_action.params.interact_id, 2147504921)
         T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_002_AFTER_TELEPORT")
         T.assert_eq(next_action.params.click_x, 25)
     end)
@@ -2468,7 +2607,7 @@ local function run()
         T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20620)
         T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_return_npc")
-        T.assert_eq(next_action.params.interact_id, 2147511717)
+        T.assert_eq(next_action.params.interact_id, 2147504921)
         T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_002_AFTER_TELEPORT")
         T.assert_eq(next_action.params.after_open_continuous_last, true)
     end)
@@ -2484,7 +2623,8 @@ local function run()
             big_map_id = 220020000,
             dialog = {
                 quest_id = 20620,
-                npc_dialog_id = 2147511717,
+                npc_dialog_id = 2147504921,
+                npc_name = "헤너르",
                 type_text = "select_quest",
                 dialog_content_id = 10,
             },
@@ -2501,7 +2641,7 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_return_npc")
         T.assert_eq(next_action.params.content_id, 10)
         T.assert_eq(next_action.params.type_text, "select_quest")
-        T.assert_eq(next_action.params.interact_id, 2147511717)
+        T.assert_eq(next_action.params.interact_id, 2147504921)
         T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_002_AFTER_TELEPORT")
     end)
 
@@ -2521,7 +2661,7 @@ local function run()
         T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20620)
         T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_return_npc")
-        T.assert_eq(next_action.params.interact_id, 2147511717)
+        T.assert_eq(next_action.params.interact_id, 2147504921)
     end)
 
     T.test("starts quest 20620 after-stigma teleport after return npc dialog completed", function()
@@ -2627,6 +2767,9 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20620)
         T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_npc")
         T.assert_eq(next_action.params.interact_id, 2147515902)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_003_AFTER_STIGMA")
+        T.assert_eq(next_action.params.npc_name, "골렌토르")
+        T.assert_eq(next_action.params.allow_interact_id_fallback, false)
         T.assert_eq(next_action.params.after_open_continuous_last, true)
     end)
 
@@ -2642,6 +2785,7 @@ local function run()
             dialog = {
                 quest_id = 20620,
                 npc_dialog_id = 2147515902,
+                npc_name = "골렌토르",
                 type_text = "select_quest_reward",
                 dialog_content_id = 0,
             },
@@ -2658,6 +2802,7 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20620)
         T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_npc")
         T.assert_eq(next_action.params.interact_id, 2147515902)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_003_AFTER_STIGMA")
         T.assert_eq(next_action.params.click_x, 25)
     end)
 
@@ -2813,7 +2958,7 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20620)
         T.assert_eq(next_action.params.quest_step, 4)
         T.assert_eq(next_action.params.stage, "quest_20620_after_obelisk_npc")
-        T.assert_eq(next_action.params.interact_id, 2147535533)
+        T.assert_eq(next_action.params.interact_id, 2147523843)
         T.assert_eq(next_action.params.after_open_continuous_last, true)
     end)
 
@@ -2902,8 +3047,9 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20620)
         T.assert_eq(next_action.params.quest_step, 4)
         T.assert_eq(next_action.params.stage, "quest_20620_after_obelisk_npc")
-        T.assert_eq(next_action.params.interact_id, 2147535533)
+        T.assert_eq(next_action.params.interact_id, 2147523843)
         T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_005_AFTER_OBELISK")
+        T.assert_eq(next_action.params.npc_name, "우라콘")
         T.assert_eq(next_action.params.allow_interact_id_fallback, true)
         T.assert_eq(next_action.params.after_open_continuous_last, true)
     end)
@@ -2919,7 +3065,8 @@ local function run()
             big_map_id = 220020000,
             dialog = {
                 quest_id = 20620,
-                npc_dialog_id = 2147535533,
+                npc_dialog_id = 2147523843,
+                npc_name = "우라콘",
                 type_text = "select_quest_reward",
                 dialog_content_id = 0,
             },
@@ -2939,7 +3086,8 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20620)
         T.assert_eq(next_action.params.quest_step, 4)
         T.assert_eq(next_action.params.stage, "quest_20620_after_obelisk_npc")
-        T.assert_eq(next_action.params.interact_id, 2147535533)
+        T.assert_eq(next_action.params.interact_id, 2147523843)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_005_AFTER_OBELISK")
         T.assert_eq(next_action.params.click_x, 25)
     end)
 
@@ -3071,6 +3219,31 @@ local function run()
         T.assert_eq(next_action.params.tab, 1)
         T.assert_eq(next_action.params.status_code, 4)
         T.assert_eq(next_action.params.req_count, 20)
+    end)
+
+    T.test("completes level grind before passive blue submit after target level reached", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                passive_blue_ready_quest(24400),
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20621_level22_grind_char(22),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_obelisk_npc_dialog = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20621_level22_grind",
+            level_grind_quest_id = 20621,
+            level_grind_required_level = 22,
+        }, {
+            now_seconds = 100,
+        })
+
+        T.assert_eq(next_action.name, "CompleteLevelGrind")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_level22_grind")
+        T.assert_eq(next_action.params.next_stage, "quest_20621_task_teleport")
     end)
 
     T.test("submits completed passive blue quest during earlier level grind", function()
@@ -3231,7 +3404,7 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20621_level22_grind")
     end)
 
-    T.test("calls quest 20621 task teleport after reaching level 22", function()
+    T.test("completes quest 20621 level grind after reaching level 22", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -3247,15 +3420,12 @@ local function run()
             level_grind_required_level = 22,
         })
 
-        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.name, "CompleteLevelGrind")
         T.assert_eq(next_action.params.quest_id, 20621)
-        T.assert_eq(next_action.params.stage, "quest_20621_task_teleport")
+        T.assert_eq(next_action.params.stage, "quest_20621_level22_grind")
+        T.assert_eq(next_action.params.next_stage, "quest_20621_task_teleport")
         T.assert_eq(next_action.params.required_level, 22)
         T.assert_eq(next_action.params.char_level, 22)
-        T.assert_eq(next_action.params.wait_teleport, true)
-        T.assert_eq(next_action.params.direct_quest_id_only, true)
-        T.assert_eq(next_action.params.open_panel_key, false)
-        T.assert_eq(next_action.params.require_panel_visible, false)
     end)
 
     T.test("calls quest 20621 task teleport after grind runtime is cleared", function()
@@ -3340,8 +3510,9 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20621)
         T.assert_eq(next_action.params.quest_step, 0)
         T.assert_eq(next_action.params.stage, "quest_20621_after_teleport_npc")
-        T.assert_eq(next_action.params.interact_id, 2147535533)
+        T.assert_eq(next_action.params.interact_id, 2147523843)
         T.assert_eq(next_action.params.npc_name_key, "MQ20621_NPC_001_AFTER_TELEPORT")
+        T.assert_eq(next_action.params.npc_name, "우라콘")
         T.assert_eq(next_action.params.allow_interact_id_fallback, true)
         T.assert_eq(next_action.params.after_open_continuous_last, true)
     end)
@@ -3362,7 +3533,7 @@ local function run()
         T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20621)
         T.assert_eq(next_action.params.stage, "quest_20621_after_teleport_npc")
-        T.assert_eq(next_action.params.interact_id, 2147535533)
+        T.assert_eq(next_action.params.interact_id, 2147523843)
     end)
 
     T.test("clicks quest 20621 after-teleport npc dialog with last continuous ok", function()
@@ -3376,7 +3547,8 @@ local function run()
             big_map_id = 220020000,
             dialog = {
                 quest_id = 20621,
-                npc_dialog_id = 2147535533,
+                npc_dialog_id = 2147523843,
+                npc_name = "우라콘",
                 type_text = "select_quest",
                 dialog_content_id = 10,
             },
@@ -3389,7 +3561,8 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20621)
         T.assert_eq(next_action.params.quest_step, 0)
         T.assert_eq(next_action.params.stage, "quest_20621_after_teleport_npc")
-        T.assert_eq(next_action.params.interact_id, 2147535533)
+        T.assert_eq(next_action.params.interact_id, 2147523843)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20621_NPC_001_AFTER_TELEPORT")
         T.assert_eq(next_action.params.click_x, 25)
     end)
 
@@ -3476,6 +3649,31 @@ local function run()
         })
 
         T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20621)
+        T.assert_eq(next_action.params.stage, "quest_20621_after_dialog_teleport")
+    end)
+
+    T.test("waits quest 20621 after-dialog teleport while position is unchanged", function()
+        local quest = load_module()
+        local start_pos = quest_20621_after_teleport_npc_char(22)
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20621, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 22 },
+                { id = 20622, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 25 },
+            },
+            char = start_pos,
+            big_map_id = 220020000,
+        }, {
+            completed_20621_task_teleport = true,
+            completed_20621_after_teleport_npc_dialog = true,
+            waiting_teleport = true,
+            teleport_quest_id = 20621,
+            teleport_stage = "quest_20621_after_dialog_teleport",
+            teleport_start_pos = start_pos,
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
         T.assert_eq(next_action.params.quest_id, 20621)
         T.assert_eq(next_action.params.stage, "quest_20621_after_dialog_teleport")
     end)
@@ -3652,7 +3850,7 @@ local function run()
         T.assert_eq(next_action.params.char_level, 23)
     end)
 
-    T.test("calls quest 20622 task teleport after reaching level 25", function()
+    T.test("completes quest 20622 level grind after reaching level 25", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -3668,15 +3866,12 @@ local function run()
             level_grind_required_level = 25,
         })
 
-        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.name, "CompleteLevelGrind")
         T.assert_eq(next_action.params.quest_id, 20622)
-        T.assert_eq(next_action.params.stage, "quest_20622_task_teleport")
+        T.assert_eq(next_action.params.stage, "quest_20622_level25_grind")
+        T.assert_eq(next_action.params.next_stage, "quest_20622_task_teleport")
         T.assert_eq(next_action.params.required_level, 25)
         T.assert_eq(next_action.params.char_level, 25)
-        T.assert_eq(next_action.params.wait_teleport, true)
-        T.assert_eq(next_action.params.direct_quest_id_only, true)
-        T.assert_eq(next_action.params.open_panel_key, false)
-        T.assert_eq(next_action.params.require_panel_visible, false)
     end)
 
     T.test("calls quest 20622 task teleport when level gate becomes active", function()
@@ -4021,6 +4216,30 @@ local function run()
         T.assert_eq(next_action.params.char_level, 26)
     end)
 
+    T.test("completes quest 20623 level grind after reaching level 28", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = quest_20623_level28_grind_char(28),
+            big_map_id = 220020000,
+        }, {
+            completed_20622_after_npc_teleport_npc_dialog = true,
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20623_level28_grind",
+            level_grind_quest_id = 20623,
+            level_grind_required_level = 28,
+        })
+
+        T.assert_eq(next_action.name, "CompleteLevelGrind")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_level28_grind")
+        T.assert_eq(next_action.params.next_stage, "quest_20623_task_teleport")
+        T.assert_eq(next_action.params.required_level, 28)
+        T.assert_eq(next_action.params.char_level, 28)
+    end)
+
     T.test("calls quest 20623 task teleport after reaching level 28", function()
         local quest = load_module()
         local next_action = quest.nextAction({
@@ -4101,7 +4320,7 @@ local function run()
         T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20623)
         T.assert_eq(next_action.params.stage, "quest_20623_after_teleport_npc")
-        T.assert_eq(next_action.params.npc_name, "雮橂皵耄?")
+        T.assert_eq(next_action.params.npc_name, "나바루")
         T.assert_eq(next_action.params.npc_name_key, "MQ20623_NPC_001_AFTER_TELEPORT")
         T.assert_eq(next_action.params.allow_interact_id_fallback, false)
         T.assert_eq(next_action.params.after_open_continuous_last, true)
@@ -4121,7 +4340,7 @@ local function run()
         T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20623)
         T.assert_eq(next_action.params.stage, "quest_20623_after_teleport_npc")
-        T.assert_eq(next_action.params.npc_name, "雮橂皵耄?")
+        T.assert_eq(next_action.params.npc_name, "나바루")
         T.assert_eq(next_action.params.allow_interact_id_fallback, false)
     end)
 
@@ -4134,7 +4353,7 @@ local function run()
             char = quest_20623_after_teleport_npc_char(28),
             big_map_id = 220020000,
             dialog = {
-                npc_name = "雮橂皵耄?",
+                npc_name = "나바루",
                 npc_dialog_id = 2147528744,
                 quest_id = 20623,
                 type_text = "quest",
@@ -4147,11 +4366,37 @@ local function run()
         T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20623)
         T.assert_eq(next_action.params.stage, "quest_20623_after_teleport_npc")
-        T.assert_eq(next_action.params.npc_name, "雮橂皵耄?")
+        T.assert_eq(next_action.params.npc_name, "나바루")
         T.assert_eq(next_action.params.npc_name_key, "MQ20623_NPC_001_AFTER_TELEPORT")
     end)
 
-    T.test("idles after quest 20623 after-teleport npc dialog completed", function()
+    T.test("continues quest 20623 after-teleport select quest dialog by npc id", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = quest_20623_after_teleport_npc_char(28),
+            big_map_id = 220020000,
+            dialog = {
+                npc_dialog_id = 2147528744,
+                quest_id = 0,
+                type_text = "select_quest",
+                dialog_content_id = 10,
+            },
+        }, {
+            completed_20623_task_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_after_teleport_npc")
+        T.assert_eq(next_action.params.type_text, "select_quest")
+        T.assert_eq(next_action.params.expected_content_id, nil)
+        T.assert_eq(next_action.params.npc_dialog_id, 2147528744)
+    end)
+
+    T.test("calls quest 20623 after-dialog teleport after npc dialog completed", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -4164,9 +4409,197 @@ local function run()
             completed_20623_after_teleport_npc_dialog = true,
         })
 
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_after_dialog_teleport")
+        T.assert_eq(next_action.params.wait_teleport, true)
+        T.assert_eq(next_action.params.direct_quest_id_only, true)
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, false)
+    end)
+
+    T.test("waits for quest 20623 after-dialog teleport position change", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 4, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = quest_20623_after_teleport_npc_char(28),
+            big_map_id = 220020000,
+        }, {
+            waiting_teleport = true,
+            teleport_quest_id = 20623,
+            teleport_stage = "quest_20623_after_dialog_teleport",
+            teleport_start_pos = quest_20623_after_teleport_npc_char(28),
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_after_dialog_teleport")
+    end)
+
+    T.test("completes quest 20623 after-dialog teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 4, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = { x = 900.00, y = 1700.00, z = 250.00, level = 28 },
+            big_map_id = 220020000,
+        }, {
+            waiting_teleport = true,
+            teleport_quest_id = 20623,
+            teleport_stage = "quest_20623_after_dialog_teleport",
+            teleport_start_pos = quest_20623_after_teleport_npc_char(28),
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_after_dialog_teleport")
+    end)
+
+    T.test("opens quest 20623 after-dialog teleport npc after teleport completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 4, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = quest_20623_after_dialog_teleport_npc_char(28),
+            big_map_id = 220020000,
+        }, {
+            completed_20623_after_teleport_npc_dialog = true,
+            completed_20623_after_dialog_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_after_dialog_teleport_npc")
+        T.assert_eq(next_action.params.interact_id, 2147527004)
+        T.assert_eq(next_action.params.allow_interact_id_fallback, true)
+        T.assert_eq(next_action.params.after_open_continuous_last, true)
+    end)
+
+    T.test("recovers quest 20623 after-dialog teleport npc from F11 ready state", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 4, req_count = 0, seq = 1, lv_num = 28 },
+                { id = 20624, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 31 },
+            },
+            char = quest_20623_after_dialog_teleport_npc_char(28),
+            big_map_id = 220020000,
+        }, {})
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_after_dialog_teleport_npc")
+        T.assert_eq(next_action.params.interact_id, 2147527004)
+        T.assert_eq(next_action.params.allow_interact_id_fallback, true)
+    end)
+
+    T.test("clicks quest 20623 after-dialog teleport npc dialog with continuous last ok", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 4, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = quest_20623_after_dialog_teleport_npc_char(28),
+            big_map_id = 220020000,
+            dialog = {
+                npc_dialog_id = 2147527004,
+                quest_id = 20623,
+                type_text = "select_success",
+                dialog_content_id = 10002,
+            },
+        }, {})
+
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_after_dialog_teleport_npc")
+        T.assert_eq(next_action.params.npc_dialog_id, 2147527004)
+    end)
+
+    T.test("idles after quest 20623 after-dialog teleport npc completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 4, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = quest_20623_after_dialog_teleport_npc_char(28),
+            big_map_id = 220020000,
+        }, {
+            completed_20623_after_dialog_teleport_npc_dialog = true,
+        })
+
         T.assert_eq(next_action.name, "Idle")
         T.assert_eq(next_action.params.quest_id, 20623)
-        T.assert_eq(next_action.params.stage, "quest_20623_after_teleport_npc")
+        T.assert_eq(next_action.params.stage, "quest_20623_after_dialog_teleport_npc")
+    end)
+
+    T.test("does not infer quest 20623 after-dialog teleport from quest 20624 level gate near npc", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20624, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 31 },
+            },
+            level_blocked_quest = { id = 20624, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 31 },
+            char = quest_20623_after_teleport_npc_char(28),
+            big_map_id = 220020000,
+        }, {})
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20624)
+        T.assert_eq(next_action.params.stage, "quest_20611_level_grind")
+    end)
+
+    T.test("does not infer quest 20623 final npc from quest 20624 level gate near final npc", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20624, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 31 },
+            },
+            level_blocked_quest = { id = 20624, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 31 },
+            char = quest_20623_after_dialog_teleport_npc_char(28),
+            big_map_id = 220020000,
+        }, {})
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20624)
+        T.assert_eq(next_action.params.stage, "quest_20611_level_grind")
+    end)
+
+    T.test("does not recover quest 20623 after-dialog teleport away from npc", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20624, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 31 },
+            },
+            level_blocked_quest = { id = 20624, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 31 },
+            char = { x = 900.00, y = 1700.00, z = 250.00, level = 28 },
+            big_map_id = 220020000,
+        }, {})
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20624)
+        T.assert_eq(next_action.params.stage, "quest_20611_level_grind")
+    end)
+
+    T.test("does not recover quest 20623 after-dialog teleport for different quest 20624 seq", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20624, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 31 },
+            },
+            level_blocked_quest = { id = 20624, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 31 },
+            char = quest_20623_after_teleport_npc_char(28),
+            big_map_id = 220020000,
+        }, {})
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20624)
+        T.assert_eq(next_action.params.stage, "quest_20611_level_grind")
     end)
 
     T.test("opens quest 20620 after-stigma return npc after stigma completed when teleport flag is missing", function()
@@ -4189,7 +4622,7 @@ local function run()
         T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20620)
         T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_return_npc")
-        T.assert_eq(next_action.params.interact_id, 2147511717)
+        T.assert_eq(next_action.params.interact_id, 2147504921)
     end)
 
     T.test("does not start quest 20614 level grind after quest 20613 start dialog", function()
@@ -4280,7 +4713,7 @@ local function run()
         T.assert_eq(next_action.params.task_step, "grind")
     end)
 
-    T.test("teleports tracked quest 20611 after level grind reaches 8", function()
+    T.test("completes tracked quest 20611 level grind after reaching 8", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -4300,12 +4733,12 @@ local function run()
             clicked_20611_indicator_title = true,
         })
 
-        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.name, "CompleteLevelGrind")
         T.assert_eq(next_action.params.quest_id, 20611)
-        T.assert_eq(next_action.params.stage, "quest_20611_level_move")
+        T.assert_eq(next_action.params.stage, "quest_20611_level_grind")
+        T.assert_eq(next_action.params.next_stage, "quest_20611_level_move")
         T.assert_eq(next_action.params.required_level, 8)
         T.assert_eq(next_action.params.char_level, 10)
-        T.assert_eq(next_action.params.wait_teleport, true)
     end)
 
     T.test("teleports active yellow mission after restart when level requirement is met", function()
@@ -4331,6 +4764,63 @@ local function run()
         T.assert_eq(next_action.params.char_level, 10)
         T.assert_eq(next_action.params.open_panel_key, false)
         T.assert_eq(next_action.params.require_panel_visible, true)
+        T.assert_eq(next_action.params.wait_teleport, true)
+    end)
+
+    T.test("opens current tracker for active quest 20611 when later level gates are also listed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 0 },
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            level_blocked_quest = { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            char = { x = 198.03, y = 2684.56, z = 301.00, level = 8 },
+            big_map_id = 220010000,
+        }, {
+            completed_20590_reward = true,
+            completed_20610_start_dialog = true,
+            completed_20610_task_teleport = true,
+            completed_20610_reward = true,
+        })
+
+        T.assert_eq(next_action.name, "ClickUiControl")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_indicator_title")
+    end)
+
+    T.test("teleports active quest 20611 from current tracker when later level gates are also listed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 0 },
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+            },
+            level_blocked_quest = { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            char = { x = 198.03, y = 2684.56, z = 301.00, level = 8 },
+            big_map_id = 220010000,
+            ui = {
+                quest_panel_visible = true,
+            },
+        }, {
+            clicked_20611_indicator_title = true,
+            completed_20590_reward = true,
+            completed_20610_start_dialog = true,
+            completed_20610_task_teleport = true,
+            completed_20610_reward = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_level_move")
+        T.assert_eq(next_action.params.required_level, 8)
+        T.assert_eq(next_action.params.char_level, 8)
         T.assert_eq(next_action.params.wait_teleport, true)
     end)
 
@@ -4421,7 +4911,7 @@ local function run()
             char = mission_npc_char(),
             big_map_id = 220010000,
             dialog = {
-                npc_dialog_id = 2147503111,
+                npc_dialog_id = 2147505276,
                 dialog_content_id = 10,
                 quest_id = 0,
                 type_text = "select_quest",
@@ -4431,25 +4921,23 @@ local function run()
             level_move_quest_id = 20611,
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20611)
         T.assert_eq(next_action.params.stage, "quest_20611_mission_npc")
         T.assert_eq(next_action.params.expected_content_id, 10)
         T.assert_eq(next_action.params.content_id, 10)
         T.assert_eq(next_action.params.type_text, "select_quest")
         T.assert_eq(next_action.params.click_x, 25)
-        T.assert_eq(next_action.params.click_y, 324)
-        T.assert_eq(next_action.params.click_y_tolerance, 8)
         T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_001_MISSION")
     end)
 
     T.test("continues known quest 20611 mission dialog chain", function()
         local quest = load_module()
         local cases = {
-            { type_text = "select1", content_id = 1011, action = "ClickDialogXContinuous" },
-            { type_text = "select1_1", content_id = 1012, action = "ClickDialogXContinuous" },
-            { type_text = "select1_1_1", content_id = 1013, action = "ClickDialogXContinuous" },
-            { type_text = "select1_1_1_1", content_id = 1014, action = "ClickDialogXContinuous" },
+            { type_text = "select1", content_id = 1011, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select1_1", content_id = 1012, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select1_1_1", content_id = 1013, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select1_1_1_1", content_id = 1014, action = "ClickDialogLastContinuousOk" },
         }
         for _, case in ipairs(cases) do
             local next_action = quest.nextAction({
@@ -4494,7 +4982,7 @@ local function run()
             level_move_quest_id = 20611,
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.stage, "quest_20611_mission_npc")
         T.assert_eq(next_action.params.expected_content_id, 1011)
         T.assert_eq(next_action.params.interact_id, 2147503111)
@@ -4505,7 +4993,12 @@ local function run()
         local next_action = quest.nextAction({
             quests = {
                 { id = 20611, tab = 0, status_code = 3, req_count = 1, seq = 1, lv_num = 8 },
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+                { id = 20613, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 14 },
+                { id = 20614, tab = 0, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20615, tab = 0, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
             },
+            level_blocked_quest = { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
             char = obelisk_char(),
             big_map_id = 220010000,
         }, {
@@ -4518,6 +5011,47 @@ local function run()
         T.assert_eq(next_action.params.stage, "quest_20611_obelisk")
         T.assert_eq(next_action.params.interact_id, 2147505051)
         T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_002_OBELISK")
+    end)
+
+    T.test("stale quest 20623 runtime does not block quest 20611 obelisk", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 1, seq = 1, lv_num = 8 },
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            level_blocked_quest = { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            char = obelisk_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_mission_dialog = true,
+            completed_20623_after_dialog_teleport_npc_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "InteractNpc")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_obelisk")
+    end)
+
+    T.test("navigates to quest 20611 obelisk before later level gate", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 3, req_count = 1, seq = 1, lv_num = 8 },
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            level_blocked_quest = { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            char = far_char(),
+            big_map_id = 220010000,
+        }, {
+            completed_20611_mission_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "NavigateToNpc")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.quest_step, 1)
+        T.assert_eq(next_action.params.stage, "quest_20611_obelisk")
+        T.assert_eq(next_action.params.interact_id, 2147505051)
     end)
 
     T.test("keeps earliest yellow mission when later active mission appears first", function()
@@ -4782,7 +5316,7 @@ local function run()
             },
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20611)
         T.assert_eq(next_action.params.quest_step, 2)
         T.assert_eq(next_action.params.stage, "quest_20611_target_npc")
@@ -4850,7 +5384,7 @@ local function run()
         T.assert_eq(next_action.params.interact_id, 2147515597)
     end)
 
-    T.test("continuous x-clicks quest 20611 hotspot reward npc dialog", function()
+    T.test("last-option chains quest 20611 hotspot reward npc dialog", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -4866,7 +5400,7 @@ local function run()
             },
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.quest_id, 20611)
         T.assert_eq(next_action.params.quest_step, 3)
         T.assert_eq(next_action.params.stage, "quest_20611_hotspot_reward_npc")
@@ -4876,6 +5410,31 @@ local function run()
         T.assert_eq(next_action.params.click_x, 25)
         T.assert_eq(next_action.params.interact_id, 2147515597)
         T.assert_eq(next_action.params.npc_name_key, "MQ20611_NPC_004_HOTSPOT_REWARD")
+    end)
+
+    T.test("keeps hotspot reward dialog after quest list advances", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20611, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 8 },
+                { id = 20612, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+            char = hotspot_reward_char(),
+            big_map_id = 220010000,
+            dialog = {
+                dialog_content_id = 10002,
+                quest_id = 20611,
+                type_text = "select_success",
+            },
+        }, {
+            completed_20611_hotspot_teleport = true,
+            completed_20611_hotspot_reward = false,
+        })
+
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
+        T.assert_eq(next_action.params.quest_id, 20611)
+        T.assert_eq(next_action.params.stage, "quest_20611_hotspot_reward_npc")
+        T.assert_eq(next_action.params.expected_content_id, 10002)
     end)
 
     T.test("dumps unknown quest 20611 target npc dialog pages", function()

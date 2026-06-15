@@ -9,6 +9,7 @@ local interruptible_actions = {
     ClickUiControl = true,
     ClickUiControlWaitTeleport = true,
     ClickDialogX = true,
+    ClickDialogLastContinuousOk = true,
     ClickDialogXContinuous = true,
     ClickDialogXContinuousWaitTeleport = true,
     ClickDialogXWaitTeleport = true,

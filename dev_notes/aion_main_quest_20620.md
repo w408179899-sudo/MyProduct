@@ -126,11 +126,11 @@ quest_id=20620
 status_code=3
 req_count=1
 big_map_id=220020000
-char_pos=233.55,2324.88,446.17
-target_id=65526
-target_interact_id=2147511717
+char_pos=235.65,2322.26,446.32
+target_id=65521
+target_interact_id=2147504921
 target_pos=234.21,2321.90,446.32
-target_dist=3.06
+target_dist=1.48
 dialog=closed
 ```
 
@@ -138,7 +138,8 @@ NPC：
 
 ```text
 name_key=MQ20620_NPC_002_AFTER_TELEPORT
-interact_id=2147511717
+name=헤너르
+interact_id=2147504921
 x=234.21
 y=2321.90
 z=446.32
@@ -158,7 +159,7 @@ completed_20620_task_teleport=true
 执行顺序：
 
 ```text
-InteractNpc stage=quest_20620_after_teleport_npc interact_id=2147511717
+InteractNpc stage=quest_20620_after_teleport_npc interact_id=2147504921
 ClickDialogLastContinuousOk stage=quest_20620_after_teleport_npc
 ```
 
@@ -279,6 +280,7 @@ NPC：
 
 ```text
 name_key=MQ20620_NPC_003_AFTER_STIGMA
+name=골렌토르
 interact_id=2147515902
 x=269.42
 y=2337.65
@@ -430,11 +432,12 @@ quest_id=20620
 status_code=4
 req_count=4
 big_map_id=220020000
-char_pos=194.74,2269.09,438.87
-target_id=65522
-target_interact_id=2147535533
+char_pos=192.58,2266.28,439.15
+target_id=65524
+target_interact_id=2147523843
 target_pos=193.00,2268.50,439.12
-target_dist=1.86
+target_dist=2.26
+target_name=우라콘
 dialog=closed
 ```
 
@@ -442,7 +445,8 @@ NPC：
 
 ```text
 name_key=MQ20620_NPC_005_AFTER_OBELISK
-interact_id=2147535533
+name=우라콘
+interact_id=2147523843
 x=193.00
 y=2268.50
 z=439.12
@@ -464,7 +468,7 @@ completed_20620_after_obelisk_npc_dialog~=true
 执行顺序：
 
 ```text
-InteractNpc stage=quest_20620_after_obelisk_npc interact_id=2147535533
+InteractNpc stage=quest_20620_after_obelisk_npc interact_id=2147523843
 ClickDialogLastContinuousOk stage=quest_20620_after_obelisk_npc
 ```
 

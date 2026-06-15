@@ -65,11 +65,11 @@ local function run()
     T.test("clicks recorded quest 20610 dialog chain", function()
         local quest = load_module()
         local cases = {
-            { type_text = "select_quest", content_id = 10, action = "ClickDialogXContinuous" },
-            { type_text = "select1", content_id = 1011, action = "ClickDialogXContinuous" },
-            { type_text = "select1_1", content_id = 1012, action = "ClickDialogXContinuous" },
-            { type_text = "select1_1_1", content_id = 1013, action = "ClickDialogXContinuous" },
-            { type_text = "select1_1_1_1", content_id = 1014, action = "ClickDialogXContinuous" },
+            { type_text = "select_quest", content_id = 10, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select1", content_id = 1011, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select1_1", content_id = 1012, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select1_1_1", content_id = 1013, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select1_1_1_1", content_id = 1014, action = "ClickDialogLastContinuousOk" },
         }
 
         for _, case in ipairs(cases) do
@@ -120,7 +120,7 @@ local function run()
             },
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuous")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.stage, "quest_20610_npc")
         T.assert_eq(next_action.params.expected_content_id, 1011)
         T.assert_eq(next_action.params.interact_id, 2147514375)

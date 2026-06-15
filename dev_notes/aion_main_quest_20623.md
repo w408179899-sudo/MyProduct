@@ -204,3 +204,22 @@
 1033.244, 1815.475, 221.439
 1032.726, 1815.495, 221.567
 ```
+
+## Update: 20623 after-dialog teleport NPC
+
+- Stage: `quest_20623_after_dialog_teleport_npc`
+- F11 snapshot: `20623 status_code=4 req_count=0 seq=1`, current main quest is still `20623`.
+- Trigger:
+  - `completed_20623_after_dialog_teleport=true`; or
+  - script restart/F11 recovery where `20623 status_code=4 req_count=0` and the character is near this NPC.
+- NPC:
+  - `interact_id=2147527004`
+  - position: `1194.90, 2916.40, 279.34`
+  - map: `220020000`
+  - name is not trusted from F11 because the captured string is mojibake; use stage + quest + interact id fallback.
+- Action:
+  - move to NPC if outside range
+  - `InteractNpc` with `allow_interact_id_fallback=true`
+  - open dialog then run `ClickDialogLastContinuousOk`
+- Completion flag: `completed_20623_after_dialog_teleport_npc_dialog=true`
+- Guard: do not infer this step from `20624` level-blocked state alone.

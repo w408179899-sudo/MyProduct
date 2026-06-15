@@ -336,6 +336,27 @@ local function run()
         T.assert_eq(plan.flags.active_20611_grind, false)
     end)
 
+    T.test("earliest level blocked quest wins when later blocked quests are also listed", function()
+        local resume = load_module()
+        local plan = resume.plan({
+            char = { name = "OrderedBlocks", level = 8 },
+            big_map_id = 220010000,
+            quests = {
+                { id = 20615, status_code = 6, req_count = 0, seq = 5, lv_num = 20 },
+                { id = 20614, status_code = 6, req_count = 0, seq = 4, lv_num = 17 },
+                { id = 20612, status_code = 6, req_count = 0, seq = 2, lv_num = 11 },
+            },
+        })
+
+        T.assert_eq(plan.stage, "20612_level_blocked")
+        T.assert_eq(plan.level_blocked_quest_id, 20612)
+        T.assert_eq(plan.flags.completed_20611_hotspot_reward, true)
+        T.assert_eq(plan.flags.completed_20612_start_dialog, false)
+        T.assert_eq(plan.flags.completed_20612_task_teleport, false)
+        T.assert_eq(plan.flags.completed_20612_reward_dialog, false)
+        T.assert_nil(plan.flags.completed_20614_reward_dialog)
+    end)
+
     T.test("active quest 20614 step zero resumes first task teleport", function()
         local resume = load_module()
         local plan = resume.plan({

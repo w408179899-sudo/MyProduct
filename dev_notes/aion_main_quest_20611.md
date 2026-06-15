@@ -121,6 +121,7 @@ AionData.NodeTeleport(node_id=66, price=0)
 
 ```text
 stage=quest_20611_hotspot_reward_npc
+target_name=볼리크
 quest_id=20611
 status_code=4
 req_count=3

@@ -74,7 +74,8 @@ quest_id=20613
 status_code=4
 req_count=0
 char_pos=944.00,1701.69,259.66
-target_interact_id=2147507242
+target=미요우
+target_interact_id=2147492704
 target_dist=2.50
 target_pos=946.25,1702.77,259.62
 dialog_type=select_success
@@ -85,7 +86,7 @@ next=HACTION_SELECT_QUEST_REWARD
 执行：
 
 ```text
-NavigateToNpc / InteractNpc interact_id=2147507242 stage=quest_20613_after_start_reward_npc
+NavigateToNpc / InteractNpc interact_id=2147492704 stage=quest_20613_after_start_reward_npc
 ClickDialogXContinuous click_x=25 content_id=10002 type_text=select_success
 ```
 

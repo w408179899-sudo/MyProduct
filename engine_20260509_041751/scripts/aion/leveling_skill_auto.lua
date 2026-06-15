@@ -1,0 +1,525 @@
+local M = {
+    KIND_SKILL = 0x15,
+    DEFAULT_RETRY_SECONDS = 3.0,
+}
+
+local function number(value)
+    return tonumber(value) or 0
+end
+
+local function trim(text)
+    return tostring(text or ""):match("^%s*(.-)%s*$") or ""
+end
+
+local function skill_id(skill)
+    if type(skill) ~= "table" then
+        return 0
+    end
+    return number(skill.id or skill.skill_id or skill.skillId)
+end
+
+local function skill_name(skill)
+    if type(skill) ~= "table" then
+        return ""
+    end
+    return trim(skill.name or skill.skill_name or skill.skillName or skill.name_ko
+        or skill.name_kr or skill.name_cn or skill.name_en)
+end
+
+local function skill_type(skill)
+    if type(skill) ~= "table" then
+        return 0
+    end
+    return number(skill.type or skill.typ or skill.skill_type or skill.skillType)
+end
+
+local function skill_level(skill)
+    if type(skill) ~= "table" then
+        return 0
+    end
+    return number(skill.level or skill.lv or skill.skill_level or skill.skillLevel)
+end
+
+local function roman_rank_value(text)
+    text = trim(text)
+    local token = text:match("%s+([IVXLCDM]+)$")
+        or text:match("%s+([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)$")
+        or text:match("%s+(%d+)$")
+    if not token then
+        return 0
+    end
+    local unicode = {
+        ["Ⅰ"] = 1, ["Ⅱ"] = 2, ["Ⅲ"] = 3, ["Ⅳ"] = 4, ["Ⅴ"] = 5,
+        ["Ⅵ"] = 6, ["Ⅶ"] = 7, ["Ⅷ"] = 8, ["Ⅸ"] = 9, ["Ⅹ"] = 10,
+    }
+    if unicode[token] then
+        return unicode[token]
+    end
+    local numeric = tonumber(token)
+    if numeric then
+        return numeric
+    end
+    local values = { I = 1, V = 5, X = 10, L = 50, C = 100, D = 500, M = 1000 }
+    local total, previous = 0, 0
+    for i = #token, 1, -1 do
+        local value = values[token:sub(i, i)] or 0
+        if value < previous then
+            total = total - value
+        else
+            total = total + value
+            previous = value
+        end
+    end
+    return total
+end
+
+local function skill_group_key(skill)
+    local name = skill_name(skill)
+    if name == "" then
+        return "id:" .. tostring(skill_id(skill))
+    end
+    name = name:gsub("%s+[IVXLCDM]+$", "")
+    name = name:gsub("%s+[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+$", "")
+    name = name:gsub("%s+%d+$", "")
+    name = name:gsub("%s+", " ")
+    return string.lower(trim(name))
+end
+
+local function skill_preferred_over(candidate, current)
+    if not current then
+        return true
+    end
+    local c_level, old_level = skill_level(candidate), skill_level(current)
+    if c_level ~= old_level then
+        return c_level > old_level
+    end
+    local c_rank, old_rank = roman_rank_value(skill_name(candidate)), roman_rank_value(skill_name(current))
+    if c_rank ~= old_rank then
+        return c_rank > old_rank
+    end
+    return skill_id(candidate) > skill_id(current)
+end
+
+local function append_token_set(set, text)
+    text = tostring(text or "")
+    for token in text:gmatch("[^\r\n,;]+") do
+        token = trim(token)
+        if token ~= "" then
+            set[token] = true
+            set[string.lower(token)] = true
+        end
+    end
+end
+
+local function ignored_token_set(opts)
+    local set = {}
+    opts = opts or {}
+    append_token_set(set, opts.ignore_names)
+    append_token_set(set, opts.ignore_ids)
+    return set
+end
+
+local function list_to_id_set(list)
+    local set = {}
+    for _, item in ipairs(list or {}) do
+        local id = type(item) == "table" and skill_id(item) or number(item)
+        if id > 0 then
+            set[id] = true
+            set[tostring(id)] = true
+        end
+    end
+    return set
+end
+
+local function is_ignored(skill, set)
+    local id = skill_id(skill)
+    local name = skill_name(skill)
+    if id > 0 and (set[id] or set[tostring(id)]) then
+        return true
+    end
+    if name ~= "" and (set[name] or set[string.lower(name)]) then
+        return true
+    end
+    return false
+end
+
+local function quickbar_key(bar_index, slot_index)
+    return tostring(number(bar_index)) .. ":" .. tostring(number(slot_index))
+end
+
+local function normalize_quickbar_state(state)
+    state = type(state) == "table" and state or {}
+    state.occupied_slots = type(state.occupied_slots) == "table" and state.occupied_slots or {}
+    state.placed_by_id = type(state.placed_by_id) == "table" and state.placed_by_id or {}
+    state.placed_by_group = type(state.placed_by_group) == "table" and state.placed_by_group or {}
+    state.next_slot = number(state.next_slot)
+    return state
+end
+
+local function find_quickbar_slot(qstate, opts)
+    qstate = normalize_quickbar_state(qstate)
+    opts = opts or {}
+    local bar_index = number(opts.quickbar_bar_index)
+    local start_slot = number(opts.quickbar_start_slot)
+    local slot_count = number(opts.quickbar_slot_count)
+    if slot_count <= 0 then
+        slot_count = 12
+    end
+    local next_slot = math.max(start_slot, number(qstate.next_slot))
+    for slot = next_slot, start_slot + slot_count - 1 do
+        local key = quickbar_key(bar_index, slot)
+        if qstate.occupied_slots[key] ~= true then
+            return slot, key
+        end
+    end
+    return nil, nil
+end
+
+function M.newRuntime()
+    return {
+        startup_sync_done = false,
+        last_seen_level = 0,
+        last_processed_level = 0,
+        pending_level = 0,
+        pending_reason = "",
+        last_attempt_at = 0,
+        last_success_at = 0,
+        last_error = "",
+        last_result = "",
+        last_summary = {},
+        quickbar = {
+            next_slot = 0,
+            occupied_slots = {},
+            placed_by_id = {},
+            placed_by_group = {},
+        },
+    }
+end
+
+function M.resetRuntime(state)
+    state = type(state) == "table" and state or {}
+    local fresh = M.newRuntime()
+    for key, value in pairs(fresh) do
+        state[key] = value
+    end
+    return state
+end
+
+function M.detectPending(state, char, opts)
+    state = type(state) == "table" and state or M.newRuntime()
+    opts = opts or {}
+
+    local level = number(char and char.level)
+    if level <= 0 then
+        return false, "no-level"
+    end
+
+    if number(state.last_seen_level) <= 0 then
+        state.last_seen_level = level
+    end
+
+    if state.startup_sync_done ~= true and opts.startup_sync ~= false then
+        state.pending_level = level
+        state.pending_reason = "startup"
+        return true, "startup"
+    end
+
+    if level > number(state.last_seen_level) then
+        state.last_seen_level = level
+        state.pending_level = level
+        state.pending_reason = "level-up"
+        return true, "level-up"
+    end
+
+    if number(state.pending_level) > number(state.last_processed_level) then
+        return true, tostring(state.pending_reason or "pending")
+    end
+
+    if level > number(state.last_seen_level) then
+        state.last_seen_level = level
+    end
+    return false, "idle"
+end
+
+function M.canAttempt(state, now, retry_seconds)
+    state = type(state) == "table" and state or {}
+    if number(state.pending_level) <= 0 then
+        return false, "no-pending"
+    end
+    retry_seconds = math.max(0.2, number(retry_seconds) > 0 and number(retry_seconds) or M.DEFAULT_RETRY_SECONDS)
+    now = number(now)
+    if number(state.last_attempt_at) > 0 and now - number(state.last_attempt_at) < retry_seconds then
+        return false, "cooldown"
+    end
+    return true, "ready"
+end
+
+function M.planAutoActiveSkills(skills, current_auto_active, opts)
+    opts = opts or {}
+    local current = list_to_id_set(current_auto_active)
+    local ignored = ignored_token_set(opts)
+    local plan = {
+        to_add = {},
+        errors = {},
+        stats = {
+            learned = 0,
+            active_type = 0,
+            already = 0,
+            duplicate_group = 0,
+            ignored = 0,
+            not_auto = 0,
+            check_failed = 0,
+            invalid = 0,
+            candidates = 0,
+        },
+    }
+
+    local selected_by_group = {}
+    local group_order = {}
+    for _, skill in ipairs(skills or {}) do
+        plan.stats.learned = plan.stats.learned + 1
+        local id = skill_id(skill)
+        if id <= 0 then
+            plan.stats.invalid = plan.stats.invalid + 1
+        elseif opts.require_active_type ~= false and skill_type(skill) ~= 2 then
+            -- Buff/status/passive skills are intentionally left out.
+        else
+            plan.stats.active_type = plan.stats.active_type + 1
+            local group = skill_group_key(skill)
+            if not selected_by_group[group] then
+                group_order[#group_order + 1] = group
+                selected_by_group[group] = skill
+            elseif skill_preferred_over(skill, selected_by_group[group]) then
+                plan.stats.duplicate_group = plan.stats.duplicate_group + 1
+                selected_by_group[group] = skill
+            else
+                plan.stats.duplicate_group = plan.stats.duplicate_group + 1
+            end
+        end
+    end
+
+    for _, group in ipairs(group_order) do
+        local skill = selected_by_group[group]
+        local id = skill_id(skill)
+        if current[id] or current[tostring(id)] then
+            plan.stats.already = plan.stats.already + 1
+        elseif is_ignored(skill, ignored) then
+            plan.stats.ignored = plan.stats.ignored + 1
+        else
+            local allowed = true
+            if type(opts.is_skill_auto) == "function" then
+                local ok, value, err = opts.is_skill_auto(id)
+                allowed = ok == true and value == true
+                if ok ~= true then
+                    plan.stats.check_failed = plan.stats.check_failed + 1
+                    plan.errors[#plan.errors + 1] = "IsSkillAuto failed id=" .. tostring(id) ..
+                        " err=" .. tostring(err or "")
+                elseif value ~= true then
+                    plan.stats.not_auto = plan.stats.not_auto + 1
+                end
+            end
+            if allowed then
+                plan.stats.candidates = plan.stats.candidates + 1
+                plan.to_add[#plan.to_add + 1] = skill
+            end
+        end
+    end
+
+    return plan
+end
+
+function M.syncAutoActiveSkills(combat, opts)
+    opts = opts or {}
+    local result = {
+        status = "failed",
+        reason = tostring(opts.reason or ""),
+        level = number(opts.level),
+        learned_count = 0,
+        current_auto_active_count = 0,
+        to_add_count = 0,
+        added_count = 0,
+        failed_count = 0,
+        quickbar_required = opts.quickbar_required ~= false,
+        quickbar_placed_count = 0,
+        quickbar_reused_count = 0,
+        quickbar_failed_count = 0,
+        errors = {},
+        toggled = {},
+        quickbar_placed = {},
+        stats = {},
+    }
+
+    if type(combat) ~= "table" then
+        result.errors[#result.errors + 1] = "combat wrapper unavailable"
+        return false, result
+    end
+    if type(combat.skillList) ~= "function"
+        or type(combat.autoActiveSkills) ~= "function"
+        or type(combat.isSkillAuto) ~= "function"
+        or type(combat.skillAutoToggle) ~= "function" then
+        result.errors[#result.errors + 1] = "combat skill APIs unavailable"
+        return false, result
+    end
+
+    local skills_ok, skills, skills_err = combat.skillList()
+    if not skills_ok then
+        result.errors[#result.errors + 1] = "skillList failed: " .. tostring(skills_err or "")
+        return false, result
+    end
+    local active_ok, active, active_err = combat.autoActiveSkills()
+    if not active_ok then
+        result.errors[#result.errors + 1] = "autoActiveSkills failed: " .. tostring(active_err or "")
+        return false, result
+    end
+
+    skills = skills or {}
+    active = active or {}
+    result.learned_count = #skills
+    result.current_auto_active_count = #active
+
+    local plan = M.planAutoActiveSkills(skills, active, {
+        ignore_names = opts.ignore_names,
+        ignore_ids = opts.ignore_ids,
+        require_active_type = opts.require_active_type,
+        is_skill_auto = function(id)
+            return combat.isSkillAuto(id)
+        end,
+    })
+    result.stats = plan.stats
+    result.to_add_count = #plan.to_add
+    for _, err in ipairs(plan.errors) do
+        result.errors[#result.errors + 1] = err
+    end
+
+    local kind = opts.kind or combat.KIND_SKILL or M.KIND_SKILL
+    local qstate = normalize_quickbar_state(opts.quickbar_state)
+    local quickbar = opts.quickbar
+    if result.quickbar_required
+        and #plan.to_add > 0
+        and (type(quickbar) ~= "table" or type(quickbar.placeQuickbar) ~= "function") then
+        result.errors[#result.errors + 1] = "quickbar placement required but API unavailable"
+        result.quickbar_failed_count = #plan.to_add
+        result.status = "partial-failure"
+        return false, result
+    end
+
+    for _, skill in ipairs(plan.to_add) do
+        local id = skill_id(skill)
+        local group = skill_group_key(skill)
+        local placed_slot = qstate.placed_by_id[tostring(id)] or qstate.placed_by_group[group]
+        if result.quickbar_required and not placed_slot then
+            local slot, key = find_quickbar_slot(qstate, opts)
+            if not slot then
+                result.quickbar_failed_count = result.quickbar_failed_count + 1
+                result.errors[#result.errors + 1] = "no reserved quickbar slot left id=" .. tostring(id)
+            else
+                local qok, qvalue, qerr = quickbar.placeQuickbar(
+                    number(opts.quickbar_bar_index),
+                    slot,
+                    kind,
+                    id)
+                if qok == true and qvalue ~= false then
+                    qstate.occupied_slots[key] = true
+                    qstate.placed_by_id[tostring(id)] = {
+                        bar_index = number(opts.quickbar_bar_index),
+                        slot_index = slot,
+                    }
+                    qstate.placed_by_group[group] = qstate.placed_by_id[tostring(id)]
+                    qstate.next_slot = slot + 1
+                    result.quickbar_placed_count = result.quickbar_placed_count + 1
+                    result.quickbar_placed[#result.quickbar_placed + 1] = {
+                        id = id,
+                        name = skill_name(skill),
+                        bar_index = number(opts.quickbar_bar_index),
+                        slot_index = slot,
+                    }
+                    placed_slot = qstate.placed_by_id[tostring(id)]
+                else
+                    result.quickbar_failed_count = result.quickbar_failed_count + 1
+                    result.errors[#result.errors + 1] = "PlaceQuickbar failed id=" .. tostring(id) ..
+                        " bar=" .. tostring(number(opts.quickbar_bar_index)) ..
+                        " slot=" .. tostring(slot) ..
+                        " err=" .. tostring(qerr or qvalue or "")
+                end
+            end
+        elseif result.quickbar_required and placed_slot then
+            result.quickbar_reused_count = result.quickbar_reused_count + 1
+        end
+
+        if result.quickbar_required and not placed_slot then
+            result.failed_count = result.failed_count + 1
+        else
+        local ok, value, err = combat.skillAutoToggle(id, kind)
+        if ok == true and value ~= false then
+            result.added_count = result.added_count + 1
+            result.toggled[#result.toggled + 1] = {
+                id = id,
+                name = skill_name(skill),
+            }
+        else
+            result.failed_count = result.failed_count + 1
+            result.errors[#result.errors + 1] = "SkillAutoToggle failed id=" .. tostring(id) ..
+                " err=" .. tostring(err or value or "")
+        end
+        end
+    end
+
+    local failed = result.failed_count > 0
+        or result.quickbar_failed_count > 0
+        or number(result.stats.check_failed) > 0
+    result.status = failed and "partial-failure" or "success"
+    return not failed, result
+end
+
+function M.finishAttempt(state, ok, result, now)
+    state = type(state) == "table" and state or M.newRuntime()
+    result = type(result) == "table" and result or {}
+    now = number(now)
+    local pending_level = number(state.pending_level)
+    local reason = tostring(state.pending_reason or "")
+
+    state.last_summary = result
+    state.last_result = result.status or (ok and "success" or "failed")
+    if ok then
+        state.startup_sync_done = true
+        state.last_processed_level = math.max(number(state.last_processed_level), pending_level)
+        state.last_seen_level = math.max(number(state.last_seen_level), pending_level)
+        state.pending_level = 0
+        state.pending_reason = ""
+        state.last_success_at = now
+        state.last_error = ""
+    else
+        state.pending_level = pending_level
+        state.pending_reason = reason ~= "" and reason or "retry"
+        state.last_error = table.concat(result.errors or {}, "; ")
+    end
+    return state
+end
+
+function M.formatResult(result)
+    result = type(result) == "table" and result or {}
+    local stats = type(result.stats) == "table" and result.stats or {}
+    return string.format(
+        "reason=%s level=%s status=%s learned=%d active=%d active_type=%d candidates=%d to_add=%d quickbar(placed=%d reused=%d failed=%d) added=%d failed=%d skipped(already=%d duplicate_group=%d ignored=%d not_auto=%d check_failed=%d invalid=%d)",
+        tostring(result.reason or ""),
+        tostring(result.level or ""),
+        tostring(result.status or ""),
+        number(result.learned_count),
+        number(result.current_auto_active_count),
+        number(stats.active_type),
+        number(stats.candidates),
+        number(result.to_add_count),
+        number(result.quickbar_placed_count),
+        number(result.quickbar_reused_count),
+        number(result.quickbar_failed_count),
+        number(result.added_count),
+        number(result.failed_count),
+        number(stats.already),
+        number(stats.duplicate_group),
+        number(stats.ignored),
+        number(stats.not_auto),
+        number(stats.check_failed),
+        number(stats.invalid))
+end
+
+return M

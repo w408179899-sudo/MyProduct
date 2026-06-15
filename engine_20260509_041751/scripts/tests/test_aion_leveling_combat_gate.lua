@@ -15,6 +15,26 @@ local function quest_grind_allowed(primary_mode, allow_grind, active_grind, comb
         and combat_mode == 1
 end
 
+local function quest_grind_allowed_with_guard(primary_mode, allow_grind, active_grind, guard_active, combat_mode)
+    local mode_id = ({ "combat", "leveling" })[primary_mode] or ""
+    local grind_authorized = allow_grind == true and active_grind == true
+    local guard_authorized = guard_active == true
+
+    return mode_id == "leveling"
+        and (grind_authorized or guard_authorized)
+        and combat_mode == 1
+end
+
+local function stop_level_grind_tail(state)
+    state.active_grind = false
+    state.guard_active = false
+    state.last_damage_at = 0
+    state.last_hp = 0
+    state.target_obj = 0
+    state.target_name = ""
+    state.combat_mode = ""
+end
+
 local function effective_combat_radius(base_radius, quest_grind)
     local radius = tonumber(base_radius) or 35
     if quest_grind == true and radius < 60 then
@@ -47,6 +67,12 @@ local function continue_tracked_target(tracked)
     return tracked == true
 end
 
+local function should_stop_for_20613_flow(active_grind, action_authorizes_grind, completed_20613)
+    return active_grind == true
+        and action_authorizes_grind ~= true
+        and completed_20613 == true
+end
+
 local function clear_modules()
     package.loaded["aion.main_quest_combat_guard"] = nil
 end
@@ -77,6 +103,34 @@ local function run()
         T.assert_eq(quest_grind_allowed(2, false, true, 1), false)
         T.assert_eq(quest_grind_allowed(2, true, true, 2), false)
         T.assert_eq(quest_grind_allowed(1, true, true, 1), false)
+    end)
+
+    T.test("completed 20613 flags do not stop authorized later level grind blocks", function()
+        T.assert_eq(should_stop_for_20613_flow(true, true, true), false)
+        T.assert_eq(should_stop_for_20613_flow(true, false, true), true)
+        T.assert_eq(should_stop_for_20613_flow(false, false, true), false)
+    end)
+
+    T.test("level grind completion clears combat tail before next task block", function()
+        local state = {
+            active_grind = true,
+            guard_active = true,
+            last_damage_at = 100,
+            last_hp = 10,
+            target_obj = 123,
+            target_name = "old target",
+            combat_mode = "stationary",
+        }
+
+        stop_level_grind_tail(state)
+
+        T.assert_eq(state.active_grind, false)
+        T.assert_eq(state.guard_active, false)
+        T.assert_eq(state.last_damage_at, 0)
+        T.assert_eq(state.last_hp, 0)
+        T.assert_eq(state.target_obj, 0)
+        T.assert_eq(state.target_name, "")
+        T.assert_eq(quest_grind_allowed_with_guard(2, true, state.active_grind, state.guard_active, 1), false)
     end)
 
     T.test("quest grind radius has isolated 60m floor", function()

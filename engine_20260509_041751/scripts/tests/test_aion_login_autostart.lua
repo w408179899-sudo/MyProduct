@@ -92,6 +92,14 @@ local function run()
         T.assert_eq(decision.reason, "script-pending")
     end)
 
+    T.test("settings window open does not queue another start", function()
+        local ctx = base_ctx()
+        ctx.runtime.accounts.settings_window_visible = true
+        local decision = autostart.decide(ctx)
+        T.assert_eq(decision.action, "none")
+        T.assert_eq(decision.reason, "settings-window-open")
+    end)
+
     T.test("pending script queue does not queue another start", function()
         local ctx = base_ctx()
         ctx.runtime.accounts.pending_scripts = {
@@ -108,6 +116,14 @@ local function run()
         local decision = autostart.decide(ctx)
         T.assert_eq(decision.action, "none")
         T.assert_eq(decision.reason, "account-runtime-active")
+    end)
+
+    T.test("manual stop does not auto start again", function()
+        local ctx = base_ctx()
+        ctx.account.runtime.manual_stop = true
+        local decision = autostart.decide(ctx)
+        T.assert_eq(decision.action, "none")
+        T.assert_eq(decision.reason, "manual-stop")
     end)
 
     return T.report("aion_login_autostart")

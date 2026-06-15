@@ -39,7 +39,7 @@ quest_id=20614
 status_code=3
 req_count=0
 target=미요우
-target_interact_id=2147507242
+target_interact_id=2147492704
 target_pos=946.25,1702.77,259.62
 dialog_type=select_quest
 content_id=10
@@ -51,7 +51,7 @@ NPC 匹配优先用名字 `미요우`，interact id 只做兜底。
 执行：
 
 ```text
-InteractNpc npc_name=미요우 interact_id=2147507242 stage=quest_20614_start_npc
+InteractNpc npc_name=미요우 interact_id=2147492704 stage=quest_20614_start_npc
 ClickDialogXContinuous click_x=25 content_id=10 type_text=select_quest
 ```
 

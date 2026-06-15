@@ -112,9 +112,10 @@ quest_id=20621
 step=0
 map_id=220020000
 char_pos=193.78,2267.62,439.01
-target_interact_id=2147535533
+target_interact_id=2147523843
 target_dist=1.18
 target_pos=193.00,2268.50,439.12
+target_name=우라콘
 dialog=closed
 ```
 

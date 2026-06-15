@@ -55,6 +55,9 @@ function M.decide(ctx)
     end
 
     if type(runtime.accounts) == "table" then
+        if runtime.accounts.settings_window_visible == true then
+            return { action = "none", reason = "settings-window-open" }
+        end
         if type(runtime.accounts.pending_script) == "table" then
             return { action = "none", reason = "script-pending" }
         end
@@ -65,6 +68,10 @@ function M.decide(ctx)
 
     if M.is_runtime_active(account_runtime.status) then
         return { action = "none", reason = "account-runtime-active" }
+    end
+
+    if account_runtime.manual_stop == true then
+        return { action = "none", reason = "manual-stop" }
     end
 
     if type(ctx.is_task_running) == "function" and ctx.is_task_running(account_runtime.task_id) then

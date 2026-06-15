@@ -19,5 +19,6 @@ For another language client, prefer changing only the values in that file while 
 | `MQ20611_NPC_001_MISSION` | `리네비르` | 20611 mission dialog NPC after teleport |
 | `MQ20611_NPC_002_OBELISK` | `키벨리스크` | 20611 obelisk registration NPC |
 | `MQ20611_NPC_003_TARGET` | `울고른` | 20611 target dialog NPC after tracker teleport |
-| `MQ20613_NPC_001_START` | `雼る箘` | 20613 start dialog NPC after tracker teleport |
+| `MQ20612_NPC_001_REWARD` | `다비` | 20612 reward NPC |
+| `MQ20613_NPC_001_START` | `다비` | 20613 start dialog NPC after tracker teleport |
 | `MQ20613_NPC_002_AFTER_START_REWARD` | `` | 20613 after-start reward dialog NPC after second tracker teleport |

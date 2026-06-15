@@ -23,28 +23,28 @@ M.reward_npc = {
 M.dialog_steps = {
     select_quest = {
         content_id = 10,
-        action = "ClickDialogXContinuous",
-        reason = "complete quest 20610 opening dialog by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete quest 20610 opening dialog by last-option chain",
     },
     select1 = {
         content_id = 1011,
-        action = "ClickDialogXContinuous",
-        reason = "complete quest 20610 opening dialog by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete quest 20610 opening dialog by last-option chain",
     },
     select1_1 = {
         content_id = 1012,
-        action = "ClickDialogXContinuous",
-        reason = "complete quest 20610 opening dialog by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete quest 20610 opening dialog by last-option chain",
     },
     select1_1_1 = {
         content_id = 1013,
-        action = "ClickDialogXContinuous",
-        reason = "complete quest 20610 opening dialog by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete quest 20610 opening dialog by last-option chain",
     },
     select1_1_1_1 = {
         content_id = 1014,
-        action = "ClickDialogXContinuous",
-        reason = "complete quest 20610 opening dialog by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete quest 20610 opening dialog by last-option chain",
     },
 }
 
@@ -69,6 +69,28 @@ M.reward_dialog_steps = {
 
 local function number(value)
     return tonumber(value) or 0
+end
+
+local function trim_text(value)
+    local text = tostring(value or "")
+    text = string.gsub(text, "^%s+", "")
+    text = string.gsub(text, "%s+$", "")
+    return text
+end
+
+local function dialog_matches_npc_name(dialog, npc)
+    if type(dialog) ~= "table" or type(npc) ~= "table" then
+        return false
+    end
+    local expected_name = trim_text(npc.name)
+    if expected_name == "" then
+        return false
+    end
+    local actual_name = trim_text(dialog.npc_name or dialog.name or dialog.target_name)
+    if actual_name == "" then
+        return true
+    end
+    return actual_name == expected_name
 end
 
 local function distance3(a, b)
@@ -142,7 +164,7 @@ function M.isRewardDialog(dialog)
         return false
     end
     return M.reward_dialog_steps[tostring(dialog.type_text or "")] ~= nil
-        and number(dialog.npc_dialog_id) == M.reward_npc.interact_id
+        and dialog_matches_npc_name(dialog, M.reward_npc)
 end
 
 function M.isStartDialog(dialog)
@@ -150,7 +172,7 @@ function M.isStartDialog(dialog)
         return false
     end
     return M.dialog_steps[tostring(dialog.type_text or "")] ~= nil
-        and number(dialog.npc_dialog_id) == M.npc.interact_id
+        and dialog_matches_npc_name(dialog, M.npc)
 end
 
 function M.teleportDetected(state, runtime, opts)

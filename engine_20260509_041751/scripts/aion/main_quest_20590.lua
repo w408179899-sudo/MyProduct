@@ -63,27 +63,27 @@ M.inner_route = {
 M.dialog_steps = {
     select_quest = {
         content_id = 10,
-        action = "ClickDialogXContinuousWaitTeleport",
-        reason = "complete first npc dialog chain by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete first npc dialog chain by last-option chain",
     },
     select1 = {
         content_id = 1011,
-        action = "ClickDialogXContinuousWaitTeleport",
-        reason = "complete first npc dialog chain by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete first npc dialog chain by last-option chain",
     },
     select1_1 = {
         content_id = 1012,
-        action = "ClickDialogXContinuousWaitTeleport",
-        reason = "complete first npc dialog chain by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete first npc dialog chain by last-option chain",
     },
     select1_1_1 = {
         content_id = 1013,
-        action = "ClickDialogXContinuousWaitTeleport",
+        action = "ClickDialogLastContinuousOk",
         reason = "complete first npc dialog chain and wait for teleport",
     },
     select10 = {
         content_id = 4080,
-        action = "ClickDialogXContinuousWaitTeleport",
+        action = "ClickDialogLastContinuousOk",
         reason = "complete recovered first npc dialog chain and wait for teleport",
     },
 }
@@ -91,7 +91,7 @@ M.dialog_steps = {
 M.inner_dialog_steps = {
     select1 = {
         content_id = 1011,
-        action = "ClickDialogXContinuousWaitTeleport",
+        action = "ClickDialogLastContinuousOk",
         reason = "complete inner npc dialog chain and wait for teleport",
     },
 }
@@ -99,32 +99,32 @@ M.inner_dialog_steps = {
 M.temple_dialog_steps = {
     select_quest = {
         content_id = 10,
-        action = "ClickDialogXContinuousWaitTeleport",
-        reason = "complete temple npc dialog chain by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete temple npc dialog chain by last-option chain",
     },
     select4 = {
         content_id = 2034,
-        action = "ClickDialogXContinuousWaitTeleport",
-        reason = "complete temple npc dialog chain by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete temple npc dialog chain by last-option chain",
     },
     select4_1 = {
         content_id = 2035,
-        action = "ClickDialogXContinuousWaitTeleport",
-        reason = "complete temple npc dialog chain by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete temple npc dialog chain by last-option chain",
     },
     select4_1_1 = {
         content_id = 2036,
-        action = "ClickDialogXContinuousWaitTeleport",
-        reason = "complete temple npc dialog chain by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete temple npc dialog chain by last-option chain",
     },
     select4_1_1_1 = {
         content_id = 2037,
-        action = "ClickDialogXContinuousWaitTeleport",
-        reason = "complete temple npc dialog chain by continuous x-click",
+        action = "ClickDialogLastContinuousOk",
+        reason = "complete temple npc dialog chain by last-option chain",
     },
     select4_2 = {
         content_id = 2120,
-        action = "ClickDialogXContinuousWaitTeleport",
+        action = "ClickDialogLastContinuousOk",
         reason = "complete temple npc dialog chain and wait for teleport",
     },
 }
@@ -365,9 +365,8 @@ function M.nextAction(state, runtime, opts)
             click_x = opts.dialog_click_x or 25,
             interact_id = M.npc.interact_id,
             npc_name = M.npc.name,
-            stage = (step.action == "ClickDialogXWaitTeleport"
-                or step.action == "ClickDialogXContinuousWaitTeleport")
-                and "first_npc_teleport" or "first_npc",
+            stage = "first_npc_teleport",
+            wait_teleport = true,
         })
     end
 
@@ -483,6 +482,7 @@ function M.nextInnerAction(state, quest, opts)
             interact_id = M.inner_npc.interact_id,
             npc_name = M.inner_npc.name,
             stage = "inner_npc_teleport",
+            wait_teleport = true,
         })
     end
 
@@ -549,9 +549,8 @@ function M.nextTempleAction(state, quest, opts)
             click_x = opts.dialog_click_x or 25,
             interact_id = M.temple_npc.interact_id,
             npc_name = M.temple_npc.name,
-            stage = (step.action == "ClickDialogXWaitTeleport"
-                or step.action == "ClickDialogXContinuousWaitTeleport")
-                and "temple_npc_teleport" or "temple_npc",
+            stage = "temple_npc_teleport",
+            wait_teleport = true,
         })
     end
 

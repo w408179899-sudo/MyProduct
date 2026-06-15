@@ -66,12 +66,14 @@ local function run()
             dialog = { type_text = "select1", dialog_content_id = 1011, quest_id = 20590 },
         })
 
-        T.assert_eq(list_action.name, "ClickDialogXContinuousWaitTeleport")
+        T.assert_eq(list_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(list_action.params.expected_content_id, 10)
         T.assert_eq(list_action.params.stage, "first_npc_teleport")
-        T.assert_eq(first_action.name, "ClickDialogXContinuousWaitTeleport")
+        T.assert_eq(list_action.params.wait_teleport, true)
+        T.assert_eq(first_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(first_action.params.expected_content_id, 1011)
         T.assert_eq(first_action.params.stage, "first_npc_teleport")
+        T.assert_eq(first_action.params.wait_teleport, true)
     end)
 
     T.test("clicks the added first npc dialog before final teleport", function()
@@ -82,9 +84,10 @@ local function run()
             dialog = { type_text = "select1_1", dialog_content_id = 1012, quest_id = 20590 },
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuousWaitTeleport")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.expected_content_id, 1012)
         T.assert_eq(next_action.params.stage, "first_npc_teleport")
+        T.assert_eq(next_action.params.wait_teleport, true)
     end)
 
     T.test("marks final first npc dialog as click and wait for teleport", function()
@@ -95,9 +98,10 @@ local function run()
             dialog = { type_text = "select1_1_1", dialog_content_id = 1013, quest_id = 20590 },
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuousWaitTeleport")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.expected_content_id, 1013)
         T.assert_eq(next_action.params.stage, "first_npc_teleport")
+        T.assert_eq(next_action.params.wait_teleport, true)
     end)
 
     T.test("marks recovered first npc dialog as click and wait for teleport", function()
@@ -109,9 +113,10 @@ local function run()
             dialog = { type_text = "select10", dialog_content_id = 4080, quest_id = 20590 },
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuousWaitTeleport")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.expected_content_id, 4080)
         T.assert_eq(next_action.params.stage, "first_npc_teleport")
+        T.assert_eq(next_action.params.wait_teleport, true)
     end)
 
     T.test("waits until position changes after final dialog click", function()
@@ -244,8 +249,9 @@ local function run()
             },
         })
 
-        T.assert_eq(next_action.name, "ClickDialogXContinuousWaitTeleport")
+        T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
         T.assert_eq(next_action.params.stage, "inner_npc_teleport")
+        T.assert_eq(next_action.params.wait_teleport, true)
         T.assert_eq(next_action.params.expected_content_id, 1011)
         T.assert_eq(next_action.params.npc_name, "시간의 데바 잉그릴")
     end)
@@ -299,12 +305,12 @@ local function run()
     T.test("clicks the recorded temple npc dialog chain", function()
         local quest = load_module()
         local cases = {
-            { type_text = "select_quest", content_id = 10, action = "ClickDialogXContinuousWaitTeleport" },
-            { type_text = "select4", content_id = 2034, action = "ClickDialogXContinuousWaitTeleport" },
-            { type_text = "select4_1", content_id = 2035, action = "ClickDialogXContinuousWaitTeleport" },
-            { type_text = "select4_1_1", content_id = 2036, action = "ClickDialogXContinuousWaitTeleport" },
-            { type_text = "select4_1_1_1", content_id = 2037, action = "ClickDialogXContinuousWaitTeleport" },
-            { type_text = "select4_2", content_id = 2120, action = "ClickDialogXContinuousWaitTeleport" },
+            { type_text = "select_quest", content_id = 10, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select4", content_id = 2034, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select4_1", content_id = 2035, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select4_1_1", content_id = 2036, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select4_1_1_1", content_id = 2037, action = "ClickDialogLastContinuousOk" },
+            { type_text = "select4_2", content_id = 2120, action = "ClickDialogLastContinuousOk" },
         }
 
         for _, case in ipairs(cases) do
@@ -322,6 +328,7 @@ local function run()
 
             T.assert_eq(next_action.name, case.action, case.type_text)
             T.assert_eq(next_action.params.stage, "temple_npc_teleport")
+            T.assert_eq(next_action.params.wait_teleport, true)
             T.assert_eq(next_action.params.expected_content_id, case.content_id)
             T.assert_eq(next_action.params.interact_id, 2147509246)
         end
