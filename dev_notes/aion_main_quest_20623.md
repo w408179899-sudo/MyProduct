@@ -2,12 +2,13 @@
 
 ## 当前已录制流程
 
-20623 当前已实现两步：
+20623 当前已实现三步：
 
 1. `quest_20623_level28_grind`：沿指定路径移动到终点，在终点挂机升级到 28 级。
 2. `quest_20623_task_teleport`：角色达到 28 级后 call 20623 任务传送。
+3. `quest_20623_after_teleport_npc`：传送落地后按名字匹配 F11 录到的 NPC，并执行连续最后一项 + OK。
 
-20623 任务传送完成后脚本执行 `Idle`，等待下一步 F11 指令；不会自动对话或进入 20624。
+20623 传送后 NPC 对话完成后脚本执行 `Idle`，等待下一步 F11 指令；不会自动进入 20624。
 
 ## F11 状态
 
@@ -51,6 +52,25 @@
   - `open_panel_key=false`
   - `require_panel_visible=false`
 - 完成判定：只比较传送前记录的角色坐标和当前角色坐标；坐标变化后执行 `CompleteQuestTeleport`，并记录 `completed_20623_task_teleport=true`。
+- 完成后：进入 `quest_20623_after_teleport_npc`，只处理 F11 录到的 NPC 对话。
+
+## 阶段三：传送后 NPC 对话
+
+- 阶段名：`quest_20623_after_teleport_npc`
+- 触发条件：
+  - `completed_20623_task_teleport=true`；或
+  - 脚本重启后 20623 已激活且 step=0，并且角色在该 NPC 附近。
+- 执行动作：
+  - 不在 NPC 范围内时执行 `NavigateToNpc`
+  - 到 NPC 范围内时执行 `InteractNpc`
+  - 对话打开后执行 `ClickDialogLastContinuousOk`
+- NPC 匹配：
+  - 名字 key：`MQ20623_NPC_001_AFTER_TELEPORT`
+  - F11 名字：`雮橂皵耄?`
+  - 交互 ID：`2147528744`
+  - `allow_interact_id_fallback=false`，只用名字匹配，不用 interact_id 兜底
+- NPC 坐标：`1033.76, 2032.31, 220.24`
+- 完成判定：连续最后一条 + OK 结束后记录 `completed_20623_after_teleport_npc_dialog=true`。
 - 完成后：执行 `Idle` 等待下一步 F11 指令。
 
 ## 路径

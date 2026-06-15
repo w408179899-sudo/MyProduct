@@ -71,6 +71,7 @@ M.quest_20622_level25_required_level = 25
 M.quest_20623_id = 20623
 M.quest_20623_level_grind_stage = "quest_20623_level28_grind"
 M.quest_20623_teleport_stage = "quest_20623_task_teleport"
+M.quest_20623_after_teleport_npc_stage = "quest_20623_after_teleport_npc"
 M.quest_20623_level28_required_level = 28
 M.level_grind_blue_submit_stage = "level_grind_blue_submit"
 M.passive_blue_submit_tab = 1
@@ -534,6 +535,15 @@ M.quest_20622_after_teleport_npc = {
 M.quest_20622_after_npc_teleport_npc = {
     name_key = "MQ20622_NPC_002_AFTER_NPC_TELEPORT",
     name = npc_names.MQ20622_NPC_002_AFTER_NPC_TELEPORT or "",
+    interact_id = 2147528744,
+    x = 1033.76,
+    y = 2032.31,
+    z = 220.24,
+    big_map_id = 220020000,
+}
+M.quest_20623_after_teleport_npc = {
+    name_key = "MQ20623_NPC_001_AFTER_TELEPORT",
+    name = "雮橂皵耄?",
     interact_id = 2147528744,
     x = 1033.76,
     y = 2032.31,
@@ -1145,6 +1155,10 @@ function M.distanceToQuest20622AfterNpcTeleportNpc(char)
     return distance3(char, M.quest_20622_after_npc_teleport_npc)
 end
 
+function M.distanceToQuest20623AfterTeleportNpc(char)
+    return distance3(char, M.quest_20623_after_teleport_npc)
+end
+
 function M.isNearQuest20612RewardNpc(state, opts)
     state = state or {}
     opts = opts or {}
@@ -1415,6 +1429,23 @@ function M.isNearQuest20622AfterNpcTeleportNpc(state, opts)
         range = 7
     end
     return M.distanceToQuest20622AfterNpcTeleportNpc(state.char) <= range
+end
+
+function M.isNearQuest20623AfterTeleportNpc(state, opts)
+    state = state or {}
+    opts = opts or {}
+    if type(state.char) ~= "table" then
+        return false
+    end
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.quest_20623_after_teleport_npc.big_map_id then
+        return false
+    end
+    local range = number(opts.npc_range)
+    if range <= 0 then
+        range = 7
+    end
+    return M.distanceToQuest20623AfterTeleportNpc(state.char) <= range
 end
 
 function M.isNearQuest20623Level28Route(state, opts)
@@ -1804,6 +1835,22 @@ function M.isQuest20622AfterNpcTeleportNpcDialog(dialog)
         return dialog_qid <= 0 or dialog_qid == M.quest_20622_id
     end
     return dialog_qid == M.quest_20622_id
+end
+
+function M.isQuest20623AfterTeleportNpcDialog(dialog)
+    if type(dialog) ~= "table" then
+        return false
+    end
+    local expected_name = tostring(M.quest_20623_after_teleport_npc.name or "")
+    local dialog_name = tostring(dialog.npc_name or dialog.name or "")
+    if expected_name ~= "" and dialog_name ~= "" and dialog_name ~= expected_name then
+        return false
+    end
+    local dialog_qid = number(dialog.quest_id)
+    if dialog_name ~= "" then
+        return dialog_qid <= 0 or dialog_qid == M.quest_20623_id
+    end
+    return dialog_qid == M.quest_20623_id
 end
 
 function M.isObeliskConfirmVisible(state)
@@ -5254,11 +5301,7 @@ function M.nextQuest20623TaskTeleportAction(state, runtime, opts, quest)
     end
 
     if runtime.completed_20623_task_teleport == true then
-        return action("Idle", "quest 20623 task teleport completed; wait next instruction", {
-            quest_id = M.quest_20623_id,
-            quest_step = M.questStep(quest),
-            stage = M.quest_20623_teleport_stage,
-        })
+        return M.nextQuest20623AfterTeleportNpcAction(state, runtime, opts, quest)
     end
 
     if type(state.dialog) == "table" then
@@ -5301,6 +5344,101 @@ function M.nextQuest20623TaskTeleportAction(state, runtime, opts, quest)
         direct_quest_id_only = true,
         open_panel_key = false,
         require_panel_visible = false,
+    })
+end
+
+function M.nextQuest20623AfterTeleportNpcAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or M.findQuestById(state.quests, M.quest_20623_id)
+
+    if runtime.completed_20623_after_teleport_npc_dialog == true then
+        return action("Idle", "quest 20623 after-teleport npc dialog completed; wait next instruction", {
+            quest_id = M.quest_20623_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20623_after_teleport_npc_stage,
+        })
+    end
+
+    local dialog = state.dialog
+    if M.isQuest20623AfterTeleportNpcDialog(dialog) then
+        return action("ClickDialogLastContinuousOk",
+            "complete quest 20623 after-teleport npc dialog by last-option chain", {
+            quest_id = M.quest_20623_id,
+            quest_step = M.questStep(quest),
+            type_text = tostring(dialog.type_text or ""),
+            content_id = dialog_content_id(dialog),
+            npc_dialog_id = number(dialog.npc_dialog_id),
+            interact_id = M.quest_20623_after_teleport_npc.interact_id,
+            npc_name = M.quest_20623_after_teleport_npc.name,
+            npc_name_key = M.quest_20623_after_teleport_npc.name_key,
+            click_x = opts.dialog_click_x or 25,
+            stage = M.quest_20623_after_teleport_npc_stage,
+        })
+    end
+
+    if type(dialog) == "table" then
+        return action("DumpDialog", "different npc dialog is already open before quest 20623 after-teleport npc", {
+            quest_id = M.quest_20623_id,
+            quest_step = M.questStep(quest),
+            type_text = tostring(dialog.type_text or ""),
+            content_id = dialog_content_id(dialog),
+            npc_dialog_id = number(dialog.npc_dialog_id),
+            interact_id = M.quest_20623_after_teleport_npc.interact_id,
+            npc_name = M.quest_20623_after_teleport_npc.name,
+            npc_name_key = M.quest_20623_after_teleport_npc.name_key,
+            stage = M.quest_20623_after_teleport_npc_stage,
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_20623_id })
+    end
+
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= M.quest_20623_after_teleport_npc.big_map_id then
+        return action("Idle", "quest 20623 after-teleport npc wrong map", {
+            quest_id = M.quest_20623_id,
+            quest_step = M.questStep(quest),
+            big_map_id = current_big_map,
+            expected_big_map_id = M.quest_20623_after_teleport_npc.big_map_id,
+            stage = M.quest_20623_after_teleport_npc_stage,
+        })
+    end
+
+    local range = number(opts.npc_range)
+    if range <= 0 then
+        range = 7
+    end
+    local dist = M.distanceToQuest20623AfterTeleportNpc(char)
+    if dist > range then
+        return action("NavigateToNpc", "move to quest 20623 after-teleport npc", {
+            quest_id = M.quest_20623_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20623_after_teleport_npc_stage,
+            interact_id = M.quest_20623_after_teleport_npc.interact_id,
+            npc_name = M.quest_20623_after_teleport_npc.name,
+            npc_name_key = M.quest_20623_after_teleport_npc.name_key,
+            x = M.quest_20623_after_teleport_npc.x,
+            y = M.quest_20623_after_teleport_npc.y,
+            z = M.quest_20623_after_teleport_npc.z,
+            distance = dist,
+            range = range,
+        })
+    end
+
+    return action("InteractNpc", "open quest 20623 after-teleport npc dialog", {
+        quest_id = M.quest_20623_id,
+        quest_step = M.questStep(quest),
+        stage = M.quest_20623_after_teleport_npc_stage,
+        interact_id = M.quest_20623_after_teleport_npc.interact_id,
+        npc_name = M.quest_20623_after_teleport_npc.name,
+        npc_name_key = M.quest_20623_after_teleport_npc.name_key,
+        allow_interact_id_fallback = false,
+        after_open_continuous_last = true,
+        click_x = opts.dialog_click_x or 25,
     })
 end
 
@@ -6118,8 +6256,15 @@ function M.nextAction(state, runtime, opts)
     local quest_20621 = M.findQuestById(state.quests, M.quest_20621_id)
     local quest_20622 = M.findQuestById(state.quests, M.quest_20622_id)
     local quest_20623 = M.findQuestById(state.quests, M.quest_20623_id)
-    if runtime.completed_20623_task_teleport == true then
-        return M.nextQuest20623TaskTeleportAction(state, runtime, opts, quest_20623)
+    if runtime.completed_20623_after_teleport_npc_dialog == true
+        or runtime.completed_20623_task_teleport == true
+        or M.isQuest20623AfterTeleportNpcDialog(state.dialog) then
+        return M.nextQuest20623AfterTeleportNpcAction(state, runtime, opts, quest_20623)
+    end
+    if M.isQuestActive(quest_20623)
+        and M.questStep(quest_20623) == 0
+        and M.isNearQuest20623AfterTeleportNpc(state, opts) then
+        return M.nextQuest20623AfterTeleportNpcAction(state, runtime, opts, quest_20623)
     end
     if runtime.completed_20622_after_npc_teleport_npc_dialog == true then
         return M.nextQuest20623Level28GrindAction(state, runtime, opts, quest_20623)
