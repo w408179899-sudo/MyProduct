@@ -47,7 +47,6 @@ M.quest_20620_id = 20620
 M.quest_20620_start_stage = "quest_20620_start_npc"
 M.quest_20620_teleport_stage = "quest_20620_task_teleport"
 M.quest_20620_after_teleport_stage = "quest_20620_after_teleport_npc"
-M.quest_20620_socket_stigma_stage = "quest_20620_socket_stigma"
 M.quest_20620_after_stigma_return_npc_stage = "quest_20620_after_stigma_return_npc"
 M.quest_20620_after_stigma_teleport_stage = "quest_20620_after_stigma_teleport"
 M.quest_20620_after_stigma_npc_stage = "quest_20620_after_stigma_npc"
@@ -560,13 +559,6 @@ M.quest_20623_after_dialog_teleport_npc = {
     y = 2916.40,
     z = 279.34,
     big_map_id = 220020000,
-}
-M.quest_20620_stigma_keywords = {
-    "파멸의 방패",
-    "스티그마",
-    "Stigma",
-    "stigma",
-    "烙印",
 }
 M.hotspot_node = {
     name = "투나프레 호수",
@@ -3352,8 +3344,13 @@ function M.nextQuest20620TaskTeleportAction(state, runtime, opts, quest)
         return M.nextQuest20620AfterStigmaTeleportAction(state, runtime, opts, quest)
     end
 
+    if M.isQuestActive(quest)
+        and M.questStep(quest) == 2
+        and runtime.completed_20620_after_stigma_return_npc_dialog ~= true then
+        return M.nextQuest20620AfterStigmaReturnNpcAction(state, runtime, opts, quest)
+    end
+
     if runtime.completed_20620_after_teleport_npc_dialog == true
-        or runtime.completed_20620_stigma_socket == true
         or runtime.completed_20620_after_stigma_return_npc_dialog == true then
         return M.nextQuest20620SocketStigmaAction(state, runtime, opts, quest)
     end
@@ -3393,6 +3390,11 @@ function M.nextQuest20620AfterTeleportNpcAction(state, runtime, opts, quest)
     quest = quest or M.findQuestById(state.quests, M.quest_20620_id)
 
     if runtime.completed_20620_after_teleport_npc_dialog == true then
+        if M.isQuestActive(quest)
+            and M.questStep(quest) == 2
+            and runtime.completed_20620_after_stigma_return_npc_dialog ~= true then
+            return M.nextQuest20620AfterStigmaReturnNpcAction(state, runtime, opts, quest)
+        end
         return M.nextQuest20620SocketStigmaAction(state, runtime, opts, quest)
     end
 
@@ -3506,25 +3508,18 @@ function M.nextQuest20620SocketStigmaAction(state, runtime, opts, quest)
         return M.nextQuest20620AfterStigmaTeleportAction(state, runtime, opts, quest)
     end
 
-    if runtime.completed_20620_after_stigma_return_npc_dialog == true then
-        return M.nextQuest20620AfterStigmaTeleportAction(state, runtime, opts, quest)
-    end
-
-    if runtime.completed_20620_stigma_socket == true then
+    if runtime.completed_20620_after_stigma_return_npc_dialog ~= true
+        and (M.isQuestActive(quest)
+            or runtime.completed_20620_after_teleport_npc_dialog == true) then
         return M.nextQuest20620AfterStigmaReturnNpcAction(state, runtime, opts, quest)
     end
 
-    if M.isQuest20620AfterStigmaReturnNpcDialog(state.dialog) then
+    if runtime.completed_20620_after_stigma_return_npc_dialog ~= true
+        and M.isQuest20620AfterStigmaReturnNpcDialog(state.dialog) then
         return M.nextQuest20620AfterStigmaReturnNpcAction(state, runtime, opts, quest)
     end
 
-    return action("UseQuestStigmaStone", "socket quest 20620 stigma stone by background UseItem", {
-        quest_id = M.quest_20620_id,
-        quest_step = M.questStep(quest),
-        stage = M.quest_20620_socket_stigma_stage,
-        item_keywords = M.quest_20620_stigma_keywords,
-        prefer_keyword = "파멸의 방패",
-    })
+    return M.nextQuest20620AfterStigmaTeleportAction(state, runtime, opts, quest)
 end
 
 function M.nextQuest20620AfterStigmaReturnNpcAction(state, runtime, opts, quest)
@@ -3672,8 +3667,7 @@ function M.nextQuest20620AfterStigmaTeleportAction(state, runtime, opts, quest)
     end
 
     if runtime.completed_20620_after_stigma_return_npc_dialog ~= true
-        and (runtime.completed_20620_stigma_socket == true
-            or M.isQuest20620AfterStigmaReturnNpcDialog(state.dialog)) then
+        and M.isQuest20620AfterStigmaReturnNpcDialog(state.dialog) then
         return M.nextQuest20620AfterStigmaReturnNpcAction(state, runtime, opts, quest)
     end
 
@@ -3690,7 +3684,7 @@ function M.nextQuest20620AfterStigmaTeleportAction(state, runtime, opts, quest)
         })
     end
 
-    return action("QuestTeleport", "quest 20620 direct task teleport after stigma socket", {
+    return action("QuestTeleport", "quest 20620 direct task teleport after second npc dialog", {
         quest_id = M.quest_20620_id,
         quest_step = M.questStep(quest),
         stage = M.quest_20620_after_stigma_teleport_stage,
@@ -7248,9 +7242,28 @@ function M.nextAction(state, runtime, opts)
         return M.nextQuest20620AfterObeliskTeleportAction(state, runtime, opts, quest_20620)
     end
 
+    local quest_20620_after_stigma_return_npc_ready = M.isQuestActive(quest_20620)
+        and M.questStep(quest_20620) == 2
+        and runtime.completed_20620_after_stigma_return_npc_dialog ~= true
+        and (runtime.completed_20615_morheim_npc_dialog == true
+            or not M.isQuestKnown(quest_20615))
+    if quest_20620_after_stigma_return_npc_ready then
+        return M.nextQuest20620AfterStigmaReturnNpcAction(state, runtime, opts, quest_20620)
+    end
+
+    local quest_20620_after_stigma_teleport_ready = M.isQuestActive(quest_20620)
+        and M.questStep(quest_20620) == 3
+        and runtime.completed_20620_after_stigma_return_npc_dialog == true
+        and runtime.completed_20620_after_stigma_teleport ~= true
+        and runtime.completed_20620_after_stigma_npc_dialog ~= true
+        and (runtime.completed_20615_morheim_npc_dialog == true
+            or not M.isQuestKnown(quest_20615))
+    if quest_20620_after_stigma_teleport_ready then
+        return M.nextQuest20620AfterStigmaTeleportAction(state, runtime, opts, quest_20620)
+    end
+
     if runtime.completed_20620_after_obelisk_npc_dialog ~= true
         and (runtime.completed_20620_after_teleport_npc_dialog == true
-            or runtime.completed_20620_stigma_socket == true
             or runtime.completed_20620_after_stigma_return_npc_dialog == true
             or runtime.completed_20620_after_stigma_teleport == true
             or runtime.completed_20620_after_stigma_npc_dialog == true
@@ -7259,15 +7272,6 @@ function M.nextAction(state, runtime, opts)
         and (runtime.completed_20615_morheim_npc_dialog == true
             or not M.isQuestKnown(quest_20615)) then
         return M.nextQuest20620SocketStigmaAction(state, runtime, opts, quest_20620)
-    end
-
-    local quest_20620_after_stigma_return_npc_ready = M.isQuestActive(quest_20620)
-        and M.questStep(quest_20620) == 2
-        and runtime.completed_20620_after_stigma_return_npc_dialog ~= true
-        and (runtime.completed_20615_morheim_npc_dialog == true
-            or not M.isQuestKnown(quest_20615))
-    if quest_20620_after_stigma_return_npc_ready then
-        return M.nextQuest20620AfterStigmaReturnNpcAction(state, runtime, opts, quest_20620)
     end
 
     local quest_20620_obelisk_ready = M.isQuestActive(quest_20620)
@@ -7312,7 +7316,6 @@ function M.nextAction(state, runtime, opts)
             or M.isQuestDone(quest_20620))
         and runtime.completed_20620_task_teleport ~= true
         and runtime.completed_20620_after_teleport_npc_dialog ~= true
-        and runtime.completed_20620_stigma_socket ~= true
         and runtime.completed_20620_after_stigma_return_npc_dialog ~= true
         and runtime.completed_20620_after_stigma_teleport ~= true
         and runtime.completed_20620_after_stigma_npc_dialog ~= true
@@ -7483,9 +7486,6 @@ function M.nextAction(state, runtime, opts)
                 end
                 if active_step == 2
                     and runtime.completed_20620_after_stigma_return_npc_dialog ~= true then
-                    return M.nextQuest20620AfterStigmaReturnNpcAction(state, runtime, opts, active_quest)
-                end
-                if runtime.completed_20620_stigma_socket == true then
                     return M.nextQuest20620AfterStigmaReturnNpcAction(state, runtime, opts, active_quest)
                 end
                 if active_step == 0 and runtime.completed_20620_start_dialog ~= true then

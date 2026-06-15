@@ -2565,7 +2565,7 @@ local function run()
         T.assert_eq(next_action.params.click_x, 25)
     end)
 
-    T.test("uses quest 20620 stigma stone after after-teleport npc dialog completed", function()
+    T.test("opens quest 20620 second npc dialog after after-teleport npc dialog completed", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -2581,13 +2581,75 @@ local function run()
             completed_20620_after_teleport_npc_dialog = true,
         })
 
-        T.assert_eq(next_action.name, "UseQuestStigmaStone")
+        T.assert_eq(next_action.name, "InteractNpc")
         T.assert_eq(next_action.params.quest_id, 20620)
-        T.assert_eq(next_action.params.stage, "quest_20620_socket_stigma")
-        T.assert_eq(next_action.params.prefer_keyword, "파멸의 방패")
+        T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_return_npc")
+        T.assert_eq(next_action.params.interact_id, 2147504921)
+        T.assert_eq(next_action.params.npc_name_key, "MQ20620_NPC_002_AFTER_TELEPORT")
+        T.assert_eq(next_action.params.after_open_continuous_last, true)
     end)
 
-    T.test("opens quest 20620 after-stigma return npc after stigma socket completed", function()
+    T.test("starts quest 20620 after-stigma teleport when second npc dialog advances to step 3", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 3, seq = 0, lv_num = 20 },
+                { id = 20621, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 22 },
+            },
+            char = quest_20620_after_teleport_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20615_morheim_npc_dialog = true,
+            completed_20620_start_dialog = true,
+            completed_20620_task_teleport = true,
+            completed_20620_after_teleport_npc_dialog = true,
+            completed_20620_after_stigma_return_npc_dialog = true,
+        })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_teleport")
+        T.assert_eq(next_action.params.direct_quest_id_only, true)
+    end)
+
+    T.test("continues quest 20620 second npc stage to teleport after dialog completed", function()
+        local quest = load_module()
+        local next_action = quest.nextQuest20620AfterStigmaReturnNpcAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 2, seq = 0, lv_num = 20 },
+            },
+            char = quest_20620_after_teleport_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_teleport_npc_dialog = true,
+            completed_20620_after_stigma_return_npc_dialog = true,
+        }, {}, { id = 20620, tab = 0, status_code = 3, req_count = 2, seq = 0, lv_num = 20 })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_teleport")
+        T.assert_eq(next_action.params.direct_quest_id_only, true)
+    end)
+
+    T.test("continues quest 20620 second npc stage to teleport after step 3 snapshot", function()
+        local quest = load_module()
+        local next_action = quest.nextQuest20620AfterStigmaReturnNpcAction({
+            quests = {
+                { id = 20620, tab = 0, status_code = 3, req_count = 3, seq = 0, lv_num = 20 },
+            },
+            char = quest_20620_after_teleport_npc_char(20),
+            big_map_id = 220020000,
+        }, {
+            completed_20620_after_teleport_npc_dialog = true,
+            completed_20620_after_stigma_return_npc_dialog = true,
+        }, {}, { id = 20620, tab = 0, status_code = 3, req_count = 3, seq = 0, lv_num = 20 })
+
+        T.assert_eq(next_action.name, "QuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20620)
+        T.assert_eq(next_action.params.stage, "quest_20620_after_stigma_teleport")
+    end)
+
+    T.test("opens quest 20620 after-stigma return npc after first npc dialog completed", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -2601,7 +2663,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
         })
 
         T.assert_eq(next_action.name, "InteractNpc")
@@ -2633,7 +2694,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
         })
 
         T.assert_eq(next_action.name, "ClickDialogLastContinuousOk")
@@ -2678,7 +2738,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_return_npc_dialog = true,
         })
 
@@ -2702,7 +2761,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_return_npc_dialog = true,
             waiting_teleport = true,
             teleport_quest_id = 20620,
@@ -2730,7 +2788,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_return_npc_dialog = true,
             waiting_teleport = true,
             teleport_quest_id = 20620,
@@ -2758,7 +2815,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_return_npc_dialog = true,
             completed_20620_after_stigma_teleport = true,
         })
@@ -2794,7 +2850,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_teleport = true,
         })
 
@@ -2820,7 +2875,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_teleport = true,
             completed_20620_after_stigma_npc_dialog = true,
         })
@@ -2847,7 +2901,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_teleport = true,
             completed_20620_after_stigma_npc_dialog = true,
             opened_20620_obelisk = true,
@@ -2879,7 +2932,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_teleport = true,
             completed_20620_after_stigma_npc_dialog = true,
         })
@@ -2903,7 +2955,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_teleport = true,
             completed_20620_after_stigma_npc_dialog = true,
             completed_20620_obelisk = true,
@@ -2976,7 +3027,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_teleport = true,
             completed_20620_after_stigma_npc_dialog = true,
             completed_20620_obelisk = true,
@@ -3006,7 +3056,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_teleport = true,
             completed_20620_after_stigma_npc_dialog = true,
             completed_20620_obelisk = true,
@@ -3036,7 +3085,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_teleport = true,
             completed_20620_after_stigma_npc_dialog = true,
             completed_20620_obelisk = true,
@@ -3075,7 +3123,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_teleport = true,
             completed_20620_after_stigma_npc_dialog = true,
             completed_20620_obelisk = true,
@@ -3105,7 +3152,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = true,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
             completed_20620_after_stigma_teleport = true,
             completed_20620_after_stigma_npc_dialog = true,
             completed_20620_obelisk = true,
@@ -4616,7 +4662,6 @@ local function run()
             completed_20620_start_dialog = true,
             completed_20620_task_teleport = false,
             completed_20620_after_teleport_npc_dialog = true,
-            completed_20620_stigma_socket = true,
         })
 
         T.assert_eq(next_action.name, "InteractNpc")

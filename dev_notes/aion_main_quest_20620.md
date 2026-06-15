@@ -10,7 +10,7 @@
 1. quest_20620_start_npc
 2. quest_20620_task_teleport
 3. quest_20620_after_teleport_npc
-4. quest_20620_socket_stigma
+4. quest_20620_after_stigma_return_npc
 5. quest_20620_after_stigma_teleport
 6. quest_20620_after_stigma_npc
 7. quest_20620_obelisk
@@ -19,6 +19,9 @@
 ```
 
 后续普通 NPC 对话默认使用 `ClickDialogLastContinuousOk`。
+
+当前流程不执行 `quest_20620_socket_stigma`；`quest_20620_after_stigma_return_npc`
+完成后直接执行 `quest_20620_after_stigma_teleport`。
 
 ## 阶段一：起始 NPC 对话
 
@@ -83,7 +86,7 @@ quest_20620_task_teleport
 completed_20620_start_dialog=true
 completed_20620_task_teleport~=true
 completed_20620_after_teleport_npc_dialog~=true
-completed_20620_stigma_socket~=true
+completed_20620_after_stigma_return_npc_dialog~=true
 completed_20620_after_stigma_teleport~=true
 ```
 
@@ -169,52 +172,35 @@ ClickDialogLastContinuousOk stage=quest_20620_after_teleport_npc
 completed_20620_after_teleport_npc_dialog=true
 ```
 
-## 阶段四：后台镶嵌烙印
+## 阶段四：二次 NPC 对话
 
 阶段名：
 
 ```text
-quest_20620_socket_stigma
-```
-
-需求：
-
-```text
-不要人工右键，不走前台鼠标。
-优先使用后台 API：inventory.list() 找到烙印石 item.id，然后 inventory.useItem(item.id)。
+quest_20620_after_stigma_return_npc
 ```
 
 触发条件：
 
 ```text
 completed_20620_after_teleport_npc_dialog=true
-completed_20620_stigma_socket~=true
+completed_20620_after_stigma_return_npc_dialog~=true
 ```
 
-物品识别：
+执行顺序：
 
 ```text
-优先关键词：파멸의 방패
-兜底关键词：스티그마 / Stigma / 烙印
-```
-
-执行方式：
-
-```text
-UseQuestStigmaStone stage=quest_20620_socket_stigma
-inventory.list() -> 找 item.id
-inventory.useItem(item.id)
+InteractNpc stage=quest_20620_after_stigma_return_npc interact_id=2147504921
+ClickDialogLastContinuousOk stage=quest_20620_after_stigma_return_npc
 ```
 
 完成标记：
 
 ```text
-completed_20620_stigma_socket=true
+completed_20620_after_stigma_return_npc_dialog=true
 ```
 
-如果背包 API 里找不到烙印石，会持续等待并在日志里输出库存数量和匹配关键词；不使用 UI 坐标右键作为默认路径。
-
-## 阶段五：烙印后任务传送
+## 阶段五：二次对话后任务传送
 
 阶段名：
 
@@ -225,7 +211,7 @@ quest_20620_after_stigma_teleport
 触发条件：
 
 ```text
-completed_20620_stigma_socket=true
+completed_20620_after_stigma_return_npc_dialog=true
 completed_20620_after_stigma_teleport~=true
 ```
 
@@ -482,7 +468,7 @@ completed_20620_after_obelisk_npc_dialog=true
 
 ```text
 如果 completed_20620_after_teleport_npc_dialog=true、
-completed_20620_stigma_socket=true
+completed_20620_after_stigma_return_npc_dialog=true
 completed_20620_after_stigma_teleport=true
 completed_20620_after_stigma_npc_dialog=true
 completed_20620_obelisk=true

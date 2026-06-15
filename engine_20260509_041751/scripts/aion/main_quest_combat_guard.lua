@@ -28,6 +28,14 @@ local combat_actions = {
     CompleteQuestGrind = true,
 }
 
+function M.actionPreemptsGuard(action)
+    if type(action) ~= "table" then
+        return false
+    end
+    local params = type(action.params) == "table" and action.params or {}
+    return params.preempt_combat == true
+end
+
 function M.actionInterruptible(action)
     if type(action) ~= "table" then
         return false
@@ -43,6 +51,11 @@ function M.shouldBlock(args)
     args = args or {}
     if not M.actionInterruptible(args.action) then
         return false, "action-safe"
+    end
+    if M.actionPreemptsGuard(args.action)
+        and args.recent_damage ~= true
+        and args.pending_loot ~= true then
+        return false, "story-action-preempts-combat"
     end
     if args.live_target == true then
         return true, tostring(args.live_reason or "live-target")

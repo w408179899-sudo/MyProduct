@@ -24,6 +24,9 @@ local function mock_combat(args)
         autoActiveSkills = function()
             return true, args.auto_active or {}, nil
         end,
+        autoBuffSkills = function()
+            return true, args.auto_buff or {}, nil
+        end,
         isSkillAuto = function(id)
             if args.is_auto and args.is_auto[id] ~= nil then
                 return true, args.is_auto[id], nil

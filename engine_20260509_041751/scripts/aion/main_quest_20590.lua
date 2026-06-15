@@ -518,6 +518,7 @@ function M.nextTempleAction(state, quest, opts)
             z = M.temple_npc.z,
             distance = dist,
             range = range,
+            preempt_combat = true,
         })
     end
     local route_wait = waitRouteIfActive(opts, "temple_npc", quest)
@@ -534,6 +535,7 @@ function M.nextTempleAction(state, quest, opts)
             interact_id = M.temple_npc.interact_id,
             npc_name = M.temple_npc.name,
             npc_name_key = M.temple_npc.name_key,
+            preempt_combat = true,
         })
     end
 

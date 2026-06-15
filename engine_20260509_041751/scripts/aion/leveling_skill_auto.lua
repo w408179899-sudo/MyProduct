@@ -282,7 +282,7 @@ function M.planAutoActiveSkills(skills, current_auto_active, opts)
         if id <= 0 then
             plan.stats.invalid = plan.stats.invalid + 1
         elseif opts.require_active_type ~= false and skill_type(skill) ~= 2 then
-            -- Buff/status/passive skills are intentionally left out.
+            -- The leveling caller can include buff/status skills by disabling this gate.
         else
             plan.stats.active_type = plan.stats.active_type + 1
             local group = skill_group_key(skill)
@@ -336,6 +336,7 @@ function M.syncAutoActiveSkills(combat, opts)
         level = number(opts.level),
         learned_count = 0,
         current_auto_active_count = 0,
+        current_auto_buff_count = 0,
         to_add_count = 0,
         added_count = 0,
         failed_count = 0,
@@ -355,6 +356,7 @@ function M.syncAutoActiveSkills(combat, opts)
     end
     if type(combat.skillList) ~= "function"
         or type(combat.autoActiveSkills) ~= "function"
+        or type(combat.autoBuffSkills) ~= "function"
         or type(combat.isSkillAuto) ~= "function"
         or type(combat.skillAutoToggle) ~= "function" then
         result.errors[#result.errors + 1] = "combat skill APIs unavailable"
@@ -371,13 +373,28 @@ function M.syncAutoActiveSkills(combat, opts)
         result.errors[#result.errors + 1] = "autoActiveSkills failed: " .. tostring(active_err or "")
         return false, result
     end
+    local buff_ok, buff, buff_err = combat.autoBuffSkills()
+    if not buff_ok then
+        result.errors[#result.errors + 1] = "autoBuffSkills failed: " .. tostring(buff_err or "")
+        return false, result
+    end
 
     skills = skills or {}
     active = active or {}
+    buff = buff or {}
     result.learned_count = #skills
     result.current_auto_active_count = #active
+    result.current_auto_buff_count = #buff
 
-    local plan = M.planAutoActiveSkills(skills, active, {
+    local current_auto = {}
+    for _, item in ipairs(active) do
+        current_auto[#current_auto + 1] = item
+    end
+    for _, item in ipairs(buff) do
+        current_auto[#current_auto + 1] = item
+    end
+
+    local plan = M.planAutoActiveSkills(skills, current_auto, {
         ignore_names = opts.ignore_names,
         ignore_ids = opts.ignore_ids,
         require_active_type = opts.require_active_type,
@@ -500,12 +517,13 @@ function M.formatResult(result)
     result = type(result) == "table" and result or {}
     local stats = type(result.stats) == "table" and result.stats or {}
     return string.format(
-        "reason=%s level=%s status=%s learned=%d active=%d active_type=%d candidates=%d to_add=%d quickbar(placed=%d reused=%d failed=%d) added=%d failed=%d skipped(already=%d duplicate_group=%d ignored=%d not_auto=%d check_failed=%d invalid=%d)",
+        "reason=%s level=%s status=%s learned=%d active=%d buff=%d active_type=%d candidates=%d to_add=%d quickbar(placed=%d reused=%d failed=%d) added=%d failed=%d skipped(already=%d duplicate_group=%d ignored=%d not_auto=%d check_failed=%d invalid=%d)",
         tostring(result.reason or ""),
         tostring(result.level or ""),
         tostring(result.status or ""),
         number(result.learned_count),
         number(result.current_auto_active_count),
+        number(result.current_auto_buff_count),
         number(stats.active_type),
         number(stats.candidates),
         number(result.to_add_count),

@@ -2195,6 +2195,7 @@ function leveling_skill_auto_tick()
         ignore_names = cfg.skills and cfg.skills.ignore_names or "",
         ignore_ids = cfg.leveling and cfg.leveling.skill_auto_ignore_ids or "",
         kind = combat.KIND_SKILL,
+        require_active_type = false,
         quickbar_required = true,
         quickbar = ok_remote and remote or nil,
         quickbar_state = state.quickbar,
@@ -7725,6 +7726,48 @@ function main_quest_combat_guard_pending_loot(now)
     return last_killed > 0 and post_until > (tonumber(now) or now_seconds())
 end
 
+function main_quest_clear_combat_tail_for_story_action(action, reason)
+    runtime.combat = runtime.combat or {}
+    local c = runtime.combat
+    local old_obj = tonumber(c.target_obj) or 0
+    local old_name = tostring(c.target_name or "")
+    c.target_obj = 0
+    c.target_name = ""
+    c.target_distance = 0
+    c.loot_obj = 0
+    c.loot_name = ""
+    c.loot_distance = 0
+    c.loot_attempts = 0
+    c.post_kill_until = 0
+    c.post_kill_started_at = 0
+    c.force_auto_until = 0
+    c.last_force_auto_at = 0
+    c.last_attack_key_at = 0
+    c.last_attack_key_obj = 0
+    if type(combat_reset_target_progress) == "function" then
+        combat_reset_target_progress()
+    end
+    if type(combat_auto_off) == "function" then
+        combat_auto_off(tostring(reason or "story-action-preempts-combat"), false)
+    end
+    if type(combat_set_status) == "function" then
+        combat_set_status("idle", tostring(reason or ""), false)
+    end
+    if type(main_quest_clear_combat_guard) == "function" then
+        main_quest_clear_combat_guard(reason)
+    end
+    if type(sync_combat_enabled_from_primary_mode) == "function" then
+        sync_combat_enabled_from_primary_mode()
+    end
+    main_quest_trace("combat-tail-cleared",
+        "reason=" .. tostring(reason or "") ..
+        " action=" .. tostring(action and action.name or "") ..
+        " stage=" .. tostring(action and action.params and action.params.stage or "") ..
+        " old_target=" .. tostring(old_name) ..
+        " old_obj=" .. tostring(old_obj),
+        0)
+end
+
 function main_quest_start_combat_guard(action, state, reason, target)
     runtime.main_quest = runtime.main_quest or {}
     runtime.combat = runtime.combat or {}
@@ -7815,6 +7858,9 @@ function main_quest_combat_guard_blocks_action(action, state)
         pending_loot = pending_loot,
     })
     if not block then
+        if reason == "story-action-preempts-combat" then
+            main_quest_clear_combat_tail_for_story_action(action, reason)
+        end
         if not recent_damage and not pending_loot then
             main_quest_clear_combat_guard(reason)
         end
@@ -18395,7 +18441,7 @@ local function draw_leveling_tab()
     changed, val = imgui.checkbox("允许主线必要采集", cfg.leveling.allow_gather)
     if changed then cfg.leveling.allow_gather = val end
 
-    changed, val = imgui.checkbox("进游戏/升级后同步自动主动技能", cfg.leveling.learn_skills)
+    changed, val = imgui.checkbox("进游戏/升级后同步自动技能", cfg.leveling.learn_skills)
     if changed then cfg.leveling.learn_skills = val end
 
     imgui.set_next_item_width(120)

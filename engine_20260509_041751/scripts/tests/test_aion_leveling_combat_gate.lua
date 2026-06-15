@@ -168,6 +168,62 @@ local function run()
         T.assert_eq(reason, "tracked-target")
     end)
 
+    T.test("main quest combat guard lets explicit story handoff preempt stale target", function()
+        local guard = load_guard()
+        local block, reason = guard.shouldBlock({
+            action = { name = "NavigateToNpc", params = { stage = "temple_npc", preempt_combat = true } },
+            live_target = true,
+            live_reason = "tracked-target",
+            recent_damage = false,
+            pending_loot = false,
+        })
+
+        T.assert_eq(block, false)
+        T.assert_eq(reason, "story-action-preempts-combat")
+    end)
+
+    T.test("main quest combat guard blocks story handoff without explicit preempt flag", function()
+        local guard = load_guard()
+        local block, reason = guard.shouldBlock({
+            action = { name = "NavigateToNpc", params = { quest_id = 20590, stage = "temple_npc" } },
+            live_target = true,
+            live_reason = "tracked-target",
+            recent_damage = false,
+            pending_loot = false,
+        })
+
+        T.assert_eq(block, true)
+        T.assert_eq(reason, "tracked-target")
+    end)
+
+    T.test("main quest combat guard still blocks story handoff when recently damaged", function()
+        local guard = load_guard()
+        local block, reason = guard.shouldBlock({
+            action = { name = "NavigateToNpc", params = { stage = "temple_npc", preempt_combat = true } },
+            live_target = true,
+            live_reason = "tracked-target",
+            recent_damage = true,
+            pending_loot = false,
+        })
+
+        T.assert_eq(block, true)
+        T.assert_eq(reason, "tracked-target")
+    end)
+
+    T.test("main quest combat guard still blocks story handoff when loot is pending", function()
+        local guard = load_guard()
+        local block, reason = guard.shouldBlock({
+            action = { name = "NavigateToNpc", params = { stage = "temple_npc", preempt_combat = true } },
+            live_target = true,
+            live_reason = "tracked-target",
+            recent_damage = false,
+            pending_loot = true,
+        })
+
+        T.assert_eq(block, true)
+        T.assert_eq(reason, "tracked-target")
+    end)
+
     T.test("main quest combat guard blocks recent damage before teleport", function()
         local guard = load_guard()
         local block, reason = guard.shouldBlock({
