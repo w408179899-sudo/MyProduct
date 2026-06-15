@@ -378,6 +378,7 @@ local runtime = {
         completed_20622_after_teleport_npc_dialog = false,
         completed_20622_after_npc_task_teleport = false,
         completed_20622_after_npc_teleport_npc_dialog = false,
+        completed_20623_task_teleport = false,
         quest_teleport_panel_key = "",
         quest_teleport_panel_opened_at = 0,
     },
@@ -7620,6 +7621,7 @@ function main_quest_reset_runtime(reason)
     r.completed_20622_after_teleport_npc_dialog = false
     r.completed_20622_after_npc_task_teleport = false
     r.completed_20622_after_npc_teleport_npc_dialog = false
+    r.completed_20623_task_teleport = false
     r.quest_teleport_panel_key = ""
     r.quest_teleport_panel_opened_at = 0
     log_info("[AionMainQuest20590] reset reason=" .. tostring(reason or ""))
@@ -7984,6 +7986,7 @@ function main_quest_read_20611_state(now)
         or r.completed_20622_task_teleport == true
         or r.completed_20622_after_teleport_npc_dialog == true
         or r.completed_20622_after_npc_task_teleport == true
+        or r.completed_20623_task_teleport == true
         or r.active_20611_grind == true
         or r.opened_20611_obelisk == true then
         state.ui = main_quest_read_20611_ui_state()
@@ -9738,6 +9741,9 @@ function main_quest_execute_20590(action, state)
         if stage == "quest_20622_task_teleport" and r.active_20611_grind == true then
             main_quest_stop_20611_grind("quest-20622-level-reached-before-panel", false)
         end
+        if stage == "quest_20623_task_teleport" and r.active_20611_grind == true then
+            main_quest_stop_20611_grind("quest-20623-level-reached-before-panel", false)
+        end
         if not ok_quest or not quest or type(quest.questTeleport) ~= "function" then
             main_quest_set_status("quest teleport failed: aion.quest unavailable")
             return false
@@ -9755,7 +9761,8 @@ function main_quest_execute_20590(action, state)
                     or stage == "quest_20621_after_dialog_teleport"))
                 or (quest_id == 20622 and (
                     stage == "quest_20622_task_teleport"
-                    or stage == "quest_20622_after_npc_task_teleport")) then
+                    or stage == "quest_20622_after_npc_task_teleport"))
+                or (quest_id == 20623 and stage == "quest_20623_task_teleport") then
                 panel_ready = true
                 panel_detail = "direct_quest_id_only"
             else
@@ -10935,6 +10942,17 @@ function main_quest_execute_20590(action, state)
                 " reason=" .. tostring(action.reason or "") ..
                 " pos=" .. main_quest_position_text(state.char),
                 0)
+        elseif stage == "quest_20623_task_teleport" then
+            r.clicked_20611_indicator_title = false
+            r.completed_20623_task_teleport = true
+            r.cached_quest_20611 = nil
+            r.last_quest_20611_read_at = 0
+            main_quest_trace("q20623-complete-teleport:" .. stage,
+                "quest=" .. tostring(params.quest_id or "") ..
+                " completed_task_tp=" .. tostring(r.completed_20623_task_teleport == true) ..
+                " reason=" .. tostring(action.reason or "") ..
+                " pos=" .. main_quest_position_text(state.char),
+                0)
         elseif tonumber(params.quest_id) == 20610 then
             r.completed_20610_task_teleport = true
             r.cached_quest_20610 = nil
@@ -11623,7 +11641,8 @@ function main_quest_20611_tick()
         ":" .. tostring(runtime.main_quest.completed_20622_task_teleport == true) ..
         ":" .. tostring(runtime.main_quest.completed_20622_after_teleport_npc_dialog == true) ..
         ":" .. tostring(runtime.main_quest.completed_20622_after_npc_task_teleport == true) ..
-        ":" .. tostring(runtime.main_quest.completed_20622_after_npc_teleport_npc_dialog == true)
+        ":" .. tostring(runtime.main_quest.completed_20622_after_npc_teleport_npc_dialog == true) ..
+        ":" .. tostring(runtime.main_quest.completed_20623_task_teleport == true)
     if decision_sig ~= tostring(runtime.main_quest.last_decision_20611_signature or "") then
         main_quest_trace("decision",
             "quest=20611" ..

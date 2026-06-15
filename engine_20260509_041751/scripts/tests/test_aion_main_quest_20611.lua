@@ -4017,7 +4017,7 @@ local function run()
         T.assert_eq(next_action.params.char_level, 26)
     end)
 
-    T.test("idles after quest 20623 reaches level 28", function()
+    T.test("calls quest 20623 task teleport after reaching level 28", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
@@ -4029,11 +4029,74 @@ local function run()
             completed_20622_after_npc_teleport_npc_dialog = true,
         })
 
-        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.name, "QuestTeleport")
         T.assert_eq(next_action.params.quest_id, 20623)
-        T.assert_eq(next_action.params.stage, "quest_20623_level28_grind")
+        T.assert_eq(next_action.params.stage, "quest_20623_task_teleport")
         T.assert_eq(next_action.params.required_level, 28)
         T.assert_eq(next_action.params.char_level, 28)
+        T.assert_eq(next_action.params.wait_teleport, true)
+        T.assert_eq(next_action.params.direct_quest_id_only, true)
+        T.assert_eq(next_action.params.open_panel_key, false)
+        T.assert_eq(next_action.params.require_panel_visible, false)
+    end)
+
+    T.test("waits for quest 20623 task teleport position change", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = quest_20623_level28_grind_char(28),
+            big_map_id = 220020000,
+        }, {
+            waiting_teleport = true,
+            teleport_quest_id = 20623,
+            teleport_stage = "quest_20623_task_teleport",
+            teleport_start_pos = quest_20623_level28_grind_char(28),
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "WaitPositionChanged")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_task_teleport")
+    end)
+
+    T.test("completes quest 20623 task teleport after position changes", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = { x = 900.00, y = 1700.00, z = 250.00, level = 28 },
+            big_map_id = 220020000,
+        }, {
+            waiting_teleport = true,
+            teleport_quest_id = 20623,
+            teleport_stage = "quest_20623_task_teleport",
+            teleport_start_pos = quest_20623_level28_grind_char(28),
+            teleport_start_big_map_id = 220020000,
+        })
+
+        T.assert_eq(next_action.name, "CompleteQuestTeleport")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_task_teleport")
+    end)
+
+    T.test("idles after quest 20623 task teleport completed", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 3, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = { x = 900.00, y = 1700.00, z = 250.00, level = 28 },
+            big_map_id = 220020000,
+        }, {
+            completed_20623_task_teleport = true,
+        })
+
+        T.assert_eq(next_action.name, "Idle")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_task_teleport")
     end)
 
     T.test("opens quest 20620 after-stigma return npc after stigma completed when teleport flag is missing", function()

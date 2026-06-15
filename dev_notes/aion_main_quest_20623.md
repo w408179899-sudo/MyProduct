@@ -2,11 +2,12 @@
 
 ## 当前已录制流程
 
-20623 当前只实现第一步：
+20623 当前已实现两步：
 
 1. `quest_20623_level28_grind`：沿指定路径移动到终点，在终点挂机升级到 28 级。
+2. `quest_20623_task_teleport`：角色达到 28 级后 call 20623 任务传送。
 
-角色达到 28 级后脚本执行 `Idle`，等待下一步 F11 指令；不会自动传送、对话或进入 20624。
+20623 任务传送完成后脚本执行 `Idle`，等待下一步 F11 指令；不会自动对话或进入 20624。
 
 ## F11 状态
 
@@ -34,9 +35,23 @@
   - 距离终点较远时执行 `FollowRoute`
   - 到达终点附近后执行 `StartStationaryGrind`
   - 挂机中执行 `WaitLevelGrind`
-  - 角色达到 28 级后执行 `Idle`
+  - 角色达到 28 级后进入 `quest_20623_task_teleport`
 - 终点挂机坐标：`1032.726, 1815.495, 221.567`
 - 恢复保护：纯 F11 快照恢复到 20623 升级时，要求角色在该路线附近，避免从 20622 旧区域误跳到 20623。
+
+## 阶段二：任务传送
+
+- 阶段名：`quest_20623_task_teleport`
+- 触发条件：
+  - `quest_20623_level28_grind` 中角色等级达到 28；或
+  - 脚本重启后 20623 已激活且 step=0，并且 20622 已完成或已不在任务列表。
+- 执行动作：
+  - 执行 `QuestTeleport`
+  - `direct_quest_id_only=true`
+  - `open_panel_key=false`
+  - `require_panel_visible=false`
+- 完成判定：只比较传送前记录的角色坐标和当前角色坐标；坐标变化后执行 `CompleteQuestTeleport`，并记录 `completed_20623_task_teleport=true`。
+- 完成后：执行 `Idle` 等待下一步 F11 指令。
 
 ## 路径
 
