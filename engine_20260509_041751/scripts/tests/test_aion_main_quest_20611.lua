@@ -144,6 +144,18 @@ local function quest_20622_after_npc_teleport_npc_char(level)
     return { x = 1036.26, y = 2031.45, z = 219.79, level = level or 25 }
 end
 
+local function quest_20623_route_start_char(level)
+    return { x = 1037.828, y = 2031.376, z = 219.682, level = level or 25 }
+end
+
+local function quest_20623_level28_grind_char(level)
+    return { x = 1032.726, y = 1815.495, z = 221.567, level = level or 25 }
+end
+
+local function quest_20623_restart_near_grind_char(level)
+    return { x = 1023.53, y = 1783.55, z = 223.64, level = level or 27 }
+end
+
 local function post_20612_level14_grind_char(level)
     return { x = 1093.60, y = 2247.10, z = 254.25, level = level or 11 }
 end
@@ -3913,14 +3925,14 @@ local function run()
         T.assert_eq(next_action.params.click_x, 25)
     end)
 
-    T.test("idles after quest 20622 after-npc teleport npc dialog completed", function()
+    T.test("follows quest 20623 level 28 route after quest 20622 final npc completed", function()
         local quest = load_module()
         local next_action = quest.nextAction({
             quests = {
                 { id = 20622, tab = 0, status_code = 4, req_count = 0, seq = 2, lv_num = 25 },
                 { id = 20623, tab = 0, status_code = 6, req_count = 0, seq = 3, lv_num = 28 },
             },
-            char = quest_20622_after_npc_teleport_npc_char(25),
+            char = quest_20623_route_start_char(25),
             big_map_id = 220020000,
         }, {
             completed_20622_task_teleport = true,
@@ -3929,9 +3941,99 @@ local function run()
             completed_20622_after_npc_teleport_npc_dialog = true,
         })
 
+        T.assert_eq(next_action.name, "FollowRoute")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_level28_grind")
+        T.assert_eq(next_action.params.required_level, 28)
+        T.assert_eq(next_action.params.char_level, 25)
+        T.assert_eq(next_action.params.route_name, "main_quest_20623_level28_grind")
+        T.assert_eq(next_action.params.route_count, 132)
+    end)
+
+    T.test("starts quest 20623 level 28 grind from F11 endpoint snapshot", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 28 },
+                { id = 20624, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 31 },
+            },
+            level_blocked_quest = { id = 20623, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 28 },
+            char = quest_20623_level28_grind_char(25),
+            big_map_id = 220020000,
+        }, {})
+
+        T.assert_eq(next_action.name, "StartStationaryGrind")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_level28_grind")
+        T.assert_eq(next_action.params.required_level, 28)
+        T.assert_eq(next_action.params.char_level, 25)
+        T.assert_eq(next_action.params.until_level, 28)
+    end)
+
+    T.test("recovers quest 20623 level 28 grind after restart away from route point", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 28 },
+                { id = 20624, tab = 0, status_code = 6, req_count = 0, seq = 2, lv_num = 31 },
+            },
+            level_blocked_quest = { id = 20623, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 28 },
+            char = quest_20623_restart_near_grind_char(27),
+            big_map_id = 220020000,
+        }, {})
+
+        T.assert_eq(next_action.name, "FollowRoute")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_level28_grind")
+        T.assert_eq(next_action.params.required_level, 28)
+        T.assert_eq(next_action.params.char_level, 27)
+        T.assert_eq(next_action.params.route_name, "main_quest_20623_level28_grind")
+    end)
+
+    T.test("classifies quest 20623 level 28 stage as level grind", function()
+        local quest = load_module()
+
+        T.assert_true(quest.isLevelGrindStage("quest_20623_level28_grind"))
+    end)
+
+    T.test("waits while quest 20623 level 28 grind is running", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = quest_20623_level28_grind_char(26),
+            big_map_id = 220020000,
+        }, {
+            active_20611_grind = true,
+            active_20611_grind_stage = "quest_20623_level28_grind",
+            level_grind_quest_id = 20623,
+        })
+
+        T.assert_eq(next_action.name, "WaitLevelGrind")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_level28_grind")
+        T.assert_eq(next_action.params.required_level, 28)
+        T.assert_eq(next_action.params.char_level, 26)
+    end)
+
+    T.test("idles after quest 20623 reaches level 28", function()
+        local quest = load_module()
+        local next_action = quest.nextAction({
+            quests = {
+                { id = 20623, tab = 0, status_code = 6, req_count = 0, seq = 1, lv_num = 28 },
+            },
+            char = quest_20623_level28_grind_char(28),
+            big_map_id = 220020000,
+        }, {
+            completed_20622_after_npc_teleport_npc_dialog = true,
+        })
+
         T.assert_eq(next_action.name, "Idle")
-        T.assert_eq(next_action.params.quest_id, 20622)
-        T.assert_eq(next_action.params.stage, "quest_20622_after_npc_teleport_npc")
+        T.assert_eq(next_action.params.quest_id, 20623)
+        T.assert_eq(next_action.params.stage, "quest_20623_level28_grind")
+        T.assert_eq(next_action.params.required_level, 28)
+        T.assert_eq(next_action.params.char_level, 28)
     end)
 
     T.test("opens quest 20620 after-stigma return npc after stigma completed when teleport flag is missing", function()

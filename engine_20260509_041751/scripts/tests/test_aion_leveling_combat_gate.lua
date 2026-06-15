@@ -15,6 +15,38 @@ local function quest_grind_allowed(primary_mode, allow_grind, active_grind, comb
         and combat_mode == 1
 end
 
+local function effective_combat_radius(base_radius, quest_grind)
+    local radius = tonumber(base_radius) or 35
+    if quest_grind == true and radius < 60 then
+        radius = 60
+    end
+    return radius
+end
+
+local function target_is_damaged(hp, mhp)
+    hp = tonumber(hp) or 0
+    mhp = tonumber(mhp) or 0
+    return mhp > 0 and hp > 0 and hp < mhp
+end
+
+local function close_alive_priority(dead, hp, dist, quest_grind)
+    return quest_grind == true
+        and dead ~= true
+        and (tonumber(hp) or 0) > 0
+        and (tonumber(dist) or 9999) <= 5
+end
+
+local function reject_new_target_as_claimed(hp, mhp, quest_grind)
+    if quest_grind ~= true or not target_is_damaged(hp, mhp) then
+        return false
+    end
+    return true
+end
+
+local function continue_tracked_target(tracked)
+    return tracked == true
+end
+
 local function clear_modules()
     package.loaded["aion.main_quest_combat_guard"] = nil
 end
@@ -45,6 +77,29 @@ local function run()
         T.assert_eq(quest_grind_allowed(2, false, true, 1), false)
         T.assert_eq(quest_grind_allowed(2, true, true, 2), false)
         T.assert_eq(quest_grind_allowed(1, true, true, 1), false)
+    end)
+
+    T.test("quest grind radius has isolated 60m floor", function()
+        T.assert_eq(effective_combat_radius(35, true), 60)
+        T.assert_eq(effective_combat_radius(80, true), 80)
+        T.assert_eq(effective_combat_radius(35, false), 35)
+    end)
+
+    T.test("quest grind skips damaged mobs only before locking", function()
+        T.assert_eq(reject_new_target_as_claimed(90, 100, true), true)
+        T.assert_eq(reject_new_target_as_claimed(100, 100, true), false)
+        T.assert_eq(reject_new_target_as_claimed(90, 100, false), false)
+        T.assert_eq(continue_tracked_target(true), true)
+    end)
+
+    T.test("quest grind prioritizes close alive mobs only in quest grind", function()
+        T.assert_eq(close_alive_priority(false, 100, 2, true), true)
+        T.assert_eq(close_alive_priority(false, 90, 2, true), true)
+        T.assert_eq(close_alive_priority(false, 100, 6, true), false)
+        T.assert_eq(close_alive_priority(true, 100, 2, true), false)
+        T.assert_eq(close_alive_priority(false, 0, 2, true), false)
+        T.assert_eq(close_alive_priority(false, 100, 2, false), false)
+        T.assert_eq(reject_new_target_as_claimed(90, 100, true), true)
     end)
 
     T.test("main quest combat guard blocks interruptible actions", function()

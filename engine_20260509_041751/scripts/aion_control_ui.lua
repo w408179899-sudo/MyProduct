@@ -16,6 +16,7 @@
       F9       run safe API probe
       F10      pause/resume
       F11      record task-building snapshot
+      F12      dump nearby monster entity fields
       Ctrl+F12 exit
 ]]
 
@@ -252,6 +253,10 @@ local runtime = {
         last_dump = "",
     },
     target_dump = {
+        last_status = "",
+        last_dump = "",
+    },
+    monster_dump = {
         last_status = "",
         last_dump = "",
     },
@@ -1059,6 +1064,9 @@ function main_quest_is_level_grind_stage(stage)
         or stage == "quest_20613_level14_grind"
         or stage == "quest_20614_level17_grind"
         or stage == "quest_20615_level20_grind"
+        or stage == "quest_20621_level22_grind"
+        or stage == "quest_20622_level25_grind"
+        or stage == "quest_20623_level28_grind"
 end
 
 function main_quest_is_grind_stage(stage)
@@ -2702,6 +2710,23 @@ function combat_is_name_allowed(name)
     return true
 end
 
+local function combat_effective_radius(quest_grind)
+    local radius = tonumber(cfg.combat.radius) or 35
+    if quest_grind == true and radius < 60 then
+        radius = 60
+    end
+    return radius
+end
+
+local function combat_is_damaged_target(e)
+    if type(e) ~= "table" then
+        return false
+    end
+    local hp = tonumber(e.hp) or 0
+    local mhp = tonumber(e.mhp or e.max_hp) or 0
+    return mhp > 0 and hp > 0 and hp < mhp
+end
+
 function combat_is_target_candidate(e, anchor)
     if type(e) ~= "table" or not anchor then
         return false
@@ -2757,7 +2782,8 @@ function combat_is_target_candidate(e, anchor)
     return combat_entity_obj(e) > 0
 end
 
-function combat_target_reject_reason(e, anchor)
+function combat_target_reject_reason(e, anchor, opts)
+    opts = opts or {}
     if type(e) ~= "table" or not anchor then
         return "invalid"
     end
@@ -2817,7 +2843,7 @@ function combat_target_reject_reason(e, anchor)
         runtime.combat.target_ignored[obj] = nil
     end
 
-    local radius = tonumber(cfg.combat.radius) or 35
+    local radius = tonumber(opts.radius) or tonumber(cfg.combat.radius) or 35
     if ok_core and core and core.distance3(anchor, e) > radius then
         return "radius"
     end
@@ -2828,7 +2854,7 @@ function combat_is_target_candidate(e, anchor)
     return combat_target_reject_reason(e, anchor) == nil
 end
 
-function combat_find_current_entity(list, anchor)
+function combat_find_current_entity(list, anchor, opts)
     if not ok_combat or not combat then
         return nil
     end
@@ -2845,7 +2871,7 @@ function combat_find_current_entity(list, anchor)
         local obj = combat_entity_obj(e)
         local id = tonumber(e.id) or 0
         if (current_obj > 0 and obj == current_obj) or (current_id > 0 and id == current_id) then
-            local reject_reason = combat_target_reject_reason(e, anchor)
+            local reject_reason = combat_target_reject_reason(e, anchor, opts)
             if reject_reason == nil or reject_reason == "radius" then
                 return e
             end
@@ -2853,6 +2879,36 @@ function combat_find_current_entity(list, anchor)
         end
     end
     return nil
+end
+
+function combat_quest_grind_find_close_alive_target(list, char)
+    if not ok_core or not core or type(char) ~= "table" then
+        return nil
+    end
+
+    local best, best_dist = nil, math.huge
+    for _, e in ipairs(list or {}) do
+        if type(e) == "table"
+            and e.dead ~= true
+            and (tonumber(e.type) or 0) == 2
+            and (tonumber(e.lootable) or 0) == 0
+            and tostring(e.tag or "") ~= "NPC"
+            and combat_entity_obj(e) > 0 then
+            local hp = tonumber(e.hp) or 0
+            if hp > 0 then
+                local dist = core.distance3(char, e)
+                if dist <= 5.0 and dist < best_dist then
+                    best = e
+                    best_dist = dist
+                end
+            end
+        end
+    end
+
+    if best then
+        best.distance = best_dist
+    end
+    return best
 end
 
 function combat_current_target_matches_obj(obj)
@@ -2892,16 +2948,21 @@ function combat_target_score(e, char)
     return dist
 end
 
-function combat_choose_target(list, char, anchor)
+function combat_choose_target(list, char, anchor, opts)
+    opts = opts or {}
     local best, best_score = nil, math.huge
     local checked, accepted = 0, 0
     local reject_counts = {}
     local type2_samples = {}
     local near_samples = {}
-    local sample_radius = tonumber(cfg.combat.radius) or 35
+    local sample_radius = tonumber(opts.radius) or tonumber(cfg.combat.radius) or 35
+    local reject_damaged = opts.reject_damaged == true
     for _, e in ipairs(list or {}) do
         checked = checked + 1
-        local reason = combat_target_reject_reason(e, anchor)
+        local reason = combat_target_reject_reason(e, anchor, opts)
+        if not reason and reject_damaged and combat_is_damaged_target(e) then
+            reason = "claimed"
+        end
         local dist = ok_core and core and core.distance3(char, e) or 0
         if #near_samples < 8 and (dist <= sample_radius or (tonumber(e and e.type) or 0) == 2) then
             table.insert(near_samples, string.format("t=%s name=%s dist=%.1f hp=%s/%s tag=%s type_name=%s rating=%s mutant=%s loot=%s iid=%s dead=%s reason=%s",
@@ -4293,6 +4354,239 @@ function target_f6_dump_selected()
 
     runtime.target_dump.last_dump = table.concat(lines, "\n")
     target_f6_set_status(tostring(result.summary or result.status or "done"))
+    return true
+end
+
+function monster_f12_set_status(text)
+    runtime.monster_dump = runtime.monster_dump or {}
+    runtime.monster_dump.last_status = tostring(text or "")
+    set_event("[F12 monster] " .. runtime.monster_dump.last_status)
+    log_info("[AionMonsterF12] " .. runtime.monster_dump.last_status)
+end
+
+function monster_f12_object_id(value)
+    if type(value) ~= "table" then
+        return 0
+    end
+    return tonumber(value.obj)
+        or tonumber(value.IEntity)
+        or tonumber(value.addr)
+        or 0
+end
+
+function monster_f12_target_id(value)
+    if type(value) ~= "table" then
+        return 0
+    end
+    return tonumber(value.id) or 0
+end
+
+function monster_f12_value(value)
+    if value == nil then
+        return "nil"
+    end
+    local value_type = type(value)
+    if value_type == "table" then
+        local count = 0
+        for _ in pairs(value) do
+            count = count + 1
+        end
+        return "<table:" .. tostring(count) .. ">"
+    end
+    local text = tostring(value)
+    text = string.gsub(text, "\r", "\\r")
+    text = string.gsub(text, "\n", "\\n")
+    if string.len(text) > 120 then
+        text = string.sub(text, 1, 120) .. "..."
+    end
+    return text
+end
+
+function monster_f12_fields(value)
+    if type(value) ~= "table" then
+        return tostring(value)
+    end
+    local keys = {}
+    for key in pairs(value) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a, b)
+        return tostring(a) < tostring(b)
+    end)
+
+    local parts = {}
+    for _, key in ipairs(keys) do
+        parts[#parts + 1] = tostring(key) .. "=" .. monster_f12_value(value[key])
+    end
+    return table.concat(parts, " ")
+end
+
+function monster_f12_distance(char, entity_value)
+    if type(char) ~= "table" or type(entity_value) ~= "table" then
+        return 0
+    end
+    if ok_core and core and type(core.distance3) == "function" then
+        local ok, dist = pcall(core.distance3, char, entity_value)
+        if ok and tonumber(dist) then
+            return tonumber(dist)
+        end
+    end
+    local dx = (tonumber(char.x) or 0) - (tonumber(entity_value.x) or 0)
+    local dy = (tonumber(char.y) or 0) - (tonumber(entity_value.y) or 0)
+    local dz = (tonumber(char.z) or 0) - (tonumber(entity_value.z) or 0)
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+function monster_f12_current_matches(current, entity_value)
+    if type(current) ~= "table" or type(entity_value) ~= "table" then
+        return false
+    end
+    local current_obj = monster_f12_object_id(current)
+    local entity_obj = monster_f12_object_id(entity_value)
+    if current_obj > 0 and entity_obj > 0 and current_obj == entity_obj then
+        return true
+    end
+    local current_id = monster_f12_target_id(current)
+    local entity_id = monster_f12_target_id(entity_value)
+    return current_id > 0 and entity_id > 0 and current_id == entity_id
+end
+
+function monster_f12_is_monster(entity_value)
+    if type(entity_value) ~= "table" then
+        return false
+    end
+    if (tonumber(entity_value.type) or 0) ~= 2 then
+        return false
+    end
+    if tostring(entity_value.tag or "") == "NPC" then
+        return false
+    end
+    return true
+end
+
+function monster_f12_dump_nearby()
+    runtime.monster_dump = runtime.monster_dump or {}
+    runtime.monster_dump.last_dump = ""
+
+    if not ok_core or not core then
+        monster_f12_set_status("failed: aion.core unavailable")
+        return false
+    end
+    if not ok_entity or not entity or type(entity.list) ~= "function" then
+        monster_f12_set_status("failed: aion.entity unavailable " .. tostring(entity))
+        return false
+    end
+
+    target_refresh(true)
+    local pid = tonumber(cfg.target and cfg.target.pid) or nil
+    if (not pid or pid <= 0) and type(core.resolvePid) == "function" then
+        pid = tonumber(core.resolvePid()) or nil
+    end
+    if core.ensureInit then
+        local init_ok, init_err = core.ensureInit(pid)
+        if not init_ok then
+            monster_f12_set_status("failed: init " .. tostring(init_err))
+            return false
+        end
+    end
+
+    local char_ok, char, char_err = core.getCharacter()
+    if not char_ok or type(char) ~= "table" then
+        monster_f12_set_status("failed: character " .. tostring(char_err))
+        return false
+    end
+
+    local list_ok, list, list_err = entity.list()
+    if not list_ok then
+        monster_f12_set_status("failed: entity.list " .. tostring(list_err))
+        return false
+    end
+    list = type(list) == "table" and list or {}
+
+    local current = nil
+    if ok_combat and combat and type(combat.currentTarget) == "function" then
+        local target_ok, target_value = combat.currentTarget()
+        if target_ok and type(target_value) == "table" then
+            current = target_value
+        end
+    end
+
+    local rows = {}
+    local monster_count = 0
+    for _, entity_value in ipairs(list) do
+        if monster_f12_is_monster(entity_value) then
+            monster_count = monster_count + 1
+            rows[#rows + 1] = {
+                entity = entity_value,
+                dist = monster_f12_distance(char, entity_value),
+                current = monster_f12_current_matches(current, entity_value),
+            }
+        end
+    end
+    table.sort(rows, function(a, b)
+        if a.current ~= b.current then
+            return a.current == true
+        end
+        return (tonumber(a.dist) or math.huge) < (tonumber(b.dist) or math.huge)
+    end)
+
+    local lines = {}
+    local char_hp = tonumber(char.hp or char.HP or char.cur_hp or char.current_hp) or 0
+    local char_max_hp = tonumber(char.max_hp or char.mhp or char.maxHP or char.MaxHP) or 0
+    lines[#lines + 1] = string.format(
+        "character name=%s hp=%s/%s pos=%.2f,%.2f,%.2f fields=%s",
+        tostring(char.name or ""),
+        tostring(char_hp),
+        tostring(char_max_hp),
+        tonumber(char.x) or 0,
+        tonumber(char.y) or 0,
+        tonumber(char.z) or 0,
+        monster_f12_fields(char))
+    if current then
+        lines[#lines + 1] = "current_target fields=" .. monster_f12_fields(current)
+    else
+        lines[#lines + 1] = "current_target none"
+    end
+    lines[#lines + 1] = string.format("entity_count=%d monster_count=%d logged=%d", #list, monster_count, math.min(#rows, 30))
+
+    local limit = math.min(#rows, 30)
+    for index = 1, limit do
+        local row = rows[index]
+        local entity_value = row.entity or {}
+        local line = string.format(
+            "%02d current=%s dist=%.2f name=%s id=%s obj=%s hp=%s/%s level=%s tag=%s type=%s ct=%s lootable=%s dead=%s pos=%.2f,%.2f,%.2f fields=%s",
+            index,
+            tostring(row.current == true),
+            tonumber(row.dist) or 0,
+            tostring(entity_value.name or ""),
+            tostring(entity_value.id or ""),
+            tostring(monster_f12_object_id(entity_value)),
+            tostring(entity_value.hp or ""),
+            tostring(entity_value.mhp or entity_value.max_hp or ""),
+            tostring(entity_value.level or ""),
+            tostring(entity_value.tag or ""),
+            tostring(entity_value.type or ""),
+            tostring(entity_value.ct or ""),
+            tostring(entity_value.lootable or ""),
+            tostring(entity_value.dead == true),
+            tonumber(entity_value.x) or 0,
+            tonumber(entity_value.y) or 0,
+            tonumber(entity_value.z) or 0,
+            monster_f12_fields(entity_value))
+        lines[#lines + 1] = line
+    end
+    if limit <= 0 then
+        lines[#lines + 1] = "no type=2 non-NPC entities nearby"
+    end
+
+    log_info("[AionMonsterF12] begin")
+    for _, line in ipairs(lines) do
+        log_info("[AionMonsterF12] " .. tostring(line or ""))
+    end
+    log_info("[AionMonsterF12] end")
+
+    runtime.monster_dump.last_dump = table.concat(lines, "\n")
+    monster_f12_set_status(string.format("done monsters=%d logged=%d", monster_count, limit))
     return true
 end
 
@@ -5698,7 +5992,6 @@ function combat_tick(force_stationary)
         end
         return
     end
-
     local anchor = c.anchor
     c.anchor_distance = core.distance3(char, anchor)
     if patrol_mode then
@@ -5723,7 +6016,14 @@ function combat_tick(force_stationary)
     end
 
     local entity_count = #(list or {})
-    local radius = tonumber(cfg.combat.radius) or 35
+    local radius = combat_effective_radius(quest_stationary)
+    local target_opts = {
+        radius = radius,
+    }
+    local choose_opts = {
+        radius = radius,
+        reject_damaged = quest_stationary,
+    }
     combat_log("tick",
         string.format("tick mode=%s patrol=%s status=%s char=%s hp=%s/%s anchor_dist=%.1f radius=%.1f entities=%d anchor=%s",
             tostring(c.mode or ""),
@@ -5790,7 +6090,7 @@ function combat_tick(force_stationary)
         local previous = combat_find_entity_by_obj(list, previous_target_obj)
         local end_reason = nil
         if previous then
-            local reject_reason = combat_target_reject_reason(previous, search_anchor)
+            local reject_reason = combat_target_reject_reason(previous, search_anchor, target_opts)
             if reject_reason == "hp-zero" or reject_reason == "lootable" or reject_reason == "dead" then
                 end_reason = reject_reason
             end
@@ -5891,23 +6191,49 @@ function combat_tick(force_stationary)
         end
     end
 
-    local current = combat_find_current_entity(list, search_anchor)
-    if current then
-        current.distance = core.distance3(char, current)
-        combat_log("current-target:" .. tostring(combat_entity_obj(current)),
-            string.format("continue current target name=%s obj=%s dist=%.1f hp=%s/%s",
-                tostring(current.name or ""),
-                tostring(combat_entity_obj(current)),
-                tonumber(current.distance) or 0,
-                tostring(current.hp or ""),
-                tostring(current.mhp or "")),
-            1.0,
-            false)
-        combat_engage_target(current)
+    local close_quest_target = quest_stationary and combat_quest_grind_find_close_alive_target(list, char) or nil
+    if close_quest_target then
+        combat_log("quest-close-target:" .. tostring(combat_entity_obj(close_quest_target)),
+            string.format("choose close alive target in quest grind name=%s obj=%s dist=%.1f hp=%s/%s",
+                tostring(close_quest_target.name or ""),
+                tostring(combat_entity_obj(close_quest_target)),
+                tonumber(close_quest_target.distance) or 0,
+                tostring(close_quest_target.hp or ""),
+                tostring(close_quest_target.mhp or "")),
+            0.5,
+            true)
+        combat_engage_target(close_quest_target)
         return
     end
 
-    local target = combat_choose_target(list, char, search_anchor)
+    local current = combat_find_current_entity(list, search_anchor, target_opts)
+    if current then
+        if quest_stationary and combat_is_damaged_target(current) then
+            combat_log("current-target-skip-claimed:" .. tostring(combat_entity_obj(current)),
+                string.format("skip claimed current target in quest grind name=%s obj=%s hp=%s/%s",
+                    tostring(current.name or ""),
+                    tostring(combat_entity_obj(current)),
+                    tostring(current.hp or ""),
+                    tostring(current.mhp or "")),
+                1.0,
+                false)
+        else
+            current.distance = core.distance3(char, current)
+            combat_log("current-target:" .. tostring(combat_entity_obj(current)),
+                string.format("continue current target name=%s obj=%s dist=%.1f hp=%s/%s",
+                    tostring(current.name or ""),
+                    tostring(combat_entity_obj(current)),
+                    tonumber(current.distance) or 0,
+                    tostring(current.hp or ""),
+                    tostring(current.mhp or "")),
+                1.0,
+                false)
+            combat_engage_target(current)
+            return
+        end
+    end
+
+    local target = combat_choose_target(list, char, search_anchor, choose_opts)
     if target then
         target.distance = core.distance3(char, target)
         combat_engage_target(target)
@@ -18381,6 +18707,7 @@ last_f4 = false
 last_f5 = false
 last_f6 = false
 last_f11 = false
+last_f12 = false
 
 while true do
     ctrl = hotkey.is_pressed(0x11)
@@ -18453,6 +18780,12 @@ while true do
         task_f11_record_snapshot()
     end
     last_f11 = f11
+
+    f12 = hotkey.is_pressed(0x7B)
+    if f12 and not ctrl and not last_f12 then
+        monster_f12_dump_nearby()
+    end
+    last_f12 = f12
 
     bootstrap_tick()
     if route_recovery_tick then

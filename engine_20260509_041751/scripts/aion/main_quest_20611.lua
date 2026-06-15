@@ -69,6 +69,8 @@ M.quest_20622_after_npc_teleport_stage = "quest_20622_after_npc_task_teleport"
 M.quest_20622_after_npc_teleport_npc_stage = "quest_20622_after_npc_teleport_npc"
 M.quest_20622_level25_required_level = 25
 M.quest_20623_id = 20623
+M.quest_20623_level_grind_stage = "quest_20623_level28_grind"
+M.quest_20623_level28_required_level = 28
 M.level_grind_blue_submit_stage = "level_grind_blue_submit"
 M.passive_blue_submit_tab = 1
 M.passive_blue_submit_cooldown_seconds = 3
@@ -179,6 +181,137 @@ M.quest_20622_level25_route = {
 }
 M.quest_20622_level25_grind_point = M.quest_20622_level25_route[#M.quest_20622_level25_route]
 M.quest_20622_level25_grind_point.big_map_id = 220020000
+M.quest_20623_level28_route = {
+    { x = 1037.828, y = 2031.376, z = 219.682 },
+    { x = 1038.063, y = 2030.755, z = 219.592 },
+    { x = 1038.804, y = 2028.795, z = 219.299 },
+    { x = 1039.500, y = 2026.760, z = 218.943 },
+    { x = 1040.206, y = 2024.702, z = 218.579 },
+    { x = 1040.921, y = 2022.635, z = 218.272 },
+    { x = 1041.649, y = 2020.529, z = 217.963 },
+    { x = 1042.354, y = 2018.491, z = 217.686 },
+    { x = 1043.007, y = 2016.460, z = 217.384 },
+    { x = 1043.657, y = 2014.376, z = 217.086 },
+    { x = 1044.312, y = 2012.290, z = 216.786 },
+    { x = 1044.958, y = 2010.231, z = 216.586 },
+    { x = 1045.644, y = 2008.118, z = 216.308 },
+    { x = 1046.402, y = 2006.076, z = 216.225 },
+    { x = 1047.166, y = 2004.049, z = 216.177 },
+    { x = 1047.935, y = 2002.066, z = 216.008 },
+    { x = 1048.740, y = 2000.033, z = 215.955 },
+    { x = 1049.521, y = 1998.058, z = 215.784 },
+    { x = 1050.505, y = 1996.112, z = 215.718 },
+    { x = 1051.599, y = 1994.203, z = 215.673 },
+    { x = 1052.775, y = 1992.311, z = 215.536 },
+    { x = 1053.995, y = 1990.429, z = 215.376 },
+    { x = 1055.249, y = 1988.636, z = 215.244 },
+    { x = 1056.524, y = 1986.810, z = 215.106 },
+    { x = 1057.720, y = 1985.083, z = 215.026 },
+    { x = 1058.995, y = 1983.243, z = 214.962 },
+    { x = 1059.710, y = 1981.271, z = 214.957 },
+    { x = 1060.037, y = 1979.117, z = 215.054 },
+    { x = 1060.364, y = 1976.969, z = 215.167 },
+    { x = 1060.621, y = 1974.846, z = 215.333 },
+    { x = 1060.365, y = 1973.075, z = 215.617 },
+    { x = 1060.047, y = 1971.380, z = 215.944 },
+    { x = 1060.402, y = 1969.698, z = 216.099 },
+    { x = 1061.085, y = 1967.950, z = 216.167 },
+    { x = 1061.132, y = 1965.833, z = 216.417 },
+    { x = 1061.386, y = 1963.669, z = 216.615 },
+    { x = 1061.687, y = 1961.417, z = 216.913 },
+    { x = 1061.979, y = 1959.221, z = 217.450 },
+    { x = 1062.265, y = 1957.075, z = 217.915 },
+    { x = 1062.547, y = 1954.956, z = 218.309 },
+    { x = 1062.834, y = 1952.804, z = 218.641 },
+    { x = 1063.125, y = 1950.619, z = 218.940 },
+    { x = 1063.325, y = 1948.425, z = 219.232 },
+    { x = 1063.458, y = 1946.303, z = 220.428 },
+    { x = 1063.608, y = 1944.080, z = 220.701 },
+    { x = 1063.659, y = 1942.027, z = 219.936 },
+    { x = 1063.424, y = 1940.085, z = 220.137 },
+    { x = 1063.098, y = 1938.192, z = 220.288 },
+    { x = 1062.932, y = 1936.445, z = 220.422 },
+    { x = 1063.709, y = 1934.827, z = 220.367 },
+    { x = 1063.364, y = 1932.746, z = 220.533 },
+    { x = 1062.193, y = 1931.025, z = 220.787 },
+    { x = 1060.381, y = 1929.749, z = 221.106 },
+    { x = 1058.560, y = 1928.494, z = 221.516 },
+    { x = 1056.795, y = 1927.278, z = 221.848 },
+    { x = 1054.954, y = 1925.986, z = 222.256 },
+    { x = 1053.329, y = 1924.710, z = 222.554 },
+    { x = 1051.668, y = 1923.274, z = 224.016 },
+    { x = 1050.005, y = 1921.837, z = 223.626 },
+    { x = 1048.398, y = 1920.411, z = 222.976 },
+    { x = 1046.778, y = 1918.888, z = 223.126 },
+    { x = 1045.354, y = 1917.218, z = 223.282 },
+    { x = 1044.084, y = 1915.397, z = 223.365 },
+    { x = 1042.832, y = 1913.603, z = 223.521 },
+    { x = 1041.952, y = 1912.341, z = 223.633 },
+    { x = 1041.984, y = 1911.571, z = 223.628 },
+    { x = 1040.417, y = 1910.415, z = 223.922 },
+    { x = 1039.825, y = 1908.788, z = 224.102 },
+    { x = 1038.814, y = 1906.830, z = 224.317 },
+    { x = 1037.720, y = 1905.058, z = 224.611 },
+    { x = 1036.657, y = 1903.646, z = 224.899 },
+    { x = 1035.458, y = 1902.132, z = 225.221 },
+    { x = 1034.119, y = 1900.763, z = 225.478 },
+    { x = 1033.049, y = 1898.822, z = 225.619 },
+    { x = 1031.952, y = 1896.955, z = 225.823 },
+    { x = 1031.152, y = 1894.934, z = 226.048 },
+    { x = 1030.831, y = 1892.784, z = 226.298 },
+    { x = 1030.778, y = 1890.634, z = 226.436 },
+    { x = 1030.948, y = 1888.532, z = 226.673 },
+    { x = 1031.198, y = 1886.559, z = 226.905 },
+    { x = 1031.329, y = 1884.590, z = 227.223 },
+    { x = 1030.881, y = 1882.702, z = 227.552 },
+    { x = 1030.150, y = 1880.824, z = 227.873 },
+    { x = 1029.374, y = 1879.035, z = 227.855 },
+    { x = 1028.282, y = 1877.232, z = 227.686 },
+    { x = 1027.102, y = 1875.361, z = 227.152 },
+    { x = 1026.023, y = 1873.468, z = 226.710 },
+    { x = 1024.960, y = 1871.605, z = 226.201 },
+    { x = 1023.915, y = 1869.675, z = 225.985 },
+    { x = 1023.101, y = 1867.681, z = 225.911 },
+    { x = 1022.388, y = 1865.673, z = 225.851 },
+    { x = 1021.660, y = 1863.622, z = 225.855 },
+    { x = 1020.937, y = 1861.587, z = 225.816 },
+    { x = 1020.242, y = 1859.467, z = 225.860 },
+    { x = 1019.647, y = 1857.404, z = 225.904 },
+    { x = 1019.166, y = 1855.269, z = 225.979 },
+    { x = 1018.855, y = 1853.146, z = 226.125 },
+    { x = 1018.987, y = 1850.983, z = 226.347 },
+    { x = 1018.850, y = 1849.001, z = 226.528 },
+    { x = 1018.723, y = 1847.021, z = 226.614 },
+    { x = 1018.469, y = 1845.161, z = 226.674 },
+    { x = 1018.385, y = 1842.947, z = 226.768 },
+    { x = 1018.113, y = 1840.761, z = 226.784 },
+    { x = 1018.722, y = 1838.705, z = 226.608 },
+    { x = 1018.328, y = 1836.539, z = 226.513 },
+    { x = 1017.864, y = 1834.413, z = 226.411 },
+    { x = 1018.399, y = 1832.373, z = 226.040 },
+    { x = 1019.919, y = 1830.787, z = 225.280 },
+    { x = 1021.526, y = 1829.303, z = 224.352 },
+    { x = 1023.058, y = 1827.888, z = 223.718 },
+    { x = 1024.650, y = 1826.727, z = 223.219 },
+    { x = 1025.880, y = 1825.283, z = 222.853 },
+    { x = 1027.408, y = 1823.940, z = 222.486 },
+    { x = 1029.236, y = 1823.258, z = 222.143 },
+    { x = 1030.497, y = 1821.475, z = 221.907 },
+    { x = 1031.732, y = 1819.599, z = 221.700 },
+    { x = 1033.302, y = 1818.585, z = 221.388 },
+    { x = 1035.174, y = 1818.066, z = 220.955 },
+    { x = 1036.503, y = 1816.480, z = 220.751 },
+    { x = 1038.416, y = 1816.039, z = 220.420 },
+    { x = 1040.218, y = 1815.289, z = 220.098 },
+    { x = 1040.866, y = 1813.828, z = 220.007 },
+    { x = 1039.700, y = 1814.148, z = 220.181 },
+    { x = 1037.557, y = 1814.721, z = 220.583 },
+    { x = 1035.400, y = 1815.289, z = 220.988 },
+    { x = 1033.244, y = 1815.475, z = 221.439 },
+    { x = 1032.726, y = 1815.495, z = 221.567 },
+}
+M.quest_20623_level28_grind_point = M.quest_20623_level28_route[#M.quest_20623_level28_route]
+M.quest_20623_level28_grind_point.big_map_id = 220020000
 M.quest_20614_level17_route = {
     { x = 940.295, y = 1707.646, z = 259.500 },
     { x = 938.978, y = 1707.956, z = 259.500 },
@@ -882,6 +1015,7 @@ function M.isLevelGrindStage(stage)
         or stage == M.quest_20615_level_grind_stage
         or stage == M.quest_20621_level_grind_stage
         or stage == M.quest_20622_level_grind_stage
+        or stage == M.quest_20623_level_grind_stage
 end
 
 function M.isGrindStage(stage)
@@ -960,6 +1094,10 @@ end
 
 function M.distanceToQuest20622Level25GrindPoint(char)
     return distance3(char, M.quest_20622_level25_grind_point)
+end
+
+function M.distanceToQuest20623Level28GrindPoint(char)
+    return distance3(char, M.quest_20623_level28_grind_point)
 end
 
 function M.distanceToQuest20615TargetNpc(char)
@@ -1276,6 +1414,27 @@ function M.isNearQuest20622AfterNpcTeleportNpc(state, opts)
         range = 7
     end
     return M.distanceToQuest20622AfterNpcTeleportNpc(state.char) <= range
+end
+
+function M.isNearQuest20623Level28Route(state, opts)
+    state = state or {}
+    opts = opts or {}
+    if type(state.char) ~= "table" then
+        return false
+    end
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= number(M.quest_20623_level28_grind_point.big_map_id) then
+        return false
+    end
+    local range = number(opts.quest_20623_route_recovery_range)
+    if range <= 0 then
+        range = 30
+    end
+    local _, _, nearest_dist = route_target(
+        M.quest_20623_level28_route,
+        state.char,
+        opts.waypoint_range or 2.0)
+    return number(nearest_dist) <= range
 end
 
 function M.questStep(quest)
@@ -4941,6 +5100,150 @@ function M.nextQuest20622Level25GrindAction(state, runtime, opts, quest)
     })
 end
 
+function M.nextQuest20623Level28GrindAction(state, runtime, opts, quest)
+    state = state or {}
+    runtime = runtime or {}
+    opts = opts or {}
+    quest = quest or M.findQuestById(state.quests, M.quest_20623_id)
+    if type(quest) ~= "table" then
+        quest = {
+            id = M.quest_20623_id,
+            status_code = 6,
+            req_count = 0,
+            lv_num = M.quest_20623_level28_required_level,
+        }
+    end
+
+    if type(state.dialog) == "table" then
+        return action("Idle", "waiting dialog close before quest 20623 level 28 grind", {
+            quest_id = M.quest_20623_id,
+            quest_step = M.questStep(quest),
+            stage = M.quest_20623_level_grind_stage,
+        })
+    end
+
+    local char = state.char
+    if type(char) ~= "table" then
+        return action("ReadState", "character unavailable", { quest_id = M.quest_20623_id })
+    end
+
+    local required_level = number(opts.quest_20623_level28_required_level)
+    if required_level <= 0 then
+        required_level = M.questRequiredLevel(quest)
+    end
+    if required_level <= 0 then
+        required_level = M.quest_20623_level28_required_level
+    end
+
+    local char_level = number(char.level)
+    if char_level <= 0 then
+        return action("ReadState", "character level unavailable", { quest_id = M.quest_20623_id })
+    end
+
+    if char_level >= required_level then
+        return action("Idle", "quest 20623 level 28 reached; wait next instruction", {
+            quest_id = M.quest_20623_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20623_level_grind_stage,
+        })
+    end
+
+    local point = M.quest_20623_level28_grind_point
+    local current_big_map = number(state.big_map_id)
+    if current_big_map > 0 and current_big_map ~= number(point.big_map_id) then
+        return action("Idle", "quest 20623 level 28 grind wrong map", {
+            quest_id = M.quest_20623_id,
+            quest_step = M.questStep(quest),
+            big_map_id = current_big_map,
+            expected_big_map_id = number(point.big_map_id),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20623_level_grind_stage,
+        })
+    end
+
+    local active_stage = tostring(runtime.active_20611_grind_stage or "")
+    if runtime.active_20611_grind == true
+        and active_stage == M.quest_20623_level_grind_stage
+        and number(runtime.level_grind_quest_id) == M.quest_20623_id then
+        return action("WaitLevelGrind", "quest 20623 level 28 grind running", {
+            quest_id = M.quest_20623_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20623_level_grind_stage,
+        })
+    end
+
+    local route_wait = wait_route_if_active(
+        opts,
+        M.quest_20623_level_grind_stage,
+        M.quest_20623_id,
+        quest)
+    if route_wait then
+        return route_wait
+    end
+
+    local range = number(opts.quest_20623_level28_grind_point_range)
+    if range <= 0 then
+        range = number(opts.grind_point_range)
+    end
+    if range <= 0 then
+        range = 4
+    end
+
+    local dist = M.distanceToQuest20623Level28GrindPoint(char)
+    if dist > range then
+        local target, index, nearest_dist = route_target(
+            M.quest_20623_level28_route,
+            char,
+            opts.waypoint_range or 2.0)
+        target = target or point
+        return action("FollowRoute", "follow quest 20623 level 28 grind route", {
+            quest_id = M.quest_20623_id,
+            quest_step = M.questStep(quest),
+            required_level = required_level,
+            char_level = char_level,
+            stage = M.quest_20623_level_grind_stage,
+            x = target.x,
+            y = target.y,
+            z = target.z,
+            route_name = "main_quest_20623_level28_grind",
+            route_points = M.quest_20623_level28_route,
+            final_x = point.x,
+            final_y = point.y,
+            final_z = point.z,
+            route_index = index,
+            route_count = #M.quest_20623_level28_route,
+            nearest_route_distance = nearest_dist,
+            main_quest_smooth_route = true,
+            waypoint_radius = number(opts.quest_20623_route_waypoint_radius) > 0
+                and number(opts.quest_20623_route_waypoint_radius) or 6,
+            final_radius = number(opts.quest_20623_route_final_radius) > 0
+                and number(opts.quest_20623_route_final_radius) or 2.5,
+            resend_interval = number(opts.quest_20623_route_resend_interval) > 0
+                and number(opts.quest_20623_route_resend_interval) or 0.5,
+            smooth_max_skip = 50,
+            distance = dist,
+            range = range,
+        })
+    end
+
+    return action("StartStationaryGrind", "start quest 20623 level 28 grind", {
+        quest_id = M.quest_20623_id,
+        quest_step = M.questStep(quest),
+        required_level = required_level,
+        char_level = char_level,
+        until_level = required_level,
+        stage = M.quest_20623_level_grind_stage,
+        x = point.x,
+        y = point.y,
+        z = point.z,
+    })
+end
+
 function M.nextQuest20611Level8GrindAction(state, runtime, opts, quest)
     state = state or {}
     runtime = runtime or {}
@@ -5753,7 +6056,7 @@ function M.nextAction(state, runtime, opts)
     local quest_20622 = M.findQuestById(state.quests, M.quest_20622_id)
     local quest_20623 = M.findQuestById(state.quests, M.quest_20623_id)
     if runtime.completed_20622_after_npc_teleport_npc_dialog == true then
-        return M.nextQuest20622AfterNpcTeleportNpcAction(state, runtime, opts, quest_20622)
+        return M.nextQuest20623Level28GrindAction(state, runtime, opts, quest_20623)
     end
     if runtime.completed_20622_after_npc_task_teleport == true
         or M.isQuest20622AfterNpcTeleportNpcDialog(state.dialog) then
@@ -5772,6 +6075,9 @@ function M.nextAction(state, runtime, opts)
     local quest_20623_level_blocked = (level_blocked_qid == M.quest_20623_id
             and number(state.level_blocked_quest and state.level_blocked_quest.status_code) == 6)
         or number(quest_20623 and quest_20623.status_code) == 6
+    local quest_20623_level_ready = quest_20623_level_blocked
+        or (runtime.active_20611_grind == true
+            and tostring(runtime.active_20611_grind_stage or "") == M.quest_20623_level_grind_stage)
     if M.isQuestDone(quest_20622)
         and quest_20623_level_blocked
         and M.isNearQuest20622AfterNpcTeleportNpc(state, opts) then
@@ -5779,8 +6085,16 @@ function M.nextAction(state, runtime, opts)
     end
     if M.isQuestDone(quest_20622)
         and quest_20623_level_blocked
+        and M.isNearQuest20622AfterTeleportNpc(state, opts)
         and type(state.dialog) ~= "table" then
         return M.nextQuest20622AfterNpcTaskTeleportAction(state, runtime, opts, quest_20622)
+    end
+    local quest_20623_route_ready = M.isNearQuest20623Level28Route(state, opts)
+    if quest_20623_level_ready
+        and (M.isQuestDone(quest_20622) or not M.isQuestKnown(quest_20622))
+        and (quest_20623_route_ready
+            or runtime.active_20611_grind == true) then
+        return M.nextQuest20623Level28GrindAction(state, runtime, opts, quest_20623)
     end
     if M.isMissionNpcDialog(state.dialog)
         and runtime.completed_20611_mission_dialog ~= true then
@@ -6458,6 +6772,10 @@ function M.nextAction(state, runtime, opts)
         local level_quest = level_quest_after_20612 or state.level_blocked_quest or M.findLevelBlockedQuest(state.quests)
         if M.isQuestLevelBlocked(level_quest) then
             local level_qid = quest_id(level_quest)
+            if level_qid == M.quest_20623_id
+                and (M.isQuestDone(quest_20622) or not M.isQuestKnown(quest_20622)) then
+                return M.nextQuest20623Level28GrindAction(state, runtime, opts, level_quest)
+            end
             if level_qid == M.quest_id then
                 return M.nextQuest20611Level8GrindAction(state, runtime, opts, level_quest)
             end

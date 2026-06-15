@@ -2,14 +2,15 @@
 
 ## 当前已录制流程
 
-20622 当前已实现四步：
+20622 当前已实现五步：
 
 1. `quest_20622_level25_grind`：沿指定路径移动到终点，在终点挂机升级到 25 级。
 2. `quest_20622_task_teleport`：到 25 级后 call 20622 任务传送。
 3. `quest_20622_after_teleport_npc`：传送落地后和 `할프단` 对话，使用 `ClickDialogLastContinuousOk`。
 4. `quest_20622_after_npc_task_teleport`：`할프단` 对话完成后 call 20622 任务传送。
+5. `quest_20622_after_npc_teleport_npc`：第二次传送落地后和 F11 录到的 NPC 对话，完成后进入 20623 升 28 级。
 
-第二次任务传送完成后脚本返回等待状态，不会自动进入后续任务或蓝色任务。下一步需要新的 F11 信息后再继续补。
+第二次任务传送完成后脚本先处理落地 NPC 对话；该对话完成后进入 `quest_20623_level28_grind`，沿 20623 路线升级到 28 级，然后等待下一步 F11 指令。
 
 ## F11 状态
 
@@ -99,7 +100,24 @@
   - `require_panel_visible=false`
 - 完成判定：只比较传送前记录的角色坐标和当前角色坐标；坐标变化后执行 `CompleteQuestTeleport`，并记录 `completed_20622_after_npc_task_teleport=true`。
 - 约束：不记录、不判断目标落点坐标；不使用落地位置、NPC 距离或地图目标点作为完成条件。
-- 完成后：执行 `Idle` 等待下一步指令，不继续打怪、不交蓝色任务、不进入后续主线。
+- 完成后：进入 `quest_20622_after_npc_teleport_npc`，只处理第二次传送落地后的 NPC 对话。
+
+## 阶段五：第二次传送落地后 NPC 对话
+
+- 阶段名：`quest_20622_after_npc_teleport_npc`
+- 触发条件：
+  - `completed_20622_after_npc_task_teleport=true`
+  - 或脚本重启后 20622 已完成、20623 等级门槛出现，并且角色在该 NPC 附近。
+- 执行动作：
+  - 不在 NPC 范围内时执行 `NavigateToNpc`
+  - 到 NPC 范围内时执行 `InteractNpc`
+  - 对话打开后执行 `ClickDialogLastContinuousOk`
+- NPC 匹配：
+  - 名字 key：`MQ20622_NPC_002_AFTER_NPC_TELEPORT`
+  - 交互 ID：`2147528744`
+  - 允许交互 ID 兜底：`allow_interact_id_fallback=true`
+- 完成判定：连续最后一条 + OK 结束后记录 `completed_20622_after_npc_teleport_npc_dialog=true`。
+- 完成后：进入 `quest_20623_level28_grind`，沿 20623 路线升级到 28 级。
 
 ## 路径
 
