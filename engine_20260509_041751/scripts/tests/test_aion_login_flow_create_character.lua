@@ -63,6 +63,11 @@ local function make_ctx(account, state)
         end,
         sleep = function(ms)
             now = now + math.min(tonumber(ms) or 0, 50)
+            if state.advance_to_server_scene_on_sleep then
+                state.advance_to_server_scene_on_sleep = false
+                state.external_agreement_advanced = true
+                state.scene = 0xA
+            end
         end,
         random = function(min_value, _)
             return min_value
@@ -85,7 +90,7 @@ local function install_mocks(opts)
     clear_login_flow_modules()
 
     local state = {
-        scene = 0xA,
+        scene = opts.initial_scene or 0xA,
         chars = clone_chars(opts.chars),
         create_calls = {},
         select_calls = {},
@@ -97,13 +102,24 @@ local function install_mocks(opts)
         next_id = 1000,
     }
 
+    local function scene_name(index)
+        if index == 0x8 then
+            return "agreement"
+        elseif index == 0xA then
+            return "server"
+        elseif index == 0xC then
+            return "character"
+        end
+        return "unknown"
+    end
+
     package.loaded["aion.core"] = {
         ensureInit = function(pid)
             state.bound_pid = pid
             return true, nil
         end,
         getScene = function()
-            return true, { index = state.scene, name = state.scene == 0xA and "server" or "character" }, nil
+            return true, { index = state.scene, name = scene_name(state.scene) }, nil
         end,
         getCharacter = function()
             if state.entered and state.selected then
@@ -115,6 +131,14 @@ local function install_mocks(opts)
 
     package.loaded["aion.account"] = {
         serverList = function()
+            state.server_list_calls = (state.server_list_calls or 0) + 1
+            if opts.late_agreement_after_empty_server_list and state.server_list_calls == 1 then
+                state.scene = 0x8
+                return true, {}, nil
+            end
+            if opts.server_list_requires_server_scene and state.scene ~= 0xA then
+                return true, {}, nil
+            end
             return true, {
                 { key = opts.server_key or 2, server_id = 9001, addr = 11 },
             }, nil
@@ -172,7 +196,16 @@ local function install_mocks(opts)
     package.loaded["aion.ui"] = {
         find = function(name)
             if name == "user_agreement_dialog" then
+                if state.scene == 0x8 then
+                    return true, { addr = 76, visible = true, name = name }, nil
+                end
                 return false, nil, "absent"
+            end
+            if opts.agreement_controls_missing_once and state.scene == 0x8 then
+                if name == "button_ok" then
+                    state.advance_to_server_scene_on_sleep = true
+                end
+                return false, nil, "not found"
             end
             return true, { addr = 77, visible = true, name = name }, nil
         end,
@@ -239,6 +272,25 @@ local function run()
         T.assert_eq(state.select_calls[1], 1)
         T.assert_eq(state.selected.name, "Guardhero")
         T.assert_contains(message, "Guardhero")
+    end)
+
+    T.test("continues server select when late agreement is handled externally", function()
+        local _, state, _, ok, message = run_flow({
+            chars = {
+                { id = 1, name = "Guardhero", level = 9, race = 1, job = 0x2, addr = 101 },
+            },
+            account = make_account("Guardhero", 1, 0x2, nil, 2),
+            late_agreement_after_empty_server_list = true,
+            agreement_controls_missing_once = true,
+            server_list_requires_server_scene = true,
+        })
+
+        T.assert_true(ok, message)
+        T.assert_true(state.external_agreement_advanced, "external agreement transition should be observed")
+        T.assert_gte(state.server_list_calls or 0, 2)
+        T.assert_eq(state.selected_server_key, 2)
+        T.assert_eq(state.select_calls[1], 1)
+        T.assert_eq(state.selected.name, "Guardhero")
     end)
 
     T.test("creates configured character when other characters already exist", function()

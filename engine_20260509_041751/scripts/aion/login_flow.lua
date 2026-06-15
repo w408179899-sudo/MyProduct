@@ -792,39 +792,49 @@ local function wait_for_server_list(ctx, timeout_seconds, interval_ms)
     local deadline = now_ms(ctx) + ((tonumber(timeout_seconds) or 60) * 1000)
     local last_scene = nil
     local last_err = nil
+    local last_agreement_err = nil
     local last_empty_log = 0
     while now_ms(ctx) <= deadline do
         last_scene = log_scene_if_changed(ctx, "server_wait_scene", last_scene)
 
         local agreement_ok, agreement_clicked_or_err = try_accept_user_agreement(ctx)
         if not agreement_ok then
-            return false, nil, tostring(agreement_clicked_or_err)
-        end
-        if agreement_clicked_or_err then
+            local err_text = tostring(agreement_clicked_or_err or "unknown")
+            if err_text ~= last_agreement_err then
+                flow_warn(ctx, "agreement_retry_during_server_wait", err_text)
+                last_agreement_err = err_text
+            end
+            sleep(ctx, interval_ms or 1000)
+        else
+            if agreement_clicked_or_err then
+                sleep(ctx, interval_ms or 1000)
+            end
+
+            local ok, list, err = account_api.serverList()
+            if ok and type(list) == "table" and #list > 0 then
+                log_server_list(ctx, list)
+                return true, list, nil
+            end
+
+            if ok then
+                if now_ms(ctx) - last_empty_log >= 5000 then
+                    flow_warn(ctx, "server_list_empty", "waiting for server_select_dialog")
+                    last_empty_log = now_ms(ctx)
+                end
+            else
+                local err_text = tostring(err or "unknown")
+                if err_text ~= last_err then
+                    flow_warn(ctx, "server_list_failed", err_text)
+                    last_err = err_text
+                end
+            end
             sleep(ctx, interval_ms or 1000)
         end
-
-        local ok, list, err = account_api.serverList()
-        if ok and type(list) == "table" and #list > 0 then
-            log_server_list(ctx, list)
-            return true, list, nil
-        end
-
-        if ok then
-            if now_ms(ctx) - last_empty_log >= 5000 then
-                flow_warn(ctx, "server_list_empty", "waiting for server_select_dialog")
-                last_empty_log = now_ms(ctx)
-            end
-        else
-            local err_text = tostring(err or "unknown")
-            if err_text ~= last_err then
-                flow_warn(ctx, "server_list_failed", err_text)
-                last_err = err_text
-            end
-        end
-        sleep(ctx, interval_ms or 1000)
     end
 
+    if last_agreement_err then
+        return false, nil, "timeout waiting for server list; last agreement error=" .. tostring(last_agreement_err)
+    end
     return false, nil, "timeout waiting for server list"
 end
 
