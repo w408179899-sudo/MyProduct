@@ -38,6 +38,14 @@ local function make_account(character_name, race, job, gender, server_key)
     }
 end
 
+local function utf8_bytes(...)
+    return string.char(...)
+end
+
+local REGISTER_TITLE = utf8_bytes(230, 179, 168, 229, 134, 140, 228, 186, 140, 231, 186, 167, 229, 175, 134, 231, 160, 129)
+local MODIFY_TITLE = utf8_bytes(228, 191, 174, 230, 148, 185, 228, 186, 140, 231, 186, 167, 229, 175, 134, 231, 160, 129)
+local KO_SET_TITLE = utf8_bytes(236, 132, 164, 236, 160, 149)
+
 local function make_ctx(account, state)
     local now = 0
     return {
@@ -54,6 +62,7 @@ local function make_ctx(account, state)
                 create_character_recheck_timeout_seconds = 3,
                 create_character_recheck_interval_ms = 250,
                 create_character_max_attempts = 4,
+                second_password_max_submissions = 4,
             },
         },
         candidate = { pid = 4242 },
@@ -88,6 +97,10 @@ end
 local function install_mocks(opts)
     opts = opts or {}
     clear_login_flow_modules()
+    local second_password_titles = opts.second_password_titles
+    if not second_password_titles and opts.second_password_title then
+        second_password_titles = { opts.second_password_title }
+    end
 
     local state = {
         scene = opts.initial_scene or 0xA,
@@ -99,6 +112,9 @@ local function install_mocks(opts)
         selected_server_key = nil,
         selected = nil,
         entered = false,
+        second_password_submissions = {},
+        second_password_titles = second_password_titles,
+        second_password_step = 1,
         next_id = 1000,
     }
 
@@ -122,7 +138,7 @@ local function install_mocks(opts)
             return true, { index = state.scene, name = scene_name(state.scene) }, nil
         end,
         getCharacter = function()
-            if state.entered and state.selected then
+            if state.entered and state.selected and not state.pending_second_password then
                 return true, state.selected, nil
             end
             return true, nil, nil
@@ -145,7 +161,7 @@ local function install_mocks(opts)
         end,
         selectServer = function(key)
             state.selected_server_key = key
-            state.scene = 0xC
+            state.scene = opts.character_scene_after_server or 0xC
             return true, true, nil
         end,
         characterList = function()
@@ -182,14 +198,41 @@ local function install_mocks(opts)
             if not state.selected then
                 return true, false, "character index missing"
             end
-            state.entered = true
+            if type(state.second_password_titles) == "table" and #state.second_password_titles > 0 then
+                state.pending_second_password = true
+            else
+                state.entered = true
+            end
             return true, true, nil
         end,
     }
 
     package.loaded["aion.security"] = {
         secondPwdDialog = function()
+            if state.pending_second_password then
+                return true, {
+                    addr = 8080 + (state.second_password_step or 1),
+                    title = state.second_password_titles[state.second_password_step or 1],
+                }, nil
+            end
             return true, nil, nil
+        end,
+        inputSecondPwd = function(dialog_addr, pwd, register)
+            local step = state.second_password_step or 1
+            state.second_password_submissions[#state.second_password_submissions + 1] = {
+                dialog_addr = dialog_addr,
+                pwd = pwd,
+                register = register == true,
+            }
+            if type(state.second_password_titles) == "table" and step < #state.second_password_titles then
+                state.second_password_step = step + 1
+                state.pending_second_password = true
+                state.entered = false
+            else
+                state.pending_second_password = false
+                state.entered = true
+            end
+            return true, true, nil
         end,
     }
 
@@ -293,6 +336,89 @@ local function run()
         T.assert_eq(state.selected.name, "Guardhero")
     end)
 
+    T.test("existing second password dialog submits login mode", function()
+        local account = make_account("Guardhero", 1, 0x2, nil, 2)
+        account.second_password = "123456"
+        local _, state, _, ok, message = run_flow({
+            chars = {
+                { id = 1, name = "Guardhero", level = 9, race = 1, job = 0x2, addr = 101 },
+            },
+            account = account,
+            second_password_title = "input second password",
+        })
+
+        T.assert_true(ok, message)
+        T.assert_eq(#state.second_password_submissions, 1)
+        T.assert_eq(state.second_password_submissions[1].dialog_addr, 8081)
+        T.assert_eq(state.second_password_submissions[1].pwd, "123456")
+        T.assert_false(state.second_password_submissions[1].register)
+    end)
+
+    T.test("register second password dialog submits register mode", function()
+        local account = make_account("Guardhero", 1, 0x2, nil, 2)
+        account.second_password = "123456"
+        local flow, state, _, ok, message = run_flow({
+            chars = {
+                { id = 1, name = "Guardhero", level = 9, race = 1, job = 0x2, addr = 101 },
+            },
+            account = account,
+            second_password_title = REGISTER_TITLE,
+        })
+        local mode, register, mode_err = flow._test.secondPasswordDialogMode({ title = REGISTER_TITLE })
+        local ko_mode, ko_register = flow._test.secondPasswordDialogMode({ title = KO_SET_TITLE })
+
+        T.assert_true(ok, message)
+        T.assert_eq(mode, "register")
+        T.assert_true(register)
+        T.assert_nil(mode_err)
+        T.assert_eq(ko_mode, "register")
+        T.assert_true(ko_register)
+        T.assert_eq(#state.second_password_submissions, 1)
+        T.assert_true(state.second_password_submissions[1].register)
+    end)
+
+    T.test("first login second password flow repeats until entered", function()
+        local account = make_account("Guardhero", 1, 0x2, nil, 2)
+        account.second_password = "123456"
+        local _, state, _, ok, message = run_flow({
+            chars = {
+                { id = 1, name = "Guardhero", level = 9, race = 1, job = 0x2, addr = 101 },
+            },
+            account = account,
+            second_password_titles = {
+                REGISTER_TITLE,
+                REGISTER_TITLE,
+                "input second password",
+            },
+        })
+
+        T.assert_true(ok, message)
+        T.assert_eq(#state.second_password_submissions, 3)
+        T.assert_eq(state.second_password_submissions[1].pwd, "123456")
+        T.assert_eq(state.second_password_submissions[2].pwd, "123456")
+        T.assert_eq(state.second_password_submissions[3].pwd, "123456")
+        T.assert_true(state.second_password_submissions[1].register)
+        T.assert_true(state.second_password_submissions[2].register)
+        T.assert_false(state.second_password_submissions[3].register)
+        T.assert_eq(state.selected.name, "Guardhero")
+    end)
+
+    T.test("modify second password dialog is rejected", function()
+        local account = make_account("Guardhero", 1, 0x2, nil, 2)
+        account.second_password = "123456"
+        local _, state, _, ok, message = run_flow({
+            chars = {
+                { id = 1, name = "Guardhero", level = 9, race = 1, job = 0x2, addr = 101 },
+            },
+            account = account,
+            second_password_title = MODIFY_TITLE,
+        })
+
+        T.assert_false(ok)
+        T.assert_contains(message, "unsupported second password change dialog")
+        T.assert_eq(#state.second_password_submissions, 0)
+    end)
+
     T.test("creates configured character when other characters already exist", function()
         local _, state, account, ok, message = run_flow({
             chars = {
@@ -310,6 +436,24 @@ local function run()
         T.assert_eq(state.select_calls[1], 2)
         T.assert_eq(state.selected.name, "Wantedhero")
         T.assert_eq(account.server.character_name, "Wantedhero")
+    end)
+
+    T.test("creates configured character from empty account create scene", function()
+        local _, state, account, ok, message = run_flow({
+            chars = {},
+            character_scene_after_server = 0xE,
+            account = make_account("Firsthero", 1, 0x2, 0, 2),
+        })
+
+        T.assert_true(ok, message)
+        T.assert_eq(#state.create_calls, 1)
+        T.assert_eq(state.create_calls[1].name, "Firsthero")
+        T.assert_eq(state.create_calls[1].gender, 0)
+        T.assert_eq(state.create_calls[1].race, 1)
+        T.assert_eq(state.create_calls[1].job, 0x2)
+        T.assert_eq(state.select_calls[1], 1)
+        T.assert_eq(state.selected.name, "Firsthero")
+        T.assert_eq(account.server.character_name, "Firsthero")
     end)
 
     T.test("falls back to generated ten-letter name when configured name fails", function()

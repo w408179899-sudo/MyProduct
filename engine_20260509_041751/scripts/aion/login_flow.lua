@@ -25,6 +25,7 @@ local SCENE_USER_AGREEMENT = 0x8
 local SCENE_USER_AGREEMENT_CONFIRM = 0x9
 local SCENE_SERVER_SELECT = 0xA
 local SCENE_CHARACTER_SELECT = 0xC
+local SCENE_EMPTY_CHARACTER_CREATE = 0xE
 
 local GENERATED_CHARACTER_NAMES = {
     "Silverleaf",
@@ -171,6 +172,7 @@ local function default_flow_config()
         create_character_recheck_timeout_seconds = 20,
         create_character_recheck_interval_ms = 1000,
         create_character_max_attempts = 4,
+        second_password_max_submissions = 4,
     }
 end
 
@@ -195,6 +197,7 @@ local function normalize_flow_config(flow)
     out.create_character_recheck_timeout_seconds = math.max(3, out.create_character_recheck_timeout_seconds)
     out.create_character_recheck_interval_ms = math.max(250, out.create_character_recheck_interval_ms)
     out.create_character_max_attempts = math.max(1, math.min(8, math.floor(out.create_character_max_attempts)))
+    out.second_password_max_submissions = math.max(1, math.min(8, math.floor(out.second_password_max_submissions)))
     return out
 end
 
@@ -958,7 +961,12 @@ local function wait_for_character_scene(ctx, timeout_seconds, interval_ms)
                 flow_info(ctx, "character_wait_scene", text)
                 last_scene = text
             end
-            if ok and scene_index(scene) == SCENE_CHARACTER_SELECT then
+            local idx = ok and scene_index(scene) or nil
+            if idx == SCENE_CHARACTER_SELECT then
+                return true, scene, nil
+            end
+            if idx == SCENE_EMPTY_CHARACTER_CREATE then
+                flow_info(ctx, "character_empty_create_scene", text)
                 return true, scene, nil
             end
         end
@@ -1281,6 +1289,39 @@ local function read_second_password_dialog()
     return true, nil, nil
 end
 
+local SECOND_PASSWORD_REGISTER_KEYWORD = string.char(230, 179, 168, 229, 134, 140)
+local SECOND_PASSWORD_MODIFY_KEYWORD = string.char(228, 191, 174, 230, 148, 185)
+local SECOND_PASSWORD_KO_REGISTER_KEYWORD = string.char(235, 147, 177, 235, 161, 157)
+local SECOND_PASSWORD_KO_SET_KEYWORD = string.char(236, 132, 164, 236, 160, 149)
+local SECOND_PASSWORD_KO_CHANGE_KEYWORD = string.char(235, 179, 128, 234, 178, 189)
+local SECOND_PASSWORD_KO_MODIFY_KEYWORD = string.char(236, 136, 152, 236, 160, 149)
+
+local function second_password_dialog_mode(dialog)
+    local title = trim_text(dialog and dialog.title)
+    local lower_title = string.lower(title)
+
+    if title ~= "" then
+        if string.find(title, SECOND_PASSWORD_MODIFY_KEYWORD, 1, true)
+            or string.find(title, SECOND_PASSWORD_KO_CHANGE_KEYWORD, 1, true)
+            or string.find(title, SECOND_PASSWORD_KO_MODIFY_KEYWORD, 1, true)
+            or string.find(lower_title, "modify", 1, true)
+            or string.find(lower_title, "change", 1, true) then
+            return "modify", false, "unsupported second password change dialog: " .. title
+        end
+
+        if string.find(title, SECOND_PASSWORD_REGISTER_KEYWORD, 1, true)
+            or string.find(title, SECOND_PASSWORD_KO_REGISTER_KEYWORD, 1, true)
+            or string.find(title, SECOND_PASSWORD_KO_SET_KEYWORD, 1, true)
+            or string.find(lower_title, "register", 1, true)
+            or string.find(lower_title, "create", 1, true)
+            or string.find(lower_title, "setup", 1, true) then
+            return "register", true, nil
+        end
+    end
+
+    return "input", false, nil
+end
+
 local function second_password_dialog_visible()
     if ok_ui and ui_api and type(ui_api.find) == "function" then
         local find_ok, dialog = ui_api.find(second_password_dialog_name())
@@ -1341,11 +1382,18 @@ end
 local function input_second_password(ctx, dialog)
     local account = ctx and ctx.account or {}
     local pwd = trim_text(account.second_password)
+    local mode, register, mode_err = second_password_dialog_mode(dialog)
     flow_info(ctx, "second_password", string.format(
-        "dialog_addr=%s title=%s password_configured=%s",
+        "dialog_addr=%s title=%s mode=%s register=%s password_configured=%s",
         tostring(dialog and dialog.addr or ""),
         tostring(dialog and dialog.title or ""),
+        tostring(mode),
+        tostring(register == true),
         tostring(pwd ~= "")))
+
+    if mode_err then
+        return false, mode_err
+    end
 
     if pwd == "" then
         return false, "second password dialog visible but account.second_password is empty"
@@ -1354,10 +1402,11 @@ local function input_second_password(ctx, dialog)
     set_flow_status(ctx, "input_second_password", "dialog_addr=" .. tostring(dialog.addr))
     local submitted = false
     if ok_security and security and type(security.inputSecondPwd) == "function" then
-        local ok, ret, err = security.inputSecondPwd(dialog.addr, pwd, false)
+        local ok, ret, err = security.inputSecondPwd(dialog.addr, pwd, register)
         if ok and ret ~= false then
             submitted = true
-            flow_info(ctx, "second_password_submitted", "source=api ret=" .. tostring(ret))
+            flow_info(ctx, "second_password_submitted", "source=api mode=" .. tostring(mode) ..
+                " register=" .. tostring(register == true) .. " ret=" .. tostring(ret))
         else
             flow_warn(ctx, "second_password_api_failed", tostring(err or ret))
         end
@@ -1366,6 +1415,9 @@ local function input_second_password(ctx, dialog)
     end
 
     if not submitted then
+        if register then
+            return false, "second password register failed: InputSecondPwd API unavailable or failed"
+        end
         local manual_ok, manual_err = click_second_password_digits(ctx, pwd)
         if not manual_ok then
             return false, manual_err
@@ -1385,7 +1437,11 @@ local function wait_for_enter_game(ctx, timeout_seconds, interval_ms)
     local deadline = now_ms(ctx) + ((tonumber(timeout_seconds) or 90) * 1000)
     local last_scene = nil
     local security_warned = false
-    local second_password_done = false
+    local flow_cfg = ctx and ctx.flow_cfg or default_flow_config()
+    local second_password_max_submissions = math.max(
+        1,
+        tonumber(flow_cfg.second_password_max_submissions) or default_flow_config().second_password_max_submissions)
+    local second_password_submit_count = 0
 
     while now_ms(ctx) <= deadline do
         local char_ok, char, char_err = current_ingame_character()
@@ -1407,12 +1463,21 @@ local function wait_for_enter_game(ctx, timeout_seconds, interval_ms)
 
         if ok_security and security and type(security.secondPwdDialog) == "function" then
             local dialog_ok, dialog, dialog_err = read_second_password_dialog()
-            if dialog_ok and dialog and not second_password_done then
+            if dialog_ok and dialog then
+                if second_password_submit_count >= second_password_max_submissions then
+                    return false, nil, "second password dialog exceeded max submissions=" ..
+                        tostring(second_password_max_submissions)
+                end
+                second_password_submit_count = second_password_submit_count + 1
+                flow_info(ctx, "second_password_attempt", string.format(
+                    "attempt=%s max=%s dialog_addr=%s",
+                    tostring(second_password_submit_count),
+                    tostring(second_password_max_submissions),
+                    tostring(dialog.addr or "")))
                 local pwd_ok, pwd_err = input_second_password(ctx, dialog)
                 if not pwd_ok then
                     return false, nil, pwd_err
                 end
-                second_password_done = true
             elseif not dialog_ok and not security_warned then
                 flow_warn(ctx, "second_password_probe_failed", tostring(dialog_err))
                 security_warned = true
@@ -1432,6 +1497,7 @@ M._test = {
     findCharacterByName = find_character_by_name,
     generatedCharacterName = generated_character_name,
     resolveCreateSpec = resolve_create_spec,
+    secondPasswordDialogMode = second_password_dialog_mode,
 }
 
 function M.run(ctx)
