@@ -499,6 +499,149 @@ function M.decomposeLowQuality(inventoryApi, opts)
     return true, result
 end
 
+function M.runMaintenance(inventoryApi, opts)
+    opts = opts or {}
+    local runEquip = opts.run_equip == true
+    local runDecompose = opts.run_decompose == true
+    local result = {
+        status = "skipped",
+        equipped_count = 0,
+        decomposed_count = 0,
+        equip_result = nil,
+        decompose_result = nil,
+        lines = {},
+    }
+
+    if not runEquip and not runDecompose then
+        result.lines[#result.lines + 1] = "maintenance skipped: no enabled operation"
+        return true, result
+    end
+
+    if runEquip then
+        local equipOk, equipResult = M.equipAll(inventoryApi, {
+            sleep = opts.sleep,
+            verify_sleep_ms = opts.verify_sleep_ms,
+            max_actions = opts.max_equip_actions,
+        })
+        equipResult = type(equipResult) == "table"
+            and equipResult
+            or { status = "failed", error = tostring(equipResult) }
+        result.equip_result = equipResult
+        result.equipped_count = tonumber(equipResult.equipped_count) or 0
+        appendLines(result.lines, equipResult.lines)
+        result.lines[#result.lines + 1] = "equip result status=" .. tostring(equipResult.status or "") ..
+            " ok=" .. tostring(equipOk) ..
+            " error=" .. tostring(equipResult.error or "")
+        if not equipOk then
+            result.status = "equip-failed"
+            result.error = tostring(equipResult.error or equipResult.status or "unknown")
+            return false, result
+        end
+    end
+
+    if runDecompose then
+        local decomposeOk, decomposeResult = M.decomposeLowQuality(inventoryApi, {
+            sleep = opts.sleep,
+            decompose_sleep_ms = opts.decompose_sleep_ms,
+            max_actions = opts.max_decompose_actions,
+        })
+        decomposeResult = type(decomposeResult) == "table"
+            and decomposeResult
+            or { status = "failed", error = tostring(decomposeResult) }
+        result.decompose_result = decomposeResult
+        result.decomposed_count = tonumber(decomposeResult.decomposed_count) or 0
+        appendLines(result.lines, decomposeResult.lines)
+        result.lines[#result.lines + 1] = "decompose result status=" .. tostring(decomposeResult.status or "") ..
+            " ok=" .. tostring(decomposeOk) ..
+            " error=" .. tostring(decomposeResult.error or "")
+        if not decomposeOk then
+            result.status = "decompose-failed"
+            result.error = tostring(decomposeResult.error or decomposeResult.status or "unknown")
+            return false, result
+        end
+    end
+
+    result.status = "complete"
+    return true, result
+end
+
+local function modeAllowed(mode)
+    mode = tostring(mode or "")
+    return mode == "combat" or mode == "leveling"
+end
+
+function M.runPeriodicMaintenance(inventoryApi, state, settings, opts)
+    state = type(state) == "table" and state or {}
+    settings = type(settings) == "table" and settings or {}
+    opts = type(opts) == "table" and opts or {}
+
+    local runEquip = settings.auto_equip_equipment == true or settings.run_equip == true
+    local runDecompose = settings.auto_decompose_equipment == true or settings.run_decompose == true
+    if not runEquip and not runDecompose then
+        return true, { status = "skipped", reason = "disabled" }
+    end
+
+    if state.running ~= true then
+        return true, { status = "skipped", reason = "not-running" }
+    end
+    if state.paused == true then
+        return true, { status = "skipped", reason = "paused" }
+    end
+
+    local mode = opts.mode or state.mode or settings.mode
+    if not modeAllowed(mode) then
+        return true, { status = "skipped", reason = "unsupported-mode", mode = mode }
+    end
+
+    local interval = math.max(
+        60,
+        number(settings.equipment_maintenance_interval_seconds or settings.interval_seconds or opts.interval_seconds or 3600))
+    local now = number(opts.now)
+    if now <= 0 then
+        now = os.time()
+    end
+    local last = number(state.last_auto_at)
+    if last <= 0 and opts.run_immediately ~= true then
+        state.last_auto_at = now
+        return true, { status = "skipped", reason = "scheduled", next_at = now + interval }
+    end
+    if last > 0 and now - last < interval then
+        return true, {
+            status = "skipped",
+            reason = "cooldown",
+            next_at = last + interval,
+            remaining_seconds = interval - (now - last),
+        }
+    end
+
+    state.last_auto_at = now
+    if type(opts.prepare) == "function" then
+        local prepared, prepareErr = opts.prepare()
+        if not prepared then
+            return false, {
+                status = "prepare-failed",
+                error = tostring(prepareErr or "prepare failed"),
+            }
+        end
+    end
+
+    local ok, result = M.runMaintenance(inventoryApi, {
+        run_equip = runEquip,
+        run_decompose = runDecompose,
+        sleep = opts.sleep,
+        verify_sleep_ms = opts.verify_sleep_ms,
+        max_equip_actions = opts.max_equip_actions,
+        decompose_sleep_ms = opts.decompose_sleep_ms,
+        max_decompose_actions = opts.max_decompose_actions,
+    })
+    result = type(result) == "table" and result or { status = "failed", error = tostring(result) }
+    result.periodic = true
+    result.mode = mode
+    result.interval_seconds = interval
+    result.ran_at = now
+    return ok, result
+end
+
 function M.debugLines(plan)
     plan = type(plan) == "table" and plan or {}
     local lines = {}

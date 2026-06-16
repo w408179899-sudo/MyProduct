@@ -69,6 +69,8 @@ local function dynamic_inventory(initial)
     local state = clone_items(initial)
     local calls = {
         equip = {},
+        decompose = {},
+        events = {},
         list_count = 0,
     }
     local api = {
@@ -77,6 +79,7 @@ local function dynamic_inventory(initial)
             return true, clone_items(state), nil
         end,
         equipItem = function(itemId, equipPos, unequip)
+            calls.events[#calls.events + 1] = "equip:" .. tostring(itemId)
             calls.equip[#calls.equip + 1] = {
                 item_id = itemId,
                 equip_pos = equipPos,
@@ -94,6 +97,7 @@ local function dynamic_inventory(initial)
             return true, true, nil
         end,
         decomposeItem = function(itemId)
+            calls.events[#calls.events + 1] = "decompose:" .. tostring(itemId)
             calls.decompose[#calls.decompose + 1] = { item_id = itemId }
             for index = #state, 1, -1 do
                 if state[index].id == itemId then
@@ -288,6 +292,142 @@ local function run()
         T.assert_eq(decompose_result.decomposed_count, 2)
         T.assert_eq(calls.decompose[1].item_id, 903)
         T.assert_eq(calls.decompose[2].item_id, 901)
+    end)
+
+    T.test("runMaintenance respects equip-only switch", function()
+        local mod = load_module()
+        local api, calls = dynamic_inventory({
+            item(1001, "Equipped Sword", 1, 1, 5, 1),
+            item(1002, "Better Sword", 1, 0, 9, 2),
+            item(1003, "White Bag Boots", 4, 0, 4, 1),
+        })
+
+        local ok, result = mod.runMaintenance(api, {
+            run_equip = true,
+            run_decompose = false,
+            sleep = function() end,
+        })
+
+        T.assert_eq(ok, true)
+        T.assert_eq(result.status, "complete")
+        T.assert_eq(result.equipped_count, 2)
+        T.assert_eq(result.decomposed_count, 0)
+        T.assert_eq(#calls.equip, 2)
+        T.assert_eq(#calls.decompose, 0)
+    end)
+
+    T.test("runMaintenance respects decompose-only switch", function()
+        local mod = load_module()
+        local api, calls = dynamic_inventory({
+            item(1011, "Equipped Sword", 1, 1, 5, 1),
+            item(1012, "White Bag Sword", 1, 0, 4, 1),
+            item(1013, "Blue Bag Boots", 4, 0, 4, 3),
+        })
+
+        local ok, result = mod.runMaintenance(api, {
+            run_equip = false,
+            run_decompose = true,
+            sleep = function() end,
+        })
+
+        T.assert_eq(ok, true)
+        T.assert_eq(result.status, "complete")
+        T.assert_eq(result.equipped_count, 0)
+        T.assert_eq(result.decomposed_count, 1)
+        T.assert_eq(#calls.equip, 0)
+        T.assert_eq(#calls.decompose, 1)
+        T.assert_eq(calls.decompose[1].item_id, 1012)
+    end)
+
+    T.test("periodic maintenance runs during leveling and equips before decomposing", function()
+        local mod = load_module()
+        local api, calls = dynamic_inventory({
+            item(1101, "Equipped Sword", 1, 1, 5, 1),
+            item(1102, "Better Green Sword", 1, 0, 9, 2),
+            item(1103, "White Bag Boots", 4, 0, 4, 1),
+        })
+        local state = {
+            running = true,
+            paused = false,
+            mode = "leveling",
+            last_auto_at = 100,
+        }
+
+        local ok, result = mod.runPeriodicMaintenance(api, state, {
+            auto_equip_equipment = true,
+            auto_decompose_equipment = true,
+            equipment_maintenance_interval_seconds = 3600,
+        }, {
+            now = 3700,
+            sleep = function() end,
+        })
+
+        T.assert_eq(ok, true)
+        T.assert_eq(result.status, "complete")
+        T.assert_eq(result.mode, "leveling")
+        T.assert_eq(result.equipped_count, 2)
+        T.assert_eq(result.decomposed_count, 1)
+        T.assert_eq(calls.events[1], "equip:1103")
+        T.assert_eq(calls.events[2], "equip:1102")
+        T.assert_eq(calls.events[3], "decompose:1101")
+    end)
+
+    T.test("periodic maintenance runs during custom combat", function()
+        local mod = load_module()
+        local api, calls = dynamic_inventory({
+            item(1201, "Equipped Gloves", 5, 5, 4, 1),
+            item(1202, "Better Gloves", 5, 0, 8, 2),
+        })
+        local state = {
+            running = true,
+            paused = false,
+            mode = "combat",
+            last_auto_at = 100,
+        }
+
+        local ok, result = mod.runPeriodicMaintenance(api, state, {
+            auto_equip_equipment = true,
+            auto_decompose_equipment = false,
+            equipment_maintenance_interval_seconds = 3600,
+        }, {
+            now = 3700,
+            sleep = function() end,
+        })
+
+        T.assert_eq(ok, true)
+        T.assert_eq(result.status, "complete")
+        T.assert_eq(result.mode, "combat")
+        T.assert_eq(result.equipped_count, 1)
+        T.assert_eq(result.decomposed_count, 0)
+        T.assert_eq(#calls.equip, 1)
+        T.assert_eq(#calls.decompose, 0)
+    end)
+
+    T.test("periodic maintenance waits for hourly interval", function()
+        local mod = load_module()
+        local api, calls = dynamic_inventory({
+            item(1301, "White Bag Sword", 1, 0, 4, 1),
+        })
+        local state = {
+            running = true,
+            paused = false,
+            mode = "leveling",
+            last_auto_at = 100,
+        }
+
+        local ok, result = mod.runPeriodicMaintenance(api, state, {
+            auto_equip_equipment = false,
+            auto_decompose_equipment = true,
+            equipment_maintenance_interval_seconds = 3600,
+        }, {
+            now = 200,
+            sleep = function() end,
+        })
+
+        T.assert_eq(ok, true)
+        T.assert_eq(result.status, "skipped")
+        T.assert_eq(result.reason, "cooldown")
+        T.assert_eq(#calls.decompose, 0)
     end)
 
     clear_modules()

@@ -288,6 +288,7 @@ local runtime = {
     equipment_test = {
         last_status = "",
         last_dump = "",
+        last_auto_at = 0,
     },
     task_record = {
         last_status = "",
@@ -575,6 +576,9 @@ local cfg = {
     accounts = {
         enabled = true,
         auto_start_after_login = true,
+        auto_relogin_on_disconnect = true,
+        auto_relogin_cooldown_seconds = 30,
+        auto_relogin_max_attempts = 0,
         poll_interval = 5.0,
         game_path = "",
         purple_root = "",
@@ -685,6 +689,9 @@ local cfg = {
         vendor_name = "",
         keep_items = "",
         sell_rules = "",
+        auto_equip_equipment = true,
+        auto_decompose_equipment = true,
+        equipment_maintenance_interval_seconds = 3600,
         hp_rules = {},
         mp_rules = {},
         floor_recovery = {
@@ -5101,25 +5108,53 @@ function equipment_f12_log_lines(lines)
     log_info("[AionEquipmentF12] end")
 end
 
-function equipment_f12_test_once()
+function equipment_auto_set_status(text)
+    runtime.equipment_test = runtime.equipment_test or {}
+    runtime.equipment_test.last_status = tostring(text or "")
+    set_event("[装备维护] " .. runtime.equipment_test.last_status)
+    log_info("[AionEquipmentAuto] " .. runtime.equipment_test.last_status)
+end
+
+function equipment_auto_log_lines(lines)
+    log_info("[AionEquipmentAuto] begin")
+    for _, line in ipairs(lines or {}) do
+        log_info("[AionEquipmentAuto] " .. tostring(line or ""))
+    end
+    log_info("[AionEquipmentAuto] end")
+end
+
+function equipment_maintenance_run_once(source, run_equip, run_decompose)
     runtime.equipment_test = runtime.equipment_test or {}
     runtime.equipment_test.last_dump = ""
+    source = tostring(source or "auto")
+    local is_f12 = source == "f12"
+    local set_status = is_f12 and equipment_f12_set_status or equipment_auto_set_status
+    local log_lines = is_f12 and equipment_f12_log_lines or equipment_auto_log_lines
+
+    if run_equip ~= true and run_decompose ~= true then
+        set_status("skipped: no enabled operation")
+        return true
+    end
 
     if not ok_core or not core then
-        equipment_f12_set_status("failed: aion.core unavailable")
+        set_status("failed: aion.core unavailable")
         return false
     end
-    if not ok_inventory or not inventory
-        or type(inventory.list) ~= "function"
-        or type(inventory.equipItem) ~= "function"
-        or type(inventory.decomposeItem) ~= "function" then
-        equipment_f12_set_status("failed: aion.inventory unavailable " .. tostring(inventory))
+    if not ok_inventory or not inventory or type(inventory.list) ~= "function" then
+        set_status("failed: aion.inventory unavailable " .. tostring(inventory))
+        return false
+    end
+    if run_equip == true and type(inventory.equipItem) ~= "function" then
+        set_status("failed: inventory.equipItem unavailable")
+        return false
+    end
+    if run_decompose == true and type(inventory.decomposeItem) ~= "function" then
+        set_status("failed: inventory.decomposeItem unavailable")
         return false
     end
     if not ok_equipment_auto or not equipment_auto
-        or type(equipment_auto.equipAll) ~= "function"
-        or type(equipment_auto.decomposeLowQuality) ~= "function" then
-        equipment_f12_set_status("failed: aion.equipment_auto unavailable " .. tostring(equipment_auto))
+        or type(equipment_auto.runMaintenance) ~= "function" then
+        set_status("failed: aion.equipment_auto unavailable " .. tostring(equipment_auto))
         return false
     end
 
@@ -5131,59 +5166,109 @@ function equipment_f12_test_once()
     if core.ensureInit then
         local init_ok, init_err = core.ensureInit(pid)
         if not init_ok then
-            equipment_f12_set_status("failed: init " .. tostring(init_err))
+            set_status("failed: init " .. tostring(init_err))
             return false
         end
     end
 
-    local equip_ok, equip_result = equipment_auto.equipAll(inventory, {
+    local ok, result = equipment_auto.runMaintenance(inventory, {
+        run_equip = run_equip == true,
+        run_decompose = run_decompose == true,
         sleep = core.sleep,
         verify_sleep_ms = 700,
-        max_actions = 20,
-    })
-    equip_result = type(equip_result) == "table" and equip_result or { status = "failed", error = tostring(equip_result) }
-
-    local lines = {}
-    for _, line in ipairs(equip_result.lines or {}) do
-        lines[#lines + 1] = tostring(line or "")
-    end
-    lines[#lines + 1] = "equip result status=" .. tostring(equip_result.status or "") ..
-        " ok=" .. tostring(equip_ok) ..
-        " error=" .. tostring(equip_result.error or "")
-
-    if not equip_ok then
-        equipment_f12_log_lines(lines)
-        runtime.equipment_test.last_dump = table.concat(lines, "\n")
-        equipment_f12_set_status("equip failed: " .. tostring(equip_result.error or equip_result.status or "unknown"))
-        return false
-    end
-
-    local decompose_ok, decompose_result = equipment_auto.decomposeLowQuality(inventory, {
-        sleep = core.sleep,
+        max_equip_actions = 20,
         decompose_sleep_ms = 150,
     })
-    decompose_result = type(decompose_result) == "table"
-        and decompose_result
-        or { status = "failed", error = tostring(decompose_result) }
-    for _, line in ipairs(decompose_result.lines or {}) do
-        lines[#lines + 1] = tostring(line or "")
-    end
-    lines[#lines + 1] = "decompose result status=" .. tostring(decompose_result.status or "") ..
-        " ok=" .. tostring(decompose_ok) ..
-        " error=" .. tostring(decompose_result.error or "")
+    result = type(result) == "table" and result or { status = "failed", error = tostring(result) }
 
-    equipment_f12_log_lines(lines)
+    local lines = result.lines or {}
+    lines[#lines + 1] = "maintenance source=" .. source ..
+        " run_equip=" .. tostring(run_equip == true) ..
+        " run_decompose=" .. tostring(run_decompose == true) ..
+        " status=" .. tostring(result.status or "") ..
+        " ok=" .. tostring(ok) ..
+        " error=" .. tostring(result.error or "")
+
+    log_lines(lines)
     runtime.equipment_test.last_dump = table.concat(lines, "\n")
 
-    if decompose_ok then
-        equipment_f12_set_status("equipped_count=" .. tostring(equip_result.equipped_count or 0) ..
-            " decomposed_count=" .. tostring(decompose_result.decomposed_count or 0))
+    if ok then
+        set_status("equipped_count=" .. tostring(result.equipped_count or 0) ..
+            " decomposed_count=" .. tostring(result.decomposed_count or 0))
     else
-        equipment_f12_set_status("decompose failed: " ..
-            tostring(decompose_result.error or decompose_result.status or "unknown"))
+        set_status("failed: " .. tostring(result.error or result.status or "unknown"))
     end
 
-    return decompose_ok
+    return ok, result
+end
+
+function equipment_f12_test_once()
+    return equipment_maintenance_run_once("f12", true, true)
+end
+
+function equipment_maintenance_prepare_auto()
+    if not ok_core or not core then
+        return false, "aion.core unavailable"
+    end
+
+    target_refresh(true)
+    local pid = tonumber(cfg.target and cfg.target.pid) or nil
+    if (not pid or pid <= 0) and type(core.resolvePid) == "function" then
+        pid = tonumber(core.resolvePid()) or nil
+    end
+    if core.ensureInit then
+        local init_ok, init_err = core.ensureInit(pid)
+        if not init_ok then
+            return false, "init " .. tostring(init_err)
+        end
+    end
+    return true, nil
+end
+
+function equipment_maintenance_tick()
+    normalize_supply_config()
+    if cfg.supply.auto_equip_equipment ~= true
+        and cfg.supply.auto_decompose_equipment ~= true then
+        return
+    end
+    if not ok_equipment_auto or not equipment_auto
+        or type(equipment_auto.runPeriodicMaintenance) ~= "function" then
+        equipment_auto_set_status("failed: aion.equipment_auto unavailable " .. tostring(equipment_auto))
+        return
+    end
+
+    runtime.equipment_test = runtime.equipment_test or {}
+    runtime.equipment_test.running = runtime.running == true
+    runtime.equipment_test.paused = runtime.paused == true
+    runtime.equipment_test.mode = primary_mode_ids[cfg.primary_mode] or ""
+
+    local ok, result = equipment_auto.runPeriodicMaintenance(inventory, runtime.equipment_test, cfg.supply, {
+        now = now_seconds(),
+        sleep = core and core.sleep,
+        verify_sleep_ms = 700,
+        max_equip_actions = 20,
+        decompose_sleep_ms = 150,
+        prepare = equipment_maintenance_prepare_auto,
+    })
+    result = type(result) == "table" and result or { status = "failed", error = tostring(result) }
+    if result.status == "skipped" then
+        return
+    end
+
+    local lines = result.lines or {}
+    lines[#lines + 1] = "periodic mode=" .. tostring(result.mode or "") ..
+        " status=" .. tostring(result.status or "") ..
+        " ok=" .. tostring(ok) ..
+        " error=" .. tostring(result.error or "")
+    equipment_auto_log_lines(lines)
+    runtime.equipment_test.last_dump = table.concat(lines, "\n")
+
+    if ok then
+        equipment_auto_set_status("equipped_count=" .. tostring(result.equipped_count or 0) ..
+            " decomposed_count=" .. tostring(result.decomposed_count or 0))
+    else
+        equipment_auto_set_status("failed: " .. tostring(result.error or result.status or "unknown"))
+    end
 end
 
 function task_f11_set_status(text)
@@ -12912,6 +12997,8 @@ local function start_bot()
     combat_reset_runtime("start")
     main_quest_reset_runtime("start")
     leveling_skill_auto_reset("start")
+    runtime.equipment_test = runtime.equipment_test or {}
+    runtime.equipment_test.last_auto_at = now_seconds()
     if primary_mode_ids[cfg.primary_mode] == "leveling" then
         main_quest_apply_startup_snapshot("start")
     end
@@ -13065,6 +13152,13 @@ local function account_default()
             updated_at = 0,
             bound_pid = 0,
             bound_hwnd = 0,
+            auto_relogin_pending = false,
+            auto_relogin_reason = "",
+            auto_relogin_pid = 0,
+            auto_relogin_marked_at = 0,
+            auto_relogin_next_at = 0,
+            auto_relogin_attempts = 0,
+            auto_relogin_last_at = 0,
         },
         audit = {
             status = "idle",
@@ -13347,6 +13441,55 @@ function account_pid_is_alive(pid)
     return false
 end
 
+function account_login_status_blocks_relogin(status)
+    status = tostring(status or "")
+    return status == "queued"
+        or status == "logging_in"
+        or status == "agreement_recover"
+        or status == "waiting_pid"
+        or status == "game_detected"
+        or status == "post_login_init"
+        or status == "waiting_server_select"
+        or status == "selecting_server"
+        or status == "waiting_character_select"
+        or status == "selecting_character"
+        or status == "input_second_password"
+        or status == "waiting_enter_game"
+end
+
+function account_mark_auto_relogin_pending(account, stale_pid, reason)
+    if not cfg.accounts or cfg.accounts.auto_relogin_on_disconnect ~= true then
+        return false
+    end
+    if type(account) ~= "table" or account.enabled == false then
+        return false
+    end
+
+    account.runtime = account.runtime or {}
+    account.login = account.login or {}
+
+    if account.runtime.manual_stop == true then
+        return false
+    end
+    if account.login.requested == true or account_login_status_blocks_relogin(account.login.status) then
+        return false
+    end
+    if tostring(account.account or "") == "" or tostring(account.password or "") == "" then
+        return false
+    end
+
+    local now = now_seconds()
+    local cooldown = math.max(1.0, tonumber(cfg.accounts.auto_relogin_cooldown_seconds) or 30)
+    account.runtime.auto_relogin_pending = true
+    account.runtime.auto_relogin_reason = tostring(reason or "pid_lost")
+    account.runtime.auto_relogin_pid = tonumber(stale_pid) or 0
+    account.runtime.auto_relogin_marked_at = now
+    account.runtime.auto_relogin_next_at = math.max(tonumber(account.runtime.auto_relogin_next_at) or 0, now + cooldown)
+    account.runtime.message = "auto relogin pending: " .. tostring(reason or "pid_lost")
+    account.runtime.updated_at = now
+    return true
+end
+
 function account_clear_stale_target(account, stale_pid)
     if not account then
         return false
@@ -13358,6 +13501,12 @@ function account_clear_stale_target(account, stale_pid)
     account.login = account.login or {}
     account.audit = account.audit or {}
 
+    local relogin_marked = account_mark_auto_relogin_pending(account, stale_pid, "game exited")
+
+    if runtime.running == true and stale_pid > 0 and tonumber(cfg.target and cfg.target.pid) == stale_pid then
+        stop_bot()
+    end
+
     account.target.pid = 0
     account.target.hwnd = 0
     account.target.title = ""
@@ -13367,7 +13516,13 @@ function account_clear_stale_target(account, stale_pid)
     account.target.character_name = ""
 
     account.runtime.status = "idle"
-    account.runtime.message = stale_pid > 0 and ("game exited pid=" .. tostring(stale_pid)) or "game exited"
+    if relogin_marked then
+        account.runtime.message = stale_pid > 0
+            and ("game exited pid=" .. tostring(stale_pid) .. "; auto relogin pending")
+            or "game exited; auto relogin pending"
+    else
+        account.runtime.message = stale_pid > 0 and ("game exited pid=" .. tostring(stale_pid)) or "game exited"
+    end
     account.runtime.task_id = 0
     account.runtime.worker_key = ""
     account.runtime.bound_pid = 0
@@ -13931,6 +14086,8 @@ local function account_login_status_in_progress(status)
         or status == "game_detected"
 end
 
+local account_apply_to_target
+
 local function account_update_from_worker(index, account)
     if not account or not account.login then
         return false
@@ -14022,6 +14179,16 @@ local function account_update_from_worker(index, account)
     if login_fresh_ready and account.runtime then
         if account.runtime.manual_stop == true then
             account.runtime.manual_stop = false
+            changed = true
+        end
+        if account.runtime.auto_relogin_pending == true
+            or (tonumber(account.runtime.auto_relogin_attempts) or 0) > 0
+            or tostring(account.runtime.auto_relogin_reason or "") ~= "" then
+            account.runtime.auto_relogin_pending = false
+            account.runtime.auto_relogin_reason = ""
+            account.runtime.auto_relogin_pid = 0
+            account.runtime.auto_relogin_next_at = 0
+            account.runtime.auto_relogin_attempts = 0
             changed = true
         end
         local runtime_status = tostring(account.runtime.status or "")
@@ -14350,6 +14517,11 @@ local function account_queue_login(account, index, worker_key)
     worker_key = worker_key or account_make_worker_key()
     if account.runtime then
         account.runtime.manual_stop = false
+        account.runtime.auto_relogin_pending = false
+        account.runtime.auto_relogin_reason = ""
+        account.runtime.auto_relogin_pid = 0
+        account.runtime.auto_relogin_next_at = 0
+        account.runtime.auto_relogin_last_at = now_seconds()
     end
     account.login.requested = true
     account.login.status = "queued"
@@ -14463,6 +14635,82 @@ function account_login_flow_active()
             return true
         end
     end
+    return false
+end
+
+function account_process_auto_relogin_tick()
+    if not cfg.accounts or cfg.accounts.auto_relogin_on_disconnect ~= true then
+        return false
+    end
+    if type(runtime.accounts.pending_login) == "table"
+        or account_worker_is_running()
+        or account_login_flow_active()
+        or account_has_pending_script_request() then
+        return false
+    end
+
+    local now = now_seconds()
+    local cooldown = math.max(1.0, tonumber(cfg.accounts.auto_relogin_cooldown_seconds) or 30)
+    local max_attempts = math.max(0, tonumber(cfg.accounts.auto_relogin_max_attempts) or 0)
+
+    for index, account in ipairs(account_items()) do
+        local account_runtime = account.runtime or {}
+        if account_runtime.auto_relogin_pending == true then
+            if account.enabled == false or account_runtime.manual_stop == true then
+                account_runtime.auto_relogin_pending = false
+                account_runtime.auto_relogin_reason = ""
+                account_runtime.auto_relogin_next_at = 0
+                account.runtime = account_runtime
+                account_save_domain()
+                return false
+            end
+
+            local next_at = tonumber(account_runtime.auto_relogin_next_at) or 0
+            if next_at <= 0 then
+                next_at = now + cooldown
+                account_runtime.auto_relogin_next_at = next_at
+            end
+
+            if now >= next_at then
+                local attempts = tonumber(account_runtime.auto_relogin_attempts) or 0
+                if max_attempts > 0 and attempts >= max_attempts then
+                    account_runtime.auto_relogin_pending = false
+                    account_runtime.message = "auto relogin max attempts reached"
+                    account_runtime.updated_at = now
+                    runtime.accounts.last_status = "auto relogin blocked: max attempts reached for " ..
+                        account_display_name(account)
+                    account_save_domain()
+                    return false
+                end
+
+                local worker_key = account_make_worker_key()
+                account_runtime.auto_relogin_attempts = attempts + 1
+                account_runtime.auto_relogin_last_at = now
+                account_runtime.auto_relogin_next_at = now + cooldown
+                account.runtime = account_runtime
+
+                if account_queue_login(account, index, worker_key) then
+                    runtime.accounts.pending_login = {
+                        index = index,
+                        worker_key = worker_key,
+                    }
+                    runtime.accounts.last_status = "auto relogin queued: " .. account_display_name(account)
+                    set_event("auto relogin queued: " .. account_display_name(account))
+                    account_save_domain()
+                    return true
+                end
+
+                account_runtime.auto_relogin_pending = true
+                account_runtime.auto_relogin_next_at = now + cooldown
+                account_runtime.message = "auto relogin queue failed"
+                account_runtime.updated_at = now
+                account.runtime = account_runtime
+                account_save_domain()
+                return false
+            end
+        end
+    end
+
     return false
 end
 
@@ -14698,6 +14946,10 @@ function account_queue_local_script(action, account, index, source)
         set_event("脚本启动已排队" .. account_display_name(account))
     elseif action_text == "stop" then
         account.runtime.manual_stop = true
+        account.runtime.auto_relogin_pending = false
+        account.runtime.auto_relogin_reason = ""
+        account.runtime.auto_relogin_pid = 0
+        account.runtime.auto_relogin_next_at = 0
         account.runtime.status = "queued_stop"
         account.runtime.message = "stop queued"
         account_clear_login_auto_start_pending_for_index(account_index, "stop source=" .. source_text)
@@ -15043,7 +15295,7 @@ local function account_bind_current_target(account)
     set_event("账号已绑定当前目标PID=" .. tostring(account.target.pid))
 end
 
-local function account_apply_to_target(account)
+function account_apply_to_target(account)
     if not account then
         return
     end
@@ -18126,6 +18378,19 @@ local function draw_account_login_common_panel()
     changed, val = imgui.checkbox("登录完成后自动启动挂机##account_auto_start_after_login", cfg.accounts.auto_start_after_login == true)
     if changed then cfg.accounts.auto_start_after_login = val == true end
 
+    changed, val = imgui.checkbox("Auto relogin after disconnect##account_auto_relogin_on_disconnect", cfg.accounts.auto_relogin_on_disconnect == true)
+    if changed then cfg.accounts.auto_relogin_on_disconnect = val == true end
+
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_float("Cooldown##account_auto_relogin_cooldown", tonumber(cfg.accounts.auto_relogin_cooldown_seconds) or 30)
+    if changed then cfg.accounts.auto_relogin_cooldown_seconds = math.max(1.0, tonumber(val) or 30) end
+
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_int("Max tries##account_auto_relogin_max", tonumber(cfg.accounts.auto_relogin_max_attempts) or 0)
+    if changed then cfg.accounts.auto_relogin_max_attempts = math.max(0, tonumber(val) or 0) end
+
     imgui.spacing()
 
     imgui.set_next_item_width(620)
@@ -19591,6 +19856,19 @@ function normalize_supply_config()
     cfg.supply.vendor_name = tostring(cfg.supply.vendor_name or "")
     cfg.supply.keep_items = tostring(cfg.supply.keep_items or "")
     cfg.supply.sell_rules = tostring(cfg.supply.sell_rules or "")
+    if cfg.supply.auto_equip_equipment == nil then
+        cfg.supply.auto_equip_equipment = true
+    else
+        cfg.supply.auto_equip_equipment = cfg.supply.auto_equip_equipment == true
+    end
+    if cfg.supply.auto_decompose_equipment == nil then
+        cfg.supply.auto_decompose_equipment = true
+    else
+        cfg.supply.auto_decompose_equipment = cfg.supply.auto_decompose_equipment == true
+    end
+    cfg.supply.equipment_maintenance_interval_seconds = math.max(
+        60,
+        tonumber(cfg.supply.equipment_maintenance_interval_seconds) or 3600)
     cfg.supply.hp_rules = normalize_maintenance_rules(cfg.supply.hp_rules, cfg.supply.hp_percent)
     cfg.supply.mp_rules = normalize_maintenance_rules(cfg.supply.mp_rules, cfg.supply.mp_percent)
     normalize_floor_recovery_config()
@@ -19930,14 +20208,21 @@ function draw_maintenance_tab()
     imgui.spacing()
     imgui.separator()
 
-    if imgui.collapsing_header("高级设置") then
-    imgui.set_next_item_width(110)
-    changed, val = imgui.input_int("清包阈值", cfg.supply.bag_full_percent)
-    if changed then cfg.supply.bag_full_percent = math.max(1, math.min(100, val)) end
+    changed, val = imgui.checkbox("自动穿装备", cfg.supply.auto_equip_equipment == true)
+    if changed then cfg.supply.auto_equip_equipment = val == true end
 
-    imgui.set_next_item_width(110)
-    changed, val = imgui.input_int("背包总格数", cfg.supply.bag_slots)
-    if changed then cfg.supply.bag_slots = math.max(1, val) end
+    imgui.same_line()
+    changed, val = imgui.checkbox("自动分解装备", cfg.supply.auto_decompose_equipment == true)
+    if changed then cfg.supply.auto_decompose_equipment = val == true end
+
+    if imgui.collapsing_header("高级设置") then
+        imgui.set_next_item_width(110)
+        changed, val = imgui.input_int("清包阈值", cfg.supply.bag_full_percent)
+        if changed then cfg.supply.bag_full_percent = math.max(1, math.min(100, val)) end
+
+        imgui.set_next_item_width(110)
+        changed, val = imgui.input_int("背包总格数", cfg.supply.bag_slots)
+        if changed then cfg.supply.bag_slots = math.max(1, val) end
     end
 end
 
@@ -20463,6 +20748,7 @@ end
 local function background_refresh_tick()
     account_process_pending_script()
     account_process_pending_login()
+    account_process_auto_relogin_tick()
     account_process_post_bootstrap_auto_start()
     account_process_login_bridge_auto_start_tick()
     account_process_ready_auto_start_tick()
@@ -20591,6 +20877,7 @@ while true do
 
     bootstrap_tick()
     leveling_skill_auto_tick()
+    equipment_maintenance_tick()
     if route_recovery_tick then
         route_recovery_tick()
     end
