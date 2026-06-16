@@ -9,8 +9,12 @@ local function load_module()
     return require("aion.leveling_skill_auto")
 end
 
-local function skill(id, name, type_id, level)
-    return { id = id, name = name, type = type_id, level = level or 1 }
+local function skill(id, name, type_id, level, extra)
+    local item = { id = id, name = name, type = type_id, level = level or 1 }
+    for key, value in pairs(extra or {}) do
+        item[key] = value
+    end
+    return item
 end
 
 local function mock_combat(args)
@@ -204,6 +208,31 @@ local function run()
         T.assert_eq(qcalls[1].id, 102)
         T.assert_eq(#calls.toggles, 1)
         T.assert_eq(calls.toggles[1].id, 102)
+    end)
+
+    T.test("explicit skill group places only the highest level skill", function()
+        local mod = load_module()
+        local combat, calls = mock_combat({
+            skills = {
+                skill(201, "Old Slash", 2, 1, { skill_group_id = 9001 }),
+                skill(202, "New Slash", 2, 4, { skill_group_id = 9001 }),
+            },
+            auto_active = {},
+        })
+        local quickbar, qcalls = mock_quickbar()
+        local opts = default_quickbar_opts(quickbar)
+        opts.reason = "level-up"
+        opts.level = 12
+
+        local ok, result = mod.syncAutoActiveSkills(combat, opts)
+
+        T.assert_eq(ok, true)
+        T.assert_eq(result.to_add_count, 1)
+        T.assert_eq(result.quickbar_placed_count, 1)
+        T.assert_eq(#qcalls, 1)
+        T.assert_eq(qcalls[1].id, 202)
+        T.assert_eq(#calls.toggles, 1)
+        T.assert_eq(calls.toggles[1].id, 202)
     end)
 
     clear_modules()

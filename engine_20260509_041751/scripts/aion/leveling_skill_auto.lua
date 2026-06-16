@@ -37,7 +37,82 @@ local function skill_level(skill)
     if type(skill) ~= "table" then
         return 0
     end
-    return number(skill.level or skill.lv or skill.skill_level or skill.skillLevel)
+    return number(skill.level or skill.lv or skill.skill_level or skill.skillLevel
+        or skill.skill_lv or skill.skillLv)
+end
+
+local function skill_learn_level(skill)
+    if type(skill) ~= "table" then
+        return 0
+    end
+    return number(skill.learn_level or skill.learnLevel
+        or skill.required_level or skill.requiredLevel
+        or skill.req_level or skill.reqLevel
+        or skill.pc_level or skill.pcLevel)
+end
+
+local function skill_group_field(skill)
+    if type(skill) ~= "table" then
+        return ""
+    end
+    local keys = {
+        "group_id",
+        "groupId",
+        "skill_group_id",
+        "skillGroupId",
+        "skill_group",
+        "skillGroup",
+        "base_skill_id",
+        "baseSkillId",
+        "base_id",
+        "baseId",
+        "root_skill_id",
+        "rootSkillId",
+        "root_id",
+        "rootId",
+        "series_id",
+        "seriesId",
+        "family_id",
+        "familyId",
+        "parent_skill_id",
+        "parentSkillId",
+    }
+    for _, key in ipairs(keys) do
+        local value = number(skill[key])
+        if value > 0 then
+            return key .. ":" .. tostring(value)
+        end
+    end
+    return ""
+end
+
+local function truncate(text, limit)
+    text = tostring(text or "")
+    limit = number(limit)
+    if limit <= 0 or #text <= limit then
+        return text
+    end
+    return text:sub(1, limit) .. "..."
+end
+
+local function skill_scalar_fields(skill)
+    if type(skill) ~= "table" then
+        return ""
+    end
+    local keys = {}
+    for key, value in pairs(skill) do
+        local value_type = type(value)
+        if value_type == "string" or value_type == "number" or value_type == "boolean" then
+            keys[#keys + 1] = tostring(key)
+        end
+    end
+    table.sort(keys)
+
+    local parts = {}
+    for _, key in ipairs(keys) do
+        parts[#parts + 1] = key .. "=" .. truncate(skill[key], 80)
+    end
+    return truncate(table.concat(parts, ","), 900)
 end
 
 local function roman_rank_value(text)
@@ -74,15 +149,43 @@ local function roman_rank_value(text)
 end
 
 local function skill_group_key(skill)
+    local prefix = "type:" .. tostring(skill_type(skill)) .. "|"
+    local field = skill_group_field(skill)
+    if field ~= "" then
+        return prefix .. field
+    end
     local name = skill_name(skill)
     if name == "" then
-        return "id:" .. tostring(skill_id(skill))
+        return prefix .. "id:" .. tostring(skill_id(skill))
     end
+    repeat
+        local updated = name:gsub("%s+%b()$", "")
+        updated = updated:gsub("%s+%b[]$", "")
+        updated = trim(updated)
+        if updated == name then
+            break
+        end
+        name = updated
+    until false
     name = name:gsub("%s+[IVXLCDM]+$", "")
     name = name:gsub("%s+[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+$", "")
     name = name:gsub("%s+%d+$", "")
     name = name:gsub("%s+", " ")
-    return string.lower(trim(name))
+    return prefix .. string.lower(trim(name))
+end
+
+local function skill_debug_text(skill, reason, group)
+    return string.format(
+        "%s id=%s name=%s type=%s level=%s learn=%s rank=%s group=%s fields={%s}",
+        tostring(reason or ""),
+        tostring(skill_id(skill)),
+        truncate(skill_name(skill), 120),
+        tostring(skill_type(skill)),
+        tostring(skill_level(skill)),
+        tostring(skill_learn_level(skill)),
+        tostring(roman_rank_value(skill_name(skill))),
+        truncate(group or skill_group_key(skill), 180),
+        skill_scalar_fields(skill))
 end
 
 local function skill_preferred_over(candidate, current)
@@ -92,6 +195,10 @@ local function skill_preferred_over(candidate, current)
     local c_level, old_level = skill_level(candidate), skill_level(current)
     if c_level ~= old_level then
         return c_level > old_level
+    end
+    local c_learn, old_learn = skill_learn_level(candidate), skill_learn_level(current)
+    if c_learn ~= old_learn then
+        return c_learn > old_learn
     end
     local c_rank, old_rank = roman_rank_value(skill_name(candidate)), roman_rank_value(skill_name(current))
     if c_rank ~= old_rank then
@@ -273,6 +380,15 @@ function M.planAutoActiveSkills(skills, current_auto_active, opts)
             candidates = 0,
         },
     }
+    if opts.debug == true then
+        plan.debug = { lines = {} }
+    end
+
+    local function debug_line(text)
+        if plan.debug then
+            plan.debug.lines[#plan.debug.lines + 1] = tostring(text or "")
+        end
+    end
 
     local selected_by_group = {}
     local group_order = {}
@@ -281,19 +397,28 @@ function M.planAutoActiveSkills(skills, current_auto_active, opts)
         local id = skill_id(skill)
         if id <= 0 then
             plan.stats.invalid = plan.stats.invalid + 1
+            debug_line(skill_debug_text(skill, "skip invalid-id", ""))
         elseif opts.require_active_type ~= false and skill_type(skill) ~= 2 then
             -- The leveling caller can include buff/status skills by disabling this gate.
+            debug_line(skill_debug_text(skill, "skip type-gate", skill_group_key(skill)))
         else
             plan.stats.active_type = plan.stats.active_type + 1
             local group = skill_group_key(skill)
             if not selected_by_group[group] then
                 group_order[#group_order + 1] = group
                 selected_by_group[group] = skill
+                debug_line(skill_debug_text(skill, "group-select first", group))
             elseif skill_preferred_over(skill, selected_by_group[group]) then
                 plan.stats.duplicate_group = plan.stats.duplicate_group + 1
+                debug_line("group-replace group=" .. truncate(group, 180) ..
+                    " old={" .. skill_debug_text(selected_by_group[group], "old", group) ..
+                    "} new={" .. skill_debug_text(skill, "new", group) .. "}")
                 selected_by_group[group] = skill
             else
                 plan.stats.duplicate_group = plan.stats.duplicate_group + 1
+                debug_line("group-drop-lower group=" .. truncate(group, 180) ..
+                    " kept={" .. skill_debug_text(selected_by_group[group], "kept", group) ..
+                    "} drop={" .. skill_debug_text(skill, "drop", group) .. "}")
             end
         end
     end
@@ -303,8 +428,10 @@ function M.planAutoActiveSkills(skills, current_auto_active, opts)
         local id = skill_id(skill)
         if current[id] or current[tostring(id)] then
             plan.stats.already = plan.stats.already + 1
+            debug_line(skill_debug_text(skill, "skip already-auto", group))
         elseif is_ignored(skill, ignored) then
             plan.stats.ignored = plan.stats.ignored + 1
+            debug_line(skill_debug_text(skill, "skip ignored", group))
         else
             local allowed = true
             if type(opts.is_skill_auto) == "function" then
@@ -314,13 +441,16 @@ function M.planAutoActiveSkills(skills, current_auto_active, opts)
                     plan.stats.check_failed = plan.stats.check_failed + 1
                     plan.errors[#plan.errors + 1] = "IsSkillAuto failed id=" .. tostring(id) ..
                         " err=" .. tostring(err or "")
+                    debug_line(skill_debug_text(skill, "skip auto-check-failed err=" .. tostring(err or ""), group))
                 elseif value ~= true then
                     plan.stats.not_auto = plan.stats.not_auto + 1
+                    debug_line(skill_debug_text(skill, "skip not-auto-capable", group))
                 end
             end
             if allowed then
                 plan.stats.candidates = plan.stats.candidates + 1
                 plan.to_add[#plan.to_add + 1] = skill
+                debug_line(skill_debug_text(skill, "candidate to-add", group))
             end
         end
     end
@@ -348,6 +478,7 @@ function M.syncAutoActiveSkills(combat, opts)
         toggled = {},
         quickbar_placed = {},
         stats = {},
+        debug = { lines = {} },
     }
 
     if type(combat) ~= "table" then
@@ -398,11 +529,18 @@ function M.syncAutoActiveSkills(combat, opts)
         ignore_names = opts.ignore_names,
         ignore_ids = opts.ignore_ids,
         require_active_type = opts.require_active_type,
+        debug = opts.debug == true,
         is_skill_auto = function(id)
             return combat.isSkillAuto(id)
         end,
     })
     result.stats = plan.stats
+    result.debug = type(plan.debug) == "table" and plan.debug or { lines = {} }
+    local function debug_line(text)
+        if result.debug and type(result.debug.lines) == "table" then
+            result.debug.lines[#result.debug.lines + 1] = tostring(text or "")
+        end
+    end
     result.to_add_count = #plan.to_add
     for _, err in ipairs(plan.errors) do
         result.errors[#result.errors + 1] = err
@@ -429,6 +567,7 @@ function M.syncAutoActiveSkills(combat, opts)
             if not slot then
                 result.quickbar_failed_count = result.quickbar_failed_count + 1
                 result.errors[#result.errors + 1] = "no reserved quickbar slot left id=" .. tostring(id)
+                debug_line(skill_debug_text(skill, "quickbar no-slot", group))
             else
                 local qok, qvalue, qerr = quickbar.placeQuickbar(
                     number(opts.quickbar_bar_index),
@@ -447,9 +586,12 @@ function M.syncAutoActiveSkills(combat, opts)
                     result.quickbar_placed[#result.quickbar_placed + 1] = {
                         id = id,
                         name = skill_name(skill),
+                        group = group,
                         bar_index = number(opts.quickbar_bar_index),
                         slot_index = slot,
                     }
+                    debug_line(skill_debug_text(skill, "quickbar placed bar=" ..
+                        tostring(number(opts.quickbar_bar_index)) .. " slot=" .. tostring(slot), group))
                     placed_slot = qstate.placed_by_id[tostring(id)]
                 else
                     result.quickbar_failed_count = result.quickbar_failed_count + 1
@@ -457,10 +599,15 @@ function M.syncAutoActiveSkills(combat, opts)
                         " bar=" .. tostring(number(opts.quickbar_bar_index)) ..
                         " slot=" .. tostring(slot) ..
                         " err=" .. tostring(qerr or qvalue or "")
+                    debug_line(skill_debug_text(skill, "quickbar place-failed bar=" ..
+                        tostring(number(opts.quickbar_bar_index)) .. " slot=" .. tostring(slot) ..
+                        " err=" .. tostring(qerr or qvalue or ""), group))
                 end
             end
         elseif result.quickbar_required and placed_slot then
             result.quickbar_reused_count = result.quickbar_reused_count + 1
+            debug_line(skill_debug_text(skill, "quickbar reused bar=" ..
+                tostring(placed_slot.bar_index or "") .. " slot=" .. tostring(placed_slot.slot_index or ""), group))
         end
 
         if result.quickbar_required and not placed_slot then
@@ -472,11 +619,14 @@ function M.syncAutoActiveSkills(combat, opts)
             result.toggled[#result.toggled + 1] = {
                 id = id,
                 name = skill_name(skill),
+                group = group,
             }
+            debug_line(skill_debug_text(skill, "toggle success", group))
         else
             result.failed_count = result.failed_count + 1
             result.errors[#result.errors + 1] = "SkillAutoToggle failed id=" .. tostring(id) ..
                 " err=" .. tostring(err or value or "")
+            debug_line(skill_debug_text(skill, "toggle failed err=" .. tostring(err or value or ""), group))
         end
         end
     end

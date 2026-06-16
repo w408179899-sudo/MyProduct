@@ -626,6 +626,8 @@ local cfg = {
         allow_gather = false,
         learn_skills = true,
         skill_auto_retry_seconds = 3.0,
+        skill_auto_debug_logs = true,
+        skill_auto_place_quickbar = false,
         skill_auto_ignore_ids = "",
         skill_auto_quickbar_bar_index = 1,
         skill_auto_quickbar_start_slot = 0,
@@ -781,6 +783,22 @@ function normalize_combat_config()
     if type(normalize_combat_mode) == "function" then
         normalize_combat_mode()
     end
+end
+
+function normalize_leveling_config()
+    if not cfg or type(cfg.leveling) ~= "table" then
+        return
+    end
+    cfg.leveling.skill_auto_retry_seconds = math.max(0.5, tonumber(cfg.leveling.skill_auto_retry_seconds) or 3.0)
+    if cfg.leveling.skill_auto_debug_logs == nil then
+        cfg.leveling.skill_auto_debug_logs = true
+    end
+    if cfg.leveling.skill_auto_place_quickbar ~= true then
+        cfg.leveling.skill_auto_place_quickbar = false
+    end
+    cfg.leveling.skill_auto_quickbar_bar_index = math.max(0, tonumber(cfg.leveling.skill_auto_quickbar_bar_index) or 1)
+    cfg.leveling.skill_auto_quickbar_start_slot = math.max(0, tonumber(cfg.leveling.skill_auto_quickbar_start_slot) or 0)
+    cfg.leveling.skill_auto_quickbar_slot_count = math.max(1, tonumber(cfg.leveling.skill_auto_quickbar_slot_count) or 12)
 end
 
 local priority_modes = {
@@ -2118,6 +2136,24 @@ function leveling_skill_auto_enabled()
         and cfg.leveling.learn_skills == true
 end
 
+function leveling_skill_auto_debug_enabled()
+    return not (cfg and cfg.leveling and cfg.leveling.skill_auto_debug_logs == false)
+end
+
+function leveling_skill_auto_log_debug(result)
+    if not leveling_skill_auto_debug_enabled() then
+        return
+    end
+    local debug_info = result and result.debug
+    local lines = debug_info and debug_info.lines
+    if type(lines) ~= "table" then
+        return
+    end
+    for index, line in ipairs(lines) do
+        log_info("[AionLevelingSkillAuto][debug] #" .. tostring(index) .. " " .. tostring(line))
+    end
+end
+
 function leveling_skill_auto_tick()
     if not leveling_skill_auto_enabled() then
         return
@@ -2196,12 +2232,13 @@ function leveling_skill_auto_tick()
         ignore_ids = cfg.leveling and cfg.leveling.skill_auto_ignore_ids or "",
         kind = combat.KIND_SKILL,
         require_active_type = false,
-        quickbar_required = true,
+        quickbar_required = cfg.leveling and cfg.leveling.skill_auto_place_quickbar == true,
         quickbar = ok_remote and remote or nil,
         quickbar_state = state.quickbar,
         quickbar_bar_index = tonumber(cfg.leveling.skill_auto_quickbar_bar_index) or 1,
         quickbar_start_slot = tonumber(cfg.leveling.skill_auto_quickbar_start_slot) or 0,
         quickbar_slot_count = tonumber(cfg.leveling.skill_auto_quickbar_slot_count) or 12,
+        debug = leveling_skill_auto_debug_enabled(),
     })
     if type(leveling_skill_auto.finishAttempt) == "function" then
         leveling_skill_auto.finishAttempt(state, ok, result, now)
@@ -2210,6 +2247,7 @@ function leveling_skill_auto_tick()
     local summary = type(leveling_skill_auto.formatResult) == "function"
         and leveling_skill_auto.formatResult(result)
         or tostring(result and result.status or ok)
+    leveling_skill_auto_log_debug(result)
     if ok then
         log_info("[AionLevelingSkillAuto] sync-success " .. summary)
         set_event("自动练级技能同步完成 added=" .. tostring(result and result.added_count or 0) ..
@@ -14421,6 +14459,7 @@ local function apply_config_snapshot(snapshot)
         end
     end
     normalize_combat_config()
+    normalize_leveling_config()
     sync_combat_enabled_from_primary_mode()
     normalize_route_config()
     normalize_supply_config()
@@ -14453,6 +14492,7 @@ local function load_config_domains()
         load_config_domain(key)
     end
     normalize_combat_config()
+    normalize_leveling_config()
     sync_combat_enabled_from_primary_mode()
     normalize_route_config()
     normalize_supply_config()
@@ -14482,6 +14522,7 @@ function save_config()
     sync_combat_enabled_from_primary_mode()
     config.load()
     normalize_combat_config()
+    normalize_leveling_config()
     save_config_domains()
 
     -- Legacy keys kept for older copies of this UI.
@@ -14553,6 +14594,7 @@ local function load_config()
     end
     normalize_primary_mode()
     normalize_combat_config()
+    normalize_leveling_config()
     sync_combat_enabled_from_primary_mode()
     normalize_route_config()
     if cleared_login then
@@ -18419,6 +18461,9 @@ local function draw_leveling_tab()
     imgui.set_next_item_width(220)
     changed, val = imgui.combo("主线方式", cfg.leveling.mode, leveling_modes)
     if changed then cfg.leveling.mode = val end
+
+    changed, val = imgui.checkbox("Auto place skills to quickbar (can overwrite)", cfg.leveling.skill_auto_place_quickbar == true)
+    if changed then cfg.leveling.skill_auto_place_quickbar = val end
 
     imgui.set_next_item_width(120)
     changed, val = imgui.input_int("起始等级", cfg.leveling.start_level, 0)

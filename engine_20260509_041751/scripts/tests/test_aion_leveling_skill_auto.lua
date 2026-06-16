@@ -9,13 +9,17 @@ local function load_module()
     return require("aion.leveling_skill_auto")
 end
 
-local function skill(id, name, type_id, level)
-    return {
+local function skill(id, name, type_id, level, extra)
+    local item = {
         id = id,
         name = name,
         type = type_id,
         level = level or 1,
     }
+    for key, value in pairs(extra or {}) do
+        item[key] = value
+    end
+    return item
 end
 
 local function mock_combat(args)
@@ -164,6 +168,109 @@ local function run()
         T.assert_eq(plan.to_add[1].id, 102)
         T.assert_eq(plan.to_add[2].id, 103)
         T.assert_eq(plan.stats.duplicate_group, 1)
+    end)
+
+    T.test("plan prefers highest level skill from explicit skill group field", function()
+        local mod = load_module()
+        local skills = {
+            skill(201, "Old Slash", 2, 1, { skill_group_id = 9001 }),
+            skill(202, "New Slash", 2, 4, { skill_group_id = 9001 }),
+            skill(203, "Strike", 2, 1, { skill_group_id = 9002 }),
+        }
+
+        local plan = mod.planAutoActiveSkills(skills, {}, {
+            is_skill_auto = function()
+                return true, true, nil
+            end,
+        })
+
+        T.assert_eq(#plan.to_add, 2)
+        T.assert_eq(plan.to_add[1].id, 202)
+        T.assert_eq(plan.to_add[2].id, 203)
+        T.assert_eq(plan.stats.duplicate_group, 1)
+    end)
+
+    T.test("plan uses required level to choose latest skill when rank level is absent", function()
+        local mod = load_module()
+        local skills = {
+            skill(301, "Old Chain", 2, 0, { group_id = 7001, required_level = 5 }),
+            skill(302, "New Chain", 2, 0, { group_id = 7001, required_level = 13 }),
+        }
+
+        local plan = mod.planAutoActiveSkills(skills, {}, {
+            is_skill_auto = function()
+                return true, true, nil
+            end,
+        })
+
+        T.assert_eq(#plan.to_add, 1)
+        T.assert_eq(plan.to_add[1].id, 302)
+        T.assert_eq(plan.stats.duplicate_group, 1)
+    end)
+
+    T.test("plan groups rank suffix before trailing action tag", function()
+        local mod = load_module()
+        local skills = {
+            skill(311, "Drain I (Action)", 2, 1),
+            skill(312, "Drain II (Action)", 2, 2),
+            skill(313, "Drain III (Action)", 2, 3),
+        }
+
+        local plan = mod.planAutoActiveSkills(skills, {}, {
+            is_skill_auto = function()
+                return true, true, nil
+            end,
+        })
+
+        T.assert_eq(#plan.to_add, 1)
+        T.assert_eq(plan.to_add[1].id, 313)
+        T.assert_eq(plan.stats.duplicate_group, 2)
+    end)
+
+    T.test("plan keeps active and status skills separate even with same group name", function()
+        local mod = load_module()
+        local skills = {
+            skill(321, "Shared Aura I", 2, 1),
+            skill(322, "Shared Aura I", 8, 1),
+        }
+
+        local plan = mod.planAutoActiveSkills(skills, {}, {
+            require_active_type = false,
+            is_skill_auto = function()
+                return true, true, nil
+            end,
+        })
+
+        T.assert_eq(#plan.to_add, 2)
+        T.assert_eq(plan.to_add[1].id, 321)
+        T.assert_eq(plan.to_add[2].id, 322)
+        T.assert_eq(plan.stats.duplicate_group, 0)
+    end)
+
+    T.test("sync returns debug lines when requested", function()
+        local mod = load_module()
+        local combat = mock_combat({
+            skills = {
+                skill(401, "Old Slash", 2, 1, { skill_group_id = 9101 }),
+                skill(402, "New Slash", 2, 3, { skill_group_id = 9101 }),
+            },
+            auto_active = {},
+        })
+
+        local ok, result = mod.syncAutoActiveSkills(combat, {
+            reason = "level-up",
+            level = 12,
+            quickbar_required = false,
+            debug = true,
+        })
+
+        T.assert_eq(ok, true)
+        T.assert_eq(result.to_add_count, 1)
+        T.assert_eq(result.toggled[1].id, 402)
+        T.assert_eq(type(result.debug.lines), "table")
+        T.assert_gt(#result.debug.lines, 0, "expected debug lines")
+        T.assert_contains(table.concat(result.debug.lines, "\n"), "group-replace")
+        T.assert_contains(table.concat(result.debug.lines, "\n"), "toggle success")
     end)
 
     T.test("sync toggles missing active and status skills", function()
