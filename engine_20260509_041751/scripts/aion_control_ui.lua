@@ -51,6 +51,7 @@ local ok_profile_io, profile_io = pcall(require, "aion.profile_io")
 ok_account_profile, account_profile = pcall(require, "aion.account_profile")
 local ok_target, target_lib = pcall(require, "aion.target")
 ok_login_autostart, login_autostart = pcall(require, "aion.login_autostart")
+ok_account_runtime_guard, account_runtime_guard = pcall(require, "aion.account_runtime_guard")
 account_limit = nil
 do
     local ok, mod = pcall(require, "aion.account_limit")
@@ -14058,8 +14059,80 @@ local function account_task_is_running(id)
     return status == "pending" or status == "running" or status == "paused"
 end
 
+function account_runtime_guard_fallback(kind, account, index)
+    local account_runtime = account and account.runtime or {}
+    local status = tostring(account_runtime.status or "")
+    if kind == "queue" and (status == "queued_start" or status == "starting" or status == "running") then
+        return { allowed = false, reason = "account-runtime-active", message = "account runtime already active" }
+    end
+    if kind == "begin" and (status == "starting" or status == "running") then
+        return { allowed = false, reason = "account-runtime-active", message = "account runtime already active" }
+    end
+    if kind == "spawn" and status == "running" then
+        return { allowed = false, reason = "account-runtime-active", message = "account runtime already active" }
+    end
+    if account_task_is_running(account_runtime.task_id) then
+        return { allowed = false, reason = "account-task-active", message = "account task already active" }
+    end
+    return { allowed = true, reason = "ok" }
+end
+
+function account_runtime_start_decision(kind, account, index)
+    if ok_account_runtime_guard and account_runtime_guard then
+        local fn = nil
+        if kind == "queue" then
+            fn = account_runtime_guard.can_queue_start
+        elseif kind == "begin" then
+            fn = account_runtime_guard.can_begin_start
+        elseif kind == "spawn" then
+            fn = account_runtime_guard.can_spawn_worker
+        end
+
+        if type(fn) == "function" then
+            local ok, decision = pcall(fn, {
+                account = account,
+                index = index,
+                runtime_accounts = runtime.accounts,
+                is_task_running = account_task_is_running,
+            })
+            if ok and type(decision) == "table" then
+                return decision
+            end
+        end
+    end
+
+    return account_runtime_guard_fallback(kind, account, index)
+end
+
+function account_note_start_blocked(kind, account, index, source, decision)
+    decision = decision or {}
+    runtime.accounts = runtime.accounts or {}
+    local reason = tostring(decision.reason or "blocked")
+    local message = tostring(decision.message or reason)
+    local account_runtime = account and account.runtime or {}
+    runtime.accounts.last_status = "script start ignored: " ..
+        account_display_name(account) .. " reason=" .. reason
+    log_info("[AionControlUI] account start ignored phase=" .. tostring(kind or "") ..
+        " source=" .. tostring(source or "unknown") ..
+        " reason=" .. reason ..
+        " account=" .. account_display_name(account) ..
+        " index=" .. tostring(index or 0) ..
+        " status=" .. tostring(account_runtime.status or "") ..
+        " task_id=" .. tostring(account_runtime.task_id or 0))
+    set_event("start ignored: " .. message)
+end
+
 local function account_start_runtime_worker(account, index)
     if not account then
+        return false
+    end
+    account.runtime = account.runtime or {}
+    local spawn_decision = account_runtime_start_decision("spawn", account, index)
+    if spawn_decision.allowed ~= true then
+        account.runtime.message = tostring(spawn_decision.message or spawn_decision.reason or "start blocked")
+        account.runtime.updated_at = now_seconds()
+        account_note_start_blocked("spawn", account, index, "runtime-worker", spawn_decision)
+        account_save_domain()
         return false
     end
     if not task or type(task.run) ~= "function" then
@@ -15199,6 +15272,14 @@ function account_queue_local_script(action, account, index, source)
     end
 
     local source_text = tostring(source or "unknown")
+    if action_text == "start" then
+        local queue_decision = account_runtime_start_decision("queue", account, account_index)
+        if queue_decision.allowed ~= true then
+            account_note_start_blocked("queue", account, account_index, source_text, queue_decision)
+            return false
+        end
+    end
+
     log_info("[AionControlUI] account script queue action=" .. action_text ..
         " source=" .. source_text ..
         " account=" .. account_display_name(account) ..
@@ -15582,6 +15663,17 @@ local function account_start_local_script(account, index)
     if not account then
         runtime.accounts.last_status = "start failed: no account selected"
         set_event("启动脚本失败: 未选择账号")
+        return false
+    end
+
+    account.runtime = account.runtime or {}
+
+    local begin_decision = account_runtime_start_decision("begin", account, index)
+    if begin_decision.allowed ~= true then
+        account.runtime.message = tostring(begin_decision.message or begin_decision.reason or "start blocked")
+        account.runtime.updated_at = now_seconds()
+        account_note_start_blocked("begin", account, index, "pending-script", begin_decision)
+        account_save_domain()
         return false
     end
 

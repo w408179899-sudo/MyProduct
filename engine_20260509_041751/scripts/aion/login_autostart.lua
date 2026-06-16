@@ -1,4 +1,5 @@
 local M = {}
+local ok_runtime_guard, runtime_guard = pcall(require, "aion.account_runtime_guard")
 
 local function trim(value)
     local text = tostring(value or "")
@@ -17,6 +18,9 @@ function M.is_login_ready(status)
 end
 
 function M.is_runtime_active(status)
+    if ok_runtime_guard and runtime_guard and type(runtime_guard.is_runtime_active) == "function" then
+        return runtime_guard.is_runtime_active(status)
+    end
     status = tostring(status or "")
     return status == "starting"
         or status == "queued_start"
