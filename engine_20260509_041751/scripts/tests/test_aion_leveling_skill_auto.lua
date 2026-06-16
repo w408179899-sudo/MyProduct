@@ -28,15 +28,27 @@ local function mock_combat(args)
         toggles = {},
         is_auto = {},
     }
+    local active_reads = 0
+    local buff_reads = 0
     local combat = {
         KIND_SKILL = 0x15,
         skillList = function()
             return true, args.skills or {}, nil
         end,
         autoActiveSkills = function()
+            active_reads = active_reads + 1
+            if args.auto_active_sequence then
+                local value = args.auto_active_sequence[active_reads] or args.auto_active_sequence[#args.auto_active_sequence]
+                return true, value or {}, nil
+            end
             return true, args.auto_active or {}, nil
         end,
         autoBuffSkills = function()
+            buff_reads = buff_reads + 1
+            if args.auto_buff_sequence then
+                local value = args.auto_buff_sequence[buff_reads] or args.auto_buff_sequence[#args.auto_buff_sequence]
+                return true, value or {}, nil
+            end
             return true, args.auto_buff or {}, nil
         end,
         isSkillAuto = function(id)
@@ -363,6 +375,52 @@ local function run()
         T.assert_eq(ok, false)
         T.assert_eq(result.failed_count, 1)
         T.assert_contains(table.concat(result.errors, "; "), "toggle failed")
+    end)
+
+    T.test("sync verifies toggled skill appears in auto list", function()
+        local mod = load_module()
+        local combat, calls = mock_combat({
+            skills = { skill(101, "Slash", 2) },
+            auto_active_sequence = { {}, { 101 } },
+            auto_buff_sequence = { {}, {} },
+        })
+
+        local ok, result = mod.syncAutoActiveSkills(combat, {
+            reason = "level-up",
+            level = 11,
+            quickbar_required = false,
+            verify_after_toggle = true,
+        })
+
+        T.assert_eq(ok, true)
+        T.assert_eq(#calls.toggles, 1)
+        T.assert_eq(result.toggle_sent_count, 1)
+        T.assert_eq(result.verified_count, 1)
+        T.assert_eq(result.added_count, 1)
+        T.assert_eq(result.failed_count, 0)
+    end)
+
+    T.test("sync fails when toggle is not visible in auto list", function()
+        local mod = load_module()
+        local combat, calls = mock_combat({
+            skills = { skill(101, "Slash", 2) },
+            auto_active_sequence = { {}, {} },
+            auto_buff_sequence = { {}, {} },
+        })
+
+        local ok, result = mod.syncAutoActiveSkills(combat, {
+            reason = "level-up",
+            level = 11,
+            quickbar_required = false,
+            verify_after_toggle = true,
+        })
+
+        T.assert_eq(ok, false)
+        T.assert_eq(#calls.toggles, 1)
+        T.assert_eq(result.toggle_sent_count, 1)
+        T.assert_eq(result.verified_count, 0)
+        T.assert_eq(result.verify_failed_count, 1)
+        T.assert_contains(table.concat(result.errors, "; "), "verify missing")
     end)
 
     T.test("sync returns failure when auto capability check fails", function()

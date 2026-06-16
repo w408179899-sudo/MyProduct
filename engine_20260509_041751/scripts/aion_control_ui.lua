@@ -634,7 +634,8 @@ local cfg = {
         learn_skills = true,
         skill_auto_retry_seconds = 3.0,
         skill_auto_debug_logs = true,
-        skill_auto_place_quickbar = false,
+        skill_auto_place_quickbar = true,
+        skill_auto_quickbar_overwrite = true,
         skill_auto_ignore_ids = "",
         skill_auto_quickbar_bar_index = 1,
         skill_auto_quickbar_bar_count = 2,
@@ -802,8 +803,15 @@ function normalize_leveling_config()
     if cfg.leveling.skill_auto_debug_logs == nil then
         cfg.leveling.skill_auto_debug_logs = true
     end
-    if cfg.leveling.skill_auto_place_quickbar ~= true then
-        cfg.leveling.skill_auto_place_quickbar = false
+    if cfg.leveling.skill_auto_place_quickbar == nil then
+        cfg.leveling.skill_auto_place_quickbar = true
+    else
+        cfg.leveling.skill_auto_place_quickbar = cfg.leveling.skill_auto_place_quickbar == true
+    end
+    if cfg.leveling.skill_auto_quickbar_overwrite == nil then
+        cfg.leveling.skill_auto_quickbar_overwrite = true
+    else
+        cfg.leveling.skill_auto_quickbar_overwrite = cfg.leveling.skill_auto_quickbar_overwrite ~= false
     end
     cfg.leveling.skill_auto_quickbar_bar_index = math.max(0, tonumber(cfg.leveling.skill_auto_quickbar_bar_index) or 1)
     cfg.leveling.skill_auto_quickbar_bar_count = math.max(1, tonumber(cfg.leveling.skill_auto_quickbar_bar_count) or 2)
@@ -2150,6 +2158,59 @@ function leveling_skill_auto_debug_enabled()
     return not (cfg and cfg.leveling and cfg.leveling.skill_auto_debug_logs == false)
 end
 
+function leveling_skill_auto_short_text(text, limit)
+    text = tostring(text or "")
+    limit = tonumber(limit) or 160
+    if #text <= limit then
+        return text
+    end
+    return text:sub(1, limit) .. "..."
+end
+
+function leveling_skill_auto_state_detail(state, char, reason)
+    state = type(state) == "table" and state or {}
+    local level = tonumber(char and char.level) or 0
+    return "reason=" .. tostring(reason or "") ..
+        " level=" .. tostring(level) ..
+        " startup_done=" .. tostring(state.startup_sync_done == true) ..
+        " last_seen=" .. tostring(state.last_seen_level or 0) ..
+        " last_processed=" .. tostring(state.last_processed_level or 0) ..
+        " pending=" .. tostring(state.pending_level or 0) ..
+        " pending_reason=" .. tostring(state.pending_reason or "") ..
+        " last_attempt=" .. tostring(state.last_attempt_at or 0) ..
+        " last_success=" .. tostring(state.last_success_at or 0) ..
+        " last_result=" .. tostring(state.last_result or "") ..
+        " last_error=" .. leveling_skill_auto_short_text(state.last_error or "", 180)
+end
+
+function leveling_skill_auto_log_throttled(state, key, message, interval)
+    state = type(state) == "table" and state or {}
+    interval = tonumber(interval) or 10
+    local now = now_seconds()
+    local time_key = key .. "_at"
+    local text_key = key .. "_text"
+    if tostring(state[text_key] or "") ~= tostring(message or "")
+        or (tonumber(state[time_key]) or 0) <= 0
+        or now - (tonumber(state[time_key]) or 0) >= interval then
+        state[time_key] = now
+        state[text_key] = tostring(message or "")
+        log_info("[AionLevelingSkillAuto] " .. tostring(message or ""))
+    end
+end
+
+function leveling_skill_auto_log_disabled_gate()
+    runtime.leveling_skill_auto = runtime.leveling_skill_auto or {}
+    local state = runtime.leveling_skill_auto
+    local mode = cfg and type(primary_mode_ids) == "table" and primary_mode_ids[cfg.primary_mode] or ""
+    local detail = "disabled gate running=" .. tostring(runtime and runtime.running == true) ..
+        " paused=" .. tostring(runtime and runtime.paused == true) ..
+        " primary_mode=" .. tostring(mode) ..
+        " leveling_cfg=" .. tostring(cfg and cfg.leveling ~= nil) ..
+        " leveling_enabled=" .. tostring(cfg and cfg.leveling and cfg.leveling.enabled == true) ..
+        " learn_skills=" .. tostring(cfg and cfg.leveling and cfg.leveling.learn_skills == true)
+    leveling_skill_auto_log_throttled(state, "disabled_gate_log", detail, 10)
+end
+
 function leveling_skill_auto_log_debug(result)
     if not leveling_skill_auto_debug_enabled() then
         return
@@ -2166,6 +2227,7 @@ end
 
 function leveling_skill_auto_tick()
     if not leveling_skill_auto_enabled() then
+        leveling_skill_auto_log_disabled_gate()
         return
     end
 
@@ -2211,6 +2273,11 @@ function leveling_skill_auto_tick()
         })
     end
     if not pending then
+        leveling_skill_auto_log_throttled(
+            state,
+            "idle_log",
+            "tick idle " .. leveling_skill_auto_state_detail(state, char, pending_reason),
+            math.max(5.0, tonumber(cfg.leveling.skill_auto_retry_seconds) or 3.0))
         return
     end
 
@@ -2222,18 +2289,27 @@ function leveling_skill_auto_tick()
         can_attempt, attempt_reason = leveling_skill_auto.canAttempt(state, now, retry)
     end
     if not can_attempt then
-        if attempt_reason ~= "cooldown" then
-            log_info("[AionLevelingSkillAuto] pending but not ready reason=" .. tostring(attempt_reason))
-        end
+        leveling_skill_auto_log_throttled(
+            state,
+            "pending_wait_log",
+            "pending wait reason=" .. tostring(attempt_reason) ..
+                " retry=" .. tostring(retry) ..
+                " " .. leveling_skill_auto_state_detail(state, char, pending_reason),
+            math.max(1.0, retry))
         return
     end
 
     state.last_attempt_at = now
     local level = tonumber(char.level) or 0
     local reason = tostring(pending_reason or state.pending_reason or "")
+    local quickbar_required = cfg.leveling and cfg.leveling.skill_auto_place_quickbar == true
+    local quickbar_overwrite = cfg.leveling and cfg.leveling.skill_auto_quickbar_overwrite ~= false
     log_info("[AionLevelingSkillAuto] sync-start reason=" .. reason ..
         " level=" .. tostring(level) ..
-        " last_processed=" .. tostring(state.last_processed_level or 0))
+        " last_processed=" .. tostring(state.last_processed_level or 0) ..
+        " state={" .. leveling_skill_auto_state_detail(state, char, reason) .. "}" ..
+        " quickbar_required=" .. tostring(quickbar_required) ..
+        " quickbar_overwrite=" .. tostring(quickbar_overwrite))
 
     local ok, result = leveling_skill_auto.syncAutoActiveSkills(combat, {
         reason = reason,
@@ -2242,18 +2318,28 @@ function leveling_skill_auto_tick()
         ignore_ids = cfg.leveling and cfg.leveling.skill_auto_ignore_ids or "",
         kind = combat.KIND_SKILL,
         require_active_type = false,
-        quickbar_required = cfg.leveling and cfg.leveling.skill_auto_place_quickbar == true,
+        quickbar_required = quickbar_required,
         quickbar = ok_remote and remote or nil,
         quickbar_state = state.quickbar,
         quickbar_bar_index = tonumber(cfg.leveling.skill_auto_quickbar_bar_index) or 1,
         quickbar_bar_count = tonumber(cfg.leveling.skill_auto_quickbar_bar_count) or 2,
         quickbar_start_slot = tonumber(cfg.leveling.skill_auto_quickbar_start_slot) or 0,
         quickbar_slot_count = tonumber(cfg.leveling.skill_auto_quickbar_slot_count) or 12,
+        quickbar_overwrite = quickbar_overwrite,
+        verify_after_toggle = true,
+        verify_delay_ms = 250,
+        sleep_ms = function(ms)
+            if sys and sys.sleep then
+                sys.sleep(ms)
+            end
+        end,
         debug = leveling_skill_auto_debug_enabled(),
     })
     if type(leveling_skill_auto.finishAttempt) == "function" then
         leveling_skill_auto.finishAttempt(state, ok, result, now)
     end
+    log_info("[AionLevelingSkillAuto] state-after ok=" .. tostring(ok) ..
+        " " .. leveling_skill_auto_state_detail(state, char, reason))
 
     local summary = type(leveling_skill_auto.formatResult) == "function"
         and leveling_skill_auto.formatResult(result)
@@ -19129,6 +19215,9 @@ local function draw_leveling_tab()
 
     changed, val = imgui.checkbox("Auto place skills to quickbar (can overwrite)", cfg.leveling.skill_auto_place_quickbar == true)
     if changed then cfg.leveling.skill_auto_place_quickbar = val end
+    imgui.same_line()
+    changed, val = imgui.checkbox("Overwrite skill quickbar", cfg.leveling.skill_auto_quickbar_overwrite ~= false)
+    if changed then cfg.leveling.skill_auto_quickbar_overwrite = val end
 
     imgui.set_next_item_width(120)
     changed, val = imgui.input_int("起始等级", cfg.leveling.start_level, 0)

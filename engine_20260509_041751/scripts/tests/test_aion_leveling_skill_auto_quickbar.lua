@@ -185,6 +185,38 @@ local function run()
         T.assert_eq(qstate.occupied_slots["1:2"], true)
     end)
 
+    T.test("overwrite mode places all target skills from configured first slot", function()
+        local mod = load_module()
+        local combat, calls = mock_combat({
+            skills = { skill(101, "Already", 2), skill(102, "Slash", 2) },
+            auto_active = { 101 },
+        })
+        local quickbar, qcalls = mock_quickbar()
+        local qstate = {
+            occupied_slots = { ["1:0"] = true, ["1:1"] = true },
+            placed_by_id = {},
+            next_slot = 8,
+        }
+        local opts = default_quickbar_opts(quickbar, qstate)
+        opts.reason = "level-up"
+        opts.level = 15
+        opts.quickbar_overwrite = true
+
+        local ok, result = mod.syncAutoActiveSkills(combat, opts)
+
+        T.assert_eq(ok, true)
+        T.assert_eq(result.quickbar_placed_count, 2)
+        T.assert_eq(#qcalls, 2)
+        T.assert_eq(qcalls[1].id, 101)
+        T.assert_eq(qcalls[1].bar_index, 1)
+        T.assert_eq(qcalls[1].slot_index, 0)
+        T.assert_eq(qcalls[2].id, 102)
+        T.assert_eq(qcalls[2].bar_index, 1)
+        T.assert_eq(qcalls[2].slot_index, 1)
+        T.assert_eq(#calls.toggles, 1)
+        T.assert_eq(calls.toggles[1].id, 102)
+    end)
+
     T.test("uses next quickbar row when configured row is full", function()
         local mod = load_module()
         local occupied = {}

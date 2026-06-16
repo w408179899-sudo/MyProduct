@@ -192,6 +192,10 @@ local function skill_preferred_over(candidate, current)
     if not current then
         return true
     end
+    local c_rank, old_rank = roman_rank_value(skill_name(candidate)), roman_rank_value(skill_name(current))
+    if c_rank ~= old_rank and (c_rank > 0 or old_rank > 0) then
+        return c_rank > old_rank
+    end
     local c_level, old_level = skill_level(candidate), skill_level(current)
     if c_level ~= old_level then
         return c_level > old_level
@@ -199,10 +203,6 @@ local function skill_preferred_over(candidate, current)
     local c_learn, old_learn = skill_learn_level(candidate), skill_learn_level(current)
     if c_learn ~= old_learn then
         return c_learn > old_learn
-    end
-    local c_rank, old_rank = roman_rank_value(skill_name(candidate)), roman_rank_value(skill_name(current))
-    if c_rank ~= old_rank then
-        return c_rank > old_rank
     end
     return skill_id(candidate) > skill_id(current)
 end
@@ -236,6 +236,21 @@ local function list_to_id_set(list)
         end
     end
     return set
+end
+
+local function list_id_text(list, limit)
+    local ids = {}
+    limit = math.max(1, number(limit) > 0 and number(limit) or 20)
+    for _, item in ipairs(list or {}) do
+        local id = type(item) == "table" and skill_id(item) or number(item)
+        if id > 0 then
+            ids[#ids + 1] = tostring(id)
+            if #ids >= limit then
+                break
+            end
+        end
+    end
+    return table.concat(ids, ",")
 end
 
 local function is_ignored(skill, set)
@@ -290,6 +305,29 @@ local function find_quickbar_slot(qstate, opts)
         end
     end
     return nil, nil, nil
+end
+
+local function quickbar_overwrite_slot(index, opts)
+    opts = opts or {}
+    index = math.max(0, number(index))
+    local bar_index = number(opts.quickbar_bar_index)
+    local start_slot = number(opts.quickbar_start_slot)
+    local slot_count = number(opts.quickbar_slot_count)
+    local bar_count = number(opts.quickbar_bar_count)
+    if slot_count <= 0 then
+        slot_count = 12
+    end
+    if bar_count <= 0 then
+        bar_count = 1
+    end
+
+    local bar_offset = math.floor(index / slot_count)
+    if bar_offset >= bar_count then
+        return nil, nil, nil
+    end
+    local slot = start_slot + (index % slot_count)
+    local bar = bar_index + bar_offset
+    return bar, slot, quickbar_key(bar, slot)
 end
 
 function M.newRuntime()
@@ -376,13 +414,19 @@ function M.planAutoActiveSkills(skills, current_auto_active, opts)
     opts = opts or {}
     local current = list_to_id_set(current_auto_active)
     local ignored = ignored_token_set(opts)
+    local overwrite = opts.overwrite_auto == true or opts.overwrite == true
     local plan = {
+        target = {},
+        target_by_id = {},
         to_add = {},
+        to_remove = {},
         errors = {},
         stats = {
             learned = 0,
             active_type = 0,
+            target = 0,
             already = 0,
+            to_remove = 0,
             duplicate_group = 0,
             ignored = 0,
             not_auto = 0,
@@ -437,15 +481,13 @@ function M.planAutoActiveSkills(skills, current_auto_active, opts)
     for _, group in ipairs(group_order) do
         local skill = selected_by_group[group]
         local id = skill_id(skill)
-        if current[id] or current[tostring(id)] then
-            plan.stats.already = plan.stats.already + 1
-            debug_line(skill_debug_text(skill, "skip already-auto", group))
-        elseif is_ignored(skill, ignored) then
+        if is_ignored(skill, ignored) then
             plan.stats.ignored = plan.stats.ignored + 1
             debug_line(skill_debug_text(skill, "skip ignored", group))
         else
             local allowed = true
-            if type(opts.is_skill_auto) == "function" then
+            if not (current[id] or current[tostring(id)])
+                and type(opts.is_skill_auto) == "function" then
                 local ok, value, err = opts.is_skill_auto(id)
                 allowed = ok == true and value == true
                 if ok ~= true then
@@ -459,10 +501,39 @@ function M.planAutoActiveSkills(skills, current_auto_active, opts)
                 end
             end
             if allowed then
-                plan.stats.candidates = plan.stats.candidates + 1
-                plan.to_add[#plan.to_add + 1] = skill
-                debug_line(skill_debug_text(skill, "candidate to-add", group))
+                plan.stats.target = plan.stats.target + 1
+                plan.target[#plan.target + 1] = skill
+                plan.target_by_id[id] = true
+                plan.target_by_id[tostring(id)] = true
+                debug_line(skill_debug_text(skill, "target selected", group))
             end
+        end
+    end
+
+    if overwrite then
+        for _, item in ipairs(current_auto_active or {}) do
+            local id = type(item) == "table" and skill_id(item) or number(item)
+            if id > 0
+                and not (plan.target_by_id[id] or plan.target_by_id[tostring(id)])
+                and not (ignored[id] or ignored[tostring(id)] or is_ignored(item, ignored)) then
+                plan.stats.to_remove = plan.stats.to_remove + 1
+                plan.to_remove[#plan.to_remove + 1] = item
+                debug_line("candidate to-remove id=" .. tostring(id) ..
+                    " name=" .. truncate(type(item) == "table" and skill_name(item) or "", 120))
+            end
+        end
+    end
+
+    for _, skill in ipairs(plan.target) do
+        local id = skill_id(skill)
+        local group = skill_group_key(skill)
+        if current[id] or current[tostring(id)] then
+            plan.stats.already = plan.stats.already + 1
+            debug_line(skill_debug_text(skill, "skip already-auto", group))
+        else
+            plan.stats.candidates = plan.stats.candidates + 1
+            plan.to_add[#plan.to_add + 1] = skill
+            debug_line(skill_debug_text(skill, "candidate to-add", group))
         end
     end
 
@@ -479,12 +550,20 @@ function M.syncAutoActiveSkills(combat, opts)
         current_auto_active_count = 0,
         current_auto_buff_count = 0,
         to_add_count = 0,
+        to_remove_count = 0,
         added_count = 0,
+        removed_count = 0,
         failed_count = 0,
+        remove_failed_count = 0,
         quickbar_required = opts.quickbar_required ~= false,
         quickbar_placed_count = 0,
         quickbar_reused_count = 0,
         quickbar_failed_count = 0,
+        toggle_sent_count = 0,
+        verified_count = 0,
+        verify_failed_count = 0,
+        verify_auto_active_count = 0,
+        verify_auto_buff_count = 0,
         errors = {},
         toggled = {},
         quickbar_placed = {},
@@ -540,6 +619,7 @@ function M.syncAutoActiveSkills(combat, opts)
         ignore_names = opts.ignore_names,
         ignore_ids = opts.ignore_ids,
         require_active_type = opts.require_active_type,
+        overwrite_auto = opts.overwrite_auto == true or opts.overwrite == true,
         debug = opts.debug == true,
         is_skill_auto = function(id)
             return combat.isSkillAuto(id)
@@ -553,28 +633,63 @@ function M.syncAutoActiveSkills(combat, opts)
         end
     end
     result.to_add_count = #plan.to_add
+    result.to_remove_count = #plan.to_remove
     for _, err in ipairs(plan.errors) do
         result.errors[#result.errors + 1] = err
     end
+    debug_line("plan summary mode=" ..
+        ((opts.overwrite_auto == true or opts.overwrite == true) and "overwrite" or "append") ..
+        " current_active_ids=" .. list_id_text(active, 32) ..
+        " current_buff_ids=" .. list_id_text(buff, 32) ..
+        " target_ids=" .. list_id_text(plan.target, 48) ..
+        " to_add_ids=" .. list_id_text(plan.to_add, 48) ..
+        " to_remove_ids=" .. list_id_text(plan.to_remove, 48) ..
+        " current_active_count=" .. tostring(result.current_auto_active_count) ..
+        " current_buff_count=" .. tostring(result.current_auto_buff_count) ..
+        " target_count=" .. tostring(number(plan.stats.target)) ..
+        " already_count=" .. tostring(number(plan.stats.already)) ..
+        " candidate_count=" .. tostring(number(plan.stats.candidates)))
 
     local kind = opts.kind or combat.KIND_SKILL or M.KIND_SKILL
     local qstate = normalize_quickbar_state(opts.quickbar_state)
     local quickbar = opts.quickbar
+    local verify_after_toggle = opts.verify_after_toggle == true
+    local pending_verify = {}
+    local quickbar_overwrite = opts.quickbar_overwrite == true
+        or opts.quickbar_overwrite_targets == true
+    local quickbar_skills = quickbar_overwrite and plan.target or plan.to_add
     if result.quickbar_required
-        and #plan.to_add > 0
+        and #quickbar_skills > 0
         and (type(quickbar) ~= "table" or type(quickbar.placeQuickbar) ~= "function") then
         result.errors[#result.errors + 1] = "quickbar placement required but API unavailable"
-        result.quickbar_failed_count = #plan.to_add
+        result.quickbar_failed_count = #quickbar_skills
         result.status = "partial-failure"
         return false, result
     end
 
-    for _, skill in ipairs(plan.to_add) do
+    local quickbar_ok_by_id = {}
+    if result.quickbar_required then
+        debug_line("quickbar phase mode=" .. (quickbar_overwrite and "overwrite-targets" or "empty-slot") ..
+            " target_count=" .. tostring(#plan.target) ..
+            " placement_count=" .. tostring(#quickbar_skills) ..
+            " bar_index=" .. tostring(number(opts.quickbar_bar_index)) ..
+            " start_slot=" .. tostring(number(opts.quickbar_start_slot)) ..
+            " slot_count=" .. tostring(number(opts.quickbar_slot_count)) ..
+            " bar_count=" .. tostring(number(opts.quickbar_bar_count)))
+    end
+
+    for index, skill in ipairs(quickbar_skills) do
         local id = skill_id(skill)
         local group = skill_group_key(skill)
-        local placed_slot = qstate.placed_by_id[tostring(id)] or qstate.placed_by_group[group]
-        if result.quickbar_required and not placed_slot then
-            local bar, slot, key = find_quickbar_slot(qstate, opts)
+        local placed_slot = quickbar_overwrite and nil
+            or (qstate.placed_by_id[tostring(id)] or qstate.placed_by_group[group])
+        if result.quickbar_required and (quickbar_overwrite or not placed_slot) then
+            local bar, slot, key
+            if quickbar_overwrite then
+                bar, slot, key = quickbar_overwrite_slot(index - 1, opts)
+            else
+                bar, slot, key = find_quickbar_slot(qstate, opts)
+            end
             if not slot then
                 result.quickbar_failed_count = result.quickbar_failed_count + 1
                 result.errors[#result.errors + 1] = "no reserved quickbar slot left id=" .. tostring(id)
@@ -603,9 +718,11 @@ function M.syncAutoActiveSkills(combat, opts)
                         group = group,
                         bar_index = bar,
                         slot_index = slot,
+                        overwrite = quickbar_overwrite,
                     }
                     debug_line(skill_debug_text(skill, "quickbar placed bar=" ..
-                        tostring(bar) .. " slot=" .. tostring(slot), group))
+                        tostring(bar) .. " slot=" .. tostring(slot) ..
+                        " overwrite=" .. tostring(quickbar_overwrite), group))
                     placed_slot = qstate.placed_by_id[tostring(id)]
                 else
                     result.quickbar_failed_count = result.quickbar_failed_count + 1
@@ -627,26 +744,170 @@ function M.syncAutoActiveSkills(combat, opts)
         if result.quickbar_required and not placed_slot then
             result.failed_count = result.failed_count + 1
         else
+            quickbar_ok_by_id[id] = true
+            quickbar_ok_by_id[tostring(id)] = true
+        end
+    end
+
+    if (opts.overwrite_auto == true or opts.overwrite == true)
+        and result.quickbar_failed_count > 0 then
+        debug_line("overwrite skip toggles because quickbar placement failed")
+        result.status = "partial-failure"
+        return false, result
+    end
+
+    local ready_adds = {}
+    for _, skill in ipairs(plan.to_add) do
+        local id = skill_id(skill)
+        if result.quickbar_required
+            and not (quickbar_ok_by_id[id] or quickbar_ok_by_id[tostring(id)]) then
+            debug_line(skill_debug_text(skill, "toggle add blocked: quickbar placement missing", skill_group_key(skill)))
+        else
+            ready_adds[#ready_adds + 1] = skill
+        end
+    end
+
+    debug_line("toggle phase mode=" ..
+        ((opts.overwrite_auto == true or opts.overwrite == true) and "overwrite" or "append") ..
+        " remove_count=" .. tostring(#plan.to_remove) ..
+        " add_count=" .. tostring(#ready_adds) ..
+        " verify_after_toggle=" .. tostring(verify_after_toggle) ..
+        " quickbar_required=" .. tostring(result.quickbar_required))
+
+    local function toggle_auto(id, skill, action)
+        skill = type(skill) == "table" and skill or { id = id }
+        local group = skill_group_key(skill)
         local ok, value, err = combat.skillAutoToggle(id, kind)
         if ok == true and value ~= false then
-            result.added_count = result.added_count + 1
+            result.toggle_sent_count = result.toggle_sent_count + 1
             result.toggled[#result.toggled + 1] = {
                 id = id,
                 name = skill_name(skill),
                 group = group,
+                action = action,
             }
-            debug_line(skill_debug_text(skill, "toggle success", group))
-        else
-            result.failed_count = result.failed_count + 1
-            result.errors[#result.errors + 1] = "SkillAutoToggle failed id=" .. tostring(id) ..
-                " err=" .. tostring(err or value or "")
-            debug_line(skill_debug_text(skill, "toggle failed err=" .. tostring(err or value or ""), group))
+            if verify_after_toggle then
+                pending_verify[#pending_verify + 1] = {
+                    id = id,
+                    skill = skill,
+                    group = group,
+                    action = action,
+                }
+                debug_line(skill_debug_text(skill, "toggle " .. tostring(action) .. " sent", group))
+            elseif action == "remove" then
+                result.removed_count = result.removed_count + 1
+                debug_line(skill_debug_text(skill, "toggle remove success", group))
+            else
+                result.added_count = result.added_count + 1
+                debug_line(skill_debug_text(skill, "toggle add success", group))
+            end
+            return true
         end
+
+        result.failed_count = result.failed_count + 1
+        if action == "remove" then
+            result.remove_failed_count = result.remove_failed_count + 1
+        end
+        result.errors[#result.errors + 1] = "SkillAutoToggle " .. tostring(action) ..
+            " failed id=" .. tostring(id) ..
+            " err=" .. tostring(err or value or "")
+        debug_line(skill_debug_text(skill, "toggle " .. tostring(action) ..
+            " failed err=" .. tostring(err or value or ""), group))
+        return false
+    end
+
+    if opts.overwrite_auto == true or opts.overwrite == true then
+        for _, item in ipairs(plan.to_remove) do
+            local id = type(item) == "table" and skill_id(item) or number(item)
+            if id > 0 then
+                toggle_auto(id, item, "remove")
+            end
+        end
+    end
+
+    if result.remove_failed_count <= 0 then
+        for _, skill in ipairs(ready_adds) do
+            local id = skill_id(skill)
+            if id > 0 then
+                toggle_auto(id, skill, "add")
+            end
+        end
+    else
+        debug_line("skip add because remove failed count=" .. tostring(result.remove_failed_count))
+    end
+
+    if verify_after_toggle and #pending_verify > 0 then
+        local delay = number(opts.verify_delay_ms)
+        if delay > 0 and type(opts.sleep_ms) == "function" then
+            debug_line("verify wait ms=" .. tostring(delay))
+            opts.sleep_ms(delay)
+        end
+
+        local verify_auto = {}
+        local verify_ok = true
+        local verify_active_ok, verify_active, verify_active_err = combat.autoActiveSkills()
+        if verify_active_ok then
+            result.verify_auto_active_count = #(verify_active or {})
+            for _, item in ipairs(verify_active or {}) do
+                verify_auto[#verify_auto + 1] = item
+            end
+        else
+            verify_ok = false
+            result.errors[#result.errors + 1] = "verify autoActiveSkills failed: " ..
+                tostring(verify_active_err or "")
+        end
+
+        local verify_buff_ok, verify_buff, verify_buff_err = combat.autoBuffSkills()
+        if verify_buff_ok then
+            result.verify_auto_buff_count = #(verify_buff or {})
+            for _, item in ipairs(verify_buff or {}) do
+                verify_auto[#verify_auto + 1] = item
+            end
+        else
+            verify_ok = false
+            result.errors[#result.errors + 1] = "verify autoBuffSkills failed: " ..
+                tostring(verify_buff_err or "")
+        end
+
+        debug_line("verify auto-list active_count=" .. tostring(result.verify_auto_active_count) ..
+            " active_ids=" .. list_id_text(verify_active, 24) ..
+            " buff_count=" .. tostring(result.verify_auto_buff_count) ..
+            " buff_ids=" .. list_id_text(verify_buff, 24))
+
+        local verified = verify_ok and list_to_id_set(verify_auto) or {}
+        for _, entry in ipairs(pending_verify) do
+            local id = number(entry.id)
+            local skill = type(entry.skill) == "table" and entry.skill or { id = id }
+            local group = entry.group or skill_group_key(skill)
+            local present = verify_ok and (verified[id] or verified[tostring(id)])
+            if entry.action == "remove" then
+                if verify_ok and not present then
+                    result.removed_count = result.removed_count + 1
+                    result.verified_count = result.verified_count + 1
+                    debug_line(skill_debug_text(skill, "toggle remove verified", group))
+                else
+                    result.failed_count = result.failed_count + 1
+                    result.remove_failed_count = result.remove_failed_count + 1
+                    result.verify_failed_count = result.verify_failed_count + 1
+                    result.errors[#result.errors + 1] = "SkillAutoToggle remove verify still present id=" .. tostring(id)
+                    debug_line(skill_debug_text(skill, "toggle remove verify-present", group))
+                end
+            elseif verify_ok and present then
+                result.added_count = result.added_count + 1
+                result.verified_count = result.verified_count + 1
+                debug_line(skill_debug_text(skill, "toggle add verified", group))
+            else
+                result.failed_count = result.failed_count + 1
+                result.verify_failed_count = result.verify_failed_count + 1
+                result.errors[#result.errors + 1] = "SkillAutoToggle verify missing id=" .. tostring(id)
+                debug_line(skill_debug_text(skill, "toggle add verify-missing", group))
+            end
         end
     end
 
     local failed = result.failed_count > 0
         or result.quickbar_failed_count > 0
+        or result.remove_failed_count > 0
         or number(result.stats.check_failed) > 0
     result.status = failed and "partial-failure" or "success"
     return not failed, result
@@ -681,7 +942,7 @@ function M.formatResult(result)
     result = type(result) == "table" and result or {}
     local stats = type(result.stats) == "table" and result.stats or {}
     return string.format(
-        "reason=%s level=%s status=%s learned=%d active=%d buff=%d active_type=%d candidates=%d to_add=%d quickbar(placed=%d reused=%d failed=%d) added=%d failed=%d skipped(already=%d duplicate_group=%d ignored=%d not_auto=%d check_failed=%d invalid=%d)",
+        "reason=%s level=%s status=%s learned=%d active=%d buff=%d active_type=%d target=%d candidates=%d to_add=%d to_remove=%d quickbar(placed=%d reused=%d failed=%d) toggle_sent=%d verified=%d verify_failed=%d verify_auto(active=%d buff=%d) added=%d removed=%d remove_failed=%d failed=%d skipped(already=%d duplicate_group=%d ignored=%d not_auto=%d check_failed=%d invalid=%d)",
         tostring(result.reason or ""),
         tostring(result.level or ""),
         tostring(result.status or ""),
@@ -689,12 +950,21 @@ function M.formatResult(result)
         number(result.current_auto_active_count),
         number(result.current_auto_buff_count),
         number(stats.active_type),
+        number(stats.target),
         number(stats.candidates),
         number(result.to_add_count),
+        number(result.to_remove_count),
         number(result.quickbar_placed_count),
         number(result.quickbar_reused_count),
         number(result.quickbar_failed_count),
+        number(result.toggle_sent_count),
+        number(result.verified_count),
+        number(result.verify_failed_count),
+        number(result.verify_auto_active_count),
+        number(result.verify_auto_buff_count),
         number(result.added_count),
+        number(result.removed_count),
+        number(result.remove_failed_count),
         number(result.failed_count),
         number(stats.already),
         number(stats.duplicate_group),
