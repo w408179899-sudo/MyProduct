@@ -48,6 +48,7 @@ if not ok_route then
     route_lib = nil
 end
 local ok_profile_io, profile_io = pcall(require, "aion.profile_io")
+ok_account_profile, account_profile = pcall(require, "aion.account_profile")
 local ok_target, target_lib = pcall(require, "aion.target")
 ok_login_autostart, login_autostart = pcall(require, "aion.login_autostart")
 account_limit = nil
@@ -588,6 +589,7 @@ local cfg = {
         decode_mail = "",
         pid_wait_seconds = 60,
         login_gap_ms = 1500,
+        profile_root = "profiles/accounts",
         items = {},
     },
 
@@ -736,6 +738,13 @@ local cfg = {
         ui_include_no_name = true,
     },
 }
+
+launcher_cfg = cfg
+launcher_runtime = runtime
+account_settings_context = nil
+account_effective_configs = {}
+account_settings_runtimes = {}
+account_runner_disable_config_save = false
 
 local primary_modes = {
     "自定义打怪",
@@ -13108,6 +13117,8 @@ local function account_default()
     return {
         enabled = true,
         label = "",
+        profile_key = "",
+        profile_path = "",
         account = "",
         password = "",
         second_password = "",
@@ -13185,19 +13196,22 @@ local function account_ensure_shape(account)
 end
 
 local function account_items()
-    if type(cfg.accounts.items) ~= "table" then
-        cfg.accounts.items = {}
+    local account_cfg = launcher_cfg.accounts or {}
+    launcher_cfg.accounts = account_cfg
+    if type(account_cfg.items) ~= "table" then
+        account_cfg.items = {}
     end
-    for index, account in ipairs(cfg.accounts.items) do
-        cfg.accounts.items[index] = account_ensure_shape(account)
+    for index, account in ipairs(account_cfg.items) do
+        account_cfg.items[index] = account_ensure_shape(account)
     end
-    return cfg.accounts.items
+    return account_cfg.items
 end
 
 local function selected_account()
     local items = account_items()
-    local index = math.max(1, math.min(#items, tonumber(runtime.accounts.selected_index) or 1))
-    runtime.accounts.selected_index = index
+    local state = launcher_runtime.accounts or runtime.accounts
+    local index = math.max(1, math.min(#items, tonumber(state.selected_index) or 1))
+    state.selected_index = index
     return items[index], index
 end
 
@@ -13559,9 +13573,264 @@ local function account_save_domain()
         if type(config.load) == "function" then
             config.load()
         end
-        config.set("aion_control.accounts", cfg.accounts)
+        config.set("aion_control.accounts", launcher_cfg.accounts)
         config.save()
     end)
+end
+
+function account_profile_root()
+    local root = launcher_cfg.accounts and launcher_cfg.accounts.profile_root or ""
+    root = tostring(root or "")
+    if root == "" then
+        root = "profiles/accounts"
+    end
+    return root
+end
+
+function account_profile_index_of(account)
+    for index, item in ipairs(account_items()) do
+        if item == account then
+            return index
+        end
+    end
+    return 0
+end
+
+function account_profile_cache_key(account, index)
+    if ok_account_profile and account_profile then
+        local key = account_profile.ensureProfileKey(account, index)
+        if key and key ~= "" then
+            account.profile_path = account_profile.profilePath(account, index, account_profile_root())
+            return key
+        end
+    end
+    return "account_" .. tostring(index or account_profile_index_of(account) or 0)
+end
+
+function account_shared_route_snapshot()
+    if ok_account_profile and account_profile then
+        return account_profile.sharedRouteFromConfig(launcher_cfg)
+    end
+    return clone_value(launcher_cfg.route or {})
+end
+
+function account_apply_shared_route(shared_route)
+    if type(shared_route) ~= "table" then
+        return
+    end
+    if ok_account_profile and account_profile then
+        account_profile.mergeSharedRouteIntoConfig(launcher_cfg, shared_route)
+        local snapshot = account_profile.sharedRouteFromConfig(launcher_cfg)
+        for _, cached in pairs(account_effective_configs) do
+            if type(cached) == "table" then
+                account_profile.applySharedRoute(cached, snapshot)
+            end
+        end
+    else
+        launcher_cfg.route = launcher_cfg.route or {}
+        merge_table(launcher_cfg.route, shared_route)
+    end
+end
+
+function account_load_private_profile(account, index)
+    if type(account) ~= "table" then
+        return {}
+    end
+
+    local private = nil
+    if ok_account_profile and account_profile then
+        local path = account_profile.profilePath(account, index, account_profile_root())
+        account.profile_path = path
+        local ok, loaded = account_profile.load(path)
+        if ok and type(loaded) == "table" then
+            private = loaded
+        end
+    end
+
+    if type(private) ~= "table" and type(account.settings) == "table" then
+        private = clone_value(account.settings)
+    end
+
+    if type(private) ~= "table" then
+        if ok_account_profile and account_profile then
+            private = account_profile.privateFromConfig(launcher_cfg)
+        else
+            private = clone_value(launcher_cfg)
+            private.accounts = nil
+            private.target = nil
+        end
+    end
+
+    return private
+end
+
+function account_effective_config(account, index)
+    if type(account) ~= "table" then
+        return launcher_cfg
+    end
+
+    index = tonumber(index) or account_profile_index_of(account)
+    local key = account_profile_cache_key(account, index)
+    if type(account_effective_configs[key]) ~= "table" then
+        local private = account_load_private_profile(account, index)
+        if ok_account_profile and account_profile then
+            account_effective_configs[key] = account_profile.buildEffectiveConfig(
+                launcher_cfg,
+                private,
+                account_shared_route_snapshot(),
+                account)
+        else
+            local effective = clone_value(launcher_cfg)
+            effective.accounts = nil
+            merge_table(effective, private)
+            effective.target = clone_value(account.target or effective.target or {})
+            account_effective_configs[key] = effective
+        end
+    else
+        account_effective_configs[key].target = clone_value(account.target or {})
+    end
+
+    return account_effective_configs[key]
+end
+
+function account_save_effective_config(account, index, effective)
+    if type(account) ~= "table" or type(effective) ~= "table" then
+        return false, "account profile save failed: bad input"
+    end
+
+    index = tonumber(index) or account_profile_index_of(account)
+    account_profile_cache_key(account, index)
+
+    local private = nil
+    local shared_route = nil
+    if ok_account_profile and account_profile then
+        private, shared_route = account_profile.splitEffectiveConfig(effective)
+    else
+        private = clone_value(effective)
+        private.accounts = nil
+        private.target = nil
+        shared_route = clone_value(effective.route or {})
+    end
+
+    if ok_account_profile and account_profile then
+        account.settings = nil
+    else
+        account.settings = private
+    end
+    account_apply_shared_route(shared_route)
+
+    if ok_account_profile and account_profile then
+        local path = account_profile.profilePath(account, index, account_profile_root())
+        account.profile_path = path
+        local ok, err = account_profile.save(path, private)
+        if not ok then
+            return false, err
+        end
+    end
+
+    account_save_domain()
+    if config and type(config.set) == "function" and type(config.save) == "function" then
+        pcall(function()
+            if type(config.load) == "function" then
+                config.load()
+            end
+            local shared_keys = ok_account_profile and account_profile and account_profile.shared_route_keys or {}
+            for _, key in ipairs(shared_keys) do
+                config.set("aion_control.route." .. key, launcher_cfg.route and launcher_cfg.route[key])
+            end
+            config.save()
+        end)
+    end
+    return true, nil
+end
+
+function account_settings_runtime(account, index)
+    local key = account_profile_cache_key(account, index)
+    local r = account_settings_runtimes[key]
+    if type(r) ~= "table" then
+        r = {}
+        account_settings_runtimes[key] = r
+    end
+
+    local template_keys = {
+        "audit",
+        "bootstrap",
+        "combat",
+        "equipment_test",
+        "leveling_skill_auto",
+        "main_quest",
+        "recovery",
+        "route",
+        "target",
+        "teleport_test",
+        "transfer",
+        "ui_test",
+    }
+    for _, key_name in ipairs(template_keys) do
+        if type(r[key_name]) ~= "table" then
+            r[key_name] = clone_value(launcher_runtime[key_name] or {})
+        end
+    end
+    r.accounts = launcher_runtime.accounts
+    r.hotkey_f1 = false
+    r.running = account and account.runtime and tostring(account.runtime.status or "") == "running"
+    r.paused = false
+    r.status = account and account.runtime and tostring(account.runtime.status or "idle") or "idle"
+    r.active_mode = ""
+    r.last_event = tostring(launcher_runtime.last_event or "")
+    r.last_probe = tostring(launcher_runtime.last_probe or "")
+    r.ui_visible = true
+    r.frame = launcher_runtime.frame
+    r.target.bound_pid = tonumber(account and account.target and account.target.pid) or 0
+    r.target.bound_hwnd = tonumber(account and account.target and account.target.hwnd) or 0
+    r.target.binding_status = "account_settings"
+    r.target.binding_message = "account settings pid=" .. tostring(r.target.bound_pid)
+    return r
+end
+
+function with_account_settings_context(account, index, fn)
+    if type(account) ~= "table" or type(fn) ~= "function" then
+        return
+    end
+    local old_cfg = cfg
+    local old_runtime = runtime
+    local old_context = account_settings_context
+    local effective = account_effective_config(account, index)
+    local account_runtime = account_settings_runtime(account, index)
+    account_settings_context = {
+        account = account,
+        index = index,
+        cfg = effective,
+        runtime = account_runtime,
+    }
+    cfg = effective
+    runtime = account_runtime
+    local ok, err = pcall(fn)
+    cfg = old_cfg
+    runtime = old_runtime
+    account_settings_context = old_context
+    if not ok then
+        error(err)
+    end
+end
+
+function account_settings_account()
+    local items = account_items()
+    local index = tonumber(launcher_runtime.accounts.settings_account_index)
+        or tonumber(launcher_runtime.accounts.selected_index)
+        or 1
+    if index < 1 then
+        index = 1
+    end
+    if index > #items then
+        index = #items
+    end
+    if index < 1 then
+        return nil, 0
+    end
+    launcher_runtime.accounts.settings_account_index = index
+    launcher_runtime.accounts.selected_index = index
+    return items[index], index
 end
 
 local function account_login_share_key(worker_key, index, field)
@@ -13810,12 +14079,21 @@ local function account_start_runtime_worker(account, index)
         return false
     end
 
+    local profile_path = account.profile_path
+    if ok_account_profile and account_profile then
+        profile_path = account_profile.profilePath(account, index, account_profile_root())
+        account.profile_path = profile_path
+    end
+
     local worker_key = "run_" .. account_make_worker_key()
-    local id = task.run("scripts/aion_runtime_worker.lua", {
+    local id = task.run("scripts/aion_control_ui.lua", {
         name = "AionRuntime_" .. tostring(account_display_name(account)),
         priority = "normal",
+        aion_account_runner = "1",
         runtime_key = worker_key,
         account_index = tostring(index or 0),
+        account_profile_path = tostring(profile_path or ""),
+        account_pid = tostring(account.target and account.target.pid or 0),
     })
 
     account.runtime.worker_key = worker_key
@@ -13892,10 +14170,6 @@ account_auto_start_after_bootstrap = function(reason)
     log_info("[AionControlUI] post-bootstrap auto start check reason=" .. tostring(reason or ""))
     if not cfg.accounts or cfg.accounts.auto_start_after_login ~= true then
         log_info("[AionControlUI] post-bootstrap auto start skipped disabled reason=" .. tostring(reason or ""))
-        return false
-    end
-    if runtime.running == true then
-        log_info("[AionControlUI] post-bootstrap auto start skipped runtime already running reason=" .. tostring(reason or ""))
         return false
     end
     if account_has_pending_script_request() then
@@ -14042,7 +14316,7 @@ function account_process_ready_auto_start_tick()
     if not cfg.accounts or cfg.accounts.auto_start_after_login ~= true then
         return false
     end
-    if not runtime.accounts or runtime.running == true or account_has_pending_script_request() then
+    if not runtime.accounts or account_has_pending_script_request() then
         return false
     end
     if runtime.bootstrap and (runtime.bootstrap.pending == true or runtime.bootstrap.initialized ~= true) then
@@ -14225,8 +14499,7 @@ local function account_update_from_worker(index, account)
             if cfg.accounts and cfg.accounts.auto_start_after_login == true then
                 account.runtime = account.runtime or {}
                 local runtime_status = tostring(account.runtime.status or "")
-                local runtime_active = runtime.running == true
-                    or account_has_pending_script_request()
+                local runtime_active = account_has_pending_script_request()
                     or (runtime.bootstrap and runtime.bootstrap.pending == true)
                     or type(runtime.accounts.login_auto_start_pending) == "table"
                     or (type(runtime.accounts.login_auto_start_pending_queue) == "table"
@@ -14241,9 +14514,6 @@ local function account_update_from_worker(index, account)
                     runtime.ui_visible = true
                     log_info("[AionControlUI] login ready direct start button logic account=" ..
                         account_display_name(account) .. " pid=" .. tostring(account.target and account.target.pid or 0))
-                    if (tonumber(account.target and account.target.pid) or 0) > 0 then
-                        account_apply_to_target(account)
-                    end
                     account_queue_local_script("start", account, index, "login-ready-direct")
                 end
             elseif not runtime.bootstrap.pending and not runtime.bootstrap.initialized then
@@ -14443,9 +14713,10 @@ local function account_select(index, open_settings)
     if index < 1 or index > #items then
         return
     end
-    runtime.accounts.selected_index = index
+    launcher_runtime.accounts.selected_index = index
     if open_settings then
-        runtime.accounts.settings_window_visible = true
+        launcher_runtime.accounts.settings_account_index = index
+        launcher_runtime.accounts.settings_window_visible = true
     end
 end
 
@@ -15110,11 +15381,6 @@ function account_process_login_bridge_auto_start_tick()
         account_clear_all_login_auto_start_pending("disabled")
         return false
     end
-    if runtime.running == true then
-        account_clear_current_login_auto_start_pending()
-        account_login_bridge_log("already-running", "pending cleared runtime already running")
-        return false
-    end
     if account_has_pending_script_request() then
         account_login_bridge_log("pending-script", "waiting pending script")
         return false
@@ -15369,35 +15635,44 @@ local function account_start_local_script(account, index)
         account.target.character_name = character_name
     end
 
-    account_apply_to_target(account)
-    account_select_configured_server(account)
     account.runtime.status = "starting"
-    account.runtime.message = "starting local script"
-    account.runtime.task_id = 0
-    account.runtime.worker_key = ""
+    account.runtime.message = "starting account task"
     account.runtime.bound_pid = tonumber(account.target.pid) or 0
     account.runtime.bound_hwnd = tonumber(account.target.hwnd) or 0
     account.runtime.updated_at = now_seconds()
     runtime.accounts.last_status = "starting script: " .. account_display_name(account)
-    account_save_domain()
+    local profile_ok, profile_err = account_save_effective_config(
+        account,
+        index,
+        account_effective_config(account, index))
+    if not profile_ok then
+        account.runtime.status = "error"
+        account.runtime.message = "profile save failed: " .. tostring(profile_err)
+        account.runtime.updated_at = now_seconds()
+        runtime.accounts.last_status = account.runtime.message
+        account_save_domain()
+        set_event(account.runtime.message)
+        return false
+    end
 
-    start_bot()
-
-    if runtime.running then
-        account.runtime.status = "running"
-        account.runtime.message = "local script running"
+    if account_start_runtime_worker(account, index) then
+        account.runtime.status = "starting"
+        account.runtime.message = "account task starting"
         account.runtime.started_at = now_seconds()
         account.runtime.updated_at = now_seconds()
-        account.audit.status = "running"
+        account.audit.status = "starting"
         runtime.accounts.selected_index = tonumber(index) or runtime.accounts.selected_index
-        runtime.accounts.last_status = "script started: " .. account_display_name(account)
+        runtime.accounts.last_status = "account task started: " .. account_display_name(account)
         account_save_domain()
         set_event("账号脚本已启动" .. account_display_name(account) .. " PID=" .. tostring(account.target.pid))
         return true
     end
 
     account.runtime.status = "error"
-    local failure_message = account_trim_text(runtime.last_event)
+    local failure_message = account_trim_text(account.runtime and account.runtime.message)
+    if failure_message == "" or failure_message == "account task starting" then
+        failure_message = account_trim_text(runtime.last_event)
+    end
     if failure_message == "" then
         failure_message = account_trim_text(runtime.target and runtime.target.binding_message)
     end
@@ -15445,9 +15720,6 @@ function account_process_pending_script()
 
     local action = tostring(pending.action or "")
     if action == "start" then
-        if (tonumber(account.target and account.target.pid) or 0) > 0 then
-            account_apply_to_target(account)
-        end
         account_start_local_script(account, index)
     elseif action == "stop" then
         account_stop_local_script(account)
@@ -15459,9 +15731,6 @@ end
 
 function account_open_settings(account, index)
     account_select(index, true)
-    if account and (tonumber(account.target and account.target.pid) or 0) > 0 then
-        account_apply_to_target(account)
-    end
 end
 
 local function account_refresh_from_current_runtime()
@@ -15603,9 +15872,10 @@ local function load_config_domains()
     normalize_supply_config()
 end
 
-local function save_route_config()
+local function save_route_config(route_source)
+    route_source = route_source or cfg.route
     for _, key in ipairs(route_config_keys) do
-        config.set("aion_control.route." .. key, cfg.route[key])
+        config.set("aion_control.route." .. key, route_source[key])
     end
 end
 
@@ -15617,8 +15887,30 @@ local function load_route_config()
 end
 
 function save_config()
+    if account_runner_disable_config_save then
+        return
+    end
     if not config then
         log_warn("[AionControlUI] config module unavailable")
+        return
+    end
+
+    if account_settings_context and account_settings_context.account then
+        normalize_route_config()
+        normalize_supply_config()
+        sync_combat_enabled_from_primary_mode()
+        normalize_combat_config()
+        normalize_leveling_config()
+        local ok, err = account_save_effective_config(
+            account_settings_context.account,
+            account_settings_context.index,
+            account_settings_context.cfg)
+        if ok then
+            set_event("账号配置已保存: " .. account_display_name(account_settings_context.account))
+        else
+            log_warn("[AionControlUI] account profile save failed: " .. tostring(err))
+            set_event("账号配置保存失败: " .. tostring(err))
+        end
         return
     end
 
@@ -15636,7 +15928,7 @@ function save_config()
     config.set("aion_control.priority_mode", cfg.priority_mode)
     config.set("aion_control.combat_radius", cfg.combat.radius)
     config.set("aion_control.gather_radius", cfg.gather.radius)
-    save_route_config()
+    save_route_config(cfg.route)
     config.set("aion_control.hp_percent", cfg.supply.hp_percent)
     config.set("aion_control.mp_percent", cfg.supply.mp_percent)
     config.set("aion_control.bag_full_percent", cfg.supply.bag_full_percent)
@@ -16563,8 +16855,12 @@ function route_saved_items(pointsField)
 end
 
 function route_persist_config()
+    if account_settings_context then
+        save_config()
+        return
+    end
     if config and type(config.set) == "function" and type(config.save) == "function" then
-        save_route_config()
+        save_route_config(launcher_cfg.route or cfg.route)
         config.save()
     end
 end
@@ -18503,9 +18799,6 @@ local function draw_accounts_overview()
             end
             imgui.same_line()
             if imgui.small_button("启动##account_run_" .. tostring(index)) then
-                if (tonumber(account.target and account.target.pid) or 0) > 0 then
-                    account_apply_to_target(account)
-                end
                 account_queue_local_script("start", account, index, "row-start-button")
             end
             imgui.same_line()
@@ -20531,7 +20824,7 @@ local function draw_account_settings_window()
         return
     end
 
-    local account, account_index = selected_account()
+    local account, account_index = account_settings_account()
     local title_name = account and account_display_name(account) or "未选择账号"
 
     imgui.set_next_window_size(860, 760, imgui.Cond_FirstUseEver)
@@ -20551,7 +20844,16 @@ local function draw_account_settings_window()
             local save_ok, save_err = account_can_save_settings(account)
             if save_ok then
                 account_clear_pid_bind_error_after_save(account)
-                account_save_domain()
+                local profile_ok, profile_err = account_save_effective_config(
+                    account,
+                    account_index,
+                    account_effective_config(account, account_index))
+                if not profile_ok then
+                    save_ok = false
+                    save_err = profile_err
+                end
+            end
+            if save_ok then
                 runtime.accounts.last_status = "account settings saved: " .. account_display_name(account)
                 account_mark_save_feedback(true, "配置已保存")
                 save_active = true
@@ -20573,11 +20875,16 @@ local function draw_account_settings_window()
             if imgui.button("启动脚本", 90, 26) then
                 local save_ok, save_err = account_can_save_settings(account)
                 if save_ok then
-                    account_save_domain()
-                    if (tonumber(account.target and account.target.pid) or 0) > 0 then
-                        account_apply_to_target(account)
+                    local profile_ok, profile_err = account_save_effective_config(
+                        account,
+                        account_index,
+                        account_effective_config(account, account_index))
+                    if not profile_ok then
+                        runtime.accounts.last_status = tostring(profile_err)
+                        set_event(tostring(profile_err))
+                    else
+                        account_queue_local_script("start", account, account_index, "settings-start-button")
                     end
-                    account_queue_local_script("start", account, account_index, "settings-start-button")
                 else
                     runtime.accounts.last_status = tostring(save_err)
                     set_event(tostring(save_err))
@@ -20594,17 +20901,17 @@ local function draw_account_settings_window()
 
         if imgui.begin_tab_bar("##account_settings_tabs_overview_route_account") then
             if imgui.begin_tab_item("总览") then
-                draw_overview_tab()
+                with_account_settings_context(account, account_index, draw_overview_tab)
                 imgui.end_tab_item()
             end
 
             if imgui.begin_tab_item("路径") then
-                draw_route_tab()
+                with_account_settings_context(account, account_index, draw_route_tab)
                 imgui.end_tab_item()
             end
 
             if imgui.begin_tab_item("维护") then
-                draw_maintenance_tab()
+                with_account_settings_context(account, account_index, draw_maintenance_tab)
                 imgui.end_tab_item()
             end
 
@@ -20614,7 +20921,7 @@ local function draw_account_settings_window()
             end
 
             if imgui.begin_tab_item("测试") then
-                draw_test_tab()
+                with_account_settings_context(account, account_index, draw_test_tab)
                 imgui.end_tab_item()
             end
 
@@ -20623,6 +20930,176 @@ local function draw_account_settings_window()
     end
 
     imgui.end_window()
+end
+
+account_runner_stopped = false
+
+function account_runner_arg(name, default)
+    if _G and rawget(_G, name) ~= nil then
+        return rawget(_G, name)
+    end
+    return default
+end
+
+function account_runner_share_key(worker_key, field)
+    return "aion_runtime." .. tostring(worker_key or "") .. "." .. tostring(field)
+end
+
+function account_runner_set_share(worker_key, field, value)
+    if sys and type(sys.set_share) == "function" then
+        sys.set_share(account_runner_share_key(worker_key, field), value)
+    end
+end
+
+function account_runner_set_status(worker_key, status, message)
+    account_runner_set_share(worker_key, "status", tostring(status or "unknown"))
+    account_runner_set_share(worker_key, "message", tostring(message or ""))
+    account_runner_set_share(worker_key, "updated_at", now_seconds())
+end
+
+function account_runner_publish_target(worker_key)
+    account_runner_set_share(worker_key, "bound_pid", tonumber(cfg.target and cfg.target.pid) or 0)
+    account_runner_set_share(worker_key, "bound_hwnd", tonumber(cfg.target and cfg.target.hwnd) or 0)
+    account_runner_set_share(worker_key, "target_title", tostring(cfg.target and cfg.target.title or ""))
+end
+
+function account_runner_publish_snapshot(worker_key, started_at)
+    account_runner_publish_target(worker_key)
+    if ok_core and core then
+        local ok_char, char = core.getCharacter()
+        if ok_char and type(char) == "table" then
+            account_runner_set_share(worker_key, "character_name", tostring(char.name or ""))
+            account_runner_set_share(worker_key, "level", tonumber(char.level) or 0)
+            account_runner_set_share(worker_key, "hp", tonumber(char.hp) or 0)
+            account_runner_set_share(worker_key, "max_hp", tonumber(char.mhp or char.max_hp) or 0)
+            account_runner_set_share(worker_key, "mp", tonumber(char.mp) or 0)
+            account_runner_set_share(worker_key, "max_mp", tonumber(char.mmp or char.max_mp) or 0)
+        end
+    end
+    if ok_map and map then
+        local ok_cur, cur_map = map.current()
+        if ok_cur and type(cur_map) == "table" then
+            account_runner_set_share(worker_key, "map", tostring(cur_map.region or cur_map.name_cn or cur_map.name_en or ""))
+        end
+    end
+    if ok_inventory and inventory then
+        local ok_kinah, kinah = inventory.kinah()
+        if ok_kinah then
+            account_runner_set_share(worker_key, "kinah", tonumber(kinah) or 0)
+        end
+    end
+    account_runner_set_share(worker_key, "runtime_seconds", math.max(0, math.floor(now_seconds() - (started_at or now_seconds()))))
+    account_runner_set_share(worker_key, "updated_at", now_seconds())
+end
+
+function account_runner_tick()
+    bootstrap_tick()
+    leveling_skill_auto_tick()
+    equipment_maintenance_tick()
+    if route_recovery_tick then
+        route_recovery_tick()
+    end
+    main_quest_strict_order_tick()
+    main_quest_smooth_route_tick()
+    combat_tick_quest_grind()
+    combat_tick()
+    route_tick()
+end
+
+function account_runner_main()
+    local worker_key = tostring(account_runner_arg("runtime_key", "default"))
+    local index = tonumber(account_runner_arg("account_index", "0")) or 0
+    local expected_pid = tonumber(account_runner_arg("account_pid", "0")) or 0
+    local profile_path = tostring(account_runner_arg("account_profile_path", ""))
+
+    if task and type(task.on_stop) == "function" then
+        task.on_stop(function()
+            account_runner_stopped = true
+            account_runner_set_status(worker_key, "stopping", "stop requested")
+        end)
+    end
+
+    if index <= 0 then
+        account_runner_set_status(worker_key, "error", "account_index is required")
+        return
+    end
+
+    account_runner_set_status(worker_key, "loading", "loading account profile")
+    if config and type(config.load) == "function" then
+        config.load()
+        load_config_domains()
+        account_ensure_all()
+    end
+
+    local account = account_items()[index]
+    if type(account) ~= "table" then
+        account_runner_set_status(worker_key, "error", "account not found: " .. tostring(index))
+        return
+    end
+    if profile_path ~= "" then
+        account.profile_path = profile_path
+    end
+    account.target = account.target or {}
+    if expected_pid > 0 then
+        account.target.pid = expected_pid
+    end
+    if (tonumber(account.target.pid) or 0) <= 0 then
+        account_runner_set_status(worker_key, "error", "account target pid is required")
+        return
+    end
+
+    cfg = account_effective_config(account, index)
+    cfg.target = clone_value(account.target)
+    runtime.ui_visible = false
+    runtime.accounts = nil
+    runtime.target = runtime.target or {}
+    runtime.target.bound_pid = tonumber(cfg.target.pid) or 0
+    runtime.target.bound_hwnd = tonumber(cfg.target.hwnd) or 0
+    runtime.target.binding_status = "account_runner"
+    runtime.target.binding_message = "account runner pid=" .. tostring(cfg.target.pid)
+    account_runner_disable_config_save = true
+
+    account_runner_publish_target(worker_key)
+    if ok_core and core and type(core.ensureInit) == "function" then
+        account_runner_set_status(worker_key, "binding", "validating pid")
+        local ok_init, init_err = core.ensureInit(cfg.target.pid)
+        if not ok_init then
+            account_runner_set_status(worker_key, "error", "AionData init failed: " .. tostring(init_err))
+            return
+        end
+    end
+
+    account_runner_set_status(worker_key, "starting", "starting bot loop")
+    start_bot()
+    if runtime.running ~= true then
+        account_runner_set_status(worker_key, "error", account_trim_text(runtime.last_event) ~= "" and runtime.last_event or "start failed")
+        return
+    end
+
+    local started_at = now_seconds()
+    account_runner_set_share(worker_key, "started_at", started_at)
+    account_runner_set_status(worker_key, "running", "account task running")
+    if task and type(task.set_progress) == "function" then
+        task.set_progress(0.1)
+    end
+
+    while not account_runner_stopped do
+        account_runner_tick()
+        account_runner_publish_snapshot(worker_key, started_at)
+        if task and type(task.set_progress) == "function" then
+            task.set_progress(0.5)
+        end
+        sleep(50)
+    end
+
+    if runtime.running == true then
+        stop_bot()
+    end
+    account_runner_publish_snapshot(worker_key, started_at)
+    account_runner_set_status(worker_key, "stopped", "account task stopped")
+    if task and type(task.set_progress) == "function" then
+        task.set_progress(1.0)
+    end
 end
 
 function format_duration(seconds)
@@ -20761,6 +21238,16 @@ local function background_refresh_tick()
         audit_sample()
         account_poll(false)
     end
+end
+
+if tostring(account_runner_arg("aion_account_runner", "")) == "1" then
+    ok_runner, runner_err = pcall(account_runner_main)
+    if not ok_runner then
+        account_runner_error_key = tostring(account_runner_arg("runtime_key", "default"))
+        account_runner_set_status(account_runner_error_key, "error", tostring(runner_err))
+        error(runner_err)
+    end
+    return
 end
 
 log_info("Aion 控制台UI 启动")

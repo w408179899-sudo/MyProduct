@@ -66,6 +66,7 @@ local all_test_modules = {
     aion_leveling_skill_auto_quickbar = "tests.test_aion_leveling_skill_auto_quickbar",
     aion_login_autostart = "tests.test_aion_login_autostart",
     aion_account_limit = "tests.test_aion_account_limit",
+    aion_account_profile = "tests.test_aion_account_profile",
     aion_login_flow_create_character = "tests.test_aion_login_flow_create_character",
     aion_post_kill_loot = "tests.test_aion_post_kill_loot",
     aion_attack_key_burst = "tests.test_aion_attack_key_burst",
@@ -98,6 +99,7 @@ local default_order = {
     "aion_leveling_skill_auto_quickbar",
     "aion_login_autostart",
     "aion_account_limit",
+    "aion_account_profile",
     "aion_login_flow_create_character",
     "aion_post_kill_loot", "aion_attack_key_burst", "aion_attack_key_repeat", "aion_floor_recovery", "aion_loot"
 }

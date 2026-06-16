@@ -97,9 +97,18 @@ local function run()
         T.assert_eq(decision.action, "start")
     end)
 
-    T.test("already running runtime does not start again", function()
+    T.test("launcher running does not block another account by default", function()
         local ctx = base_ctx()
         ctx.runtime.running = true
+        local decision = autostart.decide(ctx)
+        T.assert_eq(decision.action, "start")
+        T.assert_eq(decision.reason, "login-ready")
+    end)
+
+    T.test("legacy global runtime block is still available when explicitly requested", function()
+        local ctx = base_ctx()
+        ctx.runtime.running = true
+        ctx.block_global_running = true
         local decision = autostart.decide(ctx)
         T.assert_eq(decision.action, "none")
         T.assert_eq(decision.reason, "runtime-running")

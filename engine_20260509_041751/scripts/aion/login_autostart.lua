@@ -51,7 +51,7 @@ function M.decide(ctx)
         return { action = "block", reason = "pid-missing", message = "auto start blocked: target pid missing" }
     end
 
-    if runtime.running == true then
+    if ctx.block_global_running == true and runtime.running == true then
         return { action = "none", reason = "runtime-running" }
     end
 
