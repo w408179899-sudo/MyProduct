@@ -8,6 +8,10 @@
 
 local ok_target, target = pcall(require, "aion.target")
 local ok_login_flow, login_flow = pcall(require, "aion.login_flow")
+local ok_account_limit, account_limit = pcall(require, "aion.account_limit")
+if not ok_account_limit then
+    account_limit = nil
+end
 
 local queue_id = tostring(queue_id or "default")
 local selected_index = tonumber(account_index or "0") or 0
@@ -46,6 +50,35 @@ local function set_result(index, ret, message)
         sys.set_share(share_key(index, "done"), true)
         sys.set_share(share_key(index, "updated_at"), os.time())
     end
+end
+
+local function apply_license_limit(accounts)
+    if not account_limit or type(account_limit.filterLoginItems) ~= "function" then
+        return accounts
+    end
+    if type(accounts) ~= "table" or type(accounts.items) ~= "table" then
+        return accounts
+    end
+
+    if config and type(config.load) == "function" then
+        pcall(config.load)
+    end
+
+    local allowed, blocked, limit = account_limit.filterLoginItems(accounts.items, config)
+    accounts.items = allowed
+
+    if #blocked > 0 then
+        local message = "license account limit exceeded: max " .. tostring(limit)
+        for _, item in ipairs(blocked) do
+            set_status(item.source_index, "error", message)
+            set_result(item.source_index, 0, message)
+        end
+        if log and type(log.warn) == "function" then
+            log.warn("[AionLoginWorker] " .. message .. ", blocked=" .. tostring(#blocked))
+        end
+    end
+
+    return accounts
 end
 
 local function set_target(index, candidate)
@@ -185,7 +218,7 @@ local function load_accounts_config()
             })
         end
 
-        return accounts, nil
+        return apply_license_limit(accounts), nil
     end
 
     if not config or not config.load or not config.get then
@@ -201,7 +234,7 @@ local function load_accounts_config()
         accounts.items = {}
     end
     accounts.login_flow = normalize_login_flow_config(accounts.login_flow)
-    return accounts, nil
+    return apply_license_limit(accounts), nil
 end
 
 local function account_source_index(loop_index, account)

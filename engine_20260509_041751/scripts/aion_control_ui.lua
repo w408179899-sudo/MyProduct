@@ -49,6 +49,13 @@ end
 local ok_profile_io, profile_io = pcall(require, "aion.profile_io")
 local ok_target, target_lib = pcall(require, "aion.target")
 ok_login_autostart, login_autostart = pcall(require, "aion.login_autostart")
+account_limit = nil
+do
+    local ok, mod = pcall(require, "aion.account_limit")
+    if ok then
+        account_limit = mod
+    end
+end
 
 local ATTACK_KEYCODE = 67 -- VK_C
 local ATTACK_KEY_LABEL = "C"
@@ -2317,11 +2324,15 @@ local function bootstrap_reset_values()
     b.auto_buff_skills = {}
     b.inventory_items = {}
     b.quests = {}
+    b.post_login_auto_start = false
 end
 
 local function bootstrap_begin(reason)
     local b = runtime.bootstrap
+    local post_login_auto_start = b.post_login_auto_start == true
+        or (runtime.accounts and runtime.accounts.login_bootstrap_auto_start_pending == true)
     bootstrap_reset_values()
+    b.post_login_auto_start = post_login_auto_start
     b.pending = true
     b.status = "加载中"
     b.reason = reason or "后台初始化"
@@ -2336,6 +2347,12 @@ end
 
 local function bootstrap_finish()
     local b = runtime.bootstrap
+    local should_post_login_auto_start = b.post_login_auto_start == true
+        or (runtime.accounts and runtime.accounts.login_bootstrap_auto_start_pending == true)
+    if runtime.accounts then
+        runtime.accounts.login_bootstrap_auto_start_pending = false
+    end
+    b.post_login_auto_start = false
     b.pending = false
     b.initialized = b.core_ok and b.character_ok
     b.status = b.initialized and "已初始化" or "部分初始化"
@@ -2355,6 +2372,21 @@ local function bootstrap_finish()
         b.auto_active_count or 0,
         b.auto_buff_count or 0
     ))
+
+    log_info("[AionControlUI] post-bootstrap auto start finish initialized=" ..
+        tostring(b.initialized) ..
+        " post_login=" .. tostring(should_post_login_auto_start) ..
+        " accounts=" .. tostring(runtime.accounts ~= nil))
+
+    if b.initialized and runtime.accounts and should_post_login_auto_start == true then
+        runtime.accounts.post_bootstrap_auto_start_pending = true
+        runtime.accounts.post_bootstrap_auto_start_reason = tostring(b.reason or "")
+        log_info("[AionControlUI] post-bootstrap auto start queued reason=" ..
+            tostring(runtime.accounts.post_bootstrap_auto_start_reason or ""))
+        if type(account_process_post_bootstrap_auto_start) == "function" then
+            account_process_post_bootstrap_auto_start()
+        end
+    end
 end
 
 local function bootstrap_tick()
@@ -13465,8 +13497,15 @@ local function account_stop_runtime_worker(account)
     return true
 end
 
-function account_maybe_auto_start_after_login(index, account)
+function account_maybe_auto_start_after_login(index, account, login_fresh)
     if not ok_login_autostart or not login_autostart or type(login_autostart.decide) ~= "function" then
+        return false
+    end
+    if runtime.accounts and (type(runtime.accounts.login_auto_start_pending) == "table"
+        or (type(runtime.accounts.login_auto_start_pending_queue) == "table"
+            and #runtime.accounts.login_auto_start_pending_queue > 0)) then
+        account_login_bridge_log("legacy-auto-defer-" .. tostring(index),
+            "legacy auto start deferred to bridge account_index=" .. tostring(index))
         return false
     end
 
@@ -13475,13 +13514,14 @@ function account_maybe_auto_start_after_login(index, account)
         account = account,
         runtime = runtime,
         is_task_running = account_task_is_running,
+        login_fresh = login_fresh == true,
     })
 
     if decision.action == "start" then
         runtime.accounts.last_status = "login ready; auto start queued: " .. account_display_name(account)
         set_event("login ready; auto start queued: " .. account_display_name(account))
         if type(account_queue_local_script) == "function" then
-            return account_queue_local_script("start", account, index) == true
+            return account_queue_local_script("start", account, index, "login-auto-decide") == true
         end
         runtime.accounts.last_status = "auto start failed: account_queue_local_script unavailable"
         return false
@@ -13494,7 +13534,210 @@ function account_maybe_auto_start_after_login(index, account)
         return true
     end
 
+    if decision.action == "none" and tostring(decision.reason or "") ~= "login-not-ready" then
+        log_info("[AionControlUI] login auto start skipped reason=" ..
+            tostring(decision.reason or "none") .. " account=" .. account_display_name(account))
+    end
+
     return false
+end
+
+account_auto_start_after_bootstrap = function(reason)
+    log_info("[AionControlUI] post-bootstrap auto start check reason=" .. tostring(reason or ""))
+    if not cfg.accounts or cfg.accounts.auto_start_after_login ~= true then
+        log_info("[AionControlUI] post-bootstrap auto start skipped disabled reason=" .. tostring(reason or ""))
+        return false
+    end
+    if runtime.running == true then
+        log_info("[AionControlUI] post-bootstrap auto start skipped runtime already running reason=" .. tostring(reason or ""))
+        return false
+    end
+    if account_has_pending_script_request() then
+        log_info("[AionControlUI] post-bootstrap auto start skipped pending script reason=" .. tostring(reason or ""))
+        return true
+    end
+
+    local current_pid = 0
+    if ok_core and core and type(core.getState) == "function" then
+        local ok, state = core.getState()
+        if ok and type(state) == "table" and state.inited == true then
+            current_pid = tonumber(state.pid) or 0
+        end
+    end
+
+    if current_pid <= 0 then
+        target_refresh(true)
+        current_pid = tonumber(cfg.target and cfg.target.pid) or 0
+    end
+    if current_pid <= 0 then
+        runtime.accounts.last_status = "post-bootstrap auto start skipped: target pid missing"
+        log_info("[AionControlUI] post-bootstrap auto start skipped target pid missing reason=" .. tostring(reason or ""))
+        return false
+    end
+
+    cfg.target.pid = current_pid
+    target_refresh(true)
+
+    local current_name = tostring(runtime.audit and runtime.audit.current and runtime.audit.current.name or "")
+    if current_name ~= "" then
+        cfg.target.character_name = current_name
+    end
+
+    local matched_account = nil
+    local matched_index = 0
+    for index, account in ipairs(account_items()) do
+        local login = account.login or {}
+        local status = tostring(login.status or "")
+        local login_active = login.requested == true
+            or status == "queued"
+            or status == "logging_in"
+            or status == "agreement_recover"
+            or status == "waiting_pid"
+            or status == "game_detected"
+            or status == "ready"
+            or status == "game_started"
+        local name_match = current_name ~= ""
+            and tostring(account.server and account.server.character_name or "") == current_name
+        if account.enabled and (login_active or name_match) then
+            matched_account = account
+            matched_index = index
+            break
+        end
+    end
+
+    if not matched_account then
+        local enabled_count = 0
+        local enabled_account = nil
+        local enabled_index = 0
+        for index, account in ipairs(account_items()) do
+            if account.enabled then
+                enabled_count = enabled_count + 1
+                enabled_account = account
+                enabled_index = index
+            end
+        end
+        if enabled_count == 1 then
+            matched_account = enabled_account
+            matched_index = enabled_index
+            log_info("[AionControlUI] post-bootstrap auto start using single enabled account reason=" ..
+                tostring(reason or ""))
+        end
+    end
+
+    if not matched_account then
+        runtime.accounts.last_status = "post-bootstrap auto start skipped: no account"
+        log_info("[AionControlUI] post-bootstrap auto start skipped no account reason=" .. tostring(reason or ""))
+        return false
+    end
+
+    matched_account.target = matched_account.target or {}
+    matched_account.login = matched_account.login or {}
+    matched_account.runtime = matched_account.runtime or {}
+    matched_account.audit = matched_account.audit or {}
+
+    local candidate = nil
+    for _, item in ipairs(runtime.target and runtime.target.candidates or {}) do
+        if tonumber(item.pid) == current_pid then
+            candidate = item
+            break
+        end
+    end
+    if candidate and ok_target and target_lib and type(target_lib.apply_candidate) == "function" then
+        target_lib.apply_candidate(cfg.target, candidate)
+        target_lib.apply_candidate(matched_account.target, candidate)
+    else
+        matched_account.target.pid = current_pid
+        matched_account.target.hwnd = tonumber(cfg.target and cfg.target.hwnd) or 0
+        matched_account.target.title = tostring(cfg.target and cfg.target.title or "")
+    end
+
+    matched_account.target.character_name = current_name ~= "" and current_name
+        or tostring(matched_account.target.character_name or "")
+    matched_account.audit.level = tonumber(runtime.audit and runtime.audit.current and runtime.audit.current.level)
+        or tonumber(matched_account.audit.level) or 0
+    matched_account.audit.map = tostring(runtime.audit and runtime.audit.current and runtime.audit.current.map
+        or matched_account.audit.map or "")
+    matched_account.runtime.manual_stop = false
+    matched_account.login.status = "ready"
+    matched_account.login.result = 1
+    matched_account.login.requested = false
+    matched_account.login.message = "bootstrap initialized"
+    matched_account.login.last_at = now_seconds()
+
+    runtime.accounts.selected_index = matched_index
+    runtime.accounts.settings_window_visible = false
+    runtime.ui_visible = true
+
+    log_info("[AionControlUI] post-bootstrap auto start account=" .. account_display_name(matched_account) ..
+        " pid=" .. tostring(current_pid) ..
+        " character=" .. tostring(current_name) ..
+        " reason=" .. tostring(reason or ""))
+
+    if type(account_queue_local_script) ~= "function" then
+        runtime.accounts.last_status = "post-bootstrap auto start failed: queue unavailable"
+        log_info("[AionControlUI] post-bootstrap auto start failed queue unavailable")
+        return false
+    end
+    return account_queue_local_script("start", matched_account, matched_index, "post-bootstrap-auto") == true
+end
+
+function account_process_post_bootstrap_auto_start()
+    if not runtime.accounts or runtime.accounts.post_bootstrap_auto_start_pending ~= true then
+        return false
+    end
+
+    local reason = tostring(runtime.accounts.post_bootstrap_auto_start_reason or "")
+    runtime.accounts.post_bootstrap_auto_start_pending = false
+    runtime.accounts.post_bootstrap_auto_start_reason = ""
+    return account_auto_start_after_bootstrap(reason)
+end
+
+function account_process_ready_auto_start_tick()
+    if not cfg.accounts or cfg.accounts.auto_start_after_login ~= true then
+        return false
+    end
+    if not runtime.accounts or runtime.running == true or account_has_pending_script_request() then
+        return false
+    end
+    if runtime.bootstrap and (runtime.bootstrap.pending == true or runtime.bootstrap.initialized ~= true) then
+        return false
+    end
+
+    for index, account in ipairs(account_items()) do
+        local login = account.login or {}
+        local account_runtime = account.runtime or {}
+        local login_status = tostring(login.status or "")
+        local runtime_status = tostring(account_runtime.status or "")
+        local login_ready = login_status == "ready" or login_status == "game_started"
+        local runtime_active = runtime_status == "starting"
+            or runtime_status == "queued_start"
+            or runtime_status == "running"
+            or runtime_status == "error"
+
+        if account.enabled and login_ready and not runtime_active and account_runtime.manual_stop ~= true then
+            account.target = account.target or {}
+            local pid = tonumber(account.target.pid) or tonumber(cfg.target and cfg.target.pid) or 0
+            if pid > 0 then
+                account.target.pid = pid
+                runtime.accounts.settings_window_visible = false
+                runtime.ui_visible = true
+                log_info("[AionControlUI] ready auto start queue account=" ..
+                    account_display_name(account) .. " pid=" .. tostring(pid))
+                return account_queue_local_script("start", account, index, "ready-auto-tick") == true
+            end
+        end
+    end
+
+    return false
+end
+
+local function account_login_status_in_progress(status)
+    status = tostring(status or "")
+    return status == "queued"
+        or status == "logging_in"
+        or status == "agreement_recover"
+        or status == "waiting_pid"
+        or status == "game_detected"
 end
 
 local function account_update_from_worker(index, account)
@@ -13508,6 +13751,8 @@ local function account_update_from_worker(index, account)
     end
 
     local changed = false
+    local previous_login_status = tostring(account.login.status or "")
+    local login_requested_before = account.login.requested == true
     local status = sys.get_share(account_login_share_key(worker_key, index, "status"))
     if status ~= nil and status ~= account.login.status then
         account.login.status = tostring(status)
@@ -13580,6 +13825,23 @@ local function account_update_from_worker(index, account)
         end
     end
 
+    local login_fresh_ready = (account.login.status == "ready" or account.login.status == "game_started")
+        and (login_requested_before == true or account_login_status_in_progress(previous_login_status))
+
+    if login_fresh_ready and account.runtime then
+        if account.runtime.manual_stop == true then
+            account.runtime.manual_stop = false
+            changed = true
+        end
+        local runtime_status = tostring(account.runtime.status or "")
+        if runtime_status == "queued_stop" or runtime_status == "stopping" or runtime_status == "stopped" then
+            account.runtime.status = "idle"
+            account.runtime.message = "fresh login ready"
+            account.runtime.updated_at = now_seconds()
+            changed = true
+        end
+    end
+
     if (tonumber(account.target.pid) or 0) > 0 then
         local select_current = (tonumber(cfg.target.pid) or 0) <= 0 or tonumber(runtime.accounts.selected_index) == tonumber(index)
         if select_current then
@@ -13601,8 +13863,34 @@ local function account_update_from_worker(index, account)
             end
         end
 
-        if account.login.status == "ready" and not runtime.bootstrap.pending and not runtime.bootstrap.initialized then
-            bootstrap_begin("登录后初始化")
+        if account.login.status == "ready" then
+            if cfg.accounts and cfg.accounts.auto_start_after_login == true then
+                account.runtime = account.runtime or {}
+                local runtime_status = tostring(account.runtime.status or "")
+                local runtime_active = runtime.running == true
+                    or account_has_pending_script_request()
+                    or (runtime.bootstrap and runtime.bootstrap.pending == true)
+                    or type(runtime.accounts.login_auto_start_pending) == "table"
+                    or (type(runtime.accounts.login_auto_start_pending_queue) == "table"
+                        and #runtime.accounts.login_auto_start_pending_queue > 0)
+                    or runtime_status == "starting"
+                    or runtime_status == "queued_start"
+                    or runtime_status == "running"
+                if not runtime_active and (account.runtime.manual_stop ~= true or login_fresh_ready) then
+                    runtime.accounts.login_bootstrap_auto_start_pending = false
+                    runtime.bootstrap.post_login_auto_start = false
+                    runtime.accounts.settings_window_visible = false
+                    runtime.ui_visible = true
+                    log_info("[AionControlUI] login ready direct start button logic account=" ..
+                        account_display_name(account) .. " pid=" .. tostring(account.target and account.target.pid or 0))
+                    if (tonumber(account.target and account.target.pid) or 0) > 0 then
+                        account_apply_to_target(account)
+                    end
+                    account_queue_local_script("start", account, index, "login-ready-direct")
+                end
+            elseif not runtime.bootstrap.pending and not runtime.bootstrap.initialized then
+                bootstrap_begin("登录后初始化")
+            end
         end
     end
 
@@ -13616,7 +13904,7 @@ local function account_update_from_worker(index, account)
         account.login.requested = false
     end
 
-    if changed and account_maybe_auto_start_after_login(index, account) then
+    if changed and account_maybe_auto_start_after_login(index, account, login_fresh_ready) then
         changed = true
     end
 
@@ -13692,6 +13980,17 @@ function account_confirm_add_window()
         return false
     end
 
+    local items = account_items()
+    if account_limit and type(account_limit.canAdd) == "function" then
+        local ok, limit, count = account_limit.canAdd(items, config)
+        if not ok then
+            runtime.accounts.last_status = "新增账号失败: 当前卡密最多允许 " ..
+                tostring(limit) .. " 个账号窗口，当前已有 " .. tostring(count) .. " 个"
+            set_event(runtime.accounts.last_status)
+            return false
+        end
+    end
+
     local account = draft
     account.account = account_name
     account.password = password
@@ -13701,7 +14000,6 @@ function account_confirm_add_window()
     account.server.character_name = account_trim_text(account.server.character_name)
     account_ensure_character(account)
 
-    local items = account_items()
     table.insert(items, account)
     runtime.accounts.selected_index = #items
     runtime.accounts.add_window_visible = false
@@ -13859,12 +14157,19 @@ local function account_queue_login(account, index, worker_key)
         return false
     end
     worker_key = worker_key or account_make_worker_key()
+    if account.runtime then
+        account.runtime.manual_stop = false
+    end
     account.login.requested = true
     account.login.status = "queued"
     account.login.last_at = now_seconds()
     account.login.worker_key = worker_key
     account.login.message = "queued for login worker"
     runtime.accounts.last_status = "login queued: " .. account_display_name(account)
+    if cfg.accounts and cfg.accounts.auto_start_after_login == true then
+        account_clear_login_auto_start_pending_for_index(index, "new login")
+        account_enqueue_login_auto_start_pending(index, worker_key, "login-queued")
+    end
     account_save_domain()
     return index > 0
 end
@@ -14101,7 +14406,7 @@ local function account_start_runtime_all()
     local count = 0
     for index, account in ipairs(account_items()) do
         if account.enabled then
-            if account_queue_local_script("start", account, index) then
+            if account_queue_local_script("start", account, index, "all-start-button") then
                 count = count + 1
             end
         end
@@ -14113,7 +14418,7 @@ end
 local function account_stop_runtime_all()
     local count = 0
     for index, account in ipairs(account_items()) do
-        if account_queue_local_script("stop", account, index) then
+        if account_queue_local_script("stop", account, index, "all-stop-button") then
             count = count + 1
         end
     end
@@ -14160,7 +14465,7 @@ function account_has_pending_script_request()
     return type(runtime.accounts.pending_scripts) == "table" and #runtime.accounts.pending_scripts > 0
 end
 
-function account_queue_local_script(action, account, index)
+function account_queue_local_script(action, account, index, source)
     if not account then
         runtime.accounts.last_status = "script " .. tostring(action) .. " queue failed: no account selected"
         set_event("脚本请求失败: 未选择账号")
@@ -14183,6 +14488,12 @@ function account_queue_local_script(action, account, index)
         account.runtime = {}
     end
 
+    local source_text = tostring(source or "unknown")
+    log_info("[AionControlUI] account script queue action=" .. action_text ..
+        " source=" .. source_text ..
+        " account=" .. account_display_name(account) ..
+        " index=" .. tostring(account_index))
+
     account_enqueue_pending_script(action_text, account_index)
 
     if action_text == "start" then
@@ -14198,12 +14509,335 @@ function account_queue_local_script(action, account, index)
         account.runtime.manual_stop = true
         account.runtime.status = "queued_stop"
         account.runtime.message = "stop queued"
+        account_clear_login_auto_start_pending_for_index(account_index, "stop source=" .. source_text)
         runtime.accounts.last_status = "script stop queued: " .. account_display_name(account)
         set_event("脚本停止已排队" .. account_display_name(account))
     end
 
     account.runtime.updated_at = now_seconds()
     return true
+end
+
+function account_login_bridge_log(sig, message)
+    runtime.accounts = runtime.accounts or {}
+    sig = tostring(sig or "")
+    if sig ~= tostring(runtime.accounts.login_auto_start_last_sig or "") then
+        runtime.accounts.login_auto_start_last_sig = sig
+        log_info("[AionControlUI] login bridge " .. tostring(message or sig))
+    end
+end
+
+function account_enqueue_login_auto_start_pending(index, worker_key, reason)
+    runtime.accounts = runtime.accounts or {}
+
+    local request = {
+        index = tonumber(index) or 0,
+        worker_key = tostring(worker_key or ""),
+        created_at = now_seconds(),
+        reason = tostring(reason or "login-queued"),
+    }
+
+    if type(runtime.accounts.login_auto_start_pending) ~= "table" then
+        runtime.accounts.login_auto_start_pending = request
+        runtime.accounts.login_auto_start_last_sig = ""
+    else
+        if type(runtime.accounts.login_auto_start_pending_queue) ~= "table" then
+            runtime.accounts.login_auto_start_pending_queue = {}
+        end
+        table.insert(runtime.accounts.login_auto_start_pending_queue, request)
+    end
+
+    local account = account_items()[request.index]
+    log_info("[AionControlUI] login bridge pending account=" ..
+        account_display_name(account) ..
+        " index=" .. tostring(request.index) ..
+        " worker_key=" .. tostring(request.worker_key) ..
+        " reason=" .. tostring(request.reason))
+end
+
+function account_current_login_auto_start_pending()
+    runtime.accounts = runtime.accounts or {}
+
+    local pending = runtime.accounts.login_auto_start_pending
+    if type(pending) == "table" then
+        return pending
+    end
+
+    local queue = runtime.accounts.login_auto_start_pending_queue
+    if type(queue) == "table" and #queue > 0 then
+        pending = table.remove(queue, 1)
+        runtime.accounts.login_auto_start_pending = pending
+        runtime.accounts.login_auto_start_last_sig = ""
+        return pending
+    end
+
+    return nil
+end
+
+function account_clear_current_login_auto_start_pending()
+    if not runtime.accounts then
+        return
+    end
+    runtime.accounts.login_auto_start_pending = nil
+    runtime.accounts.login_auto_start_last_sig = ""
+end
+
+function account_clear_all_login_auto_start_pending(reason)
+    if not runtime.accounts then
+        return
+    end
+    runtime.accounts.login_auto_start_pending = nil
+    runtime.accounts.login_auto_start_pending_queue = nil
+    runtime.accounts.login_auto_start_last_sig = ""
+    if reason and tostring(reason) ~= "" then
+        account_login_bridge_log(tostring(reason), "pending cleared " .. tostring(reason))
+    end
+end
+
+function account_clear_login_auto_start_pending_for_index(index, reason)
+    if not runtime.accounts then
+        return false
+    end
+
+    local target_index = tonumber(index) or 0
+    local removed = false
+    local pending = runtime.accounts.login_auto_start_pending
+    if type(pending) == "table" and (tonumber(pending.index) or 0) == target_index then
+        runtime.accounts.login_auto_start_pending = nil
+        runtime.accounts.login_auto_start_last_sig = ""
+        removed = true
+    end
+
+    local queue = runtime.accounts.login_auto_start_pending_queue
+    if type(queue) == "table" and #queue > 0 then
+        local kept = {}
+        for _, item in ipairs(queue) do
+            if type(item) == "table" and (tonumber(item.index) or 0) == target_index then
+                removed = true
+            else
+                table.insert(kept, item)
+            end
+        end
+        runtime.accounts.login_auto_start_pending_queue = kept
+    end
+
+    if removed then
+        log_info("[AionControlUI] login bridge pending cleared account_index=" ..
+            tostring(target_index) .. " reason=" .. tostring(reason or ""))
+    end
+    return removed
+end
+
+function account_login_bridge_worker_snapshot(pending)
+    local snapshot = {
+        status = "",
+        pid = 0,
+        hwnd = 0,
+        title = "",
+        character_name = "",
+        level = 0,
+        done = false,
+    }
+    if type(pending) ~= "table" or not sys or type(sys.get_share) ~= "function" then
+        return snapshot
+    end
+
+    local worker_key = tostring(pending.worker_key or "")
+    local index = tonumber(pending.index) or 0
+    if worker_key == "" or index <= 0 then
+        return snapshot
+    end
+
+    snapshot.status = tostring(sys.get_share(account_login_share_key(worker_key, index, "status")) or "")
+    snapshot.pid = tonumber(sys.get_share(account_login_share_key(worker_key, index, "pid"))) or 0
+    snapshot.hwnd = tonumber(sys.get_share(account_login_share_key(worker_key, index, "hwnd"))) or 0
+    snapshot.title = tostring(sys.get_share(account_login_share_key(worker_key, index, "title")) or "")
+    snapshot.character_name = tostring(sys.get_share(account_login_share_key(worker_key, index, "character_name")) or "")
+    snapshot.level = tonumber(sys.get_share(account_login_share_key(worker_key, index, "level"))) or 0
+    snapshot.done = sys.get_share(account_login_share_key(worker_key, index, "done")) == true
+    return snapshot
+end
+
+function account_process_login_bridge_auto_start_tick()
+    local pending = account_current_login_auto_start_pending()
+    if type(pending) ~= "table" then
+        return false
+    end
+    if not cfg.accounts or cfg.accounts.auto_start_after_login ~= true then
+        account_clear_all_login_auto_start_pending("disabled")
+        return false
+    end
+    if runtime.running == true then
+        account_clear_current_login_auto_start_pending()
+        account_login_bridge_log("already-running", "pending cleared runtime already running")
+        return false
+    end
+    if account_has_pending_script_request() then
+        account_login_bridge_log("pending-script", "waiting pending script")
+        return false
+    end
+
+    local age = now_seconds() - (tonumber(pending.created_at) or now_seconds())
+    if age > 300 then
+        account_clear_current_login_auto_start_pending()
+        account_login_bridge_log("expired", "pending expired age=" .. string.format("%.1f", age))
+        return false
+    end
+
+    local worker = account_login_bridge_worker_snapshot(pending)
+    local worker_ready = worker.status == "ready" or worker.status == "game_started"
+    if worker.status ~= "" and not worker_ready and worker.done == true then
+        account_clear_current_login_auto_start_pending()
+        account_login_bridge_log("worker-done-" .. worker.status,
+            "pending cleared worker status=" .. tostring(worker.status))
+        return false
+    end
+
+    local current_pid = 0
+    local core_ready = false
+    if ok_core and core and type(core.getState) == "function" then
+        local ok, state = core.getState()
+        if ok and type(state) == "table" and state.inited == true then
+            core_ready = true
+            current_pid = tonumber(state.pid) or 0
+        end
+    end
+    if not worker_ready and not core_ready then
+        account_login_bridge_log("worker-wait-" .. tostring(worker.status),
+            "waiting worker ready status=" .. tostring(worker.status) ..
+            " pid=" .. tostring(worker.pid) ..
+            " done=" .. tostring(worker.done))
+        return false
+    end
+    if current_pid <= 0 and worker.pid > 0 then
+        current_pid = worker.pid
+    end
+    if current_pid <= 0 then
+        target_refresh(true)
+        current_pid = tonumber(cfg.target and cfg.target.pid) or 0
+    end
+    if worker_ready and current_pid > 0 and runtime.bootstrap then
+        if runtime.bootstrap.pending == true then
+            account_login_bridge_log("bootstrap-pending-" .. tostring(worker.status),
+                "waiting bootstrap status=" .. tostring(worker.status) ..
+                " pid=" .. tostring(current_pid))
+            return false
+        end
+        if runtime.bootstrap.initialized ~= true then
+            cfg.target.pid = current_pid
+            cfg.target.hwnd = worker.hwnd > 0 and worker.hwnd or tonumber(cfg.target and cfg.target.hwnd) or 0
+            cfg.target.title = worker.title ~= "" and worker.title or tostring(cfg.target and cfg.target.title or "")
+            cfg.target.character_name = worker.character_name ~= "" and worker.character_name
+                or tostring(cfg.target and cfg.target.character_name or "")
+            runtime.target.bound_pid = cfg.target.pid
+            runtime.target.bound_hwnd = cfg.target.hwnd
+            runtime.target.binding_status = "login_bridge"
+            runtime.target.binding_message = "login bridge target pid=" .. tostring(cfg.target.pid)
+            bootstrap_begin("登录后初始化")
+            account_login_bridge_log("bootstrap-start-" .. tostring(worker.status),
+                "started bootstrap status=" .. tostring(worker.status) ..
+                " pid=" .. tostring(current_pid))
+            return false
+        end
+    elseif runtime.bootstrap and runtime.bootstrap.pending == true then
+        account_login_bridge_log("bootstrap-pending-" .. tostring(worker.status),
+            "waiting bootstrap status=" .. tostring(worker.status) ..
+            " pid=" .. tostring(current_pid))
+        return false
+    elseif runtime.bootstrap and runtime.bootstrap.initialized ~= true then
+        account_login_bridge_log("bootstrap-wait-worker-" .. tostring(worker.status),
+            "waiting worker ready before bootstrap status=" .. tostring(worker.status) ..
+            " pid=" .. tostring(current_pid))
+        return false
+    end
+    if current_pid <= 0 then
+        account_login_bridge_log("pid-missing-" .. tostring(worker.status),
+            "waiting target pid status=" .. tostring(worker.status) ..
+            " done=" .. tostring(worker.done))
+        return false
+    end
+
+    local matched_account = nil
+    local matched_index = tonumber(pending.index) or 0
+    if matched_index > 0 then
+        matched_account = account_items()[matched_index]
+    end
+    if not matched_account then
+        local worker_key = tostring(pending.worker_key or "")
+        for index, account in ipairs(account_items()) do
+            if worker_key ~= "" and tostring(account.login and account.login.worker_key or "") == worker_key then
+                matched_account = account
+                matched_index = index
+                break
+            end
+        end
+    end
+    if not matched_account then
+        local enabled_count = 0
+        for index, account in ipairs(account_items()) do
+            if account.enabled then
+                enabled_count = enabled_count + 1
+                matched_account = account
+                matched_index = index
+            end
+        end
+        if enabled_count ~= 1 then
+            account_login_bridge_log("account-missing", "waiting matched account")
+            return false
+        end
+    end
+
+    matched_account.target = matched_account.target or {}
+    matched_account.login = matched_account.login or {}
+    matched_account.runtime = matched_account.runtime or {}
+
+    matched_account.target.pid = current_pid
+    matched_account.target.hwnd = worker.hwnd > 0 and worker.hwnd
+        or tonumber(cfg.target and cfg.target.hwnd)
+        or tonumber(matched_account.target.hwnd)
+        or 0
+    matched_account.target.title = worker.title ~= "" and worker.title
+        or tostring(cfg.target and cfg.target.title or matched_account.target.title or "")
+    local current_name = tostring(runtime.audit and runtime.audit.current and runtime.audit.current.name or "")
+    if worker.character_name ~= "" then
+        matched_account.target.character_name = worker.character_name
+    elseif current_name ~= "" then
+        matched_account.target.character_name = current_name
+    end
+    matched_account.audit = matched_account.audit or {}
+    if worker.level > 0 then
+        matched_account.audit.level = worker.level
+    end
+
+    matched_account.login.status = worker_ready and worker.status or "ready"
+    matched_account.login.result = 1
+    matched_account.login.requested = false
+    matched_account.login.message = "login bridge ready status=" .. tostring(worker.status)
+    matched_account.login.last_at = now_seconds()
+    matched_account.runtime.manual_stop = false
+    local runtime_status = tostring(matched_account.runtime.status or "")
+    if runtime_status == "queued_stop" or runtime_status == "stopping" or runtime_status == "stopped" then
+        matched_account.runtime.status = "idle"
+        matched_account.runtime.message = "in-game bridge ready"
+        matched_account.runtime.updated_at = now_seconds()
+    end
+
+    cfg.target.pid = tonumber(matched_account.target.pid) or 0
+    cfg.target.hwnd = tonumber(matched_account.target.hwnd) or 0
+    cfg.target.title = tostring(matched_account.target.title or "")
+    cfg.target.character_name = tostring(matched_account.target.character_name or "")
+    runtime.target.bound_pid = cfg.target.pid
+    runtime.target.bound_hwnd = cfg.target.hwnd
+    runtime.target.binding_status = "account"
+    runtime.target.binding_message = "account target pid=" .. tostring(cfg.target.pid)
+    account_clear_current_login_auto_start_pending()
+    log_info("[AionControlUI] login bridge auto start account=" ..
+        account_display_name(matched_account) ..
+        " index=" .. tostring(matched_index) ..
+        " pid=" .. tostring(current_pid) ..
+        " status=" .. tostring(worker.status) ..
+        " age=" .. string.format("%.1f", age))
+    return account_queue_local_script("start", matched_account, matched_index, "login-bridge-tick") == true
 end
 
 local function account_bind_current_target(account)
@@ -17265,6 +17899,7 @@ local function account_row_double_clicked()
 end
 
 local function draw_account_import_panel()
+    runtime.accounts.show_import = false
     if not runtime.accounts.show_import then
         return
     end
@@ -17320,6 +17955,10 @@ local function draw_accounts_overview()
         account_open_add_window()
     end
     imgui.same_line()
+    if imgui.button("全部登录", 90, 26) then
+        account_request_login_all()
+    end
+    imgui.same_line()
     if imgui.button("全部启动", 90, 26) then
         account_start_runtime_all()
     end
@@ -17332,12 +17971,10 @@ local function draw_accounts_overview()
         account_poll(true)
     end
 
-    draw_account_import_panel()
-
     imgui.spacing()
     local items = account_items()
     if #items == 0 then
-        imgui.text("No account. Add one or import account,password,second_password.")
+        imgui.text("No account. Add one.")
         return
     end
 
@@ -17413,11 +18050,11 @@ local function draw_accounts_overview()
                 if (tonumber(account.target and account.target.pid) or 0) > 0 then
                     account_apply_to_target(account)
                 end
-                account_queue_local_script("start", account, index)
+                account_queue_local_script("start", account, index, "row-start-button")
             end
             imgui.same_line()
             if imgui.small_button("停止##account_stop_" .. tostring(index)) then
-                account_queue_local_script("stop", account, index)
+                account_queue_local_script("stop", account, index, "row-stop-button")
             end
             imgui.same_line()
             if imgui.small_button("删除##account_delete_" .. tostring(index)) then
@@ -19460,7 +20097,7 @@ local function draw_account_settings_window()
                     if (tonumber(account.target and account.target.pid) or 0) > 0 then
                         account_apply_to_target(account)
                     end
-                    account_queue_local_script("start", account, account_index)
+                    account_queue_local_script("start", account, account_index, "settings-start-button")
                 else
                     runtime.accounts.last_status = tostring(save_err)
                     set_event(tostring(save_err))
@@ -19469,7 +20106,7 @@ local function draw_account_settings_window()
             imgui.same_line()
             if imgui.button("停止脚本", 90, 26) then
                 account_save_domain()
-                account_queue_local_script("stop", account, account_index)
+                account_queue_local_script("stop", account, account_index, "settings-stop-button")
             end
         end
 
@@ -19631,6 +20268,9 @@ end
 local function background_refresh_tick()
     account_process_pending_script()
     account_process_pending_login()
+    account_process_post_bootstrap_auto_start()
+    account_process_login_bridge_auto_start_tick()
+    account_process_ready_auto_start_tick()
     account_agreement_click_tick()
 
     if runtime.ui_visible then
@@ -19643,6 +20283,7 @@ local function background_refresh_tick()
 end
 
 log_info("Aion 控制台UI 启动")
+log_info("[AionControlUI] auto_start_bridge=20260616_timer_consumer")
 load_config()
 target_refresh(true)
 

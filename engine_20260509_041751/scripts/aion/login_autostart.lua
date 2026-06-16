@@ -36,6 +36,7 @@ function M.decide(ctx)
     local login = account.login or {}
     local account_runtime = account.runtime or {}
     local target = account.target or {}
+    local login_fresh = ctx.login_fresh == true
 
     if accounts_cfg.auto_start_after_login ~= true then
         return { action = "none", reason = "disabled" }
@@ -70,7 +71,7 @@ function M.decide(ctx)
         return { action = "none", reason = "account-runtime-active" }
     end
 
-    if account_runtime.manual_stop == true then
+    if account_runtime.manual_stop == true and not login_fresh then
         return { action = "none", reason = "manual-stop" }
     end
 

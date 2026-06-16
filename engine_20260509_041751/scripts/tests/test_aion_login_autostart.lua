@@ -50,6 +50,27 @@ local function run()
         T.assert_eq(decision.reason, "pid-missing")
     end)
 
+    T.test("ready account can start from currently bound target pid", function()
+        local ctx = base_ctx()
+        ctx.account.target.pid = 0
+        ctx.cfg.target.pid = 7001
+        local decision = autostart.decide(ctx)
+        T.assert_eq(decision.action, "start")
+        T.assert_eq(decision.reason, "login-ready")
+        T.assert_eq(decision.pid, 7001)
+    end)
+
+    T.test("ui screenshot state with account pid zero is blocked when no target is bound", function()
+        local ctx = base_ctx()
+        ctx.account.login.status = "ready"
+        ctx.account.target.pid = 0
+        ctx.cfg.target.pid = 0
+        ctx.account.runtime.status = "idle"
+        local decision = autostart.decide(ctx)
+        T.assert_eq(decision.action, "block")
+        T.assert_eq(decision.reason, "pid-missing")
+    end)
+
     T.test("combat stationary mode starts from current combat config", function()
         local ctx = base_ctx()
         ctx.cfg.combat.mode = 1
@@ -124,6 +145,16 @@ local function run()
         local decision = autostart.decide(ctx)
         T.assert_eq(decision.action, "none")
         T.assert_eq(decision.reason, "manual-stop")
+    end)
+
+    T.test("fresh login ready overrides stale manual stop", function()
+        local ctx = base_ctx()
+        ctx.login_fresh = true
+        ctx.account.runtime.manual_stop = true
+        ctx.account.runtime.status = "queued_stop"
+        local decision = autostart.decide(ctx)
+        T.assert_eq(decision.action, "start")
+        T.assert_eq(decision.reason, "login-ready")
     end)
 
     return T.report("aion_login_autostart")

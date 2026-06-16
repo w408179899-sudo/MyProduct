@@ -22,6 +22,33 @@ local function safe_call(fn, ...)
     return true, value, nil
 end
 
+local function data_call_name(name)
+    return tostring(name or ""):match("^AionData%.([%w_]+)$")
+end
+
+local function resolve_call_function(name, fn)
+    local key = data_call_name(name)
+    if key and type(data) == "table" and type(data[key]) == "function" then
+        return data[key]
+    end
+    return fn
+end
+
+local function reload_data_module()
+    local previous = package.loaded["AionData"]
+    package.loaded["AionData"] = nil
+
+    local ok, loaded = pcall(require, "AionData")
+    if ok and type(loaded) == "table" then
+        data = loaded
+        M.data = loaded
+        return true, nil
+    end
+
+    package.loaded["AionData"] = previous
+    return false, tostring(loaded or "require AionData failed")
+end
+
 local function normalize_pid(pid)
     pid = tonumber(pid) or 0
     if pid > 0 then
@@ -88,6 +115,7 @@ function M.resolvePid(pid)
 end
 
 function M.call(name, fn, ...)
+    fn = resolve_call_function(name, fn)
     if type(fn) ~= "function" then
         return false, nil, string.format("%s is not callable", tostring(name))
     end
@@ -128,6 +156,17 @@ function M.ensureInit(pid)
 
     local post_pid = state_pid_if_inited()
     if post_pid and post_pid ~= target_pid then
+        local reload_ok = reload_data_module()
+        if reload_ok then
+            ok, values, err = M.call("AionData.InitGameinfo", data.InitGameinfo, target_pid)
+            if ok and values[1] == true then
+                post_pid = state_pid_if_inited()
+                if not post_pid or post_pid == target_pid then
+                    return true, nil
+                end
+            end
+        end
+
         return false, string.format(
             "AionData initialized pid mismatch: expected=%s actual=%s",
             tostring(target_pid),
