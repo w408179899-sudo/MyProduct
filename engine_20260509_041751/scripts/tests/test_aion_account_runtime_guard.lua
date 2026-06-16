@@ -16,6 +16,17 @@ local function running_task_id(active_id)
     end
 end
 
+local function share_store()
+    local values = {}
+    return values,
+        function(key, value)
+            values[key] = value
+        end,
+        function(key)
+            return values[key]
+        end
+end
+
 local function run()
     T.reset()
     T.log("\n=== aion account runtime guard tests ===")
@@ -123,6 +134,101 @@ local function run()
         })
         T.assert_false(bridge_tick.allowed)
         T.assert_eq(bridge_tick.reason, "account-runtime-active")
+    end)
+
+    T.test("stop request publishes account identities", function()
+        local values, set_share = share_store()
+        local acc = account("running", 0)
+        acc.profile_key = "acc_002_test"
+        acc.target = { pid = 24148 }
+
+        local result = guard.publish_stop_request({
+            account = acc,
+            index = 2,
+            requested_at = 100,
+            source = "test-stop",
+            set_share = set_share,
+        })
+
+        T.assert_eq(result.published, 3)
+        T.assert_eq(values["aion_runtime.stop.index.2.requested_at"], 100)
+        T.assert_eq(values["aion_runtime.stop.profile.acc_002_test.requested_at"], 100)
+        T.assert_eq(values["aion_runtime.stop.pid.24148.requested_at"], 100)
+    end)
+
+    T.test("runner can stop by pid when task id is missing", function()
+        local _, set_share, get_share = share_store()
+        local acc = account("running", 0)
+        acc.profile_key = "acc_002_test"
+        acc.target = { pid = 24148 }
+
+        guard.publish_stop_request({
+            account = acc,
+            index = 2,
+            requested_at = 200,
+            set_share = set_share,
+        })
+
+        local decision = guard.stop_requested({
+            account = { target = { pid = 24148 } },
+            index = 99,
+            pid = 24148,
+            started_at = 100,
+            get_share = get_share,
+        })
+
+        T.assert_true(decision.stop)
+        T.assert_eq(decision.identity, "pid.24148")
+    end)
+
+    T.test("stale stop request does not stop a newer runner", function()
+        local _, set_share, get_share = share_store()
+        local acc = account("running", 0)
+        acc.target = { pid = 24148 }
+
+        guard.publish_stop_request({
+            account = acc,
+            index = 2,
+            requested_at = 100,
+            set_share = set_share,
+        })
+
+        local decision = guard.stop_requested({
+            account = acc,
+            index = 2,
+            started_at = 200,
+            get_share = get_share,
+        })
+
+        T.assert_false(decision.stop)
+    end)
+
+    T.test("clear stop request removes stale stop flag", function()
+        local values, set_share, get_share = share_store()
+        local acc = account("running", 0)
+        acc.target = { pid = 24148 }
+
+        guard.publish_stop_request({
+            account = acc,
+            index = 2,
+            requested_at = 100,
+            set_share = set_share,
+        })
+        T.assert_eq(values["aion_runtime.stop.pid.24148.requested_at"], 100)
+
+        guard.clear_stop_request({
+            account = acc,
+            index = 2,
+            set_share = set_share,
+        })
+
+        local decision = guard.stop_requested({
+            account = acc,
+            index = 2,
+            started_at = 0,
+            get_share = get_share,
+        })
+        T.assert_false(decision.stop)
     end)
 
     return T.report("aion_account_runtime_guard")

@@ -14122,6 +14122,46 @@ function account_note_start_blocked(kind, account, index, source, decision)
     set_event("start ignored: " .. message)
 end
 
+function account_stop_set_share(key, value)
+    if sys and type(sys.set_share) == "function" then
+        sys.set_share(key, value)
+    end
+end
+
+function account_stop_get_share(key)
+    if sys and type(sys.get_share) == "function" then
+        return sys.get_share(key)
+    end
+    return nil
+end
+
+function account_publish_stop_request(account, index, source)
+    if ok_account_runtime_guard and account_runtime_guard and type(account_runtime_guard.publish_stop_request) == "function" then
+        local ok, result = pcall(account_runtime_guard.publish_stop_request, {
+            account = account,
+            index = index,
+            source = source,
+            requested_at = now_seconds(),
+            set_share = account_stop_set_share,
+        })
+        if ok and type(result) == "table" then
+            return result
+        end
+    end
+    return { published = 0, reason = "runtime-guard-unavailable" }
+end
+
+function account_clear_stop_request(account, index, worker_key)
+    if ok_account_runtime_guard and account_runtime_guard and type(account_runtime_guard.clear_stop_request) == "function" then
+        pcall(account_runtime_guard.clear_stop_request, {
+            account = account,
+            index = index,
+            worker_key = worker_key,
+            set_share = account_stop_set_share,
+        })
+    end
+end
+
 local function account_start_runtime_worker(account, index)
     if not account then
         return false
@@ -14152,6 +14192,8 @@ local function account_start_runtime_worker(account, index)
         return false
     end
 
+    account_clear_stop_request(account, index)
+
     local profile_path = account.profile_path
     if ok_account_profile and account_profile then
         profile_path = account_profile.profilePath(account, index, account_profile_root())
@@ -14159,6 +14201,7 @@ local function account_start_runtime_worker(account, index)
     end
 
     local worker_key = "run_" .. account_make_worker_key()
+    account_clear_stop_request(account, index, worker_key)
     local id = task.run("scripts/aion_control_ui.lua", {
         name = "AionRuntime_" .. tostring(account_display_name(account)),
         priority = "normal",
@@ -14178,20 +14221,79 @@ local function account_start_runtime_worker(account, index)
     return id ~= nil
 end
 
-local function account_stop_runtime_worker(account)
+local function account_stop_runtime_worker(account, index, source)
     if not account or not account.runtime then
         return false
     end
 
     local id = tonumber(account.runtime.task_id) or 0
+    local stop_signal = account_publish_stop_request(account, index, source)
+    local signal_count = tonumber(stop_signal and stop_signal.published) or 0
+    local stopped = false
     if id > 0 and task and type(task.stop) == "function" then
-        task.stop(id)
+        stopped = task.stop(id) == true
     end
     account.runtime.status = "stopping"
-    account.runtime.message = "stop requested"
+    account.runtime.message = "stop requested id=" .. tostring(id) ..
+        " task_stop=" .. tostring(stopped) ..
+        " signal_count=" .. tostring(signal_count)
+    account.runtime.manual_stop = true
+    account.runtime.updated_at = now_seconds()
     account_save_domain()
+    log_info("[AionControlUI] runtime worker stop requested account=" ..
+        account_display_name(account) ..
+        " index=" .. tostring(index or 0) ..
+        " source=" .. tostring(source or "unknown") ..
+        " task_id=" .. tostring(id) ..
+        " task_stop=" .. tostring(stopped) ..
+        " signal_count=" .. tostring(signal_count))
     set_event("运行 worker 停止请求: " .. account_display_name(account))
-    return true
+    return stopped or signal_count > 0
+end
+
+function account_request_stop(account, index, source)
+    if not account then
+        runtime.accounts.last_status = "script stop failed: no account selected"
+        set_event("script stop failed: no account selected")
+        return false
+    end
+
+    account.runtime = account.runtime or {}
+    account.audit = account.audit or {}
+    account.runtime.manual_stop = true
+    account.runtime.auto_relogin_pending = false
+    account.runtime.auto_relogin_reason = ""
+    account.runtime.auto_relogin_pid = 0
+    account.runtime.auto_relogin_next_at = 0
+
+    if type(account_clear_login_auto_start_pending_for_index) == "function" then
+        account_clear_login_auto_start_pending_for_index(index, "stop source=" .. tostring(source or "unknown"))
+    end
+
+    local remote_ok = account_stop_runtime_worker(account, index, source)
+    local local_ok = false
+    if runtime.running == true then
+        local account_pid = tonumber(account.target and account.target.pid) or 0
+        local current_pid = tonumber(cfg.target and cfg.target.pid) or 0
+        if account_pid <= 0 or account_pid == current_pid then
+            stop_bot()
+            local_ok = true
+        end
+    end
+
+    if local_ok and not remote_ok then
+        account.runtime.status = "stopped"
+        account.runtime.message = "local script stopped"
+        account.audit.status = "stopped"
+    elseif remote_ok then
+        account.runtime.status = "stopping"
+        account.audit.status = "stopping"
+    end
+
+    account.runtime.updated_at = now_seconds()
+    runtime.accounts.last_status = "script stop requested: " .. account_display_name(account)
+    account_save_domain()
+    return remote_ok or local_ok
 end
 
 function account_maybe_auto_start_after_login(index, account, login_fresh)
@@ -15201,12 +15303,12 @@ end
 local function account_stop_runtime_all()
     local count = 0
     for index, account in ipairs(account_items()) do
-        if account_queue_local_script("stop", account, index, "all-stop-button") then
+        if account_request_stop(account, index, "all-stop-button") then
             count = count + 1
         end
     end
-    runtime.accounts.last_status = "script stop queued count=" .. tostring(count)
-    set_event("全部停止已排队: " .. tostring(count))
+    runtime.accounts.last_status = "script stop requested count=" .. tostring(count)
+    set_event("全部停止请求已发送: " .. tostring(count))
 end
 
 function account_enqueue_pending_script(action, index)
@@ -15272,6 +15374,10 @@ function account_queue_local_script(action, account, index, source)
     end
 
     local source_text = tostring(source or "unknown")
+    if action_text == "stop" then
+        return account_request_stop(account, account_index, source_text)
+    end
+
     if action_text == "start" then
         local queue_decision = account_runtime_start_decision("queue", account, account_index)
         if queue_decision.allowed ~= true then
@@ -15778,22 +15884,8 @@ local function account_start_local_script(account, index)
     return false
 end
 
-local function account_stop_local_script(account)
-    if account and runtime.running then
-        local account_pid = tonumber(account.target and account.target.pid) or 0
-        local current_pid = tonumber(cfg.target and cfg.target.pid) or 0
-        if account_pid <= 0 or account_pid == current_pid then
-            stop_bot()
-            account.runtime.status = "stopped"
-            account.runtime.message = "local script stopped"
-            account.runtime.updated_at = now_seconds()
-            account.audit.status = "stopped"
-            runtime.accounts.last_status = "script stopped: " .. account_display_name(account)
-            account_save_domain()
-            return true
-        end
-    end
-    return account_stop_runtime_worker(account)
+local function account_stop_local_script(account, index, source)
+    return account_request_stop(account, index, source)
 end
 
 function account_process_pending_script()
@@ -15814,7 +15906,7 @@ function account_process_pending_script()
     if action == "start" then
         account_start_local_script(account, index)
     elseif action == "stop" then
-        account_stop_local_script(account)
+        account_stop_local_script(account, index, "pending-script")
     else
         runtime.accounts.last_status = "script request ignored: bad action " .. action
         set_event("脚本请求忽略: 未知动作 " .. action)
@@ -21176,6 +21268,21 @@ function account_runner_main()
     end
 
     while not account_runner_stopped do
+        if ok_account_runtime_guard and account_runtime_guard and type(account_runtime_guard.stop_requested) == "function" then
+            local ok_stop, stop_decision = pcall(account_runtime_guard.stop_requested, {
+                account = account,
+                index = index,
+                worker_key = worker_key,
+                pid = expected_pid,
+                started_at = started_at,
+                get_share = account_stop_get_share,
+            })
+            if ok_stop and type(stop_decision) == "table" and stop_decision.stop == true then
+                account_runner_set_status(worker_key, "stopping", "stop requested " .. tostring(stop_decision.identity or ""))
+                account_runner_stopped = true
+                break
+            end
+        end
         account_runner_tick()
         account_runner_publish_snapshot(worker_key, started_at)
         if task and type(task.set_progress) == "function" then
