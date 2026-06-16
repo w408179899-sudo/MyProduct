@@ -113,9 +113,10 @@
   - 到 NPC 范围内时执行 `InteractNpc`
   - 对话打开后执行 `ClickDialogLastContinuousOk`
 - NPC 匹配：
+  - 名字：`나바루`
   - 名字 key：`MQ20622_NPC_002_AFTER_NPC_TELEPORT`
   - 交互 ID：`2147528744`
-  - 允许交互 ID 兜底：`allow_interact_id_fallback=true`
+  - 禁用交互 ID 兜底：`allow_interact_id_fallback=false`
 - 完成判定：连续最后一条 + OK 结束后记录 `completed_20622_after_npc_teleport_npc_dialog=true`。
 - 完成后：进入 `quest_20623_level28_grind`，沿 20623 路线升级到 28 级。
 

@@ -13,6 +13,7 @@ local function run()
         T.assert_eq(settings.sit_keycode, 188)
         T.assert_eq(settings.stand_keycode, 88)
         T.assert_true(settings.cancel_on_damage)
+        T.assert_eq(settings.max_seconds, 30)
     end)
 
     T.test("configuration normalizes unsafe values", function()
@@ -24,6 +25,7 @@ local function run()
                 sit_keycode = -5,
                 stand_keycode = 999,
                 cancel_on_damage = false,
+                max_seconds = 0,
             },
         })
         T.assert_true(settings.enabled)
@@ -32,6 +34,7 @@ local function run()
         T.assert_eq(settings.sit_keycode, 188)
         T.assert_eq(settings.stand_keycode, 255)
         T.assert_false(settings.cancel_on_damage)
+        T.assert_eq(settings.max_seconds, 1)
     end)
 
     T.test("legacy saved 8 key is migrated to comma key", function()
@@ -96,12 +99,28 @@ local function run()
 
     T.test("active recovery waits until recover threshold", function()
         local decision = floor_recovery.decide({
-            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 188, stand_keycode = 88 },
-            state = { active = true, start_hp = 100, last_hp = 100 },
+            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 188, stand_keycode = 88, max_seconds = 30 },
+            state = { active = true, started_at = 100, start_hp = 100, last_hp = 100 },
+            now = 129,
             char = { mp = 80, max_mp = 100, hp = 100 },
         })
         T.assert_eq(decision.action, "wait")
         T.assert_eq(decision.reason, "recovering")
+        T.assert_eq(decision.elapsed_seconds, 29)
+    end)
+
+    T.test("active recovery times out after max seconds and sends X", function()
+        local decision = floor_recovery.decide({
+            settings = { enabled = true, start_percent = 15, recover_percent = 90, sit_keycode = 188, stand_keycode = 88, max_seconds = 30 },
+            state = { active = true, started_at = 100, start_hp = 100, last_hp = 100 },
+            now = 130,
+            char = { mp = 80, max_mp = 100, hp = 100 },
+        })
+        T.assert_eq(decision.action, "timeout")
+        T.assert_eq(decision.reason, "timeout")
+        T.assert_eq(decision.keycode, 88)
+        T.assert_eq(decision.elapsed_seconds, 30)
+        T.assert_eq(decision.max_seconds, 30)
     end)
 
     T.test("active recovery finishes at high threshold and sends X", function()

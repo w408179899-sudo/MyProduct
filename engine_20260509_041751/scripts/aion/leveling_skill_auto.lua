@@ -259,6 +259,7 @@ local function normalize_quickbar_state(state)
     state.occupied_slots = type(state.occupied_slots) == "table" and state.occupied_slots or {}
     state.placed_by_id = type(state.placed_by_id) == "table" and state.placed_by_id or {}
     state.placed_by_group = type(state.placed_by_group) == "table" and state.placed_by_group or {}
+    state.next_slots = type(state.next_slots) == "table" and state.next_slots or {}
     state.next_slot = number(state.next_slot)
     return state
 end
@@ -269,17 +270,26 @@ local function find_quickbar_slot(qstate, opts)
     local bar_index = number(opts.quickbar_bar_index)
     local start_slot = number(opts.quickbar_start_slot)
     local slot_count = number(opts.quickbar_slot_count)
+    local bar_count = number(opts.quickbar_bar_count)
     if slot_count <= 0 then
         slot_count = 12
     end
-    local next_slot = math.max(start_slot, number(qstate.next_slot))
-    for slot = next_slot, start_slot + slot_count - 1 do
-        local key = quickbar_key(bar_index, slot)
-        if qstate.occupied_slots[key] ~= true then
-            return slot, key
+    if bar_count <= 0 then
+        bar_count = 1
+    end
+    for bar = bar_index, bar_index + bar_count - 1 do
+        local next_slot = math.max(start_slot, number(qstate.next_slots[tostring(bar)]))
+        if bar == bar_index then
+            next_slot = math.max(next_slot, number(qstate.next_slot))
+        end
+        for slot = next_slot, start_slot + slot_count - 1 do
+            local key = quickbar_key(bar, slot)
+            if qstate.occupied_slots[key] ~= true then
+                return bar, slot, key
+            end
         end
     end
-    return nil, nil
+    return nil, nil, nil
 end
 
 function M.newRuntime()
@@ -299,6 +309,7 @@ function M.newRuntime()
             occupied_slots = {},
             placed_by_id = {},
             placed_by_group = {},
+            next_slots = {},
         },
     }
 end
@@ -563,44 +574,47 @@ function M.syncAutoActiveSkills(combat, opts)
         local group = skill_group_key(skill)
         local placed_slot = qstate.placed_by_id[tostring(id)] or qstate.placed_by_group[group]
         if result.quickbar_required and not placed_slot then
-            local slot, key = find_quickbar_slot(qstate, opts)
+            local bar, slot, key = find_quickbar_slot(qstate, opts)
             if not slot then
                 result.quickbar_failed_count = result.quickbar_failed_count + 1
                 result.errors[#result.errors + 1] = "no reserved quickbar slot left id=" .. tostring(id)
                 debug_line(skill_debug_text(skill, "quickbar no-slot", group))
             else
                 local qok, qvalue, qerr = quickbar.placeQuickbar(
-                    number(opts.quickbar_bar_index),
+                    bar,
                     slot,
                     kind,
                     id)
                 if qok == true and qvalue ~= false then
                     qstate.occupied_slots[key] = true
                     qstate.placed_by_id[tostring(id)] = {
-                        bar_index = number(opts.quickbar_bar_index),
+                        bar_index = bar,
                         slot_index = slot,
                     }
                     qstate.placed_by_group[group] = qstate.placed_by_id[tostring(id)]
-                    qstate.next_slot = slot + 1
+                    qstate.next_slots[tostring(bar)] = slot + 1
+                    if bar == number(opts.quickbar_bar_index) then
+                        qstate.next_slot = slot + 1
+                    end
                     result.quickbar_placed_count = result.quickbar_placed_count + 1
                     result.quickbar_placed[#result.quickbar_placed + 1] = {
                         id = id,
                         name = skill_name(skill),
                         group = group,
-                        bar_index = number(opts.quickbar_bar_index),
+                        bar_index = bar,
                         slot_index = slot,
                     }
                     debug_line(skill_debug_text(skill, "quickbar placed bar=" ..
-                        tostring(number(opts.quickbar_bar_index)) .. " slot=" .. tostring(slot), group))
+                        tostring(bar) .. " slot=" .. tostring(slot), group))
                     placed_slot = qstate.placed_by_id[tostring(id)]
                 else
                     result.quickbar_failed_count = result.quickbar_failed_count + 1
                     result.errors[#result.errors + 1] = "PlaceQuickbar failed id=" .. tostring(id) ..
-                        " bar=" .. tostring(number(opts.quickbar_bar_index)) ..
+                        " bar=" .. tostring(bar) ..
                         " slot=" .. tostring(slot) ..
                         " err=" .. tostring(qerr or qvalue or "")
                     debug_line(skill_debug_text(skill, "quickbar place-failed bar=" ..
-                        tostring(number(opts.quickbar_bar_index)) .. " slot=" .. tostring(slot) ..
+                        tostring(bar) .. " slot=" .. tostring(slot) ..
                         " err=" .. tostring(qerr or qvalue or ""), group))
                 end
             end

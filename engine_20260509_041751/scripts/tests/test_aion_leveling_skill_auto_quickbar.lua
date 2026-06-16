@@ -185,6 +185,41 @@ local function run()
         T.assert_eq(qstate.occupied_slots["1:2"], true)
     end)
 
+    T.test("uses next quickbar row when configured row is full", function()
+        local mod = load_module()
+        local occupied = {}
+        for slot = 0, 11 do
+            occupied["1:" .. tostring(slot)] = true
+        end
+        local combat, calls = mock_combat({
+            skills = { skill(101, "Slash", 2) },
+            auto_active = {},
+        })
+        local quickbar, qcalls = mock_quickbar()
+        local qstate = {
+            occupied_slots = occupied,
+            placed_by_id = {},
+            next_slot = 0,
+            next_slots = { ["1"] = 12 },
+        }
+        local opts = default_quickbar_opts(quickbar, qstate)
+        opts.quickbar_bar_count = 2
+        opts.reason = "level-up"
+        opts.level = 12
+
+        local ok, result = mod.syncAutoActiveSkills(combat, opts)
+
+        T.assert_eq(ok, true)
+        T.assert_eq(result.quickbar_placed_count, 1)
+        T.assert_eq(#qcalls, 1)
+        T.assert_eq(qcalls[1].bar_index, 2)
+        T.assert_eq(qcalls[1].slot_index, 0)
+        T.assert_eq(qstate.occupied_slots["2:0"], true)
+        T.assert_eq(qstate.next_slots["2"], 1)
+        T.assert_eq(#calls.toggles, 1)
+        T.assert_eq(calls.toggles[1].id, 101)
+    end)
+
     T.test("same skill group is placed only once", function()
         local mod = load_module()
         local combat, calls = mock_combat({

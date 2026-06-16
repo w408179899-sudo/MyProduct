@@ -2,6 +2,7 @@ local M = {}
 
 M.SIT_KEYCODE = 188 -- VK_OEM_COMMA: "," key, right of M on the keyboard.
 M.STAND_KEYCODE = 88
+M.DEFAULT_MAX_SECONDS = 30
 
 local function number_or(value, fallback)
     local n = tonumber(value)
@@ -61,6 +62,7 @@ function M.from_config(supply)
         sit_keycode = M.SIT_KEYCODE,
         stand_keycode = clamp_key(cfg.stand_keycode or cfg.stop_keycode or cfg.stand_key or M.STAND_KEYCODE, M.STAND_KEYCODE),
         cancel_on_damage = bool_or(cfg.cancel_on_damage, true),
+        max_seconds = clamp_int(cfg.max_seconds or cfg.max_recovery_seconds or cfg.timeout_seconds, M.DEFAULT_MAX_SECONDS, 1, 3600),
     }
 end
 
@@ -105,6 +107,12 @@ function M.decide(args)
     if hp == nil then
         hp = M.character_hp(args.char)
     end
+    local now = tonumber(args.now or args.now_seconds)
+    local started_at = tonumber(state.started_at)
+    local elapsed_seconds = nil
+    if active and now ~= nil and started_at ~= nil and started_at > 0 then
+        elapsed_seconds = math.max(0, now - started_at)
+    end
 
     if active then
         if settings.cancel_on_damage ~= false and hp ~= nil then
@@ -119,6 +127,7 @@ function M.decide(args)
                     mp_current = mp_current,
                     mp_max = mp_max,
                     hp = hp,
+                    elapsed_seconds = elapsed_seconds,
                 }
             end
         end
@@ -132,6 +141,22 @@ function M.decide(args)
                 mp_current = mp_current,
                 mp_max = mp_max,
                 hp = hp,
+                elapsed_seconds = elapsed_seconds,
+            }
+        end
+
+        local max_seconds = tonumber(settings.max_seconds)
+        if max_seconds ~= nil and max_seconds > 0 and elapsed_seconds ~= nil and elapsed_seconds >= max_seconds then
+            return {
+                action = "timeout",
+                reason = "timeout",
+                keycode = settings.stand_keycode,
+                mp_percent = mp_percent,
+                mp_current = mp_current,
+                mp_max = mp_max,
+                hp = hp,
+                elapsed_seconds = elapsed_seconds,
+                max_seconds = max_seconds,
             }
         end
 
@@ -142,6 +167,7 @@ function M.decide(args)
             mp_current = mp_current,
             mp_max = mp_max,
             hp = hp,
+            elapsed_seconds = elapsed_seconds,
         }
     end
 

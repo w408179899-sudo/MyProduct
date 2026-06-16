@@ -630,6 +630,7 @@ local cfg = {
         skill_auto_place_quickbar = false,
         skill_auto_ignore_ids = "",
         skill_auto_quickbar_bar_index = 1,
+        skill_auto_quickbar_bar_count = 2,
         skill_auto_quickbar_start_slot = 0,
         skill_auto_quickbar_slot_count = 12,
         equip_upgrades = true,
@@ -680,6 +681,7 @@ local cfg = {
             sit_keycode = 188,
             stand_keycode = 88,
             cancel_on_damage = true,
+            max_seconds = 30,
         },
     },
 
@@ -797,6 +799,7 @@ function normalize_leveling_config()
         cfg.leveling.skill_auto_place_quickbar = false
     end
     cfg.leveling.skill_auto_quickbar_bar_index = math.max(0, tonumber(cfg.leveling.skill_auto_quickbar_bar_index) or 1)
+    cfg.leveling.skill_auto_quickbar_bar_count = math.max(1, tonumber(cfg.leveling.skill_auto_quickbar_bar_count) or 2)
     cfg.leveling.skill_auto_quickbar_start_slot = math.max(0, tonumber(cfg.leveling.skill_auto_quickbar_start_slot) or 0)
     cfg.leveling.skill_auto_quickbar_slot_count = math.max(1, tonumber(cfg.leveling.skill_auto_quickbar_slot_count) or 12)
 end
@@ -2236,6 +2239,7 @@ function leveling_skill_auto_tick()
         quickbar = ok_remote and remote or nil,
         quickbar_state = state.quickbar,
         quickbar_bar_index = tonumber(cfg.leveling.skill_auto_quickbar_bar_index) or 1,
+        quickbar_bar_count = tonumber(cfg.leveling.skill_auto_quickbar_bar_count) or 2,
         quickbar_start_slot = tonumber(cfg.leveling.skill_auto_quickbar_start_slot) or 0,
         quickbar_slot_count = tonumber(cfg.leveling.skill_auto_quickbar_slot_count) or 12,
         debug = leveling_skill_auto_debug_enabled(),
@@ -6060,6 +6064,7 @@ function combat_floor_recovery_settings()
         sit_keycode = 188,
         stand_keycode = 88,
         cancel_on_damage = true,
+        max_seconds = 30,
     }
 end
 
@@ -6164,6 +6169,7 @@ function combat_handle_floor_recovery_after_loot(char)
         state = state,
         after_loot_pending = pending_after_loot,
         char = char,
+        now = now_seconds(),
         in_combat = (tonumber(c.target_obj) or 0) > 0,
         loot_pending = (tonumber(c.loot_obj) or 0) > 0,
         post_kill_pending = (tonumber(c.last_killed_obj) or 0) > 0 or (tonumber(c.post_kill_until) or 0) > 0,
@@ -6244,7 +6250,8 @@ function combat_handle_floor_recovery_after_loot(char)
                 combat_floor_mp_pair_text(decision),
                 tostring(settings.recover_percent),
                 tostring(decision and decision.hp or ""),
-                math.max(0, now_seconds() - (tonumber(state.started_at) or now_seconds()))),
+                tonumber(decision and decision.elapsed_seconds)
+                    or math.max(0, now_seconds() - (tonumber(state.started_at) or now_seconds()))),
             1.0,
             false)
         return true
@@ -6267,6 +6274,27 @@ function combat_handle_floor_recovery_after_loot(char)
             true)
         combat_clear_floor_recovery("recovered")
         combat_set_status("floor-recovery-done", "mp=" .. combat_floor_percent_text(decision.mp_percent) .. "%", false)
+        return true
+    end
+
+    if action == "timeout" then
+        local key_ok, key_err = combat_floor_recovery_press_key(decision.keycode or settings.stand_keycode, "timeout")
+        if not key_ok then
+            combat_set_status("floor-recovery-timeout-stand-failed", tostring(key_err), true)
+            combat_update_floor_recovery_observation(state, decision)
+            return true
+        end
+        combat_log("floor-recovery-timeout",
+            string.format("floor recovery timeout mp=%s raw=%s max=%.1fs elapsed=%.1fs",
+                combat_floor_percent_text(decision and decision.mp_percent),
+                combat_floor_mp_pair_text(decision),
+                tonumber(decision and decision.max_seconds) or tonumber(settings.max_seconds) or 30,
+                tonumber(decision and decision.elapsed_seconds)
+                    or math.max(0, now_seconds() - (tonumber(state.started_at) or now_seconds()))),
+            0,
+            true)
+        combat_clear_floor_recovery("timeout")
+        combat_set_status("floor-recovery-timeout", "max=" .. tostring(tonumber(decision and decision.max_seconds) or tonumber(settings.max_seconds) or 30) .. "s", true)
         return true
     end
 
@@ -18499,6 +18527,11 @@ local function draw_leveling_tab()
 
     imgui.same_line()
     imgui.set_next_item_width(100)
+    changed, val = imgui.input_int("技能快捷栏排数", tonumber(cfg.leveling.skill_auto_quickbar_bar_count) or 2)
+    if changed then cfg.leveling.skill_auto_quickbar_bar_count = math.max(1, tonumber(val) or 2) end
+
+    imgui.same_line()
+    imgui.set_next_item_width(100)
     changed, val = imgui.input_int("起始格", tonumber(cfg.leveling.skill_auto_quickbar_start_slot) or 0)
     if changed then cfg.leveling.skill_auto_quickbar_start_slot = math.max(0, tonumber(val) or 0) end
 
@@ -18700,6 +18733,7 @@ function normalize_floor_recovery_config()
             sit_keycode = 188,
             stand_keycode = math.max(1, math.min(255, math.floor(tonumber(current.stand_keycode) or 88))),
             cancel_on_damage = current.cancel_on_damage ~= false,
+            max_seconds = math.max(1, math.min(3600, math.floor(tonumber(current.max_seconds) or 30))),
         }
     end
     cfg.supply.floor_recovery = {
@@ -18709,6 +18743,7 @@ function normalize_floor_recovery_config()
         sit_keycode = settings.sit_keycode,
         stand_keycode = settings.stand_keycode,
         cancel_on_damage = settings.cancel_on_damage ~= false,
+        max_seconds = tonumber(settings.max_seconds) or 30,
     }
     return cfg.supply.floor_recovery
 end

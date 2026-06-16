@@ -4118,8 +4118,9 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20622)
         T.assert_eq(next_action.params.stage, "quest_20622_after_npc_teleport_npc")
         T.assert_eq(next_action.params.interact_id, 2147528744)
+        T.assert_eq(next_action.params.npc_name, "나바루")
         T.assert_eq(next_action.params.npc_name_key, "MQ20622_NPC_002_AFTER_NPC_TELEPORT")
-        T.assert_eq(next_action.params.allow_interact_id_fallback, true)
+        T.assert_eq(next_action.params.allow_interact_id_fallback, false)
         T.assert_eq(next_action.params.after_open_continuous_last, true)
     end)
 
@@ -4140,6 +4141,7 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20622)
         T.assert_eq(next_action.params.stage, "quest_20622_after_npc_teleport_npc")
         T.assert_eq(next_action.params.interact_id, 2147528744)
+        T.assert_eq(next_action.params.npc_name, "나바루")
         T.assert_eq(next_action.params.npc_name_key, "MQ20622_NPC_002_AFTER_NPC_TELEPORT")
     end)
 
@@ -4154,6 +4156,7 @@ local function run()
             big_map_id = 220020000,
             dialog = {
                 quest_id = 20622,
+                npc_name = "나바루",
                 type_text = "select_success",
                 dialog_content_id = 20,
                 npc_dialog_id = 2147528744,
@@ -4166,6 +4169,7 @@ local function run()
         T.assert_eq(next_action.params.quest_id, 20622)
         T.assert_eq(next_action.params.stage, "quest_20622_after_npc_teleport_npc")
         T.assert_eq(next_action.params.interact_id, 2147528744)
+        T.assert_eq(next_action.params.npc_name, "나바루")
         T.assert_eq(next_action.params.npc_name_key, "MQ20622_NPC_002_AFTER_NPC_TELEPORT")
         T.assert_eq(next_action.params.click_x, 25)
     end)

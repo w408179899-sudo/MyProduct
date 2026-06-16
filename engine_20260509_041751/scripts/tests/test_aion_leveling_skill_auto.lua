@@ -298,6 +298,30 @@ local function run()
         T.assert_eq(calls.toggles[2].id, 103)
     end)
 
+    T.test("sync toggles missing maintenance status skill type", function()
+        local mod = load_module()
+        local combat, calls = mock_combat({
+            skills = {
+                skill(111, "Spirit Fortification I", 10),
+            },
+            auto_active = {},
+            auto_buff = {},
+        })
+
+        local ok, result = mod.syncAutoActiveSkills(combat, {
+            reason = "startup",
+            level = 31,
+            quickbar_required = false,
+            require_active_type = false,
+        })
+
+        T.assert_eq(ok, true)
+        T.assert_eq(result.added_count, 1)
+        T.assert_eq(result.to_add_count, 1)
+        T.assert_eq(#calls.toggles, 1)
+        T.assert_eq(calls.toggles[1].id, 111)
+    end)
+
     T.test("sync does not toggle status skill already in auto buff list", function()
         local mod = load_module()
         local combat, calls = mock_combat({
