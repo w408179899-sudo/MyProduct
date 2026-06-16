@@ -16,7 +16,7 @@
       F9       run safe API probe
       F10      pause/resume
       F11      record task-building snapshot
-      F12      test decomposing one safe unequipped equipment item
+      F12      test equipment upgrades, then decompose white/green bag equipment
       Ctrl+F12 exit
 ]]
 
@@ -37,6 +37,7 @@ ok_main_quest_order_gate, main_quest_order_gate = pcall(require, "aion.main_ques
 ok_main_quest_teleport_guard, main_quest_teleport_guard = pcall(require, "aion.main_quest_teleport_guard")
 ok_main_quest_combat_guard, main_quest_combat_guard = pcall(require, "aion.main_quest_combat_guard")
 ok_leveling_skill_auto, leveling_skill_auto = pcall(require, "aion.leveling_skill_auto")
+ok_equipment_auto, equipment_auto = pcall(require, "aion.equipment_auto")
 local ok_map, map = pcall(require, "aion.map")
 local ok_nav, nav = pcall(require, "aion.nav")
 ok_remote, remote = pcall(require, "aion.remote")
@@ -281,6 +282,10 @@ local runtime = {
         last_dump = "",
     },
     monster_dump = {
+        last_status = "",
+        last_dump = "",
+    },
+    equipment_test = {
         last_status = "",
         last_dump = "",
     },
@@ -5079,6 +5084,106 @@ function decompose_f12_test_once()
             " err=" .. tostring(err or result or ""))
     end
     return ok
+end
+
+function equipment_f12_set_status(text)
+    runtime.equipment_test = runtime.equipment_test or {}
+    runtime.equipment_test.last_status = tostring(text or "")
+    set_event("[F12 equip] " .. runtime.equipment_test.last_status)
+    log_info("[AionEquipmentF12] " .. runtime.equipment_test.last_status)
+end
+
+function equipment_f12_log_lines(lines)
+    log_info("[AionEquipmentF12] begin")
+    for _, line in ipairs(lines or {}) do
+        log_info("[AionEquipmentF12] " .. tostring(line or ""))
+    end
+    log_info("[AionEquipmentF12] end")
+end
+
+function equipment_f12_test_once()
+    runtime.equipment_test = runtime.equipment_test or {}
+    runtime.equipment_test.last_dump = ""
+
+    if not ok_core or not core then
+        equipment_f12_set_status("failed: aion.core unavailable")
+        return false
+    end
+    if not ok_inventory or not inventory
+        or type(inventory.list) ~= "function"
+        or type(inventory.equipItem) ~= "function"
+        or type(inventory.decomposeItem) ~= "function" then
+        equipment_f12_set_status("failed: aion.inventory unavailable " .. tostring(inventory))
+        return false
+    end
+    if not ok_equipment_auto or not equipment_auto
+        or type(equipment_auto.equipAll) ~= "function"
+        or type(equipment_auto.decomposeLowQuality) ~= "function" then
+        equipment_f12_set_status("failed: aion.equipment_auto unavailable " .. tostring(equipment_auto))
+        return false
+    end
+
+    target_refresh(true)
+    local pid = tonumber(cfg.target and cfg.target.pid) or nil
+    if (not pid or pid <= 0) and type(core.resolvePid) == "function" then
+        pid = tonumber(core.resolvePid()) or nil
+    end
+    if core.ensureInit then
+        local init_ok, init_err = core.ensureInit(pid)
+        if not init_ok then
+            equipment_f12_set_status("failed: init " .. tostring(init_err))
+            return false
+        end
+    end
+
+    local equip_ok, equip_result = equipment_auto.equipAll(inventory, {
+        sleep = core.sleep,
+        verify_sleep_ms = 700,
+        max_actions = 20,
+    })
+    equip_result = type(equip_result) == "table" and equip_result or { status = "failed", error = tostring(equip_result) }
+
+    local lines = {}
+    for _, line in ipairs(equip_result.lines or {}) do
+        lines[#lines + 1] = tostring(line or "")
+    end
+    lines[#lines + 1] = "equip result status=" .. tostring(equip_result.status or "") ..
+        " ok=" .. tostring(equip_ok) ..
+        " error=" .. tostring(equip_result.error or "")
+
+    if not equip_ok then
+        equipment_f12_log_lines(lines)
+        runtime.equipment_test.last_dump = table.concat(lines, "\n")
+        equipment_f12_set_status("equip failed: " .. tostring(equip_result.error or equip_result.status or "unknown"))
+        return false
+    end
+
+    local decompose_ok, decompose_result = equipment_auto.decomposeLowQuality(inventory, {
+        sleep = core.sleep,
+        decompose_sleep_ms = 150,
+    })
+    decompose_result = type(decompose_result) == "table"
+        and decompose_result
+        or { status = "failed", error = tostring(decompose_result) }
+    for _, line in ipairs(decompose_result.lines or {}) do
+        lines[#lines + 1] = tostring(line or "")
+    end
+    lines[#lines + 1] = "decompose result status=" .. tostring(decompose_result.status or "") ..
+        " ok=" .. tostring(decompose_ok) ..
+        " error=" .. tostring(decompose_result.error or "")
+
+    equipment_f12_log_lines(lines)
+    runtime.equipment_test.last_dump = table.concat(lines, "\n")
+
+    if decompose_ok then
+        equipment_f12_set_status("equipped_count=" .. tostring(equip_result.equipped_count or 0) ..
+            " decomposed_count=" .. tostring(decompose_result.decomposed_count or 0))
+    else
+        equipment_f12_set_status("decompose failed: " ..
+            tostring(decompose_result.error or decompose_result.status or "unknown"))
+    end
+
+    return decompose_ok
 end
 
 function task_f11_set_status(text)
@@ -19966,6 +20071,7 @@ local function draw_debug_tab()
     imgui.text("F8: 打印当前NPC对话信息")
     imgui.text("F9: API 探针")
     imgui.text("F10: 暂停/继续")
+    imgui.text("F12: 先穿戴/替换装备，再分解背包白绿装备")
     imgui.text("Ctrl+F12: 退出 UI 脚本")
 end
 
@@ -20479,7 +20585,7 @@ while true do
 
     f12 = hotkey.is_pressed(0x7B)
     if f12 and not ctrl and not last_f12 then
-        decompose_f12_test_once()
+        equipment_f12_test_once()
     end
     last_f12 = f12
 
