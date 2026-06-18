@@ -1,0 +1,12 @@
+logs/
+.vs/
+crash_dumps/
+exports/
+profiles/
+
+config.json
+script_config.json
+key.txt
+账号.txt
+*.bak
+
