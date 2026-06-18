@@ -74,6 +74,25 @@ local function run()
         Store.set_backend(nil)
     end)
 
+    T.test("account store keeps Aion-style common and audit fields", function()
+        local backend = fake_config()
+        Store.set_backend(backend)
+        local root = Store.load()
+        root.auto_relogin_on_disconnect = true
+        root.auto_relogin_cooldown_seconds = 15
+        root.game_path = "C:/Game"
+        Store.add(root, Store.new_account({ account = "user1", task = "main", route = "r1" }))
+        T.assert_true(Store.save(root))
+
+        local loaded = Store.load()
+        T.assert_true(loaded.auto_relogin_on_disconnect)
+        T.assert_eq(loaded.auto_relogin_cooldown_seconds, 15)
+        T.assert_eq(loaded.game_path, "C:/Game")
+        T.assert_eq(loaded.items[1].task, "main")
+        T.assert_type(loaded.items[1].audit, "table")
+        Store.set_backend(nil)
+    end)
+
     T.test("orchestrator starts one task per selected account", function()
         local task_api = fake_task()
         local sys_api = fake_sys()
