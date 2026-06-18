@@ -34,6 +34,12 @@ local function normalize_account(account, index)
     account.task = tostring(account.task or "main")
     account.route = tostring(account.route or "")
     account.note = tostring(account.note or "")
+    account.smart_combat_enabled = account.smart_combat_enabled == true
+    if account.combat_logic_mode == nil then
+        account.combat_logic_mode = account.smart_combat_enabled and "predictive" or "immediate"
+    else
+        account.combat_logic_mode = tostring(account.combat_logic_mode)
+    end
     account.runtime = account.runtime or {}
     account.audit = account.audit or {}
     return account
@@ -91,6 +97,8 @@ function Store.new_account(fields)
         task = fields.task or "main",
         route = fields.route or "",
         note = fields.note or "",
+        smart_combat_enabled = fields.smart_combat_enabled == true,
+        combat_logic_mode = fields.combat_logic_mode,
         runtime = {}
     })
 end

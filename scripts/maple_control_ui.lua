@@ -468,10 +468,20 @@ local function draw_route_tab(account)
 end
 
 local function draw_maintenance_tab(account)
+    local changed, val
     imgui.text("维护配置")
     imgui.separator()
     imgui.text("账号启停、断线重登、补给和异常恢复会在这里继续扩展。")
     imgui.text("当前账号: " .. account_display_name(account))
+
+    imgui.spacing()
+    changed, val = imgui.checkbox("智能打怪##maple_smart_combat", account.smart_combat_enabled == true)
+    if changed then
+        account.smart_combat_enabled = val == true
+        account.combat_logic_mode = account.smart_combat_enabled and "predictive" or "immediate"
+    end
+    imgui.text("智能打怪开启后，会优先走未来 1-3 秒预判逻辑；关闭时使用即时 tick/baseline。")
+    imgui.text("当前打怪模式: " .. tostring(account.combat_logic_mode or "immediate"))
 end
 
 local function draw_account_tab(account)

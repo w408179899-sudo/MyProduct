@@ -6,6 +6,7 @@ return {
     ProcessInventoryRules = { timeout = "inventory", max_retries = 1, required_params = {} },
     EvaluateEquipmentCandidates = { timeout = "equipment", max_retries = 1, required_params = {} },
     LearnSkill = { timeout = "skill", max_retries = 1, required_params = { "skill_id" } },
+    ExecuteCombatDecision = { timeout = "action", max_retries = 0, required_params = { "proposal" } },
     Wait = { timeout = "action", max_retries = 0, required_params = { "seconds" } },
     Idle = { timeout = "action", max_retries = 0, required_params = {} },
     Stop = { timeout = "action", max_retries = 0, required_params = { "reason" } }

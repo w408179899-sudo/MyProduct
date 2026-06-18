@@ -13,7 +13,8 @@ function MockEnvironment.new(world)
             can_interact = true,
             can_manage_inventory = true,
             can_evaluate_equipment = true,
-            can_learn_skill = true
+            can_learn_skill = true,
+            can_execute_combat = true
         },
         world = world
     }, MockEnvironment)
@@ -67,6 +68,11 @@ function MockEnvironment:perform_action(action, bb)
     elseif action.name == "LearnSkill" then
         bb.skill.learned[action.params.skill_id] = true
         return Result.success({ skill_id = action.params.skill_id })
+    elseif action.name == "ExecuteCombatDecision" then
+        local proposal = action.params.proposal
+        bb.combat.last_proposal = proposal
+        bb.combat.last_decision = proposal
+        return Result.success({ proposal = proposal, mock = true })
     elseif action.name == "Wait" or action.name == "Idle" then
         return Result.success({ waited = action.params.seconds or 0 })
     elseif action.name == "Stop" then

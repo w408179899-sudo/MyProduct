@@ -76,6 +76,14 @@ function Blackboard.new(opts)
             nearby_resources = {},
             selected_entity = nil
         },
+        combat = {
+            logic_mode = opts.combat_logic_mode,
+            last_proposal = nil,
+            last_decision = nil,
+            prediction_horizon_seconds = nil,
+            candidate_count = 0,
+            last_fallback_reason = nil
+        },
         account = opts.account or {},
         task = {
             previous_goal = nil,
@@ -106,7 +114,9 @@ function Blackboard.new(opts)
             action_timeout_count = 0,
             safety_trigger_count = 0,
             average_tick_time = 0,
-            current_action_queue_size = 0
+            current_action_queue_size = 0,
+            combat_degradation_count = 0,
+            perception_refresh_count = 0
         }
     }
 end

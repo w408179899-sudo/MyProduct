@@ -20,6 +20,9 @@ local EquipmentManager = require("maple.managers.equipment_manager")
 local SkillManager = require("maple.managers.skill_manager")
 local QuestManager = require("maple.managers.quest_manager")
 local ObjectiveResolver = require("maple.managers.objective_resolver")
+local CombatManager = require("maple.managers.combat_manager")
+local CombatResolver = require("maple.combat.resolver")
+local Perception = require("maple.systems.perception")
 
 local function test_logger()
     return Logger.new("test", { level = "debug", print_to_console = false, keep_records = 50 })
@@ -114,6 +117,147 @@ local function run()
         bb.quest.active.q1 = { objectives = { { type = "wait" } } }
         T.assert_true(QuestManager.is_objective_complete(QuestManager.get_current_objective(bb), bb))
         T.assert_eq(ObjectiveResolver.resolve({ type = "wait", seconds = 2 }).action, "Wait")
+    end)
+
+    T.test("combat resolver returns plain immediate proposal", function()
+        local proposal = CombatResolver.resolve({
+            mode = "immediate",
+            actor_position = { x = 0, y = 0, z = 0 },
+            targets = {
+                { id = "far", x = 200, y = 0, z = 0 },
+                { id = "near", x = 20, y = 0, z = 0 }
+            },
+            cfg = { default_skill_id = "basic_attack", max_candidate_targets = 8 }
+        })
+        T.assert_eq(proposal.mode, "immediate")
+        T.assert_eq(proposal.action, "cast_skill")
+        T.assert_eq(proposal.intent, "cast_skill")
+        T.assert_eq(proposal.target_id, "near")
+        T.assert_not_nil(proposal.params)
+        T.assert_eq(proposal.params.target_id, "near")
+    end)
+
+    T.test("combat resolver trims predictive candidates", function()
+        local proposal = CombatResolver.resolve({
+            mode = "predictive",
+            actor_position = { x = 0, y = 0, z = 0 },
+            targets = {
+                { id = "near", x = 40, y = 0, z = 0 },
+                { id = "far1", x = 400, y = 0, z = 0 },
+                { id = "far2", x = 500, y = 0, z = 0 }
+            },
+            cfg = {
+                default_skill_id = "basic_attack",
+                default_skill_range_x = 120,
+                default_skill_range_y = 50,
+                prediction_horizon_seconds = 1,
+                prediction_step_seconds = 0.25,
+                default_skill_windup_seconds = 0.5,
+                max_candidate_targets = 1
+            }
+        })
+        T.assert_eq(proposal.mode, "predictive")
+        T.assert_eq(proposal.candidate_count, 1)
+        T.assert_eq(proposal.action, "cast_skill")
+    end)
+
+    T.test("combat resolver returns fallback proposal on budget overrun", function()
+        local proposal = CombatResolver.resolve({
+            mode = "predictive",
+            actor_position = { x = 0, y = 0, z = 0 },
+            targets = { { id = "m1", x = 40, y = 0, z = 0 } },
+            cfg = { max_candidate_targets = 8 },
+            budget_ms = 0.0001,
+            started_at = (os.clock and os.clock() or 0) - 1
+        })
+        T.assert_true(proposal.fallback_requested)
+        T.assert_eq(proposal.fallback_reason, "budget_exceeded")
+    end)
+
+    T.test("combat manager supports immediate tick logic", function()
+        local bb = Blackboard.new({ account = { enabled = true, combat_logic_mode = "immediate" } })
+        bb.actor.position = { x = 0, y = 0, z = 0 }
+        bb.world.nearby_targets = {
+            { id = "far", x = 200, y = 0, z = 0 },
+            { id = "near", x = 20, y = 0, z = 0 }
+        }
+        local decision = CombatManager.decide(bb)
+        T.assert_eq(decision.mode, "immediate")
+        T.assert_eq(decision.action, "cast_skill")
+        T.assert_eq(decision.target_id, "near")
+    end)
+
+    T.test("combat manager supports predictive tick logic", function()
+        local bb = Blackboard.new({ account = { enabled = true, combat_logic_mode = "predictive" } })
+        bb.actor.position = { x = 0, y = 0, z = 0 }
+        bb.world.nearby_targets = {
+            { id = "moving_in", x = 200, y = 0, z = 0, vx = -100, vy = 0 },
+            { id = "already_in", x = 40, y = 0, z = 0, vx = 0, vy = 0 }
+        }
+        local decision = CombatManager.decide(bb)
+        T.assert_eq(decision.mode, "predictive")
+        T.assert_eq(decision.action, "cast_skill")
+        T.assert_gte(decision.score, 1)
+        T.assert_not_nil(decision.hit_time)
+    end)
+
+    T.test("combat manager smart switch prefers predictive logic", function()
+        local bb = Blackboard.new({
+            account = {
+                enabled = true,
+                smart_combat_enabled = true,
+                combat_logic_mode = "immediate"
+            }
+        })
+        bb.actor.position = { x = 0, y = 0, z = 0 }
+        bb.world.nearby_targets = {
+            { id = "m1", x = 40, y = 0, z = 0, vx = 0, vy = 0 }
+        }
+        local decision = CombatManager.decide(bb)
+        T.assert_eq(decision.mode, "predictive")
+    end)
+
+    T.test("combat manager degrades predictive budget overrun to immediate proposal", function()
+        local old_budget = Config.combat.predictive_budget_ms
+        Config.combat.predictive_budget_ms = 0.0001
+        local bb = Blackboard.new({ account = { enabled = true, combat_logic_mode = "predictive" } })
+        bb.actor.position = { x = 0, y = 0, z = 0 }
+        bb.world.nearby_targets = {
+            { id = "m1", x = 40, y = 0, z = 0, vx = 0, vy = 0 }
+        }
+        local proposal = CombatManager.decide(bb)
+        Config.combat.predictive_budget_ms = old_budget
+        T.assert_eq(proposal.mode, "immediate")
+        T.assert_true(proposal.degraded)
+        T.assert_eq(proposal.fallback_reason, "budget_exceeded")
+    end)
+
+    T.test("perception refreshes heavy domains by interval", function()
+        local counts = { actor = 0, world = 0, inventory = 0 }
+        local env = MockEnvironment.new()
+        function env:get_actor_state() counts.actor = counts.actor + 1; return { position = { x = counts.actor, y = 0, z = 0 } } end
+        function env:get_world_state() counts.world = counts.world + 1; return { nearby_targets = {} } end
+        function env:get_inventory_state() counts.inventory = counts.inventory + 1; return { used_slots = counts.inventory, max_slots = 100, items = {} } end
+        local bb = Blackboard.new()
+        local perception = Perception.new(env, test_logger(), {
+            actor_interval_ticks = 1,
+            world_interval_ticks = 1,
+            inventory_interval_ticks = 3,
+            quest_interval_ticks = 99,
+            equipment_interval_ticks = 99,
+            skill_interval_ticks = 99
+        })
+        bb.runtime.tick = 1
+        perception:update(bb)
+        bb.runtime.tick = 2
+        perception:update(bb)
+        bb.runtime.tick = 3
+        perception:update(bb)
+        bb.runtime.tick = 4
+        perception:update(bb)
+        T.assert_eq(counts.actor, 4)
+        T.assert_eq(counts.world, 4)
+        T.assert_eq(counts.inventory, 2)
     end)
 
     T.test("safety opens circuit breaker", function()

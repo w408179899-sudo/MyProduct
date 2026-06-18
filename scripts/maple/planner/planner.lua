@@ -6,7 +6,7 @@ Planner.__index = Planner
 
 function Planner.new(cfg, logger)
     local registry = Registry.new()
-    for _, id in ipairs({ "recovery", "safety", "stuck", "inventory", "equipment", "skill", "quest", "idle" }) do
+    for _, id in ipairs({ "recovery", "safety", "stuck", "inventory", "equipment", "skill", "combat", "quest", "idle" }) do
         registry:add(Goals[id])
     end
     return setmetatable({ cfg = cfg, logger = logger, registry = registry }, Planner)

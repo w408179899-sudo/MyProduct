@@ -62,6 +62,25 @@ local function run()
         T.assert_eq(system.blackboard.metrics.action_success_count, 1)
     end)
 
+    T.test("agent loop routes nearby targets to combat decision port", function()
+        local system = Bootstrap.new({
+            account = { enabled = true, combat_logic_mode = "predictive" },
+            account_index = 1,
+            world = {
+                world = {
+                    nearby_targets = {
+                        { id = "m1", x = 40, y = 0, z = 0, vx = 0, vy = 0 }
+                    }
+                }
+            }
+        })
+        Bootstrap.tick(system)
+        T.assert_eq(system.blackboard.task.active_goal, "combat")
+        T.assert_eq(system.blackboard.metrics.action_success_count, 1)
+        T.assert_eq(system.blackboard.combat.last_proposal.mode, "predictive")
+        T.assert_eq(system.blackboard.task.last_result.proposal.mode, "predictive")
+    end)
+
     T.test("account store adds and saves durable account records", function()
         local backend = fake_config()
         Store.set_backend(backend)
@@ -81,7 +100,13 @@ local function run()
         root.auto_relogin_on_disconnect = true
         root.auto_relogin_cooldown_seconds = 15
         root.game_path = "C:/Game"
-        Store.add(root, Store.new_account({ account = "user1", task = "main", route = "r1" }))
+        Store.add(root, Store.new_account({
+            account = "user1",
+            task = "main",
+            route = "r1",
+            smart_combat_enabled = true,
+            combat_logic_mode = "predictive"
+        }))
         T.assert_true(Store.save(root))
 
         local loaded = Store.load()
@@ -89,6 +114,8 @@ local function run()
         T.assert_eq(loaded.auto_relogin_cooldown_seconds, 15)
         T.assert_eq(loaded.game_path, "C:/Game")
         T.assert_eq(loaded.items[1].task, "main")
+        T.assert_true(loaded.items[1].smart_combat_enabled)
+        T.assert_eq(loaded.items[1].combat_logic_mode, "predictive")
         T.assert_type(loaded.items[1].audit, "table")
         Store.set_backend(nil)
     end)

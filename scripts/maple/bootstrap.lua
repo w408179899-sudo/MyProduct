@@ -25,7 +25,7 @@ function Bootstrap.new(opts)
         logger = logger,
         environment = environment,
         clock = Clock.new(),
-        perception = Perception.new(environment, logger),
+        perception = Perception.new(environment, logger, Config.perception),
         planner = Planner.new(Config, logger),
         executor = executor,
         root_tree = RootTree.new(executor, logger),

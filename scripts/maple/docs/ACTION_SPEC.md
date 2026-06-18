@@ -23,8 +23,11 @@ Current actions:
 - `ProcessInventoryRules`
 - `EvaluateEquipmentCandidates`
 - `LearnSkill`
+- `ExecuteCombatDecision`
 - `Wait`
 - `Idle`
 - `Stop`
 
 Add real MapleStory behavior by extending an Environment adapter first, then adding tests against a mock equivalent.
+
+`ExecuteCombatDecision` receives a `proposal` produced by the combat proposal ports and neutral resolver. The proposal is plain data; Environment adapters decide how to execute it against the real or mock client.

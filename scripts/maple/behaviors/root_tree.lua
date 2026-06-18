@@ -1,5 +1,6 @@
 local PrioritySelector = require("maple.bt.priority_selector")
 local Branch = require("maple.behaviors.branch_factory")
+local CombatBranch = require("maple.behaviors.combat_branch")
 
 local RootTree = {}
 
@@ -14,6 +15,7 @@ function RootTree.new(executor, logger)
             local first = bb.skill.available and bb.skill.available[1]
             return { skill_id = first and first.id or "mock_skill" }
         end, executor, logger),
+        CombatBranch.new(executor, logger),
         Branch.new("quest", 200, "Idle", nil, executor, logger),
         Branch.new("idle", 0, "Idle", nil, executor, logger)
     }

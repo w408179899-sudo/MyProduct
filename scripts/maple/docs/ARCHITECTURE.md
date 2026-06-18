@@ -21,6 +21,8 @@ scripts/maple_control_ui.lua
 - Real game APIs belong only in `environment/` adapters.
 - Business rules belong in `managers/`.
 - Executable operations must be declared in `data/action_specs.lua`.
+- Use pragmatic DDD-lite boundaries: domain calculation stays pure, Managers orchestrate, and infrastructure stays in adapters/config/task/UI.
+- Combat calculation uses plain `context -> proposal` contracts.
 
 ## Important Files
 
@@ -34,7 +36,34 @@ scripts/maple/account/orchestrator.lua
 scripts/maple/environment/mock_environment.lua
 scripts/maple/systems/executor.lua
 scripts/maple/data/action_specs.lua
+scripts/maple/combat/resolver.lua
+scripts/maple/combat/immediate_tick.lua
+scripts/maple/combat/predictive_tick.lua
+scripts/maple/managers/combat_manager.lua
 ```
+
+## Combat Ports
+
+Maple combat has two reserved proposal ports:
+
+- Immediate tick: `scripts/maple/combat/immediate_tick.lua`
+- Predictive tick: `scripts/maple/combat/predictive_tick.lua`
+
+Both ports are adapters around the neutral pure calculation module:
+
+- Core: `scripts/maple/combat/resolver.lua`
+
+`CombatManager` selects which port to use from account/config state, validates the returned proposal, and lets Behavior Tree queue only an `ExecuteCombatDecision` action. Behavior Tree and Managers do not execute combat directly.
+
+The predictive port is reserved for short-horizon simulation, currently 1-3 seconds, where skill windup, monster movement, platform risk, loot timing, and movement cost can be scored before choosing an action.
+
+The resolver accepts plain context data and returns a plain proposal. It must not call Environment, Executor, config, UI, task APIs, sys share APIs, file I/O, or real client APIs.
+
+## Performance And Degradation
+
+Perception owns API reads and writes cached Blackboard snapshots. High-frequency domains such as actor/world can refresh every tick; heavier domains such as inventory, equipment, skill, and quest refresh by interval.
+
+Combat scoring has candidate trimming and tick budgets. If predictive scoring exceeds its budget, `CombatManager` degrades the current account to the immediate/baseline path and records the fallback reason.
 
 ## Tests
 

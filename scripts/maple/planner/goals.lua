@@ -36,6 +36,12 @@ goals.skill = {
     reason = function() return "skill_available" end
 }
 
+goals.combat = {
+    id = "combat", priority = 250, timeout = 120, cooldown = 1,
+    can_activate = function(bb) return #(bb.world.nearby_targets or {}) > 0 end,
+    reason = function(bb) return "nearby_targets:" .. tostring(#(bb.world.nearby_targets or {})) end
+}
+
 goals.quest = {
     id = "quest", priority = 200, timeout = 300, cooldown = 2,
     can_activate = function(bb) return bb.quest.current_quest_id ~= nil or bb.account.enabled ~= false end,

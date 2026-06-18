@@ -35,6 +35,26 @@ local Config = {
         enabled = true,
         interval_ticks = 50,
         max_snapshots = 20
+    },
+    perception = {
+        actor_interval_ticks = 1,
+        world_interval_ticks = 1,
+        quest_interval_ticks = 5,
+        inventory_interval_ticks = 10,
+        equipment_interval_ticks = 10,
+        skill_interval_ticks = 10
+    },
+    combat = {
+        logic_mode = "predictive",
+        prediction_horizon_seconds = 2.0,
+        prediction_step_seconds = 0.25,
+        default_skill_id = "basic_attack",
+        default_skill_range_x = 120,
+        default_skill_range_y = 50,
+        default_skill_windup_seconds = 0.5,
+        max_candidate_targets = 8,
+        immediate_budget_ms = 1,
+        predictive_budget_ms = 5
     }
 }
 

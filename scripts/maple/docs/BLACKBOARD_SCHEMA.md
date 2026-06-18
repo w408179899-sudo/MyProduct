@@ -13,6 +13,7 @@ Blackboard state is shared state. Do not add temporary locals here.
 - `skill`: learned and available skills, learn/trainer flags.
 - `navigation`: route, destination, waypoint index, moving/stuck state.
 - `world`: nearby NPCs, targets, resources, selected entity.
+- `combat`: selected combat logic mode, last combat proposal, compatibility last decision, prediction horizon, candidate count, fallback reason.
 - `account`: account record loaded from `script_config.json`.
 - `task`: active/previous goal, active action, failure counters, last result.
 - `action_queue`: reserved shared view of queued actions.
@@ -26,3 +27,4 @@ Blackboard state is shared state. Do not add temporary locals here.
 - Planner updates only `task.previous_goal` and `task.active_goal`.
 - Executor updates action lifecycle and action metrics.
 - Safety updates only `safety` fields and stop protection flags.
+- Combat Behavior Tree stores the latest accepted proposal; calculation cores do not mutate Blackboard.
