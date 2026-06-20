@@ -18,8 +18,8 @@ Blackboard state is shared state. Do not add temporary locals here.
 - `task`: active/previous goal, active action, failure counters, last result.
 - `action_queue`: reserved shared view of queued actions.
 - `safety`: stop reason, last trigger, circuit breaker state.
-- `debug`: last node/branch/action.
-- `metrics`: tick count, goal/action/safety counters, average tick time.
+- `debug`: last node/branch/action and latest API diagnostic.
+- `metrics`: tick count, goal/action/safety counters, average tick time, API call/error counters.
 
 ## Ownership
 
@@ -28,3 +28,4 @@ Blackboard state is shared state. Do not add temporary locals here.
 - Executor updates action lifecycle and action metrics.
 - Safety updates only `safety` fields and stop protection flags.
 - Combat Behavior Tree stores the latest accepted proposal; calculation cores do not mutate Blackboard.
+- Environment API adapters may update `debug.last_api_call` and API metrics only.

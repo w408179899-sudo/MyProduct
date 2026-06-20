@@ -34,6 +34,9 @@ scripts/maple/blackboard.lua
 scripts/maple/account/store.lua
 scripts/maple/account/orchestrator.lua
 scripts/maple/environment/mock_environment.lua
+scripts/maple/environment/maple_environment.lua
+scripts/maple/environment/maple_api.lua
+scripts/maple/environment/normalizers.lua
 scripts/maple/systems/executor.lua
 scripts/maple/data/action_specs.lua
 scripts/maple/combat/resolver.lua
@@ -58,6 +61,16 @@ Both ports are adapters around the neutral pure calculation module:
 The predictive port is reserved for short-horizon simulation, currently 1-3 seconds, where skill windup, monster movement, platform risk, loot timing, and movement cost can be scored before choosing an action.
 
 The resolver accepts plain context data and returns a plain proposal. It must not call Environment, Executor, config, UI, task APIs, sys share APIs, file I/O, or real client APIs.
+
+## Real API Adapter
+
+The real Maple API is opt-in and lives only under `scripts/maple/environment/`.
+
+- `maple_api.lua` wraps documented `data.lua` calls and records diagnostics.
+- `normalizers.lua` converts raw API payloads into Blackboard snapshots.
+- `maple_environment.lua` exposes the Environment contract to Perception and Executor.
+
+Default Bootstrap runs `mock_environment`. Use `environment_name = "maple"` only when the caller explicitly wants the real adapter.
 
 ## Performance And Degradation
 

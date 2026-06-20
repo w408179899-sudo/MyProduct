@@ -3,6 +3,7 @@ local Blackboard = require("maple.blackboard")
 local Clock = require("maple.core.clock")
 local Logger = require("maple.systems.logger")
 local MockEnvironment = require("maple.environment.mock_environment")
+local MapleEnvironment = require("maple.environment.maple_environment")
 local Perception = require("maple.systems.perception")
 local Planner = require("maple.planner.planner")
 local Executor = require("maple.systems.executor")
@@ -13,10 +14,26 @@ local Snapshot = require("maple.systems.snapshot")
 
 local Bootstrap = {}
 
+local function build_environment(opts, logger)
+    if opts.environment then return opts.environment end
+    if opts.environment_name == "maple" or opts.use_real_environment == true then
+        return MapleEnvironment.new({
+            world = opts.world,
+            data_module = opts.data_module,
+            module_name = opts.data_module_name,
+            logger = logger,
+            account_index = opts.account_index,
+            target_name = opts.target_name,
+            license_key = opts.license_key
+        })
+    end
+    return MockEnvironment.new(opts.world)
+end
+
 function Bootstrap.new(opts)
     opts = opts or {}
     local logger = Logger.new("agent", Config.logging)
-    local environment = opts.environment or MockEnvironment.new(opts.world)
+    local environment = build_environment(opts, logger)
     local bb = Blackboard.new(opts)
     local executor = Executor.new(environment, Config, logger)
     return {

@@ -104,7 +104,8 @@ function Blackboard.new(opts)
             enabled = true,
             last_node = nil,
             last_branch = nil,
-            last_action = nil
+            last_action = nil,
+            last_api_call = nil
         },
         metrics = {
             tick_count = 0,
@@ -116,7 +117,10 @@ function Blackboard.new(opts)
             average_tick_time = 0,
             current_action_queue_size = 0,
             combat_degradation_count = 0,
-            perception_refresh_count = 0
+            perception_refresh_count = 0,
+            api_call_count = 0,
+            api_error_count = 0,
+            latest_api_latency_ms = 0
         }
     }
 end

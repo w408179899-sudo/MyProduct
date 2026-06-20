@@ -16,6 +16,8 @@ Run syntax checks:
 ## Test Families
 
 - `maple_unit`: Planner, BT, Executor, Managers, Safety, Logger, Snapshot, Replay.
-- `maple_flow`: mock agent tick, account store, per-account task start, isolated stop, max parallel start.
+- `maple_flow`: mock agent tick, fake Maple environment tick, account store, per-account task start, isolated stop, max parallel start.
+
+Environment adapter tests use fake `data` modules. They must not require a live client.
 
 Tests must not require a live game client.

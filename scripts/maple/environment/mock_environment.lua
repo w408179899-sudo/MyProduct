@@ -73,6 +73,27 @@ function MockEnvironment:perform_action(action, bb)
         bb.combat.last_proposal = proposal
         bb.combat.last_decision = proposal
         return Result.success({ proposal = proposal, mock = true })
+    elseif action.name == "BasicAttack" then
+        bb.combat.last_action = "BasicAttack"
+        return Result.success({ attacked = true, mock = true })
+    elseif action.name == "UseQuickslot" then
+        bb.combat.last_action = "UseQuickslot"
+        return Result.success({ slot = action.params.slot, action = action.params.action or "press", mock = true })
+    elseif action.name == "SetWalkDirection" then
+        bb.navigation.is_moving = tonumber(action.params.direction) ~= 0
+        bb.navigation.last_direction = tonumber(action.params.direction) or 0
+        return Result.success({ direction = action.params.direction, vertical = action.params.vertical or 0, mock = true })
+    elseif action.name == "StopMove" then
+        bb.navigation.is_moving = false
+        bb.navigation.last_direction = 0
+        return Result.success({ direction = 0, vertical = 0, mock = true })
+    elseif action.name == "PickAllDrops" then
+        bb.world.nearby_resources = {}
+        return Result.success({ picked = true, mock = true })
+    elseif action.name == "UseItem" then
+        return Result.success({ item_code = action.params.item_code, mock = true })
+    elseif action.name == "EquipItem" then
+        return Result.success({ item_code = action.params.item_code, mock = true })
     elseif action.name == "Wait" or action.name == "Idle" then
         return Result.success({ waited = action.params.seconds or 0 })
     elseif action.name == "Stop" then

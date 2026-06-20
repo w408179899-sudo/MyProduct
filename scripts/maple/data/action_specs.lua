@@ -7,6 +7,13 @@ return {
     EvaluateEquipmentCandidates = { timeout = "equipment", max_retries = 1, required_params = {} },
     LearnSkill = { timeout = "skill", max_retries = 1, required_params = { "skill_id" } },
     ExecuteCombatDecision = { timeout = "action", max_retries = 0, required_params = { "proposal" } },
+    BasicAttack = { timeout = "action", max_retries = 0, required_params = {} },
+    UseQuickslot = { timeout = "action", max_retries = 0, required_params = { "slot" } },
+    SetWalkDirection = { timeout = "action", max_retries = 0, required_params = { "direction" } },
+    StopMove = { timeout = "action", max_retries = 0, required_params = {} },
+    PickAllDrops = { timeout = "action", max_retries = 0, required_params = {} },
+    UseItem = { timeout = "action", max_retries = 0, required_params = { "item_code" } },
+    EquipItem = { timeout = "action", max_retries = 0, required_params = { "item_code" } },
     Wait = { timeout = "action", max_retries = 0, required_params = { "seconds" } },
     Idle = { timeout = "action", max_retries = 0, required_params = {} },
     Stop = { timeout = "action", max_retries = 0, required_params = { "reason" } }

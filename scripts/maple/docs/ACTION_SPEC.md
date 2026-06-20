@@ -24,6 +24,13 @@ Current actions:
 - `EvaluateEquipmentCandidates`
 - `LearnSkill`
 - `ExecuteCombatDecision`
+- `BasicAttack`
+- `UseQuickslot`
+- `SetWalkDirection`
+- `StopMove`
+- `PickAllDrops`
+- `UseItem`
+- `EquipItem`
 - `Wait`
 - `Idle`
 - `Stop`
@@ -31,3 +38,5 @@ Current actions:
 Add real MapleStory behavior by extending an Environment adapter first, then adding tests against a mock equivalent.
 
 `ExecuteCombatDecision` receives a `proposal` produced by the combat proposal ports and neutral resolver. The proposal is plain data; Environment adapters decide how to execute it against the real or mock client.
+
+The atomic Maple actions are reusable bricks for future combat, loot, movement, item, and equipment flows. Higher-level branches should queue these actions or a proposal that the Environment can safely map to these actions; business modules should not call real client APIs directly.

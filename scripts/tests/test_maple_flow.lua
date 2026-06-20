@@ -4,6 +4,45 @@ local Bootstrap = require("maple.bootstrap")
 local Store = require("maple.account.store")
 local Orchestrator = require("maple.account.orchestrator")
 
+local function fake_data()
+    local data = { calls = {} }
+    function data.player_info()
+        data.calls[#data.calls + 1] = { name = "player_info" }
+        return { Hp = "100", MaxHp = "100", Mp = "50", MaxMp = "50", Level = "10", X = "0", Y = "0", MapId = "100" }
+    end
+    function data.list_inventory()
+        data.calls[#data.calls + 1] = { name = "list_inventory" }
+        return { meso = "0", items = {} }
+    end
+    function data.list_skills()
+        data.calls[#data.calls + 1] = { name = "list_skills" }
+        return { point = "0", used = "0", skills = { { Code = 1001004, CurrentLevel = "1", name = "Slash" } } }
+    end
+    function data.list_quickslot()
+        data.calls[#data.calls + 1] = { name = "list_quickslot" }
+        return { { slot = 1, key = "Shift", cat = "Skill", id = "1001004" } }
+    end
+    function data.list_nearby()
+        data.calls[#data.calls + 1] = { name = "list_nearby" }
+        return {
+            mobCount = 1,
+            mobs = { { Name = "Snail", MobId = 1, Level = "1", x = "40", y = "0", Hp = "10", MaxHp = "10" } },
+            drops = {},
+            portals = {},
+            npcs = {}
+        }
+    end
+    function data.do_attack()
+        data.calls[#data.calls + 1] = { name = "do_attack" }
+        return "ok"
+    end
+    function data.quickslot_use(slot, action)
+        data.calls[#data.calls + 1] = { name = "quickslot_use", slot = slot, action = action }
+        return "ok"
+    end
+    return data
+end
+
 local function fake_config()
     local data = {}
     return {
@@ -79,6 +118,22 @@ local function run()
         T.assert_eq(system.blackboard.metrics.action_success_count, 1)
         T.assert_eq(system.blackboard.combat.last_proposal.mode, "predictive")
         T.assert_eq(system.blackboard.task.last_result.proposal.mode, "predictive")
+    end)
+
+    T.test("agent loop can run through maple environment with fake data", function()
+        local data = fake_data()
+        local system = Bootstrap.new({
+            account = { enabled = true, combat_logic_mode = "predictive" },
+            account_index = 1,
+            environment_name = "maple",
+            data_module = data
+        })
+        Bootstrap.tick(system)
+        T.assert_eq(system.environment.adapter_name, "maple_environment")
+        T.assert_eq(system.blackboard.task.active_goal, "combat")
+        T.assert_eq(system.blackboard.world.nearby_targets[1].name, "Snail")
+        T.assert_eq(system.blackboard.metrics.action_success_count, 1)
+        T.assert_eq(data.calls[#data.calls].name, "do_attack")
     end)
 
     T.test("account store adds and saves durable account records", function()
