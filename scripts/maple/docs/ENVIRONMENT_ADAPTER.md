@@ -40,6 +40,7 @@ Special or diagnostic APIs stay out of ordinary flow until a specific owner is a
 - `normalizers.lua`: pure conversion from raw API tables into internal snapshots.
 - `maple_environment.lua`: Environment implementation used by Perception and Executor.
 - `mock_environment.lua`: mock equivalent for tests and local framework development.
+- `probes/api_probe.lua`: real-client validation helpers built on top of the Environment adapter.
 
 ## Snapshot Contracts
 
@@ -112,3 +113,14 @@ Bootstrap.new({
 ```
 
 Worker integration should only enable this after account startup and bind flow are explicitly decided.
+
+## Probe Scripts
+
+Probe entrypoints:
+
+```text
+scripts/maple_probe_readonly.lua
+scripts/maple_probe_actions.lua
+```
+
+Use readonly probe before business flow development against a live client. Use action probe only when issuing attack, quickslot, movement, stop, and pickup commands is acceptable.

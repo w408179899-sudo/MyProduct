@@ -37,6 +37,7 @@ scripts/maple/environment/mock_environment.lua
 scripts/maple/environment/maple_environment.lua
 scripts/maple/environment/maple_api.lua
 scripts/maple/environment/normalizers.lua
+scripts/maple/probes/api_probe.lua
 scripts/maple/systems/executor.lua
 scripts/maple/data/action_specs.lua
 scripts/maple/combat/resolver.lua
@@ -71,6 +72,13 @@ The real Maple API is opt-in and lives only under `scripts/maple/environment/`.
 - `maple_environment.lua` exposes the Environment contract to Perception and Executor.
 
 Default Bootstrap runs `mock_environment`. Use `environment_name = "maple"` only when the caller explicitly wants the real adapter.
+
+Probe scripts validate the adapter before long-running business flow:
+
+- `scripts/maple_probe_readonly.lua`
+- `scripts/maple_probe_actions.lua`
+
+The smart combat switch is binary at account level. `smart_combat_enabled = true` allows predictive combat. `false` forces the immediate/basic path.
 
 ## Performance And Degradation
 

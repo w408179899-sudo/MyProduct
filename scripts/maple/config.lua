@@ -45,7 +45,7 @@ local Config = {
         skill_interval_ticks = 10
     },
     combat = {
-        logic_mode = "predictive",
+        logic_mode = "immediate",
         prediction_horizon_seconds = 2.0,
         prediction_step_seconds = 0.25,
         default_skill_id = "basic_attack",

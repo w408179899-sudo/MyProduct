@@ -11,6 +11,8 @@ local function combat_config(bb)
     if bb.account then
         if bb.account.smart_combat_enabled == true then
             cfg.logic_mode = "predictive"
+        elseif bb.account.smart_combat_enabled == false then
+            cfg.logic_mode = "immediate"
         elseif bb.account.combat_logic_mode then
             cfg.logic_mode = bb.account.combat_logic_mode
         end

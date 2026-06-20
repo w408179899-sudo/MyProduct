@@ -26,6 +26,8 @@ local Perception = require("maple.systems.perception")
 local MapleApi = require("maple.environment.maple_api")
 local MapleEnvironment = require("maple.environment.maple_environment")
 local Normalize = require("maple.environment.normalizers")
+local Probe = require("maple.probes.api_probe")
+local ApiSample = require("maple.probes.fixtures.api_sample")
 
 local function fake_data()
     local data = { calls = {} }
@@ -246,6 +248,18 @@ local function run()
         T.assert_eq(skill.quickslots[1].numeric_id, 1001004)
     end)
 
+    T.test("fixture sample normalizes into combat ready snapshots", function()
+        local actor = Normalize.actor(ApiSample.player_info)
+        local world = Normalize.world(ApiSample.list_nearby)
+        local inventory = Normalize.inventory(ApiSample.list_inventory)
+        local skill = Normalize.skill(ApiSample.list_skills, ApiSample.list_quickslot)
+        T.assert_eq(actor.map_id, "100020000")
+        T.assert_eq(world.nearby_targets[1].type_id, 100101)
+        T.assert_true(world.nearby_resources[1].can_pick)
+        T.assert_eq(inventory.items[1].count, 10)
+        T.assert_eq(skill.quickslots[1].slot, 1)
+    end)
+
     T.test("maple api wrapper records diagnostics", function()
         local bb = Blackboard.new({ account_index = 7 })
         local data = { ping = function() return { items = { 1, 2 } } end }
@@ -312,6 +326,37 @@ local function run()
         T.assert_eq(data.calls[1].name, "quickslot_use")
         T.assert_eq(data.calls[1].slot, 1)
         T.assert_eq(data.calls[2].name, "do_attack")
+    end)
+
+    T.test("readonly probe works with fake data module", function()
+        local lines = {}
+        local result = Probe.readonly({
+            data_module = fake_data(),
+            output = function(message) lines[#lines + 1] = message end
+        })
+        T.assert_true(result.ok)
+        T.assert_eq(result.normalized.actor.nickname, "hero")
+        T.assert_eq(result.normalized.world.nearby_targets[1].name, "Snail")
+        T.assert_gte(#lines, 5)
+    end)
+
+    T.test("action probe executes expected action bricks with fake data module", function()
+        local data = fake_data()
+        local result = Probe.actions({
+            data_module = data,
+            quickslot_slot = 1,
+            move_ms = 0,
+            output = function() end
+        })
+        T.assert_true(result.ok)
+        T.assert_eq(data.calls[1].name, "connect")
+        T.assert_eq(data.calls[2].name, "do_attack")
+        T.assert_eq(data.calls[3].name, "quickslot_use")
+        T.assert_eq(data.calls[4].name, "walk")
+        T.assert_eq(data.calls[5].name, "walk")
+        T.assert_eq(data.calls[6].name, "walk")
+        T.assert_eq(data.calls[7].name, "walk")
+        T.assert_eq(data.calls[8].name, "pick_all")
     end)
 
     T.test("combat resolver trims predictive candidates", function()
@@ -392,6 +437,22 @@ local function run()
         }
         local decision = CombatManager.decide(bb)
         T.assert_eq(decision.mode, "predictive")
+    end)
+
+    T.test("combat manager disabled smart switch forces immediate logic", function()
+        local bb = Blackboard.new({
+            account = {
+                enabled = true,
+                smart_combat_enabled = false,
+                combat_logic_mode = "predictive"
+            }
+        })
+        bb.actor.position = { x = 0, y = 0, z = 0 }
+        bb.world.nearby_targets = {
+            { id = "m1", x = 40, y = 0, z = 0, vx = 0, vy = 0 }
+        }
+        local decision = CombatManager.decide(bb)
+        T.assert_eq(decision.mode, "immediate")
     end)
 
     T.test("combat manager degrades predictive budget overrun to immediate proposal", function()
