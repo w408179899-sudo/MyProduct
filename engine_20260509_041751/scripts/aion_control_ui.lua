@@ -4501,6 +4501,7 @@ function loot_test_dump_near_corpses()
 
     local corpse_rows = {}
     local type2_rows = {}
+    local lootable_rows = {}
     local type2_count = 0
     local lootable_count = 0
 
@@ -4534,6 +4535,19 @@ function loot_test_dump_near_corpses()
         end
         if lootable ~= 0 then
             lootable_count = lootable_count + 1
+            lootable_rows[#lootable_rows + 1] = {
+                dist = dist,
+                obj = obj,
+                key = key,
+                interact_id = interact_id,
+                name = name,
+                type_val = type_val,
+                hp = hp,
+                mhp = mhp,
+                lootable = lootable,
+                dead = dead,
+                reason = reason,
+            }
         end
         if type_val == 2 and (lootable ~= 0 or dead or (mhp > 0 and hp <= 0)) then
             corpse_rows[#corpse_rows + 1] = {
@@ -4556,6 +4570,7 @@ function loot_test_dump_near_corpses()
     end
     table.sort(corpse_rows, by_dist)
     table.sort(type2_rows, by_dist)
+    table.sort(lootable_rows, by_dist)
 
     local lines = {}
     lines[#lines + 1] = string.format(
@@ -4608,6 +4623,30 @@ function loot_test_dump_near_corpses()
     if limit <= 0 then
         lines[#lines + 1] = "No type=2 entities found nearby."
         log_info("[AionLootF5] no type=2 entities")
+    end
+    local lootable_limit = math.min(#lootable_rows, 15)
+    if lootable_limit > 0 then
+        lines[#lines + 1] = "Lootable entity samples:"
+        log_info("[AionLootF5] lootable samples begin count=" .. tostring(#lootable_rows))
+        for index = 1, lootable_limit do
+            local row = lootable_rows[index]
+            local text = string.format(
+                "%02d. lootable type=%s dist=%.1f obj=%s key=%s iid=%s hp=%s/%s lootable=%s dead=%s reason=%s name=%s",
+                index,
+                tostring(row.type_val or 0),
+                tonumber(row.dist) or 0,
+                tostring(row.obj or 0),
+                tostring(row.key or 0),
+                tostring(row.interact_id or 0),
+                tostring(row.hp or 0),
+                tostring(row.mhp or 0),
+                tostring(row.lootable or 0),
+                tostring(row.dead == true),
+                tostring(row.reason or ""),
+                tostring(row.name or ""))
+            lines[#lines + 1] = text
+            log_info("[AionLootF5] " .. text)
+        end
     end
     log_info("[AionLootF5] end")
 
@@ -15311,10 +15350,11 @@ local function account_stop_runtime_all()
     set_event("全部停止请求已发送: " .. tostring(count))
 end
 
-function account_enqueue_pending_script(action, index)
+function account_enqueue_pending_script(action, index, source)
     local request = {
         action = tostring(action or ""),
         index = tonumber(index) or runtime.accounts.selected_index or 1,
+        source = tostring(source or ""),
     }
 
     if type(runtime.accounts.pending_script) ~= "table" then
@@ -15377,7 +15417,6 @@ function account_queue_local_script(action, account, index, source)
     if action_text == "stop" then
         return account_request_stop(account, account_index, source_text)
     end
-
     if action_text == "start" then
         local queue_decision = account_runtime_start_decision("queue", account, account_index)
         if queue_decision.allowed ~= true then
@@ -15391,7 +15430,7 @@ function account_queue_local_script(action, account, index, source)
         " account=" .. account_display_name(account) ..
         " index=" .. tostring(account_index))
 
-    account_enqueue_pending_script(action_text, account_index)
+    account_enqueue_pending_script(action_text, account_index, source_text)
 
     if action_text == "start" then
         account.runtime.manual_stop = false
@@ -15410,12 +15449,17 @@ function account_queue_local_script(action, account, index, source)
         account.runtime.auto_relogin_next_at = 0
         account.runtime.status = "queued_stop"
         account.runtime.message = "stop queued"
-        account_clear_login_auto_start_pending_for_index(account_index, "stop source=" .. source_text)
+        if type(account_clear_login_auto_start_pending_for_index) == "function" then
+            account_clear_login_auto_start_pending_for_index(account_index, "stop source=" .. source_text)
+        end
         runtime.accounts.last_status = "script stop queued: " .. account_display_name(account)
         set_event("脚本停止已排队" .. account_display_name(account))
     end
 
     account.runtime.updated_at = now_seconds()
+    if action_text == "stop" then
+        account_save_domain()
+    end
     return true
 end
 
@@ -15582,6 +15626,9 @@ function account_process_login_bridge_auto_start_tick()
 
     local worker = account_login_bridge_worker_snapshot(pending)
     local worker_ready = worker.status == "ready" or worker.status == "game_started"
+    if ok_login_autostart and login_autostart and type(login_autostart.is_login_ready) == "function" then
+        worker_ready = login_autostart.is_login_ready(worker.status)
+    end
     if worker.status ~= "" and not worker_ready and worker.done == true then
         account_clear_current_login_auto_start_pending()
         account_login_bridge_log("worker-done-" .. worker.status,
@@ -15590,27 +15637,24 @@ function account_process_login_bridge_auto_start_tick()
     end
 
     local current_pid = 0
-    local core_ready = false
-    if ok_core and core and type(core.getState) == "function" then
-        local ok, state = core.getState()
-        if ok and type(state) == "table" and state.inited == true then
-            core_ready = true
-            current_pid = tonumber(state.pid) or 0
+    local pid_reason = "worker"
+    if ok_login_autostart and login_autostart and type(login_autostart.resolve_bridge_worker_pid) == "function" then
+        current_pid, pid_reason = login_autostart.resolve_bridge_worker_pid(worker)
+    elseif worker_ready then
+        current_pid = tonumber(worker.pid) or 0
+        if current_pid <= 0 then
+            pid_reason = "worker-pid-missing"
         end
+    else
+        pid_reason = "worker-not-ready"
     end
-    if not worker_ready and not core_ready then
+    if current_pid <= 0 then
         account_login_bridge_log("worker-wait-" .. tostring(worker.status),
             "waiting worker ready status=" .. tostring(worker.status) ..
             " pid=" .. tostring(worker.pid) ..
-            " done=" .. tostring(worker.done))
+            " done=" .. tostring(worker.done) ..
+            " reason=" .. tostring(pid_reason))
         return false
-    end
-    if current_pid <= 0 and worker.pid > 0 then
-        current_pid = worker.pid
-    end
-    if current_pid <= 0 then
-        target_refresh(true)
-        current_pid = tonumber(cfg.target and cfg.target.pid) or 0
     end
     if worker_ready and current_pid > 0 and runtime.bootstrap then
         if runtime.bootstrap.pending == true then
@@ -15765,7 +15809,7 @@ function account_apply_to_target(account)
     set_event("已切换到账号目标 PID=" .. tostring(cfg.target.pid))
 end
 
-local function account_start_local_script(account, index)
+local function account_start_local_script(account, index, source)
     if not account then
         runtime.accounts.last_status = "start failed: no account selected"
         set_event("启动脚本失败: 未选择账号")
@@ -15773,17 +15817,26 @@ local function account_start_local_script(account, index)
     end
 
     account.runtime = account.runtime or {}
+    local source_text = tostring(source or "unknown")
 
     local begin_decision = account_runtime_start_decision("begin", account, index)
     if begin_decision.allowed ~= true then
         account.runtime.message = tostring(begin_decision.message or begin_decision.reason or "start blocked")
         account.runtime.updated_at = now_seconds()
-        account_note_start_blocked("begin", account, index, "pending-script", begin_decision)
+        account_note_start_blocked("begin", account, index, source_text, begin_decision)
         account_save_domain()
         return false
     end
 
-    if (tonumber(account.target and account.target.pid) or 0) <= 0 and (tonumber(cfg.target and cfg.target.pid) or 0) > 0 then
+    local allow_bind_current = false
+    if ok_login_autostart and login_autostart
+        and type(login_autostart.can_bind_current_target_for_start) == "function" then
+        allow_bind_current = login_autostart.can_bind_current_target_for_start(source_text)
+    end
+
+    if allow_bind_current
+        and (tonumber(account.target and account.target.pid) or 0) <= 0
+        and (tonumber(cfg.target and cfg.target.pid) or 0) > 0 then
         account_bind_current_target(account)
     end
 
@@ -15795,6 +15848,29 @@ local function account_start_local_script(account, index)
         account_save_domain()
         set_event("启动脚本失败: 账号未绑定PID")
         return false
+    end
+
+    local account_pid = tonumber(account.target and account.target.pid) or 0
+    local current_index = tonumber(index) or 0
+    for other_index, other in ipairs(account_items()) do
+        if current_index > 0
+            and other_index < current_index
+            and tonumber(other.target and other.target.pid) == account_pid then
+            account.runtime.status = "error"
+            account.runtime.message = "duplicate target pid " .. tostring(account_pid) ..
+                " with account #" .. tostring(other_index)
+            account.runtime.updated_at = now_seconds()
+            if not allow_bind_current then
+                account.target.pid = 0
+                account.target.hwnd = 0
+                account.target.title = ""
+                account.target.character_name = ""
+            end
+            runtime.accounts.last_status = "start failed: duplicate pid " .. tostring(account_pid)
+            account_save_domain()
+            set_event("启动脚本失败: PID 已绑定到其他账号 " .. tostring(account_pid))
+            return false
+        end
     end
 
     if ok_target and target_lib then
@@ -15903,8 +15979,9 @@ function account_process_pending_script()
     end
 
     local action = tostring(pending.action or "")
+    local source = tostring(pending.source or "pending-script")
     if action == "start" then
-        account_start_local_script(account, index)
+        account_start_local_script(account, index, source)
     elseif action == "stop" then
         account_stop_local_script(account, index, "pending-script")
     else
@@ -21003,6 +21080,31 @@ function draw_account_save_feedback(active, ok, text)
     end
 end
 
+function draw_account_settings_tab(label, draw_fn, use_account_context, account, account_index)
+    if not imgui.begin_tab_item(label) then
+        return
+    end
+
+    local ok, err
+    if use_account_context then
+        ok, err = pcall(with_account_settings_context, account, account_index, draw_fn)
+    else
+        ok, err = pcall(draw_fn)
+    end
+
+    if not ok then
+        local text = "账号设置页绘制失败: " .. tostring(err)
+        if imgui.text_colored then
+            imgui.text_colored(0.90, 0.18, 0.12, 1.0, text)
+        else
+            imgui.text(text)
+        end
+        runtime.accounts.last_status = text
+    end
+
+    imgui.end_tab_item()
+end
+
 local function draw_account_settings_window()
     if not runtime.accounts.settings_window_visible then
         return
@@ -21084,30 +21186,11 @@ local function draw_account_settings_window()
         imgui.separator()
 
         if imgui.begin_tab_bar("##account_settings_tabs_overview_route_account") then
-            if imgui.begin_tab_item("总览") then
-                with_account_settings_context(account, account_index, draw_overview_tab)
-                imgui.end_tab_item()
-            end
-
-            if imgui.begin_tab_item("路径") then
-                with_account_settings_context(account, account_index, draw_route_tab)
-                imgui.end_tab_item()
-            end
-
-            if imgui.begin_tab_item("维护") then
-                with_account_settings_context(account, account_index, draw_maintenance_tab)
-                imgui.end_tab_item()
-            end
-
-            if imgui.begin_tab_item("账号") then
-                draw_account_settings()
-                imgui.end_tab_item()
-            end
-
-            if imgui.begin_tab_item("测试") then
-                with_account_settings_context(account, account_index, draw_test_tab)
-                imgui.end_tab_item()
-            end
+            draw_account_settings_tab("总览", draw_overview_tab, true, account, account_index)
+            draw_account_settings_tab("路径", draw_route_tab, true, account, account_index)
+            draw_account_settings_tab("维护", draw_maintenance_tab, true, account, account_index)
+            draw_account_settings_tab("账号", draw_account_settings, false, account, account_index)
+            draw_account_settings_tab("测试", draw_test_tab, true, account, account_index)
 
             imgui.end_tab_bar()
         end

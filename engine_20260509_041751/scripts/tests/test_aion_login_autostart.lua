@@ -166,6 +166,45 @@ local function run()
         T.assert_eq(decision.reason, "login-ready")
     end)
 
+    T.test("all-start source cannot inherit current target pid", function()
+        T.assert_false(autostart.can_bind_current_target_for_start("all-start-button"))
+    end)
+
+    T.test("manual row and settings start can bind current target pid", function()
+        T.assert_true(autostart.can_bind_current_target_for_start("row-start-button"))
+        T.assert_true(autostart.can_bind_current_target_for_start("settings-start-button"))
+    end)
+
+    T.test("login bridge waits while worker is not ready even if UI has a current pid", function()
+        local pid, reason = autostart.resolve_bridge_worker_pid({
+            status = "waiting_enter_game",
+            pid = 0,
+            done = false,
+        })
+        T.assert_eq(pid, 0)
+        T.assert_eq(reason, "worker-not-ready")
+    end)
+
+    T.test("login bridge uses only ready worker pid", function()
+        local pid, reason = autostart.resolve_bridge_worker_pid({
+            status = "ready",
+            pid = 7002,
+            done = false,
+        })
+        T.assert_eq(pid, 7002)
+        T.assert_eq(reason, "worker")
+    end)
+
+    T.test("login bridge ready without worker pid is blocked", function()
+        local pid, reason = autostart.resolve_bridge_worker_pid({
+            status = "ready",
+            pid = 0,
+            done = false,
+        })
+        T.assert_eq(pid, 0)
+        T.assert_eq(reason, "worker-pid-missing")
+    end)
+
     return T.report("aion_login_autostart")
 end
 

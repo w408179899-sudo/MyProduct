@@ -27,6 +27,30 @@ function M.is_runtime_active(status)
         or status == "running"
 end
 
+function M.can_bind_current_target_for_start(source)
+    source = tostring(source or "")
+    return source == "row-start-button"
+        or source == "settings-start-button"
+        or source == "manual-start-button"
+end
+
+function M.resolve_bridge_worker_pid(worker)
+    worker = worker or {}
+    local status = tostring(worker.status or "")
+    if not M.is_login_ready(status) then
+        if worker.done == true then
+            return 0, "worker-done-not-ready"
+        end
+        return 0, "worker-not-ready"
+    end
+
+    local pid = tonumber(worker.pid) or 0
+    if pid <= 0 then
+        return 0, "worker-pid-missing"
+    end
+    return pid, "worker"
+end
+
 function M.has_route_points(text)
     return has_text(text)
 end
