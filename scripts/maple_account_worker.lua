@@ -10,11 +10,13 @@ local stop_key = Store.status_key(index, "stop")
 
 local root = Store.load()
 local account = Store.get(root, index) or Store.new_account({ key = key })
+account.skill_release = Store.resolve_skill_release(root, account)
 
 local system = Bootstrap.new({
     account_index = index,
     account_key = key,
-    account = account
+    account = account,
+    skill_release = account.skill_release
 })
 
 local running = true

@@ -9,6 +9,7 @@ return {
     ExecuteCombatDecision = { timeout = "action", max_retries = 0, required_params = { "proposal" } },
     BasicAttack = { timeout = "action", max_retries = 0, required_params = {} },
     UseQuickslot = { timeout = "action", max_retries = 0, required_params = { "slot" } },
+    PressKey = { timeout = "action", max_retries = 0, required_params = { "key_code" } },
     SetWalkDirection = { timeout = "action", max_retries = 0, required_params = { "direction" } },
     StopMove = { timeout = "action", max_retries = 0, required_params = {} },
     PickAllDrops = { timeout = "action", max_retries = 0, required_params = {} },

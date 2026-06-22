@@ -80,6 +80,10 @@ Probe scripts validate the adapter before long-running business flow:
 
 The smart combat switch is binary at account level. `smart_combat_enabled = true` allows predictive combat. `false` forces the immediate/basic path.
 
+Skill execution is configuration-driven but still atomic. Default release is foreground `Shift` through the `PressKey` action. `Store.resolve_skill_release` merges defaults, the selected account profile, and account overrides before the worker starts. `ExecuteCombatDecision` may still receive proposal-level overrides, but execution remains inside `MapleEnvironment`.
+
+`quickslot_use` is not the default skill-release path because live probes showed it can return success without releasing the bound skill. Only use it when `quickslot_use_trusted = true` is explicitly configured after revalidation.
+
 ## Performance And Degradation
 
 Perception owns API reads and writes cached Blackboard snapshots. High-frequency domains such as actor/world can refresh every tick; heavier domains such as inventory, equipment, skill, and quest refresh by interval.

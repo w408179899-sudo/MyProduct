@@ -79,6 +79,16 @@ function MockEnvironment:perform_action(action, bb)
     elseif action.name == "UseQuickslot" then
         bb.combat.last_action = "UseQuickslot"
         return Result.success({ slot = action.params.slot, action = action.params.action or "press", mock = true })
+    elseif action.name == "PressKey" then
+        bb.combat.last_action = "PressKey"
+        bb.combat.last_key_code = action.params.key_code
+        bb.combat.last_key_name = action.params.key_name
+        return Result.success({
+            key_code = action.params.key_code,
+            key_name = action.params.key_name,
+            input_mode = action.params.input_mode or "foreground",
+            mock = true
+        })
     elseif action.name == "SetWalkDirection" then
         bb.navigation.is_moving = tonumber(action.params.direction) ~= 0
         bb.navigation.last_direction = tonumber(action.params.direction) or 0

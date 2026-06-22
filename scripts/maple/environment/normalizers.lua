@@ -18,6 +18,15 @@ local function as_boolean(value, fallback)
     return fallback
 end
 
+local function has_text(value)
+    return value ~= nil and tostring(value) ~= ""
+end
+
+local function has_drop_payload(drop)
+    drop = drop or {}
+    return has_text(drop.ItemId) or has_text(drop.Name)
+end
+
 local function position(x, y, z)
     return {
         x = as_number(x, 0),
@@ -132,8 +141,9 @@ end
 
 function Normalizers.quickslots(raw, diagnostic)
     raw = raw or {}
+    local slots = raw.slots or raw
     local list = {}
-    for _, slot in ipairs(raw) do
+    for _, slot in ipairs(slots) do
         list[#list + 1] = {
             slot = as_number(slot.slot, 0),
             key = slot.key,
@@ -184,8 +194,10 @@ function Normalizers.world(raw, diagnostic)
     local targets = {}
     for i, mob in ipairs(raw.mobs or {}) do
         local pos = position(mob.x, mob.y, mob.z)
+        local instance_id = mob.Id or mob.InstanceId
         targets[#targets + 1] = {
-            id = mob.InstanceId or mob_id(mob, i),
+            id = as_string(instance_id or mob_id(mob, i), tostring(i)),
+            instance_id = instance_id,
             type_id = mob.MobId,
             name = mob.Name,
             level = as_number(mob.Level, 0),
@@ -205,23 +217,26 @@ function Normalizers.world(raw, diagnostic)
 
     local resources = {}
     for i, drop in ipairs(raw.drops or {}) do
-        local pos = position(drop.x, drop.y, drop.z)
-        local mine = drop.OwnerCID == "mine"
-        local free = as_boolean(drop.Free, false)
-        resources[#resources + 1] = {
-            id = drop.DropId or drop_id(drop, i),
-            item_id = drop.ItemId,
-            name = drop.Name,
-            owner_cid = drop.OwnerCID,
-            dropper_type = drop.DropperType,
-            free = free,
-            can_pick = mine or free,
-            x = pos.x,
-            y = pos.y,
-            z = pos.z,
-            position = pos,
-            source_index = i
-        }
+        if has_drop_payload(drop) then
+            local pos = position(drop.x, drop.y, drop.z)
+            local mine = drop.OwnerCID == "mine" or drop.Source == "mine"
+            local free = as_boolean(drop.Free, false)
+            resources[#resources + 1] = {
+                id = drop.DropId or drop.Id or drop_id(drop, i),
+                item_id = drop.ItemId,
+                name = drop.Name,
+                owner_cid = drop.OwnerCID,
+                drop_source = drop.Source,
+                dropper_type = drop.DropperType,
+                free = free,
+                can_pick = mine or free,
+                x = pos.x,
+                y = pos.y,
+                z = pos.z,
+                position = pos,
+                source_index = i
+            }
+        end
     end
 
     local portals = {}

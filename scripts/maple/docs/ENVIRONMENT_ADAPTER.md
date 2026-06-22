@@ -27,6 +27,13 @@ Action APIs:
 - `use_item`
 - `equip_item`
 
+Input adapters:
+
+- `PressKey` wraps `keybd`/`wnd`/`proc` under `maple_environment.lua`.
+- Business code must not call keyboard/window/process helpers directly.
+- Current validated skill-release path is foreground key input, default `Shift` (`0x10`).
+- Background key posting is available only for probes/future verification; current live probe showed it is not reliable for skill release.
+
 Special or diagnostic APIs stay out of ordinary flow until a specific owner is added:
 
 - `call`
@@ -124,3 +131,10 @@ scripts/maple_probe_actions.lua
 ```
 
 Use readonly probe before business flow development against a live client. Use action probe only when issuing attack, quickslot, movement, stop, and pickup commands is acceptable.
+
+## Current Execution Conclusions
+
+- `quickslot_use(slot, "press")` can return API success while still performing a normal attack visually. Do not use it as the default skill-release path until the underlying API is fixed and revalidated.
+- Foreground keyboard input releases the bound skill correctly in the current client. `PressKey` defaults to foreground `Shift`.
+- Background keyboard posting returned success in the adapter but did not produce skill effect in the live probe. Treat it as untrusted.
+- `BasicAttack` remains the fallback executable primitive when skill-key execution is unavailable.

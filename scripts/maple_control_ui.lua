@@ -21,6 +21,178 @@ local runtime = {
         save_feedback_text = "",
         last_status = "",
         last_poll_at = 0
+    },
+    tests = {
+        target_name = "msw.exe",
+        input_mode = "foreground",
+        skill_key = "Shift",
+        skill_key_code = "0x10",
+        pickup_key = "Z",
+        pickup_key_code = "0x5A",
+        hold_ms = 80,
+        wait_ms = 900,
+        run_seconds = 8,
+        tick_ms = 120,
+        max_ticks = 0,
+        platform_path = cwd .. "/scripts/maple/maps/manual_platform.lua",
+        pickup_sweep_enabled = false,
+        ground_range = "-20|20|1",
+        map_id = "",
+        teleport_x = "",
+        teleport_y = "",
+        portal = "sp",
+        teleport_force = true,
+        npc_code = "",
+        npc_action = "talk",
+        shop_key = "",
+        dialogue_kind = "all",
+        dialogue_button = "ok",
+        dialogue_value = "0",
+        dialogue_index = "0",
+        last_task_id = nil,
+        last_label = "",
+        last_script = "",
+        last_status = ""
+    }
+}
+
+local function foundation_case(key, label, case, opts)
+    opts = opts or {}
+    opts.probe_case = case
+    return {
+        key = key,
+        label = label,
+        script = "scripts/maple_probe_foundation.lua",
+        opts = opts
+    }
+end
+
+local test_script_groups = {
+    {
+        title = "基础探针",
+        items = {
+            { key = "readonly", label = "只读探针", script = "scripts/maple_probe_readonly.lua" },
+            { key = "snapshot", label = "原始快照", script = "scripts/maple_probe_snapshot.lua" },
+            { key = "actions", label = "动作探针", script = "scripts/maple_probe_actions.lua" }
+        }
+    },
+    {
+        title = "按键/技能",
+        items = {
+            { key = "key_fg", label = "前台技能键", script = "scripts/maple_probe_key_effect.lua" },
+            { key = "key_bg", label = "后台技能键", script = "scripts/maple_probe_key_effect_background.lua", opts = { probe_input_mode = "background" } },
+            { key = "quickslot_1", label = "快捷栏1", script = "scripts/maple_probe_quickslot.lua", opts = { probe_quickslot_slot = 1 } },
+            { key = "quickslot_effect", label = "快捷栏效果", script = "scripts/maple_probe_quickslot_effect.lua", opts = { probe_quickslot_slot = 1 } }
+        }
+    },
+    {
+        title = "拾取",
+        items = {
+            { key = "pickup_effect", label = "拾取效果", script = "scripts/maple_probe_pickup_effect.lua" },
+            { key = "pickup_verify_api", label = "拾取验证API", script = "scripts/maple_probe_pickup_verify.lua", opts = { probe_pickup_key_enabled = false } },
+            { key = "pickup_verify_key", label = "拾取验证API+Z", script = "scripts/maple_probe_pickup_verify.lua", opts = { probe_pickup_key_enabled = true } }
+        }
+    },
+    {
+        title = "平台/打怪",
+        items = {
+            { key = "platform_mobs", label = "平台怪物采样", script = "scripts/maple_probe_platform_mobs.lua" },
+            { key = "basic_combat", label = "基础打怪", script = "scripts/maple_probe_basic_combat.lua" },
+            { key = "platform_combat", label = "平台打怪拾取", script = "scripts/maple_probe_platform_combat.lua" },
+            { key = "platform_combat_sweep", label = "平台打怪扫地", script = "scripts/maple_probe_platform_combat.lua", opts = { probe_pickup_sweep_enabled = true } },
+            { key = "record_platform", label = "录制平台", script = "scripts/maple_record_platform.lua" }
+        }
+    },
+    {
+        title = "地基读取",
+        items = {
+            foundation_case("foundation_connect", "连接地基", "connect_only"),
+            foundation_case("foundation_player", "角色读取", "player_info"),
+            foundation_case("foundation_nearby", "实体读取", "list_nearby"),
+            foundation_case("foundation_inventory", "背包读取", "list_inventory"),
+            foundation_case("foundation_skills", "技能读取", "list_skills"),
+            foundation_case("foundation_quickslot", "快捷栏读取", "list_quickslot"),
+            foundation_case("foundation_portals", "传送门读取", "list_portals"),
+            foundation_case("foundation_chars", "角色列表读取", "list_characters")
+        }
+    },
+    {
+        title = "地图/寻路",
+        items = {
+            foundation_case("foundation_pathfind", "寻路探测", "probe_pathfind"),
+            foundation_case("foundation_ground", "地面扫描", "probe_ground"),
+            foundation_case("foundation_teleport_probe", "传送探测", "teleport_probe")
+        }
+    },
+    {
+        title = "传送",
+        items = {
+            foundation_case("foundation_tp_pos", "传到坐标", "teleport_to_position"),
+            foundation_case("foundation_tp_spawn", "回出生点", "teleport_to_spawn"),
+            foundation_case("foundation_tp_portal", "传到传送门", "teleport_to_portal")
+        }
+    },
+    {
+        title = "NPC/商店",
+        items = {
+            foundation_case("foundation_npc_probe", "NPC探测", "npc_probe"),
+            foundation_case("foundation_npc_nearest", "最近NPC对话", "npc_chat_nearest"),
+            foundation_case("foundation_npc_code", "指定NPC对话", "npc_chat_code"),
+            foundation_case("foundation_npc_act", "NPC动作", "npc_special_act"),
+            foundation_case("foundation_shop_panel", "商店面板", "shop_panel_probe"),
+            foundation_case("foundation_shop_probe", "遍历商店", "shop_probe"),
+            foundation_case("foundation_shop_open", "打开商店", "shop_open")
+        }
+    },
+    {
+        title = "对话",
+        items = {
+            foundation_case("foundation_dialog_probe", "对话探测", "dialogue_probe"),
+            foundation_case("foundation_dialog_options", "对话选项", "dialogue_options_probe"),
+            foundation_case("foundation_dialog_button", "点对话按钮", "dialogue_button"),
+            foundation_case("foundation_dialog_select", "点对话选项", "dialogue_select"),
+            foundation_case("foundation_dialog_close", "关闭对话", "dialogue_close"),
+            foundation_case("foundation_dialog_ok", "按钮ok", "dialogue_button", { probe_dialogue_button = "ok" }),
+            foundation_case("foundation_dialog_next", "按钮next", "dialogue_button", { probe_dialogue_button = "next" }),
+            foundation_case("foundation_dialog_accept", "按钮accept", "dialogue_button", { probe_dialogue_button = "accept" }),
+            foundation_case("foundation_dialog_complete", "按钮complete", "dialogue_button", { probe_dialogue_button = "complete" })
+        }
+    },
+    {
+        title = "状态/保护",
+        items = {
+            foundation_case("foundation_action_state", "状态探测", "probe_action_state"),
+            foundation_case("foundation_action_selftest", "动作自检", "action_selftest"),
+            foundation_case("foundation_systems", "系统诊断", "probe_systems"),
+            foundation_case("foundation_inv_on", "无敌开", "set_invincible_on"),
+            foundation_case("foundation_inv_off", "无敌关", "set_invincible_off"),
+            foundation_case("foundation_hp_on", "锁血开", "set_hp_lock_on"),
+            foundation_case("foundation_hp_off", "锁血关", "set_hp_lock_off"),
+            foundation_case("foundation_nk_on", "不击退开", "set_no_knockback_on"),
+            foundation_case("foundation_nk_off", "不击退关", "set_no_knockback_off"),
+            foundation_case("foundation_float_on", "悬浮开", "float_on"),
+            foundation_case("foundation_float_off", "悬浮关", "float_off"),
+            foundation_case("foundation_admin_on", "高机动开", "admin_move_on"),
+            foundation_case("foundation_admin_off", "高机动关", "admin_move_off"),
+            foundation_case("foundation_maintain", "维持动作", "action_maintain")
+        }
+    },
+    {
+        title = "基础动作",
+        items = {
+            foundation_case("foundation_attack", "普攻", "do_attack"),
+            foundation_case("foundation_pick", "拾取", "pick_all"),
+            foundation_case("foundation_walk_left", "向左走", "walk_left"),
+            foundation_case("foundation_walk_right", "向右走", "walk_right"),
+            foundation_case("foundation_walk_stop", "停止移动", "walk_stop")
+        }
+    },
+    {
+        title = "调试UI",
+        items = {
+            { key = "debug_ui", label = "打开测试UI", script = "scripts/test_ui.lua" },
+            { key = "assistant_ui", label = "打开辅助UI", script = "scripts/test_ui_assistant.lua" }
+        }
     }
 }
 
@@ -31,6 +203,118 @@ end
 local function set_event(text)
     runtime.accounts.last_status = tostring(text or "")
     log_info(runtime.accounts.last_status)
+end
+
+local function parse_number_text(value, default_value)
+    local text = tostring(value or "")
+    local direct = tonumber(text)
+    if direct then return direct end
+    local hex = text:match("^0[xX](%x+)$")
+    if hex then return tonumber(hex, 16) or default_value end
+    return default_value
+end
+
+local function test_script_exists(script_path)
+    local path = cwd .. "/" .. tostring(script_path or "")
+    local f = io.open(path, "r")
+    if not f then return false end
+    f:close()
+    return true
+end
+
+local function build_test_options(extra)
+    local tests = runtime.tests
+    local opts = {
+        name = "MapleTest",
+        priority = "Normal",
+        account_index = tostring(runtime.accounts.selected_index or 0),
+        probe_target_name = tostring(tests.target_name or "msw.exe"),
+        probe_input_mode = tostring(tests.input_mode or "foreground"),
+        probe_key_name = tostring(tests.skill_key or "Shift"),
+        probe_key_code = tostring(parse_number_text(tests.skill_key_code, 0x10)),
+        probe_hold_ms = tostring(math.max(0, tonumber(tests.hold_ms) or 0)),
+        probe_wait_ms = tostring(math.max(0, tonumber(tests.wait_ms) or 900)),
+        probe_run_seconds = tostring(math.max(0, tonumber(tests.run_seconds) or 0)),
+        probe_tick_ms = tostring(math.max(20, tonumber(tests.tick_ms) or 120)),
+        probe_max_ticks = tostring(math.max(0, tonumber(tests.max_ticks) or 0)),
+        probe_platform_path = tostring(tests.platform_path or ""),
+        probe_pickup_key_name = tostring(tests.pickup_key or "Z"),
+        probe_pickup_key_code = tostring(parse_number_text(tests.pickup_key_code, 0x5A)),
+        probe_pickup_key_hold_ms = tostring(math.max(0, tonumber(tests.hold_ms) or 80)),
+        probe_pickup_sweep_enabled = tests.pickup_sweep_enabled == true,
+        platform_save_path = tostring(tests.platform_path or ""),
+        probe_ground_range = tostring(tests.ground_range or "-20|20|1"),
+        probe_map_id = tostring(tests.map_id or ""),
+        probe_x = tostring(tests.teleport_x or ""),
+        probe_y = tostring(tests.teleport_y or ""),
+        probe_portal = tostring(tests.portal or "sp"),
+        probe_force = tests.teleport_force ~= false,
+        probe_npc_code = tostring(tests.npc_code or ""),
+        probe_npc_action = tostring(tests.npc_action or "talk"),
+        probe_shop_key = tostring(tests.shop_key or ""),
+        probe_dialogue_kind = tostring(tests.dialogue_kind or "all"),
+        probe_dialogue_button = tostring(tests.dialogue_button or "ok"),
+        probe_dialogue_value = tostring(tests.dialogue_value or "0"),
+        probe_dialogue_index = tostring(tests.dialogue_index or "0")
+    }
+    for key, value in pairs(extra or {}) do
+        opts[key] = value
+    end
+    return opts
+end
+
+local function start_test_script(item)
+    item = item or {}
+    if not task or type(task.run) ~= "function" then
+        runtime.tests.last_status = "task.run 不可用"
+        set_event("测试启动失败: task.run 不可用")
+        return false
+    end
+    if not test_script_exists(item.script) then
+        runtime.tests.last_status = "脚本不存在: " .. tostring(item.script)
+        set_event("测试启动失败: 脚本不存在 " .. tostring(item.script))
+        return false
+    end
+
+    local opts = build_test_options(item.opts)
+    opts.name = "MapleTest-" .. tostring(item.key or item.label or "script")
+
+    local ok, id = pcall(task.run, item.script, opts)
+    if not ok or not id then
+        runtime.tests.last_status = "启动失败: " .. tostring(id)
+        set_event("测试启动失败: " .. tostring(item.label or item.script) .. " " .. tostring(id))
+        return false
+    end
+
+    runtime.tests.last_task_id = id
+    runtime.tests.last_label = tostring(item.label or item.script or "")
+    runtime.tests.last_script = tostring(item.script or "")
+    runtime.tests.last_status = "已启动 task=" .. tostring(id)
+    set_event("测试已启动: " .. runtime.tests.last_label .. " task=" .. tostring(id))
+    return true
+end
+
+local function stop_last_test_script()
+    local id = runtime.tests.last_task_id
+    if not id then
+        runtime.tests.last_status = "没有最近测试任务"
+        set_event("没有最近测试任务")
+        return false
+    end
+    if not task or type(task.stop) ~= "function" then
+        runtime.tests.last_status = "task.stop 不可用"
+        set_event("停止测试失败: task.stop 不可用")
+        return false
+    end
+    local ok, err = pcall(task.stop, id)
+    if not ok then
+        runtime.tests.last_status = "停止失败: " .. tostring(err)
+        set_event("停止测试失败: " .. tostring(err))
+        return false
+    end
+    runtime.tests.last_status = "已停止 task=" .. tostring(id)
+    set_event("测试已停止: task=" .. tostring(id))
+    return true
 end
 
 local function account_items()
@@ -520,6 +804,153 @@ local function draw_test_tab(account, index)
     end
 end
 
+local function draw_test_common_inputs()
+    local tests = runtime.tests
+    local changed, val
+
+    imgui.text("测试公共参数")
+    imgui.separator()
+
+    imgui.set_next_item_width(180)
+    changed, val = imgui.input_text("目标进程##maple_test_target", tests.target_name or "msw.exe", 128)
+    if changed then tests.target_name = val end
+    imgui.same_line()
+    imgui.set_next_item_width(120)
+    changed, val = imgui.input_text("输入模式##maple_test_input_mode", tests.input_mode or "foreground", 64)
+    if changed then tests.input_mode = val end
+
+    imgui.set_next_item_width(120)
+    changed, val = imgui.input_text("技能键##maple_test_skill_key", tests.skill_key or "Shift", 64)
+    if changed then tests.skill_key = val end
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_text("技能键码##maple_test_skill_key_code", tests.skill_key_code or "0x10", 32)
+    if changed then tests.skill_key_code = val end
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_int("按住ms##maple_test_hold_ms", tonumber(tests.hold_ms) or 0)
+    if changed then tests.hold_ms = math.max(0, tonumber(val) or 0) end
+
+    imgui.set_next_item_width(120)
+    changed, val = imgui.input_text("拾取键##maple_test_pickup_key", tests.pickup_key or "Z", 64)
+    if changed then tests.pickup_key = val end
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_text("拾取键码##maple_test_pickup_key_code", tests.pickup_key_code or "0x5A", 32)
+    if changed then tests.pickup_key_code = val end
+
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_int("等待ms##maple_test_wait_ms", tonumber(tests.wait_ms) or 900)
+    if changed then tests.wait_ms = math.max(0, tonumber(val) or 900) end
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_int("运行秒##maple_test_run_seconds", tonumber(tests.run_seconds) or 8)
+    if changed then tests.run_seconds = math.max(0, tonumber(val) or 8) end
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_int("Tick ms##maple_test_tick_ms", tonumber(tests.tick_ms) or 120)
+    if changed then tests.tick_ms = math.max(20, tonumber(val) or 120) end
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_int("Max ticks##maple_test_max_ticks", tonumber(tests.max_ticks) or 0)
+    if changed then tests.max_ticks = math.max(0, tonumber(val) or 0) end
+
+    imgui.set_next_item_width(620)
+    changed, val = imgui.input_text("平台文件##maple_test_platform_path", tests.platform_path or "", 512)
+    if changed then tests.platform_path = val end
+
+    imgui.set_next_item_width(160)
+    changed, val = imgui.input_text("地面范围##maple_test_ground_range", tests.ground_range or "-20|20|1", 64)
+    if changed then tests.ground_range = val end
+    imgui.same_line()
+    imgui.set_next_item_width(150)
+    changed, val = imgui.input_text("地图ID##maple_test_map_id", tests.map_id or "", 64)
+    if changed then tests.map_id = val end
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_text("X##maple_test_tp_x", tests.teleport_x or "", 32)
+    if changed then tests.teleport_x = val end
+    imgui.same_line()
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_text("Y##maple_test_tp_y", tests.teleport_y or "", 32)
+    if changed then tests.teleport_y = val end
+    imgui.same_line()
+    imgui.set_next_item_width(100)
+    changed, val = imgui.input_text("传送门##maple_test_portal", tests.portal or "sp", 64)
+    if changed then tests.portal = val end
+    imgui.same_line()
+    changed, val = imgui.checkbox("强制传送##maple_test_tp_force", tests.teleport_force ~= false)
+    if changed then tests.teleport_force = val == true end
+
+    imgui.set_next_item_width(130)
+    changed, val = imgui.input_text("NPC代码##maple_test_npc_code", tests.npc_code or "", 64)
+    if changed then tests.npc_code = val end
+    imgui.same_line()
+    imgui.set_next_item_width(110)
+    changed, val = imgui.input_text("NPC动作##maple_test_npc_action", tests.npc_action or "talk", 64)
+    if changed then tests.npc_action = val end
+    imgui.same_line()
+    imgui.set_next_item_width(120)
+    changed, val = imgui.input_text("商店Key##maple_test_shop_key", tests.shop_key or "", 64)
+    if changed then tests.shop_key = val end
+
+    imgui.set_next_item_width(90)
+    changed, val = imgui.input_text("对话类型##maple_test_dialog_kind", tests.dialogue_kind or "all", 32)
+    if changed then tests.dialogue_kind = val end
+    imgui.same_line()
+    imgui.set_next_item_width(110)
+    changed, val = imgui.input_text("对话按钮##maple_test_dialog_button", tests.dialogue_button or "ok", 64)
+    if changed then tests.dialogue_button = val end
+    imgui.same_line()
+    imgui.set_next_item_width(100)
+    changed, val = imgui.input_text("选项Value##maple_test_dialog_value", tests.dialogue_value or "0", 64)
+    if changed then tests.dialogue_value = val end
+    imgui.same_line()
+    imgui.set_next_item_width(80)
+    changed, val = imgui.input_text("选项序号##maple_test_dialog_index", tests.dialogue_index or "0", 32)
+    if changed then tests.dialogue_index = val end
+
+    changed, val = imgui.checkbox("平台拾取扫地##maple_test_pickup_sweep", tests.pickup_sweep_enabled == true)
+    if changed then tests.pickup_sweep_enabled = val == true end
+    imgui.same_line()
+    if imgui.button("停止最近测试##maple_test_stop_last", 120, 26) then
+        stop_last_test_script()
+    end
+end
+
+local function draw_test_script_buttons()
+    imgui.text("测试按钮")
+    imgui.separator()
+
+    for group_index, group in ipairs(test_script_groups) do
+        imgui.text(tostring(group.title or ""))
+        local column = 0
+        for item_index, item in ipairs(group.items or {}) do
+            local id = tostring(group_index) .. "_" .. tostring(item_index) .. "_" .. tostring(item.key or "")
+            if imgui.button(tostring(item.label or item.script) .. "##maple_test_" .. id, 138, 28) then
+                start_test_script(item)
+            end
+            column = column + 1
+            if column < 5 then
+                imgui.same_line()
+            else
+                column = 0
+            end
+        end
+        imgui.spacing()
+    end
+end
+
+local function draw_main_test_tab()
+    draw_test_common_inputs()
+    imgui.spacing()
+    draw_test_script_buttons()
+    imgui.separator()
+    imgui.text("最近测试: " .. tostring(runtime.tests.last_label or ""))
+    imgui.text("脚本: " .. tostring(runtime.tests.last_script or ""))
+    imgui.text("状态: " .. tostring(runtime.tests.last_status or ""))
+end
+
 local function draw_account_settings_window()
     if not runtime.accounts.settings_window_visible then return end
 
@@ -658,6 +1089,10 @@ local function draw_main_window()
             if imgui.begin_tab_item("日志") then
                 imgui.text("最近状态: " .. tostring(runtime.accounts.last_status or ""))
                 imgui.text("日志文件由引擎 logs/ 输出。")
+                imgui.end_tab_item()
+            end
+            if imgui.begin_tab_item("测试") then
+                draw_main_test_tab()
                 imgui.end_tab_item()
             end
             imgui.end_tab_bar()

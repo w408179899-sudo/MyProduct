@@ -24,7 +24,8 @@ local function build_environment(opts, logger)
             logger = logger,
             account_index = opts.account_index,
             target_name = opts.target_name,
-            license_key = opts.license_key
+            license_key = opts.license_key,
+            skill_release = opts.skill_release or opts.account and opts.account.skill_release
         })
     end
     return MockEnvironment.new(opts.world)

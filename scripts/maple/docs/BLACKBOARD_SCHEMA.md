@@ -14,7 +14,7 @@ Blackboard state is shared state. Do not add temporary locals here.
 - `navigation`: route, destination, waypoint index, moving/stuck state.
 - `world`: nearby NPCs, targets, resources, selected entity.
 - `combat`: selected combat logic mode, last combat proposal, compatibility last decision, prediction horizon, candidate count, fallback reason.
-- `account`: account record loaded from `script_config.json`.
+- `account`: account record loaded from `script_config.json`, including resolved `skill_release` execution settings when available.
 - `task`: active/previous goal, active action, failure counters, last result.
 - `action_queue`: reserved shared view of queued actions.
 - `safety`: stop reason, last trigger, circuit breaker state.

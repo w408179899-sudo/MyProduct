@@ -14,6 +14,7 @@ local function result_count(value)
     if type(value.drops) == "table" then return #value.drops end
     if type(value.items) == "table" then return #value.items end
     if type(value.skills) == "table" then return #value.skills end
+    if type(value.slots) == "table" then return #value.slots end
     if type(value.portals) == "table" then return #value.portals end
     return #value
 end

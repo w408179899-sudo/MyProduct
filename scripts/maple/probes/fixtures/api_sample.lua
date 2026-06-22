@@ -30,7 +30,7 @@ return {
             { Name = "sample_snail", MobId = 100101, Level = 5, x = 100.0, y = 200.0, Hp = "50", MaxHp = "50" }
         },
         drops = {
-            { Name = "sample_potion", ItemId = 2000003, OwnerCID = "mine", DropperType = 1, Free = false, x = 105.0, y = 201.0 }
+            { Id = 1, Name = "sample_potion", ItemId = 2000003, OwnerCID = "sample_hero", Source = "mine", DropperType = -1, Free = false, x = 105.0, y = 201.0 }
         },
         portals = {
             { Name = "sp", PortalType = 1, DestMap = "100020001", DestPortal = "in00", x = 0.0, y = 0.0 }
@@ -53,7 +53,9 @@ return {
         }
     },
     list_quickslot = {
-        { slot = 1, key = "Shift", cat = "Skill", id = "1001004" },
-        { slot = 2, key = "Insert", cat = "Item", id = "2000003" }
+        slots = {
+            { slot = 1, key = "Shift", cat = "Skill", id = "1001004" },
+            { slot = 2, key = "Insert", cat = "Item", id = "2000003" }
+        }
     }
 }
