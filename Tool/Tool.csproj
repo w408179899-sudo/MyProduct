@@ -56,6 +56,7 @@
   <ItemGroup>
     <Compile Include="AddressFromParttern.cs" />
     <Compile Include="KmBox.cs" />
+    <Compile Include="KmBoxKeyCodes.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

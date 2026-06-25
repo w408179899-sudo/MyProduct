@@ -81,10 +81,17 @@ namespace Tool
 
                     Console.WriteLine("Module base: " + moduleName + " = 0x" + gameBase.ToString("X"));
 
-                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "skills";
+                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "face_target";
                     if (string.Equals(aionTestMode, "player", StringComparison.OrdinalIgnoreCase))
                     {
                         RunLocalPlayerInfoTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "camera_watch", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "camerawatch", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunCameraWatchTest(process, gameBase);
                         return;
                     }
 
@@ -123,6 +130,38 @@ namespace Tool
                     if (string.Equals(aionTestMode, "target", StringComparison.OrdinalIgnoreCase))
                     {
                         RunLockedTargetMonsterInfoTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "face_target", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "facetarget", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "turn_target", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunFaceTargetCameraTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "fixed_yaw", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "camera_fixed_yaw", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "turn_fixed_yaw", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunFixedCameraYawTest(process, gameBase, ReadFaceTargetOptions());
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "target_yaw_probe", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "yaw_probe", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "target_angle", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunTargetYawProbeTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "camera_pixel_calibration", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "camera_pixel", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "pixel_yaw", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunCameraPixelCalibrationTest(process, gameBase);
                         return;
                     }
 
@@ -222,6 +261,11 @@ namespace Tool
         private const ulong CameraPitchRva = 0xD1AD14;
         private const ulong CameraRollRva = 0xD1AD18;
         private const ulong CameraYawRva = 0xD1AD1C;
+        private const ulong SpecialCameraModeRva = 0xD218C8;
+        private const ulong SpecialCameraPitchRva = 0xD218D8;
+        private const ulong SpecialCameraRollRva = 0xD218DC;
+        private const ulong SpecialCameraYawRva = 0xD218E0;
+        private const ulong SpecialCameraDistanceRva = 0xD218E4;
         private const ulong PrimaryPartyListRva = 0xD1BAE8;
         private const ulong SecondaryPartyListRva = 0xD1BB50;
         private const ulong SkillManagerGlobalRva = 0xD004A0;
@@ -395,6 +439,12 @@ namespace Tool
             public float CameraPitch;
             public float CameraRoll;
             public float CameraYaw;
+            public float CameraDistance;
+            public bool IsSpecialCamera;
+            public ushort SpecialCameraMode;
+            public ulong CameraPitchRva;
+            public ulong CameraRollRva;
+            public ulong CameraYawRva;
         }
 
         private struct LockedTargetMonsterInfo
@@ -563,6 +613,53 @@ namespace Tool
             public List<InventoryItemInfo> Items;
         }
 
+        private sealed class FaceTargetOptions
+        {
+            public string KmBoxPortName;
+            public int DurationMs;
+            public int SettleMs;
+            public int MouseDownWarmupMs;
+            public int MouseHoldAfterMoveMs;
+            public int MaxAttempts;
+            public int CalibrationPixels;
+            public int CalibrationMs;
+            public int MinCorrectionPixels;
+            public double ToleranceDegrees;
+            public double PixelsPerDegreeAbs;
+            public double FixedTargetYawDegrees;
+            public double TargetYawOffsetDegrees;
+            public string CameraYawUnit;
+            public string BearingMode;
+            public string YawFeedbackMode;
+            public string DragMoveMode;
+            public int DragStepPixels;
+            public int DragFineStepPixels;
+            public int DragStepDelayMs;
+            public int DragPrimePixels;
+            public int DragTailPixels;
+            public int DragRampMaxPixels;
+            public int DragLeadMs;
+            public int DragMainMs;
+            public int DragTailMs;
+            public int AdaptiveReadSettleMs;
+            public int AdaptiveReadTimeoutMs;
+            public int AdaptiveStableMs;
+            public int AdaptiveStableTimeoutMs;
+            public int AdaptiveMaxBatches;
+            public int TwoPassMaxPasses;
+            public double AdaptiveFineThresholdDegrees;
+            public double AdaptiveMidThresholdDegrees;
+            public double AdaptiveMinYawDeltaDegrees;
+            public double AdaptiveFinalThresholdDegrees;
+            public double AdaptiveFinalPixelsPerDegreeAbs;
+            public int AdaptiveCoarseBatchPixels;
+            public int AdaptiveMidBatchPixels;
+            public int AdaptiveFineStepPixels;
+            public bool UseFixedYaw;
+            public bool AutoCalibrate;
+            public bool ApplyMouse;
+        }
+
         private static void RunLocalPlayerInfoTest(VmmProcess process, ulong gameBase)
         {
             Console.WriteLine("AION local player info test from TXT/AION.txt offsets.");
@@ -597,6 +694,92 @@ namespace Tool
                 }
 
                 Thread.Sleep(500);
+            }
+
+            Console.ReadKey(true);
+        }
+
+        private static void RunCameraWatchTest(VmmProcess process, ulong gameBase)
+        {
+            ulong startRva = ReadRvaFromEnv("AION_CAMERA_WATCH_START_RVA", 0xD1AD00);
+            ulong endRva = ReadRvaFromEnv("AION_CAMERA_WATCH_END_RVA", 0xD1AD60);
+            int intervalMs = ReadIntFromEnv("AION_CAMERA_WATCH_INTERVAL_MS", 250);
+            double threshold = ReadDoubleFromEnv("AION_CAMERA_WATCH_THRESHOLD", 0.0001);
+
+            if (endRva < startRva)
+            {
+                ulong swap = startRva;
+                startRva = endRva;
+                endRva = swap;
+            }
+
+            intervalMs = ClampInt(intervalMs, 50, 5000);
+            Console.WriteLine("AION camera watch test.");
+            Console.WriteLine("Watching float RVAs Game.dll+0x" + startRva.ToString("X") +
+                              "..0x" + endRva.ToString("X") +
+                              ", IntervalMs=" + intervalMs +
+                              ", Threshold=" + threshold.ToString("F6") + ".");
+            Console.WriteLine("Manually rotate/pitch the camera now. Press any key to stop.");
+            Console.WriteLine("Current configured camera RVAs: pitch=0x" + GetCameraPitchRva().ToString("X") +
+                              " roll=0x" + GetCameraRollRva().ToString("X") +
+                              " yaw=0x" + GetCameraYawRva().ToString("X") + ".");
+            Console.WriteLine("Special camera RVAs: mode=0x" + SpecialCameraModeRva.ToString("X") +
+                              " pitch=0x" + SpecialCameraPitchRva.ToString("X") +
+                              " roll=0x" + SpecialCameraRollRva.ToString("X") +
+                              " yaw=0x" + SpecialCameraYawRva.ToString("X") +
+                              " distance=0x" + SpecialCameraDistanceRva.ToString("X") + ".");
+
+            var lastValues = new Dictionary<ulong, float>();
+            for (ulong rva = startRva; rva <= endRva; rva += 4)
+            {
+                float value;
+                if (TryReadSingle(process, gameBase + rva, out value) && IsReasonableFloat(value))
+                {
+                    lastValues[rva] = value;
+                }
+
+                if (rva > ulong.MaxValue - 4)
+                {
+                    break;
+                }
+            }
+
+            PrintCameraWatchSnapshot(process, gameBase, "initial");
+            PrintCameraWatchValues("initial floats", lastValues);
+
+            while (!Console.KeyAvailable)
+            {
+                var changed = new Dictionary<ulong, float>();
+                var nextValues = new Dictionary<ulong, float>();
+
+                for (ulong rva = startRva; rva <= endRva; rva += 4)
+                {
+                    float value;
+                    if (TryReadSingle(process, gameBase + rva, out value) && IsReasonableFloat(value))
+                    {
+                        nextValues[rva] = value;
+                        float previous;
+                        if (!lastValues.TryGetValue(rva, out previous) ||
+                            Math.Abs(value - previous) > threshold)
+                        {
+                            changed[rva] = value;
+                        }
+                    }
+
+                    if (rva > ulong.MaxValue - 4)
+                    {
+                        break;
+                    }
+                }
+
+                if (changed.Count > 0)
+                {
+                    PrintCameraWatchSnapshot(process, gameBase, "changed");
+                    PrintCameraWatchValues("changed floats", changed);
+                }
+
+                lastValues = nextValues;
+                Thread.Sleep(intervalMs);
             }
 
             Console.ReadKey(true);
@@ -893,6 +1076,2134 @@ namespace Tool
             Console.ReadKey(true);
         }
 
+        private static void RunFaceTargetCameraTest(VmmProcess process, ulong gameBase)
+        {
+            FaceTargetOptions options = ReadFaceTargetOptions();
+            if (options.UseFixedYaw)
+            {
+                RunFixedCameraYawTest(process, gameBase, options);
+                return;
+            }
+
+            Console.WriteLine("AION face locked target camera test.");
+            Console.WriteLine("KmBoxPort=" + options.KmBoxPortName +
+                              " DurationMs=" + options.DurationMs +
+                              " ToleranceDeg=" + options.ToleranceDegrees.ToString("F2") +
+                              " BearingMode=" + options.BearingMode +
+                              " CameraYawUnit=" + options.CameraYawUnit +
+                              " YawFeedback=" + options.YawFeedbackMode +
+                              " TargetYawOffsetDeg=" + options.TargetYawOffsetDegrees.ToString("F2") +
+                              " ApplyMouse=" + (options.ApplyMouse ? "yes" : "no") +
+                              " AutoCalibrate=" + (options.AutoCalibrate ? "yes" : "no") +
+                              " MaxAttempts=" + options.MaxAttempts +
+                              " MinCorrectionPixels=" + options.MinCorrectionPixels +
+                              " DragMoveMode=" + options.DragMoveMode +
+                              " TwoPassMaxPasses=" + options.TwoPassMaxPasses +
+                              " DragChunkPixels=" + options.DragStepPixels +
+                              " DragPrimePixels=" + options.DragPrimePixels +
+                              " DragTailPixels=" + options.DragTailPixels +
+                              " DragDistributionPeak=" + options.DragRampMaxPixels +
+                              " DragStepPixels=" + options.DragStepPixels +
+                              " DragFineStepPixels=" + options.DragFineStepPixels +
+                              " DragPhasesMs=" + options.DragLeadMs + "/" + options.DragMainMs + "/" + options.DragTailMs +
+                              " AdaptiveFine/MidDeg=" + options.AdaptiveFineThresholdDegrees.ToString("F2") + "/" + options.AdaptiveMidThresholdDegrees.ToString("F2") +
+                              " AdaptiveMinYawDeltaDeg=" + options.AdaptiveMinYawDeltaDegrees.ToString("F2") +
+                              " AdaptiveFinalDeg/Px=" + options.AdaptiveFinalThresholdDegrees.ToString("F2") + "/" + options.AdaptiveFinalPixelsPerDegreeAbs.ToString("F2") +
+                              " AdaptiveBatch=" + options.AdaptiveFineStepPixels + "/" + options.AdaptiveMidBatchPixels + "/" + options.AdaptiveCoarseBatchPixels +
+                              " AdaptiveReadSettleMs=" + options.AdaptiveReadSettleMs +
+                              " AdaptiveReadTimeoutMs=" + options.AdaptiveReadTimeoutMs +
+                              " AdaptiveStableMs=" + options.AdaptiveStableMs +
+                              " AdaptiveStableTimeoutMs=" + options.AdaptiveStableTimeoutMs +
+                              " AdaptiveMaxBatches=" + options.AdaptiveMaxBatches +
+                              " DragStepDelayMs=" + options.DragStepDelayMs +
+                              " MouseDownWarmupMs=" + options.MouseDownWarmupMs +
+                              " MouseHoldAfterMoveMs=" + options.MouseHoldAfterMoveMs);
+            Console.WriteLine("Lock a target first. Do not move the mouse while this test is running.");
+
+            LocalPlayerInfo local;
+            LockedTargetMonsterInfo target;
+            string error;
+            if (!TryReadFaceTargetSnapshot(process, gameBase, out local, out target, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                return;
+            }
+
+            PrintFaceTargetState("initial", local, target, options);
+            if (!options.ApplyMouse)
+            {
+                Console.WriteLine("AION_FACE_TARGET_APPLY_MOUSE=0, snapshot only.");
+                return;
+            }
+
+            using (var km = new KmBoxClient(new KmBoxOptions { PortName = options.KmBoxPortName }))
+            {
+                km.Open();
+                double pixelsPerDegreeAbs = options.PixelsPerDegreeAbs;
+                if (options.AutoCalibrate)
+                {
+                    double calibratedPixelsPerDegree;
+                    if (TryCalibrateFaceTargetMouse(process, gameBase, km, options, out calibratedPixelsPerDegree, out error))
+                    {
+                        pixelsPerDegreeAbs = Math.Abs(calibratedPixelsPerDegree);
+                    }
+                    else
+                    {
+                        Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Calibration failed: " + error);
+                        Console.WriteLine("Continue with manual PixelsPerDegreeAbs=" + pixelsPerDegreeAbs.ToString("F4") + ".");
+                    }
+                }
+
+                Console.WriteLine("PixelsPerDegreeAbs=" + pixelsPerDegreeAbs.ToString("F4") +
+                                  " (set AION_FACE_TARGET_PIXELS_PER_DEG_ABS to tune; ErrorDeg>0 => drag left/dx<0).");
+
+                bool success = false;
+                int attemptsUsed = 0;
+                double finalError = 0.0;
+                for (int attempt = 1; attempt <= options.MaxAttempts; attempt++)
+                {
+                    attemptsUsed = attempt;
+                    if (!TryReadFaceTargetSnapshot(process, gameBase, out local, out target, out error))
+                    {
+                        Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                        return;
+                    }
+
+                    string yawSource;
+                    double currentYaw = GetFeedbackYawDegrees(local, options, out yawSource);
+                    double targetYaw = CalculateTargetYawDegrees(local, target, options);
+                    double errorDegrees = NormalizeSignedDegrees(targetYaw - currentYaw);
+                    finalError = errorDegrees;
+                    Console.WriteLine(
+                        "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                        "Attempt=" + attempt +
+                        " ControlYawSource=" + yawSource +
+                        " ControlYaw=" + currentYaw.ToString("F2") +
+                        " CameraYaw=" + GetCameraYawDegrees(local.CameraYaw, options).ToString("F2") +
+                        " ActorYaw=" + FormatActorYaw(local) +
+                        " TargetYaw=" + targetYaw.ToString("F2") +
+                        " ErrorDeg=" + errorDegrees.ToString("F2") +
+                        " Distance=" + FormatDistance(target));
+
+                    if (Math.Abs(errorDegrees) <= options.ToleranceDegrees)
+                    {
+                        success = true;
+                        break;
+                    }
+
+                    if (IsAdaptiveDragMode(options))
+                    {
+                        finalError = DragCameraHorizontalAdaptiveFixedYaw(process, gameBase, km, targetYaw, pixelsPerDegreeAbs, options);
+                        success = Math.Abs(finalError) <= options.ToleranceDegrees;
+                        break;
+                    }
+
+                    if (IsTwoPassChunkDragMode(options))
+                    {
+                        finalError = DragCameraHorizontalTwoPassFaceTarget(process, gameBase, km, pixelsPerDegreeAbs, options);
+                        success = Math.Abs(finalError) <= options.ToleranceDegrees;
+                        break;
+                    }
+
+                    double rawDx;
+                    bool minApplied;
+                    int dx = CalculateCameraDragDx(errorDegrees, pixelsPerDegreeAbs, options, out rawDx, out minApplied);
+
+                    Console.WriteLine(
+                        "Attempt=" + attempt +
+                        " YawDecision=" + (errorDegrees > 0 ? "increase" : "decrease") +
+                        " MouseDrag=" + (dx < 0 ? "left" : "right") +
+                        " RawDx=" + rawDx.ToString("F2") +
+                        " Dx=" + dx +
+                        " MoveCommands=" + EstimateDragMoveCommandCount(dx, options) +
+                        " MinApplied=" + (minApplied ? "yes" : "no"));
+                    DragCameraHorizontal(km, dx, options);
+                    if (options.SettleMs > 0)
+                    {
+                        Thread.Sleep(options.SettleMs);
+                    }
+                }
+
+                if (TryReadFaceTargetSnapshot(process, gameBase, out local, out target, out error))
+                {
+                    PrintFaceTargetState("final", local, target, options);
+                    string yawSource;
+                    finalError = NormalizeSignedDegrees(CalculateTargetYawDegrees(local, target, options) - GetFeedbackYawDegrees(local, options, out yawSource));
+                    success = success || Math.Abs(finalError) <= options.ToleranceDegrees;
+                    Console.WriteLine("Result=" + (success ? "aligned" : "not_aligned") +
+                                      " FinalErrorDeg=" + finalError.ToString("F2") +
+                                      " AttemptsUsed=" + attemptsUsed);
+                }
+                else
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Final read failed: " + error);
+                }
+            }
+        }
+
+        private static void RunTargetYawProbeTest(VmmProcess process, ulong gameBase)
+        {
+            FaceTargetOptions options = ReadFaceTargetOptions();
+            Console.WriteLine("AION target yaw probe test.");
+            Console.WriteLine("Lock a target and manually face the camera toward it. This test only reads coordinates and camera yaw.");
+
+            LocalPlayerInfo local;
+            LockedTargetMonsterInfo target;
+            string error;
+            if (!TryReadFaceTargetSnapshot(process, gameBase, out local, out target, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                return;
+            }
+
+            double cameraYaw = GetCameraYawDegrees(local.CameraYaw, options);
+            double actorYaw;
+            bool hasActorYaw = TryGetActorYawDegrees(local, out actorYaw);
+            double dx = target.X - local.X;
+            double dy = target.Y - local.Y;
+            double dz = target.Z - local.Z;
+            double horizontalDistance = Math.Sqrt(dx * dx + dy * dy);
+            double currentConfiguredTargetYaw = CalculateTargetYawDegrees(local, target, options);
+
+            Console.WriteLine(
+                "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                "Local=(" + local.X.ToString("F2") + "," + local.Y.ToString("F2") + "," + local.Z.ToString("F2") + ")" +
+                " Target=(" + target.X.ToString("F2") + "," + target.Y.ToString("F2") + "," + target.Z.ToString("F2") + ")" +
+                " Delta=(" + dx.ToString("F2") + "," + dy.ToString("F2") + "," + dz.ToString("F2") + ")" +
+                " HorizontalDistance=" + horizontalDistance.ToString("F2") +
+                " CameraYaw=" + cameraYaw.ToString("F2") +
+                " ActorYaw=" + (hasActorYaw ? actorYaw.ToString("F2") : "n/a") +
+                " ConfigBearingMode=" + options.BearingMode +
+                " ConfigYawOffset=" + options.TargetYawOffsetDegrees.ToString("F2") +
+                " ConfigTargetYaw=" + currentConfiguredTargetYaw.ToString("F2") +
+                " ConfigErrorDeg=" + NormalizeSignedDegrees(currentConfiguredTargetYaw - cameraYaw).ToString("F2"));
+
+            PrintTargetYawCandidate("yx", Math.Atan2(dx, dy), cameraYaw);
+            PrintTargetYawCandidate("xy", Math.Atan2(dy, dx), cameraYaw);
+            PrintTargetYawCandidate("-yx", Math.Atan2(-dx, dy), cameraYaw);
+            PrintTargetYawCandidate("y-x", Math.Atan2(dx, -dy), cameraYaw);
+            PrintTargetYawCandidate("-xy", Math.Atan2(-dy, dx), cameraYaw);
+            PrintTargetYawCandidate("x-y", Math.Atan2(dy, -dx), cameraYaw);
+        }
+
+        private static void RunFixedCameraYawTest(VmmProcess process, ulong gameBase, FaceTargetOptions options)
+        {
+            double targetYaw = NormalizeSignedDegrees(options.FixedTargetYawDegrees);
+            Console.WriteLine("AION fixed camera yaw test.");
+            Console.WriteLine("KmBoxPort=" + options.KmBoxPortName +
+                              " DurationMs=" + options.DurationMs +
+                              " ToleranceDeg=" + options.ToleranceDegrees.ToString("F2") +
+                              " CameraYawUnit=" + options.CameraYawUnit +
+                              " FixedTargetYawDeg=" + targetYaw.ToString("F2") +
+                              " ApplyMouse=" + (options.ApplyMouse ? "yes" : "no") +
+                              " AutoCalibrate=" + (options.AutoCalibrate ? "yes" : "no") +
+                              " MaxAttempts=" + options.MaxAttempts +
+                              " MinCorrectionPixels=" + options.MinCorrectionPixels +
+                              " DragMoveMode=" + options.DragMoveMode +
+                              " TwoPassMaxPasses=" + options.TwoPassMaxPasses +
+                              " DragChunkPixels=" + options.DragStepPixels +
+                              " DragPrimePixels=" + options.DragPrimePixels +
+                              " DragTailPixels=" + options.DragTailPixels +
+                              " DragDistributionPeak=" + options.DragRampMaxPixels +
+                              " DragStepPixels=" + options.DragStepPixels +
+                              " DragFineStepPixels=" + options.DragFineStepPixels +
+                              " DragPhasesMs=" + options.DragLeadMs + "/" + options.DragMainMs + "/" + options.DragTailMs +
+                              " AdaptiveFine/MidDeg=" + options.AdaptiveFineThresholdDegrees.ToString("F2") + "/" + options.AdaptiveMidThresholdDegrees.ToString("F2") +
+                              " AdaptiveMinYawDeltaDeg=" + options.AdaptiveMinYawDeltaDegrees.ToString("F2") +
+                              " AdaptiveFinalDeg/Px=" + options.AdaptiveFinalThresholdDegrees.ToString("F2") + "/" + options.AdaptiveFinalPixelsPerDegreeAbs.ToString("F2") +
+                              " AdaptiveBatch=" + options.AdaptiveFineStepPixels + "/" + options.AdaptiveMidBatchPixels + "/" + options.AdaptiveCoarseBatchPixels +
+                              " AdaptiveReadSettleMs=" + options.AdaptiveReadSettleMs +
+                              " AdaptiveReadTimeoutMs=" + options.AdaptiveReadTimeoutMs +
+                              " AdaptiveStableMs=" + options.AdaptiveStableMs +
+                              " AdaptiveStableTimeoutMs=" + options.AdaptiveStableTimeoutMs +
+                              " AdaptiveMaxBatches=" + options.AdaptiveMaxBatches +
+                              " DragStepDelayMs=" + options.DragStepDelayMs +
+                              " MouseDownWarmupMs=" + options.MouseDownWarmupMs +
+                              " MouseHoldAfterMoveMs=" + options.MouseHoldAfterMoveMs);
+            Console.WriteLine("No locked target required. Do not move the mouse while this test is running.");
+
+            LocalPlayerInfo local;
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                return;
+            }
+
+            PrintFixedCameraYawState("initial", local, targetYaw, options);
+            if (!options.ApplyMouse)
+            {
+                Console.WriteLine("AION_FACE_TARGET_APPLY_MOUSE=0, snapshot only.");
+                return;
+            }
+
+            using (var km = new KmBoxClient(new KmBoxOptions { PortName = options.KmBoxPortName }))
+            {
+                km.Open();
+                if (options.AutoCalibrate)
+                {
+                    Console.WriteLine("AutoCalibrate is skipped in fixed yaw test; using manual PixelsPerDegreeAbs.");
+                }
+
+                double pixelsPerDegreeAbs = options.PixelsPerDegreeAbs;
+                Console.WriteLine("PixelsPerDegreeAbs=" + pixelsPerDegreeAbs.ToString("F4") +
+                                  " (set AION_FACE_TARGET_PIXELS_PER_DEG_ABS to tune; ErrorDeg>0 => drag left/dx<0).");
+
+                bool success = false;
+                int attemptsUsed = 0;
+                double finalError = 0.0;
+                for (int attempt = 1; attempt <= options.MaxAttempts; attempt++)
+                {
+                    attemptsUsed = attempt;
+                    if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+                    {
+                        Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                        return;
+                    }
+
+                    double currentYaw = GetCameraYawDegrees(local.CameraYaw, options);
+                    double errorDegrees = NormalizeSignedDegrees(targetYaw - currentYaw);
+                    finalError = errorDegrees;
+                    Console.WriteLine(
+                        "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                        "Attempt=" + attempt +
+                        " CameraYaw=" + currentYaw.ToString("F2") +
+                        " ActorYaw=" + FormatActorYaw(local) +
+                        " TargetYaw=" + targetYaw.ToString("F2") +
+                        " ErrorDeg=" + errorDegrees.ToString("F2"));
+
+                    if (Math.Abs(errorDegrees) <= options.ToleranceDegrees)
+                    {
+                        success = true;
+                        break;
+                    }
+
+                    if (IsAdaptiveDragMode(options))
+                    {
+                        finalError = DragCameraHorizontalAdaptiveFixedYaw(process, gameBase, km, targetYaw, pixelsPerDegreeAbs, options);
+                        success = Math.Abs(finalError) <= options.ToleranceDegrees;
+                        break;
+                    }
+
+                    if (IsTwoPassChunkDragMode(options))
+                    {
+                        finalError = DragCameraHorizontalTwoPassFixedYaw(process, gameBase, km, targetYaw, pixelsPerDegreeAbs, options);
+                        success = Math.Abs(finalError) <= options.ToleranceDegrees;
+                        break;
+                    }
+
+                    double rawDx;
+                    bool minApplied;
+                    int dx = CalculateCameraDragDx(errorDegrees, pixelsPerDegreeAbs, options, out rawDx, out minApplied);
+
+                    Console.WriteLine(
+                        "Attempt=" + attempt +
+                        " YawDecision=" + (errorDegrees > 0 ? "increase" : "decrease") +
+                        " MouseDrag=" + (dx < 0 ? "left" : "right") +
+                        " RawDx=" + rawDx.ToString("F2") +
+                        " Dx=" + dx +
+                        " MoveCommands=" + EstimateDragMoveCommandCount(dx, options) +
+                        " MinApplied=" + (minApplied ? "yes" : "no"));
+                    DragCameraHorizontal(km, dx, options);
+                    if (options.SettleMs > 0)
+                    {
+                        Thread.Sleep(options.SettleMs);
+                    }
+                }
+
+                if (TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+                {
+                    PrintFixedCameraYawState("final", local, targetYaw, options);
+                    finalError = NormalizeSignedDegrees(targetYaw - GetCameraYawDegrees(local.CameraYaw, options));
+                    success = success || Math.Abs(finalError) <= options.ToleranceDegrees;
+                    Console.WriteLine("Result=" + (success ? "aligned" : "not_aligned") +
+                                      " FinalErrorDeg=" + finalError.ToString("F2") +
+                                      " AttemptsUsed=" + attemptsUsed);
+                }
+                else
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Final read failed: " + error);
+                }
+            }
+        }
+
+        private static void RunCameraPixelCalibrationTest(VmmProcess process, ulong gameBase)
+        {
+            FaceTargetOptions options = ReadFaceTargetOptions();
+            int totalPixels = ReadIntFromEnv("AION_CAMERA_PIXEL_CALIBRATION_TOTAL_PX", 1000);
+            int stepPixels = ReadIntFromEnv("AION_CAMERA_PIXEL_CALIBRATION_STEP_PX", 1);
+            int stepDelayMs = ReadIntFromEnv("AION_CAMERA_PIXEL_CALIBRATION_STEP_DELAY_MS", 0);
+            totalPixels = ClampInt(totalPixels, -5000, 5000);
+            stepPixels = ClampInt(stepPixels, -100, 100);
+            stepDelayMs = ClampInt(stepDelayMs, 0, 50);
+
+            if (totalPixels == 0)
+            {
+                totalPixels = 1000;
+            }
+
+            if (stepPixels == 0)
+            {
+                stepPixels = totalPixels > 0 ? 1 : -1;
+            }
+
+            if ((totalPixels > 0 && stepPixels < 0) ||
+                (totalPixels < 0 && stepPixels > 0))
+            {
+                stepPixels = -stepPixels;
+            }
+
+            int steps = Math.Abs(totalPixels / stepPixels);
+            int remainder = totalPixels - (steps * stepPixels);
+
+            Console.WriteLine("AION camera pixel calibration test.");
+            Console.WriteLine("KmBoxPort=" + options.KmBoxPortName +
+                              " CameraYawUnit=" + options.CameraYawUnit +
+                              " TotalPixels=" + totalPixels +
+                              " StepPixels=" + stepPixels +
+                              " Steps=" + steps +
+                              " Remainder=" + remainder +
+                              " StepDelayMs=" + stepDelayMs +
+                              " MouseDownWarmupMs=" + options.MouseDownWarmupMs +
+                              " MouseHoldAfterMoveMs=" + options.MouseHoldAfterMoveMs +
+                              " SettleMs=" + options.SettleMs);
+            Console.WriteLine("This test holds right mouse button and sends raw MoveRelative one step at a time.");
+
+            LocalPlayerInfo before;
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out before, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                return;
+            }
+
+            double yawBefore = GetCameraYawDegrees(before.CameraYaw, options);
+            Console.WriteLine(
+                "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] before" +
+                " CameraYaw=" + yawBefore.ToString("F4") +
+                " RawCameraYaw=" + before.CameraYaw.ToString("F4") +
+                " ActorYaw=" + FormatActorYaw(before));
+
+            using (var km = new KmBoxClient(new KmBoxOptions { PortName = options.KmBoxPortName }))
+            {
+                km.Open();
+                try
+                {
+                    km.MouseUp(KmMouseButton.Right);
+                    Thread.Sleep(8);
+                    km.MouseDown(KmMouseButton.Right);
+                    if (options.MouseDownWarmupMs > 0)
+                    {
+                        Thread.Sleep(options.MouseDownWarmupMs);
+                    }
+
+                    for (int i = 0; i < steps; i++)
+                    {
+                        km.MoveRelative(stepPixels, 0);
+                        if (stepDelayMs > 0)
+                        {
+                            Thread.Sleep(stepDelayMs);
+                        }
+                    }
+
+                    if (remainder != 0)
+                    {
+                        km.MoveRelative(remainder, 0);
+                    }
+
+                    if (options.MouseHoldAfterMoveMs > 0)
+                    {
+                        Thread.Sleep(options.MouseHoldAfterMoveMs);
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        km.MouseUp(KmMouseButton.Right);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            if (options.SettleMs > 0)
+            {
+                Thread.Sleep(options.SettleMs);
+            }
+
+            LocalPlayerInfo after;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out after, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Final read failed: " + error);
+                return;
+            }
+
+            double yawAfter = GetCameraYawDegrees(after.CameraYaw, options);
+            double yawDelta = NormalizeSignedDegrees(yawAfter - yawBefore);
+            double absYawDelta = Math.Abs(yawDelta);
+            double pixelsPerDegree = absYawDelta > 0.0001 ? Math.Abs(totalPixels) / absYawDelta : 0.0;
+            double degreesPerPixel = Math.Abs(totalPixels) > 0 ? yawDelta / Math.Abs(totalPixels) : 0.0;
+
+            Console.WriteLine(
+                "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] after" +
+                " CameraYaw=" + yawAfter.ToString("F4") +
+                " RawCameraYaw=" + after.CameraYaw.ToString("F4") +
+                " ActorYaw=" + FormatActorYaw(after));
+            Console.WriteLine("Result" +
+                              " TotalPixels=" + totalPixels +
+                              " YawBefore=" + yawBefore.ToString("F4") +
+                              " YawAfter=" + yawAfter.ToString("F4") +
+                              " DeltaDeg=" + yawDelta.ToString("F4") +
+                              " AbsPixelsPerDeg=" + pixelsPerDegree.ToString("F4") +
+                              " SignedDegPerPixel=" + degreesPerPixel.ToString("F6") +
+                              " Direction=" + (yawDelta > 0 ? "yaw_increased" : yawDelta < 0 ? "yaw_decreased" : "unchanged"));
+        }
+
+        private static FaceTargetOptions ReadFaceTargetOptions()
+        {
+            string portName = Environment.GetEnvironmentVariable("KMBOX_PORT");
+            if (string.IsNullOrWhiteSpace(portName))
+            {
+                portName = "COM11";
+            }
+
+            int durationMs = ReadIntFromEnv("AION_FACE_TARGET_DURATION_MS", 0);
+            int settleMs = ReadIntFromEnv("AION_FACE_TARGET_SETTLE_MS", 20);
+            int mouseDownWarmupMs = ReadIntFromEnv("AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS", 0);
+            int mouseHoldAfterMoveMs = ReadIntFromEnv("AION_FACE_TARGET_MOUSE_HOLD_AFTER_MOVE_MS", 0);
+            int maxAttempts = ReadIntFromEnv("AION_FACE_TARGET_MAX_ATTEMPTS", 1);
+            int calibrationPixels = ReadIntFromEnv("AION_FACE_TARGET_CALIBRATION_PIXELS", 160);
+            int calibrationMs = ReadIntFromEnv("AION_FACE_TARGET_CALIBRATION_MS", 120);
+            int minCorrectionPixels = ReadIntFromEnv("AION_FACE_TARGET_MIN_CORRECTION_PIXELS", 70);
+            int dragPrimePixels = ReadIntFromEnv("AION_FACE_TARGET_DRAG_PRIME_PIXELS", 5);
+            int dragTailPixels = ReadIntFromEnv("AION_FACE_TARGET_DRAG_TAIL_PIXELS", 5);
+            int dragRampMaxPixels = ReadIntFromEnv("AION_FACE_TARGET_DRAG_RAMP_MAX_PX", 6);
+            int dragStepPixels = ReadIntFromEnv("AION_FACE_TARGET_DRAG_STEP_PX", 25);
+            int dragFineStepPixels = ReadIntFromEnv("AION_FACE_TARGET_DRAG_FINE_STEP_PX", 10);
+            int dragStepDelayMs = ReadIntFromEnv("AION_FACE_TARGET_DRAG_STEP_DELAY_MS", 0);
+            int dragLeadMs = ReadIntFromEnv("AION_FACE_TARGET_DRAG_LEAD_MS", 200);
+            int dragMainMs = ReadIntFromEnv("AION_FACE_TARGET_DRAG_MAIN_MS", 600);
+            int dragTailMs = ReadIntFromEnv("AION_FACE_TARGET_DRAG_TAIL_MS", 200);
+            int adaptiveReadSettleMs = ReadIntFromEnv("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS", 20);
+            int adaptiveReadTimeoutMs = ReadIntFromEnv("AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS", 900);
+            int adaptiveStableMs = ReadIntFromEnv("AION_FACE_TARGET_ADAPTIVE_STABLE_MS", 160);
+            int adaptiveStableTimeoutMs = ReadIntFromEnv("AION_FACE_TARGET_ADAPTIVE_STABLE_TIMEOUT_MS", 1500);
+            int adaptiveMaxBatches = ReadIntFromEnv("AION_FACE_TARGET_ADAPTIVE_MAX_BATCHES", 40);
+            int twoPassMaxPasses = ReadIntFromEnv("AION_FACE_TARGET_TWO_PASS_MAX_PASSES", 2);
+            int adaptiveCoarseBatchPixels = ReadIntFromEnv("AION_FACE_TARGET_ADAPTIVE_COARSE_BATCH_PX", 100);
+            int adaptiveMidBatchPixels = ReadIntFromEnv("AION_FACE_TARGET_ADAPTIVE_MID_BATCH_PX", 40);
+            int adaptiveFineStepPixels = ReadIntFromEnv("AION_FACE_TARGET_ADAPTIVE_FINE_STEP_PX", 5);
+            double toleranceDegrees = ReadDoubleFromEnv("AION_FACE_TARGET_TOLERANCE_DEG", 2.5);
+            double adaptiveFineThresholdDegrees = ReadDoubleFromEnv("AION_FACE_TARGET_ADAPTIVE_FINE_THRESHOLD_DEG", 5.0);
+            double adaptiveMidThresholdDegrees = ReadDoubleFromEnv("AION_FACE_TARGET_ADAPTIVE_MID_THRESHOLD_DEG", 20.0);
+            double adaptiveMinYawDeltaDegrees = ReadDoubleFromEnv("AION_FACE_TARGET_ADAPTIVE_MIN_YAW_DELTA_DEG", 0.25);
+            double adaptiveFinalThresholdDegrees = ReadDoubleFromEnv("AION_FACE_TARGET_ADAPTIVE_FINAL_THRESHOLD_DEG", 45.0);
+            double adaptiveFinalPixelsPerDegreeAbs = Math.Abs(ReadSignedDoubleFromEnv("AION_FACE_TARGET_ADAPTIVE_FINAL_PIXELS_PER_DEG", 8.5));
+            if (adaptiveFinalPixelsPerDegreeAbs < 0.0001)
+            {
+                adaptiveFinalPixelsPerDegreeAbs = 8.5;
+            }
+
+            double fixedTargetYawDegrees = ReadSignedDoubleFromEnv("AION_FACE_TARGET_FIXED_YAW_DEG", 90.0);
+            double pixelsPerDegreeAbs = Math.Abs(ReadSignedDoubleFromEnv("AION_FACE_TARGET_PIXELS_PER_DEG_ABS", 0.0));
+            if (pixelsPerDegreeAbs < 0.0001)
+            {
+                pixelsPerDegreeAbs = Math.Abs(ReadSignedDoubleFromEnv("AION_FACE_TARGET_PIXELS_PER_DEG", 13.0));
+            }
+
+            if (pixelsPerDegreeAbs < 0.0001)
+            {
+                pixelsPerDegreeAbs = 13.0;
+            }
+
+            double yawOffset = ReadSignedDoubleFromEnv("AION_FACE_TARGET_YAW_OFFSET_DEG", 0.0);
+            string yawUnit = Environment.GetEnvironmentVariable("AION_CAMERA_YAW_UNIT");
+            string bearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+            string yawFeedbackMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_YAW_FEEDBACK");
+            string dragMoveMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_DRAG_MOVE_MODE");
+
+            return new FaceTargetOptions
+            {
+                KmBoxPortName = portName,
+                DurationMs = ClampInt(durationMs, 0, 3000),
+                SettleMs = ClampInt(settleMs, 0, 500),
+                MouseDownWarmupMs = ClampInt(mouseDownWarmupMs, 0, 1000),
+                MouseHoldAfterMoveMs = ClampInt(mouseHoldAfterMoveMs, 0, 1000),
+                MaxAttempts = ClampInt(maxAttempts, 1, 8),
+                CalibrationPixels = ClampInt(calibrationPixels, 20, 2000),
+                CalibrationMs = ClampInt(calibrationMs, 20, 1000),
+                MinCorrectionPixels = ClampInt(minCorrectionPixels, 0, 500),
+                ToleranceDegrees = Math.Max(0.1, toleranceDegrees),
+                PixelsPerDegreeAbs = pixelsPerDegreeAbs,
+                FixedTargetYawDegrees = fixedTargetYawDegrees,
+                TargetYawOffsetDegrees = yawOffset,
+                CameraYawUnit = string.IsNullOrWhiteSpace(yawUnit) ? "deg" : yawUnit.Trim(),
+                BearingMode = string.IsNullOrWhiteSpace(bearingMode) ? "y-x" : bearingMode.Trim(),
+                YawFeedbackMode = string.IsNullOrWhiteSpace(yawFeedbackMode) ? "camera" : yawFeedbackMode.Trim(),
+                DragMoveMode = string.IsNullOrWhiteSpace(dragMoveMode) ? "two_pass_chunk" : dragMoveMode.Trim(),
+                DragPrimePixels = ClampInt(dragPrimePixels, 0, 50),
+                DragTailPixels = ClampInt(dragTailPixels, 0, 50),
+                DragRampMaxPixels = ClampInt(dragRampMaxPixels, 1, 50),
+                DragStepPixels = ClampInt(Math.Abs(dragStepPixels), 1, 500),
+                DragFineStepPixels = ClampInt(Math.Abs(dragFineStepPixels), 1, 100),
+                DragStepDelayMs = ClampInt(dragStepDelayMs, 0, 50),
+                DragLeadMs = ClampInt(dragLeadMs, 0, 1000),
+                DragMainMs = ClampInt(dragMainMs, 0, 2000),
+                DragTailMs = ClampInt(dragTailMs, 0, 1000),
+                AdaptiveReadSettleMs = ClampInt(adaptiveReadSettleMs, 0, 200),
+                AdaptiveReadTimeoutMs = ClampInt(adaptiveReadTimeoutMs, 0, 2000),
+                AdaptiveStableMs = ClampInt(adaptiveStableMs, 0, 1000),
+                AdaptiveStableTimeoutMs = ClampInt(adaptiveStableTimeoutMs, 0, 5000),
+                AdaptiveMaxBatches = ClampInt(adaptiveMaxBatches, 1, 200),
+                TwoPassMaxPasses = ClampInt(twoPassMaxPasses, 1, 4),
+                AdaptiveFineThresholdDegrees = Math.Max(0.1, adaptiveFineThresholdDegrees),
+                AdaptiveMidThresholdDegrees = Math.Max(0.1, adaptiveMidThresholdDegrees),
+                AdaptiveMinYawDeltaDegrees = Math.Max(0.0, adaptiveMinYawDeltaDegrees),
+                AdaptiveFinalThresholdDegrees = Math.Max(0.1, adaptiveFinalThresholdDegrees),
+                AdaptiveFinalPixelsPerDegreeAbs = Math.Max(0.1, adaptiveFinalPixelsPerDegreeAbs),
+                AdaptiveCoarseBatchPixels = ClampInt(Math.Abs(adaptiveCoarseBatchPixels), 1, 1000),
+                AdaptiveMidBatchPixels = ClampInt(Math.Abs(adaptiveMidBatchPixels), 1, 500),
+                AdaptiveFineStepPixels = ClampInt(Math.Abs(adaptiveFineStepPixels), 1, 100),
+                UseFixedYaw = ReadBoolFromEnv("AION_FACE_TARGET_USE_FIXED_YAW", false),
+                AutoCalibrate = ReadBoolFromEnv("AION_FACE_TARGET_AUTO_CALIBRATE", false),
+                ApplyMouse = ReadBoolFromEnv("AION_FACE_TARGET_APPLY_MOUSE", true)
+            };
+        }
+
+        private static void PrintCameraWatchSnapshot(VmmProcess process, ulong gameBase, string label)
+        {
+            LocalPlayerInfo info;
+            string error;
+            if (TryReadLocalPlayerInfo(process, gameBase, out info, out error))
+            {
+                Console.WriteLine(
+                    "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                    label +
+                    " CameraMode=" + FormatCameraMode(info) +
+                    " Camera(P/R/Y)=" +
+                    info.CameraPitch.ToString("F4") + "/" +
+                    info.CameraRoll.ToString("F4") + "/" +
+                    info.CameraYaw.ToString("F4") +
+                    " Pos=" + FormatPosition(info) +
+                    " Transform=" + FormatTransform(info));
+            }
+            else
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " + label + " local read failed: " + error);
+            }
+        }
+
+        private static void PrintCameraWatchValues(string label, Dictionary<ulong, float> values)
+        {
+            if (values.Count == 0)
+            {
+                Console.WriteLine(label + ": none");
+                return;
+            }
+
+            var ordered = values.OrderBy(item => item.Key).ToList();
+            var builder = new StringBuilder();
+            builder.Append(label);
+            builder.Append(": ");
+
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                if (i > 0)
+                {
+                    builder.Append(" | ");
+                }
+
+                builder.Append("0x");
+                builder.Append(ordered[i].Key.ToString("X"));
+                builder.Append("=");
+                builder.Append(ordered[i].Value.ToString("F4"));
+            }
+
+            Console.WriteLine(builder.ToString());
+        }
+
+        private static bool IsReasonableFloat(float value)
+        {
+            return !float.IsNaN(value) &&
+                   !float.IsInfinity(value) &&
+                   Math.Abs(value) < 1000000.0F;
+        }
+
+        private static bool TryReadFaceTargetSnapshot(
+            VmmProcess process,
+            ulong gameBase,
+            out LocalPlayerInfo local,
+            out LockedTargetMonsterInfo target,
+            out string error)
+        {
+            target = new LockedTargetMonsterInfo();
+            if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+            {
+                return false;
+            }
+
+            if (!local.HasPosition)
+            {
+                error = "local player position is not available";
+                return false;
+            }
+
+            if (!TryReadLockedTargetMonsterInfo(process, gameBase, out target, out error))
+            {
+                return false;
+            }
+
+            if (target.TargetEntityId == 0)
+            {
+                error = "no locked target";
+                return false;
+            }
+
+            if (!target.HasPosition)
+            {
+                error = "locked target position is not available";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TryCalibrateFaceTargetMouse(
+            VmmProcess process,
+            ulong gameBase,
+            KmBoxClient km,
+            FaceTargetOptions options,
+            out double pixelsPerDegree,
+            out string error)
+        {
+            pixelsPerDegree = 0;
+            LocalPlayerInfo before;
+            LockedTargetMonsterInfo target;
+            if (!TryReadFaceTargetSnapshot(process, gameBase, out before, out target, out error))
+            {
+                return false;
+            }
+
+            double yawBefore = GetCameraYawDegrees(before.CameraYaw, options);
+            Console.WriteLine("Calibration: dragging +" + options.CalibrationPixels +
+                              " px for " + options.CalibrationMs +
+                              " ms from yaw " + yawBefore.ToString("F2") + ".");
+
+            DragCameraHorizontal(km, options.CalibrationPixels, options);
+            if (options.SettleMs > 0)
+            {
+                Thread.Sleep(options.SettleMs);
+            }
+
+            LocalPlayerInfo after;
+            if (!TryReadFaceTargetSnapshot(process, gameBase, out after, out target, out error))
+            {
+                return false;
+            }
+
+            double yawAfter = GetCameraYawDegrees(after.CameraYaw, options);
+            double yawDelta = NormalizeSignedDegrees(yawAfter - yawBefore);
+            if (Math.Abs(yawDelta) < 0.05)
+            {
+                error = "camera yaw changed only " + yawDelta.ToString("F4") +
+                        " deg; check right-button camera drag, KMBOX_PORT, or game focus";
+                return false;
+            }
+
+            pixelsPerDegree = options.CalibrationPixels / yawDelta;
+            Console.WriteLine("Calibration: yawAfter=" + yawAfter.ToString("F2") +
+                              " DeltaDeg=" + yawDelta.ToString("F4") +
+                              " PixelsPerDegree=" + pixelsPerDegree.ToString("F4") + ".");
+            return true;
+        }
+
+        private static void DragCameraHorizontal(KmBoxClient km, int dx, FaceTargetOptions options)
+        {
+            if (dx == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                km.MouseUp(KmMouseButton.Right);
+                Thread.Sleep(8);
+                km.MouseDown(KmMouseButton.Right);
+                if (options.MouseDownWarmupMs > 0)
+                {
+                    Thread.Sleep(options.MouseDownWarmupMs);
+                }
+
+                if (IsNormalDistributionDragMode(options))
+                {
+                    DragCameraHorizontalNormalDistribution(km, dx, options);
+                }
+                else if (IsRampDragMode(options))
+                {
+                    DragCameraHorizontalRamp(km, dx, options);
+                }
+                else if (IsChunkDragMode(options))
+                {
+                    DragCameraHorizontalChunks(km, dx, options);
+                }
+                else if (IsTwoPassChunkDragMode(options))
+                {
+                    DragCameraHorizontalChunks(km, dx, options);
+                }
+                else if (IsPhasedDragMode(options))
+                {
+                    DragCameraHorizontalPhased(km, dx, options);
+                }
+                else if (IsRawStepDragMode(options))
+                {
+                    DragCameraHorizontalRawSteps(km, dx, options);
+                }
+                else
+                {
+                    km.MoveRelativeHumanLike(dx, 0);
+                }
+
+                if (options.MouseHoldAfterMoveMs > 0)
+                {
+                    Thread.Sleep(options.MouseHoldAfterMoveMs);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    km.MouseUp(KmMouseButton.Right);
+                }
+                catch
+                {
+                }
+            }
+
+            if (options.DurationMs > 0)
+            {
+                Thread.Sleep(options.DurationMs);
+            }
+        }
+
+        private static double DragCameraHorizontalTwoPassFixedYaw(
+            VmmProcess process,
+            ulong gameBase,
+            KmBoxClient km,
+            double targetYaw,
+            double pixelsPerDegreeAbs,
+            FaceTargetOptions options)
+        {
+            double finalError = 0.0;
+            bool mouseDown = false;
+            try
+            {
+                km.MouseUp(KmMouseButton.Right);
+                Thread.Sleep(8);
+                km.MouseDown(KmMouseButton.Right);
+                mouseDown = true;
+                if (options.MouseDownWarmupMs > 0)
+                {
+                    Thread.Sleep(options.MouseDownWarmupMs);
+                }
+
+                Console.WriteLine("TwoPassSession=begin HoldRight=yes MaxPasses=" + options.TwoPassMaxPasses);
+                for (int pass = 1; pass <= options.TwoPassMaxPasses; pass++)
+                {
+                    double currentYaw;
+                    if (!TryReadStableCameraYaw(process, gameBase, options, out currentYaw))
+                    {
+                        Console.WriteLine("TwoPassReadFailed Pass=" + pass + " Reason=camera_yaw");
+                        return finalError;
+                    }
+
+                    double errorDegrees = NormalizeSignedDegrees(targetYaw - currentYaw);
+                    finalError = errorDegrees;
+                    if (Math.Abs(errorDegrees) <= options.ToleranceDegrees)
+                    {
+                        Console.WriteLine("TwoPassStop Pass=" + pass +
+                                          " CameraYaw=" + currentYaw.ToString("F2") +
+                                          " ErrorDeg=" + errorDegrees.ToString("F2") +
+                                          " Reason=within_tolerance");
+                        break;
+                    }
+
+                    double rawDx;
+                    bool minApplied;
+                    int dx = CalculateCameraDragDx(errorDegrees, pixelsPerDegreeAbs, options, false, out rawDx, out minApplied);
+                    Console.WriteLine("TwoPass Pass=" + pass +
+                                      " CameraYaw=" + currentYaw.ToString("F2") +
+                                      " TargetYaw=" + targetYaw.ToString("F2") +
+                                      " ErrorDeg=" + errorDegrees.ToString("F2") +
+                                      " PixelsPerDeg=" + pixelsPerDegreeAbs.ToString("F2") +
+                                      " RawDx=" + rawDx.ToString("F2") +
+                                      " Dx=" + dx +
+                                      " MoveCommands=" + EstimateChunkDragMoveCommandCount(dx, options) +
+                                      " ChunkPx=" + options.DragStepPixels +
+                                      " PrimeTail=" + options.DragPrimePixels + "/" + options.DragTailPixels +
+                                      " MinApplied=" + (minApplied ? "yes" : "no"));
+
+                    DragCameraHorizontalChunks(km, dx, options);
+                    if (options.MouseHoldAfterMoveMs > 0)
+                    {
+                        Thread.Sleep(options.MouseHoldAfterMoveMs);
+                    }
+
+                    double afterYaw;
+                    if (TryReadStableCameraYaw(process, gameBase, options, out afterYaw))
+                    {
+                        finalError = NormalizeSignedDegrees(targetYaw - afterYaw);
+                        Console.WriteLine("TwoPassResult Pass=" + pass +
+                                          " CameraYaw=" + afterYaw.ToString("F2") +
+                                          " ErrorDeg=" + finalError.ToString("F2") +
+                                          " HoldRight=yes");
+                    }
+                }
+            }
+            finally
+            {
+                if (mouseDown)
+                {
+                    try
+                    {
+                        km.MouseUp(KmMouseButton.Right);
+                        Console.WriteLine("TwoPassSession=end MouseUp=right");
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            if (options.DurationMs > 0)
+            {
+                Thread.Sleep(options.DurationMs);
+            }
+
+            return finalError;
+        }
+
+        private static double DragCameraHorizontalTwoPassFaceTarget(
+            VmmProcess process,
+            ulong gameBase,
+            KmBoxClient km,
+            double pixelsPerDegreeAbs,
+            FaceTargetOptions options)
+        {
+            double finalError = 0.0;
+            bool mouseDown = false;
+            try
+            {
+                km.MouseUp(KmMouseButton.Right);
+                Thread.Sleep(8);
+                km.MouseDown(KmMouseButton.Right);
+                mouseDown = true;
+                if (options.MouseDownWarmupMs > 0)
+                {
+                    Thread.Sleep(options.MouseDownWarmupMs);
+                }
+
+                Console.WriteLine("TwoPassSession=begin HoldRight=yes MaxPasses=" + options.TwoPassMaxPasses);
+                for (int pass = 1; pass <= options.TwoPassMaxPasses; pass++)
+                {
+                    LocalPlayerInfo local;
+                    LockedTargetMonsterInfo target;
+                    string error;
+                    if (!TryReadFaceTargetSnapshot(process, gameBase, out local, out target, out error))
+                    {
+                        Console.WriteLine("TwoPassReadFailed Pass=" + pass + " Reason=" + error);
+                        return finalError;
+                    }
+
+                    string yawSource;
+                    double currentYaw = GetFeedbackYawDegrees(local, options, out yawSource);
+                    double targetYaw = CalculateTargetYawDegrees(local, target, options);
+                    double errorDegrees = NormalizeSignedDegrees(targetYaw - currentYaw);
+                    finalError = errorDegrees;
+                    if (Math.Abs(errorDegrees) <= options.ToleranceDegrees)
+                    {
+                        Console.WriteLine("TwoPassStop Pass=" + pass +
+                                          " ControlYawSource=" + yawSource +
+                                          " ControlYaw=" + currentYaw.ToString("F2") +
+                                          " TargetYaw=" + targetYaw.ToString("F2") +
+                                          " ErrorDeg=" + errorDegrees.ToString("F2") +
+                                          " Reason=within_tolerance");
+                        break;
+                    }
+
+                    double rawDx;
+                    bool minApplied;
+                    int dx = CalculateCameraDragDx(errorDegrees, pixelsPerDegreeAbs, options, false, out rawDx, out minApplied);
+                    Console.WriteLine("TwoPass Pass=" + pass +
+                                      " ControlYawSource=" + yawSource +
+                                      " ControlYaw=" + currentYaw.ToString("F2") +
+                                      " TargetYaw=" + targetYaw.ToString("F2") +
+                                      " ErrorDeg=" + errorDegrees.ToString("F2") +
+                                      " Distance=" + FormatDistance(target) +
+                                      " PixelsPerDeg=" + pixelsPerDegreeAbs.ToString("F2") +
+                                      " RawDx=" + rawDx.ToString("F2") +
+                                      " Dx=" + dx +
+                                      " MoveCommands=" + EstimateChunkDragMoveCommandCount(dx, options) +
+                                      " ChunkPx=" + options.DragStepPixels +
+                                      " PrimeTail=" + options.DragPrimePixels + "/" + options.DragTailPixels +
+                                      " MinApplied=" + (minApplied ? "yes" : "no"));
+
+                    DragCameraHorizontalChunks(km, dx, options);
+                    if (options.MouseHoldAfterMoveMs > 0)
+                    {
+                        Thread.Sleep(options.MouseHoldAfterMoveMs);
+                    }
+
+                    TryReadStableCameraYaw(process, gameBase, options, out currentYaw);
+
+                    if (TryReadFaceTargetSnapshot(process, gameBase, out local, out target, out error))
+                    {
+                        currentYaw = GetFeedbackYawDegrees(local, options, out yawSource);
+                        targetYaw = CalculateTargetYawDegrees(local, target, options);
+                        finalError = NormalizeSignedDegrees(targetYaw - currentYaw);
+                        Console.WriteLine("TwoPassResult Pass=" + pass +
+                                          " ControlYawSource=" + yawSource +
+                                          " ControlYaw=" + currentYaw.ToString("F2") +
+                                          " TargetYaw=" + targetYaw.ToString("F2") +
+                                          " ErrorDeg=" + finalError.ToString("F2") +
+                                          " Distance=" + FormatDistance(target) +
+                                          " HoldRight=yes");
+                    }
+                }
+            }
+            finally
+            {
+                if (mouseDown)
+                {
+                    try
+                    {
+                        km.MouseUp(KmMouseButton.Right);
+                        Console.WriteLine("TwoPassSession=end MouseUp=right");
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            if (options.DurationMs > 0)
+            {
+                Thread.Sleep(options.DurationMs);
+            }
+
+            return finalError;
+        }
+
+        private static double DragCameraHorizontalAdaptiveFixedYaw(
+            VmmProcess process,
+            ulong gameBase,
+            KmBoxClient km,
+            double targetYaw,
+            double pixelsPerDegreeAbs,
+            FaceTargetOptions options)
+        {
+            double finalError = 0.0;
+            int batches = 0;
+            double lastObservedYaw = 0.0;
+            double trackedPixelsPerDegreeAbs = pixelsPerDegreeAbs;
+            bool hasObservedYaw = false;
+            bool hasSentMovement = false;
+            bool useFinalPixelsPerDegree = false;
+            bool finalDragSessionStarted = false;
+
+            try
+            {
+                km.MouseUp(KmMouseButton.Right);
+                Thread.Sleep(8);
+                km.MouseDown(KmMouseButton.Right);
+
+                int prime = Math.Max(0, options.DragPrimePixels);
+                int primeDirection = 0;
+                if (!TryReadCameraYaw(process, gameBase, options, out lastObservedYaw))
+                {
+                    Console.WriteLine("AdaptiveReadFailed batch=0 error=failed to read initial camera yaw");
+                    return finalError;
+                }
+                hasObservedYaw = true;
+
+                double trackedErrorDegrees = NormalizeSignedDegrees(targetYaw - lastObservedYaw);
+                double rawDx;
+                bool minApplied;
+                int remainingDx = CalculateCameraDragDx(trackedErrorDegrees, trackedPixelsPerDegreeAbs, options, true, out rawDx, out minApplied);
+
+                for (int batch = 1; batch <= options.AdaptiveMaxBatches; batch++)
+                {
+                    double observedYaw;
+                    bool freshYaw = false;
+                    if (TryReadCameraYaw(process, gameBase, options, out observedYaw))
+                    {
+                        double observedDelta = Math.Abs(NormalizeSignedDegrees(observedYaw - lastObservedYaw));
+                        if (batch == 1 || observedDelta >= options.AdaptiveMinYawDeltaDegrees)
+                        {
+                            if (batch > 1)
+                            {
+                                double stableYaw;
+                                if (WaitForCameraYawStable(process, gameBase, observedYaw, options, out stableYaw))
+                                {
+                                    observedYaw = stableYaw;
+                                }
+                            }
+
+                            lastObservedYaw = observedYaw;
+                            trackedErrorDegrees = NormalizeSignedDegrees(targetYaw - lastObservedYaw);
+                            useFinalPixelsPerDegree = ShouldUseAdaptiveFinalPixelsPerDegree(trackedErrorDegrees, hasSentMovement, options);
+                            trackedPixelsPerDegreeAbs = useFinalPixelsPerDegree ? options.AdaptiveFinalPixelsPerDegreeAbs : pixelsPerDegreeAbs;
+                            remainingDx = CalculateCameraDragDx(trackedErrorDegrees, trackedPixelsPerDegreeAbs, options, !useFinalPixelsPerDegree, out rawDx, out minApplied);
+                            if (useFinalPixelsPerDegree && !finalDragSessionStarted)
+                            {
+                                RestartCameraRightDrag(km, options);
+                                primeDirection = 0;
+                                finalDragSessionStarted = true;
+                                Console.WriteLine("AdaptiveRestart=batch=" + batch +
+                                                  " Reason=final_correction" +
+                                                  " CameraYaw=" + lastObservedYaw.ToString("F2") +
+                                                  " ErrorDeg=" + trackedErrorDegrees.ToString("F2"));
+                            }
+
+                            freshYaw = true;
+                        }
+                    }
+
+                    finalError = trackedErrorDegrees;
+                    batches = batch;
+
+                    double actualErrorDegrees = NormalizeSignedDegrees(targetYaw - lastObservedYaw);
+                    if (freshYaw && Math.Abs(actualErrorDegrees) <= options.ToleranceDegrees)
+                    {
+                        Console.WriteLine("AdaptiveBatch=" + batch +
+                                          " CameraYaw=" + lastObservedYaw.ToString("F2") +
+                                          " ErrorDeg=" + actualErrorDegrees.ToString("F2") +
+                                          " RemainingDx=" + remainingDx +
+                                          " Stop=actual_within_tolerance");
+                        finalError = actualErrorDegrees;
+                        break;
+                    }
+
+                    if (remainingDx == 0)
+                    {
+                        Console.WriteLine("AdaptiveBatch=" + batch +
+                                          " CameraYaw=" + lastObservedYaw.ToString("F2") +
+                                          " ErrorDeg=" + actualErrorDegrees.ToString("F2") +
+                                          " RemainingDx=0 Stop=pixels_exhausted_wait_final");
+                        finalError = actualErrorDegrees;
+                        break;
+                    }
+
+                    int direction = remainingDx < 0 ? -1 : 1;
+                    if (primeDirection != direction)
+                    {
+                        primeDirection = direction;
+                        for (int i = 0; i < prime; i++)
+                        {
+                            SendCameraMoveStep(km, direction, options);
+                        }
+                    }
+
+                    int batchAbsPixels = CalculateAdaptiveBatchPixelsFromRemaining(remainingDx, trackedPixelsPerDegreeAbs, options);
+                    int batchPixels = direction * batchAbsPixels;
+
+                    Console.WriteLine("AdaptiveBatch=" + batch +
+                                      " CameraYaw=" + lastObservedYaw.ToString("F2") +
+                                      " TargetYaw=" + targetYaw.ToString("F2") +
+                                      " ErrorDeg=" + trackedErrorDegrees.ToString("F2") +
+                                      " PixelsPerDeg=" + trackedPixelsPerDegreeAbs.ToString("F2") +
+                                      " MinApplied=" + (minApplied ? "yes" : "no") +
+                                      " RemainingDx=" + remainingDx +
+                                      " Dx=" + batchPixels +
+                                      " StepMode=" + FormatAdaptiveStepMode(trackedErrorDegrees, options) +
+                                      " FreshYaw=" + (freshYaw ? "yes" : "no"));
+                    SendCameraMoveStep(km, batchPixels, options);
+                    hasSentMovement = true;
+
+                    if (useFinalPixelsPerDegree)
+                    {
+                        double feedbackYaw;
+                        if (WaitForCameraYawChange(process, gameBase, lastObservedYaw, options, out feedbackYaw))
+                        {
+                            double stableYaw;
+                            if (WaitForCameraYawStable(process, gameBase, feedbackYaw, options, out stableYaw))
+                            {
+                                feedbackYaw = stableYaw;
+                            }
+
+                            lastObservedYaw = feedbackYaw;
+                            trackedErrorDegrees = NormalizeSignedDegrees(targetYaw - lastObservedYaw);
+                            useFinalPixelsPerDegree = ShouldUseAdaptiveFinalPixelsPerDegree(trackedErrorDegrees, hasSentMovement, options);
+                            trackedPixelsPerDegreeAbs = useFinalPixelsPerDegree ? options.AdaptiveFinalPixelsPerDegreeAbs : pixelsPerDegreeAbs;
+                            remainingDx = CalculateCameraDragDx(trackedErrorDegrees, trackedPixelsPerDegreeAbs, options, !useFinalPixelsPerDegree, out rawDx, out minApplied);
+                            Console.WriteLine("AdaptiveFeedback=batch=" + batch +
+                                              " CameraYaw=" + lastObservedYaw.ToString("F2") +
+                                              " ErrorDeg=" + trackedErrorDegrees.ToString("F2") +
+                                              " RemainingDx=" + remainingDx);
+                            continue;
+                        }
+
+                        RestartCameraRightDrag(km, options);
+                        primeDirection = 0;
+                        Console.WriteLine("AdaptiveFeedback=batch=" + batch +
+                                          " CameraYaw=" + lastObservedYaw.ToString("F2") +
+                                          " ErrorDeg=" + trackedErrorDegrees.ToString("F2") +
+                                          " Result=no_yaw_update_restart");
+                        continue;
+                    }
+
+                    remainingDx -= batchPixels;
+                    trackedErrorDegrees = -remainingDx / trackedPixelsPerDegreeAbs;
+
+                    if (options.AdaptiveReadSettleMs > 0)
+                    {
+                        Thread.Sleep(options.AdaptiveReadSettleMs);
+                    }
+                }
+            }
+            finally
+            {
+                try
+                {
+                    km.MouseUp(KmMouseButton.Right);
+                }
+                catch
+                {
+                }
+            }
+
+            if (hasObservedYaw)
+            {
+                double observedYaw;
+                WaitForCameraYawStable(process, gameBase, lastObservedYaw, options, out observedYaw);
+            }
+
+            double finalYaw;
+            if (TryReadCameraYaw(process, gameBase, options, out finalYaw))
+            {
+                finalError = NormalizeSignedDegrees(targetYaw - finalYaw);
+            }
+
+            Console.WriteLine("AdaptiveResult FinalErrorDeg=" + finalError.ToString("F2") +
+                              " Batches=" + batches);
+            return finalError;
+        }
+
+        private static int CalculateAdaptiveBatchPixels(
+            double errorDegrees,
+            double pixelsPerDegreeAbs,
+            FaceTargetOptions options)
+        {
+            double absError = Math.Abs(errorDegrees);
+            int requestedPixels = (int)Math.Round(absError * pixelsPerDegreeAbs, MidpointRounding.AwayFromZero);
+            if (requestedPixels <= 0)
+            {
+                requestedPixels = 1;
+            }
+
+            int cap;
+            if (absError <= options.AdaptiveFineThresholdDegrees)
+            {
+                cap = options.AdaptiveFineStepPixels;
+            }
+            else if (absError <= options.AdaptiveMidThresholdDegrees)
+            {
+                cap = options.AdaptiveMidBatchPixels;
+            }
+            else
+            {
+                cap = options.AdaptiveCoarseBatchPixels;
+            }
+
+            return Math.Max(1, Math.Min(requestedPixels, cap));
+        }
+
+        private static bool ShouldUseAdaptiveFinalPixelsPerDegree(
+            double errorDegrees,
+            bool hasSentMovement,
+            FaceTargetOptions options)
+        {
+            return hasSentMovement &&
+                   Math.Abs(errorDegrees) <= options.AdaptiveFinalThresholdDegrees &&
+                   options.AdaptiveFinalPixelsPerDegreeAbs > 0.0001;
+        }
+
+        private static int CalculateAdaptiveBatchPixelsFromRemaining(
+            int remainingDx,
+            double pixelsPerDegreeAbs,
+            FaceTargetOptions options)
+        {
+            int requestedPixels = Math.Abs(remainingDx);
+            double estimatedErrorDegrees = requestedPixels / pixelsPerDegreeAbs;
+
+            int cap;
+            if (estimatedErrorDegrees <= options.AdaptiveFineThresholdDegrees)
+            {
+                cap = options.AdaptiveFineStepPixels;
+            }
+            else if (estimatedErrorDegrees <= options.AdaptiveMidThresholdDegrees)
+            {
+                cap = options.AdaptiveMidBatchPixels;
+            }
+            else
+            {
+                cap = options.AdaptiveCoarseBatchPixels;
+            }
+
+            return Math.Max(1, Math.Min(requestedPixels, cap));
+        }
+
+        private static bool WaitForCameraYawChange(
+            VmmProcess process,
+            ulong gameBase,
+            double previousYaw,
+            FaceTargetOptions options,
+            out double observedYaw)
+        {
+            observedYaw = previousYaw;
+
+            if (options.AdaptiveReadSettleMs > 0)
+            {
+                Thread.Sleep(options.AdaptiveReadSettleMs);
+            }
+
+            if (options.AdaptiveReadTimeoutMs <= 0)
+            {
+                return TryReadCameraYaw(process, gameBase, options, out observedYaw) &&
+                       Math.Abs(NormalizeSignedDegrees(observedYaw - previousYaw)) >= options.AdaptiveMinYawDeltaDegrees;
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            while (stopwatch.ElapsedMilliseconds <= options.AdaptiveReadTimeoutMs)
+            {
+                double yaw;
+                if (TryReadCameraYaw(process, gameBase, options, out yaw))
+                {
+                    observedYaw = yaw;
+                    double delta = Math.Abs(NormalizeSignedDegrees(observedYaw - previousYaw));
+                    if (delta >= options.AdaptiveMinYawDeltaDegrees)
+                    {
+                        return true;
+                    }
+                }
+
+                Thread.Sleep(10);
+            }
+
+            return false;
+        }
+
+        private static bool WaitForCameraYawStable(
+            VmmProcess process,
+            ulong gameBase,
+            double startYaw,
+            FaceTargetOptions options,
+            out double stableYaw)
+        {
+            stableYaw = startYaw;
+            if (options.AdaptiveStableMs <= 0 || options.AdaptiveStableTimeoutMs <= 0)
+            {
+                return true;
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            long stableSince = stopwatch.ElapsedMilliseconds;
+            while (stopwatch.ElapsedMilliseconds <= options.AdaptiveStableTimeoutMs)
+            {
+                double yaw;
+                if (TryReadCameraYaw(process, gameBase, options, out yaw))
+                {
+                    double delta = Math.Abs(NormalizeSignedDegrees(yaw - stableYaw));
+                    if (delta >= options.AdaptiveMinYawDeltaDegrees)
+                    {
+                        stableYaw = yaw;
+                        stableSince = stopwatch.ElapsedMilliseconds;
+                    }
+                    else if (stopwatch.ElapsedMilliseconds - stableSince >= options.AdaptiveStableMs)
+                    {
+                        return true;
+                    }
+                }
+
+                Thread.Sleep(10);
+            }
+
+            return false;
+        }
+
+        private static bool TryReadCameraYaw(
+            VmmProcess process,
+            ulong gameBase,
+            FaceTargetOptions options,
+            out double cameraYaw)
+        {
+            cameraYaw = 0.0;
+            LocalPlayerInfo local;
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+            {
+                return false;
+            }
+
+            cameraYaw = GetCameraYawDegrees(local.CameraYaw, options);
+            return true;
+        }
+
+        private static bool TryReadStableCameraYaw(
+            VmmProcess process,
+            ulong gameBase,
+            FaceTargetOptions options,
+            out double cameraYaw)
+        {
+            cameraYaw = 0.0;
+            if (options.SettleMs > 0)
+            {
+                Thread.Sleep(options.SettleMs);
+            }
+
+            if (!TryReadCameraYaw(process, gameBase, options, out cameraYaw))
+            {
+                return false;
+            }
+
+            double stableYaw;
+            if (WaitForCameraYawStable(process, gameBase, cameraYaw, options, out stableYaw))
+            {
+                cameraYaw = stableYaw;
+            }
+
+            return true;
+        }
+
+        private static string FormatAdaptiveStepMode(double errorDegrees, FaceTargetOptions options)
+        {
+            double absError = Math.Abs(errorDegrees);
+            if (absError <= options.AdaptiveFineThresholdDegrees)
+            {
+                return "fine";
+            }
+
+            if (absError <= options.AdaptiveMidThresholdDegrees)
+            {
+                return "mid";
+            }
+
+            return "coarse";
+        }
+
+        private static bool IsRawStepDragMode(FaceTargetOptions options)
+        {
+            string mode = (options.DragMoveMode ?? "raw_step").Trim().ToLowerInvariant();
+            return string.Equals(mode, "raw_step", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "raw", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "step", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "pixel", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "1px", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsPhasedDragMode(FaceTargetOptions options)
+        {
+            string mode = (options.DragMoveMode ?? "phased").Trim().ToLowerInvariant();
+            return string.Equals(mode, "phased", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "phase", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "fast_phase", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsChunkDragMode(FaceTargetOptions options)
+        {
+            string mode = (options.DragMoveMode ?? "chunk").Trim().ToLowerInvariant();
+            return string.Equals(mode, "chunk", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "chunk10", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "chunks", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsTwoPassChunkDragMode(FaceTargetOptions options)
+        {
+            string mode = (options.DragMoveMode ?? "two_pass_chunk").Trim().ToLowerInvariant();
+            return string.Equals(mode, "two_pass_chunk", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "twopass_chunk", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "two_pass", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "twopass", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "two_step_chunk", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "retry_chunk", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsRampDragMode(FaceTargetOptions options)
+        {
+            string mode = (options.DragMoveMode ?? "ramp").Trim().ToLowerInvariant();
+            return string.Equals(mode, "ramp", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "wave", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsNormalDistributionDragMode(FaceTargetOptions options)
+        {
+            string mode = (options.DragMoveMode ?? "normal").Trim().ToLowerInvariant();
+            return string.Equals(mode, "normal", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "gaussian", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "distribution", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "normal_distribution", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "bell", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "12345654321", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsAdaptiveDragMode(FaceTargetOptions options)
+        {
+            string mode = (options.DragMoveMode ?? "adaptive").Trim().ToLowerInvariant();
+            return string.Equals(mode, "adaptive", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "inner_loop", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "single_hold_loop", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int EstimateDragMoveCommandCount(int dx, FaceTargetOptions options)
+        {
+            if (dx == 0)
+            {
+                return 0;
+            }
+
+            if (!IsRawStepDragMode(options) &&
+                !IsPhasedDragMode(options) &&
+                !IsChunkDragMode(options) &&
+                !IsTwoPassChunkDragMode(options) &&
+                !IsRampDragMode(options) &&
+                !IsNormalDistributionDragMode(options) &&
+                !IsAdaptiveDragMode(options))
+            {
+                return 1;
+            }
+
+            if (IsAdaptiveDragMode(options))
+            {
+                return options.AdaptiveMaxBatches;
+            }
+
+            if (IsTwoPassChunkDragMode(options))
+            {
+                return options.TwoPassMaxPasses * EstimateChunkDragMoveCommandCount(dx, options);
+            }
+
+            if (IsNormalDistributionDragMode(options))
+            {
+                return EstimateNormalDistributionDragMoveCommandCount(dx, options);
+            }
+
+            if (IsRampDragMode(options))
+            {
+                return EstimateRampDragMoveCommandCount(dx, options);
+            }
+
+            if (IsChunkDragMode(options))
+            {
+                return EstimateChunkDragMoveCommandCount(dx, options);
+            }
+
+            if (IsPhasedDragMode(options))
+            {
+                return EstimatePhasedDragMoveCommandCount(dx, options);
+            }
+
+            int stepAbs = Math.Max(1, options.DragStepPixels);
+            int absDx = Math.Abs(dx);
+            int prime = Math.Min(Math.Max(0, options.DragPrimePixels), absDx);
+            int remaining = absDx - prime;
+            return prime + ((remaining + stepAbs - 1) / stepAbs);
+        }
+
+        private static int EstimateChunkDragMoveCommandCount(int dx, FaceTargetOptions options)
+        {
+            int absDx = Math.Abs(dx);
+            int stepAbs = Math.Max(1, options.DragStepPixels);
+            int prime = Math.Min(Math.Max(0, options.DragPrimePixels), absDx);
+            int remaining = absDx - prime;
+            int tail = Math.Min(Math.Max(0, options.DragTailPixels), remaining);
+            remaining -= tail;
+            return prime + ((remaining + stepAbs - 1) / stepAbs) + tail;
+        }
+
+        private static int EstimateRampDragMoveCommandCount(int dx, FaceTargetOptions options)
+        {
+            int remaining = Math.Abs(dx);
+            int count = 0;
+            int[] pattern = BuildRampPattern(options.DragRampMaxPixels);
+
+            while (remaining > 0)
+            {
+                for (int i = 0; i < pattern.Length && remaining > 0; i++)
+                {
+                    int step = Math.Min(pattern[i], remaining);
+                    remaining -= step;
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static int EstimateNormalDistributionDragMoveCommandCount(int dx, FaceTargetOptions options)
+        {
+            return BuildNormalDistributionChunks(Math.Abs(dx), options.DragRampMaxPixels).Length;
+        }
+
+        private static int EstimatePhasedDragMoveCommandCount(int dx, FaceTargetOptions options)
+        {
+            int absDx = Math.Abs(dx);
+            int prime = Math.Min(Math.Max(0, options.DragPrimePixels), absDx);
+            int remaining = absDx - prime;
+            int mainStep = Math.Max(1, options.DragStepPixels);
+            int fineStep = Math.Max(1, options.DragFineStepPixels);
+            int mainCommands = remaining / mainStep;
+            int tailPixels = remaining - (mainCommands * mainStep);
+            int tailCommands = tailPixels == 0 ? 0 : (tailPixels + fineStep - 1) / fineStep;
+            return prime + mainCommands + tailCommands;
+        }
+
+        private static void DragCameraHorizontalPhased(KmBoxClient km, int dx, FaceTargetOptions options)
+        {
+            int sign = dx < 0 ? -1 : 1;
+            int remaining = Math.Abs(dx);
+            var stopwatch = Stopwatch.StartNew();
+
+            int prime = Math.Min(Math.Max(0, options.DragPrimePixels), remaining);
+            for (int i = 0; i < prime; i++)
+            {
+                SendCameraMoveStep(km, sign, options);
+                remaining -= 1;
+            }
+
+            WaitUntilElapsed(stopwatch, options.DragLeadMs);
+
+            int mainStepAbs = Math.Max(1, options.DragStepPixels);
+            while (remaining > mainStepAbs)
+            {
+                SendCameraMoveStep(km, sign * mainStepAbs, options);
+                remaining -= mainStepAbs;
+            }
+
+            WaitUntilElapsed(stopwatch, options.DragLeadMs + options.DragMainMs);
+
+            int fineStepAbs = Math.Max(1, options.DragFineStepPixels);
+            while (remaining >= fineStepAbs)
+            {
+                SendCameraMoveStep(km, sign * fineStepAbs, options);
+                remaining -= fineStepAbs;
+            }
+
+            if (remaining > 0)
+            {
+                SendCameraMoveStep(km, sign * remaining, options);
+            }
+
+            WaitUntilElapsed(stopwatch, options.DragLeadMs + options.DragMainMs + options.DragTailMs);
+        }
+
+        private static void SendCameraMoveStep(KmBoxClient km, int dx, FaceTargetOptions options)
+        {
+            if (dx == 0)
+            {
+                return;
+            }
+
+            km.MoveRelative(dx, 0);
+            if (options.DragStepDelayMs > 0)
+            {
+                Thread.Sleep(options.DragStepDelayMs);
+            }
+        }
+
+        private static void RestartCameraRightDrag(KmBoxClient km, FaceTargetOptions options)
+        {
+            km.MouseUp(KmMouseButton.Right);
+            Thread.Sleep(20);
+            km.MouseDown(KmMouseButton.Right);
+            if (options.MouseDownWarmupMs > 0)
+            {
+                Thread.Sleep(options.MouseDownWarmupMs);
+            }
+        }
+
+        private static void DragCameraHorizontalChunkSession(KmBoxClient km, int dx, FaceTargetOptions options)
+        {
+            if (dx == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                km.MouseUp(KmMouseButton.Right);
+                Thread.Sleep(8);
+                km.MouseDown(KmMouseButton.Right);
+                if (options.MouseDownWarmupMs > 0)
+                {
+                    Thread.Sleep(options.MouseDownWarmupMs);
+                }
+
+                DragCameraHorizontalChunks(km, dx, options);
+
+                if (options.MouseHoldAfterMoveMs > 0)
+                {
+                    Thread.Sleep(options.MouseHoldAfterMoveMs);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    km.MouseUp(KmMouseButton.Right);
+                }
+                catch
+                {
+                }
+            }
+
+            if (options.DurationMs > 0)
+            {
+                Thread.Sleep(options.DurationMs);
+            }
+        }
+
+        private static void DragCameraHorizontalChunks(KmBoxClient km, int dx, FaceTargetOptions options)
+        {
+            int stepAbs = Math.Max(1, options.DragStepPixels);
+            int sign = dx < 0 ? -1 : 1;
+            int remaining = Math.Abs(dx);
+            int step = sign * stepAbs;
+            int prime = Math.Min(Math.Max(0, options.DragPrimePixels), remaining);
+
+            for (int i = 0; i < prime; i++)
+            {
+                SendCameraMoveStep(km, sign, options);
+                remaining -= 1;
+            }
+
+            int tail = Math.Min(Math.Max(0, options.DragTailPixels), remaining);
+            int chunkRemaining = remaining - tail;
+
+            while (chunkRemaining >= stepAbs)
+            {
+                SendCameraMoveStep(km, step, options);
+                chunkRemaining -= stepAbs;
+            }
+
+            if (chunkRemaining > 0)
+            {
+                SendCameraMoveStep(km, sign * chunkRemaining, options);
+            }
+
+            for (int i = 0; i < tail; i++)
+            {
+                SendCameraMoveStep(km, sign, options);
+            }
+        }
+
+        private static void DragCameraHorizontalRamp(KmBoxClient km, int dx, FaceTargetOptions options)
+        {
+            int sign = dx < 0 ? -1 : 1;
+            int remaining = Math.Abs(dx);
+            int[] pattern = BuildRampPattern(options.DragRampMaxPixels);
+
+            while (remaining > 0)
+            {
+                for (int i = 0; i < pattern.Length && remaining > 0; i++)
+                {
+                    int stepAbs = Math.Min(pattern[i], remaining);
+                    SendCameraMoveStep(km, sign * stepAbs, options);
+                    remaining -= stepAbs;
+                }
+            }
+        }
+
+        private static void DragCameraHorizontalNormalDistribution(KmBoxClient km, int dx, FaceTargetOptions options)
+        {
+            int sign = dx < 0 ? -1 : 1;
+            int[] chunks = BuildNormalDistributionChunks(Math.Abs(dx), options.DragRampMaxPixels);
+
+            for (int i = 0; i < chunks.Length; i++)
+            {
+                SendCameraMoveStep(km, sign * chunks[i], options);
+            }
+        }
+
+        private static int[] BuildNormalDistributionChunks(int totalPixels, int peakWeight)
+        {
+            if (totalPixels <= 0)
+            {
+                return new int[0];
+            }
+
+            int[] weights = BuildRampPattern(peakWeight);
+            int weightTotal = 0;
+            for (int i = 0; i < weights.Length; i++)
+            {
+                weightTotal += weights[i];
+            }
+
+            var chunks = new List<int>();
+            int assigned = 0;
+            double carry = 0.0;
+            for (int i = 0; i < weights.Length; i++)
+            {
+                double exact = (totalPixels * (double)weights[i] / weightTotal) + carry;
+                int chunk = (int)Math.Floor(exact);
+                carry = exact - chunk;
+
+                if (i == weights.Length - 1)
+                {
+                    chunk = totalPixels - assigned;
+                }
+
+                if (chunk > 0)
+                {
+                    chunks.Add(chunk);
+                    assigned += chunk;
+                }
+            }
+
+            int remainder = totalPixels - assigned;
+            if (remainder > 0)
+            {
+                if (chunks.Count == 0)
+                {
+                    chunks.Add(remainder);
+                }
+                else
+                {
+                    chunks[chunks.Count - 1] += remainder;
+                }
+            }
+
+            return chunks.ToArray();
+        }
+
+        private static int[] BuildRampPattern(int maxStep)
+        {
+            maxStep = Math.Max(1, maxStep);
+            int length = (maxStep * 2) - 1;
+            int[] pattern = new int[length];
+            int index = 0;
+
+            for (int step = 1; step <= maxStep; step++)
+            {
+                pattern[index++] = step;
+            }
+
+            for (int step = maxStep - 1; step >= 1; step--)
+            {
+                pattern[index++] = step;
+            }
+
+            return pattern;
+        }
+
+        private static void WaitUntilElapsed(Stopwatch stopwatch, int targetMs)
+        {
+            if (targetMs <= 0)
+            {
+                return;
+            }
+
+            int remainingMs = targetMs - (int)stopwatch.ElapsedMilliseconds;
+            if (remainingMs > 0)
+            {
+                Thread.Sleep(remainingMs);
+            }
+        }
+
+        private static void DragCameraHorizontalRawSteps(KmBoxClient km, int dx, FaceTargetOptions options)
+        {
+            int stepAbs = Math.Max(1, options.DragStepPixels);
+            int sign = dx < 0 ? -1 : 1;
+            int remaining = Math.Abs(dx);
+            int step = sign * stepAbs;
+            int prime = Math.Min(Math.Max(0, options.DragPrimePixels), remaining);
+
+            for (int i = 0; i < prime; i++)
+            {
+                km.MoveRelative(sign, 0);
+                remaining -= 1;
+                if (options.DragStepDelayMs > 0)
+                {
+                    Thread.Sleep(options.DragStepDelayMs);
+                }
+            }
+
+            while (remaining >= stepAbs)
+            {
+                km.MoveRelative(step, 0);
+                remaining -= stepAbs;
+                if (options.DragStepDelayMs > 0)
+                {
+                    Thread.Sleep(options.DragStepDelayMs);
+                }
+            }
+
+            if (remaining > 0)
+            {
+                km.MoveRelative(sign * remaining, 0);
+            }
+        }
+
+        private static void PrintFaceTargetState(
+            string label,
+            LocalPlayerInfo local,
+            LockedTargetMonsterInfo target,
+            FaceTargetOptions options)
+        {
+            double cameraYaw = GetCameraYawDegrees(local.CameraYaw, options);
+            double actorYaw = 0.0;
+            bool hasActorYaw = TryGetActorYawDegrees(local, out actorYaw);
+            double targetYaw = CalculateTargetYawDegrees(local, target, options);
+            double cameraErrorDegrees = NormalizeSignedDegrees(targetYaw - cameraYaw);
+            Console.WriteLine(
+                "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                label +
+                " Local=(" + local.X.ToString("F2") + "," + local.Y.ToString("F2") + "," + local.Z.ToString("F2") + ")" +
+                " Target=(" + target.X.ToString("F2") + "," + target.Y.ToString("F2") + "," + target.Z.ToString("F2") + ")" +
+                " CameraMode=" + FormatCameraMode(local) +
+                " RawCameraYaw=" + local.CameraYaw.ToString("F4") +
+                " CameraYawDeg=" + cameraYaw.ToString("F2") +
+                " ActorYawDeg=" + (hasActorYaw ? actorYaw.ToString("F2") : "n/a") +
+                " TargetYawDeg=" + targetYaw.ToString("F2") +
+                " CameraErrorDeg=" + cameraErrorDegrees.ToString("F2") +
+                " ActorErrorDeg=" + (hasActorYaw ? NormalizeSignedDegrees(targetYaw - actorYaw).ToString("F2") : "n/a") +
+                " Distance=" + FormatDistance(target));
+        }
+
+        private static void PrintFixedCameraYawState(
+            string label,
+            LocalPlayerInfo local,
+            double targetYaw,
+            FaceTargetOptions options)
+        {
+            double cameraYaw = GetCameraYawDegrees(local.CameraYaw, options);
+            double errorDegrees = NormalizeSignedDegrees(targetYaw - cameraYaw);
+            Console.WriteLine(
+                "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                label +
+                " Local=(" + local.X.ToString("F2") + "," + local.Y.ToString("F2") + "," + local.Z.ToString("F2") + ")" +
+                " CameraMode=" + FormatCameraMode(local) +
+                " RawCameraYaw=" + local.CameraYaw.ToString("F4") +
+                " CameraYawDeg=" + cameraYaw.ToString("F2") +
+                " ActorYawDeg=" + FormatActorYaw(local) +
+                " TargetYawDeg=" + targetYaw.ToString("F2") +
+                " ErrorDeg=" + errorDegrees.ToString("F2"));
+        }
+
+        private static double CalculateTargetYawDegrees(
+            LocalPlayerInfo local,
+            LockedTargetMonsterInfo target,
+            FaceTargetOptions options)
+        {
+            double dx = target.X - local.X;
+            double dy = target.Y - local.Y;
+            double angleRadians;
+            string mode = (options.BearingMode ?? "yx").Trim().ToLowerInvariant();
+
+            if (string.Equals(mode, "xy", StringComparison.OrdinalIgnoreCase))
+            {
+                angleRadians = Math.Atan2(dy, dx);
+            }
+            else if (string.Equals(mode, "negxy", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(mode, "-xy", StringComparison.OrdinalIgnoreCase))
+            {
+                angleRadians = Math.Atan2(-dy, dx);
+            }
+            else if (string.Equals(mode, "xnegy", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(mode, "x-y", StringComparison.OrdinalIgnoreCase))
+            {
+                angleRadians = Math.Atan2(dy, -dx);
+            }
+            else if (string.Equals(mode, "negyx", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(mode, "-yx", StringComparison.OrdinalIgnoreCase))
+            {
+                angleRadians = Math.Atan2(-dx, dy);
+            }
+            else if (string.Equals(mode, "ynegx", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(mode, "y-x", StringComparison.OrdinalIgnoreCase))
+            {
+                angleRadians = Math.Atan2(dx, -dy);
+            }
+            else
+            {
+                angleRadians = Math.Atan2(dx, dy);
+            }
+
+            return NormalizeSignedDegrees(RadiansToDegrees(angleRadians) + options.TargetYawOffsetDegrees);
+        }
+
+        private static void PrintTargetYawCandidate(string name, double radians, double cameraYaw)
+        {
+            double baseYaw = NormalizeSignedDegrees(RadiansToDegrees(radians));
+            double plus90 = NormalizeSignedDegrees(baseYaw + 90.0);
+            double minus90 = NormalizeSignedDegrees(baseYaw - 90.0);
+            double plus180 = NormalizeSignedDegrees(baseYaw + 180.0);
+            Console.WriteLine(
+                "Candidate=" + name +
+                " Base=" + baseYaw.ToString("F2") +
+                " ErrBase=" + NormalizeSignedDegrees(baseYaw - cameraYaw).ToString("F2") +
+                " Plus90=" + plus90.ToString("F2") +
+                " ErrPlus90=" + NormalizeSignedDegrees(plus90 - cameraYaw).ToString("F2") +
+                " Minus90=" + minus90.ToString("F2") +
+                " ErrMinus90=" + NormalizeSignedDegrees(minus90 - cameraYaw).ToString("F2") +
+                " Plus180=" + plus180.ToString("F2") +
+                " ErrPlus180=" + NormalizeSignedDegrees(plus180 - cameraYaw).ToString("F2"));
+        }
+
+        private static double GetCameraYawDegrees(float rawYaw, FaceTargetOptions options)
+        {
+            string unit = (options.CameraYawUnit ?? "auto").Trim().ToLowerInvariant();
+            if (string.Equals(unit, "deg", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(unit, "degree", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(unit, "degrees", StringComparison.OrdinalIgnoreCase))
+            {
+                return NormalizeSignedDegrees(rawYaw);
+            }
+
+            if (string.Equals(unit, "rad", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(unit, "radian", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(unit, "radians", StringComparison.OrdinalIgnoreCase))
+            {
+                return NormalizeSignedDegrees(RadiansToDegrees(rawYaw));
+            }
+
+            if (Math.Abs(rawYaw) <= (Math.PI * 2.0 + 0.25))
+            {
+                return NormalizeSignedDegrees(RadiansToDegrees(rawYaw));
+            }
+
+            return NormalizeSignedDegrees(rawYaw);
+        }
+
+        private static int CalculateCameraDragDx(
+            double errorDegrees,
+            double pixelsPerDegreeAbs,
+            FaceTargetOptions options,
+            out double rawDx,
+            out bool minApplied)
+        {
+            return CalculateCameraDragDx(errorDegrees, pixelsPerDegreeAbs, options, true, out rawDx, out minApplied);
+        }
+
+        private static int CalculateCameraDragDx(
+            double errorDegrees,
+            double pixelsPerDegreeAbs,
+            FaceTargetOptions options,
+            bool applyMinCorrection,
+            out double rawDx,
+            out bool minApplied)
+        {
+            rawDx = -errorDegrees * pixelsPerDegreeAbs;
+            minApplied = false;
+
+            int dx = (int)Math.Round(rawDx, MidpointRounding.AwayFromZero);
+            if (dx == 0)
+            {
+                dx = errorDegrees > 0 ? -1 : 1;
+            }
+
+            int sign = dx < 0 ? -1 : 1;
+            int absDx = Math.Abs(dx);
+            if (applyMinCorrection && options.MinCorrectionPixels > 0 && absDx < options.MinCorrectionPixels)
+            {
+                dx = sign * options.MinCorrectionPixels;
+                minApplied = true;
+            }
+
+            return dx;
+        }
+
+        private static double GetFeedbackYawDegrees(LocalPlayerInfo local, FaceTargetOptions options, out string source)
+        {
+            string mode = (options.YawFeedbackMode ?? "camera").Trim().ToLowerInvariant();
+            double actorYaw;
+            if ((string.Equals(mode, "actor", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(mode, "entity", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(mode, "character", StringComparison.OrdinalIgnoreCase)) &&
+                TryGetActorYawDegrees(local, out actorYaw))
+            {
+                source = "actor";
+                return actorYaw;
+            }
+
+            source = "camera";
+            return GetCameraYawDegrees(local.CameraYaw, options);
+        }
+
+        private static bool TryGetActorYawDegrees(LocalPlayerInfo local, out double actorYaw)
+        {
+            actorYaw = 0.0;
+            if (!local.HasTransform)
+            {
+                return false;
+            }
+
+            actorYaw = NormalizeSignedDegrees(local.Transform.WorldAngles.Z);
+            return true;
+        }
+
+        private static string FormatActorYaw(LocalPlayerInfo local)
+        {
+            double actorYaw;
+            return TryGetActorYawDegrees(local, out actorYaw)
+                ? actorYaw.ToString("F2")
+                : "n/a";
+        }
+
+        private static string FormatCameraMode(LocalPlayerInfo info)
+        {
+            string mode = info.IsSpecialCamera
+                ? "special(" + info.SpecialCameraMode + ")"
+                : "normal";
+
+            return mode +
+                   " RVAs=P:0x" + info.CameraPitchRva.ToString("X") +
+                   "/R:0x" + info.CameraRollRva.ToString("X") +
+                   "/Y:0x" + info.CameraYawRva.ToString("X");
+        }
+
+        private static double NormalizeAbsoluteDegrees(double angle)
+        {
+            angle %= 360.0;
+            if (angle < 0)
+            {
+                angle += 360.0;
+            }
+
+            return angle;
+        }
+
+        private static double NormalizeSignedDegrees(double angle)
+        {
+            angle = NormalizeAbsoluteDegrees(angle);
+            if (angle > 180.0)
+            {
+                angle -= 360.0;
+            }
+
+            return angle;
+        }
+
+        private static double RadiansToDegrees(double radians)
+        {
+            return radians * 180.0 / Math.PI;
+        }
+
+        private static int ClampInt(int value, int min, int max)
+        {
+            if (value < min)
+            {
+                return min;
+            }
+
+            if (value > max)
+            {
+                return max;
+            }
+
+            return value;
+        }
+
         private static void RunMonsterListTest(VmmProcess process, ulong gameBase)
         {
             double radius = ReadDoubleFromEnv("AION_MONSTER_LIST_RADIUS", 80.0);
@@ -987,12 +3298,32 @@ namespace Tool
                 return false;
             }
 
-            if (!TryReadSingle(process, gameBase + CameraPitchRva, out info.CameraPitch) ||
-                !TryReadSingle(process, gameBase + CameraRollRva, out info.CameraRoll) ||
-                !TryReadSingle(process, gameBase + CameraYawRva, out info.CameraYaw))
+            ushort specialCameraMode = 0;
+            TryReadUInt16(process, gameBase + SpecialCameraModeRva, out specialCameraMode);
+
+            bool useSpecialCamera = specialCameraMode != 0 && !HasCameraRvaOverride();
+            ulong cameraPitchRva = useSpecialCamera ? SpecialCameraPitchRva : GetCameraPitchRva();
+            ulong cameraRollRva = useSpecialCamera ? SpecialCameraRollRva : GetCameraRollRva();
+            ulong cameraYawRva = useSpecialCamera ? SpecialCameraYawRva : GetCameraYawRva();
+            info.IsSpecialCamera = useSpecialCamera;
+            info.SpecialCameraMode = specialCameraMode;
+            info.CameraPitchRva = cameraPitchRva;
+            info.CameraRollRva = cameraRollRva;
+            info.CameraYawRva = cameraYawRva;
+
+            if (!TryReadSingle(process, gameBase + cameraPitchRva, out info.CameraPitch) ||
+                !TryReadSingle(process, gameBase + cameraRollRva, out info.CameraRoll) ||
+                !TryReadSingle(process, gameBase + cameraYawRva, out info.CameraYaw))
             {
-                error = "failed to read camera angles";
+                error = "failed to read camera angles at pitch=0x" + cameraPitchRva.ToString("X") +
+                        " roll=0x" + cameraRollRva.ToString("X") +
+                        " yaw=0x" + cameraYawRva.ToString("X");
                 return false;
+            }
+
+            if (useSpecialCamera)
+            {
+                TryReadSingle(process, gameBase + SpecialCameraDistanceRva, out info.CameraDistance);
             }
 
             if (TryReadPointer(process, gameBase + EntitySystemPointerRva, out info.EntitySystem) &&
@@ -3631,6 +5962,65 @@ namespace Tool
             }
 
             return defaultValue;
+        }
+
+        private static double ReadSignedDoubleFromEnv(string name, double defaultValue)
+        {
+            string text = Environment.GetEnvironmentVariable(name);
+            double value;
+            if (!string.IsNullOrWhiteSpace(text) &&
+                double.TryParse(text, out value))
+            {
+                return value;
+            }
+
+            return defaultValue;
+        }
+
+        private static ulong GetCameraPitchRva()
+        {
+            return ReadRvaFromEnv("AION_CAMERA_PITCH_RVA", CameraPitchRva);
+        }
+
+        private static ulong GetCameraRollRva()
+        {
+            return ReadRvaFromEnv("AION_CAMERA_ROLL_RVA", CameraRollRva);
+        }
+
+        private static ulong GetCameraYawRva()
+        {
+            return ReadRvaFromEnv("AION_CAMERA_YAW_RVA", CameraYawRva);
+        }
+
+        private static bool HasCameraRvaOverride()
+        {
+            return !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AION_CAMERA_PITCH_RVA")) ||
+                   !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AION_CAMERA_ROLL_RVA")) ||
+                   !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AION_CAMERA_YAW_RVA"));
+        }
+
+        private static ulong ReadRvaFromEnv(string name, ulong defaultValue)
+        {
+            string text = Environment.GetEnvironmentVariable(name);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return defaultValue;
+            }
+
+            text = text.Trim();
+            try
+            {
+                if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Convert.ToUInt64(text.Substring(2), 16);
+                }
+
+                return Convert.ToUInt64(text, 10);
+            }
+            catch
+            {
+                return defaultValue;
+            }
         }
 
         private static bool ReadBoolFromEnv(string name, bool defaultValue)
