@@ -47,6 +47,7 @@
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Data" />
     <Reference Include="System.Net.Http" />
+    <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
     <Reference Include="vmmsharp, Version=5.16.12.226, Culture=neutral, processorArchitecture=AMD64">
       <HintPath>..\packages\Vmmsharp.5.16.12\lib\net48\vmmsharp.dll</HintPath>
@@ -54,12 +55,16 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AddressFromParttern.cs" />
+    <Compile Include="KmBox.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="TXT\AION.txt" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Import Project="..\packages\VmmSharpEx.3.200.4\build\VmmSharpEx.targets" Condition="Exists('..\packages\VmmSharpEx.3.200.4\build\VmmSharpEx.targets')" />

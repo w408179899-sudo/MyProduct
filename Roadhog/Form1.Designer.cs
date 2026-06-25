@@ -30,11 +30,11 @@
         {
             this.components = new System.ComponentModel.Container();
             this.shellPanel = new System.Windows.Forms.Panel();
-            this.accountListPanel = new System.Windows.Forms.Panel();
+            this.accountListPanel = new Roadhog.RoundedPanel();
             this.accountTable = new System.Windows.Forms.TableLayoutPanel();
-            this.topBarPanel = new System.Windows.Forms.Panel();
+            this.topBarPanel = new Roadhog.RoundedPanel();
             this.pageTitleLabel = new System.Windows.Forms.Label();
-            this.addAccountButton = new System.Windows.Forms.Button();
+            this.refreshDevicesButton = new Roadhog.RoundedButton();
             this.shellPanel.SuspendLayout();
             this.accountListPanel.SuspendLayout();
             this.topBarPanel.SuspendLayout();
@@ -42,7 +42,7 @@
             // 
             // shellPanel
             // 
-            this.shellPanel.BackColor = System.Drawing.Color.White;
+            this.shellPanel.BackColor = System.Drawing.Color.FromArgb(248, 253, 250);
             this.shellPanel.Controls.Add(this.accountListPanel);
             this.shellPanel.Controls.Add(this.topBarPanel);
             this.shellPanel.Dock = System.Windows.Forms.DockStyle.Fill;
@@ -55,12 +55,14 @@
             // accountListPanel
             // 
             this.accountListPanel.BackColor = System.Drawing.Color.White;
-            this.accountListPanel.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.accountListPanel.BorderColor = System.Drawing.Color.FromArgb(187, 247, 208);
+            this.accountListPanel.CornerRadius = 12;
             this.accountListPanel.Controls.Add(this.accountTable);
             this.accountListPanel.Dock = System.Windows.Forms.DockStyle.Fill;
             this.accountListPanel.Location = new System.Drawing.Point(14, 66);
             this.accountListPanel.Name = "accountListPanel";
             this.accountListPanel.Padding = new System.Windows.Forms.Padding(0);
+            this.accountListPanel.ShadowDepth = 3;
             this.accountListPanel.Size = new System.Drawing.Size(892, 280);
             this.accountListPanel.TabIndex = 1;
             // 
@@ -78,13 +80,16 @@
             // 
             // topBarPanel
             // 
-            this.topBarPanel.BackColor = System.Drawing.Color.FromArgb(245, 252, 247);
+            this.topBarPanel.BackColor = System.Drawing.Color.FromArgb(240, 253, 244);
+            this.topBarPanel.BorderColor = System.Drawing.Color.FromArgb(187, 247, 208);
+            this.topBarPanel.CornerRadius = 12;
             this.topBarPanel.Controls.Add(this.pageTitleLabel);
-            this.topBarPanel.Controls.Add(this.addAccountButton);
+            this.topBarPanel.Controls.Add(this.refreshDevicesButton);
             this.topBarPanel.Dock = System.Windows.Forms.DockStyle.Top;
             this.topBarPanel.Location = new System.Drawing.Point(14, 14);
             this.topBarPanel.Name = "topBarPanel";
             this.topBarPanel.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
+            this.topBarPanel.ShadowDepth = 3;
             this.topBarPanel.Size = new System.Drawing.Size(892, 52);
             this.topBarPanel.TabIndex = 0;
             // 
@@ -99,27 +104,28 @@
             this.pageTitleLabel.TabIndex = 1;
             this.pageTitleLabel.Text = "Roadhog 脚本UI";
             // 
-            // addAccountButton
+            // refreshDevicesButton
             // 
-            this.addAccountButton.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
-            this.addAccountButton.BackColor = System.Drawing.Color.FromArgb(22, 163, 74);
-            this.addAccountButton.FlatAppearance.BorderColor = System.Drawing.Color.FromArgb(21, 128, 61);
-            this.addAccountButton.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.addAccountButton.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Bold);
-            this.addAccountButton.ForeColor = System.Drawing.Color.White;
-            this.addAccountButton.Location = new System.Drawing.Point(760, 10);
-            this.addAccountButton.Name = "addAccountButton";
-            this.addAccountButton.Size = new System.Drawing.Size(120, 32);
-            this.addAccountButton.TabIndex = 0;
-            this.addAccountButton.Text = "添加账号";
-            this.addAccountButton.UseVisualStyleBackColor = false;
-            this.addAccountButton.Click += new System.EventHandler(this.AddAccountButton_Click);
+            this.refreshDevicesButton.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.refreshDevicesButton.BackColor = System.Drawing.Color.FromArgb(22, 163, 74);
+            this.refreshDevicesButton.BorderColor = System.Drawing.Color.FromArgb(21, 128, 61);
+            this.refreshDevicesButton.CornerRadius = 9;
+            this.refreshDevicesButton.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Bold);
+            this.refreshDevicesButton.ForeColor = System.Drawing.Color.White;
+            this.refreshDevicesButton.Location = new System.Drawing.Point(760, 10);
+            this.refreshDevicesButton.Name = "refreshDevicesButton";
+            this.refreshDevicesButton.ShadowDepth = 2;
+            this.refreshDevicesButton.Size = new System.Drawing.Size(120, 32);
+            this.refreshDevicesButton.TabIndex = 0;
+            this.refreshDevicesButton.Text = "刷新设备";
+            this.refreshDevicesButton.UseVisualStyleBackColor = false;
+            this.refreshDevicesButton.Click += new System.EventHandler(this.RefreshDevicesButton_Click);
             // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 17F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.BackColor = System.Drawing.Color.White;
+            this.BackColor = System.Drawing.Color.FromArgb(248, 253, 250);
             this.ClientSize = new System.Drawing.Size(920, 360);
             this.Controls.Add(this.shellPanel);
             this.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F);
@@ -137,10 +143,10 @@
         #endregion
 
         private System.Windows.Forms.Panel shellPanel;
-        private System.Windows.Forms.Panel accountListPanel;
+        private Roadhog.RoundedPanel accountListPanel;
         private System.Windows.Forms.TableLayoutPanel accountTable;
-        private System.Windows.Forms.Panel topBarPanel;
+        private Roadhog.RoundedPanel topBarPanel;
         private System.Windows.Forms.Label pageTitleLabel;
-        private System.Windows.Forms.Button addAccountButton;
+        private Roadhog.RoundedButton refreshDevicesButton;
     }
 }

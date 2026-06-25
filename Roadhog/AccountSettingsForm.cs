@@ -1,3 +1,5 @@
+using System.Drawing.Drawing2D;
+
 namespace Roadhog
 {
     public sealed class AccountSettingsForm : Form
@@ -23,7 +25,7 @@ namespace Roadhog
         {
             AutoScaleDimensions = new SizeF(7F, 17F);
             AutoScaleMode = AutoScaleMode.Font;
-            BackColor = Color.White;
+            BackColor = Color.FromArgb(248, 253, 250);
             ClientSize = new Size(860, 620);
             Font = new Font("Microsoft YaHei UI", 9F);
             MinimumSize = new Size(720, 420);
@@ -85,16 +87,17 @@ namespace Roadhog
             AddLabel(page, "挂机路径选择:", 4, 8, 130, 22, _textGreen, FontStyle.Bold);
             AddLabel(page, "复活路径:  穆尔海姆00133（1点）", 24, 34, 320, 22);
             AddLabel(page, "打怪路径:  未选（0点）", 24, 60, 260, 22);
+            AddLabel(page, "维护路径:  未选（0点）", 24, 86, 260, 22);
 
             var pathTabs = new TabControl
             {
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
                 DrawMode = TabDrawMode.OwnerDrawFixed,
                 ItemSize = new Size(92, 28),
-                Location = new Point(0, 88),
+                Location = new Point(0, 114),
                 Name = "pathTabs",
                 SelectedIndex = 0,
-                Size = new Size(850, 488),
+                Size = new Size(850, 462),
                 SizeMode = TabSizeMode.Fixed
             };
 
@@ -134,10 +137,11 @@ namespace Roadhog
             AddButton(page, "清空", 226, 144, 68, 30);
             AddButton(page, "复制路径", 304, 144, 88, 30);
 
-            var pointsBox = new TextBox
+            var pointsBox = new RoundedTextBox
             {
                 BackColor = _inputBackground,
-                BorderStyle = BorderStyle.FixedSingle,
+                BorderColor = Color.FromArgb(134, 239, 172),
+                CornerRadius = 9,
                 Font = new Font("Consolas", 10F, FontStyle.Bold),
                 ForeColor = _textGreen,
                 Location = new Point(6, 184),
@@ -273,10 +277,11 @@ namespace Roadhog
 
         private void AddTextBox(Control parent, string text, int x, int y, int width, int height)
         {
-            parent.Controls.Add(new TextBox
+            parent.Controls.Add(new RoundedTextBox
             {
                 BackColor = _inputBackground,
-                BorderStyle = BorderStyle.FixedSingle,
+                BorderColor = Color.FromArgb(134, 239, 172),
+                CornerRadius = 8,
                 Font = new Font("Consolas", 10F, FontStyle.Bold),
                 ForeColor = _textGreen,
                 Location = new Point(x, y),
@@ -292,11 +297,11 @@ namespace Roadhog
 
         private void AddCombo(Control parent, int x, int y, int width, int height, params string[] values)
         {
-            var combo = new ComboBox
+            var combo = new RoundedComboBox
             {
                 BackColor = _inputBackground,
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                FlatStyle = FlatStyle.Flat,
+                BorderColor = Color.FromArgb(134, 239, 172),
+                CornerRadius = 8,
                 Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
                 ForeColor = _textGreen,
                 Location = new Point(x, y),
@@ -314,19 +319,20 @@ namespace Roadhog
 
         private Button AddButton(Control parent, string text, int x, int y, int width, int height, EventHandler? click = null)
         {
-            var button = new Button
+            var button = new RoundedButton
             {
                 BackColor = _primaryGreen,
-                FlatStyle = FlatStyle.Flat,
+                BorderColor = _darkGreen,
+                CornerRadius = 8,
                 Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Bold),
                 ForeColor = Color.White,
                 Location = new Point(x, y),
+                ShadowDepth = 2,
                 Size = new Size(width, height),
                 Text = text,
                 UseVisualStyleBackColor = false
             };
 
-            button.FlatAppearance.BorderColor = _darkGreen;
             if (click is not null)
             {
                 button.Click += click;
@@ -346,51 +352,50 @@ namespace Roadhog
 
         private void AddSmallButton(Control parent, string text, int x, int y, int width, int height)
         {
-            var button = new Button
+            var button = new RoundedButton
             {
                 BackColor = _primaryGreen,
-                FlatStyle = FlatStyle.Flat,
+                BorderColor = _darkGreen,
+                CornerRadius = 7,
                 Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
                 ForeColor = Color.White,
                 Location = new Point(x, y),
+                ShadowDepth = 2,
                 Size = new Size(width, height),
                 Text = text,
                 UseVisualStyleBackColor = false
             };
 
-            button.FlatAppearance.BorderColor = _darkGreen;
             parent.Controls.Add(button);
         }
 
         private void AddCheckBox(Control parent, string text, int x, int y, int width, bool isChecked)
         {
-            var checkBox = new CheckBox
+            var checkBox = new RoundedCheckBox
             {
-                AutoSize = false,
                 BackColor = _pageBackground,
                 Checked = isChecked,
-                FlatStyle = FlatStyle.Flat,
                 Font = new Font("Microsoft YaHei UI", 9F),
                 ForeColor = _textGreen,
                 Location = new Point(x, y),
                 Size = new Size(width, 26),
-                Text = text,
-                UseVisualStyleBackColor = false
+                Text = text
             };
 
-            checkBox.FlatAppearance.BorderColor = _darkGreen;
-            checkBox.FlatAppearance.CheckedBackColor = _primaryGreen;
             parent.Controls.Add(checkBox);
         }
 
         private FoldoutSection CreateFoldout(Control parent, string title, int y, int width, bool expanded)
         {
-            var header = new Panel
+            var header = new RoundedPanel
             {
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = _softGreen,
+                BorderColor = Color.FromArgb(187, 247, 208),
+                CornerRadius = 8,
                 Cursor = Cursors.Hand,
                 Location = new Point(0, y),
+                ShadowDepth = 1,
                 Size = new Size(width, 28)
             };
 
@@ -599,19 +604,30 @@ namespace Roadhog
             var selected = e.Index == tabControl.SelectedIndex;
             var bounds = e.Bounds;
 
-            using var background = new SolidBrush(selected ? _primaryGreen : _softGreen);
-            using var foreground = new SolidBrush(selected ? Color.White : _textGreen);
-            using var border = new Pen(_darkGreen);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+            var tabBounds = new RectangleF(bounds.X + 2, bounds.Y + 2, bounds.Width - 5, bounds.Height - 5);
+            var shadowBounds = new RectangleF(tabBounds.X + 1, tabBounds.Y + 2, tabBounds.Width, tabBounds.Height);
+            var topColor = selected ? ControlPaint.Light(_primaryGreen, 0.16F) : Color.White;
+            var bottomColor = selected ? ControlPaint.Dark(_primaryGreen, 0.05F) : _softGreen;
+
+            using var shadowPath = UiChrome.RoundedRect(shadowBounds, 7);
+            using var shadowBrush = new SolidBrush(Color.FromArgb(selected ? 58 : 28, 15, 23, 42));
+            e.Graphics.FillPath(shadowBrush, shadowPath);
+
+            using var tabPath = UiChrome.RoundedRect(tabBounds, 7);
+            using var fill = new LinearGradientBrush(tabBounds, topColor, bottomColor, LinearGradientMode.Vertical);
+            using var border = new Pen(selected ? _darkGreen : Color.FromArgb(134, 239, 172));
             using var font = new Font("Microsoft YaHei UI", 9F, selected ? FontStyle.Bold : FontStyle.Regular);
 
-            e.Graphics.FillRectangle(background, bounds);
-            e.Graphics.DrawRectangle(border, bounds.X, bounds.Y, bounds.Width - 1, bounds.Height - 1);
+            e.Graphics.FillPath(fill, tabPath);
+            e.Graphics.DrawPath(border, tabPath);
 
             TextRenderer.DrawText(
                 e.Graphics,
                 tabPage.Text,
                 font,
-                bounds,
+                Rectangle.Round(tabBounds),
                 selected ? Color.White : _textGreen,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }

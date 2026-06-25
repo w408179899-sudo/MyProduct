@@ -1,0 +1,23 @@
+namespace Roadhog.Core.Accounts;
+
+public sealed record AccountRuntimeSnapshot(
+    string AccountName,
+    string CharacterName,
+    int ProcessId,
+    string TargetProcessName,
+    string HardwareKey,
+    string HardwareBindingKind,
+    string HardwareBindingConfidence,
+    string HardwareDeviceInstanceId,
+    string HardwareLocationKey,
+    string HardwareDisplayName,
+    string VmmDeviceName,
+    string Status,
+    int? ThreadId,
+    bool StopRequested,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset? StoppedAt,
+    DateTimeOffset? LastHeartbeatAt,
+    string? LastError);

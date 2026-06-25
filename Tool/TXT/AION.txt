@@ -1,0 +1,6848 @@
+你说 19:
+
+这个是我本地导出的文件, 帮我生成一份detail,  里面包含所有怪物相关的数据.
+
+ChatGPT 23:
+
+已基于你上传的 ida_analysis_export.json 提取并生成怪物 / NPC 相关 detail。这个文件来源是 IDA 导出的函数、字符串、调用关系和伪代码信息，所以它能定位 怪物/NPC相关加载函数、资源路径、UI/网络/掉落/出生点相关函数 ；但它不包含真实 XML 行数据本身，所以不能直接列出每个怪物的 HP、等级、掉落表。要列真实怪物表，需要再提供游戏的 XML/data 文件。
+
+我生成了 4 个文件，并打包成一个 zip：
+
+这次提取结果：
+
+IDA 函数总数：24560
+怪物 / NPC 相关候选函数：176
+可用于 IDA 自动重命名的候选函数：26
+
+重点入口里面包括这些方向：
+
+client_npcs.xml
+AiCharProperties.xml
+npc_tribe_relation.xml
+npcfactions.xml
+NPC\npc.xml
+npc_ui.xml
+npc_guide.xml
+bigmonsters.xml
+NPC mesh scale / replace table
+spawn_position
+quest_spawn
+loot / drop / line drop
+S_PUT_NPC / C_CLIENTSIDE_NPC_ATTACK 等 NPC 网络包
+
+你下一步最值得在 IDA 里追的是这些函数：
+
+0x180044190 总初始化/加载入口，里面有 NPC、drop、spawn、quest monster 等表加载失败提示
+0x180029580 client_npcs.xml 相关
+0x18002F150 AiCharProperties.xml 相关
+0x1800758B0 npcfactions.xml 相关
+0x180080910 npc_tribe_relation.xml 相关
+0x1804272A0 NPC/npc.xml 解析核心候选
+0x18042BAA0 npc_ui.xml
+0x18042CD80 npc_guide.xml
+0x18039B710 bigmonsters.xml
+
+monster_rename_plan.json 可以配合之前那个 IDAPython 导入脚本，把高置信度函数名写回 IDA。
+
+你说 20:
+
+哪些是怪物信息相关, 比如坐标, 血量什么的
+
+ChatGPT 24:
+
+从你这份 IDA 导出里看， 怪物信息相关 要分成 4 类： 静态怪物表、属性/血量表、坐标/出生点、运行时网络包 。你要找“血量、坐标、等级、模型、AI、攻击距离”等，优先看下面这些。
+
+最重要的几个
+
+地址 | 建议命名 | 相关内容 | 优先级
+0x1804272A0 | LoadNpcXmlData /ParseNpcDataNode | NPC\npc.xml 解析核心，字段很多： npc_type 、 monster 、 attack_range 、 sensory_range 、 visible_range 、 hpgauge_level 、 tribe 、 scale 、 move_speed... 、 aggressive 等 | 最高
+0x180429A90 | LoadNpcXmlAndMeshTables | 明确引用 NPC\npc.xml 、 npc_mesh_scale.txt 、 npc_mesh_replace.txt 、 baseid | 最高
+0x180029580 | LoadClientNpcsXml | 加载 data\NPCs\client_npcs.xml ，应是客户端 NPC 表入口 | 高
+0x1804330B0 | LoadAiCharProperties | 加载 Data/Npcs/AiCharProperties.xml ，更偏 AI/角色属性配置 | 高
+0x180085B60 | ParseAttributeNameToId /ParseStatField | 出现 maxHp 、 hpRegen 、 phyAttack 、 physicalDefend 、 attackRange 、 speed 等属性字段 | 高
+0x1802F90B0 | RegisterServerPackets | 出现 S_HIT_POINT 、 S_HIT_POINT_OTHER 、 S_PUT_NPC 、 S_MOVE_OBJECT ，是运行时血量/出生/移动包相关 | 高
+0x180240350 | BuildQuestHtmlWithSpawnPosition | 出现 spawn_position ，但更像任务/百科/按钮 UI 中的出生位置链接，不一定是怪物真实坐标表 | 中
+0x180244EC0 | HandleSpawnPositionLink | 出现 spawn_position 、 search_powerbook ，偏 UI 查询/跳转 | 中
+0x180365AA0 | LoadBigMonsterRadius | 加载 data\animations\bigmonsters.xml ，出现 radius | 中
+0x18039B710 | LoadBigMonsterAnimationTable | 加载 bigmonsters.xml 、 bigmonster 、 %s_anim.xml | 中
+
+1. 静态怪物基础信息：优先看 0x1804272A0
+
+这个最像真正的 NPC/怪物数据解析函数。
+
+它的字符串里有：
+
+appearance
+ai_name
+aggressive
+attack_range
+hpgauge_level
+huge_mob
+move_speed_normal_walk
+move_speed_combat_run
+npc_type
+monster
+scale
+sensory_range
+spawn_animation
+talking_distance
+tribe
+visible_range
+
+这些都很像 NPC\npc.xml 里的字段。这里应该能还原出怪物静态结构体，比如：
+
+struct NpcInfo {
+    int id;
+    int npc_type;
+    int tribe;
+    int hpgauge_level;
+    float attack_range;
+    float sensory_range;
+    float visible_range;
+    float scale;
+    float move_speed_normal_walk;
+    float move_speed_combat_run;
+    ...
+};
+
+它是你要找“怪物信息”的第一入口。
+
+2. 血量相关：看 0x180085B60 和 0x1802F90B0
+
+静态最大血量 / 属性字段
+
+0x180085B60 里直接出现：
+
+maxHp
+hpRegen
+maxMp
+phyAttack
+physicalDefend
+magicalAttack
+magicalDefend
+attackRange
+speed
+FlySpeed
+
+这个函数很像 属性字段名映射/解析函数 。如果 XML 或数据表里有 maxHp ，大概率会通过这里转换成内部属性 ID。
+
+所以血量方向：
+
+maxHp / hpRegen / attackRange / phyAttack / physicalDefend
+
+优先追：
+
+0x180085B60 的 callers
+
+也就是谁调用它。调用它的函数才可能是真正把 maxHp 写进怪物/角色属性结构的地方。
+
+运行时当前血量
+
+0x1802F90B0 里出现：
+
+S_HIT_POINT
+S_HIT_POINT_OTHER
+S_PUT_NPC
+S_MOVE_OBJECT
+S_TARGET_INFO
+
+这说明它是服务器包注册/分发相关函数。
+其中：
+
+S_HIT_POINT
+S_HIT_POINT_OTHER
+
+很可能对应自己/其他对象血量变化包。
+
+S_PUT_NPC
+
+很可能对应服务器通知客户端生成 NPC/怪物。
+
+S_MOVE_OBJECT
+
+很可能对应对象移动/坐标同步。
+
+如果你要找 当前血量 ，不是配置表里的 maxHp ，就应该沿着：
+
+S_HIT_POINT_OTHER
+S_TARGET_INFO
+S_PUT_NPC
+
+这些包的 handler 继续追。
+
+3. 坐标相关：分静态出生点和运行时坐标
+
+静态/任务显示用坐标
+
+0x180240350 和 0x180244EC0 都出现了：
+
+spawn_position
+search_powerbook
+
+这更像任务描述、百科、地图搜索按钮里的“出生位置”链接，不一定是真正怪物刷点表。
+
+优先级：
+
+中等
+
+因为它能告诉你 UI 怎么跳转到某个出生点，但不一定能直接拿到怪物真实坐标数组。
+
+运行时坐标
+
+运行时坐标更可能来自：
+
+S_PUT_NPC
+S_MOVE_OBJECT
+S_MOVE_NEW
+
+这些都在 0x1802F90B0 的服务器包表里出现。
+所以如果你要找“怪物当前坐标”，应该追：
+
+S_PUT_NPC handler
+S_MOVE_OBJECT handler
+
+而不是只看 XML。
+
+你之前贴过的 sub_180007250 基本像 Entity_SetPosition ，里面 a1 + 1256 / 1260 / 1264 是实体位置 Vec3。这个可以和 S_PUT_NPC 、 S_MOVE_OBJECT handler 结合起来追：看哪个包 handler 最后调用 SetPosition 。
+
+4. 怪物模型/体型/大怪相关
+
+0x180429A90
+
+这个函数直接引用：
+
+NPC\npc.xml
+data\NPCs\npc_mesh_scale.txt
+data\NPCs\npc_mesh_replace.txt
+baseid
+
+它更偏 NPC 总加载入口、模型缩放、模型替换。
+
+0x180365AA0
+
+这个函数引用：
+
+data\animations\bigmonsters.xml
+radius
+
+所以它和大体型怪物的半径/动画范围有关。
+
+0x18039B710
+
+这个函数引用：
+
+data\animations\bigmonsters.xml
+bigmonsters
+bigmonster
+data\animations\%s_anim.xml
+
+这个偏大怪动画表，不是血量坐标。
+
+5. 初始化总入口： 0x180044190
+
+0x180044190 是一个总初始化/加载函数，里面出现大量表加载信息，包括：
+
+data\NPCs\client_npcs.xml
+Failed to Load NPC table
+Failed to Load NPC tribe relation table
+Failed to Load NPC UI table
+client_npc_goodslist
+data\npcs\client_npc_goodslist.xml
+
+这个函数本身不一定解析字段，但它是“从哪里开始加载 NPC 相关表”的总入口。适合看调用链。
+
+你要找“血量”的实际路线
+
+按优先级：
+
+1. 0x180085B60
+ 看 maxHp / hpRegen / attackRange 这些字段怎么映射。
+2. 看 0x180085B60 的 callers
+ 找谁在解析属性表。
+3. 看 0x1804272A0
+ 找 NPC\npc.xml 里面是否读取 hpgauge_level、attack_range、monster 类型等。
+4. 看 0x1802F90B0
+ 找 S_HIT_POINT_OTHER / S_TARGET_INFO / S_PUT_NPC 的 handler。
+5. 把 handler 和 Entity_SetPosition / HP 更新函数连起来。
+
+静态最大血量多半在：
+
+属性表 / NPC属性表 / AiCharProperties / npc.xml
+
+当前血量多半在：
+
+S_HIT_POINT_OTHER
+S_TARGET_INFO
+S_PUT_NPC
+
+你要找“坐标”的实际路线
+
+按优先级：
+
+1. 先追 S_PUT_NPC
+ 怪物生成时通常会带初始位置。
+2. 再追 S_MOVE_OBJECT
+ 怪物移动同步时会带当前位置。
+3. 再追 Entity_SetPosition
+ 看哪个包 handler 最后写入 a1 + 1256/1260/1264。
+4. spawn_position 只作为辅助
+ 它更像 UI/任务百科跳转，不一定是真实坐标表。
+
+建议你在 IDA 里先改这些名字
+
+sub_1804272A0 -> ParseNpcXmlDataNode
+sub_180429A90 -> LoadNpcXmlAndMeshTables
+sub_180029580 -> LoadClientNpcsXml
+sub_1804330B0 -> LoadAiCharProperties
+sub_180085B60 -> ParseAttributeFieldName
+sub_1802F90B0 -> RegisterServerPacketHandlers
+sub_180240350 -> BuildQuestTextWithSpawnPosition
+sub_180244EC0 -> HandleSpawnPositionSearch
+sub_180365AA0 -> LoadBigMonsterRadiusTable
+sub_18039B710 -> LoadBigMonsterAnimationTable
+
+最值得你继续贴出来让我分析的是：
+
+0x1804272A0
+0x180085B60 的 callers
+S_PUT_NPC 对应的 handler
+S_HIT_POINT_OTHER 对应的 handler
+
+这几个才最可能还原出“怪物 ID、类型、血量、坐标、攻击距离、等级”等真实结构。
+
+ChatGPT 25:
+
+你发的这个 sub_1804272A0 基本可以确定是 NPC / 怪物 XML 单条记录解析函数 。它不是运行时坐标函数，也不是当前血量函数，而是把 NPC\npc.xml 里一条 <data id="...">...</data> 的字段写进 a3 指向的 NPC 静态数据结构里。
+
+结论先说
+
+这段里和“怪物信息”强相关的是：
+
+怪物类型：npc_type
+怪物子类型：monster / general / guard / abyss_guard / summon_pet / mercenary
+攻击距离：attack_range
+感知距离：sensory_range
+可视距离：visible_range
+移动速度：move_speed_*
+交互距离：talking_distance
+模型/外观：appearance / mesh / scale / weapon_scale
+AI：ai_name / quest_ai_name
+血条显示级别：hpgauge_level
+阵营/种族：tribe
+是否主动：aggressive
+大型怪物/隐藏阴影/死亡漂浮等 flag
+
+但它 没有直接解析怪物当前坐标 ，也 没有直接解析当前血量 / 最大血量 maxHp 。
+它里面只有：
+
+hpgauge_level
+
+这个更像“血条显示等级/血条 UI 类型”，不是 HP 数值。
+
+这个函数建议命名
+
+sub_1804272A0 -> ParseNpcXmlDataNode
+
+参数可以先这样理解：
+
+sub_1804272A0(
+    _DWORD *a1,          // manager / loader
+    __int64 a2,          // XML node or XML attribute node
+    unsigned int *a3,    // NpcInfo*，被写入的 NPC 数据结构
+    unsigned __int64 *a4,
+    _QWORD *a5
+)
+
+最重要的是：
+
+a3 -> NpcInfo*
+
+这段大量写：
+
+a3[index]
+*((float *)a3 + index)
+*((_QWORD *)a3 + index)
+*((_BYTE *)a3 + offset)
+
+所以 a3 就是 NPC 静态数据结构。
+
+怪物基础字段
+
+XML 字段 | 写入位置 | 类型 | 含义判断
+name | *((_QWORD*)a3 + 1) = +0x08 | string handle | NPC/怪物名字
+appearance_custom | *((_QWORD*)a3 + 6) = +0x30 | string id | 外观自定义
+appearance | 走 sub_18042AE90(...) | 复杂结构 | 外观数据，建议继续追
+ai_name | *((_QWORD*)a3 + 18) = +0x90 | string handle | AI 名称
+quest_ai_name | *((_QWORD*)a3 + 19) = +0x98 | string handle | 任务 AI 名称
+npc_type | a3[155] = +0x26C | enum/int | NPC 类型
+npc_function_type | a3[158] = +0x278 | enum/int | NPC 功能类型
+tribe | a3[142] = +0x238 | enum/int | 阵营/种族/势力
+abyss_npc_type | *((_BYTE*)a3 + 616) = +0x268 | byte enum | 深渊/特殊 NPC 类型
+
+怪物类型枚举
+
+npc_type
+
+代码里把字符串转成数字：
+
+monster -> 1
+general -> 2
+guard -> 3
+abyss_guard -> 4
+summon_pet -> 5
+mercenary -> 5
+其他/空 -> 0
+
+对应写入：
+
+a3[155] = ...
+
+也就是：
+
+NpcInfo + 0x26C -> npcType
+
+这个是判断“是不是怪物”的关键字段之一。
+
+abyss_npc_type
+
+字符串映射大概是：
+
+boss -> 1
+artifact -> 2
+door -> 3
+raid -> 4
+guard -> 5
+shieldnpc_on -> 6
+shieldnpc_off -> 7
+doorrepair -> 8
+defender -> 9
+etc -> 10
+artifact_effect -> 11
+teleporter -> 12
+其他/空 -> 0
+
+写入：
+
+*((_BYTE*)a3 + 616)
+
+也就是：
+
+NpcInfo + 0x268 -> abyssNpcType
+
+这个更像特殊 NPC / 要塞 / 深渊怪分类。
+
+距离、范围、速度字段
+
+这些是你要找怪物行为数据时最有价值的。
+
+XML 字段 | 写入位置 | 类型 | 含义
+attack_range | *((float*)a3 + 162) = +0x288 | float | 攻击距离
+sensory_range | a3[74] = +0x128 | int | 感知/警戒范围
+visible_range | *((float*)a3 + 137) = +0x224 | float | 可视范围
+talking_distance | *((float*)a3 + 15) = +0x3C | float | 对话/交互距离
+stare_distance | *((float*)a3 + 16) = +0x40 | float | 注视距离
+stare_angle | *((float*)a3 + 17) = +0x44 | float | 注视角度
+spine_angle | *((float*)a3 + 28) = +0x70 | float | 脊柱/朝向角度
+neck_angle | *((float*)a3 + 27) = +0x6C | float | 颈部角度
+move_speed_normal_* | *((float*)a3 + 43/44) = +0xAC/+0xB0 | float | 普通移动速度
+move_speed_combat_* | *((float*)a3 + 45/46) = +0xB4/+0xB8 | float | 战斗移动速度
+pushed_range | *((float*)a3 + 47) = +0xBC | float | 被推/击退范围
+rotation_period | *((float*)a3 + 148) = +0x250 | float | 旋转周期
+in_time | *((float*)a3 + 25) = +0x64 | float | 入场时间
+out_time | *((float*)a3 + 26) = +0x68 | float | 离场时间
+注意： sensory_range 这里写的是 a3[74] ，代码用 atoi ，所以是 int，不是 float。
+
+血量相关
+
+这段里真正和“血”有关的字段只有：
+
+XML 字段 | 写入位置 | 类型 | 判断
+hpgauge_level | a3[34] = +0x88 | int | 血条显示级别，不是 HP
+show_dmg_decal | flag bit 0x1 | bool | 是否显示伤害贴花
+dmg_decal_texture | *((_QWORD*)a3 + 9) = +0x48 | string id | 伤害贴花材质
+dmg_texture | flag bit 0x4 | bool/int | 受击/伤害纹理开关
+所以：
+
+这段不能直接给出怪物 HP。
+
+你要找真正血量应该继续看：
+
+maxHp
+hpRegen
+S_HIT_POINT
+S_HIT_POINT_OTHER
+S_TARGET_INFO
+
+其中 maxHp 更可能在属性表解析函数里，不在 npc.xml 这个解析函数里。
+
+坐标相关
+
+这段也 没有怪物出生坐标 / 当前坐标 。
+
+它有一些和模型空间相关的字段：
+
+XML 字段 | 写入位置 | 类型 | 含义
+altitude | *((float*)a3 + 62) = +0xF8 | float | 高度/悬浮高度
+bound_radius/front | *((float*)a3 + 134) = +0x218 | float | 包围盒/碰撞半径 front
+bound_radius/side | *((float*)a3 + 135) = +0x21C | float | 包围盒/碰撞半径 side
+bound_radius/upper | *((float*)a3 + 136) = +0x220 | float | 包围盒/碰撞半径 upper
+title_offset | a3[141] = +0x234 | int | 头顶标题偏移
+这些不是世界坐标。
+真正怪物坐标一般在：
+
+S_PUT_NPC
+S_MOVE_OBJECT
+spawn_position
+Entity_SetPosition
+
+你之前那个 Entity_SetPosition 里：
+
+a1 + 1256
+a1 + 1260
+a1 + 1264
+
+更像运行时实体坐标 x/y/z 。
+
+模型、外观、动画相关
+
+XML 字段 | 写入位置 | 类型 | 含义
+mesh /dir | 最后拼成 Objects/%s/%s.cgf | string id | 模型路径
+scale | *((float*)a3 + 14) = +0x38 | float | 模型缩放
+weapon_scale | *((float*)a3 + 42) = +0xA8 | float | 武器缩放
+material | a3[40] = +0xA0 | enum/hash | 材质
+foot_mat | a3[41] = +0xA4 | enum/hash | 脚步材质
+wing_mesh | *((_QWORD*)a3 + 16) = +0x80 | string id | 翅膀模型
+idle_animation | *((_QWORD*)a3 + 32) = +0x100 | string id | 待机动画
+talk_animation | *((_QWORD*)a3 + 33) = +0x108 | string id | 对话动画
+walk_animation | *((_QWORD*)a3 + 34) = +0x110 | string id | 行走动画
+user_animation | *((_QWORD*)a3 + 35) = +0x118 | string id | 用户动画
+spawn_animation | *((_QWORD*)a3 + 75) = +0x258 | string id | 出生动画
+animation_marker | *((_QWORD*)a3 + 82) = +0x290 | string id | 动画标记
+这部分是静态表现数据，不是战斗数值。
+
+特效、投射物、武器命中特效
+
+XML 字段 | 写入位置 | 类型 | 含义
+ammo_hit_fx | *((_QWORD*)a3 + 25) = +0xC8 | string id | 弹药命中特效
+ammo_fx | *((_QWORD*)a3 + 26) = +0xD0 | string id | 弹药飞行特效
+ammo_bone | *((_QWORD*)a3 + 27) = +0xD8 | string id | 弹药挂点骨骼
+ammo_speed | *((float*)a3 + 56) = +0xE0 | float | 弹药速度
+weapon_hit_fx | *((_QWORD*)a3 + 24) = +0xC0 | string id | 武器命中特效
+fxc_type | *((_QWORD*)a3 + 29) = +0xE8 | string id | 特效类型
+str_type | *((_QWORD*)a3 + 30) = +0xF0 | string id | 字符串/特效类型
+
+交互/UI相关
+
+XML 字段 | 写入位置 | 类型 | 含义
+cursor_type | a3[140] = +0x230 | enum/int | 鼠标指针类型
+npc_title | *((_QWORD*)a3 + 73) = +0x248 | localized text ptr | NPC 称号
+html_bg | *((_QWORD*)a3 + 80) = +0x280 | string id | UI 背景
+ui_type | *((_QWORD*)a3 + 69) = +0x228 | string id | UI 类型
+ui_race_type | a3[157] = +0x274 | int | light/dark/none
+guide_func | 不是直接写 a3；会把 NPC id 写进 guide 表 | 关联表 | 新手引导/功能引导
+gather_skill_level | *((_QWORD*)a3 + 76) = +0x260 | string/int handle | 采集技能等级
+
+flags 字段
+
+a3[20] ，也就是：
+
+NpcInfo + 0x50 -> flags
+
+这个字段被大量按 bit 修改。
+
+目前能识别：
+
+bit | XML 字段 | 含义
+0x1 | show_dmg_decal | 是否显示伤害贴花
+0x2 | hide_shadow | 隐藏阴影
+0x4 | dmg_texture | 伤害纹理
+0x8 | float_corpse | 尸体漂浮
+0x10 | erect | 直立/姿态相关
+0x20 | huge_mob | 大型怪物
+0x40 | static | 静态对象
+0x80 | 后处理自动设置 | 模型/资源相关标记
+0x100 | hide_pc_fx_shader | 隐藏 PC 特效 shader
+0x200 | 根据模型路径是否 Objects/NPC/Skill... 自动设置 | 技能模型相关
+0x8000 | support_group | 支援组/分组标记
+
+这段最重要的结构草案
+
+可以先在 IDA 里用这个粗略结构做注释，不建议直接一次性套完整 struct，因为还有些字段未确认。
+
+struct NpcInfoLike
+{
+    int id_or_field0;              // +0x00, 未完全确认
+    char pad_04[4];
+    uint64_t name;                 // +0x08
+    char pad_10[0x28];
+    uint64_t appearanceCustom;     // +0x30
+    float scale;                   // +0x38
+    float talkingDistance;         // +0x3C
+    float stareDistance;           // +0x40
+    float stareAngle;              // +0x44
+    uint64_t dmgDecalTexture;      // +0x48
+    uint32_t flags;                // +0x50
+    uint64_t dir;                  // +0x58
+    int aggressive;                // +0x60
+    float inTime;                  // +0x64
+    float outTime;                 // +0x68
+    float neckAngle;               // +0x6C
+    float spineAngle;              // +0x70
+    uint64_t meshPath;             // +0x78
+    uint64_t wingMesh;             // +0x80
+    int hpGaugeLevel;              // +0x88
+    uint64_t aiName;               // +0x90
+    uint64_t questAiName;          // +0x98
+    int material;                  // +0xA0
+    int footMat;                   // +0xA4
+    float weaponScale;             // +0xA8
+    float moveSpeed0;              // +0xAC
+    float moveSpeed1;              // +0xB0
+    float moveSpeed2;              // +0xB4
+    float moveSpeed3;              // +0xB8
+    float pushedRange;             // +0xBC
+    uint64_t weaponHitFx;          // +0xC0
+    uint64_t ammoHitFx;            // +0xC8
+    uint64_t ammoFx;               // +0xD0
+    uint64_t ammoBone;             // +0xD8
+    float ammoSpeed;               // +0xE0
+    uint64_t fxcType;              // +0xE8
+    uint64_t strType;              // +0xF0
+    float altitude;                // +0xF8
+    uint64_t idleAnimation;        // +0x100
+    uint64_t talkAnimation;        // +0x108
+    uint64_t walkAnimation;        // +0x110
+    uint64_t userAnimation;        // +0x118
+    uint64_t sanctuaryAnimation;   // +0x120
+    uint64_t descText;             // +0x130
+    int sensoryRange;              // +0x128 附近，注意和 qword 字段重叠需复查
+    float boundFront;              // +0x218
+    float boundSide;               // +0x21C
+    float boundUpper;              // +0x220
+    float visibleRange;            // +0x224
+    uint64_t uiType;               // +0x228
+    int cursorType;                // +0x230
+    int titleOffset;               // +0x234
+    int tribe;                     // +0x238
+    uint64_t ment;                 // +0x240
+    uint64_t npcTitle;             // +0x248
+    float rotationPeriod;          // +0x250
+    uint64_t spawnAnimation;       // +0x258
+    uint64_t gatherSkillLevel;     // +0x260
+    uint8_t abyssNpcType;          // +0x268
+    int npcType;                   // +0x26C
+    int hidePath;                  // +0x270
+    int uiRaceType;                // +0x274
+    int npcFunctionType;           // +0x278
+    uint64_t htmlBg;               // +0x280
+    float attackRange;             // +0x288
+    uint64_t animationMarker;      // +0x290
+};
+
+这里 +0x128 一带要小心，因为 a3[74] 和 ((_QWORD*)a3 + 38) 附近可能存在对齐/联合字段，不能直接完全定死。
+
+你要找“血量、坐标”的下一步
+
+找血量
+
+这段只给你：
+
+hpgauge_level -> NpcInfo + 0x88
+
+真正 HP 要找：
+
+maxHp
+hpRegen
+S_HIT_POINT
+S_HIT_POINT_OTHER
+S_TARGET_INFO
+
+建议你在 IDA 里搜字符串：
+
+maxHp
+hpRegen
+S_HIT_POINT_OTHER
+
+然后看它们的 Xrefs。
+
+找坐标
+
+这段没有坐标。坐标要找：
+
+S_PUT_NPC
+S_MOVE_OBJECT
+spawn_position
+Entity_SetPosition
+
+尤其是：
+
+S_PUT_NPC handler -> 解析包里的初始 x/y/z -> 调用 Entity_SetPosition
+S_MOVE_OBJECT handler -> 更新移动坐标
+
+你可以继续把 S_PUT_NPC 对应 handler 或 S_HIT_POINT_OTHER 对应 handler 贴出来，这两个比这个 XML 解析函数更接近“当前血量/当前坐标”。
+
+ChatGPT 26:
+
+这段函数本身很简单： 它是一个包装函数，输入一个字符串/指针，调用 sub_180085B60 解析成一个 16 位整数，然后返回这个整数。
+
+汇编逻辑等价于：
+
+int __fastcall sub_180372170(const wchar_t* name)
+{
+    int16_t out = 0;
+    if (name)
+        sub_180085B60(name, &out);
+    return out;
+}
+
+你截图里的关键点：
+
+xor eax, eax
+mov [rsp+28h+arg_0], ax
+
+先把局部变量初始化成 0 。
+
+test rcx, rcx
+jz short loc_180372194
+
+判断第一个参数 rcx 是否为空。
+x64 下 rcx 是第一个参数。
+
+lea rdx, [rsp+28h+arg_0]
+call sub_180085B60
+
+把局部变量地址传给 sub_180085B60 。
+所以 sub_180085B60 大概率是：
+
+bool ParseSomething(const wchar_t* name, int16_t* out);
+
+或者：
+
+void GetSomethingIdByName(const wchar_t* name, int16_t* out);
+
+movsx eax, [rsp+28h+arg_0]
+
+把 int16_t 符号扩展成 int 返回。
+
+如果 rcx == 0 ，就直接返回 0。
+
+结合你前面问怪物属性， sub_180085B60 很可能是我们之前提到的那个 属性字段名解析函数 ，里面有：
+
+maxHp
+hpRegen
+phyAttack
+physicalDefend
+attackRange
+speed
+
+所以这段 wrapper 可能可以命名为：
+
+GetStatIdByName()
+
+或者更保守：
+
+ParseAttributeNameToShortId()
+
+建议 IDA 命名：
+
+sub_180372170 -> ParseAttributeNameToShortId
+sub_180085B60 -> ParseAttributeNameToId
+
+这段不是直接读血量值，而是把类似 maxHp 、 hpRegen 这种 属性名字符串转换成内部属性 ID 。要找真正血量数值，还要继续看谁调用这个 wrapper，以及返回的 ID 后面被用于哪个属性表/数值表。
+
+你说 21:
+
+S_PUT_NPC 对应的 handler
+S_HIT_POINT_OTHER 对应的 handler
+
+这俩我需要怎么处理呢  ?
+
+ChatGPT 27:
+
+你要把这两个当成 网络包处理入口 来追：
+
+S_PUT_NPC -> 怪物/NPC 生成包，重点找 NPC ID、实体 ID、初始坐标
+S_HIT_POINT_OTHER -> 其他对象血量变化包，重点找对象 ID、当前 HP、最大 HP/百分比
+
+你现在不要继续从 NPC\npc.xml 静态表追了。 sub_1804272A0 已经说明它是 NPC 静态 XML 字段解析，比如 attack_range 、 hpgauge_level 、 npc_type 、 sensory_range 等；但它不负责运行时坐标和当前血量。
+
+第一步：找到 packet 注册表
+
+在 IDA 里：
+
+Shift + F12
+
+打开 Strings，然后搜索：
+
+S_PUT_NPC
+
+和：
+
+S_HIT_POINT_OTHER
+
+找到字符串后，对字符串按：
+
+X
+
+看 xrefs。
+
+你要找的不是字符串本身，而是它附近有没有类似：
+
+RegisterPacket("S_PUT_NPC", opcode, handler);
+RegisterPacket("S_HIT_POINT_OTHER", opcode, handler);
+
+你之前导出的结果里已经能看到这些包名和 S_MOVE_OBJECT 、 S_TARGET_INFO 、 S_HIT_POINT 这些运行时包在同一类注册逻辑里出现，所以这条路是对的。
+
+第二步：判断 handler 是哪个参数
+
+你跳到 xref 后，一般会看到几种形式。
+
+情况 A：直接 call 注册函数
+
+类似：
+
+lea rcx, aS_PUT_NPC
+lea rdx, sub_180XXXXX
+call RegisterPacket
+
+那 sub_180XXXXX 就是 handler。
+
+情况 B：构造表项
+
+类似：
+
+lea rax, sub_180XXXXX
+mov [rsp+...], rax
+lea rcx, aS_PUT_NPC
+call AddPacketEntry
+
+那被写进去的函数指针就是 handler。
+
+情况 C：大表初始化
+
+类似：
+
+{ "S_PUT_NPC", 123, sub_180XXXXX }
+{ "S_HIT_POINT_OTHER", 456, sub_180YYYYY }
+
+那第三个字段通常就是 handler。
+
+你要做的是： 在 S_PUT_NPC 字符串 xref 附近，找最近的函数地址 / 函数指针。
+
+第三步：找到后先改名
+
+找到后先不要急着深挖，先改名：
+
+S_PUT_NPC handler -> HandlePacket_PutNpc
+S_HIT_POINT_OTHER handler -> HandlePacket_HitPointOther
+
+这样后面追调用链不会乱。
+
+第四步：分析 S_PUT_NPC handler
+
+这个 handler 你重点看 4 件事：
+
+1. 对象 ID / Entity ID
+
+找类似：
+
+readInt()
+readUInt()
+objectId
+entityId
+npcId
+
+反编译里可能长这样：
+
+v10 = ReadInt(packet);
+v11 = ReadInt(packet);
+
+你重点看这些读出来的值后面被传给谁。
+
+2. NPC 静态表查询
+
+看 handler 里有没有调用类似：
+
+GetNpcInfo(npcId)
+FindNpcById(npcId)
+
+如果它用某个 ID 去查 NPC\npc.xml 加载出来的 map，那这个 ID 就是：
+
+npc template id / npc static id
+
+也就是静态怪物表里的 ID。
+
+3. 实体创建
+
+看有没有类似：
+
+CreateEntity
+CreateNpc
+PutObject
+AddObject
+
+或者调用 EntitySystem 相关函数。
+
+你前面已经找到 CreateEntitySystem ，所以如果 handler 里出现 entity/system/object manager 的调用，要重点标记。
+
+4. 坐标写入
+
+最关键：找它有没有最终调用你之前分析过的：
+
+sub_180007250 -> Entity_SetPosition
+
+你之前那段里已经确认：
+
+entity + 1256 = x
+entity + 1260 = y
+entity + 1264 = z
+
+所以在 S_PUT_NPC handler 里，如果看到：
+
+sub_180007250(entity, &pos, ...)
+
+那 pos 里的三个 float 就是怪物初始坐标。
+
+你要追的是：
+
+packet 读取 x/y/z
+    ↓
+构造 Vec3
+    ↓
+调用 Entity_SetPosition
+    ↓
+写 entity + 1256/1260/1264
+
+第五步：分析 S_HIT_POINT_OTHER handler
+
+这个 handler 重点看 3 件事：
+
+1. 读取对象 ID
+
+它一定要知道“哪个对象掉血/回血”，所以会先读：
+
+target object id / entity id
+
+然后通过对象管理器查实体。
+
+你看有没有类似：
+
+FindObjectById(id)
+GetEntity(id)
+
+2. 读取 HP 数值
+
+名字叫 S_HIT_POINT_OTHER ，一般会带：
+
+当前 HP
+最大 HP
+HP 百分比
+伤害量
+是否死亡
+
+但具体是哪种要看代码。
+
+典型表现：
+
+currentHp = ReadInt(packet);
+maxHp = ReadInt(packet);
+
+或者：
+
+hpPercent = ReadByte(packet);
+
+如果它只更新 UI 血条，可能没有完整 HP，只给百分比。
+
+3. 写入对象字段 / 更新 UI
+
+你要找这种模式：
+
+entity->hp = xxx;
+entity->maxHp = xxx;
+UpdateHpGauge(entity);
+UpdateTargetInfo(entity);
+
+如果它最后调用 UI 函数更新血条，那说明它可能只是显示层，不一定保存完整 HP。
+
+你在 IDA 里具体怎么操作
+
+对 S_PUT_NPC
+
+1. Shift + F12
+2. 搜 S_PUT_NPC
+3. 点字符串
+4. 按 X
+5. 跳到 xref
+6. 看附近有没有 handler 函数指针
+7. 跳进 handler
+8. F5
+9. 搜函数内：
+sub_180007250
+1256
+1260
+1264
+
+10. 找 packet 读出来的坐标变量。
+
+对 S_HIT_POINT_OTHER
+
+1. Shift + F12
+2. 搜 S_HIT_POINT_OTHER
+3. 按 X
+4. 找注册处附近 handler
+5. 跳进 handler
+6. F5
+7. 搜函数内：
+hp
+hit
+point
+gauge
+target
+
+8. 看读包顺序和写入字段。
+
+如果 xref 只跳到一个巨大注册函数
+
+那你就在那个巨大函数里搜索：
+
+S_PUT_NPC
+
+然后看它附近 20~50 行。
+
+通常你会看到一堆连续注册：
+
+S_PUT_USER
+S_PUT_NPC
+S_REMOVE_OBJECT
+S_MOVE_OBJECT
+S_HIT_POINT
+S_HIT_POINT_OTHER
+
+这种连续表很有用。你可以把 S_PUT_NPC 附近那一小段汇编或伪代码贴出来，我可以帮你判断哪个是 handler。
+
+判断 handler 的技巧
+
+如果你看到类似：
+
+lea r8, sub_180XXXXX
+lea rdx, aS_PUT_NPC
+mov rcx, manager
+call sub_register
+
+大概率：
+
+sub_180XXXXX = HandlePacket_PutNpc
+
+如果你看到：
+
+mov [rsp+20h], offset sub_180XXXXX
+lea r9, aS_PUT_NPC
+call sub_register
+
+也是一样， sub_180XXXXX 多半是 handler。
+
+你最终要整理成这张表
+
+建议你边看边记录：
+
+包名：S_PUT_NPC
+注册函数：
+handler 地址：
+handler 建议名：HandlePacket_PutNpc
+读取字段：
+ 1. objectId?
+ 2. npcId?
+ 3. x?
+ 4. y?
+ 5. z?
+调用：
+ - FindNpcInfo
+ - CreateEntity
+ - Entity_SetPosition
+确认坐标字段：
+ - packet offset ?
+ - entity + 1256/1260/1264
+
+包名：S_HIT_POINT_OTHER
+注册函数：
+handler 地址：
+handler 建议名：HandlePacket_HitPointOther
+读取字段：
+ 1. objectId?
+ 2. currentHp?
+ 3. maxHp?
+ 4. hpPercent?
+调用：
+ - FindEntity
+ - UpdateHpGauge
+ - TargetInfo update
+确认血量字段：
+ - entity offset ?
+ - UI offset ?
+
+最关键判断
+
+S_PUT_NPC 解决的是：
+
+怪物生成、NPC ID、初始坐标、实体创建
+
+S_HIT_POINT_OTHER 解决的是：
+
+其他怪物/玩家对象的血量变化、血条显示、当前 HP 或 HP 百分比
+
+所以你的下一步不是“分析所有怪物表”，而是：
+
+先定位这两个 packet 的 handler 地址
+然后分别贴 handler 的伪代码
+
+你把 S_PUT_NPC 字符串 xref 附近的 30 行汇编，或者 handler 的 F5 伪代码贴出来，我就能继续帮你把字段顺序拆出来。
+
+你说 22:
+
+ida_analysis_export
+
+所以这个文件还不能够直接获取到 怪物的坐标, 血量等信息是吧  ?
+
+ChatGPT 28:
+
+对， ida_analysis_export.json 不能直接拿到“每个怪物的真实坐标、当前血量、最大血量”这种最终数据 。
+
+它现在能提供的是：
+
+函数名
+函数地址
+伪代码
+字符串引用
+调用关系
+哪些函数可能和 NPC / 怪物有关
+
+也就是说，它是 逆向分析索引文件 ，不是游戏数据表本身。
+
+它能做到什么
+
+它可以帮你定位：
+
+NPC/npc.xml 是哪个函数加载的
+client_npcs.xml 是哪个函数加载的
+AiCharProperties.xml 是哪个函数加载的
+S_PUT_NPC 这种包名在哪里注册
+S_HIT_POINT_OTHER 这种包名在哪里注册
+哪些函数可能解析 attack_range、hpgauge_level、npc_type、sensory_range
+
+比如你贴的 sub_1804272A0 ，它确实解析了大量 NPC 静态字段，包括 npc_type 、 monster 、 attack_range 、 sensory_range 、 visible_range 、 hpgauge_level 等，但它只是解析 NPC 静态配置结构 ，不是当前坐标和当前血量。
+
+它不能直接做到什么
+
+它不能直接输出这种表：
+
+怪物ID：10001
+名字：xxx
+地图：xxx
+坐标：x=123, y=456, z=789
+当前血量：50000
+最大血量：50000
+掉落：xxx
+
+原因是：
+
+1. 坐标通常不是 DLL 里写死的
+坐标可能来自服务器包、地图刷怪表、spawn 表、任务刷怪表，或者运行时 S_PUT_NPC / S_MOVE_OBJECT 包。
+2. 当前血量是运行时数据
+当前 HP 通常来自网络包，比如 S_HIT_POINT_OTHER 、 S_TARGET_INFO 、 S_HIT_POINT ，不是静态 XML 解析函数。
+3. 最大血量可能在另一个属性表
+npc.xml 里看到的是 hpgauge_level ，它更像血条显示等级，不等于 maxHp 。真正 maxHp 要找属性表解析，比如包含 maxHp / hpRegen / phyAttack / physicalDefend 的函数链。
+
+正确理解
+
+ida_analysis_export.json 的作用是：
+
+帮你找到“哪里可能读取怪物数据”
+
+不是：
+
+直接给你“怪物数据本身”
+
+现在你已经找到的方向是：
+
+静态怪物信息：追 NPC/npc.xml、AiCharProperties.xml、client_npcs.xml
+当前坐标：追 S_PUT_NPC、S_MOVE_OBJECT、Entity_SetPosition
+当前血量：追 S_HIT_POINT_OTHER、S_HIT_POINT、S_TARGET_INFO
+
+要拿到坐标和血量，需要继续补什么
+
+如果你想拿 静态怪物表 ：
+
+需要游戏 data 目录里的 XML / pak 解包后的配置文件
+例如：
+NPC/npc.xml
+Data/Npcs/AiCharProperties.xml
+client_npcs.xml
+spawn_position 相关表
+
+如果你想拿 运行时坐标和当前血量 ：
+
+需要定位并分析：
+S_PUT_NPC handler
+S_MOVE_OBJECT handler
+S_HIT_POINT_OTHER handler
+S_TARGET_INFO handler
+
+然后看这些 handler 如何把包里的字段写到实体对象里。
+
+你前面那个 sub_180007250 很像 Entity_SetPosition ，里面 entity + 1256 / 1260 / 1264 很可能就是运行时坐标 x/y/z 。下一步就是看 S_PUT_NPC 或 S_MOVE_OBJECT 的 handler 有没有调用它。
+
+结论
+
+是的，你理解对了。
+
+ida_analysis_export.json 现在只能帮你 定位怪物数据相关函数 ，不能直接提取怪物坐标、当前血量、最大血量。
+
+要继续拿具体数据，需要二选一：
+
+静态数据：拿到并解析游戏 XML / data 文件
+运行时数据：继续逆向 S_PUT_NPC / S_HIT_POINT_OTHER 等 packet handler
+
+你说 23:
+
+那 再看看这个导出的ida文件呢 ? 看看有没有什么有价值的东西
+
+ChatGPT 29:
+
+这个 ida_analysis_export_Entity.json 有价值，而且比上一份更适合确认“运行时 Entity 结构” 。但它依然不是怪物数据表，不能直接导出每个怪物的血量/坐标。它的价值是：能帮你确认 实体对象里哪些偏移是位置、名字、ID、隐藏状态、物理/渲染/容器指针，以及 EntitySystem 如何 Spawn/Delete/Update Entity 。文件里函数总数是 1185，明显是 CryEntitySystem / Entity 模块级别的导出。
+
+最有价值的结论
+
+1. 这是 CryEntitySystem 相关模块
+
+开头函数会加载：
+
+CrySystem.dll
+CryMalloc
+CryRealloc
+CryCalloc
+CryFree
+
+说明这是依赖 CryEngine/CrySystem 内存管理的实体系统模块。
+
+CreateEntitySystem 也在里面，和你之前贴过的一致：分配 680 字节，构造 EntitySystem，再初始化。
+
+建议命名：
+
+sub_180001000 -> InitCryMemoryManager
+CreateEntitySystem -> CreateEntitySystem
+sub_18003B620 -> EntitySystem_ctor
+sub_18003C4E0 -> EntitySystem_Init
+
+2. CEntity 构造函数很关键
+
+0x1800014D0 基本就是：
+
+CEntity::CEntity(...)
+
+证据很强：
+
+*(_QWORD *)a1 = &CEntity::`vftable';
+*(_QWORD *)(a1 + 176) = &CEntity::`vftable';
+*(_QWORD *)(a1 + 184) = &CEntity::`vftable';
+sub_180019ED0((void *)(a1 + 248), "No entity loaded", 0x10u);
+
+也就是说：
+
+sub_1800014D0 -> CEntity_ctor
+
+这里能确认很多基础偏移。比如：
+
+偏移 | 初步含义
++0x00 | CEntity vtable
++0xB0 / +0xB8 | 额外 vtable / interface vtable
++0xC0 | entity flags
++0xC4 | flag high / extra flags
++0xD0 | 可能是 entity id，初始化为 -1
++0xF8 | entity name string，默认 "No entity loaded"
++0x138 | proxy / component flags
++0x290 | proxy / listener / component 指针，前面我们见过 a1+656
++0x2D0 | 某个组件/proxy 指针，前面见过 a1+720
++0x4B8 起 | transform / matrix / local transform 相关
++0x4E8 起 | position / transform cached fields
++0x510 起 | bbox / world bounds 相关
+构造函数里明确初始化了 a1 + 1256 / 1264 / 1272 / 1280 / 1288 这些区域，并设置默认名字 "No entity loaded" 。
+
+3. sub_180007250 仍然非常关键：设置实体位置
+
+这份导出里也有 sub_180007250 ，它写：
+
+*(float *)(a1 + 1256) = *a2;
+*(float *)(a1 + 1260) = a2[1];
+*(float *)(a1 + 1264) = a2[2];
+
+并且在普通分支里比较新旧值差异，再设置 dirty flag、通知 proxy。
+
+建议命名：
+
+sub_180007250 -> CEntity_SetPosition
+
+关键偏移：
+
+CEntity + 0x4E8 = position.x
+CEntity + 0x4EC = position.y
+CEntity + 0x4F0 = position.z
+
+也就是：
+
+CEntity + 1256 / 1260 / 1264
+
+这个对你找怪物坐标非常有价值。
+
+但注意：它只是 实体对象里的位置字段 ，不是直接给你怪物坐标数据。你还要找到谁调用它，比如 S_PUT_NPC 或 S_MOVE_OBJECT handler。
+
+4. sub_1800073F0 像 GetPositionPtr
+
+这个函数很短：
+
+if (!a2)
+    return a1 + 1256;
+result = a1 + 1280;
+if ((*(_DWORD *)(a1 + 192) & 0x408) == 0)
+    return a1 + 1256;
+return result;
+
+建议命名：
+
+sub_1800073F0 -> CEntity_GetPositionPtr
+
+含义：
+
+正常位置：CEntity + 0x4E8
+特殊 transform 状态下位置：CEntity + 0x500
+
+也就是：
+
+偏移 | 含义
++0x4E8 | world/current position
++0x500 | pending/local/parented position
+
+5. Spawn / Delete Entity 入口很有用
+
+Spawn
+
+0x18003CE50 字符串里有：
+
+CEntitySystem::SpawnEntity Failed, Can't spawn %s. ID %d is used
+ClientStuff
+OnSpawnEntity
+CEntitySystem::SpawnEntity
+
+建议命名：
+
+sub_18003CE50 -> CEntitySystem_SpawnEntity
+
+它是你要追 S_PUT_NPC 时的重要目标。服务器包 handler 很可能最终调用它或它附近的创建逻辑。
+
+Delete
+
+0x18003B230 字符串里有：
+
+CEntitySystem::DeleteEntity
+
+建议命名：
+
+sub_18003B230 -> CEntitySystem_DeleteEntity
+
+这能帮你追 S_REMOVE_OBJECT 这类包。
+
+6. 已经能确认 EntitySystem 内部有 ID -> Entity 映射
+
+0x18003B230 的片段里有这种逻辑：
+
+while (!node->isNil)
+{
+    if (*((_WORD *)node + 16) >= a2)
+        ...
+}
+
+后面又出现：
+
+"ENTITY id=%d class=\"%s\" already spawned on this client...override"
+
+说明 EntitySystem 内部维护了一个按 entity id 查找的红黑树 / map。
+
+大概有两个重要容器：
+
+偏移 | 初步含义
+EntitySystem + 0x58 | entity map by entityId， a1 + 88
+EntitySystem + 0x68 | 另一个索引，可能 class/id 复合索引， a1 + 104
+这个对你找怪物运行时对象有帮助：
+S_HIT_POINT_OTHER 里读出 object/entity id 后，大概率会查这个 map，然后拿到 CEntity 指针。
+
+7. Entity 显示/隐藏函数
+
+0x180008A60 明确有字符串：
+
+Entity %s Hidden
+Entity %s Unhidden
+
+建议命名：
+
+sub_180008A60 -> CEntity_SetHidden
+
+它操作：
+
+a1 + 192 flags
+0x80 hidden bit
+a1 + 248 name
+
+说明：
+
+CEntity + 0xC0 -> flags
+CEntity + 0xF8 -> name string
+
+这不是血量/坐标，但能帮助你识别 CEntity 结构。
+
+8. Entity 调试函数里直接出现 pos 格式
+
+0x18003F4D0 的字符串里有：
+
+%s - (%d)id(%d)char(%d)stat(%d)pos(%d,%d,%d-%.2f)
+NPC : %3d (R:%3d, U:%3d)
+User: %3d (R:%3d, U:%3d)
+
+这非常有价值：它说明某个调试/统计函数会打印 entity 的：
+
+id
+char
+stat
+pos
+NPC/User 数量
+
+建议命名：
+
+sub_18003F4D0 -> EntitySystem_DebugDumpEntities
+
+这个函数值得你打开 F5 看，因为它可能直接告诉你 entity id、char id、stat id、position 的读取方式。
+
+9. EntitySystem 初始化里有很多调试开关
+
+0x18003B620 里出现大量 CVar：
+
+es_bboxes
+es_helpers
+es_profileentities
+es_UpdateInvisibleCharacter
+es_UpdateBonePositions
+es_UpdateScript
+es_UpdatePhysics
+es_UpdateAI
+
+这说明它基本是 CEntitySystem 构造 / 初始化 CVar 的地方。
+
+建议命名：
+
+sub_18003B620 -> CEntitySystem_ctor
+
+对你最有用的是：
+
+es_bboxes 显示实体包围盒
+es_UpdateAI 是否更新 AI entity
+es_UpdatePhysics 是否更新实体物理
+
+10. 这份文件能帮你做什么
+
+它能帮你确认：
+
+CEntity 对象结构
+CEntitySystem 创建/销毁/更新流程
+Entity id -> Entity 指针映射
+Entity position 偏移
+Entity name 偏移
+Entity hidden flag
+SpawnEntity / DeleteEntity 函数
+DebugDumpEntities 函数
+
+这比上一份 Game.dll 导出更适合 确认运行时实体结构 。
+
+11. 它还是不能直接给你什么
+
+它不能直接给：
+
+怪物最大血量
+怪物当前血量
+每个怪物刷点坐标
+NPC 静态表
+掉落表
+
+因为这份更像 CryEntitySystem 模块。它不负责游戏业务数据。
+它负责的是：
+
+实体创建
+实体位置
+实体更新
+实体显示
+实体销毁
+实体物理/渲染/脚本组件
+
+所以它解决的是**“怪物作为实体存在时，位置存在哪里、怎么被创建/查找”**，不是“怪物表里 HP 是多少”。
+
+建议你下一步追这几个
+
+A. 追坐标
+
+先在 IDA 里改名：
+
+sub_180007250 -> CEntity_SetPosition
+sub_1800073F0 -> CEntity_GetPositionPtr
+sub_18003CE50 -> CEntitySystem_SpawnEntity
+
+然后回到 Game.dll 里追：
+
+S_PUT_NPC handler
+S_MOVE_OBJECT handler
+
+看它们是否调用：
+
+CEntitySystem_SpawnEntity
+CEntity_SetPosition
+
+只要包 handler 调用 CEntity_SetPosition(entity, &pos, ...) ，你就能确认 packet 里的 x/y/z 顺序。
+
+B. 追血量
+
+这份 Entity 文件对血量帮助不大。血量更可能在 Game.dll ：
+
+S_HIT_POINT
+S_HIT_POINT_OTHER
+S_TARGET_INFO
+maxHp
+hpRegen
+
+EntitySystem 只负责“实体对象”，HP 更可能存在角色状态/游戏对象组件里，不一定在 CEntity 基类里。
+
+C. 追实体 ID
+
+重点看：
+
+sub_18003B060
+sub_18003B230
+sub_18003CE50
+
+这些能帮你确认：
+
+server object id / entity id 如何映射到 CEntity*
+
+后面 S_HIT_POINT_OTHER 读出一个 id 后，应该会通过这个 map 找到实体。
+
+建议重命名表
+
+sub_180001000 -> InitCryMemoryManager
+sub_180001160 -> CryMallocWrapper
+sub_1800011D0 -> CryFreeWrapper
+sub_1800011F0 -> GetGlobalSystem
+sub_1800014D0 -> CEntity_ctor
+sub_180007250 -> CEntity_SetPosition
+sub_1800073F0 -> CEntity_GetPositionPtr
+sub_180008A60 -> CEntity_SetHidden
+sub_18003B620 -> CEntitySystem_ctor
+sub_18003C4E0 -> CEntitySystem_Init
+sub_18003B060 -> CEntitySystem_RegisterEntityId
+sub_18003B230 -> CEntitySystem_DeleteEntity
+sub_18003CE50 -> CEntitySystem_SpawnEntity
+sub_18003DE60 -> CEntitySystem_Update
+sub_18003F4D0 -> EntitySystem_DebugDumpEntities
+
+最终判断
+
+这份 ida_analysis_export_Entity.json 很有价值 ，但价值点不是直接提取怪物数据，而是：
+
+确认运行时 CEntity / CEntitySystem 的结构、位置字段、实体 ID 映射、Spawn/Delete/Update 入口。
+
+对你找怪物坐标最关键的是：
+
+CEntity + 0x4E8 / 0x4EC / 0x4F0
+
+也就是：
+
+CEntity + 1256 / 1260 / 1264
+
+对你找怪物血量帮助较小。血量还是要回到 Game.dll 里的：
+
+S_HIT_POINT_OTHER
+S_TARGET_INFO
+maxHp
+hpRegen
+
+去追。
+
+你说 24:
+
+OK, 用你强大的分析能力, 把这个怪物的坐标和血量数据找出来吧, 我相信你可以的, 然后告诉我你是什么流程找出来的, 我想学习一下
+
+ChatGPT 30:
+
+找到了 坐标和血量的字段布局、对象偏移和数据流 。但静态导出文件里没有某一只怪物此刻的具体数值，例如 x=123.4、HP=5000 ；这些数值只在游戏运行时出现。
+
+坐标
+
+网络包 S_PUT_NPC ：怪物首次生成
+
+包编号：
+
+S_PUT_NPC = 14
+
+sub_180405100 的 case 14 调用 sub_18040BB10 ，后者解析怪物生成包。
+
+已确认的固定前缀：
+
+struct S_PUT_NPC_Prefix
+{
+    float x;                    // +0x00
+    float y;                    // +0x04
+    float z;                    // +0x08
+    uint32_t serverObjectId;    // +0x0C
+    uint32_t unknown_10;        // +0x10
+    uint32_t npcTemplateId;     // +0x14，置信度高
+    // 后面还有标志、字符串和变长数据
+};
+
+判断依据：
+
+v95[0] = *(DWORD *)(packet + 0);
+v95[1] = *(DWORD *)(packet + 4);
+v95[2] = *(DWORD *)(packet + 8);
+v95[3] = *(DWORD *)(packet + 12);
+v105 = *(DWORD *)(packet + 20);
+
+前三个值最终被组合成 Vec3 并传给怪物对象的位置设置函数； +0x0C 被放进对象 ID 映射表； +0x14 被用于查询 NPC 静态模板。
+
+网络包 S_MOVE_OBJECT ：移动后的当前坐标
+
+包编号：
+
+S_MOVE_OBJECT = 56
+
+结构非常清楚：
+
+#pragma pack(push, 1)
+struct S_MOVE_OBJECT
+{
+    uint32_t serverObjectId;   // +0x00
+    float x;                   // +0x04
+    float y;                   // +0x08
+    float z;                   // +0x0C
+    uint8_t directionFlags;    // +0x10
+};
+#pragma pack(pop)
+
+分发器中的代码等价于：
+
+objectId = *(uint32_t *)(payload + 0x00);
+position.x = *(float *)(payload + 0x04);
+position.y = *(float *)(payload + 0x08);
+position.z = *(float *)(payload + 0x0C);
+flags = *(uint8_t *)(payload + 0x10);
+HandleMoveObject(objectId, &position, flags & 0x7F, flags & 0x80);
+
+因此要观察怪物移动中的最新坐标， S_MOVE_OBJECT 比 S_PUT_NPC 更直接。
+
+运行时 CEntity 坐标偏移
+
+Entity 模块中的 sub_180007250 明确写入：
+
+*(float *)(entity + 1256) = position.x;
+*(float *)(entity + 1260) = position.y;
+*(float *)(entity + 1264) = position.z;
+
+转换成十六进制：
+
+struct CEntityPosition
+{
+    // ...
+    float x;  // CEntity + 0x4E8
+    float y;  // CEntity + 0x4EC
+    float z;  // CEntity + 0x4F0
+};
+
+特殊的父子 Transform 状态下，还存在另一套位置：
+
+CEntity + 0x500 = local/pending x
+CEntity + 0x504 = local/pending y
+CEntity + 0x508 = local/pending z
+
+正常情况下使用 +0x4E8/+0x4EC/+0x4F0 。
+
+建议重命名：
+
+sub_180007250 -> CEntity_SetPosition
+sub_1804C4E40 -> Handle_S_MOVE_OBJECT
+sub_18040BB10 -> Handle_S_PUT_NPC
+sub_1804C0310 -> SpawnNpcFromPacket
+
+血量
+
+网络包 S_TARGET_INFO ：完整的当前 HP 和最大 HP
+
+包编号：
+
+S_TARGET_INFO = 41
+
+分发器直接这样读取：
+
+sub_180039660(
+    payload,
+    *(uint32_t *)(payload + 0x00),
+    *(uint16_t *)(payload + 0x04),
+    *(uint32_t *)(payload + 0x06),
+    *(uint32_t *)(payload + 0x0A)
+);
+
+而 sub_180039660 最终调用：
+
+sub_180465310(actor, a5, a4);
+
+sub_180465310 的参数顺序是：
+
+Actor_SetHp(actor, currentHp, maxHp);
+
+所以结构是：
+
+#pragma pack(push, 1)
+struct S_TARGET_INFO
+{
+    uint32_t serverObjectId;  // +0x00
+    uint16_t level;           // +0x04
+    uint32_t maxHp;           // +0x06
+    uint32_t currentHp;       // +0x0A
+};
+#pragma pack(pop)
+
+这是目前最适合获取怪物 绝对血量数值 的包。 sub_180039660 会根据 serverObjectId 查找实体、取得游戏 Actor 对象，并写入等级、当前 HP 和最大 HP。
+
+运行时 Actor 血量偏移
+
+sub_180465310(actor, currentHp, maxHp) 的核心是：
+
+*(uint32_t *)(actor + 0x11A4) = currentHp;
+*(uint32_t *)(actor + 0x11A0) = maxHp;
+*(uint8_t *)(actor + 0x40) = currentHp * 100 / maxHp;
+
+所以：
+
+Actor + 0x11A0 = 最大 HP，uint32_t
+Actor + 0x11A4 = 当前 HP，uint32_t
+Actor + 0x0040 = HP 百分比，uint8_t
+Actor + 0x119C = 初始/旧 HP 快照，具体用途置信度中等
+
+可以定义：
+
+struct GameActorHp
+{
+    // ...
+    uint32_t hpSnapshot;  // +0x119C
+    uint32_t maxHp;       // +0x11A0
+    uint32_t currentHp;   // +0x11A4
+};
+
+这里的 Actor* 和 CEntity* 不是同一个指针：
+
+CEntity* -> 坐标在 +0x4E8
+Actor* -> 血量在 +0x11A0/+0x11A4
+
+不要把 Actor 的血量偏移直接套到 CEntity 上。
+
+网络包 S_HIT_POINT_OTHER ：掉血/回血事件和 HP 百分比
+
+包编号：
+
+S_HIT_POINT_OTHER = 5
+
+结构可以初步还原为：
+
+#pragma pack(push, 1)
+struct S_HIT_POINT_OTHER
+{
+    uint32_t serverObjectId; // +0x00
+    int32_t amount;          // +0x04，伤害量或恢复量
+    int8_t eventType;        // +0x08
+    uint8_t hpPercent;       // +0x09
+    uint16_t sourceOrEffect; // +0x0A，具体含义尚未完全确认
+    uint8_t extraFlag;       // +0x0C
+    uint8_t visualType;      // +0x0D
+};
+#pragma pack(pop)
+
+这个包不是直接携带完整的 currentHp/maxHp 。它主要携带：
+
+哪一个对象
+发生了多少伤害/恢复
+事件类型
+最新 HP 百分比
+来源或效果信息
+
+后续调用链：
+
+sub_180405100
+ case 5
+    ↓
+sub_1804C3CE0
+    ↓
+sub_1804542E0
+    ↓
+sub_180465250(actor, hpPercent)
+    ↓
+sub_180465310(actor, calculatedCurrentHp, maxHp)
+
+sub_180465250 的计算逻辑是：
+
+currentHp = maxHp * hpPercent / 100;
+
+因此：
+
+S_TARGET_INFO = 绝对 currentHp + maxHp
+S_HIT_POINT_OTHER = 伤害事件 + HP 百分比
+
+对象 ID 如何找到实际怪物
+
+游戏没有直接使用服务器的 serverObjectId 作为 CryEngine Entity ID，而是有一层映射：
+
+serverObjectId
+    ↓
+qword_180D21740 红黑树/map
+    ↓
+CryEngine entityId，uint16_t
+    ↓
+qword_180904690->vfunc_48(entityId)
+    ↓
+CEntity*
+    ↓
+sub_18049B8A0(CEntity*)
+    ↓
+Actor*
+
+所以完整关系是：
+
+serverObjectId
+ ├── CEntity* -> 坐标 +0x4E8/+0x4EC/+0x4F0
+ └── Actor* -> 最大HP +0x11A0，当前HP +0x11A4
+
+sub_180039660 中可以看到它先查询 qword_180D21740 ，再取得 Entity，最后通过 sub_18049B8A0 获得 Actor 并调用 HP 设置函数。
+
+我是怎么找出来的
+
+1. 先建立包名到编号的对应关系
+
+在 sub_1802F90B0 中，代码逐个注册：
+
+0 -> S_VERSION_CHECK
+3 -> S_HIT_POINT
+5 -> S_HIT_POINT_OTHER
+14 -> S_PUT_NPC
+41 -> S_TARGET_INFO
+55 -> S_MOVE_NEW
+56 -> S_MOVE_OBJECT
+
+这一步解决“巨大 switch 的每个 case 到底是什么包”。
+
+2. 找网络包总分发器
+
+sub_180405100 引用了：
+
+[game] recv packet: %s
+
+同时包含一个巨大的：
+
+switch (packetType)
+
+因此可以判断它是服务器包总分发函数。
+
+建议命名：
+
+sub_180405100 -> DispatchServerPacket
+
+3. 追坐标包
+
+查看：
+
+case 14 -> sub_18040BB10
+case 56 -> sub_1804C4E40
+
+然后追踪包字段：
+
+payload + 4
+payload + 8
+payload + 12
+
+这些值被作为三个 float 参与距离、方向、矩阵和位置设置运算，因此可以确定是 X/Y/Z，而不是普通整数。
+
+4. 在 Entity 模块交叉验证
+
+Game.dll 告诉我们包里有 Vec3 ，Entity 模块则确认最终存储位置：
+
+entity + 1256
+entity + 1260
+entity + 1264
+
+两边证据互相吻合。
+
+5. 追血量包
+
+查看：
+
+case 41 -> sub_180039660
+case 5 -> sub_1804C3CE0
+
+case 41 将 payload+6 和 payload+10 传入 sub_180465310 。
+
+6. 反向确认 HP 参数顺序
+
+进入 sub_180465310 后发现：
+
+actor+4516 = a2;
+actor+4512 = a3;
+percent = a2 * 100 / a3;
+
+因此能确定：
+
+a2 = currentHp
+a3 = maxHp
+
+也就反推出：
+
+S_TARGET_INFO +0x06 = maxHp
+S_TARGET_INFO +0x0A = currentHp
+
+7. 用百分比函数再次验证
+
+sub_180465250 使用：
+
+currentHp = maxHp * percent / 100;
+
+再调用同一个 sub_180465310 ，证明 Actor+0x40 和 S_HIT_POINT_OTHER+0x09 确实是 HP 百分比，而不是状态码。
+
+建议在 IDA 中改名
+
+sub_1802F90B0 -> RegisterServerPacketNames
+sub_180405100 -> DispatchServerPacket
+sub_18040BB10 -> Handle_S_PUT_NPC
+sub_1804C0310 -> SpawnNpcFromPacket
+sub_1804C4E40 -> Handle_S_MOVE_OBJECT
+sub_180039660 -> Handle_S_TARGET_INFO
+sub_1804C3CE0 -> Handle_S_HIT_POINT_OTHER
+sub_1804542E0 -> Actor_ApplyHitPointEvent
+sub_180465250 -> Actor_SetHpPercent
+sub_180465310 -> Actor_SetCurrentAndMaxHp
+sub_180007250 -> CEntity_SetPosition
+
+最终结果适用于你上传文件对应的 这个确切游戏版本 。游戏更新后，函数地址和对象偏移可能变化；包的字段语义通常更稳定，但仍应重新验证。
+
+你说 25:
+
+下一个需要帮我找到的是锁定怪物,  或者说是获取锁怪物的信息,   也就是游戏内锁定了一个怪物, 然后这个锁定怪物信息我就能拿到.  找找看看
+
+ChatGPT 31:
+
+找到了。这个版本里， 当前锁定目标由一个全局 Entity ID 保存 ，再通过 EntitySystem 取出目标对象。
+
+当前锁定目标的核心字段
+
+// IDA image base = 0x180000000
+uint16_t currentTargetEntityId =
+    *(uint16_t *)(GameBase + 0xD2179A);
+
+对应 IDA 地址：
+
+0x180D2179A
+
+它实际上是：
+
+HIWORD(dword_180D21798)
+
+数值为 0 表示当前没有锁定目标。 dword_180D21798 的低 16 位则是本地玩家自己的 Entity ID。多个函数都会先检查这个高 16 位，再从 qword_180904690 获取当前目标 Entity。
+
+注意 ASLR：运行时应使用：
+
+实际 Game 模块基址 + 0xD2179A
+
+而不是固定使用 0x180D2179A 。
+
+已找到的目标相关函数
+
+地址/RVA | 建议命名 | 作用
+0x1803268A0 /+0x3268A0 | SetCurrentTarget | 设置、切换或取消当前目标
+0x180326560 /+0x326560 | GetCurrentTargetServerObjectId | 获取当前目标的服务器对象 ID
+0x180326670 /+0x326670 | GetCurrentTargetGameObject | 获取当前目标的 GameObject
+0x180326700 /+0x326700 | GetCurrentTargetCharacter | 获取当前目标的 CharacterObject/Actor
+0x180046210 /+0x46210 | TrySelectTarget | 检查玩家状态后调用目标设置函数
+0x180498FE0 /+0x498FE0 | SetTargetServerObjectId | 把目标 Server ID 写入本地角色
+0x180039660 /+0x39660 | Handle_S_TARGET_INFO | 接收目标等级、当前 HP、最大 HP
+0x18045A680 | CEntity_GetGameObject | 从 CEntity 取得 GameObject
+0x18049B8A0 | CEntity_GetCharacterObject | 从 CEntity 取得 CharacterObject
+sub_180171080 会比较新目标和当前目标，目标不同时调用 sub_1803268A0 ，这进一步证明它是目标选择函数。
+
+获取锁定怪物的完整流程
+
+概念代码如下：
+
+uint16_t entityId =
+    *(uint16_t *)(GameBase + 0xD2179A);
+if (entityId == 0)
+{
+    // 没有锁定目标
+    return;
+}
+IEntitySystem *entitySystem =
+    *(IEntitySystem **)(GameBase + 0x904690);
+// 虚表 +0x30，即 48
+CEntity *entity =
+    entitySystem->GetEntity(entityId);
+GameObject *object =
+    CEntity_GetGameObject(entity);
+CharacterObject *actor =
+    CEntity_GetCharacterObject(entity);
+
+文件里的其他调用点明确展示了：
+
+entitySystem->vfunc_48(entitySystem, targetEntityId)
+
+然后再调用 sub_18045A680 或 sub_18049B8A0 获取目标对象。
+
+判断是不是怪物
+
+目标对象的开头结构可以先还原成：
+
+struct CharacterObjectHead
+{
+    char unknown_00[0x08];
+    CEntity *entity;             // +0x08
+    char unknown_10[0x10];
+    uint32_t objectType;         // +0x20
+    uint32_t unknown_24;         // +0x24
+    uint32_t unknown_28;         // +0x28
+    uint32_t serverObjectId;     // +0x2C
+    uint32_t npcTemplateId;      // +0x30
+    char unknown_34[0x0A];
+    uint16_t level;              // +0x3E
+    uint8_t hpPercent;           // +0x40
+    uint8_t unknown_41;          // +0x41
+    wchar_t name[64];            // +0x42
+};
+
+判断：
+
+bool isMonster =
+    actor && *(uint32_t *)(actor + 0x20) == 2;
+
+当前分析中的常见类型：
+
+1 = 玩家/User
+2 = NPC/怪物
+23 = 采集物等特殊对象
+
+目标选择和网络包处理函数均使用 +0x20 判断类型，并使用 +0x2C 作为服务器对象 ID。
+
+锁定怪物后可以获取的信息
+
+信息 | 对象 | 偏移
+CEntity 指针 | CharacterObject | +0x08
+对象类型 | CharacterObject | +0x20
+Server Object ID | CharacterObject | +0x2C
+NPC Template ID | CharacterObject | +0x30
+等级 | CharacterObject | +0x3E
+HP 百分比 | CharacterObject | +0x40
+名称 | CharacterObject | +0x42
+显示/缓动后的 HP | CharacterObject | +0x119C
+最大 HP | CharacterObject | +0x11A0
+最新当前 HP | CharacterObject | +0x11A4
+X | CEntity | +0x4E8
+Y | CEntity | +0x4EC
+Z | CEntity | +0x4F0
+名称字段的证据很强：初始化角色对象时，代码把 NPC 名称复制到 object + 66 ，最大长度为 64 个宽字符，同时写入等级、HP 百分比和模板 ID。
+
+位置字段则由 Entity 模块的 sub_180007250 明确写入 +1256/+1260/+1264 。
+
+最方便的两个入口
+
+直接取得当前锁定怪物 Actor
+
+CharacterObject *target =
+    (CharacterObject *)sub_180326700();
+
+这个函数的逻辑大致是：
+
+if (!currentTargetEntityId)
+    return nullptr;
+CEntity *entity =
+    gEntitySystem->GetEntity(currentTargetEntityId);
+return CEntity_GetCharacterObject(entity);
+
+获得 target 后：
+
+uint32_t type = *(uint32_t *)(target + 0x20);
+uint32_t serverId = *(uint32_t *)(target + 0x2C);
+uint32_t templateId = *(uint32_t *)(target + 0x30);
+uint16_t level = *(uint16_t *)(target + 0x3E);
+uint32_t maxHp = *(uint32_t *)(target + 0x11A0);
+uint32_t currentHp = *(uint32_t *)(target + 0x11A4);
+CEntity *entity = *(CEntity **)(target + 0x08);
+float x = *(float *)(entity + 0x4E8);
+float y = *(float *)(entity + 0x4EC);
+float z = *(float *)(entity + 0x4F0);
+
+只取得锁定目标的 Server Object ID
+
+uint32_t targetId = sub_180326560();
+
+这个函数优先从当前目标对象的 +0x2C 返回 ID；目标 Entity 暂时不存在时，会返回本地玩家缓存的：
+
+LocalPlayer CharacterObject + 0x358
+
+sub_180498FE0 最后明确执行：
+
+*(uint32_t *)(localPlayer + 856) = targetServerObjectId;
+
+其他代码也把 object + 856 当作当前目标 Server ID 使用。
+
+锁定怪物时发生了什么
+
+数据流基本是：
+
+点击/Tab 选择怪物
+        ↓
+sub_180046210
+        ↓
+sub_1803268A0 / SetCurrentTarget
+        ↓
+保存 Target Entity ID 到 GameBase+0xD2179A
+        ↓
+保存 Server Object ID 到 LocalPlayer+0x358
+        ↓
+发送 C_CHANGE_TARGET
+        ↓
+服务器返回 S_TARGET_INFO
+        ↓
+sub_180039660 更新等级、当前 HP、最大 HP
+
+C_CHANGE_TARGET 在包名表中的编号是：
+
+31
+
+S_TARGET_INFO 的编号是：
+
+41
+
+S_TARGET_INFO 处理完成后还会调用 sub_1803268A0 ，因此它既更新目标数据，也会确认客户端当前目标。
+
+不要把下面两个包混淆：
+
+S_NPC_CHANGED_TARGET
+S_USER_CHANGED_TARGET
+
+它们表示“某个 NPC/玩家把谁作为目标”，并不等于“本地玩家当前锁定了谁”。
+
+在 IDA 里验证
+
+在 sub_1803268A0 设置断点，然后在游戏内依次进行：
+
+没有目标
+锁定怪物 A
+切换怪物 B
+取消目标
+
+Windows x64 调用约定下，函数入口处：
+
+RCX = &dword_180D21720
+RDX = 新目标对象指针；取消目标时通常为 0
+
+锁定怪物时查看：
+
+[RDX+20h] = 2 怪物类型
+[RDX+2Ch] = Server ID
+[RDX+30h] = NPC Template ID
+[RDX+3Eh] = 等级
+[RDX+42h] = 名字
+[RDX+8] = CEntity*
+
+同时观察：
+
+GameBase + D2179Ah
+
+锁怪后由 0 变成一个非零的 16 位 Entity ID，取消目标后回到 0 。
+
+建议在 IDA 中先改名：
+
+sub_1803268A0 -> SetCurrentTarget
+sub_180326560 -> GetCurrentTargetServerObjectId
+sub_180326670 -> GetCurrentTargetGameObject
+sub_180326700 -> GetCurrentTargetCharacter
+sub_180046210 -> TrySelectTarget
+sub_180498FE0 -> SetTargetServerObjectId
+
+这些地址和偏移只适用于你上传的这一版客户端；更新版本后需要重新通过函数特征和交叉引用定位。
+
+你说 26:
+
+再帮我找找采集物信息, 坐标名称 采集次数,  锁定采集物,这些采集物相关的操作信息.
+
+ChatGPT 32:
+
+找到了，采集物主要分成四块： 静态配置、运行时对象、锁定目标、采集事件 。
+
+1. 采集物静态信息
+
+sub_1804CAB00 -> LoadGatherSourceTable
+
+它加载：
+
+data\Gather\gather_src.xml
+
+静态记录大小约为 0x80 ：
+
+struct GatherSourceInfo
+{
+    uint32_t id;               // +0x00
+    // ...
+    uint32_t nameStringId;     // +0x18，名称/描述文本 ID
+    uint32_t resultCount;      // +0x1C，已配置结果槽数量
+    uint32_t resultIds[8];     // +0x20 ~ +0x3C
+    // 模型、特效等字段
+    float interactRadius;      // +0x78
+    uint32_t color;            // +0x7C
+};
+
+这里的 resultCount 是配置了多少种可能产物， 不是剩余采集次数 。
+
+2. 运行时采集物对象
+
+采集物生成核心：
+
+sub_18040ACD0 -> Handle_S_PUT_OBJECT
+sub_1804C2020 -> SpawnGatherSourceFromPacket
+
+模板 ID 在：
+
+400000 ~ 499999
+
+范围时，会被当作采集物生成。
+
+运行时结构可先定义成：
+
+struct GatherObject
+{
+    // ...
+    CEntity* entity;               // +0x08
+    // ...
+    uint32_t objectType;           // +0x20，采集物固定为 7
+    // ...
+    uint32_t serverObjectId;       // +0x2C
+    uint32_t gatherSourceId;       // +0x30
+    // ...
+    uint16_t displayLevel;         // +0x3E，初始化为 1
+    uint8_t remainingOrState;      // +0x40，疑似剩余次数/可用状态
+    wchar_t name[64];              // +0x42
+    // ...
+    float interactionRadius;       // +0x168
+    // ...
+    float spawnX;                  // +0x19C
+    float spawnY;                  // +0x1A0
+    float spawnZ;                  // +0x1A4
+};
+
+objectType == 7 是目前判断采集物最直接的条件。游戏内部注册表中也存在独立的 "Gather" 对象类型。
+
+3. 采集物名称
+
+运行时名称在：
+
+GatherObject + 0x42
+
+类型是 UTF-16 字符串，可以先按：
+
+wchar_t name[64];
+
+理解。
+
+名称生成流程大概是：
+
+生成包中的文本 ID
+    ↓
+查询本地化文本表
+    ↓
+复制到 GatherObject + 0x42
+
+静态表中也有：
+
+GatherSourceInfo + 0x18
+
+作为名称或描述的文本 ID。
+
+4. 采集物坐标
+
+推荐读取实时坐标
+
+CEntity* entity = *(CEntity**)(gather + 0x08);
+float x = *(float*)(entity + 0x4E8);
+float y = *(float*)(entity + 0x4EC);
+float z = *(float*)(entity + 0x4F0);
+
+这是实体系统维护的实时位置。
+
+生成时坐标副本
+
+采集物对象本身还保留一份：
+
+float x = *(float*)(gather + 0x19C);
+float y = *(float*)(gather + 0x1A0);
+float z = *(float*)(gather + 0x1A4);
+
+它更像生成时的位置快照。需要处理移动或重新定位时，优先使用 CEntity 的坐标。
+
+采集物生成包开头也能还原为：
+
+struct PutGatherObjectPrefix
+{
+    float x;                    // +0x00
+    float y;                    // +0x04
+    float z;                    // +0x08
+    uint32_t serverObjectId;    // +0x0C
+    uint32_t entityId;          // +0x10
+    uint32_t gatherSourceId;    // +0x14
+};
+
+5. 锁定采集物
+
+采集物和怪物使用同一套目标系统。
+
+当前目标 Entity ID：
+
+uint16_t targetEntityId =
+    *(uint16_t*)(GameBase + 0xD2179A);
+
+然后：
+
+GameObject* target = GetCurrentTargetGameObject();
+if (target && *(uint32_t*)(target + 0x20) == 7)
+{
+    // 当前锁定的是采集物
+}
+
+建议函数命名：
+
+sub_1803268A0 -> SetCurrentTarget
+sub_180326560 -> GetCurrentTargetServerObjectId
+sub_180326670 -> GetCurrentTargetGameObject
+
+SetCurrentTarget 内部明确有采集物专用分支：
+
+if (target->objectType == 7)
+{
+    serverId = target->serverObjectId;
+    // target selected
+    // mark current gathering target
+}
+
+所以锁定采集物后，可以直接取得：
+
+uint32_t serverId = *(uint32_t*)(target + 0x2C);
+uint32_t sourceId = *(uint32_t*)(target + 0x30);
+wchar_t* name = (wchar_t*)(target + 0x42);
+CEntity* entity = *(CEntity**)(target + 0x08);
+
+采集事件处理函数也会调用 sub_180326560 ，取得当前锁定目标的服务器对象 ID。
+
+6. 采集次数
+
+这里需要区分两种“次数”。
+
+静态产物数量
+
+GatherSourceInfo + 0x1C
+
+表示配置中有多少个非零产物槽，范围大约是 0~8 。
+
+它不是采集物剩余可采次数。
+
+运行时剩余次数/状态候选
+
+目前最强的候选是：
+
+GatherObject + 0x40
+
+证据是：
+
+1. 创建对象时先初始化为 100 ；
+2. 生成包末尾还有一个单字节字段；
+3. 解析生成包后，该字节会覆盖 GatherObject + 0x40 ；
+4. 这个字段位于名称前面，形式类似其他对象的百分比、剩余量或状态字段。
+所以暂时建议命名：
+
+uint8_t remainingGatherCountOrState; // +0x40
+
+但它还不能 100% 确定是“剩余次数”，也可能是：
+
+可采集百分比
+资源剩余状态
+采集物耐久度
+显示状态
+
+最简单的验证方式：对 对象地址 + 0x40 设置写入断点，然后连续采集同一个节点，看它是否按 3→2→1→0 或类似方式变化。
+
+7. 采集网络包
+
+已经定位到：
+
+C_GATHER = 19
+S_GATHER_OTHER = 34
+S_GATHER = 35
+
+本地玩家采集事件
+
+sub_180055A60 -> Handle_S_GATHER
+
+它包含日志：
+
+recv gather event=%d, mat=%d
+[gsobject gathering] I'm gathering (%u)
+
+函数参数中：
+
+a3 = gatherEvent
+a4 = material/result ID
+
+该函数会更新采集进度、采集 UI、动画、冷却或结果状态。
+
+目前看到的事件范围是：
+
+0 ~ 8
+
+但每个编号精确对应“开始、成功、失败、中断”的哪一个状态，还需要运行时断点确认，不建议现在强行命名。
+
+其他玩家采集事件
+
+sub_180417F20 -> Handle_S_GATHER_OTHER
+
+包结构大致是：
+
+struct S_GATHER_OTHER
+{
+    uint32_t gathererServerId;    // +0x00
+    uint32_t gatherObjectServerId;// +0x04
+    // ...
+    uint8_t event;                // +0x0A
+};
+
+它会：
+
+找到采集者
+找到采集物
+让采集者朝向采集物
+播放开始/结束/取消动画
+
+8. 开始和取消采集
+
+sub_1800200C0 -> SendOrCancelGather
+
+这个函数直接引用：
+
+send gather
+cancel gather
+
+说明它是发送 C_GATHER 或取消采集的主要入口。
+
+另外还有：
+
+sub_180053600
+sub_18005B3C0
+
+在角色状态切换或移动时调用取消采集逻辑。
+
+9. 距离检查和对象移除
+
+sub_180324D80 -> CheckGatherTargetRange
+
+引用的调试文本：
+
+[gsobject: too far] too far object (%u) (%.2f, %.2f, %.2f)
+[gsobject: far] far object (%u)
+
+它大概率负责判断：
+
+玩家与采集物距离
+是否超过 interactionRadius
+是否应中断采集
+
+采集物被耗尽或离开视野时：
+
+sub_1804C4160 -> RemoveGatherObject
+
+引用：
+
+[gsobject: remove] remove object (%u)
+
+10. 推荐的完整读取流程
+
+GatherObject* GetLockedGatherObject()
+{
+    GameObject* target = GetCurrentTargetGameObject();
+    if (!target)
+        return nullptr;
+    if (*(uint32_t*)((char*)target + 0x20) != 7)
+        return nullptr;
+    return (GatherObject*)target;
+}
+
+获取信息：
+
+GatherObject* gather = GetLockedGatherObject();
+uint32_t serverId = *(uint32_t*)((char*)gather + 0x2C);
+uint32_t sourceId = *(uint32_t*)((char*)gather + 0x30);
+uint8_t stateOrRemaining = *(uint8_t*)((char*)gather + 0x40);
+wchar_t* name = (wchar_t*)((char*)gather + 0x42);
+CEntity* entity = *(CEntity**)((char*)gather + 0x08);
+float x = *(float*)((char*)entity + 0x4E8);
+float y = *(float*)((char*)entity + 0x4EC);
+float z = *(float*)((char*)entity + 0x4F0);
+
+11. IDA 里建议改名
+
+sub_1804CAB00 -> LoadGatherSourceTable
+sub_18040ACD0 -> Handle_S_PUT_OBJECT
+sub_1804C2020 -> SpawnGatherSourceFromPacket
+sub_1804C4160 -> RemoveGatherObject
+sub_1803268A0 -> SetCurrentTarget
+sub_180326560 -> GetCurrentTargetServerObjectId
+sub_180326670 -> GetCurrentTargetGameObject
+sub_180055A60 -> Handle_S_GATHER
+sub_180417F20 -> Handle_S_GATHER_OTHER
+sub_1800200C0 -> SendOrCancelGather
+sub_180324D80 -> CheckGatherTargetRange
+sub_18017D8B0 -> InitGatheringDialog
+
+验证顺序
+
+1. 在 sub_1804C2020 下断点，靠近一个新出现的采集物；
+2. 记录返回对象，检查 +0x20 == 7 ；
+3. 检查 +0x2C、+0x30、+0x42 ；
+4. 点击锁定采集物，在 sub_1803268A0 下断；
+5. 开始采集，在 sub_1800200C0 和 sub_180055A60 下断；
+6. 对 gather+0x40 设置写入断点，确认它是否为剩余采集次数。
+
+你说 27:
+
+再帮我找一下肉体状态异常这个地址,  包括当前玩家和 组队玩家的肉体状态异常
+
+ChatGPT 33:
+
+找到了。这里的“肉体状态异常”是 当前正在生效的 debuffphy 类异常状态 ，不是 arPhysicalAb 抗性属性。
+
+当前玩家
+
+没有固定的绝对地址，因为玩家 Actor* 是动态指针。取得当前玩家 Actor 后：
+
+uint32_t physicalAbnormalCount =
+    *(uint32_t *)((char *)actor + 0xF38);
+bool hasPhysicalAbnormal = physicalAbnormalCount != 0;
+
+相关布局：
+
+Actor 偏移 | 类型 | 含义
++0xF18 | pointer | 异常状态数组 begin
++0xF20 | pointer | 异常状态数组 end
++0xF28 | pointer | 异常状态数组 capacity
++0xF30 | uint32_t | category 0 数量
++0xF34 | uint32_t | Buff 数量
++0xF38 | uint32_t | 肉体异常 debuffphy 数量
++0xF3C | uint32_t | 精神异常 debuffmen 数量
+游戏加载技能表时，把 dispel_category 映射为：
+
+never = 0
+buff = 1
+debuffphy = 2
+debuffmen = 3
+extra = 8
+
+而 sub_18047DA30 在增加异常状态时执行：
+
+if (category < 8)
+    actor->categoryCount[category]++;
+
+计数数组从 Actor + 0xF30 开始，因此：
+
+0xF30 + 2 × 4 = 0xF38
+
+这就是肉体状态异常数量。
+
+当前玩家 Actor 的取得流程
+
+代码中通常是：
+
+auto context =
+    qword_180D199A0->vfunc_480();
+Actor *actor =
+    sub_1804D5AB0(context);
+
+建议命名：
+
+sub_1804D5AB0 -> GetLocalCharacterObject
+
+所以完整逻辑为：
+
+Actor *me = GetLocalCharacterObject(...);
+if (me)
+{
+    bool physicalAbnormal =
+        *(uint32_t *)((char *)me + 0xF38) != 0;
+}
+
+获取具体异常状态
+
+每个异常记录大小：
+
+0x12 = 18 字节
+
+结构可以先定义为：
+
+#pragma pack(push, 1)
+struct AbnormalStatusEntry
+{
+    uint32_t field_00;          // +0x00
+    uint32_t abnormalId;        // +0x04，异常/技能 ID，置信度较高
+    uint32_t dispelCategory;    // +0x08，已确认
+    int32_t timeOrSource;       // +0x0C，具体语义待进一步确认
+    uint16_t levelOrStack;      // +0x10
+};
+#pragma pack(pop)
+
+读取当前玩家完整肉体异常列表：
+
+auto begin =
+    *(AbnormalStatusEntry **)((char *)actor + 0xF18);
+auto end =
+    *(AbnormalStatusEntry **)((char *)actor + 0xF20);
+for (auto status = begin; status != end; ++status)
+{
+    if (status->dispelCategory == 2)
+    {
+        // 这条是肉体状态异常
+        uint32_t id = status->abnormalId;
+    }
+}
+
+实际数组不是普通 C++ 类型递增，所以更严谨的写法是按 0x12 前进：
+
+for (uintptr_t p = begin; p < end; p += 0x12)
+{
+    uint32_t category = *(uint32_t *)(p + 0x08);
+    if (category == 2)
+    {
+        uint32_t abnormalId = *(uint32_t *)(p + 0x04);
+    }
+}
+
+组队玩家
+
+组队玩家分成两种情况。
+
+情况一：组队玩家在附近，Actor 已加载
+
+附近可见的队友也使用同一个 Actor 结构：
+
+bool hasPhysicalAbnormal =
+    *(uint32_t *)((char *)partyActor + 0xF38) != 0;
+
+也就是说：
+
+当前玩家 Actor + 0xF38
+附近队友 Actor + 0xF38
+怪物 Actor + 0xF38
+
+使用的是同一套异常状态布局。
+
+游戏处理 S_ABNORMAL_STATUS_OTHER 时，会：
+
+Server Object ID
+ ↓
+查 serverId → entityId 映射
+ ↓
+取得 CEntity
+ ↓
+sub_18049B8A0(CEntity*)
+ ↓
+取得 Actor
+ ↓
+sub_18047DA30 添加异常状态
+
+相关函数：
+
+sub_180410D80 -> Handle_S_ABNORMAL_STATUS_OTHER
+sub_1804C65B0 -> AddAbnormalStatusToOtherActor
+sub_18049B8A0 -> CEntity_GetCharacterObject
+
+情况二：队友不在附近，只有组队信息快照
+
+这种情况下可能没有有效 Actor，但游戏仍然通过 S_PARTY_MEMBER_INFO 保存队友异常状态。
+
+组队列表
+
+主组队列表全局地址：
+
+IDA 地址：0x180D1BAE8
+RVA： 0xD1BAE8
+
+运行时需要计算：
+
+Game 模块实际基址 + 0xD1BAE8
+
+这个全局保存的是列表哨兵指针。每个 list node：
+
+struct PartyListNode
+{
+    PartyListNode *next;  // +0x00
+    PartyListNode *prev;  // +0x08
+    PartyMember   *data;  // +0x10
+};
+
+每个 PartyMember 记录大小：
+
+0x85D = 2141 字节
+
+队友异常状态布局
+
+PartyMember 偏移 | 类型 | 含义
++0x04 | uint32_t | 队员 Server Object ID
++0x37 | uint8_t | 数据有效位；bit 0x08 表示含异常状态块
++0x77 | int16_t | 异常状态数量
++0x79 | array | 异常状态记录开始
++0x859 | uint32_t | 包时间基准/更新时间字段
+异常数组空间大小：
+
+0x7E0 = 2016 字节
+
+每条 0x12 字节，因此最多：
+
+2016 / 18 = 112 条
+
+sub_180025620 会把 2016 字节异常状态数据复制到 PartyMember + 0x79 ，并使用 PartyMember + 0x77 作为数量。
+
+判断队友是否有肉体异常
+
+队友快照里没有找到一个单独预计算的 physicalAbnormalCount 字段，因此需要扫描：
+
+bool PartyMemberHasPhysicalAbnormal(PartyMember *member)
+{
+    int count = *(int16_t *)((char *)member + 0x77);
+    if (count < 0)
+        return false;
+    if (count > 112)
+        count = 112;
+    uintptr_t entries =
+        (uintptr_t)member + 0x79;
+    for (int i = 0; i < count; ++i)
+    {
+        uintptr_t entry =
+            entries + i * 0x12;
+        uint32_t category =
+            *(uint32_t *)(entry + 0x08);
+        if (category == 2)
+            return true;
+    }
+    return false;
+}
+
+统计肉体异常数量：
+
+int CountPartyMemberPhysicalAbnormal(PartyMember *member)
+{
+    int count = *(int16_t *)((char *)member + 0x77);
+    count = max(0, min(count, 112));
+    int physicalCount = 0;
+    for (int i = 0; i < count; ++i)
+    {
+        uintptr_t entry =
+            (uintptr_t)member + 0x79 + i * 0x12;
+        if (*(uint32_t *)(entry + 0x08) == 2)
+            ++physicalCount;
+    }
+    return physicalCount;
+}
+
+主组队列表的遍历方式
+
+概念代码：
+
+uintptr_t partyHead =
+    *(uintptr_t *)(gameBase + 0xD1BAE8);
+for (uintptr_t node = *(uintptr_t *)partyHead;
+     node != partyHead;
+     node = *(uintptr_t *)node)
+{
+    PartyMember *member =
+        *(PartyMember **)(node + 0x10);
+    if (!member)
+        continue;
+    uint32_t serverId =
+        *(uint32_t *)((char *)member + 0x04);
+    bool hasPhysical =
+        PartyMemberHasPhysicalAbnormal(member);
+}
+
+另有一个二级列表：
+
+GameBase + 0xD1BB50
+
+部分函数会在主组队列表找不到成员后继续查这里。它大概率是联盟/次级队伍缓存，使用同样的 0x85D 成员记录结构；这是根据调用行为作出的推断。
+
+网络包和更新函数
+
+ID | 包名 | 处理函数 | 用途
+49 | S_ABNORMAL_STATUS | sub_180410B70 | 当前玩家完整异常状态
+50 | S_ABNORMAL_STATUS_OTHER | sub_180410D80 | 其他玩家、怪物的异常状态
+91 | S_PARTY_MEMBER_INFO | 总分发器 case 91 | 组队成员状态快照
+核心函数建议改名：
+
+sub_180410B70 -> Handle_S_ABNORMAL_STATUS
+sub_180410D80 -> Handle_S_ABNORMAL_STATUS_OTHER
+sub_18047D8C0 -> Actor_ClearAbnormalStatuses
+sub_18047DA30 -> Actor_AddAbnormalStatus
+sub_180025620 -> UpdatePartyMemberInfo
+sub_18003D1C0 -> RefreshPartyMemberAbnormalListFromActor
+
+sub_18003D1C0 很关键：它会从已加载队友 Actor 的：
+
+Actor + 0xF18 ~ Actor + 0xF20
+
+复制异常列表到：
+
+PartyMember + 0x79
+
+并写入：
+
+PartyMember + 0x77
+
+这直接确认了 Actor 状态和队伍快照使用相同的 0x12 字节异常记录格式。
+
+在 IDA 中验证
+
+对：
+
+sub_18047DA30
+
+设置断点，然后让当前玩家获得一个技能表中明确标记为：
+
+dispel_category = debuffphy
+
+的异常状态。
+
+Windows x64 调用约定下，函数入口：
+
+RCX = Actor*
+EDX = 异常/技能 ID
+R8D = 等级或叠加信息
+R9D = dispelCategory
+
+对于肉体异常，应观察到：
+
+R9D = 2
+
+执行函数后：
+
+[RCX + 0xF38]
+
+应该从 0 变为 1 ，或在已有肉体异常时继续增加。
+
+组队玩家验证则可在：
+
+sub_180025620
+
+设置断点，检查第二个参数：
+
+RDX + 0x04 = 队员 Server ID
+RDX + 0x77 = 异常数量
+RDX + 0x79 = 异常记录数组
+
+最终结果
+
+当前玩家/已加载队友：
+Actor + 0xF38 = 当前肉体状态异常数量
+Actor + 0xF38 != 0 = 存在肉体状态异常
+完整列表：
+Actor + 0xF18 = begin
+Actor + 0xF20 = end
+每条大小 0x12
+entry + 0x08 == 2 表示肉体异常
+离屏组队玩家：
+GameBase + 0xD1BAE8 → PartyMember 列表
+PartyMember + 0x77 = 异常数量
+PartyMember + 0x79 = 异常数组
+每条大小 0x12
+entry + 0x08 == 2 表示肉体异常
+
+这些地址与偏移仅适用于你上传文件对应的这个客户端版本；模块更新后应重新验证 RVA 和结构偏移。
+
+你说 28:
+
+之前你给我的怪物数据, 有遍历怪物数据的地址吗?  比如角色站在怪物中间,  通过哪个方法能获取到角色周围的怪物数据
+
+你说 29:
+
+之前你给我的怪物数据, 有遍历怪物数据的地址吗?  比如角色站在怪物中间,  通过哪个方法能获取到角色周围的怪物数据.  比如我用c#去获取的话 这要我怎么操作呢?
+
+你说 30:
+
+继续
+
+ChatGPT 34:
+
+有。 最适合遍历的不是静态怪物表，而是运行时 CEntitySystem 的实体红黑树 。它包含客户端当前已经创建的实体；再筛选 objectType == 2 ，最后按坐标计算与玩家的距离。
+
+运行时实体遍历入口
+
+按你这版文件的 RVA：
+
+GameBase + 0x904690 -> CEntitySystem*
+CEntitySystem + 0x58 -> entity map 的 header/sentinel
+
+这个 map 的节点布局基本确定：
+
+struct EntityMapNode
+{
+    EntityMapNode* left;       // +0x00
+    EntityMapNode* parent;     // +0x08
+    EntityMapNode* right;      // +0x10
+    uint8_t color;             // +0x18
+    uint8_t isNil;             // +0x19
+    uint16_t entityId;         // +0x20
+    CEntity* entity;           // +0x28
+};
+
+sub_18003D580 会在 CEntitySystem + 0x58 的树中按 entityId 查找，并直接返回节点 +0x28 的 CEntity* 。
+
+完整遍历写法可以参考：
+
+Entity.dll + 0x3F010 -> sub_18003F010
+Entity.dll + 0x3F140 -> sub_18003F140
+
+这两个函数都从：
+
+header = *(CEntitySystem + 0x58);
+node = header->left;
+
+开始，然后按红黑树的中序后继逐个访问 node->entity 。
+
+另一个可遍历结构
+
+Game 模块还有：
+
+GameBase + 0xD21740 -> serverObjectId 到 entityId 的红黑树
+
+节点布局：
+
+struct ServerObjectMapNode
+{
+    ServerObjectMapNode* left;    // +0x00
+    ServerObjectMapNode* parent;  // +0x08
+    ServerObjectMapNode* right;   // +0x10
+    uint8_t color;                // +0x18
+    uint8_t isNil;                // +0x19
+    uint32_t serverObjectId;      // +0x1C
+    uint16_t entityId;            // +0x20
+};
+
+sub_180171010(serverObjectId) 正是：
+
+serverObjectId
+    -> 查 qword_180D21740
+    -> 取得 entityId
+    -> EntitySystem::GetEntity
+    -> sub_18049B8A0
+    -> CharacterObject*
+
+不过要遍历所有实体， 直接遍历 CEntitySystem + 0x58 更方便 ，因为节点已经包含 CEntity* 。
+
+如何筛选周围怪物
+
+运行时角色对象字段：
+
+struct CharacterObjectLike
+{
+    // ...
+    CEntity* entity;          // +0x08
+    // ...
+    uint32_t objectType;      // +0x20
+    uint32_t serverObjectId;  // +0x2C
+    uint32_t npcTemplateId;   // +0x30
+    uint16_t level;           // +0x3E
+    uint8_t hpPercent;        // +0x40
+    wchar_t name[64];         // +0x42
+    // ...
+    uint32_t maxHp;           // +0x11A0
+    uint32_t currentHp;       // +0x11A4
+};
+
+筛选条件：
+
+actor != nullptr
+actor->objectType == 2
+
+但 objectType == 2 表示 NPC/怪物类对象 ，里面也可能包括普通 NPC、守卫，不一定全是敌对怪物。要进一步判断，可以使用：
+
+actor + 0x30 -> npcTemplateId
+
+再关联 NPC\npc.xml 静态表中的 npc_type 、 tribe 等字段。游戏代码本身也使用 actor + 0x20 == 2 判断 NPC/怪物对象。
+
+坐标：
+
+float x = *(float*)(entity + 0x4E8);
+float y = *(float*)(entity + 0x4EC);
+float z = *(float*)(entity + 0x4F0);
+
+计算距离：
+
+float dx = monsterX - playerX;
+float dy = monsterY - playerY;
+float dz = monsterZ - playerZ;
+float distanceSquared = dx * dx + dy * dy + dz * dz;
+if (distanceSquared <= radius * radius)
+{
+    // 在指定半径内
+}
+
+本地玩家 Entity ID
+
+本地角色的 Entity ID 在：
+
+GameBase + 0xD21798
+
+读取低 16 位：
+
+uint16_t localPlayerEntityId =
+    *(uint16_t*)(GameBase + 0xD21798);
+
+sub_18002A890 明确会把本地 Entity ID 写到 LOWORD(dword_180D21798) 。
+
+因此流程可以是：
+
+读取 localPlayerEntityId
+    ↓
+遍历 EntitySystem + 0x58
+    ↓
+找到 entityId == localPlayerEntityId 的 CEntity
+    ↓
+读取玩家坐标
+    ↓
+继续遍历所有其他 CEntity
+    ↓
+解析 CharacterObject
+    ↓
+筛选 objectType == 2
+    ↓
+计算距离
+
+C# 红黑树遍历骨架
+
+下面只演示 内存快照、离线测试程序或已获授权插件 中的数据结构遍历。进程注入、反作弊绕过和在线游戏外部读写实现不展开。
+
+using System;
+using System.Collections.Generic;
+public interface IReadOnlyMemory
+{
+    T Read<T>(nuint address) where T : unmanaged;
+    nuint ReadPointer(nuint address);
+    string ReadUtf16(nuint address, int maxCharacters);
+}
+public readonly record struct Vector3(float X, float Y, float Z);
+public readonly record struct EntityEntry(
+    ushort EntityId,
+    nuint EntityPointer
+);
+public static class EntityTree
+{
+    private const nuint LeftOffset   = 0x00;
+    private const nuint ParentOffset = 0x08;
+    private const nuint RightOffset  = 0x10;
+    private const nuint IsNilOffset  = 0x19;
+    private static bool IsNil(IReadOnlyMemory memory, nuint node)
+    {
+        return node == 0 || memory.Read<byte>(node + IsNilOffset) != 0;
+    }
+    private static nuint Successor(
+        IReadOnlyMemory memory,
+        nuint header,
+        nuint node)
+    {
+        nuint right = memory.ReadPointer(node + RightOffset);
+        if (!IsNil(memory, right))
+        {
+            nuint current = right;
+            while (true)
+            {
+                nuint left = memory.ReadPointer(current + LeftOffset);
+                if (IsNil(memory, left))
+                    return current;
+                current = left;
+            }
+        }
+        nuint parent = memory.ReadPointer(node + ParentOffset);
+        while (parent != 0 &&
+               parent != header &&
+               node == memory.ReadPointer(parent + RightOffset))
+        {
+            node = parent;
+            parent = memory.ReadPointer(parent + ParentOffset);
+        }
+        return parent;
+    }
+    public static IEnumerable<nuint> EnumerateNodes(
+        IReadOnlyMemory memory,
+        nuint header,
+        int maximumNodes = 65_536)
+    {
+        if (header == 0)
+            yield break;
+        // header->left 是最小节点。
+        nuint node = memory.ReadPointer(header + LeftOffset);
+        var visited = new HashSet<nuint>();
+        for (int index = 0;
+             index < maximumNodes &&
+             node != 0 &&
+             node != header;
+             index++)
+        {
+            // 防止结构变化、损坏或读取不同步导致死循环。
+            if (!visited.Add(node))
+                yield break;
+            if (IsNil(memory, node))
+                yield break;
+            yield return node;
+            node = Successor(memory, header, node);
+        }
+    }
+    public static IEnumerable<EntityEntry> EnumerateEntities(
+        IReadOnlyMemory memory,
+        nuint gameBase)
+    {
+        const nuint entitySystemGlobalRva = 0x904690;
+        const nuint entityMapOffset = 0x58;
+        const nuint nodeEntityIdOffset = 0x20;
+        const nuint nodeEntityPointerOffset = 0x28;
+        nuint entitySystem =
+            memory.ReadPointer(gameBase + entitySystemGlobalRva);
+        if (entitySystem == 0)
+            yield break;
+        nuint header =
+            memory.ReadPointer(entitySystem + entityMapOffset);
+        foreach (nuint node in EnumerateNodes(memory, header))
+        {
+            ushort entityId =
+                memory.Read<ushort>(node + nodeEntityIdOffset);
+            nuint entity =
+                memory.ReadPointer(node + nodeEntityPointerOffset);
+            if (entity != 0)
+                yield return new EntityEntry(entityId, entity);
+        }
+    }
+    public static Vector3 ReadEntityPosition(
+        IReadOnlyMemory memory,
+        nuint entity)
+    {
+        return new Vector3(
+            memory.Read<float>(entity + 0x4E8),
+            memory.Read<float>(entity + 0x4EC),
+            memory.Read<float>(entity + 0x4F0)
+        );
+    }
+}
+
+周围怪物筛选逻辑
+
+还需要一个：
+
+CEntity* -> CharacterObject*
+
+的解析步骤。
+
+游戏内部对应：
+
+Game.dll + 0x49B8A0 -> sub_18049B8A0
+
+它的行为是：
+
+entity
+    -> entity->vfunc_184()
+    -> 返回 GameObject/扩展容器
+    -> vfunc_80(index = 1, &actor)
+    -> CharacterObject*
+
+所以在 C# 的架构上可以先定义一个解析回调：
+
+public static IEnumerable<(nuint Actor, float Distance)> FindNearbyMonsters(
+    IReadOnlyMemory memory,
+    nuint gameBase,
+    Func<nuint, nuint> resolveCharacterObject,
+    float radius)
+{
+    ushort localEntityId =
+        memory.Read<ushort>(gameBase + 0xD21798);
+    var entities = new List<EntityEntry>(
+        EntityTree.EnumerateEntities(memory, gameBase)
+    );
+    EntityEntry? localEntry = null;
+    foreach (EntityEntry entry in entities)
+    {
+        if (entry.EntityId == localEntityId)
+        {
+            localEntry = entry;
+            break;
+        }
+    }
+    if (localEntry is null)
+        yield break;
+    Vector3 playerPosition =
+        EntityTree.ReadEntityPosition(
+            memory,
+            localEntry.Value.EntityPointer
+        );
+    float radiusSquared = radius * radius;
+    foreach (EntityEntry entry in entities)
+    {
+        if (entry.EntityId == localEntityId)
+            continue;
+        nuint actor =
+            resolveCharacterObject(entry.EntityPointer);
+        if (actor == 0)
+            continue;
+        uint objectType =
+            memory.Read<uint>(actor + 0x20);
+        if (objectType != 2)
+            continue;
+        Vector3 position =
+            EntityTree.ReadEntityPosition(
+                memory,
+                entry.EntityPointer
+            );
+        float dx = position.X - playerPosition.X;
+        float dy = position.Y - playerPosition.Y;
+        float dz = position.Z - playerPosition.Z;
+        float distanceSquared =
+            dx * dx + dy * dy + dz * dz;
+        if (distanceSquared > radiusSquared)
+            continue;
+        yield return (
+            actor,
+            MathF.Sqrt(distanceSquared)
+        );
+    }
+}
+
+resolveCharacterObject 在游戏内部就是 sub_18049B8A0 。对于纯外部 C# 读取器，当前导出文件还没有证明一个稳定的“直接指针偏移链”，所以不能诚实地把它写成 entity + 某偏移 。需要再分析 CEntity::vfunc_184 和后面的扩展容器布局；或者在获授权的进程内插件中调用该函数。
+
+获取怪物详细数据
+
+取得 actor 后：
+
+uint serverObjectId = memory.Read<uint>(actor + 0x2C);
+uint npcTemplateId = memory.Read<uint>(actor + 0x30);
+ushort level = memory.Read<ushort>(actor + 0x3E);
+byte hpPercent = memory.Read<byte>(actor + 0x40);
+string name =
+    memory.ReadUtf16(actor + 0x42, 64);
+uint maxHp =
+    memory.Read<uint>(actor + 0x11A0);
+uint currentHp =
+    memory.Read<uint>(actor + 0x11A4);
+
+注意：未被锁定或服务器尚未发送完整 S_TARGET_INFO 的怪物， maxHp/currentHp 可能是 0 、旧值或只有百分比可靠；坐标、名字、ID 通常更稳定。
+
+结论
+
+最推荐的遍历链：
+
+GameBase + 0x904690
+    ↓
+CEntitySystem*
+    ↓ +0x58
+Entity 红黑树 header
+    ↓ 遍历节点
+node +0x20 = Entity ID
+node +0x28 = CEntity*
+    ↓
+CEntity +0x4E8/+0x4EC/+0x4F0 = 坐标
+    ↓
+sub_18049B8A0(CEntity*) = CharacterObject*
+    ↓
+CharacterObject +0x20 == 2
+    ↓
+计算与玩家的距离
+
+没有单独的“附近怪物数组”；当前证据最稳的方案就是 遍历已加载实体，然后自己做类型和距离筛选 。
+
+ChatGPT 35:
+
+有，而且这次找到一个比“遍历全部实体再算距离”更直接的函数。
+
+1. 引擎自带的附近实体查询
+
+Entity 模块：
+
+VA： 0x18003DD40
+RVA： 0x3DD40
+
+建议命名：
+
+sub_18003DD40 -> CEntitySystem_QueryEntitiesAroundPoint
+
+近似签名：
+
+int CEntitySystem_QueryEntitiesAroundPoint(
+    CEntitySystem* entitySystem,
+    Vec3* center,
+    float radius,
+    std::vector<CEntity*>* output,
+    int physicsTypeMask
+);
+
+它会根据：
+
+min = center - radius;
+max = center + radius;
+
+构造一个 AABB 立方体，调用物理世界的空间查询，取得范围内的物理实体，再通过类似 GetForeignData(0) 的虚函数把物理实体转换成 CEntity* ，最终填进 std::vector<CEntity*> 。
+
+所以它查到的是：
+
+中心点周围一个边长为 radius × 2 的立方体内的实体。
+
+它并不是严格球形范围。取得结果后，再计算一次真实距离即可。
+
+a5 很可能是物理实体类别掩码，但具体每一位含义还没有完全确认，建议先在 IDA 中查看这个虚函数的实际调用点，或运行时测试不同值。
+
+2. 还有一个完整实体迭代器
+
+Entity 模块中：
+
+VA： 0x18003DC20
+RVA： 0x3DC20
+
+它创建了一个：
+
+CEntityItMap
+
+并让迭代器指向：
+
+CEntitySystem + 0x58
+
+处的红黑树实体表。
+
+建议命名：
+
+sub_18003DC20 -> CEntitySystem_CreateEntityIterator
+
+另一个函数：
+
+VA： 0x18003D580
+RVA： 0x3D580
+
+是按 Entity ID 查实体：
+
+sub_18003D580 -> CEntitySystem_GetEntityById
+
+它在同一棵树里查找 uint16_t EntityId ，并返回节点里的 CEntity* 。
+
+3. 纯 C# 外部读取应该使用哪种方式
+
+两种方案区别很重要：
+
+方案 | 使用场景
+调用 EntityModule + 0x3DD40 | 代码运行在游戏进程内，需要原生 C++ 桥接
+遍历 CEntitySystem + 0x58 红黑树 | 外部 C# 只读进程内存，更容易实现
+sub_18003DD40 接受原生 std::vector<CEntity*> ，不能直接把 C# 的 List<T> 传进去。纯外部 C# 也不能正常直接调用目标进程中的 C++ 成员函数。
+
+因此， 外部 C# 推荐遍历实体红黑树，然后自己计算距离。
+
+4. 需要使用的地址和偏移
+
+这里的 GameBase 是主游戏模块运行时基址，不是固定的 0x180000000 。
+
+GameBase + 0x904690 = CEntitySystem* 全局指针
+GameBase + 0xD21798 = 本地玩家 Entity ID，低 16 位
+
+实体系统：
+
+CEntitySystem + 0x58 = 实体红黑树 header 指针
+
+红黑树节点：
+
+struct EntityMapNode
+{
+    EntityMapNode* left;    // +0x00
+    EntityMapNode* parent;  // +0x08
+    EntityMapNode* right;   // +0x10
+    uint8_t color;          // +0x18
+    uint8_t isNil;          // +0x19
+    uint8_t pad[6];
+    uint16_t entityId;      // +0x20
+    // padding
+    CEntity* entity;        // +0x28
+};
+
+sub_18003D580 明确从节点 +0x20 读取 Entity ID，并从节点 +0x28 返回实体指针。
+
+CEntity ：
+
+CEntity + 0x0F2 = 实体大类，uint16_t
+CEntity + 0x4E8 = X
+CEntity + 0x4EC = Y
+CEntity + 0x4F0 = Z
+
+EntitySystem 的统计逻辑把类型 1/2 计入 User，把类型 3 计入 NPC，因此：
+
+*(uint16_t*)(entity + 0xF2) == 3
+
+可以作为第一层 NPC/怪物过滤条件，但会包括普通 NPC，不只包括敌对怪物。
+
+位置偏移由 sub_180007250 的实际写入逻辑确认。
+
+5. C# 遍历附近 NPC 示例
+
+下面没有包含进程附加、反作弊绕过或写内存逻辑。 IMemoryReader 代表你自己的只读内存读取层。
+
+using System;
+using System.Collections.Generic;
+using System.Numerics;
+public interface IMemoryReader
+{
+    byte ReadByte(ulong address);
+    ushort ReadUInt16(ulong address);
+    ulong ReadUInt64(ulong address);
+    float ReadSingle(ulong address);
+    // 用于避免读取无效指针。
+    bool IsReadable(ulong address, int size);
+}
+public sealed class NearbyNpc
+{
+    public ushort EntityId { get; init; }
+    public ulong EntityAddress { get; init; }
+    public Vector3 Position { get; init; }
+    public float Distance { get; init; }
+}
+public static class EntityScanner
+{
+    // 主游戏模块 RVA。
+    private const ulong EntitySystemPointerRva = 0x904690;
+    private const ulong LocalEntityIdRva = 0xD21798;
+    // CEntitySystem。
+    private const ulong EntityMapHeaderOffset = 0x58;
+    // 红黑树节点。
+    private const ulong NodeLeftOffset = 0x00;
+    private const ulong NodeParentOffset = 0x08;
+    private const ulong NodeRightOffset = 0x10;
+    private const ulong NodeIsNilOffset = 0x19;
+    private const ulong NodeEntityIdOffset = 0x20;
+    private const ulong NodeEntityPointerOffset = 0x28;
+    // CEntity。
+    private const ulong EntityTypeOffset = 0xF2;
+    private const ulong EntityPositionOffset = 0x4E8;
+    private const ushort EntityTypeNpc = 3;
+    public static IReadOnlyList<NearbyNpc> GetNearbyNpcs(
+        IMemoryReader memory,
+        ulong gameModuleBase,
+        float radius)
+    {
+        var result = new List<NearbyNpc>();
+        if (radius <= 0 || !float.IsFinite(radius))
+            return result;
+        ulong entitySystem =
+            memory.ReadUInt64(gameModuleBase + EntitySystemPointerRva);
+        if (entitySystem == 0 ||
+            !memory.IsReadable(entitySystem + EntityMapHeaderOffset, 8))
+        {
+            return result;
+        }
+        ulong header =
+            memory.ReadUInt64(entitySystem + EntityMapHeaderOffset);
+        if (header == 0 || !memory.IsReadable(header, 0x30))
+            return result;
+        ushort localEntityId =
+            memory.ReadUInt16(gameModuleBase + LocalEntityIdRva);
+        ulong localEntity =
+            FindEntityById(memory, header, localEntityId);
+        if (localEntity == 0 ||
+            !memory.IsReadable(localEntity + EntityPositionOffset, 12))
+        {
+            return result;
+        }
+        Vector3 playerPosition =
+            ReadPosition(memory, localEntity);
+        float radiusSquared = radius * radius;
+        // MSVC std::map header->left 指向最小节点。
+        ulong node = memory.ReadUInt64(header + NodeLeftOffset);
+        // 防止树在读取过程中变化而形成死循环。
+        const int maxNodes = 65536;
+        for (int visited = 0;
+             node != 0 && node != header && visited < maxNodes;
+             visited++)
+        {
+            if (!memory.IsReadable(node, 0x30))
+                break;
+            ushort entityId =
+                memory.ReadUInt16(node + NodeEntityIdOffset);
+            ulong entity =
+                memory.ReadUInt64(node + NodeEntityPointerOffset);
+            if (entity != 0 &&
+                entityId != localEntityId &&
+                memory.IsReadable(entity + EntityPositionOffset, 12))
+            {
+                ushort entityType =
+                    memory.ReadUInt16(entity + EntityTypeOffset);
+                if (entityType == EntityTypeNpc)
+                {
+                    Vector3 position =
+                        ReadPosition(memory, entity);
+                    float distanceSquared =
+                        Vector3.DistanceSquared(
+                            playerPosition,
+                            position);
+                    if (float.IsFinite(distanceSquared) &&
+                        distanceSquared <= radiusSquared)
+                    {
+                        result.Add(new NearbyNpc
+                        {
+                            EntityId = entityId,
+                            EntityAddress = entity,
+                            Position = position,
+                            Distance = MathF.Sqrt(distanceSquared)
+                        });
+                    }
+                }
+            }
+            ulong next = GetNextNode(memory, node, header);
+            if (next == node)
+                break;
+            node = next;
+        }
+        result.Sort(
+            static (left, right) =>
+                left.Distance.CompareTo(right.Distance));
+        return result;
+    }
+    private static Vector3 ReadPosition(
+        IMemoryReader memory,
+        ulong entity)
+    {
+        return new Vector3(
+            memory.ReadSingle(entity + EntityPositionOffset + 0),
+            memory.ReadSingle(entity + EntityPositionOffset + 4),
+            memory.ReadSingle(entity + EntityPositionOffset + 8));
+    }
+    private static ulong FindEntityById(
+        IMemoryReader memory,
+        ulong header,
+        ushort wantedId)
+    {
+        if (wantedId == 0)
+            return 0;
+        // header->parent 是 root。
+        ulong node = memory.ReadUInt64(
+            header + NodeParentOffset);
+        for (int guard = 0;
+             node != 0 &&
+             node != header &&
+             guard < 65536;
+             guard++)
+        {
+            if (!memory.IsReadable(node, 0x30) ||
+                IsNil(memory, node))
+            {
+                return 0;
+            }
+            ushort nodeId =
+                memory.ReadUInt16(node + NodeEntityIdOffset);
+            if (wantedId < nodeId)
+            {
+                node = memory.ReadUInt64(
+                    node + NodeLeftOffset);
+            }
+            else if (wantedId > nodeId)
+            {
+                node = memory.ReadUInt64(
+                    node + NodeRightOffset);
+            }
+            else
+            {
+                return memory.ReadUInt64(
+                    node + NodeEntityPointerOffset);
+            }
+        }
+        return 0;
+    }
+    private static ulong GetNextNode(
+        IMemoryReader memory,
+        ulong node,
+        ulong header)
+    {
+        ulong right =
+            memory.ReadUInt64(node + NodeRightOffset);
+        // 有右子树：后继是右子树的最左节点。
+        if (!IsNil(memory, right))
+        {
+            ulong current = right;
+            for (int guard = 0; guard < 1024; guard++)
+            {
+                ulong left =
+                    memory.ReadUInt64(
+                        current + NodeLeftOffset);
+                if (IsNil(memory, left))
+                    return current;
+                current = left;
+            }
+            return header;
+        }
+        // 没有右子树：向父节点走。
+        ulong parent =
+            memory.ReadUInt64(node + NodeParentOffset);
+        for (int guard = 0;
+             parent != 0 &&
+             parent != header &&
+             guard < 1024;
+             guard++)
+        {
+            ulong parentRight =
+                memory.ReadUInt64(
+                    parent + NodeRightOffset);
+            if (node != parentRight)
+                break;
+            node = parent;
+            parent = memory.ReadUInt64(
+                parent + NodeParentOffset);
+        }
+        return parent;
+    }
+    private static bool IsNil(
+        IMemoryReader memory,
+        ulong node)
+    {
+        return node == 0 ||
+               memory.ReadByte(node + NodeIsNilOffset) != 0;
+    }
+}
+
+调用：
+
+IReadOnlyList<NearbyNpc> npcs =
+    EntityScanner.GetNearbyNpcs(
+        memory,
+        gameModuleBase,
+        radius: 30.0f);
+foreach (NearbyNpc npc in npcs)
+{
+    Console.WriteLine(
+        $"Entity={npc.EntityId}, " +
+        $"Address=0x{npc.EntityAddress:X}, " +
+        $"Pos={npc.Position}, " +
+        $"Distance={npc.Distance:F2}");
+}
+
+6. 怎么取得名字、血量和模板 ID
+
+上面的实体树直接提供的是：
+
+Entity ID
+CEntity*
+CEntity 类型
+坐标
+
+完整怪物信息主要在游戏层的 CharacterObject* 中，而不是 CEntity 基类中。
+
+进程内可以通过：
+
+sub_18049B8A0(CEntity*)
+
+获得 CharacterObject* 。
+
+然后使用之前确认的字段：
+
+CharacterObject + 0x20 = 对象类型；2 表示 NPC/怪物类
+CharacterObject + 0x2C = Server Object ID
+CharacterObject + 0x30 = NPC Template ID
+CharacterObject + 0x3E = 等级
+CharacterObject + 0x42 = UTF-16 名称
+CharacterObject + 0x11A0 = 最大 HP
+CharacterObject + 0x11A4 = 当前 HP
+
+游戏代码也会先把 CEntity* 传给 sub_18049B8A0 ，然后检查 CharacterObject + 0x20 == 2 进入 NPC/怪物处理路径。
+
+但纯外部 C# 不能直接调用 sub_18049B8A0 。有两个选择：
+
+1. 继续逆向 CEntity 中保存 GameObject 扩展的容器，从内存中取得 CharacterObject* ；
+2. 在自己拥有的离线/授权测试环境中，用原生 C++ 桥接层调用引擎函数，再将普通结构数组返回给 C#。
+不要让 C# 直接向另一个进程中的 std::vector 或 C++ 成员函数传参。
+
+7. 推荐的验证顺序
+
+先在 IDA 中改名：
+
+sub_18003DD40 -> CEntitySystem_QueryEntitiesAroundPoint
+sub_18003DC20 -> CEntitySystem_CreateEntityIterator
+sub_18003D580 -> CEntitySystem_GetEntityById
+sub_180007250 -> CEntity_SetPosition
+
+然后在调试器中验证：
+
+1. 读取 GameBase + 0x904690 ，确认是有效 CEntitySystem* 。
+2. 读取 EntitySystem + 0x58 ，确认是红黑树 header。
+3. 查看树节点 +0x20 是否为变化中的 Entity ID。
+4. 查看节点 +0x28 是否指向 CEntity 。
+5. 对某个怪物确认 CEntity + 0xF2 == 3 。
+6. 移动怪物，确认 +0x4E8/+0x4EC/+0x4F0 同步变化。
+7. 再把半径过滤结果与屏幕中实际怪物数量进行比较。
+CEntity + 0xF2 == 3 只能确认 NPC 大类。要排除商人、任务 NPC 等非怪物，还要结合游戏层 CharacterObject 、NPC 静态表中的 npc_type 、 aggressive 、 tribe 等字段。
+
+这些 RVA 和结构偏移只适用于你上传文件对应的这个客户端版本。模块更新后需要重新定位。只应在离线、私服或明确获授权的测试环境中使用；这里不涉及绕过反作弊或修改游戏内存。
+
+ChatGPT 36:
+
+有。已经找到两条路线：
+
+1. Game.dll + 0x328F10 （ sub_180328F10 ）是游戏自己用的“扫描附近目标并选出一个最佳目标”的函数。 sub_18003B7B0 调用它后，再调用目标设置函数。它适合游戏内部选怪，但只返回一个候选，不返回完整列表。
+2. C# 外部只读程序更适合直接遍历游戏的对象树，取得所有附近实体，再按距离过滤。
+以下只适用于自己的离线、私服或授权测试环境，不包含反作弊绕过。
+
+已确认的地址与结构
+
+这些都是 RVA，需要加当前运行时的 Game.dll 基址：
+
+内容 | 地址/偏移
+EntitySystem 指针 | GameBase + 0x904690
+ServerObject 映射树指针 | GameBase + 0xD21740
+本地玩家 Entity ID | GameBase + 0xD21798 ，读取低 16 位
+当前锁定目标 Entity ID | GameBase + 0xD2179A
+EntitySystem 内实体树 | EntitySystem + 0x58
+实体 X | CEntity + 0x4E8
+实体 Y | CEntity + 0x4EC
+实体 Z | CEntity + 0x4F0
+ServerObject 树节点：
+
+struct ServerObjectNode
+{
+    void* left;                 // +0x00
+    void* parent;               // +0x08
+    void* right;                // +0x10
+    uint8_t color;              // +0x18
+    uint8_t isNil;              // +0x19
+    uint8_t padding[2];         // +0x1A
+    uint32_t serverObjectId;    // +0x1C
+    uint16_t entityId;          // +0x20
+};
+
+游戏本身正是用 serverObjectId -> entityId -> CEntity 的流程查找运行时对象。
+
+EntitySystem 树节点：
+
+struct EntityTreeNode
+{
+    void* left;          // +0x00
+    void* parent;        // +0x08
+    void* right;         // +0x10
+    uint8_t color;       // +0x18
+    uint8_t isNil;       // +0x19
+    uint8_t padding[6];
+    uint16_t entityId;   // +0x20
+    uint8_t padding2[6];
+    CEntity* entity;     // +0x28
+};
+
+sub_18003B060 使用节点 +0x20 查 Entity ID，并从节点 +0x28 取得 CEntity* 。 sub_18003F4D0 则直接遍历整棵树。
+
+坐标偏移由 sub_180007250 明确确认。
+
+C# 只读遍历代码
+
+下面代码会返回玩家一定半径内的所有“服务器实体”：
+
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Linq;
+using System.Numerics;
+using System.Runtime.InteropServices;
+public sealed class ProcessMemory : IDisposable
+{
+    private const uint ProcessVmRead = 0x0010;
+    private const uint ProcessQueryInformation = 0x0400;
+    private readonly nint _handle;
+    public ProcessMemory(int processId)
+    {
+        _handle = OpenProcess(
+            ProcessVmRead | ProcessQueryInformation,
+            false,
+            processId);
+        if (_handle == 0)
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+    public byte[] ReadBytes(nint address, int size)
+    {
+        var buffer = new byte[size];
+        if (!ReadProcessMemory(
+                _handle,
+                address,
+                buffer,
+                (nuint)size,
+                out nuint read) ||
+            read != (nuint)size)
+        {
+            throw new Win32Exception(
+                Marshal.GetLastWin32Error(),
+                $"Read failed: 0x{address.ToInt64():X}");
+        }
+        return buffer;
+    }
+    public byte ReadByte(nint address) =>
+        ReadBytes(address, 1)[0];
+    public ushort ReadUInt16(nint address) =>
+        BitConverter.ToUInt16(ReadBytes(address, 2));
+    public uint ReadUInt32(nint address) =>
+        BitConverter.ToUInt32(ReadBytes(address, 4));
+    public ulong ReadUInt64(nint address) =>
+        BitConverter.ToUInt64(ReadBytes(address, 8));
+    public float ReadFloat(nint address) =>
+        BitConverter.ToSingle(ReadBytes(address, 4));
+    public nint ReadPointer(nint address) =>
+        (nint)unchecked((long)ReadUInt64(address));
+    public void Dispose()
+    {
+        if (_handle != 0)
+            CloseHandle(_handle);
+    }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern nint OpenProcess(
+        uint desiredAccess,
+        bool inheritHandle,
+        int processId);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool ReadProcessMemory(
+        nint processHandle,
+        nint baseAddress,
+        [Out] byte[] buffer,
+        nuint size,
+        out nuint bytesRead);
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(nint handle);
+}
+public readonly record struct NearbyEntity(
+    ushort EntityId,
+    uint ServerObjectId,
+    nint EntityPointer,
+    Vector3 Position,
+    float Distance);
+public static class NearbyEntityScanner
+{
+    // Game.dll RVA
+    private const long EntitySystemPointerRva = 0x904690;
+    private const long ServerObjectTreeRva = 0xD21740;
+    private const long LocalEntityIdRva = 0xD21798;
+    // CEntitySystem
+    private const long EntityTreeOffset = 0x58;
+    // Red-black tree node
+    private const long LeftOffset = 0x00;
+    private const long ParentOffset = 0x08;
+    private const long RightOffset = 0x10;
+    private const long IsNilOffset = 0x19;
+    // Entity-tree node
+    private const long EntityNodeIdOffset = 0x20;
+    private const long EntityNodePointerOffset = 0x28;
+    // Server-object-tree node
+    private const long ServerIdOffset = 0x1C;
+    private const long ServerEntityIdOffset = 0x20;
+    // CEntity position
+    private const long PositionXOffset = 0x4E8;
+    private const long PositionYOffset = 0x4EC;
+    private const long PositionZOffset = 0x4F0;
+    private static nint Add(nint address, long offset) =>
+        (nint)(address.ToInt64() + offset);
+    private static bool IsNil(ProcessMemory memory, nint node)
+    {
+        return node == 0 ||
+               memory.ReadByte(Add(node, IsNilOffset)) != 0;
+    }
+    private static Vector3 ReadPosition(
+        ProcessMemory memory,
+        nint entity)
+    {
+        return new Vector3(
+            memory.ReadFloat(Add(entity, PositionXOffset)),
+            memory.ReadFloat(Add(entity, PositionYOffset)),
+            memory.ReadFloat(Add(entity, PositionZOffset)));
+    }
+    private static bool IsValidPosition(Vector3 value)
+    {
+        return float.IsFinite(value.X) &&
+               float.IsFinite(value.Y) &&
+               float.IsFinite(value.Z) &&
+               MathF.Abs(value.X) < 10_000_000f &&
+               MathF.Abs(value.Y) < 10_000_000f &&
+               MathF.Abs(value.Z) < 10_000_000f;
+    }
+    // 在 EntitySystem 的 map<ushort, CEntity*> 中查找实体。
+    private static nint FindEntity(
+        ProcessMemory memory,
+        nint entityTreeHeader,
+        ushort entityId)
+    {
+        nint candidate = entityTreeHeader;
+        nint node = memory.ReadPointer(
+            Add(entityTreeHeader, ParentOffset)); // root
+        while (!IsNil(memory, node))
+        {
+            ushort nodeId = memory.ReadUInt16(
+                Add(node, EntityNodeIdOffset));
+            if (nodeId >= entityId)
+            {
+                candidate = node;
+                node = memory.ReadPointer(
+                    Add(node, LeftOffset));
+            }
+            else
+            {
+                node = memory.ReadPointer(
+                    Add(node, RightOffset));
+            }
+        }
+        if (candidate == entityTreeHeader)
+            return 0;
+        ushort candidateId = memory.ReadUInt16(
+            Add(candidate, EntityNodeIdOffset));
+        if (candidateId != entityId)
+            return 0;
+        return memory.ReadPointer(
+            Add(candidate, EntityNodePointerOffset));
+    }
+    // std::map 红黑树迭代器的 ++ 操作。
+    private static nint NextNode(
+        ProcessMemory memory,
+        nint header,
+        nint node)
+    {
+        nint right = memory.ReadPointer(
+            Add(node, RightOffset));
+        if (!IsNil(memory, right))
+        {
+            nint result = right;
+            nint left = memory.ReadPointer(
+                Add(result, LeftOffset));
+            while (!IsNil(memory, left))
+            {
+                result = left;
+                left = memory.ReadPointer(
+                    Add(result, LeftOffset));
+            }
+            return result;
+        }
+        nint parent = memory.ReadPointer(
+            Add(node, ParentOffset));
+        while (parent != header)
+        {
+            nint parentRight = memory.ReadPointer(
+                Add(parent, RightOffset));
+            if (node != parentRight)
+                break;
+            node = parent;
+            parent = memory.ReadPointer(
+                Add(parent, ParentOffset));
+        }
+        return parent;
+    }
+    public static IReadOnlyList<NearbyEntity> Scan(
+        ProcessMemory memory,
+        nint gameModuleBase,
+        float radius)
+    {
+        if (radius <= 0 || !float.IsFinite(radius))
+            throw new ArgumentOutOfRangeException(nameof(radius));
+        nint entitySystem = memory.ReadPointer(
+            Add(gameModuleBase, EntitySystemPointerRva));
+        if (entitySystem == 0)
+            return Array.Empty<NearbyEntity>();
+        nint entityTreeHeader = memory.ReadPointer(
+            Add(entitySystem, EntityTreeOffset));
+        if (entityTreeHeader == 0)
+            return Array.Empty<NearbyEntity>();
+        ushort localEntityId = memory.ReadUInt16(
+            Add(gameModuleBase, LocalEntityIdRva));
+        if (localEntityId == 0)
+            return Array.Empty<NearbyEntity>();
+        nint localEntity = FindEntity(
+            memory,
+            entityTreeHeader,
+            localEntityId);
+        if (localEntity == 0)
+            return Array.Empty<NearbyEntity>();
+        Vector3 localPosition =
+            ReadPosition(memory, localEntity);
+        if (!IsValidPosition(localPosition))
+            return Array.Empty<NearbyEntity>();
+        nint serverTreeHeader = memory.ReadPointer(
+            Add(gameModuleBase, ServerObjectTreeRva));
+        if (serverTreeHeader == 0)
+            return Array.Empty<NearbyEntity>();
+        var result = new List<NearbyEntity>();
+        // header->left 是最小节点，也就是 begin()。
+        nint node = memory.ReadPointer(
+            Add(serverTreeHeader, LeftOffset));
+        float radiusSquared = radius * radius;
+        // 防止树在读取途中变化造成死循环。
+        int guard = 0;
+        const int maximumNodes = 100_000;
+        while (node != 0 &&
+               node != serverTreeHeader &&
+               guard++ < maximumNodes)
+        {
+            nint next;
+            try
+            {
+                next = NextNode(
+                    memory,
+                    serverTreeHeader,
+                    node);
+                uint serverObjectId = memory.ReadUInt32(
+                    Add(node, ServerIdOffset));
+                ushort entityId = memory.ReadUInt16(
+                    Add(node, ServerEntityIdOffset));
+                if (entityId != 0 &&
+                    entityId != localEntityId)
+                {
+                    nint entity = FindEntity(
+                        memory,
+                        entityTreeHeader,
+                        entityId);
+                    if (entity != 0)
+                    {
+                        Vector3 position =
+                            ReadPosition(memory, entity);
+                        if (IsValidPosition(position))
+                        {
+                            float distanceSquared =
+                                Vector3.DistanceSquared(
+                                    localPosition,
+                                    position);
+                            if (distanceSquared <= radiusSquared)
+                            {
+                                result.Add(new NearbyEntity(
+                                    entityId,
+                                    serverObjectId,
+                                    entity,
+                                    position,
+                                    MathF.Sqrt(distanceSquared)));
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Win32Exception)
+            {
+                // 游戏可能正好删除或插入节点。
+                break;
+            }
+            node = next;
+        }
+        return result
+            .OrderBy(item => item.Distance)
+            .ToArray();
+    }
+}
+
+使用方式：
+
+internal static class Program
+{
+    private static void Main(string[] args)
+    {
+        if (args.Length != 1)
+        {
+            Console.WriteLine(
+                "Usage: EntityScan <process-name>");
+            return;
+        }
+        Process process =
+            Process.GetProcessesByName(args[0])
+                .SingleOrDefault()
+            ?? throw new InvalidOperationException(
+                "Process not found.");
+        ProcessModule gameModule =
+            process.Modules
+                .Cast<ProcessModule>()
+                .FirstOrDefault(module =>
+                    module.ModuleName.Equals(
+                        "Game.dll",
+                        StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                "Game.dll not found.");
+        using var memory =
+            new ProcessMemory(process.Id);
+        IReadOnlyList<NearbyEntity> nearby =
+            NearbyEntityScanner.Scan(
+                memory,
+                gameModule.BaseAddress,
+                radius: 50.0f);
+        foreach (NearbyEntity entity in nearby)
+        {
+            Console.WriteLine(
+                $"Distance={entity.Distance:F2} " +
+                $"EntityId={entity.EntityId} " +
+                $"ServerId={entity.ServerObjectId} " +
+                $"Entity=0x{entity.EntityPointer.ToInt64():X} " +
+                $"Pos=({entity.Position.X:F2}, " +
+                $"{entity.Position.Y:F2}, " +
+                $"{entity.Position.Z:F2})");
+        }
+    }
+}
+
+项目必须编译成 x64：
+
+<PropertyGroup>
+ <TargetFramework>net8.0</TargetFramework>
+ <PlatformTarget>x64</PlatformTarget>
+ <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+</PropertyGroup>
+
+这个版本的代码能取得什么
+
+它能稳定取得：
+
+服务器对象 ID
+CryEngine Entity ID
+CEntity 指针
+X/Y/Z 坐标
+与本地玩家的距离
+
+它遍历的是服务器对象表，因此比遍历所有 CryEngine Entity 更干净，不会把大量粒子、灯光、临时渲染实体都列出来。
+
+目前还差一步：只保留怪物
+
+游戏自己的流程是：
+
+CEntity*
+ ↓ sub_18045A680
+GameObject*
+ ↓ object + 0x20
+objectType
+
+其中：
+
+*(uint32_t *)(gameObject + 0x20) == 2
+
+表示 NPC/怪物。
+
+但 sub_18045A680 内部是通过 CEntity 的代理管理器取得 GameObject* ：
+
+proxyManager = entity->vfunc_184();
+proxyManager->vfunc_80(0, &gameObject);
+
+目前导出文件能确认这个调用流程，但还没有确认“外部读内存时， CEntity* 到 GameObject* 的固定字段链”。因此不能诚实地在上面的 C# 中直接写一个未经验证的 entity + 某偏移 。
+
+sub_180328F10 内部正是遍历 qword_180D21740 ，取得每个 CEntity，再调用 sub_18045A680 ，随后计算与本地玩家之间的距离并进行类型过滤。
+
+找出最后一个指针链的方法
+
+在 IDA 调试器中给：
+
+Game.dll + 0x45A680
+
+也就是 sub_18045A680 设置断点。
+
+让角色站在怪物附近并执行一次 Tab 选怪。断点触发后：
+
+RCX = 当前候选的 CEntity*
+
+单步执行第一个虚函数调用：
+
+[CEntity vtable + 0xB8]
+
+返回后：
+
+RAX = proxyManager
+
+然后继续到第二个虚函数：
+
+[proxyManager vtable + 0x50]
+
+此时：
+
+RCX = proxyManager
+RDX = 0
+R8 = GameObject** 输出地址
+
+调用返回后：
+
+[R8] = GameObject*
+
+对比多个怪物的 CEntity* 、 proxyManager 和 GameObject* ，就能确认代理管理器位于 CEntity 的哪个固定偏移，以及 slot 0 的具体布局。确认后，C# 扫描器中便可以增加：
+
+nint gameObject = ResolveGameObject(entity);
+uint objectType =
+    memory.ReadUInt32(gameObject + 0x20);
+if (objectType != 2)
+    continue;
+
+随后还可以读取之前确认的怪物字段：
+
+GameObject/Actor + 0x2C Server Object ID
+GameObject/Actor + 0x30 NPC Template ID
+GameObject/Actor + 0x3E 等级
+GameObject/Actor + 0x40 HP 百分比
+GameObject/Actor + 0x42 UTF-16 名称
+Actor + 0x11A0 最大 HP
+Actor + 0x11A4 当前 HP
+
+完整分析流程
+
+GameBase + D21798
+    ↓
+本地玩家 Entity ID
+    ↓
+EntitySystem + 58 的 Entity 树
+    ↓
+本地 CEntity 和位置
+GameBase + D21740
+    ↓
+遍历全部 Server Object
+    ↓
+serverObjectId + entityId
+    ↓
+EntitySystem 树查 CEntity
+    ↓
+读取 CEntity + 4E8/4EC/4F0
+    ↓
+计算与玩家距离
+    ↓
+解析 GameObject/Actor
+    ↓
+objectType == 2
+    ↓
+得到周围怪物列表
+
+这些 RVA 和结构偏移只适用于当前导出的客户端版本；更新后应重新通过 sub_180328F10 、 sub_18003B060 和 sub_180007250 的代码特征定位。
+
+你说 31:
+
+比如我选定了怪物, 但是因为中间有障碍物, 所以我是无法攻击这个怪物的.  那么这个障碍怎么判定的, 地址是什么
+
+ChatGPT 37:
+
+这个“障碍”不是一个长期保存的 bool 地址，而是攻击时临时做 物理射线检测（Line of Sight / RayWorldIntersection） 。
+
+已确认的关键地址
+
+以下 VA 以 IDA imagebase 0x180000000 为准，运行时应使用 Game.dll 实际基址 + RVA ：
+
+作用 | IDA VA | RVA
+获取物理世界对象 | 0x1803201B0 | 0x3201B0
+通用两点无遮挡判断 | 0x1804A4250 | 0x4A4250
+g_testIntersect 两点碰撞测试命令 | 0x18000BAF0 | 0xBAF0
+网络包总分发器 | 0x180405100 | 0x405100
+S_ATTACK_RESULT | 包编号 115 | 分发器 case 115
+游戏导出中存在 g_testIntersect ，会对两个坐标进行射线检测，并分别打印 Collision exists 或 No collision ，直接证明这一版客户端使用了物理射线判断两点之间是否存在碰撞。
+
+通用无遮挡函数
+
+建议命名：
+
+sub_1804A4250 -> Physics_HasClearLine
+
+常规分支大致等价于：
+
+bool Physics_HasClearLine(Object* from, Object* to, int mode)
+{
+    Vec3 direction = to->position - from->position;
+    if (direction.LengthSquared() < epsilon)
+        return true;
+    RayHit hit = {};
+    IPhysicalWorld* physicsWorld = GetPhysicalWorld();
+    int hitCount = physicsWorld->RayWorldIntersection(
+        from->position,
+        direction,
+        257,        // 碰撞对象类别掩码
+        47,         // 射线标志
+        &hit,
+        1,
+        nullptr,
+        0
+    );
+    return hitCount == 0;
+}
+
+位置来源是：
+
+a1 + 0x18 = 起点 Vec3
+a2 + 0x18 = 终点 Vec3
+
+返回值：
+
+1 = 两点之间无遮挡
+0 = 中间发生碰撞
+
+但要注意：这个函数的已知调用者更像路径/节点可见性管理。 目前静态调用关系还不能证明玩家手动攻击一定直接调用它 。可以确认的是，攻击障碍判定使用的底层机制就是同一套物理射线。
+
+真正的底层射线函数
+
+sub_1803201B0 返回物理世界对象：
+
+IPhysicalWorld* GetPhysicalWorld()
+{
+    return gSystem->vfunc_0x168();
+}
+
+射线函数位于物理世界对象的虚表：
+
+IPhysicalWorld* world =
+    ((IPhysicalWorld* (*)())(gameBase + 0x3201B0))();
+uintptr_t vtable = *(uintptr_t*)world;
+uintptr_t rayWorldIntersection =
+    *(uintptr_t*)(vtable + 0xD0);
+
+所以真正底层函数不是固定的 Game.dll + 某 RVA ，而是：
+
+GetPhysicalWorld() 返回对象
+    ↓
+对象 vtable + 0xD0
+    ↓
+RayWorldIntersection
+
+函数入口处大致为：
+
+RCX = IPhysicalWorld*
+RDX = 起点 Vec3*
+R8 = 方向 Vec3*
+R9D = 碰撞类别掩码
+EAX = 返回的碰撞数量
+
+判断：
+
+EAX == 0：没有碰撞
+EAX > 0 ：射线碰到了物体
+
+为什么能锁定，却不能攻击
+
+锁定系统和攻击有效性是两套逻辑：
+
+锁定目标
+    ↓
+只保存目标 Entity ID / Server ID
+    ↓
+允许目标框出现
+执行攻击
+    ↓
+检查距离、角色状态、技能条件
+    ↓
+检查射线/障碍
+    ↓
+服务器再做最终验证
+
+因此墙后的怪物可以被锁定，但攻击阶段可能被拒绝。
+
+在你这份导出中， manual_attack 入口 sub_180391430 没有直接调用 sub_1804A4250 ，而攻击结果还会通过：
+
+S_ATTACK_RESULT = 115
+
+返回客户端。分发器 sub_180405100 的 case 115 会读取两个结果字节，再调用本地 Actor 的虚函数 +0x480 处理结果。这说明最终判断至少有一层可能是服务器权威判定。
+
+最可靠的验证流程
+
+1. 先断 sub_1804A4250
+
+在 IDA Debugger 中：
+
+G -> 1804A4250
+F2 设置断点
+
+分别测试：
+
+玩家和怪物之间无遮挡，按攻击
+玩家和怪物之间有墙，按攻击
+
+若断点触发，查看返回时的：
+
+RAX = 1：无遮挡
+RAX = 0：有障碍
+
+同时看 Call stack，上一层调用者就是更接近攻击逻辑的包装函数。
+
+2. 没触发就断底层 RayWorldIntersection
+
+运行时取得：
+
+world = GetPhysicalWorld()
+rayFunction = [ [world] + 0xD0 ]
+
+在 rayFunction 上设置执行断点，然后重复两种攻击。
+
+若断点触发，返回地址所在函数就是该次攻击使用的射线调用者。
+
+若按攻击时完全不触发射线函数，基本说明：
+
+客户端只发送攻击请求，墙体/视线由服务器验证。
+
+3. 同时观察 S_ATTACK_RESULT
+
+在：
+
+Game.dll + 0x405100
+
+的 case 115 附近断下，记录两个字节：
+
+uint8_t resultType = payload[0];
+uint8_t resultDetail = payload[1];
+
+分别比较：
+
+正常攻击时的两个值
+隔墙攻击时的两个值
+
+这样可以找出“被障碍挡住”的服务器结果码。
+
+最终结论
+
+当前最有价值的地址是：
+
+Game.dll + 0x4A4250
+
+它是已确认的通用两点无遮挡判断函数：
+
+返回 1 = 无障碍
+返回 0 = 有碰撞
+
+更底层、覆盖所有射线检测的是：
+
+GetPhysicalWorld：Game.dll + 0x3201B0
+RayWorldIntersection：[GetPhysicalWorld()->vtable + 0xD0]
+
+但 攻击专用的上层障碍包装函数还不能仅靠静态导出完全坐实 。用底层射线函数断点对比“无遮挡攻击”和“隔墙攻击”，可以准确找到本版本真正的攻击障碍调用者。
+
+你说 32:
+
+在帮我看看怪物锁定角色的话 这个地址是什么.  怎么能判断出来角色被怪物锁定了, 这个查找过程.  C#判定代码一起给我, 我学习一下.
+
+ChatGPT 38:
+
+核心结论
+
+游戏里没有一个全局的“角色正在被怪物锁定”布尔地址，因为可能同时有多只怪物锁定角色。
+
+每只怪物的 Actor 对象分别保存自己的当前目标：
+
+MonsterActor + 0x358 = 当前目标的 Server Object ID，uint32
+LocalActor + 0x02C = 当前玩家的 Server Object ID，uint32
+
+所以判断公式是：
+
+monsterIsTargetingMe =
+    monsterActor->objectType == 2 &&
+    monsterActor->targetServerId == localActor->serverObjectId;
+
+也就是：
+
+*(uint32_t *)(monsterActor + 0x20) == 2
+&&
+*(uint32_t *)(monsterActor + 0x358)
+    == *(uint32_t *)(localActor + 0x2C)
+
+sub_180033CF0 会取得本地 Actor，并直接返回 Actor + 44 ，即 Actor + 0x2C 的 Server Object ID。
+
+关键地址
+
+下面均为 Game.dll 的 RVA。运行时地址为：
+
+Game.dll 实际基址 + RVA
+
+RVA | 建议命名 | 作用
+0x405100 | DispatchServerPacket | 服务器包总分发器
+0x417480 | Handle_S_NPC_CHANGED_TARGET | 处理怪物/NPC改变目标
+0x498FE0 | Actor_SetTargetServerObjectId | 把目标 ID 写入 Actor+0x358
+0x033CF0 | GetLocalPlayerServerObjectId | 返回本地玩家 Actor+0x2C
+0x48ED80 | IsCurrentSelectedTargetTargetingActor | 当前选中的对象是否以指定 Actor 为目标
+0x48ED20 | IsActorCurrentSelectedTarget | Actor 是否是当前选中目标
+0x326700 | GetCurrentTargetCharacter | 获取当前选中目标的 Actor
+0x49B8A0 | CEntity_GetCharacterObject | CEntity* 转 Actor*
+sub_180063580 同时调用 sub_18048ED20 和 sub_18048ED80 来判断“该 Actor 是当前选中目标”或“当前选中目标正在锁定该 Actor”，佐证了这两个关系判断函数的用途。
+
+怪物改变目标的数据流
+
+包名：
+
+S_NPC_CHANGED_TARGET
+
+包编号：
+
+40
+
+分发流程：
+
+服务器发送 S_NPC_CHANGED_TARGET
+        ↓
+sub_180405100 case 40
+        ↓
+sub_180417480
+        ↓
+读取源怪物 Server ID 和新目标 Server ID
+        ↓
+找到源怪物 CEntity*
+        ↓
+sub_18049B8A0(CEntity*) 得到 MonsterActor*
+        ↓
+sub_180498FE0(MonsterActor, targetServerId, 0)
+        ↓
+MonsterActor + 0x358 = targetServerId
+
+该包的有效载荷前 8 字节是：
+
+#pragma pack(push, 1)
+struct S_NPC_CHANGED_TARGET
+{
+    uint32_t npcServerObjectId;     // +0x00
+    uint32_t targetServerObjectId;  // +0x04
+};
+#pragma pack(pop)
+
+sub_180417480 首先读取这两个 DWORD，然后通过 qword_180D21740 的 Server ID 映射取得双方实体，最后更新怪物 Actor 的目标字段。
+
+sub_180498FE0 的关键逻辑
+
+这个函数最终执行：
+
+*(uint32_t *)(actor + 856) = targetServerObjectId;
+
+十六进制：
+
+856 = 0x358
+
+所以：
+
+struct ActorTargetFields
+{
+    // ...
+    uint32_t targetServerObjectId; // +0x358
+};
+
+目标消失、脱离仇恨或者切换目标时，该字段通常变为：
+
+0
+
+或者另一个对象的 Server ID。
+
+sub_18004EB80 等目标状态函数也会调用 sub_180498FE0 ，说明它是通用的目标更新入口。
+
+判断当前选中的怪物是否锁定玩家
+
+假设你已经取得：
+
+selectedMonsterActor
+localPlayerActor
+
+判断代码：
+
+public interface IReadOnlyMemory
+{
+    bool TryRead<T>(nuint address, out T value)
+        where T : unmanaged;
+}
+public static class MonsterTargeting
+{
+    private const int ObjectTypeOffset = 0x20;
+    private const int ServerObjectIdOffset = 0x2C;
+    private const int TargetServerObjectIdOffset = 0x358;
+    private const uint NpcOrMonsterObjectType = 2;
+    private static nuint At(nuint address, int offset)
+    {
+        return address + (nuint)offset;
+    }
+    public static bool IsMonsterTargetingLocalPlayer(
+        IReadOnlyMemory memory,
+        nuint monsterActor,
+        nuint localPlayerActor)
+    {
+        if (monsterActor == 0 || localPlayerActor == 0)
+            return false;
+        if (!memory.TryRead(
+                At(monsterActor, ObjectTypeOffset),
+                out uint objectType))
+        {
+            return false;
+        }
+        if (objectType != NpcOrMonsterObjectType)
+            return false;
+        if (!memory.TryRead(
+                At(localPlayerActor, ServerObjectIdOffset),
+                out uint localServerId))
+        {
+            return false;
+        }
+        if (localServerId == 0)
+            return false;
+        if (!memory.TryRead(
+                At(monsterActor, TargetServerObjectIdOffset),
+                out uint monsterTargetServerId))
+        {
+            return false;
+        }
+        return monsterTargetServerId == localServerId;
+    }
+}
+
+调用：
+
+bool isTargetingMe =
+    MonsterTargeting.IsMonsterTargetingLocalPlayer(
+        memory,
+        selectedMonsterActor,
+        localPlayerActor);
+Console.WriteLine(
+    isTargetingMe
+        ? "当前怪物正在锁定本地玩家"
+        : "当前怪物没有锁定本地玩家");
+
+判断周围有哪些怪物正在锁定角色
+
+这个版本假设你已经通过之前的实体遍历逻辑取得了附近怪物的 Actor* ：
+
+public readonly record struct MonsterAggroInfo(
+    nuint ActorAddress,
+    uint MonsterServerId,
+    uint TargetServerId);
+public static class NearbyMonsterAggro
+{
+    private const int ObjectTypeOffset = 0x20;
+    private const int ServerObjectIdOffset = 0x2C;
+    private const int TargetServerObjectIdOffset = 0x358;
+    private static nuint At(nuint address, int offset)
+    {
+        return address + (nuint)offset;
+    }
+    public static IReadOnlyList<MonsterAggroInfo>
+        FindMonstersTargetingLocalPlayer(
+            IReadOnlyMemory memory,
+            nuint localPlayerActor,
+            IEnumerable<nuint> nearbyMonsterActors)
+    {
+        var result = new List<MonsterAggroInfo>();
+        if (localPlayerActor == 0)
+            return result;
+        if (!memory.TryRead(
+                At(localPlayerActor, ServerObjectIdOffset),
+                out uint localServerId) ||
+            localServerId == 0)
+        {
+            return result;
+        }
+        var visited = new HashSet<nuint>();
+        foreach (nuint actor in nearbyMonsterActors)
+        {
+            if (actor == 0 || !visited.Add(actor))
+                continue;
+            if (!memory.TryRead(
+                    At(actor, ObjectTypeOffset),
+                    out uint objectType) ||
+                objectType != 2)
+            {
+                continue;
+            }
+            if (!memory.TryRead(
+                    At(actor, ServerObjectIdOffset),
+                    out uint monsterServerId))
+            {
+                continue;
+            }
+            if (!memory.TryRead(
+                    At(actor, TargetServerObjectIdOffset),
+                    out uint targetServerId))
+            {
+                continue;
+            }
+            if (targetServerId != localServerId)
+                continue;
+            result.Add(new MonsterAggroInfo(
+                actor,
+                monsterServerId,
+                targetServerId));
+        }
+        return result;
+    }
+}
+
+使用：
+
+IReadOnlyList<MonsterAggroInfo> aggressors =
+    NearbyMonsterAggro.FindMonstersTargetingLocalPlayer(
+        memory,
+        localPlayerActor,
+        nearbyMonsterActors);
+Console.WriteLine(
+    $"当前有 {aggressors.Count} 只附近怪物锁定本地玩家");
+foreach (MonsterAggroInfo monster in aggressors)
+{
+    Console.WriteLine(
+        $"Actor=0x{monster.ActorAddress:X}, " +
+        $"ServerId={monster.MonsterServerId}, " +
+        $"Target={monster.TargetServerId}");
+}
+
+只检查当前选中的怪物
+
+游戏内部已经有现成函数：
+
+bool sub_18048ED80(Actor* actor);
+
+它的逻辑是：
+
+bool IsCurrentSelectedTargetTargetingActor(Actor* actor)
+{
+    Actor* selectedTarget = GetCurrentTargetCharacter();
+    if (!actor->entity || !selectedTarget)
+        return false;
+    uint32_t targetId =
+        selectedTarget->targetServerObjectId; // +0x358
+    CEntity* targetsEntity =
+        ResolveServerObjectIdToEntity(targetId);
+    return actor->entity == targetsEntity;
+}
+
+因此在游戏进程内部：
+
+Actor* localActor = GetLocalCharacterObject();
+bool selectedMonsterTargetsMe =
+    sub_18048ED80(localActor);
+
+sub_18048ED80 明确读取当前选中 Actor 的 +856 ，再将该 Server ID 解析回 Entity，最后与传入 Actor 的 +0x08 Entity 指针比较。
+
+纯外部 C# 不需要复制这整段流程，直接比较两个 Server ID 更简单：
+
+SelectedMonsterActor + 0x358
+             ==
+LocalPlayerActor + 0x2C
+
+IDA 调试验证流程
+
+1. 验证网络包
+
+在：
+
+Game.dll + 0x417480
+
+设置断点。
+
+让怪物：
+
+发现玩家
+切换锁定到玩家
+失去仇恨
+切换到另一名玩家
+
+函数入口：
+
+RCX = 游戏网络上下文
+RDX = packet wrapper
+
+实际 payload：
+
+payload =
+    *(uint8_t **)(RDX + 0x18)
+    + *(int32_t *)(RDX + 0x20);
+
+检查：
+
+[payload + 0x00] = 怪物 Server Object ID
+[payload + 0x04] = 新目标 Server Object ID
+
+2. 验证目标字段写入
+
+在：
+
+Game.dll + 0x498FE0
+
+设置断点。
+
+Windows x64 调用约定下：
+
+RCX = 怪物 Actor*
+EDX = 新目标 Server Object ID
+R8D = 额外模式参数
+
+函数返回后检查：
+
+[RCX + 0x358] == EDX
+
+3. 验证本地玩家 ID
+
+本地玩家 Actor：
+
+[LocalActor + 0x2C]
+
+应该与 sub_180033CF0 的返回值一致。导出代码中该函数正是获取本地 Actor 后读取 +44 。
+
+需要区分的概念
+
+怪物锁定玩家
+
+只表示：
+
+怪物当前 targetServerObjectId == 玩家 Server Object ID
+
+它不一定表示怪物此刻正在造成攻击。还可能存在：
+
+距离太远
+中间有障碍
+正在施法
+技能冷却
+被控制
+寻路中
+服务器暂时没有允许攻击
+
+所以更准确的命名是：
+
+MonsterActor_CurrentTargetServerId
+
+而不是：
+
+MonsterActor_IsAttacking
+
+推荐 IDA 重命名
+
+sub_180405100 -> DispatchServerPacket
+sub_180417480 -> Handle_S_NPC_CHANGED_TARGET
+sub_180498FE0 -> Actor_SetTargetServerObjectId
+sub_180033CF0 -> GetLocalPlayerServerObjectId
+sub_18048ED20 -> IsActorCurrentSelectedTarget
+sub_18048ED80 -> IsCurrentSelectedTargetTargetingActor
+sub_180326700 -> GetCurrentTargetCharacter
+sub_18049B8A0 -> CEntity_GetCharacterObject
+
+以上偏移适用于你上传文件对应的这个客户端版本。C# 示例只展示只读判断逻辑，适用于离线、私服或明确授权的测试环境，不涉及修改内存或绕过反作弊。
+
+你说 33:
+
+接下来技能相关的解析,  比如哈 我要先获取到当前角色已经学习的技能,  然后呢 根据学习的技能做一下设置,  所以呢 我要获取到当前角色学习到的所有可以释放的技能, 包括该技能的技能类型,等等detail.  帮我找一下吧.
+
+ChatGPT 39:
+
+找到了。 当前角色已经学习的技能不在 Actor 结构里，而是在全局 SkillManager 的嵌套容器中。
+
+核心地址
+
+以下均为 Game.dll 的 RVA，运行时需要：
+
+实际 Game.dll 基址 + RVA
+
+内容 | RVA / 偏移
+全局 SkillManager* | GameBase + 0xD004A0
+已学习技能容器 | SkillManager + 0x828
+按 ID 查询最高等级已学技能 | Game.dll + 0x390CF0
+添加已学习技能 | Game.dll + 0x390F60
+删除已学习技能 | Game.dll + 0x390DC0
+判断技能现在是否可用 | Game.dll + 0x5F7580
+详细的技能不可用检查 | Game.dll + 0x5F6400
+冷却/可用次数检查 | Game.dll + 0x3930C0
+静态技能记录查询 | Game.dll + 0xE62F0
+client_skills.xml 解析器 | Game.dll + 0x517870
+S_ADD_SKILL 处理器 | Game.dll + 0x410280
+Toggle 状态处理器 | Game.dll + 0x39240
+游戏多处通过 qword_180D004A0 调用 sub_180390CF0 查询当前角色已学技能；另有代码直接遍历 SkillManager + 2088 ，也就是 +0x828 的容器。
+
+建议在 IDA 中改名：
+
+qword_180D004A0 -> g_SkillManager
+sub_180390CF0 -> SkillManager_GetHighestLearnedSkill
+sub_180390F60 -> SkillManager_AddLearnedSkill
+sub_180390DC0 -> SkillManager_RemoveLearnedSkill
+sub_1805F7580 -> CanUseSkillNow
+sub_1805F6400 -> IsSkillBlockedOrUnusable
+sub_1803930C0 -> GetSkillCooldownOrChargeState
+sub_180517870 -> ParseClientSkillRecord
+sub_180410280 -> Handle_S_ADD_SKILL
+sub_180039240 -> Handle_S_TOGGLE_SKILL_ON_OFF
+
+1. 已学习技能容器结构
+
+这个容器不是简单数组，而是类似：
+
+std::map<
+    uint32_t skillId,
+    std::map<
+        uint16_t skillLevel,
+        std::list<SkillItem*>
+    >
+>
+
+也就是：
+
+技能 ID
+ ↓
+不同等级
+ ↓
+同等级下的一组 SkillItem
+
+游戏的 sub_180390CF0(skillId) 会：
+
+1. 找到技能 ID；
+2. 取等级最大的节点；
+3. 取该等级列表的最后一个 SkillItem* ；
+4. 返回它。
+因此，要列出当前角色学会的所有技能，最合理的方式是：
+
+遍历外层技能 ID，每个技能只取最高等级的最后一个 SkillItem 。
+
+游戏自己的遍历代码也是从 SkillManager + 0x828 取得红黑树 header，再遍历每个技能节点。
+
+红黑树节点布局
+
+struct RbTreeNode
+{
+    RbTreeNode* left;       // +0x00
+    RbTreeNode* parent;     // +0x08
+    RbTreeNode* right;      // +0x10
+    uint8_t color;          // +0x18
+    uint8_t isNil;          // +0x19
+};
+
+外层技能节点：
+
+struct LearnedSkillOuterNode
+{
+    // RB tree fields          +0x00 ~ +0x1F
+    uint32_t skillId;        // +0x20
+    uint32_t padding;        // +0x24
+    void* levelTreeHeader;   // +0x28
+    uint64_t levelTreeSize;  // +0x30
+};
+
+等级节点：
+
+struct LearnedSkillLevelNode
+{
+    // RB tree fields          +0x00 ~ +0x1F
+    uint16_t level;          // +0x20
+    // padding
+    void* itemListHeader;    // +0x28
+    uint64_t itemListSize;   // +0x30
+};
+
+列表节点：
+
+struct SkillItemListNode
+{
+    SkillItemListNode* next; // +0x00
+    SkillItemListNode* prev; // +0x08
+    SkillItem* value;        // +0x10
+};
+
+2. SkillItem 运行时结构
+
+大小约为：
+
+0x88 = 136 字节
+
+可以先还原为：
+
+struct SkillItem
+{
+    void* vtable;                 // +0x00
+    uint32_t skillId;             // +0x08
+    uint32_t field_0C;
+    uint64_t rankValue;           // +0x10
+    std::wstring name;            // +0x18，大小 0x20
+    char unknown_38[0x18];
+    uint32_t cooldownDuration;     // +0x50
+    uint32_t cooldownEndTime;      // +0x54
+    uint32_t itemType;             // +0x58，通常为 21
+    uint32_t field_5C;
+    uint32_t toggleState;          // +0x60，0=关闭，4=开启
+    uint32_t skillLevel;           // +0x64
+    uint32_t staticFieldD8;        // +0x68
+    uint32_t runtimeState;         // +0x6C
+    uint32_t timeOrExpiry;         // +0x70，具体语义未完全确认
+    uint32_t sourceFlags;          // +0x74，具体语义未完全确认
+    uint32_t field_78;
+    uint32_t pseudoType;           // +0x7C
+    uint32_t specialMetadata;      // +0x80
+};
+
+Toggle 包处理函数会找到 SkillItem ，并把 SkillItem + 0x60 写成 4 或 0 ；它还会查询大小为 2008 字节的静态技能记录。
+
+3. 技能静态 Detail
+
+静态技能表来自：
+
+Data\skills\client_skills.xml
+
+解析后的单条 SkillRecord 大小为：
+
+0x7D8 = 2008 字节
+
+静态记录通过：
+
+sub_1800E62F0(..., skillId, variant, 0x7D8)
+
+取得。代码中也明确复制完整的 2008 字节记录。
+
+最重要的字段
+
+struct SkillRecordCore
+{
+    uint32_t id;                       // +0x000
+    // 字符串/文本句柄
+    uint64_t iconName;                 // +0x008
+    uint64_t nameText;                 // +0x010
+    uint32_t descriptionTextId;        // +0x018
+    uint32_t longDescriptionId;        // +0x01C
+    uint32_t longDescription2Id;       // +0x020
+    uint32_t abnormalDescriptionId;    // +0x024
+    uint32_t prechainDescriptionId;    // +0x028
+    uint32_t skillSchool;              // +0x038
+    uint32_t skillSubtype;             // +0x03C
+    uint32_t activationAttribute;      // +0x040
+    uint32_t costParameter;            // +0x044
+    uint32_t costStart;                // +0x048
+    uint32_t costStartPerLevel;        // +0x04C
+    uint32_t costEnd;                  // +0x050
+    uint32_t costEndPerLevel;          // +0x054
+    uint32_t costTime;                 // +0x058
+    uint32_t costToggle;               // +0x05C
+    uint32_t costTogglePerLevel;       // +0x060
+    uint32_t delayType;                 // +0x0D0
+    uint32_t delayTime;                 // +0x0D4
+    uint32_t castingDelay;              // +0x0D8
+    uint32_t chargingDelay;             // +0x0DC
+    uint32_t delayId;                   // +0x0E0
+    uint32_t dispelCategory;            // +0x0E4
+    uint32_t conflictId;                // +0x0E8
+    uint32_t firstTarget;               // +0x0EC
+    uint32_t targetRange;               // +0x0F0
+    uint32_t targetRelation;            // +0x0F4
+    uint32_t targetAreaType;             // +0x0F8
+    uint32_t targetValidStatus;          // +0x100
+    // 后面还有 effect、motion、range、weapon restriction 等
+};
+
+技能伤害类型
+
+enum SkillSchool : uint32_t
+{
+    Physical = 0,
+    Magical  = 1
+};
+
+对应：
+
+SkillRecord + 0x38
+
+激活类型
+
+enum SkillActivation : uint32_t
+{
+    Unknown  = 0,
+    Toggle   = 1,
+    Active   = 2,
+    Maintain = 4,
+    Passive  = 8,
+    Provoked = 16
+};
+
+对应：
+
+SkillRecord + 0x40
+
+实际含义：
+
+值 | 类型 | 是否通常可主动释放
+1 | Toggle 开关技能 | 可以开/关
+2 | Active 主动技能 | 可以
+4 | Maintain 持续技能 | 通常可以
+8 | Passive 被动技能 | 不可以
+16 | Provoked 触发技能 | 通常不是手动技能
+所以第一层筛选可以写成：
+
+activation == Toggle
+|| activation == Active
+|| activation == Maintain
+
+不要只判断“已学习”，因为已学习技能中包含被动技能。
+
+消耗类型
+
+enum SkillCostParameter : uint32_t
+{
+    None     = 0,
+    HP       = 1,
+    MP       = 2,
+    HPRatio  = 3,
+    MPRatio  = 4
+};
+
+驱散/异常类型
+
+enum DispelCategory : uint32_t
+{
+    Never      = 0,
+    Buff       = 1,
+    PhysicalDebuff = 2,
+    MentalDebuff   = 3,
+    Extra      = 8
+};
+
+这与你之前找到的肉体异常 debuffphy == 2 是同一套分类。
+
+第一目标类型
+
+enum FirstTarget : uint32_t
+{
+    Me                    = 0,
+    MyPet                 = 1,
+    Target                = 2,
+    TargetOrMe            = 3,
+    Point                 = 4,
+    PartyNonVisibleTarget = 5
+};
+
+目标范围
+
+enum TargetRange : uint32_t
+{
+    OnlyOne          = 0,
+    Party            = 1,
+    Alliance         = 2,
+    Guild            = 3,
+    Area             = 4,
+    Point            = 5,
+    PointArea        = 6,
+    PartyWithPet     = 7,
+    AllianceWithPet  = 8
+};
+
+4. “已学习”与“当前可释放”不是同一个概念
+
+最准确的判断流程是：
+
+for each learnedSkill:
+    if staticRecord.activationAttribute is manually usable:
+        if CanUseSkillNow(skillId):
+            skill is currently castable
+
+游戏已经有现成的高层判断函数：
+
+Game.dll + 0x5F7580
+
+建议命名：
+
+bool CanUseSkillNow(uint32_t skillId);
+
+这个判断函数会综合：
+
+- 当前角色状态；
+- 当前地图/区域；
+- 是否有目标；
+- 目标类型与关系；
+- HP、MP、DP、材料；
+- 武器装备要求；
+- 飞行/地面状态；
+- 控制异常；
+- 技能冷却；
+- 特殊技能条件。
+在真正发送技能前，代码会先查询已学习技能，再调用 sub_1805F7580 ，通过后才进入 "Send use skill" 路径，因此它比单纯读冷却字段更可靠。
+
+底层两个辅助函数：
+
+sub_1805F6400 -> IsSkillBlockedOrUnusable
+sub_1803930C0 -> GetSkillCooldownOrChargeState
+
+通常逻辑是：
+
+bool CanUseSkillNow(uint32_t id)
+{
+    if (IsSkillBlockedOrUnusable(id))
+        return false;
+    return GetSkillCooldownOrChargeState(id) != 0;
+}
+
+具体内部还有特殊 ID 分支，所以不要只靠这一行伪代码完全替代原函数。
+
+5. C# 只读遍历已学习技能
+
+下面只负责 读取并列出技能 ，不调用游戏技能、不修改内存。
+
+using System;
+using System.Collections.Generic;
+public interface IMemoryReader
+{
+    byte ReadByte(nuint address);
+    ushort ReadUInt16(nuint address);
+    uint ReadUInt32(nuint address);
+    ulong ReadUInt64(nuint address);
+    nuint ReadPointer(nuint address);
+    string ReadUtf16(nuint address, int characterCount);
+}
+public readonly record struct LearnedSkillSnapshot(
+    uint SkillId,
+    ushort Level,
+    nuint SkillItemAddress,
+    string Name,
+    uint ToggleState,
+    uint CooldownDuration,
+    uint CooldownEndTime,
+    uint RuntimeState,
+    uint SourceFlags
+);
+public static class LearnedSkillReader
+{
+    // Game.dll RVA
+    private const nuint SkillManagerGlobalRva = 0xD004A0;
+    // SkillManager
+    private const nuint LearnedSkillTreeOffset = 0x828;
+    // MSVC RB tree node
+    private const nuint LeftOffset = 0x00;
+    private const nuint ParentOffset = 0x08;
+    private const nuint RightOffset = 0x10;
+    private const nuint IsNilOffset = 0x19;
+    // Outer node
+    private const nuint OuterSkillIdOffset = 0x20;
+    private const nuint OuterLevelTreeOffset = 0x28;
+    // Inner level node
+    private const nuint InnerLevelOffset = 0x20;
+    private const nuint InnerItemListOffset = 0x28;
+    // std::list node
+    private const nuint ListNextOffset = 0x00;
+    private const nuint ListPrevOffset = 0x08;
+    private const nuint ListValueOffset = 0x10;
+    // SkillItem
+    private const nuint ItemSkillIdOffset = 0x08;
+    private const nuint ItemNameOffset = 0x18;
+    private const nuint ItemCooldownDurationOffset = 0x50;
+    private const nuint ItemCooldownEndOffset = 0x54;
+    private const nuint ItemToggleStateOffset = 0x60;
+    private const nuint ItemLevelOffset = 0x64;
+    private const nuint ItemRuntimeStateOffset = 0x6C;
+    private const nuint ItemSourceFlagsOffset = 0x74;
+    private static bool IsNil(
+        IMemoryReader memory,
+        nuint node)
+    {
+        return node == 0 ||
+               memory.ReadByte(node + IsNilOffset) != 0;
+    }
+    private static nuint GetNextTreeNode(
+        IMemoryReader memory,
+        nuint header,
+        nuint node)
+    {
+        nuint right =
+            memory.ReadPointer(node + RightOffset);
+        if (!IsNil(memory, right))
+        {
+            nuint current = right;
+            while (true)
+            {
+                nuint left =
+                    memory.ReadPointer(current + LeftOffset);
+                if (IsNil(memory, left))
+                    return current;
+                current = left;
+            }
+        }
+        nuint parent =
+            memory.ReadPointer(node + ParentOffset);
+        while (parent != 0 &&
+               parent != header &&
+               node == memory.ReadPointer(parent + RightOffset))
+        {
+            node = parent;
+            parent = memory.ReadPointer(parent + ParentOffset);
+        }
+        return parent;
+    }
+    private static IEnumerable<nuint> EnumerateTree(
+        IMemoryReader memory,
+        nuint header)
+    {
+        if (header == 0)
+            yield break;
+        nuint node =
+            memory.ReadPointer(header + LeftOffset);
+        var visited = new HashSet<nuint>();
+        for (int guard = 0;
+             node != 0 &&
+             node != header &&
+             guard < 65_536;
+             guard++)
+        {
+            if (!visited.Add(node))
+                yield break;
+            if (IsNil(memory, node))
+                yield break;
+            yield return node;
+            node = GetNextTreeNode(
+                memory,
+                header,
+                node);
+        }
+    }
+    private static string ReadMsvcWString(
+        IMemoryReader memory,
+        nuint stringObject)
+    {
+        ulong length =
+            memory.ReadUInt64(stringObject + 0x10);
+        ulong capacity =
+            memory.ReadUInt64(stringObject + 0x18);
+        if (length == 0)
+            return string.Empty;
+        // 防止结构变化或读取错误。
+        if (length > 256)
+            length = 256;
+        nuint characters =
+            capacity < 8
+                ? stringObject
+                : memory.ReadPointer(stringObject);
+        if (characters == 0)
+            return string.Empty;
+        return memory.ReadUtf16(
+            characters,
+            checked((int)length));
+    }
+    public static IReadOnlyList<LearnedSkillSnapshot>
+        EnumerateHighestLearnedSkills(
+            IMemoryReader memory,
+            nuint gameBase)
+    {
+        var result =
+            new List<LearnedSkillSnapshot>();
+        nuint skillManager =
+            memory.ReadPointer(
+                gameBase + SkillManagerGlobalRva);
+        if (skillManager == 0)
+            return result;
+        nuint outerHeader =
+            memory.ReadPointer(
+                skillManager + LearnedSkillTreeOffset);
+        if (outerHeader == 0)
+            return result;
+        foreach (nuint outerNode in
+                 EnumerateTree(memory, outerHeader))
+        {
+            uint skillId =
+                memory.ReadUInt32(
+                    outerNode + OuterSkillIdOffset);
+            nuint innerHeader =
+                memory.ReadPointer(
+                    outerNode + OuterLevelTreeOffset);
+            if (innerHeader == 0)
+                continue;
+            // MSVC tree header->right 是最大 key，也就是最高等级。
+            nuint highestLevelNode =
+                memory.ReadPointer(
+                    innerHeader + RightOffset);
+            if (highestLevelNode == 0 ||
+                highestLevelNode == innerHeader ||
+                IsNil(memory, highestLevelNode))
+            {
+                continue;
+            }
+            ushort level =
+                memory.ReadUInt16(
+                    highestLevelNode + InnerLevelOffset);
+            nuint listHeader =
+                memory.ReadPointer(
+                    highestLevelNode + InnerItemListOffset);
+            if (listHeader == 0)
+                continue;
+            // std::list header->prev 是最后一个节点。
+            nuint lastNode =
+                memory.ReadPointer(
+                    listHeader + ListPrevOffset);
+            if (lastNode == 0 ||
+                lastNode == listHeader)
+            {
+                continue;
+            }
+            nuint item =
+                memory.ReadPointer(
+                    lastNode + ListValueOffset);
+            if (item == 0)
+                continue;
+            uint itemSkillId =
+                memory.ReadUInt32(
+                    item + ItemSkillIdOffset);
+            // 外层 ID 与 SkillItem ID 不一致时跳过，
+            // 防止容器正在被游戏线程修改。
+            if (itemSkillId != skillId)
+                continue;
+            result.Add(new LearnedSkillSnapshot(
+                SkillId: skillId,
+                Level: level,
+                SkillItemAddress: item,
+                Name: ReadMsvcWString(
+                    memory,
+                    item + ItemNameOffset),
+                ToggleState: memory.ReadUInt32(
+                    item + ItemToggleStateOffset),
+                CooldownDuration: memory.ReadUInt32(
+                    item + ItemCooldownDurationOffset),
+                CooldownEndTime: memory.ReadUInt32(
+                    item + ItemCooldownEndOffset),
+                RuntimeState: memory.ReadUInt32(
+                    item + ItemRuntimeStateOffset),
+                SourceFlags: memory.ReadUInt32(
+                    item + ItemSourceFlagsOffset)
+            ));
+        }
+        return result;
+    }
+}
+
+调用：
+
+IReadOnlyList<LearnedSkillSnapshot> learned =
+    LearnedSkillReader.EnumerateHighestLearnedSkills(
+        memory,
+        gameModuleBase);
+foreach (LearnedSkillSnapshot skill in learned)
+{
+    Console.WriteLine(
+        $"Id={skill.SkillId}, " +
+        $"Level={skill.Level}, " +
+        $"Name={skill.Name}, " +
+        $"Toggle={skill.ToggleState}, " +
+        $"CooldownEnd={skill.CooldownEndTime}");
+}
+
+这段输出的是 当前角色实际学会的最高等级技能 ，不是游戏里所有可能学习的技能。
+
+6. 如何组合成完整 Detail
+
+最稳的架构是：
+
+运行时 learned skill 容器
+    ↓
+取得 SkillId、等级、Toggle、冷却
+    ↓
+用 SkillId 查询 client_skills.xml 静态表
+    ↓
+补充类型、消耗、目标、范围、描述、动作、效果
+
+C# 数据结构可以写成：
+
+public enum SkillSchool
+{
+    Physical = 0,
+    Magical = 1
+}
+public enum SkillActivation
+{
+    Unknown = 0,
+    Toggle = 1,
+    Active = 2,
+    Maintain = 4,
+    Passive = 8,
+    Provoked = 16
+}
+public sealed class SkillStaticDetail
+{
+    public uint Id { get; init; }
+    public string Name { get; init; } = "";
+    public SkillSchool School { get; init; }
+    public SkillActivation Activation { get; init; }
+    public uint CostType { get; init; }
+    public uint CostValue { get; init; }
+    public uint CastingDelay { get; init; }
+    public uint ChargingDelay { get; init; }
+    public uint FirstTarget { get; init; }
+    public uint TargetRange { get; init; }
+    public uint TargetRelation { get; init; }
+    public uint DispelCategory { get; init; }
+}
+
+组合：
+
+bool IsManualSkill(SkillActivation activation)
+{
+    return activation is
+        SkillActivation.Active or
+        SkillActivation.Toggle or
+        SkillActivation.Maintain;
+}
+
+最终列表：
+
+var manualSkills =
+    learned
+        .Where(skill =>
+            staticSkills.TryGetValue(
+                skill.SkillId,
+                out SkillStaticDetail? detail) &&
+            IsManualSkill(detail.Activation))
+        .ToList();
+
+7. 精确判断“现在能不能释放”
+
+纯外部 C# 只读程序可以准确获取：
+
+是否已学习
+等级
+Toggle 状态
+冷却原始字段
+静态类型
+消耗类型
+目标要求
+
+但它不能仅靠几个字段 100% 复现：
+
+CanUseSkillNow(skillId)
+
+因为该函数还会实时检查角色状态、装备、目标、资源和区域。
+
+精确方案是在自己控制的离线或授权进程内插件中：
+
+for (auto& skill : learnedSkills)
+{
+    if (IsManualActivation(skill.activation)
+        && CanUseSkillNow(skill.id))
+    {
+        // 当前确实可以释放
+    }
+}
+
+外部 C# 建议把状态区分为：
+
+Learned 已学习
+ManualCandidate 类型上可主动释放
+CooldownUnknown 冷却时间基准未解析
+ProbablyReady 基础条件看起来可用
+
+不要把“主动技能且冷却为 0”直接等同于“现在一定能释放”。
+
+8. 验证流程
+
+在 IDA 调试器中依次验证：
+
+学到新技能
+
+断点：
+
+Game.dll + 0x410280 Handle_S_ADD_SKILL
+Game.dll + 0x390F60 SkillManager_AddLearnedSkill
+
+学技能或登录加载技能时，第二个函数应被多次调用。
+
+查询某技能
+
+断点：
+
+Game.dll + 0x390CF0
+
+Windows x64：
+
+RCX = SkillManager*
+EDX = Skill ID
+RAX = SkillItem*
+
+点击技能
+
+断点：
+
+Game.dll + 0x5F7580
+
+入口：
+
+ECX = Skill ID
+
+返回：
+
+RAX/AL = 1 当前允许使用
+RAX/AL = 0 当前不可使用
+
+Toggle 技能
+
+断点：
+
+Game.dll + 0x39240
+
+观察：
+
+SkillItem + 0x60
+
+应在开启/关闭时变为：
+
+4 / 0
+
+最终的数据流程是：
+
+S_ADD_SKILL
+    ↓
+SkillManager_AddLearnedSkill
+    ↓
+SkillManager + 0x828
+遍历最高等级 SkillItem
+    ↓
+按 SkillId 查询 client_skills.xml
+    ↓
+获得技能类型和详细配置
+    ↓
+CanUseSkillNow(skillId)
+    ↓
+判断当前是否真正可释放
+
+以上 RVA、偏移和结构只适用于你上传的这个客户端版本。更新客户端后，应通过 sub_180390CF0 、 sub_180410280 和 "Send use skill" 字符串重新定位。
+
+你说 34:
+
+比如我要清理包裹.  这时候我要知道背包信息,  背包里的物品detail.  帮我找一下这个,  能让我一下找到这个背包里的所有物品信息, 每个物品在哪个位置等等.  用c#给我一份代码,  偏移也给我看看
+
+ChatGPT 40:
+
+找到了。这个版本的背包不是连续数组，而是：
+
+Game.dll + 0xD004A0
+        ↓
+InventoryManager*
+        ↓ +0x778
+std::map<ItemInstanceId, InventoryItem*>
+
+遍历这棵红黑树，就能一次取得当前客户端已加载的全部背包、装备物品对象。 qword_180D004A0 初始化时分配 3312 / 0xCF0 字节，并由 sub_180382790 构造。
+
+下面只做 只读枚举和生成清单 ，不包括自动删除、出售或发包。
+
+核心地址
+
+以下都是 Game.dll 的 RVA：
+
+内容 | RVA / 偏移
+全局 InventoryManager* | GameBase + 0xD004A0
+背包最大槽位数 | InventoryManager + 0x774
+物品红黑树 header | InventoryManager + 0x778
+红黑树物品数量 | InventoryManager + 0x780
+装备栏 Instance ID 数组 | InventoryManager + 0x788
+数组长度 | 32 个 uint32_t
+运行时不要固定读取 0x180D004A0 ，应该计算：
+
+Game.dll 实际基址 + 0xD004A0
+
+相关函数
+
+sub_180382790 -> InventoryManager_ctor
+sub_180333720 -> CreateInventoryItemFromPacket
+sub_1803881F0 -> InventoryManager_InsertItem
+sub_1803886D0 -> InventoryManager_FindItemByInstanceId
+sub_1803887B0 -> InventoryManager_RemoveItem
+sub_18038BA80 -> InventoryManager_SetBagCapacity
+sub_18038BB10 -> InventoryManager_UpdateEquipmentSlots
+sub_18038E000 -> InventorySlotToPage
+sub_18040DCC0 -> Handle_S_LOAD_INVENTORY
+sub_18040DF20 -> Handle_S_ADD_INVENTORY
+sub_18040E1D0 -> Handle_S_CHANGE_ITEM_DESC
+
+服务器包分发中：
+
+26 = S_LOAD_INVENTORY
+27 = S_ADD_INVENTORY
+28 = S_REMOVE_INVENTORY
+29 = S_CHANGE_ITEM_DESC
+
+所以这棵树会随着服务器增加、删除、修改物品而实时更新。导出内容中也能看到 item_slot 、物品数量及物品结构相关引用。
+
+红黑树节点结构
+
+struct InventoryTreeNode
+{
+    InventoryTreeNode* left;    // +0x00
+    InventoryTreeNode* parent;  // +0x08
+    InventoryTreeNode* right;   // +0x10
+    uint8_t color;              // +0x18
+    uint8_t isNil;              // +0x19
+    uint8_t padding[6];
+    uint32_t instanceId;        // +0x20
+    uint32_t padding_24;
+    InventoryItem* item;        // +0x28
+};
+
+sub_1803886D0 正是用节点 +0x20 查找 Instance ID，并返回节点 +0x28 的物品指针。
+
+InventoryItem 重要偏移
+
+单个 InventoryItem 大小：
+
+0x558 = 1368 字节
+
+高置信度字段：
+
+偏移 | 类型 | 含义
++0x08 | uint32 | Item Instance ID，当前这件物品的唯一运行时 ID
++0x0C | uint32 | Item Template ID，静态物品 ID
++0x10 | int64 | 堆叠数量
++0x18 | std::wstring | 显示名称
++0x60 | uint32 | 内部物品类型
++0x74 | uint32 | 装备槽 bitmask；非零通常表示已装备
++0x78 | uint32 | 静态/物品 flags
++0x80 | uint64 | 计算后的价格或价值候选
++0x4EE | int16 | 背包槽位， -1 表示无普通背包位置
++0x4F4 | wchar_t[26] | 自定义名称
++0x530 | uint64 | 到期时间原始值
++0x548 | uint32 | 时长秒数
++0x550 | uint32 | 额外计数/状态，语义尚未完全确定
+其中：
+
+(item->flags & 0x1000) != 0
+
+在代码中被当作 Cash Item 判断。
+
+背包位置
+
+sub_18038E000 明确证明每页是 27 个槽位：
+
+page = slot / 27;
+cell = slot % 27;
+
+例如：
+
+slot 0 -> 第 1 页，第 1 格
+slot 26 -> 第 1 页，第 27 格
+slot 27 -> 第 2 页，第 1 格
+slot 53 -> 第 2 页，第 27 格
+
+这里 page 、 cell 在程序中都是从 0 开始；显示给人时加 1。
+
+如果 UI 是常见的 9 列 × 3 行，还可以推测：
+
+row = cell / 9;
+column = cell % 9;
+
+但代码目前只完全确认了每页 27 格，没有单独证明 UI 的行列排列。
+
+C# 只读遍历代码
+
+代码假定你已经有一个只读内存读取器，不包含写内存或删除操作。
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+public interface IMemoryReader
+{
+    byte ReadByte(ulong address);
+    short ReadInt16(ulong address);
+    ushort ReadUInt16(ulong address);
+    uint ReadUInt32(ulong address);
+    ulong ReadUInt64(ulong address);
+    ulong ReadPointer(ulong address);
+    // 读取指定数量的 UTF-16 字符。
+    string ReadUtf16(ulong address, int characterCount);
+}
+public sealed record InventoryItemInfo(
+    ulong Address,
+    uint InstanceId,
+    uint TemplateId,
+    long Count,
+    string Name,
+    string CustomName,
+    uint ItemType,
+    uint EquipmentMask,
+    uint Flags,
+    short Slot,
+    int Page,
+    int Cell,
+    ulong ExpiryTimeRaw,
+    uint DurationSeconds)
+{
+    public bool IsEquipped => EquipmentMask != 0;
+    public bool IsCashItem =>
+        (Flags & 0x1000) != 0;
+    public bool IsInNormalBag =>
+        Slot >= 0 && EquipmentMask == 0;
+}
+public sealed record InventorySnapshot(
+    ulong ManagerAddress,
+    uint Capacity,
+    ulong TreeItemCount,
+    IReadOnlyList<InventoryItemInfo> Items);
+public static class InventoryReader
+{
+    // Game.dll RVA
+    private const ulong InventoryManagerGlobalRva = 0xD004A0;
+    // InventoryManager
+    private const ulong CapacityOffset = 0x774;
+    private const ulong ItemTreeHeaderOffset = 0x778;
+    private const ulong ItemTreeCountOffset = 0x780;
+    private const ulong EquipmentIdsOffset = 0x788;
+    // MSVC 红黑树节点
+    private const ulong NodeLeftOffset = 0x00;
+    private const ulong NodeParentOffset = 0x08;
+    private const ulong NodeRightOffset = 0x10;
+    private const ulong NodeIsNilOffset = 0x19;
+    private const ulong NodeKeyOffset = 0x20;
+    private const ulong NodeItemOffset = 0x28;
+    // InventoryItem
+    private const ulong ItemInstanceIdOffset = 0x08;
+    private const ulong ItemTemplateIdOffset = 0x0C;
+    private const ulong ItemCountOffset = 0x10;
+    private const ulong ItemNameOffset = 0x18;
+    private const ulong ItemTypeOffset = 0x60;
+    private const ulong ItemEquipmentMaskOffset = 0x74;
+    private const ulong ItemFlagsOffset = 0x78;
+    private const ulong ItemSlotOffset = 0x4EE;
+    private const ulong ItemCustomNameOffset = 0x4F4;
+    private const ulong ItemExpiryOffset = 0x530;
+    private const ulong ItemDurationOffset = 0x548;
+    private static bool IsNil(
+        IMemoryReader memory,
+        ulong node)
+    {
+        return node == 0 ||
+               memory.ReadByte(node + NodeIsNilOffset) != 0;
+    }
+    private static string ReadMsvcWString(
+        IMemoryReader memory,
+        ulong stringObject)
+    {
+        ulong length =
+            memory.ReadUInt64(stringObject + 0x10);
+        ulong capacity =
+            memory.ReadUInt64(stringObject + 0x18);
+        if (length == 0)
+            return string.Empty;
+        // 防止客户端更新或内存读取异常。
+        if (length > 512 || capacity > 1_000_000)
+            return string.Empty;
+        // MSVC x64 std::wstring：
+        // capacity < 8 时，字符保存在对象内部。
+        ulong characters =
+            capacity < 8
+                ? stringObject
+                : memory.ReadPointer(stringObject);
+        if (characters == 0)
+            return string.Empty;
+        return memory.ReadUtf16(
+            characters,
+            checked((int)length));
+    }
+    private static ulong GetNextNode(
+        IMemoryReader memory,
+        ulong header,
+        ulong node)
+    {
+        ulong right =
+            memory.ReadPointer(node + NodeRightOffset);
+        // 有右子树：取右子树最左节点。
+        if (!IsNil(memory, right))
+        {
+            ulong current = right;
+            for (int guard = 0; guard < 1024; guard++)
+            {
+                ulong left =
+                    memory.ReadPointer(
+                        current + NodeLeftOffset);
+                if (IsNil(memory, left))
+                    return current;
+                current = left;
+            }
+            return header;
+        }
+        // 没有右子树：向父节点回溯。
+        ulong parent =
+            memory.ReadPointer(node + NodeParentOffset);
+        for (int guard = 0;
+             parent != 0 &&
+             parent != header &&
+             guard < 1024;
+             guard++)
+        {
+            ulong parentRight =
+                memory.ReadPointer(
+                    parent + NodeRightOffset);
+            if (node != parentRight)
+                break;
+            node = parent;
+            parent = memory.ReadPointer(
+                parent + NodeParentOffset);
+        }
+        return parent;
+    }
+    private static IEnumerable<ulong> EnumerateNodes(
+        IMemoryReader memory,
+        ulong header,
+        ulong expectedCount)
+    {
+        if (header == 0)
+            yield break;
+        // MSVC map 的 header->left 是最小节点。
+        ulong node =
+            memory.ReadPointer(header + NodeLeftOffset);
+        var visited = new HashSet<ulong>();
+        ulong maximum =
+            Math.Min(expectedCount + 32, 100_000);
+        for (ulong index = 0;
+             node != 0 &&
+             node != header &&
+             index < maximum;
+             index++)
+        {
+            if (!visited.Add(node))
+                yield break;
+            if (IsNil(memory, node))
+                yield break;
+            yield return node;
+            ulong next =
+                GetNextNode(memory, header, node);
+            if (next == node)
+                yield break;
+            node = next;
+        }
+    }
+    public static InventorySnapshot ReadInventory(
+        IMemoryReader memory,
+        ulong gameModuleBase)
+    {
+        ulong manager =
+            memory.ReadPointer(
+                gameModuleBase +
+                InventoryManagerGlobalRva);
+        if (manager == 0)
+        {
+            return new InventorySnapshot(
+                0,
+                0,
+                0,
+                Array.Empty<InventoryItemInfo>());
+        }
+        uint capacity =
+            memory.ReadUInt32(
+                manager + CapacityOffset);
+        ulong treeCount =
+            memory.ReadUInt64(
+                manager + ItemTreeCountOffset);
+        ulong header =
+            memory.ReadPointer(
+                manager + ItemTreeHeaderOffset);
+        if (header == 0)
+        {
+            return new InventorySnapshot(
+                manager,
+                capacity,
+                treeCount,
+                Array.Empty<InventoryItemInfo>());
+        }
+        var items =
+            new List<InventoryItemInfo>();
+        foreach (ulong node in
+                 EnumerateNodes(
+                     memory,
+                     header,
+                     treeCount))
+        {
+            uint nodeInstanceId =
+                memory.ReadUInt32(
+                    node + NodeKeyOffset);
+            ulong item =
+                memory.ReadPointer(
+                    node + NodeItemOffset);
+            if (item == 0)
+                continue;
+            uint instanceId =
+                memory.ReadUInt32(
+                    item + ItemInstanceIdOffset);
+            // 防止游戏线程刚好在修改树。
+            if (instanceId != nodeInstanceId)
+                continue;
+            uint templateId =
+                memory.ReadUInt32(
+                    item + ItemTemplateIdOffset);
+            long count = unchecked(
+                (long)memory.ReadUInt64(
+                    item + ItemCountOffset));
+            uint itemType =
+                memory.ReadUInt32(
+                    item + ItemTypeOffset);
+            uint equipmentMask =
+                memory.ReadUInt32(
+                    item + ItemEquipmentMaskOffset);
+            uint flags =
+                memory.ReadUInt32(
+                    item + ItemFlagsOffset);
+            short slot =
+                memory.ReadInt16(
+                    item + ItemSlotOffset);
+            int page =
+                slot >= 0 ? slot / 27 : -1;
+            int cell =
+                slot >= 0 ? slot % 27 : -1;
+            string name =
+                ReadMsvcWString(
+                    memory,
+                    item + ItemNameOffset);
+            string customName =
+                memory.ReadUtf16(
+                        item + ItemCustomNameOffset,
+                        26)
+                    .TrimEnd('\0');
+            ulong expiry =
+                memory.ReadUInt64(
+                    item + ItemExpiryOffset);
+            uint duration =
+                memory.ReadUInt32(
+                    item + ItemDurationOffset);
+            items.Add(new InventoryItemInfo(
+                Address: item,
+                InstanceId: instanceId,
+                TemplateId: templateId,
+                Count: count,
+                Name: name,
+                CustomName: customName,
+                ItemType: itemType,
+                EquipmentMask: equipmentMask,
+                Flags: flags,
+                Slot: slot,
+                Page: page,
+                Cell: cell,
+                ExpiryTimeRaw: expiry,
+                DurationSeconds: duration));
+        }
+        return new InventorySnapshot(
+            manager,
+            capacity,
+            treeCount,
+            items);
+    }
+    public static uint[] ReadEquipmentInstanceIds(
+        IMemoryReader memory,
+        ulong manager)
+    {
+        var result = new uint[32];
+        for (int index = 0; index < result.Length; index++)
+        {
+            result[index] =
+                memory.ReadUInt32(
+                    manager +
+                    EquipmentIdsOffset +
+                    (ulong)(index * 4));
+        }
+        return result;
+    }
+}
+
+使用示例
+
+InventorySnapshot inventory =
+    InventoryReader.ReadInventory(
+        memory,
+        gameModuleBase);
+Console.WriteLine(
+    $"Capacity={inventory.Capacity}, " +
+    $"TreeCount={inventory.TreeItemCount}");
+IReadOnlyList<InventoryItemInfo> bagItems =
+    inventory.Items
+        .Where(item => item.IsInNormalBag)
+        .OrderBy(item => item.Slot)
+        .ToArray();
+foreach (InventoryItemInfo item in bagItems)
+{
+    Console.WriteLine(
+        $"Page={item.Page + 1}, " +
+        $"Cell={item.Cell + 1}, " +
+        $"Slot={item.Slot}, " +
+        $"Name={item.Name}, " +
+        $"TemplateId={item.TemplateId}, " +
+        $"InstanceId={item.InstanceId}, " +
+        $"Count={item.Count}, " +
+        $"Type={item.ItemType}, " +
+        $"Cash={item.IsCashItem}, " +
+        $"Flags=0x{item.Flags:X8}");
+}
+
+查找空格子
+
+var occupiedSlots =
+    bagItems
+        .Where(item =>
+            item.Slot >= 0 &&
+            item.Slot < inventory.Capacity)
+        .Select(item => (int)item.Slot)
+        .ToHashSet();
+var freeSlots =
+    Enumerable.Range(
+            0,
+            checked((int)inventory.Capacity))
+        .Where(slot =>
+            !occupiedSlots.Contains(slot))
+        .ToArray();
+Console.WriteLine(
+    $"已使用：{occupiedSlots.Count}，" +
+    $"空格：{freeSlots.Length}");
+
+查看重复物品堆
+
+var duplicates =
+    bagItems
+        .GroupBy(item => item.TemplateId)
+        .Where(group => group.Count() > 1)
+        .OrderByDescending(group => group.Count());
+foreach (var group in duplicates)
+{
+    Console.WriteLine(
+        $"TemplateId={group.Key}, " +
+        $"Stacks={group.Count()}, " +
+        $"TotalCount={group.Sum(item => item.Count)}");
+    foreach (InventoryItemInfo item in group)
+    {
+        Console.WriteLine(
+            $"  Page={item.Page + 1}, " +
+            $"Cell={item.Cell + 1}, " +
+            $"Count={item.Count}");
+    }
+}
+
+当前能可靠取得的 Detail
+
+通过这套结构，可以得到：
+
+物品实例 ID
+物品模板 ID
+显示名称
+自定义名称
+堆叠数量
+内部物品类型
+背包绝对槽位
+背包页
+页内格子
+是否已装备
+装备槽 bitmask
+是否 Cash Item
+原始 flags
+到期时间原始值
+时长秒数
+
+还不能仅凭这些运行时偏移可靠判断：
+
+是否可出售
+是否可丢弃
+是否任务物品
+绑定类型
+品质/颜色
+最大堆叠数
+商店售价
+分解结果
+
+这些属于 client_items.xml 的静态 0x208 字节记录，需要继续恢复静态 ItemRecord。已有证据显示静态查询使用：
+
+sub_1800E62F0(..., itemId, variant, 0x208)
+
+并且：
+
+sub_180375060(itemId) -> 静态名称
+sub_1803769E0(itemId) -> 静态记录 +0x140
+sub_180376A40(itemId) -> 静态记录 +0x144
+
+所以做清理清单时，现阶段应先输出 CSV 或控制台报告，人工确认后再通过游戏正常 UI 处理；不能只按 ItemType 或某个未知 flag 自动删，因为可能把任务物品、绑定装备或高价值材料误判。
+
+我定位它的流程
+
+1. 从包名表找到：
+S_LOAD_INVENTORY
+S_ADD_INVENTORY
+S_REMOVE_INVENTORY
+S_CHANGE_ITEM_DESC
+
+1. 在网络分发器中确认对应 case 26~29 。
+2. 追到 sub_180333720 ，发现它分配 0x558 字节并构造 InventoryItem 。
+3. 观察它写入：
++0x08 Instance ID
++0x0C Template ID
++0x4EE Slot
+
+1. 继续追 sub_1803881F0 ，确定物品被插入：
+qword_180D004A0 + 0x778
+
+的红黑树。
+
+1. 通过 sub_1803886D0 与 sub_1803887B0 确认节点：
+node +0x20 = Instance ID
+node +0x28 = InventoryItem*
+
+1. 通过 sub_18038E000 确认每页为 27 个槽位。
+这些 RVA 和偏移只适用于你上传的这一版客户端；版本更新后应通过 S_LOAD_INVENTORY 、 InventoryItem::vftable 和 sub_1803886D0 的特征重新定位。
+
+你说 35:
+
+现在问题来了, 每个物品在背包内的相对坐标能算出来吗?
+
+ChatGPT 41:
+
+能，但要区分两种“坐标”：
+
+1. 背包逻辑坐标 ：第几页、第几行、第几列，可以从 slot 直接计算。
+2. 界面像素坐标 ：相对于背包窗口的 X/Y，需要再知道窗口位置、格子尺寸、间距和 UI 缩放。
+已确认：
+
+InventoryItem + 0x4EE
+InventoryItem + 1262
+
+是背包槽位；值 0xFFFF/-1 表示不在普通背包槽位。游戏也会按这个字段排序和重新分配物品槽位。
+
+页和页内索引
+
+Game.dll + 0x38E000 的逻辑可简化为：
+
+page = slot / 27;
+indexInPage = slot % 27;
+
+因此每页确定是 27 格 。
+
+例如：
+
+slot 0 -> 第1页，第0格
+slot 26 -> 第1页，第26格
+slot 27 -> 第2页，第0格
+slot 31 -> 第2页，第4格
+slot 53 -> 第2页，第26格
+
+代码使用从零开始的页码；显示给人时加一。
+
+行列坐标
+
+当前导出能确定每页 27 格，但 还没有从代码中完全证明是 9列×3行还是3列×9行 。
+
+假如你实际看到的背包是 9列×3行 ，计算就是：
+
+column = indexInPage % 9;
+row = indexInPage / 9;
+
+比如 slot = 31 ：
+
+page = 31 / 27 = 1 -> 显示为第2页
+indexInPage = 31 % 27 = 4
+column = 4 % 9 = 4 -> 显示为第5列
+row = 4 / 9 = 0 -> 显示为第1行
+
+C# 逻辑坐标代码
+
+public readonly record struct BagCell(
+    short Slot,
+    int Page,
+    int IndexInPage,
+    int Row,
+    int Column,
+    float NormalizedX,
+    float NormalizedY);
+public static class BagCoordinates
+{
+    public const int SlotsPerPage = 27;
+    public static bool TryGetCell(
+        short slot,
+        int columns,
+        out BagCell cell)
+    {
+        cell = default;
+        // 0xFFFF 在 Int16 中就是 -1。
+        if (slot < 0)
+            return false;
+        if (columns <= 0 || SlotsPerPage % columns != 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(columns),
+                "columns 必须能整除 27。");
+        int rows = SlotsPerPage / columns;
+        int page = slot / SlotsPerPage;
+        int index = slot % SlotsPerPage;
+        int row = index / columns;
+        int column = index % columns;
+        // 格子中心相对于整个网格的 0~1 坐标。
+        float normalizedX =
+            (column + 0.5f) / columns;
+        float normalizedY =
+            (row + 0.5f) / rows;
+        cell = new BagCell(
+            Slot: slot,
+            Page: page,
+            IndexInPage: index,
+            Row: row,
+            Column: column,
+            NormalizedX: normalizedX,
+            NormalizedY: normalizedY);
+        return true;
+    }
+}
+
+使用：
+
+short slot = 31;
+if (BagCoordinates.TryGetCell(
+        slot,
+        columns: 9,
+        out BagCell cell))
+{
+    Console.WriteLine(
+        $"第 {cell.Page + 1} 页，" +
+        $"第 {cell.Row + 1} 行，" +
+        $"第 {cell.Column + 1} 列，" +
+        $"页内索引={cell.IndexInPage}");
+}
+
+输出：
+
+第2页，第1行，第5列，页内索引=4
+
+相对于背包窗口的像素坐标
+
+已知：
+
+gridLeft = 格子区域相对背包窗口的左边距
+gridTop = 格子区域相对背包窗口的上边距
+cellWidth
+cellHeight
+gapX
+gapY
+
+格子中心坐标：
+
+relativeX =
+    gridLeft
+    + column * (cellWidth + gapX)
+    + cellWidth / 2;
+relativeY =
+    gridTop
+    + row * (cellHeight + gapY)
+    + cellHeight / 2;
+
+C#：
+
+public readonly record struct UiPoint(
+    float X,
+    float Y);
+public static UiPoint GetCellCenter(
+    BagCell cell,
+    float gridLeft,
+    float gridTop,
+    float cellWidth,
+    float cellHeight,
+    float horizontalGap = 0,
+    float verticalGap = 0)
+{
+    float x =
+        gridLeft +
+        cell.Column * (cellWidth + horizontalGap) +
+        cellWidth * 0.5f;
+    float y =
+        gridTop +
+        cell.Row * (cellHeight + verticalGap) +
+        cellHeight * 0.5f;
+    return new UiPoint(x, y);
+}
+
+例如格子区域从 (20, 80) 开始，每格 40×40 ，间隔 2 ：
+
+UiPoint position = GetCellCenter(
+    cell,
+    gridLeft: 20,
+    gridTop: 80,
+    cellWidth: 40,
+    cellHeight: 40,
+    horizontalGap: 2,
+    verticalGap: 2);
+Console.WriteLine(
+    $"相对背包窗口：X={position.X}, Y={position.Y}");
+
+转成屏幕坐标
+
+背包窗口左上角为：
+
+windowX
+windowY
+
+则：
+
+float screenX = windowX + position.X;
+float screenY = windowY + position.Y;
+
+如果界面有缩放：
+
+float screenX =
+    windowX + position.X * uiScale;
+float screenY =
+    windowY + position.Y * uiScale;
+
+更可靠的校准方法
+
+不用猜 cellWidth 和间距，可以记录三个格子中心：
+
+slot 0 的中心 -> first
+slot 1 的中心 -> nextColumn
+slot 9 的中心 -> nextRow
+
+对于 9 列布局：
+
+float stepX = nextColumnX - firstX;
+float stepY = nextRowY - firstY;
+float x = firstX + cell.Column * stepX;
+float y = firstY + cell.Row * stepY;
+
+这会自动包含格子大小、间距和 UI 缩放。
+
+从 IDA 继续确认像素坐标
+
+背包刷新代码会把物品绑定到 UI 槽位：
+
+sub_1805A3550(slotWidget, inventoryItem, ...);
+
+建议命名：
+
+sub_1805A3550 -> BindInventoryItemToSlotWidget
+
+可以在：
+
+Game.dll + 0x5A3550
+
+设置断点。背包打开或刷新时：
+
+RCX = UI 槽位控件
+RDX = InventoryItem*
+
+接着分析 RCX 指向的 UI 控件，寻找其矩形或 GetRect/GetPosition 虚函数，就能得到真实的：
+
+slotLeft
+slotTop
+slotWidth
+slotHeight
+
+当前导出中也能看到界面通过 "item_slot" 查找槽位控件，但没有直接导出该控件的最终屏幕矩形。
+
+所以最终结论是：
+
+页、页内索引：确定可以计算
+行、列：布局列数确认后可以计算
+相对像素坐标：需要背包网格几何
+屏幕绝对坐标：还需窗口位置和 UI 缩放
+
+你说 36:
+
+ok,忘了一个最重要的,  角色自己的所有信息, 比如基础的有 血量, 坐标, 蓝量等等.
+
+另外我需要知道相机视角信息比如朝向, 俯仰视角等等.
+
+ChatGPT 42:
+
+可以。这个版本里，当前角色的基础状态、位置和相机角度已经能比较稳定地定位。下面地址都是 RVA ：
+
+运行时地址 = Game.dll 实际基址 + RVA
+
+不要把 IDA 中的 0x180... 当成固定运行时地址。
+
+当前角色基础状态
+
+信息 | RVA | 类型
+最大 HP | 0xD267DC | uint32
+当前 HP | 0xD267E0 | uint32
+最大 MP | 0xD267E4 | uint32
+当前 MP | 0xD267E8 | uint32
+当前 DP | 0xD267EE | uint16
+本地玩家 Entity ID | 0xD21798 | 低 16 位
+当前锁定目标 Entity ID | 0xD2179A | 高 16 位
+网络包总分发函数 sub_180405100 中：
+
+case 3 = S_HIT_POINT
+case 4 = S_MANA_POINT
+case 6 = S_DP
+
+S_HIT_POINT 将第一个 uint32 写入当前 HP，将第二个写入最大 HP； S_MANA_POINT 同样写入当前 MP 和最大 MP。
+
+可以暂时重命名：
+
+dword_180D267DC -> g_LocalMaxHp
+dword_180D267E0 -> g_LocalCurrentHp
+dword_180D267E4 -> g_LocalMaxMp
+dword_180D267E8 -> g_LocalCurrentMp
+word_180D267EE -> g_LocalCurrentDp
+
+这些全局值在登录完成、收到 S_STATUS/S_HIT_POINT/S_MANA_POINT 后才有效。
+
+Actor 对象中的角色信息
+
+假如已经取得本地角色的 Actor* / CharacterObject* ：
+
+Actor 偏移 | 类型 | 含义
++0x08 | CEntity* | CryEngine 实体
++0x20 | uint32 | 对象类型
++0x2C | uint32 | Server Object ID
++0x3E | uint16 | 等级
++0x40 | uint8 | HP 百分比
++0x42 | UTF-16 | 角色名称
++0x358 | uint32 | 当前目标 Server Object ID
++0xF38 | uint32 | 肉体异常数量
++0xF3C | uint32 | 精神异常数量
++0x11A0 | uint32 | 最大 HP
++0x11A4 | uint32 | 当前 HP
+HP 写入函数：
+
+sub_180465310(actor, currentHp, maxHp);
+
+核心代码等价于：
+
+actor->currentHp = currentHp; // +0x11A4
+actor->maxHp = maxHp; // +0x11A0
+actor->hpPercent = currentHp * 100 / maxHp; // +0x40
+
+对于本地玩家，优先读取前面的全局 HP/MP；它们不需要额外解析 Actor* 。
+
+当前角色坐标
+
+首先取得本地 CEntity* 。
+
+GameBase + 0x904690 -> CEntitySystem*
+CEntitySystem + 0x58 -> Entity 红黑树 header
+GameBase + 0xD21798 -> 本地 Entity ID
+
+实体树节点：
+
+struct EntityTreeNode
+{
+    void* left;          // +0x00
+    void* parent;        // +0x08
+    void* right;         // +0x10
+    uint8_t color;       // +0x18
+    uint8_t isNil;       // +0x19
+    uint8_t padding[6];
+    uint16_t entityId;   // +0x20
+    uint8_t padding2[6];
+    CEntity* entity;     // +0x28
+};
+
+找到本地 CEntity* 后：
+
+CEntity + 0x4E8 = X，float
+CEntity + 0x4EC = Y，float
+CEntity + 0x4F0 = Z，float
+
+sub_180007250 明确写入了这三个位置字段。
+
+特殊的父子 Transform 状态下还有：
+
+CEntity + 0x500 = local/pending X
+CEntity + 0x504 = local/pending Y
+CEntity + 0x508 = local/pending Z
+
+正常世界坐标用 +0x4E8/+0x4EC/+0x4F0 。
+
+相机朝向和俯仰角
+
+相机核心更新函数：
+
+Game.dll + 0x30340
+sub_180030340 -> Player_UpdateCamera
+
+该函数包含字符串：
+
+Player::UpdateCamera
+
+并持续更新以下三个全局浮点数：
+
+相机信息 | RVA | 类型
+Pitch 俯仰角 | 0xD1AD14 | float ，度
+Roll 翻滚角 | 0xD1AD18 | float ，度
+Yaw 水平朝向 | 0xD1AD1C | float ，度
+可以理解为 CryEngine 风格的：
+
+struct CameraAngles
+{
+    float pitch; // X angle
+    float roll;  // Y angle，普通第三人称时通常接近 0
+    float yaw;   // Z angle
+};
+
+Pitch 的配置限制也能对应上：
+
+g_cam_p_min = -65°
+g_cam_p_max = 85°
+
+相机有一个短暂的覆盖路径：
+
+GameBase + 0xD1AD38 = override pending flag
+GameBase + 0xD1AD20 = override pitch
+GameBase + 0xD1AD24 = override roll
+GameBase + 0xD1AD28 = override yaw
+
+更新函数会把覆盖角度复制到正常角度位置，然后清除 flag。因此持续读取时，通常直接使用：
+
+D1AD14 / D1AD18 / D1AD1C
+
+即可。
+
+目前已经确认角度，但 最终相机世界坐标、FOV 和 ViewMatrix 的固定地址尚未完全坐实 ，不建议随便猜偏移。
+
+C# 只读快照代码
+
+下面假设你已有一个只读内存读取器：
+
+using System;
+using System.Numerics;
+public interface IMemoryReader
+{
+    byte ReadByte(nuint address);
+    ushort ReadUInt16(nuint address);
+    uint ReadUInt32(nuint address);
+    ulong ReadUInt64(nuint address);
+    float ReadSingle(nuint address);
+}
+
+数据结构
+
+public readonly record struct PlayerVitals(
+    uint CurrentHp,
+    uint MaxHp,
+    uint CurrentMp,
+    uint MaxMp,
+    ushort CurrentDp)
+{
+    public float HpPercent =>
+        MaxHp == 0 ? 0 : CurrentHp * 100f / MaxHp;
+    public float MpPercent =>
+        MaxMp == 0 ? 0 : CurrentMp * 100f / MaxMp;
+}
+public readonly record struct CameraState(
+    float Pitch,
+    float Roll,
+    float Yaw,
+    Vector3 HorizontalForward,
+    Vector3 Forward);
+public readonly record struct PlayerSnapshot(
+    ushort EntityId,
+    ushort TargetEntityId,
+    nuint EntityAddress,
+    Vector3 Position,
+    PlayerVitals Vitals,
+    CameraState Camera);
+
+Entity 查找
+
+public static class LocalPlayerReader
+{
+    // Game.dll RVA
+    private const nuint EntitySystemPointerRva = 0x904690;
+    private const nuint LocalEntityIdRva = 0xD21798;
+    private const nuint CurrentMaxHpRva = 0xD267DC;
+    private const nuint CurrentHpRva    = 0xD267E0;
+    private const nuint CurrentMaxMpRva = 0xD267E4;
+    private const nuint CurrentMpRva    = 0xD267E8;
+    private const nuint CurrentDpRva    = 0xD267EE;
+    private const nuint CameraPitchRva = 0xD1AD14;
+    private const nuint CameraRollRva  = 0xD1AD18;
+    private const nuint CameraYawRva   = 0xD1AD1C;
+    // CEntitySystem
+    private const nuint EntityTreeOffset = 0x58;
+    // 红黑树节点
+    private const nuint NodeLeftOffset   = 0x00;
+    private const nuint NodeParentOffset = 0x08;
+    private const nuint NodeRightOffset  = 0x10;
+    private const nuint NodeIsNilOffset  = 0x19;
+    private const nuint NodeIdOffset     = 0x20;
+    private const nuint NodeEntityOffset = 0x28;
+    // CEntity
+    private const nuint PositionOffset = 0x4E8;
+    private static nuint ReadPointer(
+        IMemoryReader memory,
+        nuint address)
+    {
+        return (nuint)memory.ReadUInt64(address);
+    }
+    private static bool IsNil(
+        IMemoryReader memory,
+        nuint node)
+    {
+        return node == 0 ||
+               memory.ReadByte(node + NodeIsNilOffset) != 0;
+    }
+    private static nuint FindEntityById(
+        IMemoryReader memory,
+        nuint header,
+        ushort entityId)
+    {
+        nuint node =
+            ReadPointer(memory, header + NodeParentOffset);
+        for (int guard = 0;
+             node != 0 &&
+             node != header &&
+             guard < 65536;
+             guard++)
+        {
+            if (IsNil(memory, node))
+                return 0;
+            ushort nodeId =
+                memory.ReadUInt16(node + NodeIdOffset);
+            if (entityId < nodeId)
+            {
+                node = ReadPointer(
+                    memory,
+                    node + NodeLeftOffset);
+            }
+            else if (entityId > nodeId)
+            {
+                node = ReadPointer(
+                    memory,
+                    node + NodeRightOffset);
+            }
+            else
+            {
+                return ReadPointer(
+                    memory,
+                    node + NodeEntityOffset);
+            }
+        }
+        return 0;
+    }
+    private static float DegreesToRadians(float degrees)
+    {
+        return degrees * MathF.PI / 180f;
+    }
+    private static CameraState ReadCamera(
+        IMemoryReader memory,
+        nuint gameBase)
+    {
+        float pitch =
+            memory.ReadSingle(gameBase + CameraPitchRva);
+        float roll =
+            memory.ReadSingle(gameBase + CameraRollRva);
+        float yaw =
+            memory.ReadSingle(gameBase + CameraYawRva);
+        float pitchRadians = DegreesToRadians(pitch);
+        float yawRadians = DegreesToRadians(yaw);
+        // CryEngine 常见坐标：Z 向上，+Y 向前。
+        Vector3 horizontalForward = Vector3.Normalize(
+            new Vector3(
+                -MathF.Sin(yawRadians),
+                 MathF.Cos(yawRadians),
+                 0));
+        Vector3 forward = Vector3.Normalize(
+            new Vector3(
+                -MathF.Sin(yawRadians) *
+                    MathF.Cos(pitchRadians),
+                 MathF.Cos(yawRadians) *
+                    MathF.Cos(pitchRadians),
+                 MathF.Sin(pitchRadians)));
+        return new CameraState(
+            Pitch: pitch,
+            Roll: roll,
+            Yaw: yaw,
+            HorizontalForward: horizontalForward,
+            Forward: forward);
+    }
+    public static PlayerSnapshot ReadSnapshot(
+        IMemoryReader memory,
+        nuint gameBase)
+    {
+        // 同一个 DWORD：
+        // 低 16 位是本地 Entity ID，
+        // 高 16 位是当前目标 Entity ID。
+        ushort localEntityId =
+            memory.ReadUInt16(
+                gameBase + LocalEntityIdRva);
+        ushort targetEntityId =
+            memory.ReadUInt16(
+                gameBase + LocalEntityIdRva + 2);
+        nuint entitySystem =
+            ReadPointer(
+                memory,
+                gameBase + EntitySystemPointerRva);
+        nuint localEntity = 0;
+        Vector3 position = default;
+        if (entitySystem != 0 && localEntityId != 0)
+        {
+            nuint header =
+                ReadPointer(
+                    memory,
+                    entitySystem + EntityTreeOffset);
+            if (header != 0)
+            {
+                localEntity =
+                    FindEntityById(
+                        memory,
+                        header,
+                        localEntityId);
+            }
+        }
+        if (localEntity != 0)
+        {
+            position = new Vector3(
+                memory.ReadSingle(
+                    localEntity + PositionOffset + 0),
+                memory.ReadSingle(
+                    localEntity + PositionOffset + 4),
+                memory.ReadSingle(
+                    localEntity + PositionOffset + 8));
+        }
+        var vitals = new PlayerVitals(
+            CurrentHp: memory.ReadUInt32(
+                gameBase + CurrentHpRva),
+            MaxHp: memory.ReadUInt32(
+                gameBase + CurrentMaxHpRva),
+            CurrentMp: memory.ReadUInt32(
+                gameBase + CurrentMpRva),
+            MaxMp: memory.ReadUInt32(
+                gameBase + CurrentMaxMpRva),
+            CurrentDp: memory.ReadUInt16(
+                gameBase + CurrentDpRva));
+        CameraState camera =
+            ReadCamera(memory, gameBase);
+        return new PlayerSnapshot(
+            EntityId: localEntityId,
+            TargetEntityId: targetEntityId,
+            EntityAddress: localEntity,
+            Position: position,
+            Vitals: vitals,
+            Camera: camera);
+    }
+}
+
+使用：
+
+PlayerSnapshot player =
+    LocalPlayerReader.ReadSnapshot(
+        memory,
+        gameModuleBase);
+Console.WriteLine(
+    $"HP: {player.Vitals.CurrentHp}/" +
+    $"{player.Vitals.MaxHp} " +
+    $"({player.Vitals.HpPercent:F1}%)");
+Console.WriteLine(
+    $"MP: {player.Vitals.CurrentMp}/" +
+    $"{player.Vitals.MaxMp} " +
+    $"({player.Vitals.MpPercent:F1}%)");
+Console.WriteLine(
+    $"DP: {player.Vitals.CurrentDp}");
+Console.WriteLine(
+    $"Position: " +
+    $"X={player.Position.X:F2}, " +
+    $"Y={player.Position.Y:F2}, " +
+    $"Z={player.Position.Z:F2}");
+Console.WriteLine(
+    $"Camera: " +
+    $"Pitch={player.Camera.Pitch:F2}, " +
+    $"Yaw={player.Camera.Yaw:F2}, " +
+    $"Roll={player.Camera.Roll:F2}");
+Console.WriteLine(
+    $"Camera Forward: " +
+    $"{player.Camera.Forward}");
+
+关于 Forward 方向
+
+角度地址是高置信度的，但 Forward 的正负方向取决于游戏最终采用的坐标约定。第一次验证时：
+
+1. 相机朝正北记录 Yaw；
+2. 顺时针旋转 90°；
+3. 检查计算出的 X/Y；
+4. 如果方向相反，把 sin 的符号翻转。
+Yaw 数值本身不受这个问题影响。
+
+IDA 建议重命名
+
+sub_180405100 -> DispatchServerPacket
+sub_180465310 -> Actor_SetCurrentAndMaxHp
+sub_180465250 -> Actor_SetHpPercent
+sub_1804D5AB0 -> CEntity_GetCharacterObject
+sub_180007250 -> CEntity_SetPosition
+sub_180030340 -> Player_UpdateCamera
+
+验证顺序
+
+1. 观察 GameBase+D267E0，受伤时应变化。
+2. 观察 GameBase+D267E8，施放耗蓝技能时应变化。
+3. 观察 CEntity+4E8/4EC/4F0，移动时应变化。
+4. 观察 GameBase+D1AD14，抬头/低头时应变化。
+5. 观察 GameBase+D1AD1C，水平旋转相机时应变化。
+
+这些偏移仅适用于你上传导出文件对应的客户端版本；客户端更新后，需要通过 S_HIT_POINT 、 S_MANA_POINT 、 Player::UpdateCamera 和 CEntity_SetPosition 的代码特征重新定位。

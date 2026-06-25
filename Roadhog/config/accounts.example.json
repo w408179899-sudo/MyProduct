@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "accounts": [
+    {
+      "accountName": "chahohyur",
+      "characterName": "",
+      "processId": 0,
+      "targetProcessName": "",
+      "hardwareKey": "",
+      "hardwareBindingKind": "",
+      "hardwareBindingConfidence": "",
+      "hardwareDeviceInstanceId": "",
+      "hardwareLocationKey": "",
+      "hardwareDisplayName": "",
+      "vmmDeviceName": "",
+      "enabled": true,
+      "profileName": "default_profile",
+      "mainMode": "CustomCombat",
+      "combatMode": "Stationary",
+      "revivePathName": "穆尔海姆00133",
+      "combatPathName": "",
+      "maintenancePathName": "",
+      "skillProfileName": ""
+    }
+  ]
+}
