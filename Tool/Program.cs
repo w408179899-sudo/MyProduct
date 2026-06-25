@@ -1580,7 +1580,7 @@ namespace Tool
             int dragPrimePixels = ReadIntFromEnv("AION_FACE_TARGET_DRAG_PRIME_PIXELS", 5);
             int dragTailPixels = ReadIntFromEnv("AION_FACE_TARGET_DRAG_TAIL_PIXELS", 5);
             int dragRampMaxPixels = ReadIntFromEnv("AION_FACE_TARGET_DRAG_RAMP_MAX_PX", 6);
-            int dragStepPixels = ReadIntFromEnv("AION_FACE_TARGET_DRAG_STEP_PX", 25);
+            int dragStepPixels = ReadIntFromEnv("AION_FACE_TARGET_DRAG_STEP_PX", 20);
             int dragFineStepPixels = ReadIntFromEnv("AION_FACE_TARGET_DRAG_FINE_STEP_PX", 10);
             int dragStepDelayMs = ReadIntFromEnv("AION_FACE_TARGET_DRAG_STEP_DELAY_MS", 0);
             int dragLeadMs = ReadIntFromEnv("AION_FACE_TARGET_DRAG_LEAD_MS", 200);
@@ -1940,7 +1940,7 @@ namespace Tool
                                       " RawDx=" + rawDx.ToString("F2") +
                                       " Dx=" + dx +
                                       " MoveCommands=" + EstimateChunkDragMoveCommandCount(dx, options) +
-                                      " ChunkPx=" + options.DragStepPixels +
+                                      " MaxChunkPx=" + options.DragStepPixels +
                                       " PrimeTail=" + options.DragPrimePixels + "/" + options.DragTailPixels +
                                       " MinApplied=" + (minApplied ? "yes" : "no"));
 
@@ -2045,7 +2045,7 @@ namespace Tool
                                       " RawDx=" + rawDx.ToString("F2") +
                                       " Dx=" + dx +
                                       " MoveCommands=" + EstimateChunkDragMoveCommandCount(dx, options) +
-                                      " ChunkPx=" + options.DragStepPixels +
+                                      " MaxChunkPx=" + options.DragStepPixels +
                                       " PrimeTail=" + options.DragPrimePixels + "/" + options.DragTailPixels +
                                       " MinApplied=" + (minApplied ? "yes" : "no"));
 
@@ -2613,12 +2613,11 @@ namespace Tool
         private static int EstimateChunkDragMoveCommandCount(int dx, FaceTargetOptions options)
         {
             int absDx = Math.Abs(dx);
-            int stepAbs = Math.Max(1, options.DragStepPixels);
             int prime = Math.Min(Math.Max(0, options.DragPrimePixels), absDx);
             int remaining = absDx - prime;
             int tail = Math.Min(Math.Max(0, options.DragTailPixels), remaining);
-            remaining -= tail;
-            return prime + ((remaining + stepAbs - 1) / stepAbs) + tail;
+            int middle = remaining - tail;
+            return prime + BuildGradientChunks(middle, Math.Max(1, options.DragStepPixels)).Length + tail;
         }
 
         private static int EstimateRampDragMoveCommandCount(int dx, FaceTargetOptions options)
@@ -2765,10 +2764,8 @@ namespace Tool
 
         private static void DragCameraHorizontalChunks(KmBoxClient km, int dx, FaceTargetOptions options)
         {
-            int stepAbs = Math.Max(1, options.DragStepPixels);
             int sign = dx < 0 ? -1 : 1;
             int remaining = Math.Abs(dx);
-            int step = sign * stepAbs;
             int prime = Math.Min(Math.Max(0, options.DragPrimePixels), remaining);
 
             for (int i = 0; i < prime; i++)
@@ -2779,22 +2776,126 @@ namespace Tool
 
             int tail = Math.Min(Math.Max(0, options.DragTailPixels), remaining);
             int chunkRemaining = remaining - tail;
-
-            while (chunkRemaining >= stepAbs)
+            int[] middleChunks = BuildGradientChunks(chunkRemaining, Math.Max(1, options.DragStepPixels));
+            for (int i = 0; i < middleChunks.Length; i++)
             {
-                SendCameraMoveStep(km, step, options);
-                chunkRemaining -= stepAbs;
-            }
-
-            if (chunkRemaining > 0)
-            {
-                SendCameraMoveStep(km, sign * chunkRemaining, options);
+                SendCameraMoveStep(km, sign * middleChunks[i], options);
             }
 
             for (int i = 0; i < tail; i++)
             {
                 SendCameraMoveStep(km, sign, options);
             }
+        }
+
+        private static int[] BuildGradientChunks(int totalPixels, int maxStep)
+        {
+            if (totalPixels <= 0)
+            {
+                return new int[0];
+            }
+
+            maxStep = Math.Max(1, maxStep);
+            int length = 1;
+            while (GetMaxGradientSum(length, maxStep) < totalPixels)
+            {
+                length++;
+            }
+
+            int[] chunks = new int[length];
+            for (int i = 0; i < chunks.Length; i++)
+            {
+                chunks[i] = 1;
+            }
+
+            int remaining = totalPixels - chunks.Length;
+            int[] centerOutOrder = BuildCenterOutIndexOrder(chunks.Length);
+
+            while (remaining > 0)
+            {
+                bool raised = false;
+                for (int i = 0; i < centerOutOrder.Length && remaining > 0; i++)
+                {
+                    int index = centerOutOrder[i];
+                    if (!CanRaiseGradientChunk(chunks, index, maxStep))
+                    {
+                        continue;
+                    }
+
+                    chunks[index]++;
+                    remaining--;
+                    raised = true;
+                }
+
+                if (!raised)
+                {
+                    break;
+                }
+            }
+
+            return chunks;
+        }
+
+        private static int GetMaxGradientSum(int length, int maxStep)
+        {
+            int sum = 0;
+            for (int i = 0; i < length; i++)
+            {
+                int distanceToEdge = Math.Min(i, length - 1 - i);
+                sum += Math.Min(maxStep, distanceToEdge + 1);
+            }
+
+            return sum;
+        }
+
+        private static int[] BuildCenterOutIndexOrder(int length)
+        {
+            var order = new List<int>();
+            int leftCenter = (length - 1) / 2;
+            int rightCenter = length / 2;
+
+            for (int offset = 0; order.Count < length; offset++)
+            {
+                int left = leftCenter - offset;
+                if (left >= 0)
+                {
+                    order.Add(left);
+                }
+
+                int right = rightCenter + offset;
+                if (right != left && right < length)
+                {
+                    order.Add(right);
+                }
+            }
+
+            return order.ToArray();
+        }
+
+        private static bool CanRaiseGradientChunk(int[] chunks, int index, int maxStep)
+        {
+            if (chunks[index] >= maxStep)
+            {
+                return false;
+            }
+
+            if (chunks.Length > 1 && (index == 0 || index == chunks.Length - 1))
+            {
+                return false;
+            }
+
+            int nextValue = chunks[index] + 1;
+            if (index > 0 && Math.Abs(nextValue - chunks[index - 1]) > 1)
+            {
+                return false;
+            }
+
+            if (index + 1 < chunks.Length && Math.Abs(nextValue - chunks[index + 1]) > 1)
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private static void DragCameraHorizontalRamp(KmBoxClient km, int dx, FaceTargetOptions options)
