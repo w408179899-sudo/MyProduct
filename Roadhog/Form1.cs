@@ -242,7 +242,7 @@ namespace Roadhog
                 return;
             }
 
-            using var settingsForm = new AccountSettingsForm(account);
+            using var settingsForm = new AccountSettingsForm(account, _services.Runtime);
             settingsForm.ShowDialog(this);
         }
 

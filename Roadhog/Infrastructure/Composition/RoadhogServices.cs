@@ -11,6 +11,7 @@ using Roadhog.Infrastructure.Mock;
 using Roadhog.Infrastructure.Offsets;
 using Roadhog.Infrastructure.Processes;
 using Roadhog.Infrastructure.ToolBridge;
+using Roadhog.Infrastructure.Vmm;
 
 namespace Roadhog.Infrastructure.Composition;
 
@@ -63,7 +64,9 @@ public sealed class RoadhogServices
         var logger = new InMemoryRoadhogLogger();
         IRoadhogGameApi gameApi = options.UseToolTestBridge
             ? new ToolProcessApiClient(options.ToolTestBridge, logger)
-            : new MockRoadhogGameApi();
+            : options.UseMockGameApi
+                ? new MockRoadhogGameApi()
+                : new AionVmmGameApi(options.AionVmm, logger);
         var hardwareResolver = new WindowsHardwareDeviceResolver(options.HardwareResolver);
         var processResolver = new AionProcessResolver(options.ProcessResolver);
         var accountConfigStore = new JsonAccountConfigStore(options.AccountConfigPath);

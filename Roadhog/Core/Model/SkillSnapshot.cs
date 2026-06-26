@@ -9,4 +9,12 @@ public sealed record SkillSnapshot(
     int? DisplayTier,
     bool IsToggle,
     uint CooldownDuration,
-    uint CooldownEndTime);
+    uint CooldownEndTime,
+    string? XmlActivation = null,
+    string? XmlTags = null,
+    string? XmlTargetSlot = null,
+    string? XmlChainCategory = null,
+    string? XmlPrechainCategory = null,
+    string? XmlChainTime = null,
+    string? XmlCounterSkill = null,
+    string? XmlCostDp = null);

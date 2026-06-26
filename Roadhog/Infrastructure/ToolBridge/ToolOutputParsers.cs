@@ -27,7 +27,15 @@ internal static partial class ToolOutputParsers
                 TryParseNullableInt(match.Groups["tier"].Value),
                 ParseUInt(match.Groups["toggle"].Value) != 0,
                 ParseUInt(match.Groups["cooldown"].Value),
-                ParseUInt(match.Groups["cooldownEnd"].Value));
+                ParseUInt(match.Groups["cooldownEnd"].Value),
+                ExtractQuotedValue(line, "XmlActivation"),
+                ExtractTokenValue(line, "XmlTags"),
+                ExtractQuotedValue(line, "XmlTargetSlot"),
+                ExtractQuotedValue(line, "XmlChainCategory"),
+                ExtractQuotedValue(line, "XmlPrechainCategory"),
+                ExtractQuotedValue(line, "XmlChainTime"),
+                ExtractQuotedValue(line, "XmlCounterSkill"),
+                ExtractTokenValue(line, "XmlCostDp"));
 
             result.Add(skill);
         }
@@ -78,6 +86,24 @@ internal static partial class ToolOutputParsers
     private static string? EmptyToNull(string value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static string? ExtractQuotedValue(string line, string fieldName)
+    {
+        var match = Regex.Match(line, fieldName + "=\"(?<value>[^\"]*)\"", RegexOptions.CultureInvariant);
+        return match.Success ? EmptyToNull(match.Groups["value"].Value) : null;
+    }
+
+    private static string? ExtractTokenValue(string line, string fieldName)
+    {
+        var match = Regex.Match(line, fieldName + "=(?<value>[^ ]+)", RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var value = match.Groups["value"].Value;
+        return string.Equals(value, "n/a", StringComparison.OrdinalIgnoreCase) ? null : EmptyToNull(value);
     }
 
     private static int? TryParseNullableInt(string value)

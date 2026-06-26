@@ -340,13 +340,20 @@ namespace Roadhog
             _comboBox.FlatStyle = FlatStyle.Flat;
             _comboBox.BackColor = BackColor;
             _comboBox.ForeColor = ForeColor;
-            _comboBox.SelectedIndexChanged += (_, _) => base.Text = _comboBox.Text;
+            _comboBox.SelectedIndexChanged += (_, _) =>
+            {
+                base.Text = _comboBox.Text;
+                SelectedIndexChanged?.Invoke(this, EventArgs.Empty);
+                Invalidate();
+            };
             Controls.Add(_comboBox);
         }
 
         public int CornerRadius { get; set; } = 8;
 
         public Color BorderColor { get; set; }
+
+        public event EventHandler? SelectedIndexChanged;
 
         public ComboBox.ObjectCollection Items => _comboBox.Items;
 

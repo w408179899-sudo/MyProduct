@@ -26,18 +26,52 @@ public sealed class RoadhogRuntime
 
     public AccountOrchestrator Orchestrator { get; }
 
-    public async Task<OperationResult<IReadOnlyList<SkillSnapshot>>> RefreshSkillsAsync(CancellationToken cancellationToken = default)
+    public async Task<OperationResult<IReadOnlyList<SkillSnapshot>>> RefreshSkillsAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
     {
-        var result = await _gameApi.ReadSkillsAsync(cancellationToken).ConfigureAwait(false);
+        var result = await ReadSkillsAsync(accountName, cancellationToken).ConfigureAwait(false);
         if (result.Success)
         {
-            _logger.Info("skills.refresh.ok", new Dictionary<string, object?> { ["count"] = result.Value?.Count ?? 0 });
+            _logger.Info("skills.refresh.ok", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["count"] = result.Value?.Count ?? 0
+            });
         }
         else
         {
-            _logger.Warn("skills.refresh.failed", new Dictionary<string, object?> { ["error"] = result.Error });
+            _logger.Warn("skills.refresh.failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["error"] = result.Error
+            });
         }
 
         return result;
+    }
+
+    private Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            var account = Accounts.Snapshot()
+                .FirstOrDefault(item => string.Equals(item.AccountName, accountName, StringComparison.OrdinalIgnoreCase));
+
+            var context = account is null
+                ? new GameApiReadContext(accountName, 0, string.Empty, string.Empty)
+                : new GameApiReadContext(
+                    account.AccountName,
+                    account.ProcessId,
+                    account.TargetProcessName,
+                    account.VmmDeviceName);
+
+            return scopedApi.ReadSkillsAsync(context, cancellationToken);
+        }
+
+        return _gameApi.ReadSkillsAsync(cancellationToken);
     }
 }
