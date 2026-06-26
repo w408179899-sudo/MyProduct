@@ -1,6 +1,7 @@
 using Roadhog.Infrastructure.ToolBridge;
 using Roadhog.Infrastructure.Processes;
 using Roadhog.Infrastructure.Hardware;
+using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Vmm;
 
 namespace Roadhog.Infrastructure.Composition;
@@ -12,6 +13,8 @@ public sealed class RoadhogServiceOptions
     public bool UseMockGameApi { get; set; }
 
     public string AccountConfigPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "accounts.json");
+
+    public string LogDirectory { get; set; } = Path.Combine(ResolveRoadhogProjectDirectory(), "logs");
 
     public TimeSpan AccountWorkerTickInterval { get; set; } = TimeSpan.FromMilliseconds(250);
 
@@ -26,4 +29,39 @@ public sealed class RoadhogServiceOptions
     public ToolBridgeOptions ToolTestBridge { get; } = new();
 
     public AionVmmGameApiOptions AionVmm { get; } = new();
+
+    public KmBoxKeyboardInputOptions KeyboardInput { get; } = new();
+
+    private static string ResolveRoadhogProjectDirectory()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "Roadhog.csproj")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        var cwd = new DirectoryInfo(Environment.CurrentDirectory);
+        while (cwd is not null)
+        {
+            var candidate = Path.Combine(cwd.FullName, "Roadhog");
+            if (File.Exists(Path.Combine(candidate, "Roadhog.csproj")))
+            {
+                return candidate;
+            }
+
+            if (File.Exists(Path.Combine(cwd.FullName, "Roadhog.csproj")))
+            {
+                return cwd.FullName;
+            }
+
+            cwd = cwd.Parent;
+        }
+
+        return AppContext.BaseDirectory;
+    }
 }

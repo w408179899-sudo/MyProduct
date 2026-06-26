@@ -18,8 +18,18 @@ namespace Roadhog
         public Form1()
         {
             InitializeComponent();
+            ApplyApplicationIcon();
             RebuildAccountsFromDevices();
             BuildAccountTable();
+        }
+
+        private void ApplyApplicationIcon()
+        {
+            var icon = Icon.ExtractAssociatedIcon(System.Windows.Forms.Application.ExecutablePath);
+            if (icon is not null)
+            {
+                Icon = icon;
+            }
         }
 
         private void RebuildAccountsFromDevices()
@@ -242,24 +252,25 @@ namespace Roadhog
                 return;
             }
 
-            using var settingsForm = new AccountSettingsForm(account, _services.Runtime);
+            using var settingsForm = new AccountSettingsForm(account, _services.Runtime, _services.AccountConfigStore);
             settingsForm.ShowDialog(this);
         }
 
-        private void StartAccountButton_Click(object? sender, EventArgs e)
+        private async void StartAccountButton_Click(object? sender, EventArgs e)
         {
             if (sender is not Button { Tag: string account })
             {
                 return;
             }
 
-            if (!TryBuildStartConfig(account, out var config, out var error))
+            var buildResult = await TryBuildStartConfigAsync(account).ConfigureAwait(true);
+            if (!buildResult.Success || buildResult.Config is null)
             {
-                MessageBox.Show(error, "启动失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(buildResult.Error, "启动失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
-            var result = _services.AccountOrchestrator.Start(config);
+            var result = _services.AccountOrchestrator.Start(buildResult.Config);
 
             if (!result.Success)
             {
@@ -325,26 +336,45 @@ namespace Roadhog
             BuildAccountTable();
         }
 
-        private bool TryBuildStartConfig(string account, out Core.Accounts.AccountConfig config, out string error)
+        private async Task<StartConfigBuildResult> TryBuildStartConfigAsync(string account)
         {
-            config = new Core.Accounts.AccountConfig
+            var loadResult = await _services.AccountConfigStore.LoadAllAsync().ConfigureAwait(true);
+            if (!loadResult.Success)
             {
-                AccountName = account,
-                Enabled = true,
-                ProfileName = "default_profile"
-            };
+                return StartConfigBuildResult.Fail(loadResult.Error ?? "读取账号配置失败。");
+            }
+
+            var config = loadResult.Value?
+                .FirstOrDefault(item => string.Equals(item.AccountName, account, StringComparison.OrdinalIgnoreCase))
+                ?.Clone() ?? new Core.Accounts.AccountConfig
+                {
+                    AccountName = account,
+                    Enabled = true,
+                    ProfileName = "default_profile"
+                };
+
+            config.AccountName = account;
+            config.Enabled = true;
+            if (config.ScriptSettings is not null)
+            {
+                config.ProfileName = config.ScriptSettings.ProfileName;
+                config.MainMode = config.ScriptSettings.MainMode;
+                config.CombatMode = config.ScriptSettings.CombatMode;
+                config.RevivePathName = config.ScriptSettings.Paths.RevivePathName;
+                config.CombatPathName = config.ScriptSettings.Paths.CombatPathName;
+                config.MaintenancePathName = config.ScriptSettings.Paths.MaintenancePathName;
+            }
 
             var row = _accounts.FirstOrDefault(item => string.Equals(item.Account, account, StringComparison.OrdinalIgnoreCase));
             var hardwareKey = row?.HardwareKey.Trim() ?? string.Empty;
             if (IsAutoHardwareKey(hardwareKey))
             {
-                error = string.Empty;
-                return true;
+                config.HardwareKey = string.Empty;
+                return StartConfigBuildResult.Ok(config);
             }
 
             config.HardwareKey = hardwareKey;
-            error = string.Empty;
-            return true;
+            return StartConfigBuildResult.Ok(config);
         }
 
         private void UpdateAccountRuntimeDisplay(string account, bool updateHardwareKey)
@@ -390,5 +420,18 @@ namespace Roadhog
             string GoldPerHour,
             string KillsPerHour,
             string Duration);
+
+        private sealed record StartConfigBuildResult(bool Success, Core.Accounts.AccountConfig? Config, string Error)
+        {
+            public static StartConfigBuildResult Ok(Core.Accounts.AccountConfig config)
+            {
+                return new StartConfigBuildResult(true, config, string.Empty);
+            }
+
+            public static StartConfigBuildResult Fail(string error)
+            {
+                return new StartConfigBuildResult(false, null, error);
+            }
+        }
     }
 }

@@ -1,5 +1,6 @@
 using System.Drawing.Drawing2D;
 using Roadhog.Application;
+using Roadhog.Core.Accounts;
 using Roadhog.Core.Model;
 
 namespace Roadhog
@@ -10,6 +11,7 @@ namespace Roadhog
 
         private readonly string _account;
         private readonly RoadhogRuntime _runtime;
+        private readonly IAccountConfigStore _configStore;
         private readonly Color _primaryGreen = Color.FromArgb(22, 163, 74);
         private readonly Color _darkGreen = Color.FromArgb(21, 128, 61);
         private readonly Color _headerGreen = Color.FromArgb(34, 139, 84);
@@ -19,15 +21,41 @@ namespace Roadhog
         private readonly Color _textGreen = Color.FromArgb(20, 83, 45);
 
         private TabControl settingsTabs = null!;
+        private RoundedTextBox? profileNameTextBox;
+        private RoundedComboBox? mainModeCombo;
+        private RoundedComboBox? combatModeCombo;
+        private RoundedCheckBox? enableLootCheckBox;
+        private RoundedCheckBox? contestMonsterCheckBox;
+        private RoundedCheckBox? counterEnemyRaceCheckBox;
+        private RoundedTextBox? revivePathNameTextBox;
+        private RoundedTextBox? combatPathNameTextBox;
+        private RoundedTextBox? maintenancePathNameTextBox;
+        private RoundedCheckBox? loopPathCheckBox;
+        private RoundedCheckBox? reverseAtEndCheckBox;
+        private RoundedCheckBox? deathStopPathCheckBox;
+        private RoundedCheckBox? sitMaintenanceCheckBox;
+        private RoundedTextBox? sitMpBelowTextBox;
+        private RoundedTextBox? sitMpRecoverToTextBox;
+        private RoundedCheckBox? autoEquipCheckBox;
+        private RoundedCheckBox? autoDecomposeCheckBox;
+        private RoundedTextBox? bagCleanupThresholdTextBox;
+        private RoundedTextBox? bagTotalSlotsTextBox;
+        private RadioButton? skillAutoModeRadio;
+        private RadioButton? skillManualModeRadio;
+        private Panel? autoSkillPanel;
+        private Panel? manualSkillPanel;
+        private TreeView? availableSkillTree;
+        private TreeView? selectedSkillTree;
         private FlowLayoutPanel? manualSkillMappingList;
         private Control? draggingManualSkillRow;
         private IReadOnlyList<SkillSnapshot> currentManualSkills = Array.Empty<SkillSnapshot>();
         private int manualSkillDropLineY = -1;
 
-        public AccountSettingsForm(string account, RoadhogRuntime runtime)
+        public AccountSettingsForm(string account, RoadhogRuntime runtime, IAccountConfigStore configStore)
         {
             _account = account;
             _runtime = runtime;
+            _configStore = configStore;
             InitializeSettingsForm();
         }
 
@@ -60,6 +88,299 @@ namespace Roadhog
             settingsTabs.TabPages.Add(CreateEmptyTab("测试"));
 
             Controls.Add(settingsTabs);
+            AddButton(this, "保存配置", 418, 3, 150, 30, SaveSettingsButton_Click).BringToFront();
+            LoadSavedSettings();
+        }
+
+        private void LoadSavedSettings()
+        {
+            var account = LoadAccountConfigOrDefault();
+            ApplyScriptSettings(BuildEffectiveScriptSettings(account));
+        }
+
+        private async void SaveSettingsButton_Click(object? sender, EventArgs e)
+        {
+            if (sender is not Button button)
+            {
+                return;
+            }
+
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "保存中...";
+
+            try
+            {
+                if (!SaveCurrentSettings(out var error))
+                {
+                    MessageBox.Show(this, error, "保存配置失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                button.Text = "已保存";
+                await Task.Delay(700).ConfigureAwait(true);
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+
+        private AccountConfig LoadAccountConfigOrDefault()
+        {
+            var result = _configStore.LoadAllAsync().GetAwaiter().GetResult();
+            if (!result.Success)
+            {
+                MessageBox.Show(
+                    this,
+                    result.Error ?? "读取账号配置失败。",
+                    "读取设置失败",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return new AccountConfig { AccountName = _account };
+            }
+
+            return result.Value?
+                .FirstOrDefault(account => string.Equals(account.AccountName, _account, StringComparison.OrdinalIgnoreCase))
+                ?.Clone() ?? new AccountConfig { AccountName = _account };
+        }
+
+        private static ScriptSettings BuildEffectiveScriptSettings(AccountConfig account)
+        {
+            if (account.ScriptSettings is not null)
+            {
+                return account.ScriptSettings.Clone();
+            }
+
+            return new ScriptSettings
+            {
+                ProfileName = string.IsNullOrWhiteSpace(account.ProfileName) ? "default_profile" : account.ProfileName,
+                MainMode = account.MainMode,
+                CombatMode = account.CombatMode,
+                Paths = new PathScriptSettings
+                {
+                    RevivePathName = account.RevivePathName,
+                    CombatPathName = account.CombatPathName,
+                    MaintenancePathName = account.MaintenancePathName
+                }
+            };
+        }
+
+        private void ApplyScriptSettings(ScriptSettings settings)
+        {
+            SetText(profileNameTextBox, settings.ProfileName);
+            SetComboText(mainModeCombo, FormatMainMode(settings.MainMode));
+            SetComboText(combatModeCombo, FormatCombatMode(settings.CombatMode));
+
+            SetChecked(enableLootCheckBox, settings.Combat.EnableLoot);
+            SetChecked(contestMonsterCheckBox, settings.Combat.ContestMonster);
+            SetChecked(counterEnemyRaceCheckBox, settings.Combat.CounterEnemyRace);
+
+            SetText(revivePathNameTextBox, settings.Paths.RevivePathName);
+            SetText(combatPathNameTextBox, settings.Paths.CombatPathName);
+            SetText(maintenancePathNameTextBox, settings.Paths.MaintenancePathName);
+            SetChecked(loopPathCheckBox, settings.Paths.LoopPath);
+            SetChecked(reverseAtEndCheckBox, settings.Paths.ReverseAtEnd);
+            SetChecked(deathStopPathCheckBox, settings.Paths.DeathStopPath);
+
+            SetChecked(sitMaintenanceCheckBox, settings.Maintenance.SitMaintenanceEnabled);
+            SetText(sitMpBelowTextBox, settings.Maintenance.SitMpBelowPercent.ToString());
+            SetText(sitMpRecoverToTextBox, settings.Maintenance.SitMpRecoverToPercent.ToString());
+            SetChecked(autoEquipCheckBox, settings.Maintenance.AutoEquip);
+            SetChecked(autoDecomposeCheckBox, settings.Maintenance.AutoDecompose);
+            SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
+            SetText(bagTotalSlotsTextBox, settings.Maintenance.BagTotalSlots.ToString());
+
+            if (settings.Skills.Mode == SkillConfigurationMode.Auto)
+            {
+                if (skillAutoModeRadio is not null)
+                {
+                    skillAutoModeRadio.Checked = true;
+                }
+
+                ShowSkillMode(false);
+            }
+            else
+            {
+                if (skillManualModeRadio is not null)
+                {
+                    skillManualModeRadio.Checked = true;
+                }
+
+                ShowSkillMode(true);
+            }
+
+            if (selectedSkillTree is not null)
+            {
+                PopulateSelectedSkillTreeFromConfig(selectedSkillTree, settings.Skills.ExecutionTree);
+            }
+
+            if (manualSkillMappingList is not null)
+            {
+                manualSkillMappingList.Controls.Clear();
+                foreach (var mapping in settings.Skills.ManualMappings)
+                {
+                    AddManualSkillMappingRow(manualSkillMappingList, mapping.SkillType, mapping.SkillName, mapping.Key);
+                }
+            }
+        }
+
+        private bool SaveCurrentSettings(out string error)
+        {
+            var account = LoadAccountConfigOrDefault();
+            var previousSettings = BuildEffectiveScriptSettings(account);
+            var capturedSettings = CaptureScriptSettings();
+            capturedSettings.SemiAuto = previousSettings.SemiAuto.Clone();
+            capturedSettings.Skills.KeyOrder = previousSettings.Skills.KeyOrder.Count == 0
+                ? SkillScriptSettings.DefaultKeyOrder()
+                : previousSettings.Skills.KeyOrder.ToList();
+            capturedSettings.Skills.TriggerPrefixMode = string.IsNullOrWhiteSpace(previousSettings.Skills.TriggerPrefixMode)
+                ? "TopContiguousTriggerSkills"
+                : previousSettings.Skills.TriggerPrefixMode;
+
+            account.AccountName = _account;
+            account.ScriptSettings = capturedSettings;
+            ApplyScriptSettingsToLegacyFields(account, account.ScriptSettings);
+
+            var result = _configStore.UpsertAsync(account).GetAwaiter().GetResult();
+            error = result.Error ?? "保存账号配置失败。";
+            return result.Success;
+        }
+
+        private ScriptSettings CaptureScriptSettings()
+        {
+            var settings = new ScriptSettings
+            {
+                ProfileName = GetText(profileNameTextBox, "default_profile"),
+                MainMode = ParseMainMode(mainModeCombo?.Text),
+                CombatMode = ParseCombatMode(combatModeCombo?.Text),
+                Combat = new CombatScriptSettings
+                {
+                    EnableLoot = enableLootCheckBox?.Checked ?? true,
+                    ContestMonster = contestMonsterCheckBox?.Checked ?? false,
+                    CounterEnemyRace = counterEnemyRaceCheckBox?.Checked ?? false
+                },
+                Paths = new PathScriptSettings
+                {
+                    RevivePathName = GetText(revivePathNameTextBox, string.Empty),
+                    CombatPathName = GetText(combatPathNameTextBox, string.Empty),
+                    MaintenancePathName = GetText(maintenancePathNameTextBox, string.Empty),
+                    LoopPath = loopPathCheckBox?.Checked ?? true,
+                    ReverseAtEnd = reverseAtEndCheckBox?.Checked ?? false,
+                    DeathStopPath = deathStopPathCheckBox?.Checked ?? true
+                },
+                Maintenance = new MaintenanceScriptSettings
+                {
+                    SitMaintenanceEnabled = sitMaintenanceCheckBox?.Checked ?? true,
+                    SitMpBelowPercent = ReadInt(sitMpBelowTextBox, 10),
+                    SitMpRecoverToPercent = ReadInt(sitMpRecoverToTextBox, 90),
+                    AutoEquip = autoEquipCheckBox?.Checked ?? true,
+                    AutoDecompose = autoDecomposeCheckBox?.Checked ?? true,
+                    BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 85),
+                    BagTotalSlots = ReadInt(bagTotalSlotsTextBox, 100)
+                },
+                Skills = new SkillScriptSettings
+                {
+                    Mode = skillAutoModeRadio?.Checked == true
+                        ? SkillConfigurationMode.Auto
+                        : SkillConfigurationMode.ManualMapping,
+                    TriggerPrefixMode = "TopContiguousTriggerSkills",
+                    ExecutionTree = selectedSkillTree is null
+                        ? new List<SkillConfigNode>()
+                        : CaptureSkillTree(selectedSkillTree.Nodes),
+                    ManualMappings = CaptureManualSkillMappings()
+                }
+            };
+
+            return settings;
+        }
+
+        private static void ApplyScriptSettingsToLegacyFields(AccountConfig account, ScriptSettings settings)
+        {
+            account.ProfileName = settings.ProfileName;
+            account.MainMode = settings.MainMode;
+            account.CombatMode = settings.CombatMode;
+            account.RevivePathName = settings.Paths.RevivePathName;
+            account.CombatPathName = settings.Paths.CombatPathName;
+            account.MaintenancePathName = settings.Paths.MaintenancePathName;
+        }
+
+        private static void SetText(RoundedTextBox? textBox, string? value)
+        {
+            if (textBox is not null)
+            {
+                textBox.Text = value ?? string.Empty;
+            }
+        }
+
+        private static string GetText(RoundedTextBox? textBox, string fallback)
+        {
+            return string.IsNullOrWhiteSpace(textBox?.Text)
+                ? fallback
+                : textBox.Text.Trim();
+        }
+
+        private static void SetComboText(RoundedComboBox? comboBox, string value)
+        {
+            if (comboBox is null)
+            {
+                return;
+            }
+
+            comboBox.Text = value;
+        }
+
+        private static void SetChecked(RoundedCheckBox? checkBox, bool value)
+        {
+            if (checkBox is not null)
+            {
+                checkBox.Checked = value;
+            }
+        }
+
+        private static int ReadInt(RoundedTextBox? textBox, int fallback)
+        {
+            return int.TryParse(textBox?.Text, out var value)
+                ? value
+                : fallback;
+        }
+
+        private static string FormatMainMode(AccountMainMode mode)
+        {
+            return mode switch
+            {
+                AccountMainMode.Gather => "采集",
+                AccountMainMode.Craft => "制作",
+                AccountMainMode.SemiAuto => "半自动",
+                _ => "自定义打怪"
+            };
+        }
+
+        private static AccountMainMode ParseMainMode(string? text)
+        {
+            return text switch
+            {
+                "采集" => AccountMainMode.Gather,
+                "制作" => AccountMainMode.Craft,
+                "半自动" => AccountMainMode.SemiAuto,
+                _ => AccountMainMode.CustomCombat
+            };
+        }
+
+        private static string FormatCombatMode(AccountCombatMode mode)
+        {
+            return mode == AccountCombatMode.Path ? "路径打怪" : "原地打怪";
+        }
+
+        private static AccountCombatMode ParseCombatMode(string? text)
+        {
+            return string.Equals(text, "路径打怪", StringComparison.Ordinal)
+                ? AccountCombatMode.Path
+                : AccountCombatMode.Stationary;
         }
 
         private TabPage CreateSummaryTab()
@@ -69,18 +390,18 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             AddLabel(page, "方案", 4, 8, 80, 22);
-            AddTextBox(page, "default_profile", 4, 32, 220, 26);
+            profileNameTextBox = AddTextBox(page, "default_profile", 4, 32, 220, 26);
             AddLabel(page, "方案名", 230, 36, 80, 22);
 
-            AddCombo(page, 4, 72, 220, 28, "自定义打怪", "采集", "制作", "半自动");
+            mainModeCombo = AddCombo(page, 4, 72, 220, 28, "自定义打怪", "采集", "制作", "半自动");
             AddLabel(page, "主模式", 230, 76, 80, 22, Color.FromArgb(220, 38, 38), FontStyle.Bold);
 
-            AddCombo(page, 4, 104, 220, 28, "原地打怪", "路径打怪");
+            combatModeCombo = AddCombo(page, 4, 104, 220, 28, "原地打怪", "路径打怪");
             AddLabel(page, "打怪模式", 230, 108, 80, 22);
 
-            AddCheckBox(page, "启用拾取", 4, 142, 88, true);
-            AddCheckBox(page, "抢怪", 96, 142, 64, false);
-            AddCheckBox(page, "反击敌对种族", 160, 142, 140, false);
+            enableLootCheckBox = AddCheckBox(page, "启用拾取", 4, 142, 88, true);
+            contestMonsterCheckBox = AddCheckBox(page, "抢怪", 96, 142, 64, false);
+            counterEnemyRaceCheckBox = AddCheckBox(page, "反击敌对种族", 160, 142, 140, false);
 
             var combatAdvanced = CreateFoldout(page, "高级打怪设置", 176, 850, false);
             combatAdvanced.Content.Height = 58;
@@ -133,7 +454,20 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             AddLabel(page, caption, 4, 8, 220, 22, _textGreen, FontStyle.Bold);
-            AddTextBox(page, "穆尔海姆00133", 4, 38, 242, 28);
+            var pathNameTextBox = AddTextBox(page, includeSamplePoint ? "穆尔海姆00133" : string.Empty, 4, 38, 242, 28);
+            if (string.Equals(title, "复活路径", StringComparison.Ordinal))
+            {
+                revivePathNameTextBox = pathNameTextBox;
+            }
+            else if (string.Equals(title, "打怪路径", StringComparison.Ordinal))
+            {
+                combatPathNameTextBox = pathNameTextBox;
+            }
+            else if (string.Equals(title, "维护路径", StringComparison.Ordinal))
+            {
+                maintenancePathNameTextBox = pathNameTextBox;
+            }
+
             AddLabel(page, "路径名", 252, 42, 54, 22);
             AddCombo(page, "穆尔海姆00133（1点）", 306, 38, 254, 28);
             AddLabel(page, "已保存路径", 566, 42, 120, 22);
@@ -165,9 +499,15 @@ namespace Roadhog
 
             var pathAdvanced = CreateFoldout(page, "高级路径设置", 302, 850, true);
             pathAdvanced.Content.Height = 68;
-            AddCheckBox(pathAdvanced.Content, "循环路径", 6, 12, 92, true);
-            AddCheckBox(pathAdvanced.Content, "到终点反向", 102, 12, 106, false);
-            AddCheckBox(pathAdvanced.Content, "死亡停止路径", 206, 12, 130, true);
+            var loopCheckBox = AddCheckBox(pathAdvanced.Content, "循环路径", 6, 12, 92, true);
+            var reverseCheckBox = AddCheckBox(pathAdvanced.Content, "到终点反向", 102, 12, 106, false);
+            var deathStopCheckBox = AddCheckBox(pathAdvanced.Content, "死亡停止路径", 206, 12, 130, true);
+            if (string.Equals(title, "复活路径", StringComparison.Ordinal))
+            {
+                loopPathCheckBox = loopCheckBox;
+                reverseAtEndCheckBox = reverseCheckBox;
+                deathStopPathCheckBox = deathStopCheckBox;
+            }
 
             return tab;
         }
@@ -179,12 +519,12 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             AddLabel(page, "坐地板维护", 4, 8, 82, 24, _textGreen, FontStyle.Bold);
-            AddCheckBox(page, "启用", 84, 6, 70, true);
+            sitMaintenanceCheckBox = AddCheckBox(page, "启用", 84, 6, 70, true);
 
             AddLabel(page, "蓝量低于", 4, 44, 66, 24);
-            AddTextBox(page, "10", 68, 42, 70, 28);
+            sitMpBelowTextBox = AddTextBox(page, "10", 68, 42, 70, 28);
             AddLabel(page, "%  坐地板，恢复到", 144, 44, 130, 24);
-            AddTextBox(page, "90", 272, 42, 70, 28);
+            sitMpRecoverToTextBox = AddTextBox(page, "90", 272, 42, 70, 28);
             AddLabel(page, "%  起来继续打怪", 348, 44, 160, 24);
 
             AddLabel(page, "血量维护", 4, 82, 66, 24, _textGreen, FontStyle.Bold);
@@ -204,13 +544,13 @@ namespace Roadhog
             };
             page.Controls.Add(separator);
 
-            AddCheckBox(page, "自动穿装备", 4, 230, 106, true);
-            AddCheckBox(page, "自动分解装备", 112, 230, 126, true);
+            autoEquipCheckBox = AddCheckBox(page, "自动穿装备", 4, 230, 106, true);
+            autoDecomposeCheckBox = AddCheckBox(page, "自动分解装备", 112, 230, 126, true);
 
             var advanced = CreateFoldout(page, "高级设置", 266, 850, true);
             advanced.Content.Height = 88;
-            AddNumberSetting(advanced.Content, "85", "清包阈值", 6, 12);
-            AddNumberSetting(advanced.Content, "100", "背包总格数", 6, 46);
+            bagCleanupThresholdTextBox = AddNumberSetting(advanced.Content, "85", "清包阈值", 6, 12);
+            bagTotalSlotsTextBox = AddNumberSetting(advanced.Content, "100", "背包总格数", 6, 46);
 
             return tab;
         }
@@ -223,16 +563,22 @@ namespace Roadhog
 
             AddLabel(page, "技能配置", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
             var autoMode = AddRadioButton(page, "自动技能", 92, 14, 90, false);
+            skillAutoModeRadio = autoMode;
             var manualMode = AddRadioButton(page, "手动技能Mapping", 184, 14, 142, true);
+            skillManualModeRadio = manualMode;
 
             var autoPanel = CreateSkillModePanel(page, "autoSkillPanel", false);
+            autoSkillPanel = autoPanel;
             var manualPanel = CreateSkillModePanel(page, "manualSkillPanel", true);
+            manualSkillPanel = manualPanel;
 
             AddLabel(autoPanel, "可用技能", 8, 6, 120, 24, _textGreen, FontStyle.Bold);
             AddLabel(autoPanel, "技能执行顺序", 378, 6, 140, 24, _textGreen, FontStyle.Bold);
 
             var availableTree = CreateSkillTree(autoPanel, "availableSkillTree", 8, 34, 260, 410);
+            availableSkillTree = availableTree;
             var selectedTree = CreateSkillTree(autoPanel, "selectedSkillTree", 378, 34, 300, 410);
+            selectedSkillTree = selectedTree;
             PopulateAvailableSkillTree(availableTree);
             PopulateSelectedSkillTree(selectedTree);
 
@@ -256,12 +602,6 @@ namespace Roadhog
 
             AddButton(manualPanel, "新增技能Mapping", 136, 0, 132, 30, (_, _) => AddManualSkillMapping(mappingRows));
             AddButton(manualPanel, "清空", 276, 0, 62, 30, (_, _) => mappingRows.Controls.Clear());
-
-            void ShowSkillMode(bool manual)
-            {
-                autoPanel.Visible = !manual;
-                manualPanel.Visible = manual;
-            }
 
             autoMode.CheckedChanged += (_, _) =>
             {
@@ -323,9 +663,9 @@ namespace Roadhog
             });
         }
 
-        private void AddTextBox(Control parent, string text, int x, int y, int width, int height)
+        private RoundedTextBox AddTextBox(Control parent, string text, int x, int y, int width, int height)
         {
-            parent.Controls.Add(new RoundedTextBox
+            var textBox = new RoundedTextBox
             {
                 BackColor = _inputBackground,
                 BorderColor = Color.FromArgb(134, 239, 172),
@@ -335,7 +675,10 @@ namespace Roadhog
                 Location = new Point(x, y),
                 Size = new Size(width, height),
                 Text = text
-            });
+            };
+
+            parent.Controls.Add(textBox);
+            return textBox;
         }
 
         private RoundedComboBox AddCombo(Control parent, string value, int x, int y, int width, int height)
@@ -391,12 +734,13 @@ namespace Roadhog
             return button;
         }
 
-        private void AddNumberSetting(Control parent, string value, string label, int x, int y)
+        private RoundedTextBox AddNumberSetting(Control parent, string value, string label, int x, int y)
         {
-            AddTextBox(parent, value, x, y, 56, 28);
+            var textBox = AddTextBox(parent, value, x, y, 56, 28);
             AddSmallButton(parent, "-", x + 62, y, 24, 28);
             AddSmallButton(parent, "+", x + 90, y, 24, 28);
             AddLabel(parent, label, x + 122, y + 2, 120, 24);
+            return textBox;
         }
 
         private void AddSmallButton(Control parent, string text, int x, int y, int width, int height)
@@ -418,7 +762,7 @@ namespace Roadhog
             parent.Controls.Add(button);
         }
 
-        private void AddCheckBox(Control parent, string text, int x, int y, int width, bool isChecked)
+        private RoundedCheckBox AddCheckBox(Control parent, string text, int x, int y, int width, bool isChecked)
         {
             var checkBox = new RoundedCheckBox
             {
@@ -432,6 +776,7 @@ namespace Roadhog
             };
 
             parent.Controls.Add(checkBox);
+            return checkBox;
         }
 
         private RadioButton AddRadioButton(Control parent, string text, int x, int y, int width, bool isChecked)
@@ -468,6 +813,19 @@ namespace Roadhog
 
             parent.Controls.Add(panel);
             return panel;
+        }
+
+        private void ShowSkillMode(bool manual)
+        {
+            if (autoSkillPanel is not null)
+            {
+                autoSkillPanel.Visible = !manual;
+            }
+
+            if (manualSkillPanel is not null)
+            {
+                manualSkillPanel.Visible = manual;
+            }
         }
 
         private FoldoutSection CreateFoldout(Control parent, string title, int y, int width, bool expanded)
@@ -605,8 +963,7 @@ namespace Roadhog
                             categoryNode,
                             visibleSkills
                                 .Where(skill => !chainRootSkillKeys.Contains(GetSkillKey(skill)))
-                                .Where(skill => MatchesManualSkillType(skill, category))
-                                .Select(FormatManualSkillName));
+                                .Where(skill => MatchesManualSkillType(skill, category)));
                     }
 
                     if (categoryNode.Nodes.Count == 0)
@@ -640,6 +997,7 @@ namespace Roadhog
             {
                 var rootName = FormatManualSkillName(rootSkill);
                 var rootNode = categoryNode.Nodes.Add(rootName, rootName);
+                rootNode.Tag = CreateSkillTreeNodeData(rootSkill);
                 AddChainChildren(
                     rootNode,
                     rootSkill,
@@ -656,8 +1014,7 @@ namespace Roadhog
             AddSkillLeaves(
                 categoryNode,
                 chainSkills
-                    .Where(skill => !emittedSkillKeys.Contains(GetSkillKey(skill)))
-                    .Select(FormatManualSkillName));
+                    .Where(skill => !emittedSkillKeys.Contains(GetSkillKey(skill))));
         }
 
         private static HashSet<string> GetChainRootSkillKeys(IReadOnlyList<SkillSnapshot> visibleSkills)
@@ -701,9 +1058,40 @@ namespace Roadhog
 
                 var childName = FormatManualSkillName(childSkill);
                 var childNode = parentNode.Nodes.Add(childName, childName);
+                childNode.Tag = CreateSkillTreeNodeData(childSkill);
                 AddChainChildren(childNode, childSkill, chainSkills, emittedSkillKeys, pathSkillKeys);
                 pathSkillKeys.Remove(childKey);
             }
+        }
+
+        private static void AddSkillLeaves(TreeNode parentNode, IEnumerable<SkillSnapshot> skills)
+        {
+            var orderedSkills = skills
+                .GroupBy(GetSkillKey, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .OrderBy(FormatManualSkillName, StringComparer.CurrentCulture);
+
+            foreach (var skill in orderedSkills)
+            {
+                var skillName = FormatManualSkillName(skill);
+                if (string.IsNullOrWhiteSpace(skillName))
+                {
+                    continue;
+                }
+
+                var node = parentNode.Nodes.Add(skillName, skillName);
+                node.Tag = CreateSkillTreeNodeData(skill);
+            }
+        }
+
+        private static SkillTreeNodeData CreateSkillTreeNodeData(SkillSnapshot skill)
+        {
+            return new SkillTreeNodeData(
+                skill.SkillId,
+                FormatManualSkillName(skill),
+                GetSkillBaseName(skill),
+                GetManualSkillCategory(skill),
+                ParseNullableInt(skill.XmlChainTime));
         }
 
         private static void AddSkillLeaves(TreeNode parentNode, IEnumerable<string> skillNames)
@@ -735,11 +1123,132 @@ namespace Roadhog
             return skill.SkillId + "|" + FormatManualSkillName(skill);
         }
 
+        private static int? ParseNullableInt(string? value)
+        {
+            return int.TryParse(value, out var parsed)
+                ? parsed
+                : null;
+        }
+
+        private sealed record SkillTreeNodeData(
+            uint SkillId,
+            string Name,
+            string BaseName,
+            string Type,
+            int? ChainTimeMs);
+
         private void PopulateSelectedSkillTree(TreeView tree)
         {
             tree.BeginUpdate();
             tree.Nodes.Clear();
             tree.EndUpdate();
+        }
+
+        private static void PopulateSelectedSkillTreeFromConfig(TreeView tree, IReadOnlyList<SkillConfigNode> nodes)
+        {
+            tree.BeginUpdate();
+            try
+            {
+                tree.Nodes.Clear();
+                foreach (var node in nodes)
+                {
+                    AddConfiguredSkillNode(tree.Nodes, node);
+                }
+
+                tree.ExpandAll();
+            }
+            finally
+            {
+                tree.EndUpdate();
+            }
+        }
+
+        private static TreeNode AddConfiguredSkillNode(TreeNodeCollection targetNodes, SkillConfigNode config)
+        {
+            var text = string.IsNullOrWhiteSpace(config.Name)
+                ? "Skill " + config.SkillId
+                : config.Name;
+            var node = targetNodes.Add(text, text);
+            node.Tag = new SkillTreeNodeData(
+                config.SkillId,
+                text,
+                config.BaseName,
+                config.Type,
+                config.ChainTimeMs);
+
+            foreach (var child in config.Children)
+            {
+                AddConfiguredSkillNode(node.Nodes, child);
+            }
+
+            return node;
+        }
+
+        private static List<SkillConfigNode> CaptureSkillTree(TreeNodeCollection nodes)
+        {
+            var results = new List<SkillConfigNode>();
+            foreach (TreeNode node in nodes)
+            {
+                results.Add(CaptureSkillNode(node));
+            }
+
+            return results;
+        }
+
+        private static SkillConfigNode CaptureSkillNode(TreeNode node)
+        {
+            var data = node.Tag as SkillTreeNodeData;
+            var config = new SkillConfigNode
+            {
+                SkillId = data?.SkillId ?? 0,
+                Name = data?.Name ?? node.Text,
+                BaseName = data?.BaseName ?? node.Text,
+                Type = data?.Type ?? InferSkillNodeType(node),
+                ChainTimeMs = data?.ChainTimeMs,
+                Children = CaptureSkillTree(node.Nodes)
+            };
+
+            return config;
+        }
+
+        private static string InferSkillNodeType(TreeNode node)
+        {
+            return node.Parent is null ? string.Empty : "连续技";
+        }
+
+        private List<ManualSkillMappingConfig> CaptureManualSkillMappings()
+        {
+            if (manualSkillMappingList is null)
+            {
+                return new List<ManualSkillMappingConfig>();
+            }
+
+            return manualSkillMappingList.Controls
+                .OfType<Panel>()
+                .Select(row =>
+                {
+                    var typeCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "manualSkillTypeCombo", StringComparison.Ordinal));
+                    var skillCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "manualSkillNameCombo", StringComparison.Ordinal));
+                    var keyButton = row.Controls
+                        .OfType<Button>()
+                        .FirstOrDefault(button => string.Equals(button.Name, "manualSkillKeyButton", StringComparison.Ordinal));
+
+                    return new ManualSkillMappingConfig
+                    {
+                        SkillType = typeCombo?.Text ?? string.Empty,
+                        SkillName = skillCombo?.Text ?? string.Empty,
+                        Key = keyButton?.Tag as string ?? string.Empty
+                    };
+                })
+                .Where(mapping =>
+                    !string.IsNullOrWhiteSpace(mapping.SkillType) ||
+                    !string.IsNullOrWhiteSpace(mapping.SkillName) ||
+                    !string.IsNullOrWhiteSpace(mapping.Key))
+                .ToList();
         }
 
         private void AddSkillSelection(TreeView source, TreeView target)
@@ -822,10 +1331,14 @@ namespace Roadhog
 
         private void AddManualSkillMapping(FlowLayoutPanel target)
         {
-            AddManualSkillMappingRow(target, string.Empty);
+            AddManualSkillMappingRow(target);
         }
 
-        private void AddManualSkillMappingRow(FlowLayoutPanel list, string skillName)
+        private void AddManualSkillMappingRow(
+            FlowLayoutPanel list,
+            string skillType = "主动技能",
+            string skillName = "",
+            string key = "")
         {
             var row = new Panel
             {
@@ -851,9 +1364,19 @@ namespace Roadhog
 
             var typeCombo = AddCombo(row, 34, 1, 118, 28, ManualSkillCategories);
             typeCombo.Name = "manualSkillTypeCombo";
+            if (!string.IsNullOrWhiteSpace(skillType) && typeCombo.Items.Contains(skillType))
+            {
+                typeCombo.Text = skillType;
+            }
+
             var skillCombo = AddCombo(row, 158, 1, 132, 28);
             skillCombo.Name = "manualSkillNameCombo";
             PopulateManualSkillNameCombo(skillCombo, typeCombo.Text);
+            if (!string.IsNullOrWhiteSpace(skillName))
+            {
+                skillCombo.Text = skillName;
+            }
+
             typeCombo.SelectedIndexChanged += (_, _) => PopulateManualSkillNameCombo(skillCombo, typeCombo.Text);
 
             row.Controls.Add(new Label
@@ -869,6 +1392,13 @@ namespace Roadhog
             });
 
             var keyButton = AddButton(row, "选择按键", 324, 0, 104, 30);
+            keyButton.Name = "manualSkillKeyButton";
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                keyButton.Tag = key;
+                keyButton.Text = FormatSkillKey(key);
+            }
+
             AddButton(row, "删除", 436, 0, 58, 30);
 
             keyButton.Click += (_, _) =>
@@ -877,7 +1407,7 @@ namespace Roadhog
                 if (!string.IsNullOrWhiteSpace(selectedKey))
                 {
                     keyButton.Tag = selectedKey;
-                    keyButton.Text = selectedKey;
+                    keyButton.Text = FormatSkillKey(selectedKey);
                 }
             };
 
@@ -1512,7 +2042,7 @@ namespace Roadhog
                 ForeColor = _textGreen,
                 Location = new Point(238, 12),
                 Size = new Size(220, 24),
-                Text = $"当前: {(string.IsNullOrWhiteSpace(currentKey) ? "未选择" : currentKey)}",
+                Text = $"当前: {(string.IsNullOrWhiteSpace(currentKey) ? "未选择" : FormatSkillKey(currentKey))}",
                 TextAlign = ContentAlignment.MiddleLeft
             };
             dialog.Controls.Add(current);
@@ -1545,33 +2075,48 @@ namespace Roadhog
 
         private void AddKeyboardRows(Control parent, Action<string> selectKey)
         {
-            var rows = new[]
+            var rows = new (string Text, string Value)[][]
             {
-                new[] { "Esc", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" },
-                new[] { "`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "Backspace" },
-                new[] { "Tab", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]", "\\" },
-                new[] { "Caps", "A", "S", "D", "F", "G", "H", "J", "K", "L", ";", "'", "Enter" },
-                new[] { "Shift", "Z", "X", "C", "V", "B", "N", "M", ",", ".", "/", "Shift" },
-                new[] { "Ctrl", "Win", "Alt", "Space", "Alt", "Fn", "Menu", "Ctrl" }
+                new[]
+                {
+                    ("1", "D1"),
+                    ("2", "D2"),
+                    ("3", "D3"),
+                    ("4", "D4"),
+                    ("5", "D5"),
+                    ("6", "D6"),
+                    ("7", "D7"),
+                    ("8", "D8"),
+                    ("9", "D9"),
+                    ("0", "D0"),
+                    ("-", "OemMinus"),
+                    ("=", "OemPlus")
+                },
+                new[]
+                {
+                    ("Num1", "NumPad1"),
+                    ("Num2", "NumPad2"),
+                    ("Num3", "NumPad3"),
+                    ("Num4", "NumPad4"),
+                    ("Num5", "NumPad5"),
+                    ("Num6", "NumPad6"),
+                    ("Num7", "NumPad7"),
+                    ("Num8", "NumPad8"),
+                    ("Num9", "NumPad9"),
+                    ("Num0", "NumPad0")
+                }
             };
 
             var y = 48;
             for (var rowIndex = 0; rowIndex < rows.Length; rowIndex++)
             {
-                var x = 14 + rowIndex switch
-                {
-                    2 => 18,
-                    3 => 30,
-                    4 => 44,
-                    5 => 76,
-                    _ => 0
-                };
+                var x = 14;
 
                 foreach (var key in rows[rowIndex])
                 {
-                    var width = GetKeyboardKeyWidth(key);
-                    var button = CreateKeyboardKeyButton(key, x, y, width);
-                    button.Click += (_, _) => selectKey(key);
+                    var width = GetKeyboardKeyWidth(key.Text);
+                    var button = CreateKeyboardKeyButton(key.Text, x, y, width);
+                    button.Click += (_, _) => selectKey(key.Value);
                     parent.Controls.Add(button);
                     x += width + 6;
                 }
@@ -1608,7 +2153,39 @@ namespace Roadhog
                 "Shift" => 78,
                 "Space" => 176,
                 "Ctrl" or "Alt" or "Win" or "Menu" => 54,
+                "Num1" or "Num2" or "Num3" or "Num4" or "Num5" or
+                    "Num6" or "Num7" or "Num8" or "Num9" or "Num0" => 54,
                 _ => 42
+            };
+        }
+
+        private static string FormatSkillKey(string? key)
+        {
+            return key switch
+            {
+                "D1" => "1",
+                "D2" => "2",
+                "D3" => "3",
+                "D4" => "4",
+                "D5" => "5",
+                "D6" => "6",
+                "D7" => "7",
+                "D8" => "8",
+                "D9" => "9",
+                "D0" => "0",
+                "OemMinus" => "-",
+                "OemPlus" => "=",
+                "NumPad1" => "Num1",
+                "NumPad2" => "Num2",
+                "NumPad3" => "Num3",
+                "NumPad4" => "Num4",
+                "NumPad5" => "Num5",
+                "NumPad6" => "Num6",
+                "NumPad7" => "Num7",
+                "NumPad8" => "Num8",
+                "NumPad9" => "Num9",
+                "NumPad0" => "Num0",
+                _ => key ?? string.Empty
             };
         }
 

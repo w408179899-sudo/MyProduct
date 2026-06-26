@@ -1,7 +1,17 @@
+using Roadhog.Application.SemiAuto;
+using Roadhog.Core.Accounts;
+
 namespace Roadhog.Application.Workers;
 
 public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
 {
+    private readonly SemiAutoCombatController _semiAuto;
+
+    public DefaultAccountWorkerLoop(SemiAutoCombatController semiAuto)
+    {
+        _semiAuto = semiAuto;
+    }
+
     public async Task RunAsync(AccountWorkerContext context)
     {
         context.Logger.Info("worker.loop.enter", new Dictionary<string, object?>
@@ -12,11 +22,34 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             ["vmmDevice"] = context.Config.VmmDeviceName
         });
 
+        var scriptSettings = context.Config.ScriptSettings ?? new ScriptSettings
+        {
+            ProfileName = context.Config.ProfileName,
+            MainMode = context.Config.MainMode,
+            CombatMode = context.Config.CombatMode
+        };
+        var semiAutoPlan = SemiAutoSkillPlan.FromSettings(scriptSettings.Skills);
+        var semiAutoState = new SemiAutoCombatState();
+        context.Logger.Info("semi_auto.plan.loaded", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["mode"] = scriptSettings.Skills.Mode.ToString(),
+            ["rootCount"] = semiAutoPlan.Roots.Count,
+            ["triggerPrefixCount"] = semiAutoPlan.TriggerPrefixRoots.Count,
+            ["hasExecutableSkills"] = semiAutoPlan.HasExecutableSkills,
+            ["roots"] = string.Join(" > ", semiAutoPlan.Roots.Select(root => root.Name + "[" + root.Type + "]@" + root.Key))
+        });
+
         while (!context.StopToken.IsCancellationRequested)
         {
             context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
 
-            if (context.Options.PollPlayerSnapshot)
+            var delay = context.Options.TickInterval;
+            if (context.Config.MainMode == AccountMainMode.SemiAuto)
+            {
+                delay = await _semiAuto.TickAsync(context, semiAutoPlan, semiAutoState).ConfigureAwait(false);
+            }
+            else if (context.Options.PollPlayerSnapshot)
             {
                 var result = await context.GameApi.ReadPlayerAsync(context.StopToken).ConfigureAwait(false);
                 if (!result.Success)
@@ -29,7 +62,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 }
             }
 
-            await Task.Delay(context.Options.TickInterval, context.StopToken).ConfigureAwait(false);
+            await Task.Delay(delay, context.StopToken).ConfigureAwait(false);
         }
     }
 }

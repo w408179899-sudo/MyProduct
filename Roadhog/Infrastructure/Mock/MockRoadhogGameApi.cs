@@ -22,6 +22,23 @@ public sealed class MockRoadhogGameApi : IRoadhogGameApi
         return Task.FromResult(OperationResult<PlayerSnapshot>.Ok(snapshot));
     }
 
+    public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
+    {
+        var snapshot = new LockedTargetSnapshot(
+            2,
+            10002,
+            3,
+            LockedTargetSnapshot.MonsterObjectType,
+            "Mock Monster",
+            100,
+            100,
+            new Vector3Snapshot(1307.5F, 2838.2F, 258.9F),
+            5.6D,
+            DateTimeOffset.Now);
+
+        return Task.FromResult(OperationResult<LockedTargetSnapshot>.Ok(snapshot));
+    }
+
     public Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(CancellationToken cancellationToken = default)
     {
         IReadOnlyList<SkillSnapshot> skills = new[]

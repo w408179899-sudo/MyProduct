@@ -1,12 +1,16 @@
 using Roadhog.Application;
+using Roadhog.Application.SemiAuto;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Api;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Hardware;
+using Roadhog.Core.Input;
 using Roadhog.Core.Processes;
 using Roadhog.Infrastructure.Config;
+using Roadhog.Infrastructure.Diagnostics;
 using Roadhog.Infrastructure.Hardware;
+using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Mock;
 using Roadhog.Infrastructure.Offsets;
 using Roadhog.Infrastructure.Processes;
@@ -61,7 +65,19 @@ public sealed class RoadhogServices
     {
         options ??= new RoadhogServiceOptions();
 
-        var logger = new InMemoryRoadhogLogger();
+        var memoryLogger = new InMemoryRoadhogLogger();
+        var logger = new CompositeRoadhogLogger(
+            memoryLogger,
+            new FileRoadhogLogger(options.LogDirectory));
+        logger.Info("roadhog.services.created", new Dictionary<string, object?>
+        {
+            ["logDirectory"] = options.LogDirectory,
+            ["accountConfigPath"] = options.AccountConfigPath,
+            ["keyboardInput"] = "KMbox",
+            ["keyboardPort"] = options.KeyboardInput.PortName,
+            ["useMockGameApi"] = options.UseMockGameApi,
+            ["useToolTestBridge"] = options.UseToolTestBridge
+        });
         IRoadhogGameApi gameApi = options.UseToolTestBridge
             ? new ToolProcessApiClient(options.ToolTestBridge, logger)
             : options.UseMockGameApi
@@ -71,6 +87,8 @@ public sealed class RoadhogServices
         var processResolver = new AionProcessResolver(options.ProcessResolver);
         var accountConfigStore = new JsonAccountConfigStore(options.AccountConfigPath);
         var accounts = new AccountRuntimeManager(logger);
+        IKeyboardInput keyboardInput = new KmBoxKeyboardInput(options.KeyboardInput);
+        var semiAutoController = new SemiAutoCombatController(keyboardInput);
         var workerOptions = new AccountWorkerOptions
         {
             TickInterval = options.AccountWorkerTickInterval,
@@ -83,7 +101,7 @@ public sealed class RoadhogServices
             accounts,
             hardwareResolver,
             processResolver,
-            new DefaultAccountWorkerLoop(),
+            new DefaultAccountWorkerLoop(semiAutoController),
             workerOptions);
         var runtime = new RoadhogRuntime(gameApi, logger, accounts, accountOrchestrator);
         var offsets = new OffsetCatalogProvider(new OffsetCatalogLoader(), logger);

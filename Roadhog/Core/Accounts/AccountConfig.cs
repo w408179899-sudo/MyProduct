@@ -40,6 +40,8 @@ public sealed class AccountConfig
 
     public string SkillProfileName { get; set; } = string.Empty;
 
+    public ScriptSettings? ScriptSettings { get; set; }
+
     public bool Validate(out string error)
     {
         if (string.IsNullOrWhiteSpace(AccountName))
@@ -80,7 +82,8 @@ public sealed class AccountConfig
             RevivePathName = RevivePathName,
             CombatPathName = CombatPathName,
             MaintenancePathName = MaintenancePathName,
-            SkillProfileName = SkillProfileName
+            SkillProfileName = SkillProfileName,
+            ScriptSettings = ScriptSettings?.Clone()
         };
     }
 }

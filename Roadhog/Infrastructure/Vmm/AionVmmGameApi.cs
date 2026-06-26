@@ -14,6 +14,9 @@ namespace Roadhog.Infrastructure.Vmm;
 
 public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 {
+    private const ulong EntitySystemPointerRva = 0x904690;
+    private const ulong ServerObjectTreeRva = 0xD21740;
+    private const ulong LocalEntityIdRva = 0xD21798;
     private const ulong SkillManagerGlobalRva = 0xD004A0;
     private const ulong LearnedSkillTreeOffset = 0x828;
     private const ulong LearnedSkillOuterSkillIdOffset = 0x20;
@@ -26,8 +29,32 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private const ulong NodeParentOffset = 0x08;
     private const ulong NodeRightOffset = 0x10;
     private const ulong NodeIsNilOffset = 0x19;
+    private const ulong NodeIdOffset = 0x20;
+    private const ulong NodeEntityOffset = 0x28;
     private const ulong ListNodePrevOffset = 0x08;
     private const ulong ListNodeValueOffset = 0x10;
+
+    private const ulong EntityTreeOffset = 0x58;
+    private const ulong EntityTypeOffset = 0xF2;
+    private const ulong EntityPositionFlagsOffset = 0xC0;
+    private const uint EntityUseAlternatePositionFlag = 0x400;
+    private const ulong EntityWorldPositionOffset = 0x4B4;
+    private const ulong EntityLocalPositionOffset = 0x4F4;
+    private const ulong EntityProxyManagerVfuncOffset = 0xB8;
+
+    private const ulong ServerNodeServerObjectIdOffset = 0x1C;
+    private const ulong ServerNodeEntityIdOffset = 0x20;
+
+    private const ulong ActorEntityOffset = 0x08;
+    private const ulong ActorObjectTypeOffset = 0x20;
+    private const ulong ActorServerObjectIdOffset = 0x2C;
+    private const ulong ActorNpcTemplateIdOffset = 0x30;
+    private const ulong ActorLevelOffset = 0x3E;
+    private const ulong ActorHpPercentOffset = 0x40;
+    private const ulong ActorNameOffset = 0x42;
+    private const ulong ActorTargetServerObjectIdOffset = 0x358;
+    private const ulong ActorMaxHpOffset = 0x11A0;
+    private const ulong ActorCurrentHpOffset = 0x11A4;
 
     private const ulong SkillItemSkillIdOffset = 0x08;
     private const ulong SkillItemField0COffset = 0x0C;
@@ -60,6 +87,19 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         return Task.FromResult(OperationResult<PlayerSnapshot>.Fail("Direct VMM player snapshot is not implemented yet."));
     }
 
+    public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
+    {
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadLockedTargetAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadLockedTargetCore(context), cancellationToken);
+    }
+
     public Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(CancellationToken cancellationToken = default)
     {
         var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
@@ -81,6 +121,52 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
     {
         return Task.FromResult(OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("Direct VMM world object snapshot is not implemented yet."));
+    }
+
+    private OperationResult<LockedTargetSnapshot> ReadLockedTargetCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<LockedTargetSnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<LockedTargetSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                if (!TryReadLockedTarget(process, gameBase, out var target, out var readError))
+                {
+                    return OperationResult<LockedTargetSnapshot>.Fail(readError);
+                }
+
+                var snapshot = ToLockedTargetSnapshot(target);
+                _logger.Info("vmm.locked_target.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["targetEntityId"] = snapshot.TargetEntityId,
+                    ["objectType"] = snapshot.ObjectType,
+                    ["hp"] = snapshot.CurrentHp,
+                    ["maxHp"] = snapshot.MaxHp,
+                    ["isMonsterAlive"] = snapshot.IsMonsterAlive
+                });
+
+                return OperationResult<LockedTargetSnapshot>.Ok(snapshot);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.locked_target.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<LockedTargetSnapshot>.Fail(ex.Message);
+        }
     }
 
     private OperationResult<IReadOnlyList<SkillSnapshot>> ReadSkillsCore(GameApiReadContext context)
@@ -1305,6 +1391,417 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
                value is >= '0' and <= '9';
     }
 
+    private static bool TryReadLockedTarget(
+        VmmProcess process,
+        ulong gameBase,
+        out LockedTargetInfo info,
+        out string error)
+    {
+        info = new LockedTargetInfo();
+        error = string.Empty;
+
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out info.TargetEntityId))
+        {
+            error = "failed to read current target entity id at Game.dll+0x" + (LocalEntityIdRva + 2).ToString("X");
+            return false;
+        }
+
+        if (info.TargetEntityId == 0)
+        {
+            return true;
+        }
+
+        if (TryFindServerObjectByEntityId(process, gameBase, info.TargetEntityId, out var serverObjectId, out _))
+        {
+            info.ServerObjectId = serverObjectId;
+        }
+
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        {
+            error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        {
+            error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
+            return false;
+        }
+
+        if (!TryFindEntityById(process, entityTreeHeader, info.TargetEntityId, out info.Entity))
+        {
+            error = "target entity id " + info.TargetEntityId + " was not found in EntitySystem tree";
+            return false;
+        }
+
+        TryReadUInt16(process, info.Entity + EntityTypeOffset, out info.EntityType);
+
+        if (TryReadEntityPosition(process, info.Entity, out var x, out var y, out var z))
+        {
+            info.Position = new Vector3Snapshot(x, y, z);
+        }
+
+        if (TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) &&
+            TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity) &&
+            TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ) &&
+            info.Position is { } targetPosition)
+        {
+            var dx = targetPosition.X - localX;
+            var dy = targetPosition.Y - localY;
+            var dz = targetPosition.Z - localZ;
+            info.DistanceToLocalPlayer = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        if (TryResolveActorFromEntity(process, info.Entity, info.ServerObjectId, out var actor))
+        {
+            info.Actor = actor;
+        }
+
+        return true;
+    }
+
+    private static LockedTargetSnapshot ToLockedTargetSnapshot(LockedTargetInfo info)
+    {
+        if (info.TargetEntityId == 0)
+        {
+            return LockedTargetSnapshot.Empty(DateTimeOffset.Now);
+        }
+
+        return new LockedTargetSnapshot(
+            info.TargetEntityId,
+            info.Actor?.ServerObjectId ?? info.ServerObjectId,
+            info.EntityType,
+            info.Actor?.ObjectType ?? 0,
+            info.Actor?.Name ?? string.Empty,
+            info.Actor?.CurrentHp ?? 0,
+            info.Actor?.MaxHp ?? 0,
+            info.Position,
+            info.DistanceToLocalPlayer,
+            DateTimeOffset.Now);
+    }
+
+    private static bool TryFindEntityById(VmmProcess process, ulong header, ushort entityId, out ulong entity)
+    {
+        entity = 0;
+        if (header == 0 || entityId == 0)
+        {
+            return false;
+        }
+
+        if (!TryReadPointer(process, header + NodeParentOffset, out var node))
+        {
+            return false;
+        }
+
+        for (var guard = 0; node != 0 && node != header && guard < 65536; guard++)
+        {
+            if (IsNilNode(process, node, header))
+            {
+                return false;
+            }
+
+            if (!TryReadUInt16(process, node + NodeIdOffset, out var nodeId))
+            {
+                return false;
+            }
+
+            if (entityId < nodeId)
+            {
+                if (!TryReadPointer(process, node + NodeLeftOffset, out node))
+                {
+                    return false;
+                }
+            }
+            else if (entityId > nodeId)
+            {
+                if (!TryReadPointer(process, node + NodeRightOffset, out node))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                return TryReadPointer(process, node + NodeEntityOffset, out entity);
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryReadEntityPosition(VmmProcess process, ulong entity, out float x, out float y, out float z)
+    {
+        x = 0;
+        y = 0;
+        z = 0;
+
+        if (!TryReadUInt32(process, entity + EntityPositionFlagsOffset, out var flags))
+        {
+            return false;
+        }
+
+        var positionOffset = (flags & EntityUseAlternatePositionFlag) != 0
+            ? EntityLocalPositionOffset
+            : EntityWorldPositionOffset;
+
+        return TryReadSingle(process, entity + positionOffset, out x) &&
+               TryReadSingle(process, entity + positionOffset + 4, out y) &&
+               TryReadSingle(process, entity + positionOffset + 8, out z);
+    }
+
+    private static bool TryResolveActorFromEntity(
+        VmmProcess process,
+        ulong entity,
+        uint expectedServerObjectId,
+        out ActorInfo actor)
+    {
+        actor = new ActorInfo();
+
+        if (TryResolveProxyManagerFromEntityVfunc(process, entity, out var proxyManager, out var proxyOffset) &&
+            TryFindActorCandidateInPointerRegion(
+                process,
+                proxyManager,
+                0x400,
+                entity,
+                expectedServerObjectId,
+                "proxyManager(vfunc_0xB8, entity+0x" + proxyOffset.ToString("X") + ")",
+                out actor))
+        {
+            return true;
+        }
+
+        if (TryFindActorCandidateInPointerRegion(
+            process,
+            entity,
+            0x800,
+            entity,
+            expectedServerObjectId,
+            "CEntity direct scan",
+            out actor))
+        {
+            return true;
+        }
+
+        for (ulong offset = 0; offset < 0x800; offset += 8)
+        {
+            if (!TryReadPointer(process, entity + offset, out var pointer))
+            {
+                continue;
+            }
+
+            if (TryFindActorCandidateInPointerRegion(
+                process,
+                pointer,
+                0x300,
+                entity,
+                expectedServerObjectId,
+                "CEntity+0x" + offset.ToString("X") + " nested scan",
+                out actor))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryResolveProxyManagerFromEntityVfunc(
+        VmmProcess process,
+        ulong entity,
+        out ulong proxyManager,
+        out ulong proxyOffset)
+    {
+        proxyManager = 0;
+        proxyOffset = 0;
+
+        if (!TryReadPointer(process, entity, out var vtable) ||
+            !TryReadPointer(process, vtable + EntityProxyManagerVfuncOffset, out var function) ||
+            !TryReadBytes(process, function, 16, out var code))
+        {
+            return false;
+        }
+
+        if (code.Length >= 7 &&
+            code[0] == 0x48 &&
+            code[1] == 0x8B &&
+            code[2] == 0x81)
+        {
+            proxyOffset = BitConverter.ToUInt32(code, 3);
+        }
+        else if (code.Length >= 4 &&
+                 code[0] == 0x48 &&
+                 code[1] == 0x8B &&
+                 code[2] == 0x41)
+        {
+            proxyOffset = code[3];
+        }
+        else
+        {
+            return false;
+        }
+
+        return TryReadPointer(process, entity + proxyOffset, out proxyManager);
+    }
+
+    private static bool TryFindActorCandidateInPointerRegion(
+        VmmProcess process,
+        ulong region,
+        ulong regionSize,
+        ulong expectedEntity,
+        uint expectedServerObjectId,
+        string source,
+        out ActorInfo actor)
+    {
+        actor = new ActorInfo();
+        var bestScore = -1;
+
+        if (!IsLikelyUserPointer(region))
+        {
+            return false;
+        }
+
+        for (ulong offset = 0; offset < regionSize; offset += 8)
+        {
+            if (TryReadPointer(process, region + offset, out var candidate) &&
+                TryReadActorInfo(
+                    process,
+                    candidate,
+                    expectedEntity,
+                    expectedServerObjectId,
+                    source + "+0x" + offset.ToString("X"),
+                    out var candidateInfo,
+                    out var score) &&
+                score > bestScore)
+            {
+                bestScore = score;
+                actor = candidateInfo;
+            }
+        }
+
+        return bestScore >= 60;
+    }
+
+    private static bool TryReadActorInfo(
+        VmmProcess process,
+        ulong actorAddress,
+        ulong expectedEntity,
+        uint expectedServerObjectId,
+        string source,
+        out ActorInfo actor,
+        out int score)
+    {
+        actor = new ActorInfo();
+        score = 0;
+
+        if (!IsLikelyUserPointer(actorAddress))
+        {
+            return false;
+        }
+
+        if (!TryReadPointer(process, actorAddress + ActorEntityOffset, out var actorEntity) ||
+            !TryReadUInt32(process, actorAddress + ActorObjectTypeOffset, out var objectType) ||
+            !TryReadUInt32(process, actorAddress + ActorServerObjectIdOffset, out var serverObjectId))
+        {
+            return false;
+        }
+
+        if (actorEntity != expectedEntity)
+        {
+            return false;
+        }
+
+        score += 50;
+
+        if (objectType is 0 or > 32)
+        {
+            return false;
+        }
+
+        score += 10;
+
+        if (expectedServerObjectId != 0 && serverObjectId == expectedServerObjectId)
+        {
+            score += 40;
+        }
+        else if (serverObjectId != 0)
+        {
+            score += 10;
+        }
+
+        actor.Actor = actorAddress;
+        actor.Entity = actorEntity;
+        actor.ObjectType = objectType;
+        actor.ServerObjectId = serverObjectId;
+        actor.ResolveSource = source;
+
+        TryReadUInt32(process, actorAddress + ActorNpcTemplateIdOffset, out actor.NpcTemplateId);
+        TryReadUInt16(process, actorAddress + ActorLevelOffset, out actor.Level);
+        TryReadByte(process, actorAddress + ActorHpPercentOffset, out actor.HpPercent);
+        TryReadUInt32(process, actorAddress + ActorTargetServerObjectIdOffset, out actor.TargetServerObjectId);
+        TryReadUInt32(process, actorAddress + ActorMaxHpOffset, out actor.MaxHp);
+        TryReadUInt32(process, actorAddress + ActorCurrentHpOffset, out actor.CurrentHp);
+
+        if (TryReadUtf16String(process, actorAddress + ActorNameOffset, 64, out var name))
+        {
+            actor.Name = name;
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                score += 10;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryFindServerObjectByEntityId(
+        VmmProcess process,
+        ulong gameBase,
+        ushort entityId,
+        out uint serverObjectId,
+        out ulong serverTreeHeader)
+    {
+        serverObjectId = 0;
+        serverTreeHeader = 0;
+
+        if (entityId == 0 ||
+            !TryReadPointer(process, gameBase + ServerObjectTreeRva, out serverTreeHeader) ||
+            serverTreeHeader == 0)
+        {
+            return false;
+        }
+
+        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node))
+        {
+            return false;
+        }
+
+        for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
+        {
+            if (IsNilNode(process, node, serverTreeHeader))
+            {
+                return false;
+            }
+
+            if (!TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var nodeEntityId))
+            {
+                return false;
+            }
+
+            if (nodeEntityId == entityId)
+            {
+                return TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out serverObjectId);
+            }
+
+            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next) || next == node)
+            {
+                return false;
+            }
+
+            node = next;
+        }
+
+        return false;
+    }
+
     private static bool TryGetNextTreeNode(VmmProcess process, ulong header, ulong node, out ulong next)
     {
         next = 0;
@@ -1468,6 +1965,33 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         return true;
     }
 
+    private static bool TryReadUtf16String(VmmProcess process, ulong address, int maxChars, out string value)
+    {
+        value = string.Empty;
+        if (maxChars <= 0)
+        {
+            return true;
+        }
+
+        if (!TryReadBytes(process, address, maxChars * 2, out var buffer))
+        {
+            return false;
+        }
+
+        var byteCount = buffer.Length;
+        for (var i = 0; i + 1 < buffer.Length; i += 2)
+        {
+            if (buffer[i] == 0 && buffer[i + 1] == 0)
+            {
+                byteCount = i;
+                break;
+            }
+        }
+
+        value = byteCount == 0 ? string.Empty : Encoding.Unicode.GetString(buffer, 0, byteCount);
+        return true;
+    }
+
     private static bool TryReadUInt16(VmmProcess process, ulong address, out ushort value)
     {
         value = 0;
@@ -1480,6 +2004,26 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             }
 
             value = BitConverter.ToUInt16(buffer, 0);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryReadSingle(VmmProcess process, ulong address, out float value)
+    {
+        value = 0;
+        try
+        {
+            var buffer = process.MemRead(address, 4);
+            if (buffer is null || buffer.Length < 4)
+            {
+                return false;
+            }
+
+            value = BitConverter.ToSingle(buffer, 0);
             return true;
         }
         catch
@@ -1549,6 +2093,33 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private static bool IsLikelyUserPointer(ulong value)
     {
         return value != 0 && value <= 0x00007FFFFFFFFFFFUL;
+    }
+
+    private sealed class LockedTargetInfo
+    {
+        public ushort TargetEntityId;
+        public uint ServerObjectId;
+        public ulong Entity;
+        public ushort EntityType;
+        public Vector3Snapshot? Position;
+        public double? DistanceToLocalPlayer;
+        public ActorInfo? Actor;
+    }
+
+    private sealed class ActorInfo
+    {
+        public ulong Actor;
+        public ulong Entity;
+        public uint ObjectType;
+        public uint ServerObjectId;
+        public uint NpcTemplateId;
+        public ushort Level;
+        public byte HpPercent;
+        public uint TargetServerObjectId;
+        public uint MaxHp;
+        public uint CurrentHp;
+        public string Name = string.Empty;
+        public string ResolveSource = string.Empty;
     }
 
     private sealed record VmmConnection(string DeviceName, string Remote, MemProcVmm Vmm)

@@ -20,7 +20,75 @@
       "revivePathName": "穆尔海姆00133",
       "combatPathName": "",
       "maintenancePathName": "",
-      "skillProfileName": ""
+      "skillProfileName": "",
+      "scriptSettings": {
+        "profileName": "default_profile",
+        "mainMode": "SemiAuto",
+        "combatMode": "Stationary",
+        "combat": {
+          "enableLoot": true,
+          "contestMonster": false,
+          "counterEnemyRace": false
+        },
+        "paths": {
+          "revivePathName": "穆尔海姆00133",
+          "combatPathName": "",
+          "maintenancePathName": "",
+          "loopPath": true,
+          "reverseAtEnd": false,
+          "deathStopPath": true
+        },
+        "maintenance": {
+          "sitMaintenanceEnabled": true,
+          "sitMpBelowPercent": 10,
+          "sitMpRecoverToPercent": 90,
+          "autoEquip": true,
+          "autoDecompose": true,
+          "bagCleanupThreshold": 85,
+          "bagTotalSlots": 100
+        },
+        "skills": {
+          "mode": "Auto",
+          "keyOrder": [
+            "D1",
+            "D2",
+            "D3",
+            "D4",
+            "D5",
+            "D6",
+            "D7",
+            "D8",
+            "D9",
+            "D0",
+            "OemMinus",
+            "OemPlus",
+            "NumPad1",
+            "NumPad2",
+            "NumPad3",
+            "NumPad4",
+            "NumPad5",
+            "NumPad6",
+            "NumPad7",
+            "NumPad8",
+            "NumPad9",
+            "NumPad0"
+          ],
+          "triggerPrefixMode": "TopContiguousTriggerSkills",
+          "executionTree": [],
+          "manualMappings": []
+        },
+        "semiAuto": {
+          "tickIntervalMs": 50,
+          "chainTickIntervalMs": 30,
+          "targetIdleDelayMs": 200,
+          "keyHoldMs": 25,
+          "keyGapMs": 30,
+          "repeatGuardMs": 120,
+          "confirmTimeoutMs": 500,
+          "confirmPollMs": 30,
+          "defaultChainTimeMs": 5000
+        }
+      }
     }
   ]
 }
