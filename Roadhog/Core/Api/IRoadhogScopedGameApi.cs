@@ -12,4 +12,9 @@ public interface IRoadhogScopedGameApi : IRoadhogGameApi
     Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
         GameApiReadContext context,
         CancellationToken cancellationToken = default);
+
+    Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
+        GameApiReadContext context,
+        IReadOnlyCollection<uint> skillIds,
+        CancellationToken cancellationToken = default);
 }

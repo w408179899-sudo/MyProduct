@@ -78,13 +78,14 @@
           "manualMappings": []
         },
         "semiAuto": {
-          "tickIntervalMs": 50,
-          "chainTickIntervalMs": 30,
+          "tickIntervalMs": 40,
+          "chainTickIntervalMs": 40,
           "targetIdleDelayMs": 200,
           "keyHoldMs": 25,
           "keyGapMs": 30,
           "repeatGuardMs": 120,
-          "confirmTimeoutMs": 500,
+          "postPressSuppressMs": 650,
+          "confirmTimeoutMs": 1500,
           "confirmPollMs": 30,
           "defaultChainTimeMs": 5000
         }

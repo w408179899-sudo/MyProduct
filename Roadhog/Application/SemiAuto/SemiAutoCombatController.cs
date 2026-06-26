@@ -43,7 +43,6 @@ public sealed class SemiAutoCombatController
         var targetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         if (!targetResult.Success || targetResult.Value is null)
         {
-            state.ClearChain();
             if (ShouldLog(state.LastTargetWarningAt, now))
             {
                 state.LastTargetWarningAt = now;
@@ -61,7 +60,6 @@ public sealed class SemiAutoCombatController
 
         if (!targetResult.Value.IsMonsterAlive)
         {
-            state.ClearChain();
             if (ShouldLog(state.LastTargetStateLogAt, now))
             {
                 state.LastTargetStateLogAt = now;
@@ -84,7 +82,7 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TargetIdleDelayMs, 200);
         }
 
-        var skillsResult = await ReadSkillsAsync(context).ConfigureAwait(false);
+        var skillsResult = await ReadSkillsAsync(context, plan).ConfigureAwait(false);
         if (!skillsResult.Success || skillsResult.Value is null)
         {
             if (ShouldLog(state.LastSkillWarningAt, now))
@@ -120,15 +118,37 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TickIntervalMs, 50);
         }
 
-        if (await TryExecuteActiveChainAsync(context, plan, state, skillsResult.Value, settings).ConfigureAwait(false))
+        var configuredSkills = ResolveConfiguredSkills(plan, skillsResult.Value);
+        var osTick = CurrentOsTick();
+        if (state.TryUpdateCooldownTickCalibration(
+                configuredSkills,
+                osTick,
+                DateTimeOffset.Now,
+                out var calibration))
         {
-            return state.ActiveChainNode is null
-                ? Ms(settings.TickIntervalMs, 50)
-                : Ms(settings.ChainTickIntervalMs, 30);
+            context.Logger.Info("semi_auto.cooldown.calibrated", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["skill"] = calibration.SkillName,
+                ["skillId"] = calibration.SkillId,
+                ["durationMs"] = calibration.CooldownDuration,
+                ["endTick"] = calibration.CooldownEndTime,
+                ["startTick"] = calibration.CooldownStartTick,
+                ["osTick"] = calibration.OsTick,
+                ["offsetMs"] = calibration.OffsetMs
+            });
         }
 
-        var executed = await TryExecuteNextRootAsync(context, plan, state, skillsResult.Value, settings).ConfigureAwait(false);
-        if (!executed && ShouldLog(state.LastNoSkillLogAt, now))
+        var decision = SemiAutoSkillReleasePriority.SelectNext(plan, state, configuredSkills, settings, DateTimeOffset.Now);
+        if (decision.Kind != SemiAutoSkillReleaseDecisionKind.None)
+        {
+            await ExecuteReleaseDecisionAsync(context, plan, state, decision, settings).ConfigureAwait(false);
+            return state.HasChainWork
+                ? Ms(settings.ChainTickIntervalMs, 40)
+                : Ms(settings.TickIntervalMs, 40);
+        }
+
+        if (ShouldLog(state.LastNoSkillLogAt, now))
         {
             state.LastNoSkillLogAt = now;
             context.Logger.Info(
@@ -138,123 +158,76 @@ public sealed class SemiAutoCombatController
                     ["account"] = context.Config.AccountName,
                     ["targetEntityId"] = targetResult.Value.TargetEntityId,
                     ["targetName"] = targetResult.Value.Name,
-                    ["skillCount"] = skillsResult.Value.Count,
-                    ["rootCount"] = plan.Roots.Count,
+                    ["skillCount"] = configuredSkills.Count,
+                    ["rawSkillCount"] = skillsResult.Value.Count,
+                    ["topLevelSkillCount"] = plan.Roots.Count,
+                    ["chainRootCount"] = plan.Roots.Count(root => root.Children.Count > 0),
                     ["triggerPrefixCount"] = plan.TriggerPrefixRoots.Count,
-                    ["roots"] = string.Join(" > ", plan.Roots.Select(root => root.Name + "[" + root.Type + "]@" + root.Key))
+                    ["topLevelSkills"] = string.Join(" > ", plan.Roots.Select(root => root.Name + "[" + root.Type + "]@" + root.Key)),
+                    ["chainRoots"] = string.Join(" > ", plan.Roots.Where(root => root.Children.Count > 0).Select(root => root.Name + "@" + root.Key)),
+                    ["configuredSkills"] = FormatConfiguredSkills(configuredSkills),
+                    ["reasons"] = SemiAutoSkillReleasePriority.BuildNoReadyReasons(plan, state, configuredSkills, settings)
                 });
         }
 
-        return Ms(settings.TickIntervalMs, 50);
+        return Ms(settings.TickIntervalMs, 40);
     }
 
-    private async Task<bool> TryExecuteActiveChainAsync(
+    private async Task ExecuteReleaseDecisionAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
-        IReadOnlyList<SkillSnapshot> skills,
+        SemiAutoSkillReleaseDecision decision,
         SemiAutoScriptSettings settings)
     {
-        var node = state.ActiveChainNode;
+        var node = decision.Node;
         if (node is null)
         {
-            return false;
+            return;
         }
 
-        var now = DateTimeOffset.Now;
-        if (state.IsChainExpired(now))
+        if (decision.Kind == SemiAutoSkillReleaseDecisionKind.ClearPendingChain)
         {
-            state.ClearChain();
-            return false;
+            LogChainEnded(context, node, decision.Reason, decision.Skill);
+            state.ClearPendingChainAdvance();
+            return;
         }
 
-        var skill = node.ResolveSkill(skills);
-        if (skill is null)
+        if (!decision.ShouldPress || decision.Skill is null)
         {
-            context.Logger.Warn("semi_auto.chain.skill_missing", new Dictionary<string, object?>
+            return;
+        }
+
+        var pressed = await PressSkillAsync(context, plan, state, node, settings).ConfigureAwait(false);
+        if (decision.Kind == SemiAutoSkillReleaseDecisionKind.PressChain)
+        {
+            state.ClearPendingChainAdvance();
+            if (pressed)
             {
-                ["account"] = context.Config.AccountName,
-                ["skill"] = node.Name,
-                ["skillId"] = node.SkillId,
-                ["key"] = node.Key
-            });
-            state.ClearChain();
-            return false;
-        }
-
-        if (skill.CooldownEndTime != 0)
-        {
-            AdvanceChain(state, node, settings);
-            return true;
-        }
-
-        if (!state.CanPress(node, now, Ms(settings.RepeatGuardMs, 120)))
-        {
-            return true;
-        }
-
-        var confirmed = await PressSkillAsync(context, plan, state, node, skill, settings).ConfigureAwait(false);
-        if (confirmed)
-        {
-            AdvanceChain(state, node, settings);
-        }
-
-        return true;
-    }
-
-    private async Task<bool> TryExecuteNextRootAsync(
-        AccountWorkerContext context,
-        SemiAutoSkillPlan plan,
-        SemiAutoCombatState state,
-        IReadOnlyList<SkillSnapshot> skills,
-        SemiAutoScriptSettings settings)
-    {
-        foreach (var root in plan.Roots)
-        {
-            if (root.IsTrigger)
+                state.MarkSkillPressed(
+                    decision.Skill,
+                    DateTimeOffset.Now + Ms(settings.ConfirmTimeoutMs, 1500));
+                StartPendingChainAdvance(context, state, node, decision.Skill, settings);
+            }
+            else
             {
-                continue;
+                LogChainEnded(context, node, "press_failed", decision.Skill);
+                state.ClearChain();
             }
 
-            var now = DateTimeOffset.Now;
-            if (!state.CanPress(root, now, Ms(settings.RepeatGuardMs, 120)))
-            {
-                continue;
-            }
-
-            var skill = root.ResolveSkill(skills);
-            if (skill is null || skill.CooldownEndTime != 0)
-            {
-                if (skill is null && ShouldLog(state.LastSkillWarningAt, now))
-                {
-                    state.LastSkillWarningAt = now;
-                    context.Logger.Warn("semi_auto.root.skill_missing", new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["skill"] = root.Name,
-                        ["skillId"] = root.SkillId,
-                        ["key"] = root.Key,
-                        ["type"] = root.Type
-                    });
-                }
-
-                continue;
-            }
-
-            var confirmed = await PressSkillAsync(context, plan, state, root, skill, settings).ConfigureAwait(false);
-            if (confirmed && root.Children.Count > 0)
-            {
-                StartNextChain(state, root, root.Children[0], settings);
-            }
-            else if (!confirmed)
-            {
-                state.Suppress(root, DateTimeOffset.Now + TimeSpan.FromSeconds(1));
-            }
-
-            return true;
+            return;
         }
 
-        return false;
+        if (pressed)
+        {
+            state.MarkSkillPressed(
+                decision.Skill,
+                DateTimeOffset.Now + Ms(settings.ConfirmTimeoutMs, 1500));
+            if (node.Children.Count > 0)
+            {
+                StartPendingChainAdvance(context, state, node, decision.Skill, settings);
+            }
+        }
     }
 
     private async Task<bool> PressSkillAsync(
@@ -262,7 +235,20 @@ public sealed class SemiAutoCombatController
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
         SemiAutoSkillNode node,
-        SkillSnapshot skill,
+        SemiAutoScriptSettings settings)
+    {
+        return await PressSkillKeysAsync(
+                context,
+                plan,
+                node,
+                settings)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<bool> PressSkillKeysAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoSkillNode node,
         SemiAutoScriptSettings settings)
     {
         if (!node.IsTrigger)
@@ -270,18 +256,12 @@ public sealed class SemiAutoCombatController
             await PressTriggerPrefixAsync(context, plan, node, settings).ConfigureAwait(false);
         }
 
-        var pressResult = await PressNodeKeyAsync(context, state, node, settings).ConfigureAwait(false);
-        if (!pressResult)
-        {
-            return false;
-        }
-
-        if (skill.CooldownDuration == 0)
-        {
-            return true;
-        }
-
-        return await WaitForCooldownStartAsync(context, node, settings).ConfigureAwait(false);
+        return await PressNodeKeyAsync(
+                context,
+                node,
+                settings,
+                phase: "skill")
+            .ConfigureAwait(false);
     }
 
     private async Task PressTriggerPrefixAsync(
@@ -297,26 +277,21 @@ public sealed class SemiAutoCombatController
                 continue;
             }
 
-            await PressNodeKeyAsync(context, null, trigger, settings, validateRepeatGuard: false).ConfigureAwait(false);
-            await Delay(settings.KeyGapMs, 30, context.StopToken).ConfigureAwait(false);
+            await PressNodeKeyAsync(
+                    context,
+                    trigger,
+                    settings,
+                    phase: "trigger_prefix")
+                .ConfigureAwait(false);
         }
     }
 
     private async Task<bool> PressNodeKeyAsync(
         AccountWorkerContext context,
-        SemiAutoCombatState? state,
         SemiAutoSkillNode node,
         SemiAutoScriptSettings settings,
-        bool validateRepeatGuard = true)
+        string phase = "skill")
     {
-        var now = DateTimeOffset.Now;
-        if (validateRepeatGuard &&
-            state is not null &&
-            !state.CanPress(node, now, Ms(settings.RepeatGuardMs, 120)))
-        {
-            return false;
-        }
-
         var result = await _keyboard
             .PressKeyAsync(node.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
             .ConfigureAwait(false);
@@ -328,77 +303,127 @@ public sealed class SemiAutoCombatController
                 ["account"] = context.Config.AccountName,
                 ["skill"] = node.Name,
                 ["key"] = node.Key,
+                ["phase"] = phase,
                 ["error"] = result.Error
             });
             return false;
         }
 
-        state?.MarkPressed(node, now);
         context.Logger.Info("semi_auto.key.pressed", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["skill"] = node.Name,
             ["key"] = node.Key,
-            ["type"] = node.Type
+            ["type"] = node.Type,
+            ["phase"] = phase
         });
         return true;
     }
 
-    private async Task<bool> WaitForCooldownStartAsync(
-        AccountWorkerContext context,
-        SemiAutoSkillNode node,
-        SemiAutoScriptSettings settings)
+    private static IReadOnlyList<SkillSnapshot> ResolveConfiguredSkills(
+        SemiAutoSkillPlan plan,
+        IReadOnlyList<SkillSnapshot> learnedSkills)
     {
-        var deadline = DateTimeOffset.Now + Ms(settings.ConfirmTimeoutMs, 500);
-        while (DateTimeOffset.Now < deadline)
+        var configuredSkills = new List<SkillSnapshot>();
+        var seenSkillIds = new HashSet<uint>();
+        foreach (var node in FlattenNodes(plan.Roots))
         {
-            await Delay(settings.ConfirmPollMs, 30, context.StopToken).ConfigureAwait(false);
-            var skillsResult = await ReadSkillsAsync(context).ConfigureAwait(false);
-            if (!skillsResult.Success || skillsResult.Value is null)
+            var skill = node.ResolveSkill(learnedSkills);
+            if (skill is null || !seenSkillIds.Add(skill.SkillId))
             {
                 continue;
             }
 
-            var updated = node.ResolveSkill(skillsResult.Value);
-            if (updated?.CooldownEndTime != 0)
-            {
-                return true;
-            }
+            configuredSkills.Add(skill);
         }
 
-        context.Logger.Warn("semi_auto.skill.not_confirmed", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["skill"] = node.Name,
-            ["key"] = node.Key
-        });
-        return false;
+        return configuredSkills;
     }
 
-    private static void AdvanceChain(
+    private static IEnumerable<SemiAutoSkillNode> FlattenNodes(IEnumerable<SemiAutoSkillNode> roots)
+    {
+        foreach (var root in roots)
+        {
+            yield return root;
+            foreach (var child in FlattenNodes(root.Children))
+            {
+                yield return child;
+            }
+        }
+    }
+
+    private static string FormatConfiguredSkills(IReadOnlyList<SkillSnapshot> configuredSkills)
+    {
+        return string.Join(
+            " | ",
+            configuredSkills.Select(skill =>
+                skill.Name +
+                "#" + skill.SkillId +
+                ":cooldown=" + skill.CooldownDuration +
+                "/" + skill.CooldownEndTime));
+    }
+
+    private static void StartPendingChainAdvance(
+        AccountWorkerContext context,
         SemiAutoCombatState state,
-        SemiAutoSkillNode completedNode,
+        SemiAutoSkillNode sourceNode,
+        SkillSnapshot sourceSkill,
         SemiAutoScriptSettings settings)
     {
-        if (completedNode.Children.Count == 0)
+        if (sourceNode.Children.Count == 0)
         {
             state.ClearChain();
             return;
         }
 
-        StartNextChain(state, completedNode, completedNode.Children[0], settings);
+        StartPendingChainAdvance(context, state, sourceNode, sourceSkill, sourceNode.Children[0], settings);
     }
 
-    private static void StartNextChain(
+    private static void StartPendingChainAdvance(
+        AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoSkillNode sourceNode,
+        SkillSnapshot sourceSkill,
         SemiAutoSkillNode nextNode,
         SemiAutoScriptSettings settings)
     {
         var windowMs = nextNode.ChainTimeMs ??
                        sourceNode.ChainTimeMs ??
                        settings.DefaultChainTimeMs;
-        state.StartChain(nextNode, DateTimeOffset.Now + Ms(windowMs, 5000));
+        state.StartPendingChainAdvance(
+            sourceNode,
+            nextNode,
+            DateTimeOffset.Now + Ms(windowMs, 5000),
+            sourceSkill.CooldownEndTime);
+        context.Logger.Info("semi_auto.chain.pending", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["sourceSkill"] = sourceNode.Name,
+            ["sourceKey"] = sourceNode.Key,
+            ["sourceCooldownEndTime"] = sourceSkill.CooldownEndTime,
+            ["nextSkill"] = nextNode.Name,
+            ["nextKey"] = nextNode.Key,
+            ["configuredChildCount"] = sourceNode.Children.Count,
+            ["expiresInMs"] = windowMs
+        });
+    }
+
+    private static void LogChainEnded(
+        AccountWorkerContext context,
+        SemiAutoSkillNode node,
+        string reason,
+        SkillSnapshot? skill = null)
+    {
+        context.Logger.Info("semi_auto.chain.ended", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["skill"] = node.Name,
+            ["key"] = node.Key,
+            ["type"] = node.Type,
+            ["reason"] = reason,
+            ["cooldownDuration"] = skill?.CooldownDuration,
+            ["cooldownEndTime"] = skill?.CooldownEndTime
+        });
     }
 
     private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(AccountWorkerContext context)
@@ -411,11 +436,19 @@ public sealed class SemiAutoCombatController
         return context.GameApi.ReadLockedTargetAsync(context.StopToken);
     }
 
-    private static Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(AccountWorkerContext context)
+    private static Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan)
     {
         if (context.GameApi is IRoadhogScopedGameApi scopedApi)
         {
-            return scopedApi.ReadSkillsAsync(CreateReadContext(context), context.StopToken);
+            var readContext = CreateReadContext(context);
+            if (!plan.RequiresFullSkillRead && plan.SkillReadIds.Count > 0)
+            {
+                return scopedApi.ReadSkillsAsync(readContext, plan.SkillReadIds, context.StopToken);
+            }
+
+            return scopedApi.ReadSkillsAsync(readContext, context.StopToken);
         }
 
         return context.GameApi.ReadSkillsAsync(context.StopToken);
@@ -430,19 +463,15 @@ public sealed class SemiAutoCombatController
             context.Config.VmmDeviceName);
     }
 
-    private static async Task Delay(int configuredMs, int fallbackMs, CancellationToken cancellationToken)
-    {
-        var delay = Ms(configuredMs, fallbackMs);
-        if (delay > TimeSpan.Zero)
-        {
-            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
     private static TimeSpan Ms(int configuredMs, int fallbackMs)
     {
         var value = configuredMs > 0 ? configuredMs : fallbackMs;
         return TimeSpan.FromMilliseconds(Math.Max(1, value));
+    }
+
+    private static uint CurrentOsTick()
+    {
+        return unchecked((uint)Environment.TickCount64);
     }
 
     private static bool ShouldLog(DateTimeOffset lastLogAt, DateTimeOffset now)

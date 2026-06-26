@@ -1,10 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using Vmmsharp;
 
 namespace Tool
@@ -46,6 +49,13 @@ namespace Tool
                     Environment.ExitCode = 1;
                 }
 
+                return;
+            }
+
+            if (string.Equals(earlyAionTestMode, "skill_xml_probe", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(earlyAionTestMode, "skills_xml_probe", StringComparison.OrdinalIgnoreCase))
+            {
+                RunSkillXmlProbeTest();
                 return;
             }
 
@@ -98,7 +108,7 @@ namespace Tool
 
                     Console.WriteLine("Module base: " + moduleName + " = 0x" + gameBase.ToString("X"));
 
-                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "path_follow_test";
+                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "skill_cooldown";
                     if (string.Equals(aionTestMode, "player", StringComparison.OrdinalIgnoreCase))
                     {
                         RunLocalPlayerInfoTest(process, gameBase);
@@ -157,6 +167,23 @@ namespace Tool
                         string.Equals(aionTestMode, "skilllist", StringComparison.OrdinalIgnoreCase))
                     {
                         RunSkillListTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "skill_cooldown", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "skills_cooldown", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "skill_usability", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "skills_usability", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "cooldown", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunSkillCooldownUsabilityTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "skill_static_probe", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "skill_probe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunSkillStaticProbeTest(process, gameBase);
                         return;
                     }
 
@@ -354,6 +381,7 @@ namespace Tool
         private const ulong SecondaryPartyListRva = 0xD1BB50;
         private const ulong SkillManagerGlobalRva = 0xD004A0;
         private const ulong InventoryManagerGlobalRva = 0xD004A0;
+        private const ulong SkillStaticByIdMapRva = 0x912658;
 
         private const ulong EntityTreeOffset = 0x58;
         private const ulong NodeLeftOffset = 0x00;
@@ -445,6 +473,56 @@ namespace Tool
         private const ulong SkillItemField78Offset = 0x78;
         private const ulong SkillItemPseudoTypeOffset = 0x7C;
         private const ulong SkillItemSpecialMetadataOffset = 0x80;
+
+        private const ulong SkillStaticRecordIdOffset = 0x000;
+        private const ulong SkillStaticRecordSchoolOffset = 0x038;
+        private const ulong SkillStaticRecordSubtypeOffset = 0x03C;
+        private const ulong SkillStaticRecordActivationOffset = 0x040;
+        private const ulong SkillStaticRecordCostParameterOffset = 0x044;
+        private const ulong SkillStaticRecordDelayTypeOffset = 0x0D0;
+        private const ulong SkillStaticRecordDelayTimeOffset = 0x0D4;
+        private const ulong SkillStaticRecordCastingDelayOffset = 0x0D8;
+        private const ulong SkillStaticRecordChargingDelayOffset = 0x0DC;
+        private const ulong SkillStaticRecordDispelCategoryOffset = 0x0E4;
+        private const ulong SkillStaticRecordFirstTargetOffset = 0x0EC;
+        private const ulong SkillStaticRecordTargetRangeOffset = 0x0F0;
+        private const ulong SkillStaticRecordTargetRelationOffset = 0x0F4;
+        private const ulong SkillStaticRecordTargetAreaTypeOffset = 0x0F8;
+        private const ulong SkillStaticRecordTargetValidStatusOffset = 0x100;
+        private const ulong SkillStaticRecordEffect1TypeOffset = 0x114;
+        private const ulong SkillStaticRecordEffect2TypeOffset = 0x118;
+        private const ulong SkillStaticRecordEffect3TypeOffset = 0x11C;
+        private const ulong SkillStaticRecordEffect4TypeOffset = 0x120;
+        private const ulong SkillStaticRecordStatusFxOffset = 0x4C8;
+        private const ulong SkillStaticRecordAuraFxOffset = 0x658;
+        private const ulong SkillStaticRecordCounterSkillOffset = 0x768;
+        private const ulong SkillStaticRecordTargetSlotOffset = 0x780;
+        private const ulong SkillStaticRecordChainCategoryPriorityOffset = 0x790;
+        private const ulong SkillStaticRecordChainCategoryLevelOffset = 0x794;
+        private const ulong SkillStaticRecordChainCategoryNameOffset = 0x798;
+        private const ulong SkillStaticRecordPrechainCategoryNameOffset = 0x79C;
+        private const ulong SkillStaticRecordChainTimeOffset = 0x7A0;
+        private const ulong SkillStaticRecordChainSkillProb1Offset = 0x7A4;
+        private const ulong SkillStaticRecordChainSkillProb2Offset = 0x7A8;
+        private const ulong SkillStaticTableCountOffset = 0x04;
+        private const ulong SkillStaticTablePairCountOffset = 0x08;
+        private const ulong SkillStaticTablePairArrayOffset = 0x10;
+        private const ulong SkillStaticPairSize = 0x10;
+        private const ulong SkillStaticPairSkillIdOffset = 0x00;
+        private const ulong SkillStaticPairPackedHandleOffset = 0x08;
+        private const uint SkillStaticPackedHandleOffsetMask = 0x3FFF;
+        private const int SkillStaticPackedHandleChunkShift = 14;
+        private const ulong SkillResolverChunkListRva = 0xD03860;
+        private const ulong SkillResolverCurrentChunkCountRva = 0xD10060;
+        private const ulong SkillResolverCurrentBufferRva = 0xD10064;
+        private const ulong SkillResolverCurrentBufferUsedRva = 0xD14064;
+        private const ulong SkillResolverTempBufferRva = 0xD63438;
+        private const ulong SkillResolverRecordCacheRva = 0xD14070;
+        private const ulong SkillStaticMapNodeKeyOffset = 0x20;
+        private const ulong SkillStaticMapNodeValueOffset = 0x28;
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetTickCount();
 
         private const ulong InventoryCapacityOffset = 0x774;
         private const ulong InventoryItemTreeHeaderOffset = 0x778;
@@ -720,6 +798,77 @@ namespace Tool
             public uint SpecialMetadata;
             public ulong LevelTreeSize;
             public ulong ItemListSize;
+            public bool HasStaticPackedHandle;
+            public uint StaticPackedHandle;
+            public uint StaticPackedChunk;
+            public uint StaticPackedOffset;
+            public bool HasStaticDetail;
+            public SkillStaticDetail StaticDetail;
+            public bool HasXmlStaticDetail;
+            public SkillXmlStaticDetail XmlStaticDetail;
+        }
+
+        private struct SkillStaticDetail
+        {
+            public uint Id;
+            public ulong Address;
+            public string Source;
+            public uint School;
+            public uint Subtype;
+            public uint Activation;
+            public uint CostParameter;
+            public uint DelayType;
+            public uint DelayTime;
+            public uint CastingDelay;
+            public uint ChargingDelay;
+            public uint DispelCategory;
+            public uint FirstTarget;
+            public uint TargetRange;
+            public uint TargetRelation;
+            public uint TargetAreaType;
+            public uint TargetValidStatus;
+            public uint Effect1Type;
+            public uint Effect2Type;
+            public uint Effect3Type;
+            public uint Effect4Type;
+            public uint StatusFx;
+            public uint AuraFx;
+            public uint CounterSkill;
+            public uint TargetSlot;
+            public uint ChainCategoryPriority;
+            public uint ChainCategoryLevel;
+            public uint ChainCategoryName;
+            public uint PrechainCategoryName;
+            public uint ChainTime;
+            public uint ChainSkillProb1;
+            public uint ChainSkillProb2;
+        }
+
+        private struct SkillXmlStaticDetail
+        {
+            public uint Id;
+            public string Source;
+            public string XmlName;
+            public string ActivationAttribute;
+            public string TargetSlot;
+            public string ChainCategoryName;
+            public string PrechainCategoryName;
+            public string ChainTime;
+            public string StatusFx;
+            public string AuraFx;
+            public string CounterSkill;
+            public string Effect1Type;
+            public string Effect2Type;
+            public string Effect3Type;
+            public string Effect4Type;
+        }
+
+        private struct SkillStaticHandleSample
+        {
+            public uint SkillId;
+            public uint PackedHandle;
+            public uint Chunk;
+            public uint Offset;
         }
 
         private struct InventoryItemInfo
@@ -1546,18 +1695,34 @@ namespace Tool
         {
             bool groupByName = ReadBoolFromEnv("AION_SKILL_GROUP_BY_NAME", true);
             bool filterUseful = ReadBoolFromEnv("AION_SKILL_FILTER_USEFUL", true);
+            bool readStaticDetail = ReadBoolFromEnv("AION_SKILL_STATIC_DETAIL", true);
+            bool readXmlStaticDetail = ReadBoolFromEnv("AION_SKILL_XML_DETAIL", true);
+            ulong staticMapRva = ReadRvaFromEnv("AION_SKILL_STATIC_MAP_RVA", SkillStaticByIdMapRva);
+            string skillXmlPath = string.Empty;
+            string skillXmlError = string.Empty;
+            Dictionary<uint, SkillXmlStaticDetail> xmlStaticDetails = readXmlStaticDetail
+                ? LoadSkillXmlStaticDetails(out skillXmlPath, out skillXmlError)
+                : new Dictionary<uint, SkillXmlStaticDetail>();
 
             Console.WriteLine("AION learned skill list test from TXT/AION.txt offsets.");
             Console.WriteLine("Traversing Game.dll+0x" + SkillManagerGlobalRva.ToString("X") + " -> SkillManager+0x" + LearnedSkillTreeOffset.ToString("X") + ".");
             Console.WriteLine("Each skillId only prints the highest learned level and the last SkillItem in that level list.");
             Console.WriteLine("Display-name grouping=" + (groupByName ? "on" : "off") + ". Set AION_SKILL_GROUP_BY_NAME=0 to print the raw skillId list.");
             Console.WriteLine("Useful-skill filter=" + (filterUseful ? "on" : "off") + ". Set AION_SKILL_FILTER_USEFUL=0 to print passive/system skills too.");
+            Console.WriteLine("Static classification=" + (readStaticDetail ? "on" : "off") + " via Game.dll+0x" + staticMapRva.ToString("X") + ". Set AION_SKILL_STATIC_DETAIL=0 to disable.");
+            Console.WriteLine(FormatSkillXmlLoadStatus(readXmlStaticDetail, skillXmlPath, skillXmlError, xmlStaticDetails.Count));
 
             List<LearnedSkillInfo> skills;
             int outerNodeCount;
             string error;
             if (TryReadHighestLearnedSkills(process, gameBase, out skills, out outerNodeCount, out error))
             {
+                int staticHandleCount = 0;
+                int staticDetailCount = readStaticDetail
+                    ? AttachSkillStaticDetails(process, gameBase, staticMapRva, skills, out staticHandleCount)
+                    : 0;
+                int xmlStaticDetailCount = AttachSkillXmlStaticDetails(xmlStaticDetails, skills);
+
                 int rawSkillCount = skills.Count;
                 if (groupByName)
                 {
@@ -1576,7 +1741,10 @@ namespace Tool
                     " RawRows=" + rawSkillCount +
                     " GroupedRows=" + groupedSkillCount +
                     " FilteredOut=" + (groupedSkillCount - skills.Count) +
-                    " OuterNodes=" + outerNodeCount);
+                    " OuterNodes=" + outerNodeCount +
+                    " StaticHandles=" + staticHandleCount + "/" + rawSkillCount +
+                    " StaticDetails=" + staticDetailCount + "/" + rawSkillCount +
+                    " XmlStaticDetails=" + xmlStaticDetailCount + "/" + rawSkillCount);
 
                 for (int i = 0; i < skills.Count; i++)
                 {
@@ -1588,8 +1756,866 @@ namespace Tool
                 Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
             }
 
-            Console.WriteLine("Press any key to exit. Set AION_TEST_MODE=target/player/monsters for other tests.");
-            Console.ReadKey(true);
+            Console.WriteLine("Set AION_TEST_MODE=target/player/monsters for other tests.");
+            if (!Console.IsInputRedirected)
+            {
+                Console.WriteLine("Press any key to exit.");
+                Console.ReadKey(true);
+            }
+        }
+
+        private static void RunSkillCooldownUsabilityTest(VmmProcess process, ulong gameBase)
+        {
+            bool groupByName = ReadBoolFromEnv("AION_SKILL_GROUP_BY_NAME", true);
+            bool filterUseful = ReadBoolFromEnv("AION_SKILL_FILTER_USEFUL", true);
+            bool readStaticDetail = ReadBoolFromEnv("AION_SKILL_STATIC_DETAIL", true);
+            bool readXmlStaticDetail = ReadBoolFromEnv("AION_SKILL_XML_DETAIL", true);
+            int samples = ClampInt(ReadIntFromEnv("AION_SKILL_COOLDOWN_SAMPLES", 1), 1, 120);
+            int intervalMs = ClampInt(ReadIntFromEnv("AION_SKILL_COOLDOWN_INTERVAL_MS", 1000), 100, 10000);
+            ulong staticMapRva = ReadRvaFromEnv("AION_SKILL_STATIC_MAP_RVA", SkillStaticByIdMapRva);
+            string skillXmlPath = string.Empty;
+            string skillXmlError = string.Empty;
+            Dictionary<uint, SkillXmlStaticDetail> xmlStaticDetails = readXmlStaticDetail
+                ? LoadSkillXmlStaticDetails(out skillXmlPath, out skillXmlError)
+                : new Dictionary<uint, SkillXmlStaticDetail>();
+
+            Console.WriteLine("AION skill cooldown/basic-usability read-only test.");
+            Console.WriteLine("BasicUsable = learned level + manual activation + cooldown ready; it is NOT equivalent to Game.dll+0x5F7580 CanUseSkillNow.");
+            Console.WriteLine("Cooldown uses SkillItem+0x50 duration and SkillItem+0x54 endTick against kernel32 GetTickCount().");
+            Console.WriteLine("Display-name grouping=" + (groupByName ? "on" : "off") + ". Set AION_SKILL_GROUP_BY_NAME=0 to print the raw skillId list.");
+            Console.WriteLine("Useful-skill filter=" + (filterUseful ? "on" : "off") + ". Set AION_SKILL_FILTER_USEFUL=0 to print passive/system skills too.");
+            Console.WriteLine("Static classification=" + (readStaticDetail ? "on" : "off") + " via Game.dll+0x" + staticMapRva.ToString("X") + ". Set AION_SKILL_STATIC_DETAIL=0 to disable.");
+            Console.WriteLine(FormatSkillXmlLoadStatus(readXmlStaticDetail, skillXmlPath, skillXmlError, xmlStaticDetails.Count));
+            Console.WriteLine("Samples=" + samples + " IntervalMs=" + intervalMs + ". To verify stability: cast one skill and watch RawRemainingMs jump near DurationMs then decrease.");
+
+            for (int sample = 1; sample <= samples; sample++)
+            {
+                List<LearnedSkillInfo> skills;
+                int outerNodeCount;
+                string error;
+                if (TryReadHighestLearnedSkills(process, gameBase, out skills, out outerNodeCount, out error))
+                {
+                    int staticHandleCount = 0;
+                    int staticDetailCount = readStaticDetail
+                        ? AttachSkillStaticDetails(process, gameBase, staticMapRva, skills, out staticHandleCount)
+                        : 0;
+                    int xmlStaticDetailCount = AttachSkillXmlStaticDetails(xmlStaticDetails, skills);
+
+                    int rawSkillCount = skills.Count;
+                    if (groupByName)
+                    {
+                        skills = SelectHighestDisplaySkillPerName(skills);
+                    }
+
+                    int groupedSkillCount = skills.Count;
+                    if (filterUseful)
+                    {
+                        skills = FilterUsefulLearnedSkills(skills);
+                    }
+
+                    uint osTick = GetTickCount();
+                    Console.WriteLine(
+                        "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                        "Sample=" + sample + "/" + samples +
+                        " OSTick=" + osTick +
+                        " Rows=" + skills.Count +
+                        " RawRows=" + rawSkillCount +
+                        " GroupedRows=" + groupedSkillCount +
+                        " FilteredOut=" + (groupedSkillCount - skills.Count) +
+                        " OuterNodes=" + outerNodeCount +
+                        " StaticHandles=" + staticHandleCount + "/" + rawSkillCount +
+                        " StaticDetails=" + staticDetailCount + "/" + rawSkillCount +
+                        " XmlStaticDetails=" + xmlStaticDetailCount + "/" + rawSkillCount);
+
+                    for (int i = 0; i < skills.Count; i++)
+                    {
+                        Console.WriteLine(FormatSkillCooldownUsability(i + 1, skills[i], osTick));
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                }
+
+                if (sample < samples)
+                {
+                    Thread.Sleep(intervalMs);
+                }
+            }
+
+            Console.WriteLine("If ClockAligned=no, do not use GetTickCount() as the current cooldown tick until a game tick source or calibration is confirmed.");
+            Console.WriteLine("Set AION_TEST_MODE=skills for the full raw skill dump.");
+            if (!Console.IsInputRedirected)
+            {
+                Console.WriteLine("Press any key to exit.");
+                Console.ReadKey(true);
+            }
+        }
+
+        private static void RunSkillXmlProbeTest()
+        {
+            string skillXmlPath;
+            string skillXmlError;
+            Dictionary<uint, SkillXmlStaticDetail> xmlStaticDetails = LoadSkillXmlStaticDetails(out skillXmlPath, out skillXmlError);
+
+            Console.WriteLine("AION skill XML static classification probe.");
+            Console.WriteLine(FormatSkillXmlLoadStatus(true, skillXmlPath, skillXmlError, xmlStaticDetails.Count));
+            if (xmlStaticDetails.Count == 0)
+            {
+                return;
+            }
+
+            Console.WriteLine("Rows=" + xmlStaticDetails.Count);
+            PrintSkillXmlDistribution("ActivationDistribution", xmlStaticDetails.Values.Select(v => v.ActivationAttribute));
+            PrintSkillXmlDistribution("TargetSlotDistribution", xmlStaticDetails.Values.Select(v => v.TargetSlot));
+
+            uint[] sampleIds = ReadSkillXmlProbeIds();
+            Console.WriteLine("Samples=" + string.Join(",", sampleIds.Select(v => v.ToString()).ToArray()));
+            for (int i = 0; i < sampleIds.Length; i++)
+            {
+                uint skillId = sampleIds[i];
+                SkillXmlStaticDetail detail;
+                if (!xmlStaticDetails.TryGetValue(skillId, out detail))
+                {
+                    Console.WriteLine("Id=" + skillId + " XmlStatic=n/a");
+                    continue;
+                }
+
+                Console.WriteLine(
+                    "Id=" + skillId +
+                    " XmlName=" + FormatSkillXmlOutputValue(detail.XmlName) +
+                    " XmlActivation=" + FormatSkillXmlOutputValue(detail.ActivationAttribute) +
+                    " XmlManual=" + FormatYesNo(IsManualSkillXmlActivation(detail.ActivationAttribute)) +
+                    " XmlChain=" + FormatYesNo(IsChainSkill(detail)) +
+                    " XmlStatus=" + FormatYesNo(IsStatusSkill(detail)) +
+                    " XmlTags=" + FormatSkillXmlTags(detail) +
+                    " XmlTargetSlot=" + FormatSkillXmlOutputValue(detail.TargetSlot) +
+                    " XmlEffects=[" +
+                    FormatSkillXmlListValue(detail.Effect1Type) + "," +
+                    FormatSkillXmlListValue(detail.Effect2Type) + "," +
+                    FormatSkillXmlListValue(detail.Effect3Type) + "," +
+                    FormatSkillXmlListValue(detail.Effect4Type) + "]" +
+                    " XmlStatusFx=" + FormatSkillXmlOutputValue(detail.StatusFx) +
+                    " XmlAuraFx=" + FormatSkillXmlOutputValue(detail.AuraFx) +
+                    " XmlCounterSkill=" + FormatSkillXmlOutputValue(detail.CounterSkill) +
+                    " XmlChainCategory=" + FormatSkillXmlOutputValue(detail.ChainCategoryName) +
+                    " XmlPrechainCategory=" + FormatSkillXmlOutputValue(detail.PrechainCategoryName) +
+                    " XmlChainTime=" + FormatSkillXmlOutputValue(detail.ChainTime));
+            }
+        }
+
+        private static void PrintSkillXmlDistribution(string label, IEnumerable<string> values)
+        {
+            Console.WriteLine(label + ":");
+            var rows = values
+                .Select(v => HasDisplayableSkillXmlValue(v) ? CleanOneLineSkillXmlValue(v) : "n/a")
+                .GroupBy(v => v, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new { Name = g.Key, Count = g.Count() })
+                .OrderByDescending(g => g.Count)
+                .ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(16)
+                .ToList();
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                Console.WriteLine("  " + rows[i].Name + "=" + rows[i].Count);
+            }
+        }
+
+        private static uint[] ReadSkillXmlProbeIds()
+        {
+            string text = Environment.GetEnvironmentVariable("AION_SKILL_XML_PROBE_IDS");
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                text = "3,152,155,156,283,355,356,374";
+            }
+
+            var ids = new List<uint>();
+            string[] parts = text.Split(new[] { ',', ';', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                uint id;
+                if (TryParseSkillXmlUInt(parts[i], out id))
+                {
+                    ids.Add(id);
+                }
+            }
+
+            return ids.ToArray();
+        }
+
+        private static void RunSkillStaticProbeTest(VmmProcess process, ulong gameBase)
+        {
+            ulong staticMapRva = ReadRvaFromEnv("AION_SKILL_STATIC_MAP_RVA", SkillStaticByIdMapRva);
+            ulong absoluteAddress = ReadRvaFromEnv("AION_SKILL_STATIC_PROBE_ADDRESS", 0);
+            ulong address = absoluteAddress != 0 ? absoluteAddress : gameBase + staticMapRva;
+            int byteCount = ClampInt(ReadIntFromEnv("AION_SKILL_STATIC_PROBE_BYTES", 128), 32, 512);
+
+            Console.WriteLine("AION skill static map probe.");
+            Console.WriteLine("MapRva=0x" + staticMapRva.ToString("X") +
+                              " AbsoluteOverride=" + FormatAddress(absoluteAddress) +
+                              " Address=" + FormatAddress(address) +
+                              " Bytes=" + byteCount);
+
+            byte[] bytes;
+            if (TryReadBytes(process, address, byteCount, out bytes))
+            {
+                Console.WriteLine("BytesAtMapRva:");
+                PrintHexDump(address, bytes, 16);
+            }
+            else
+            {
+                Console.WriteLine("BytesAtMapRva=n/a");
+            }
+
+            List<LearnedSkillInfo> skills;
+            int outerNodeCount;
+            string error;
+            var sampleSkillIds = new List<uint>();
+            if (TryReadHighestLearnedSkills(process, gameBase, out skills, out outerNodeCount, out error))
+            {
+                for (int i = 0; i < skills.Count && sampleSkillIds.Count < 8; i++)
+                {
+                    sampleSkillIds.Add(skills[i].SkillId);
+                }
+
+                Console.WriteLine("LearnedSkillSample=" + string.Join(",", sampleSkillIds.Select(v => v.ToString()).ToArray()));
+            }
+            else
+            {
+                Console.WriteLine("LearnedSkillSample=n/a Error=" + error);
+            }
+
+            ProbeSkillStaticMapCandidate(process, address, "direct", sampleSkillIds);
+            ProbeSkillStaticIndexedArray(process, address, sampleSkillIds);
+            PrintSkillStaticResolverProbe(process, gameBase, address, sampleSkillIds);
+
+            ulong pointer;
+            if (TryReadPointer(process, address, out pointer))
+            {
+                Console.WriteLine("PointerAtMapRva=" + FormatAddress(pointer));
+                ProbeSkillStaticMapCandidate(process, pointer, "pointed", sampleSkillIds);
+            }
+            else
+            {
+                Console.WriteLine("PointerAtMapRva=n/a");
+            }
+        }
+
+        private static void PrintSkillStaticResolverProbe(
+            VmmProcess process,
+            ulong gameBase,
+            ulong table,
+            List<uint> sampleSkillIds)
+        {
+            uint currentChunkCount = 0;
+            uint currentBufferUsed = 0;
+            ulong chunkList = 0;
+            ulong tempBuffer = 0;
+            ulong recordCache = 0;
+
+            TryReadUInt32(process, gameBase + SkillResolverCurrentChunkCountRva, out currentChunkCount);
+            TryReadUInt32(process, gameBase + SkillResolverCurrentBufferUsedRva, out currentBufferUsed);
+            TryReadPointer(process, gameBase + SkillResolverChunkListRva, out chunkList);
+            TryReadPointer(process, gameBase + SkillResolverTempBufferRva, out tempBuffer);
+            TryReadPointer(process, gameBase + SkillResolverRecordCacheRva, out recordCache);
+
+            Console.WriteLine(
+                "ResolverGlobals" +
+                " CurrentChunkCount=" + currentChunkCount +
+                " CurrentBufferAddress=" + FormatAddress(gameBase + SkillResolverCurrentBufferRva) +
+                " CurrentBufferUsed=" + currentBufferUsed +
+                " ChunkList=" + FormatAddress(chunkList) +
+                " TempBuffer=" + FormatAddress(tempBuffer) +
+                " RecordCache=" + FormatAddress(recordCache));
+
+            if (sampleSkillIds == null || sampleSkillIds.Count == 0)
+            {
+                return;
+            }
+
+            var samples = new List<SkillStaticHandleSample>();
+            for (int i = 0; i < sampleSkillIds.Count; i++)
+            {
+                uint skillId = sampleSkillIds[i];
+                uint packedHandle;
+                if (!TryReadSkillStaticPackedHandleFromTable(process, table, skillId, out packedHandle))
+                {
+                    Console.WriteLine("ResolverSample Id=" + skillId + " PackedHandle=n/a");
+                    continue;
+                }
+
+                uint chunk;
+                uint offset;
+                DecodeSkillStaticPackedHandle(packedHandle, out chunk, out offset);
+
+                samples.Add(new SkillStaticHandleSample
+                {
+                    SkillId = skillId,
+                    PackedHandle = packedHandle,
+                    Chunk = chunk,
+                    Offset = offset
+                });
+
+                string source;
+                ulong candidate = 0;
+                if (chunk == currentChunkCount)
+                {
+                    source = "current-buffer";
+                    candidate = gameBase + SkillResolverCurrentBufferRva + offset;
+                }
+                else if (chunk < currentChunkCount)
+                {
+                    source = "chunk-list/decompress";
+                }
+                else
+                {
+                    source = "future-or-invalid";
+                }
+
+                Console.WriteLine(
+                    "ResolverSample Id=" + skillId +
+                    " PackedHandle=0x" + packedHandle.ToString("X8") +
+                    " Chunk=0x" + chunk.ToString("X") +
+                    " Offset=0x" + offset.ToString("X") +
+                    " Source=" + source +
+                    " DirectCandidate=" + FormatAddress(candidate) +
+                    " PackedRawCandidate=" + FormatAddress(chunkList == 0 ? 0 : chunkList + packedHandle));
+
+                if (chunkList != 0)
+                {
+                    ProbeSkillStaticPackedRawCandidate(process, chunkList, samples[samples.Count - 1]);
+                }
+            }
+
+            if (ReadBoolFromEnv("AION_SKILL_CHUNK_STRIDE_PROBE", false))
+            {
+                ProbeSkillResolverChunkList(process, chunkList, samples);
+            }
+        }
+
+        private static void ProbeSkillStaticPackedRawCandidate(
+            VmmProcess process,
+            ulong packedBase,
+            SkillStaticHandleSample sample)
+        {
+            ulong candidate = packedBase + sample.PackedHandle;
+            uint id = 0;
+            uint activation = 0;
+            uint targetSlot = 0;
+            bool read =
+                TryReadUInt32(process, candidate + SkillStaticRecordIdOffset, out id) |
+                TryReadUInt32(process, candidate + SkillStaticRecordActivationOffset, out activation) |
+                TryReadUInt32(process, candidate + SkillStaticRecordTargetSlotOffset, out targetSlot);
+
+            if (!read)
+            {
+                Console.WriteLine(
+                    "PackedRawCandidate" +
+                    " SkillId=" + sample.SkillId +
+                    " Address=" + FormatAddress(candidate) +
+                    " Read=n/a");
+                return;
+            }
+
+            Console.WriteLine(
+                "PackedRawCandidate" +
+                " SkillId=" + sample.SkillId +
+                " Address=" + FormatAddress(candidate) +
+                " U32+0x0=" + id +
+                " U32+0x40=" + activation +
+                " U32+0x780=" + targetSlot);
+        }
+
+        private static void ProbeSkillResolverChunkList(
+            VmmProcess process,
+            ulong chunkList,
+            List<SkillStaticHandleSample> samples)
+        {
+            if (chunkList == 0 || samples == null || samples.Count == 0)
+            {
+                Console.WriteLine("ChunkListProbe=n/a");
+                return;
+            }
+
+            uint[] uniqueChunks = GetUniqueSampleChunks(samples, 8);
+            ulong[] strides = { 4, 8, 12, 16, 24, 32 };
+            for (int i = 0; i < uniqueChunks.Length; i++)
+            {
+                uint chunk = uniqueChunks[i];
+                SkillStaticHandleSample sample = GetFirstSampleForChunk(samples, chunk);
+                for (int s = 0; s < strides.Length; s++)
+                {
+                    ProbeSkillResolverChunkListEntry(process, chunkList, strides[s], sample);
+                }
+            }
+        }
+
+        private static uint[] GetUniqueSampleChunks(List<SkillStaticHandleSample> samples, int limit)
+        {
+            var result = new List<uint>();
+            for (int i = 0; i < samples.Count && result.Count < limit; i++)
+            {
+                uint chunk = samples[i].Chunk;
+                bool exists = false;
+                for (int j = 0; j < result.Count; j++)
+                {
+                    if (result[j] == chunk)
+                    {
+                        exists = true;
+                        break;
+                    }
+                }
+
+                if (!exists)
+                {
+                    result.Add(chunk);
+                }
+            }
+
+            return result.ToArray();
+        }
+
+        private static SkillStaticHandleSample GetFirstSampleForChunk(List<SkillStaticHandleSample> samples, uint chunk)
+        {
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (samples[i].Chunk == chunk)
+                {
+                    return samples[i];
+                }
+            }
+
+            return new SkillStaticHandleSample { Chunk = chunk };
+        }
+
+        private static void ProbeSkillResolverChunkListEntry(
+            VmmProcess process,
+            ulong chunkList,
+            ulong stride,
+            SkillStaticHandleSample sample)
+        {
+            ulong entry = chunkList + (ulong)sample.Chunk * stride;
+            byte[] bytes;
+            if (!TryReadBytes(process, entry, 32, out bytes))
+            {
+                Console.WriteLine(
+                    "ChunkListEntry" +
+                    " Chunk=0x" + sample.Chunk.ToString("X") +
+                    " Stride=" + stride +
+                    " Entry=" + FormatAddress(entry) +
+                    " Read=n/a");
+                return;
+            }
+
+            uint u32_0 = BitConverter.ToUInt32(bytes, 0);
+            uint u32_4 = BitConverter.ToUInt32(bytes, 4);
+            uint u32_8 = BitConverter.ToUInt32(bytes, 8);
+            uint u32_C = BitConverter.ToUInt32(bytes, 12);
+            ulong p0 = BitConverter.ToUInt64(bytes, 0);
+            ulong p8 = BitConverter.ToUInt64(bytes, 8);
+            ulong p16 = BitConverter.ToUInt64(bytes, 16);
+
+            Console.WriteLine(
+                "ChunkListEntry" +
+                " Chunk=0x" + sample.Chunk.ToString("X") +
+                " Stride=" + stride +
+                " Entry=" + FormatAddress(entry) +
+                " U32=[0x" + u32_0.ToString("X") +
+                ",0x" + u32_4.ToString("X") +
+                ",0x" + u32_8.ToString("X") +
+                ",0x" + u32_C.ToString("X") + "]" +
+                " Ptr0=" + FormatAddress(IsLikelyUserPointer(p0) ? p0 : 0) +
+                " Ptr8=" + FormatAddress(IsLikelyUserPointer(p8) ? p8 : 0) +
+                " Ptr16=" + FormatAddress(IsLikelyUserPointer(p16) ? p16 : 0));
+
+            ProbeSkillResolverChunkRecordCandidate(process, sample, p0, "Ptr0");
+            ProbeSkillResolverChunkRecordCandidate(process, sample, p8, "Ptr8");
+            ProbeSkillResolverChunkRecordCandidate(process, sample, p16, "Ptr16");
+        }
+
+        private static void ProbeSkillResolverChunkRecordCandidate(
+            VmmProcess process,
+            SkillStaticHandleSample sample,
+            ulong baseAddress,
+            string label)
+        {
+            if (!IsLikelyUserPointer(baseAddress))
+            {
+                return;
+            }
+
+            ulong candidate = baseAddress + sample.Offset;
+            uint id = 0;
+            uint activation = 0;
+            uint targetSlot = 0;
+            bool read =
+                TryReadUInt32(process, candidate + SkillStaticRecordIdOffset, out id) |
+                TryReadUInt32(process, candidate + SkillStaticRecordActivationOffset, out activation) |
+                TryReadUInt32(process, candidate + SkillStaticRecordTargetSlotOffset, out targetSlot);
+
+            if (!read)
+            {
+                return;
+            }
+
+            Console.WriteLine(
+                "ChunkRecordCandidate" +
+                " SkillId=" + sample.SkillId +
+                " Chunk=0x" + sample.Chunk.ToString("X") +
+                " Offset=0x" + sample.Offset.ToString("X") +
+                " Source=" + label +
+                " Base=" + FormatAddress(baseAddress) +
+                " Candidate=" + FormatAddress(candidate) +
+                " Id=" + id +
+                " Activation=" + activation +
+                " TargetSlot=" + targetSlot);
+        }
+
+        private static void ProbeSkillStaticIndexedArray(
+            VmmProcess process,
+            ulong table,
+            List<uint> sampleSkillIds)
+        {
+            uint countA;
+            uint countB;
+            ulong pairs;
+            if (!TryReadUInt32(process, table + SkillStaticTableCountOffset, out countA) ||
+                !TryReadUInt32(process, table + SkillStaticTablePairCountOffset, out countB) ||
+                !TryReadPointer(process, table + SkillStaticTablePairArrayOffset, out pairs) ||
+                pairs == 0)
+            {
+                Console.WriteLine("IndexedArray=n/a");
+                return;
+            }
+
+            uint count = countA == countB ? countA : Math.Max(countA, countB);
+            Console.WriteLine("IndexedArray CountA=" + countA +
+                              " CountB=" + countB +
+                              " Pairs=" + FormatAddress(pairs));
+
+            int sampleCount = (int)Math.Min(count, 12);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                ulong entry = pairs + (ulong)i * SkillStaticPairSize;
+                uint id;
+                uint packedHandle;
+                if (TryReadUInt32(process, entry + SkillStaticPairSkillIdOffset, out id) &&
+                    TryReadSkillStaticPairPackedHandle(process, entry, out packedHandle))
+                {
+                    PrintSkillStaticPackedHandleProbe(entry, id, packedHandle, "IndexedPair#" + i);
+                }
+            }
+
+            if (sampleSkillIds == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < sampleSkillIds.Count; i++)
+            {
+                uint skillId = sampleSkillIds[i];
+                uint packedHandle;
+                if (TryFindSkillStaticIndexedArrayPackedHandle(process, pairs, count, skillId, out packedHandle))
+                {
+                    PrintSkillStaticPackedHandleProbe(0, skillId, packedHandle, "IndexedLookup");
+                }
+                else
+                {
+                    Console.WriteLine("IndexedLookup Id=" + skillId + " PackedHandle=n/a");
+                }
+            }
+        }
+
+        private static bool TryFindSkillStaticIndexedArrayPackedHandle(
+            VmmProcess process,
+            ulong pairs,
+            uint count,
+            uint skillId,
+            out uint packedHandle)
+        {
+            packedHandle = 0;
+            if (pairs == 0 || count == 0 || count > 100000)
+            {
+                return false;
+            }
+
+            int left = 0;
+            int right = checked((int)count) - 1;
+            while (left <= right)
+            {
+                int mid = left + ((right - left) / 2);
+                ulong entry = pairs + (ulong)mid * SkillStaticPairSize;
+
+                uint entrySkillId;
+                if (!TryReadUInt32(process, entry + SkillStaticPairSkillIdOffset, out entrySkillId))
+                {
+                    return false;
+                }
+
+                if (skillId < entrySkillId)
+                {
+                    right = mid - 1;
+                }
+                else if (skillId > entrySkillId)
+                {
+                    left = mid + 1;
+                }
+                else
+                {
+                    return TryReadSkillStaticPairPackedHandle(process, entry, out packedHandle);
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryReadSkillStaticPairPackedHandle(VmmProcess process, ulong entry, out uint packedHandle)
+        {
+            packedHandle = 0;
+
+            ulong rawHandle;
+            if (!TryReadUInt64(process, entry + SkillStaticPairPackedHandleOffset, out rawHandle))
+            {
+                return false;
+            }
+
+            packedHandle = unchecked((uint)rawHandle);
+            return packedHandle != 0;
+        }
+
+        private static void PrintSkillStaticPackedHandleProbe(ulong entry, uint skillId, uint packedHandle, string label)
+        {
+            uint chunk;
+            uint offset;
+            DecodeSkillStaticPackedHandle(packedHandle, out chunk, out offset);
+
+            Console.WriteLine(label +
+                              (entry == 0 ? string.Empty : " Entry=" + FormatAddress(entry)) +
+                              " Id=" + skillId +
+                              " PackedHandle=0x" + packedHandle.ToString("X8") +
+                              " Chunk=0x" + chunk.ToString("X") +
+                              " Offset=0x" + offset.ToString("X"));
+        }
+
+        private static void PrintSkillStaticRecordProbe(VmmProcess process, ulong record, uint expectedId, string label)
+        {
+            if (record == 0)
+            {
+                return;
+            }
+
+            uint id0 = 0;
+            uint id8 = 0;
+            uint activation40 = 0;
+            uint target780 = 0;
+            uint target78 = 0;
+            TryReadUInt32(process, record + 0x0, out id0);
+            TryReadUInt32(process, record + 0x8, out id8);
+            TryReadUInt32(process, record + SkillStaticRecordActivationOffset, out activation40);
+            TryReadUInt32(process, record + SkillStaticRecordTargetSlotOffset, out target780);
+            TryReadUInt32(process, record + 0x78, out target78);
+
+            Console.WriteLine("RecordProbe Label=" + label +
+                              " ExpectedId=" + expectedId +
+                              " Record=" + FormatAddress(record) +
+                              " U32+0x0=" + id0 +
+                              " U32+0x8=" + id8 +
+                              " U32+0x40=" + activation40 +
+                              " U32+0x78=" + target78 +
+                              " U32+0x780=" + target780);
+
+            byte[] bytes;
+            if (TryReadBytes(process, record, 64, out bytes))
+            {
+                PrintHexDump(record, bytes, 16);
+            }
+        }
+
+        private static void ProbeSkillStaticMapCandidate(
+            VmmProcess process,
+            ulong mapObject,
+            string label,
+            List<uint> sampleSkillIds)
+        {
+            if (mapObject == 0)
+            {
+                return;
+            }
+
+            ulong[] headerOffsets = { 0, 8, 0x10, 0x18, 0x20, 0x28, 0x30 };
+            ulong[] keyOffsets = { 0x20, 0x24, 0x28, 0x30, 0x34, 0x38 };
+            ulong[] valueOffsets = { 0x24, 0x28, 0x30, 0x38, 0x40, 0x48 };
+
+            for (int h = 0; h < headerOffsets.Length; h++)
+            {
+                ulong headerOffset = headerOffsets[h];
+                ulong header;
+                if (!TryReadPointer(process, mapObject + headerOffset, out header) || header == 0)
+                {
+                    continue;
+                }
+
+                ulong size = 0;
+                TryReadUInt64(process, mapObject + headerOffset + 8, out size);
+
+                ulong root = 0;
+                ulong first = 0;
+                ulong last = 0;
+                TryReadPointer(process, header + NodeParentOffset, out root);
+                TryReadPointer(process, header + NodeLeftOffset, out first);
+                TryReadPointer(process, header + NodeRightOffset, out last);
+
+                Console.WriteLine(
+                    "Candidate Label=" + label +
+                    " Map=" + FormatAddress(mapObject) +
+                    " HeaderOffset=0x" + headerOffset.ToString("X") +
+                    " Header=" + FormatAddress(header) +
+                    " Size=" + size +
+                    " Root=" + FormatAddress(root) +
+                    " First=" + FormatAddress(first) +
+                    " Last=" + FormatAddress(last));
+
+                PrintSkillStaticProbeNode(process, header, first, "First");
+                PrintSkillStaticProbeNode(process, header, root, "Root");
+
+                if (sampleSkillIds != null && sampleSkillIds.Count > 0)
+                {
+                    for (int k = 0; k < keyOffsets.Length; k++)
+                    {
+                        for (int v = 0; v < valueOffsets.Length; v++)
+                        {
+                            int found = 0;
+                            int validRecords = 0;
+                            for (int s = 0; s < sampleSkillIds.Count; s++)
+                            {
+                                SkillStaticDetail detail;
+                                if (TryProbeSkillStaticDetailFromMapObject(
+                                    process,
+                                    mapObject,
+                                    headerOffset,
+                                    keyOffsets[k],
+                                    valueOffsets[v],
+                                    sampleSkillIds[s],
+                                    out detail))
+                                {
+                                    found++;
+                                    if (detail.Id == sampleSkillIds[s])
+                                    {
+                                        validRecords++;
+                                    }
+                                }
+                            }
+
+                            if (found > 0)
+                            {
+                                Console.WriteLine(
+                                    "LookupHit Label=" + label +
+                                    " HeaderOffset=0x" + headerOffset.ToString("X") +
+                                    " KeyOffset=0x" + keyOffsets[k].ToString("X") +
+                                    " ValueOffset=0x" + valueOffsets[v].ToString("X") +
+                                    " Found=" + found +
+                                    " Valid=" + validRecords);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private static void PrintSkillStaticProbeNode(VmmProcess process, ulong header, ulong node, string name)
+        {
+            if (node == 0 || node == header || IsNilNode(process, node, header))
+            {
+                Console.WriteLine(name + "Node=n/a");
+                return;
+            }
+
+            uint key20 = 0;
+            uint key24 = 0;
+            uint key28 = 0;
+            ulong ptr28 = 0;
+            ulong ptr30 = 0;
+            TryReadUInt32(process, node + 0x20, out key20);
+            TryReadUInt32(process, node + 0x24, out key24);
+            TryReadUInt32(process, node + 0x28, out key28);
+            TryReadPointer(process, node + 0x28, out ptr28);
+            TryReadPointer(process, node + 0x30, out ptr30);
+
+            Console.WriteLine(
+                name + "Node=" + FormatAddress(node) +
+                " Key20=" + key20 +
+                " Key24=" + key24 +
+                " Key28=" + key28 +
+                " Ptr28=" + FormatAddress(ptr28) +
+                " Ptr30=" + FormatAddress(ptr30));
+        }
+
+        private static bool TryProbeSkillStaticDetailFromMapObject(
+            VmmProcess process,
+            ulong mapObject,
+            ulong headerOffset,
+            ulong keyOffset,
+            ulong valueOffset,
+            uint skillId,
+            out SkillStaticDetail detail)
+        {
+            detail = new SkillStaticDetail();
+
+            ulong header;
+            if (!TryReadPointer(process, mapObject + headerOffset, out header) || header == 0)
+            {
+                return false;
+            }
+
+            ulong node;
+            if (!TryReadPointer(process, header + NodeParentOffset, out node) || node == 0)
+            {
+                return false;
+            }
+
+            var visited = new HashSet<ulong>();
+            for (int guard = 0; node != 0 && node != header && guard < 65536; guard++)
+            {
+                if (!visited.Add(node) || IsNilNode(process, node, header))
+                {
+                    return false;
+                }
+
+                uint nodeSkillId;
+                if (!TryReadUInt32(process, node + keyOffset, out nodeSkillId))
+                {
+                    return false;
+                }
+
+                if (skillId < nodeSkillId)
+                {
+                    if (!TryReadPointer(process, node + NodeLeftOffset, out node))
+                    {
+                        return false;
+                    }
+                }
+                else if (skillId > nodeSkillId)
+                {
+                    if (!TryReadPointer(process, node + NodeRightOffset, out node))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    ulong pointerRecord;
+                    if (TryReadPointer(process, node + valueOffset, out pointerRecord) &&
+                        TryReadSkillStaticDetailAt(process, pointerRecord, "probe:ptr", skillId, out detail))
+                    {
+                        return true;
+                    }
+
+                    return TryReadSkillStaticDetailAt(process, node + valueOffset, "probe:inline", skillId, out detail);
+                }
+            }
+
+            return false;
         }
 
         private static void RunLockedTargetMonsterInfoTest(VmmProcess process, ulong gameBase)
@@ -8004,6 +9030,679 @@ namespace Tool
             return true;
         }
 
+        private static int AttachSkillStaticDetails(
+            VmmProcess process,
+            ulong gameBase,
+            ulong staticMapRva,
+            List<LearnedSkillInfo> skills,
+            out int handleCount)
+        {
+            handleCount = 0;
+            if (skills == null || skills.Count == 0)
+            {
+                return 0;
+            }
+
+            int count = 0;
+            for (int i = 0; i < skills.Count; i++)
+            {
+                LearnedSkillInfo skill = skills[i];
+                SkillStaticDetail detail;
+                uint packedHandle;
+                if (TryReadSkillStaticPackedHandle(process, gameBase, staticMapRva, skill.SkillId, out packedHandle))
+                {
+                    skill.HasStaticPackedHandle = true;
+                    skill.StaticPackedHandle = packedHandle;
+                    DecodeSkillStaticPackedHandle(packedHandle, out skill.StaticPackedChunk, out skill.StaticPackedOffset);
+                    skills[i] = skill;
+                    handleCount++;
+                }
+
+                if (TryReadSkillStaticDetail(process, gameBase, staticMapRva, skill.SkillId, out detail))
+                {
+                    skill.HasStaticDetail = true;
+                    skill.StaticDetail = detail;
+                    skills[i] = skill;
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static int AttachSkillXmlStaticDetails(
+            Dictionary<uint, SkillXmlStaticDetail> xmlDetails,
+            List<LearnedSkillInfo> skills)
+        {
+            if (xmlDetails == null || xmlDetails.Count == 0 || skills == null || skills.Count == 0)
+            {
+                return 0;
+            }
+
+            int count = 0;
+            for (int i = 0; i < skills.Count; i++)
+            {
+                LearnedSkillInfo skill = skills[i];
+                SkillXmlStaticDetail detail;
+                if (xmlDetails.TryGetValue(skill.SkillId, out detail))
+                {
+                    skill.HasXmlStaticDetail = true;
+                    skill.XmlStaticDetail = detail;
+                    skills[i] = skill;
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static Dictionary<uint, SkillXmlStaticDetail> LoadSkillXmlStaticDetails(
+            out string xmlPath,
+            out string error)
+        {
+            var details = new Dictionary<uint, SkillXmlStaticDetail>();
+            xmlPath = ResolveSkillXmlPath(out error);
+            if (string.IsNullOrWhiteSpace(xmlPath) || !string.IsNullOrWhiteSpace(error))
+            {
+                return details;
+            }
+
+            try
+            {
+                XDocument document = XDocument.Load(xmlPath);
+                if (document.Root == null)
+                {
+                    error = "client_skills.xml has no root element";
+                    return details;
+                }
+
+                foreach (XElement element in document.Root.DescendantsAndSelf())
+                {
+                    SkillXmlStaticDetail detail;
+                    if (!TryReadSkillXmlStaticDetail(element, xmlPath, out detail))
+                    {
+                        continue;
+                    }
+
+                    details[detail.Id] = detail;
+                }
+            }
+            catch (Exception ex)
+            {
+                error = "failed to load client_skills.xml: " + ex.Message;
+                details.Clear();
+            }
+
+            return details;
+        }
+
+        private static string ResolveSkillXmlPath(out string error)
+        {
+            error = string.Empty;
+            string explicitPath = Environment.GetEnvironmentVariable("AION_CLIENT_SKILLS_XML");
+            if (string.IsNullOrWhiteSpace(explicitPath))
+            {
+                explicitPath = Environment.GetEnvironmentVariable("AION_SKILL_XML");
+            }
+
+            if (!string.IsNullOrWhiteSpace(explicitPath))
+            {
+                string expanded = Environment.ExpandEnvironmentVariables(explicitPath.Trim().Trim('"'));
+                try
+                {
+                    expanded = Path.GetFullPath(expanded);
+                }
+                catch
+                {
+                    // Keep the user-provided path in the error message.
+                }
+
+                if (File.Exists(expanded))
+                {
+                    return expanded;
+                }
+
+                error = "client_skills.xml path not found: " + expanded;
+                return expanded;
+            }
+
+            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            string desktopPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                "client_skills.xml");
+            string[] candidates =
+            {
+                Path.Combine("Source", "client_skills.xml"),
+                Path.Combine("Tool", "Source", "client_skills.xml"),
+                Path.Combine(baseDirectory, "Source", "client_skills.xml"),
+                "client_skills.xml",
+                Path.Combine("TXT", "client_skills.xml"),
+                Path.Combine("Tool", "TXT", "client_skills.xml"),
+                Path.Combine(baseDirectory, "client_skills.xml"),
+                Path.Combine(baseDirectory, "TXT", "client_skills.xml"),
+                desktopPath
+            };
+
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                string candidate = candidates[i];
+                if (File.Exists(candidate))
+                {
+                    try
+                    {
+                        return Path.GetFullPath(candidate);
+                    }
+                    catch
+                    {
+                        return candidate;
+                    }
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string FormatSkillXmlLoadStatus(
+            bool enabled,
+            string xmlPath,
+            string error,
+            int rowCount)
+        {
+            if (!enabled)
+            {
+                return "XML static classification=off. Set AION_SKILL_XML_DETAIL=1 to enable.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                return "XML static classification=off (" + error + "). Set AION_CLIENT_SKILLS_XML=<client_skills.xml path>.";
+            }
+
+            if (rowCount > 0)
+            {
+                return "XML static classification=on Rows=" + rowCount + " Source=\"" + xmlPath + "\".";
+            }
+
+            return "XML static classification=off (client_skills.xml not found). Set AION_CLIENT_SKILLS_XML=<client_skills.xml path>.";
+        }
+
+        private static bool TryReadSkillXmlStaticDetail(
+            XElement element,
+            string source,
+            out SkillXmlStaticDetail detail)
+        {
+            detail = new SkillXmlStaticDetail();
+            string idText = GetSkillXmlValue(element, "skill_id", "skillid", "id");
+            uint id;
+            if (!TryParseSkillXmlUInt(idText, out id))
+            {
+                return false;
+            }
+
+            detail.Id = id;
+            detail.Source = source;
+            detail.XmlName = GetSkillXmlValue(element, "name", "skill_name", "skillname");
+            detail.ActivationAttribute = GetSkillXmlValue(element, "activation_attribute", "activationattribute");
+            detail.TargetSlot = GetSkillXmlValue(element, "target_slot", "targetslot");
+            detail.ChainCategoryName = GetSkillXmlValue(element, "chain_category_name", "chaincategoryname");
+            detail.PrechainCategoryName = GetSkillXmlValue(element, "prechain_category_name", "prechaincategoryname");
+            detail.ChainTime = GetSkillXmlValue(element, "chain_time", "chaintime");
+            detail.StatusFx = GetSkillXmlValue(element, "status_fx", "statusfx");
+            detail.AuraFx = GetSkillXmlValue(element, "aura_fx", "aurafx");
+            detail.CounterSkill = GetSkillXmlValue(element, "counter_skill", "counterskill");
+            detail.Effect1Type = GetSkillXmlValue(element, "effect1_type", "effect_1_type", "effect1type");
+            detail.Effect2Type = GetSkillXmlValue(element, "effect2_type", "effect_2_type", "effect2type");
+            detail.Effect3Type = GetSkillXmlValue(element, "effect3_type", "effect_3_type", "effect3type");
+            detail.Effect4Type = GetSkillXmlValue(element, "effect4_type", "effect_4_type", "effect4type");
+            return true;
+        }
+
+        private static bool TryParseSkillXmlUInt(string text, out uint value)
+        {
+            value = 0;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            text = text.Trim();
+            try
+            {
+                if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                {
+                    value = Convert.ToUInt32(text.Substring(2), 16);
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            return uint.TryParse(text, out value);
+        }
+
+        private static string GetSkillXmlValue(XElement element, params string[] names)
+        {
+            string value;
+            return TryGetSkillXmlValue(element, out value, names) ? value : string.Empty;
+        }
+
+        private static bool TryGetSkillXmlValue(XElement element, out string value, params string[] names)
+        {
+            value = string.Empty;
+            if (element == null || names == null || names.Length == 0)
+            {
+                return false;
+            }
+
+            foreach (XAttribute attribute in element.Attributes())
+            {
+                if (MatchesSkillXmlName(attribute.Name.LocalName, names))
+                {
+                    value = CleanSkillXmlValue(attribute.Value);
+                    return true;
+                }
+            }
+
+            foreach (XElement child in element.Elements())
+            {
+                if (MatchesSkillXmlName(child.Name.LocalName, names))
+                {
+                    value = CleanSkillXmlValue(child.Value);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool MatchesSkillXmlName(string candidate, string[] names)
+        {
+            string normalizedCandidate = NormalizeSkillXmlName(candidate);
+            for (int i = 0; i < names.Length; i++)
+            {
+                if (string.Equals(normalizedCandidate, NormalizeSkillXmlName(names[i]), StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string NormalizeSkillXmlName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            var builder = new StringBuilder(value.Length);
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                if ((c >= 'A' && c <= 'Z') ||
+                    (c >= 'a' && c <= 'z') ||
+                    (c >= '0' && c <= '9'))
+                {
+                    builder.Append(char.ToLowerInvariant(c));
+                }
+            }
+
+            return builder.ToString();
+        }
+
+        private static string CleanSkillXmlValue(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+        }
+
+        private static bool TryReadSkillStaticDetail(
+            VmmProcess process,
+            ulong gameBase,
+            ulong staticMapRva,
+            uint skillId,
+            out SkillStaticDetail detail)
+        {
+            detail = new SkillStaticDetail();
+
+            ulong mapObject = gameBase + staticMapRva;
+            if (TryReadSkillStaticDetailFromIndexedArray(process, mapObject, skillId, out detail))
+            {
+                return true;
+            }
+
+            if (TryReadSkillStaticDetailFromMapObject(
+                process,
+                mapObject,
+                "map@" + FormatAddress(mapObject),
+                skillId,
+                out detail))
+            {
+                return true;
+            }
+
+            ulong pointedMapObject;
+            if (TryReadPointer(process, mapObject, out pointedMapObject) &&
+                pointedMapObject != 0 &&
+                pointedMapObject != mapObject &&
+                TryReadSkillStaticDetailFromMapObject(
+                    process,
+                    pointedMapObject,
+                    "mapPtr@" + FormatAddress(pointedMapObject),
+                    skillId,
+                    out detail))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryReadSkillStaticPackedHandle(
+            VmmProcess process,
+            ulong gameBase,
+            ulong staticMapRva,
+            uint skillId,
+            out uint packedHandle)
+        {
+            ulong table = gameBase + staticMapRva;
+            return TryReadSkillStaticPackedHandleFromTable(process, table, skillId, out packedHandle);
+        }
+
+        private static bool TryReadSkillStaticPackedHandleFromTable(
+            VmmProcess process,
+            ulong table,
+            uint skillId,
+            out uint packedHandle)
+        {
+            packedHandle = 0;
+
+            uint countA;
+            uint countB;
+            ulong pairs;
+            if (!TryReadUInt32(process, table + SkillStaticTableCountOffset, out countA) ||
+                !TryReadUInt32(process, table + SkillStaticTablePairCountOffset, out countB) ||
+                !TryReadPointer(process, table + SkillStaticTablePairArrayOffset, out pairs) ||
+                pairs == 0)
+            {
+                return false;
+            }
+
+            uint count = countA == countB ? countA : Math.Max(countA, countB);
+            if (count == 0 || count > 100000)
+            {
+                return false;
+            }
+
+            int left = 0;
+            int right = checked((int)count) - 1;
+            while (left <= right)
+            {
+                int mid = left + ((right - left) / 2);
+                ulong entry = pairs + (ulong)mid * SkillStaticPairSize;
+
+                uint entrySkillId;
+                if (!TryReadUInt32(process, entry + SkillStaticPairSkillIdOffset, out entrySkillId))
+                {
+                    return false;
+                }
+
+                if (skillId < entrySkillId)
+                {
+                    right = mid - 1;
+                }
+                else if (skillId > entrySkillId)
+                {
+                    left = mid + 1;
+                }
+                else
+                {
+                    ulong rawHandle;
+                    if (!TryReadUInt64(process, entry + SkillStaticPairPackedHandleOffset, out rawHandle))
+                    {
+                        return false;
+                    }
+
+                    packedHandle = unchecked((uint)rawHandle);
+                    return packedHandle != 0;
+                }
+            }
+
+            return false;
+        }
+
+        private static void DecodeSkillStaticPackedHandle(uint packedHandle, out uint chunk, out uint offset)
+        {
+            offset = packedHandle & SkillStaticPackedHandleOffsetMask;
+            uint rawChunk = packedHandle >> SkillStaticPackedHandleChunkShift;
+            chunk = rawChunk == 0 ? 0 : rawChunk - 1;
+        }
+
+        private static bool TryReadSkillStaticDetailFromIndexedArray(
+            VmmProcess process,
+            ulong table,
+            uint skillId,
+            out SkillStaticDetail detail)
+        {
+            detail = new SkillStaticDetail();
+
+            uint countA;
+            uint countB;
+            ulong pairs;
+            if (!TryReadUInt32(process, table + SkillStaticTableCountOffset, out countA) ||
+                !TryReadUInt32(process, table + SkillStaticTablePairCountOffset, out countB) ||
+                !TryReadPointer(process, table + SkillStaticTablePairArrayOffset, out pairs) ||
+                pairs == 0)
+            {
+                return false;
+            }
+
+            uint count = countA == countB ? countA : Math.Max(countA, countB);
+            if (count == 0 || count > 100000)
+            {
+                return false;
+            }
+
+            int left = 0;
+            int right = checked((int)count) - 1;
+            while (left <= right)
+            {
+                int mid = left + ((right - left) / 2);
+                ulong entry = pairs + (ulong)mid * SkillStaticPairSize;
+
+                uint entrySkillId;
+                if (!TryReadUInt32(process, entry + SkillStaticPairSkillIdOffset, out entrySkillId))
+                {
+                    return false;
+                }
+
+                if (skillId < entrySkillId)
+                {
+                    right = mid - 1;
+                }
+                else if (skillId > entrySkillId)
+                {
+                    left = mid + 1;
+                }
+                else
+                {
+                    uint packedHandle;
+                    return TryReadSkillStaticPairPackedHandle(process, entry, out packedHandle) &&
+                           TryReadSkillStaticDetailFromPackedHandle(
+                               process,
+                               packedHandle,
+                               "indexedArray@" + FormatAddress(pairs),
+                               skillId,
+                               out detail);
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryReadSkillStaticDetailFromPackedHandle(
+            VmmProcess process,
+            uint packedHandle,
+            string source,
+            uint skillId,
+            out SkillStaticDetail detail)
+        {
+            detail = new SkillStaticDetail();
+            return false;
+        }
+
+        private static bool TryReadSkillStaticDetailFromMapObject(
+            VmmProcess process,
+            ulong mapObject,
+            string source,
+            uint skillId,
+            out SkillStaticDetail detail)
+        {
+            detail = new SkillStaticDetail();
+
+            ulong header;
+            if (!TryReadPointer(process, mapObject, out header) || header == 0)
+            {
+                return false;
+            }
+
+            ulong node;
+            if (!TryReadPointer(process, header + NodeParentOffset, out node) || node == 0)
+            {
+                return false;
+            }
+
+            var visited = new HashSet<ulong>();
+            for (int guard = 0; node != 0 && node != header && guard < 65536; guard++)
+            {
+                if (!visited.Add(node) || IsNilNode(process, node, header))
+                {
+                    return false;
+                }
+
+                uint nodeSkillId;
+                if (!TryReadUInt32(process, node + SkillStaticMapNodeKeyOffset, out nodeSkillId))
+                {
+                    return false;
+                }
+
+                if (skillId < nodeSkillId)
+                {
+                    if (!TryReadPointer(process, node + NodeLeftOffset, out node))
+                    {
+                        return false;
+                    }
+                }
+                else if (skillId > nodeSkillId)
+                {
+                    if (!TryReadPointer(process, node + NodeRightOffset, out node))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return TryReadSkillStaticDetailFromMapNode(process, node, source, skillId, out detail);
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryReadSkillStaticDetailFromMapNode(
+            VmmProcess process,
+            ulong node,
+            string source,
+            uint skillId,
+            out SkillStaticDetail detail)
+        {
+            detail = new SkillStaticDetail();
+
+            ulong pointerRecord;
+            if (TryReadPointer(process, node + SkillStaticMapNodeValueOffset, out pointerRecord) &&
+                TryReadSkillStaticDetailAt(process, pointerRecord, source + ":ptr", skillId, out detail))
+            {
+                return true;
+            }
+
+            ulong inlineRecord = node + SkillStaticMapNodeValueOffset;
+            if (TryReadSkillStaticDetailAt(process, inlineRecord, source + ":inline", skillId, out detail))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryReadSkillStaticDetailAt(
+            VmmProcess process,
+            ulong record,
+            string source,
+            uint skillId,
+            out SkillStaticDetail detail)
+        {
+            detail = new SkillStaticDetail();
+
+            if (!IsLikelyUserPointer(record))
+            {
+                return false;
+            }
+
+            uint id;
+            uint activation;
+            uint targetSlot;
+            if (!TryReadUInt32(process, record + SkillStaticRecordIdOffset, out id) ||
+                id != skillId ||
+                !TryReadUInt32(process, record + SkillStaticRecordActivationOffset, out activation) ||
+                !TryReadUInt32(process, record + SkillStaticRecordTargetSlotOffset, out targetSlot))
+            {
+                return false;
+            }
+
+            if (!IsPlausibleSkillActivation(activation) || targetSlot > 64)
+            {
+                return false;
+            }
+
+            detail.Id = id;
+            detail.Address = record;
+            detail.Source = source ?? string.Empty;
+            detail.Activation = activation;
+            detail.TargetSlot = targetSlot;
+
+            TryReadUInt32(process, record + SkillStaticRecordSchoolOffset, out detail.School);
+            TryReadUInt32(process, record + SkillStaticRecordSubtypeOffset, out detail.Subtype);
+            TryReadUInt32(process, record + SkillStaticRecordCostParameterOffset, out detail.CostParameter);
+            TryReadUInt32(process, record + SkillStaticRecordDelayTypeOffset, out detail.DelayType);
+            TryReadUInt32(process, record + SkillStaticRecordDelayTimeOffset, out detail.DelayTime);
+            TryReadUInt32(process, record + SkillStaticRecordCastingDelayOffset, out detail.CastingDelay);
+            TryReadUInt32(process, record + SkillStaticRecordChargingDelayOffset, out detail.ChargingDelay);
+            TryReadUInt32(process, record + SkillStaticRecordDispelCategoryOffset, out detail.DispelCategory);
+            TryReadUInt32(process, record + SkillStaticRecordFirstTargetOffset, out detail.FirstTarget);
+            TryReadUInt32(process, record + SkillStaticRecordTargetRangeOffset, out detail.TargetRange);
+            TryReadUInt32(process, record + SkillStaticRecordTargetRelationOffset, out detail.TargetRelation);
+            TryReadUInt32(process, record + SkillStaticRecordTargetAreaTypeOffset, out detail.TargetAreaType);
+            TryReadUInt32(process, record + SkillStaticRecordTargetValidStatusOffset, out detail.TargetValidStatus);
+            TryReadUInt32(process, record + SkillStaticRecordEffect1TypeOffset, out detail.Effect1Type);
+            TryReadUInt32(process, record + SkillStaticRecordEffect2TypeOffset, out detail.Effect2Type);
+            TryReadUInt32(process, record + SkillStaticRecordEffect3TypeOffset, out detail.Effect3Type);
+            TryReadUInt32(process, record + SkillStaticRecordEffect4TypeOffset, out detail.Effect4Type);
+            TryReadUInt32(process, record + SkillStaticRecordStatusFxOffset, out detail.StatusFx);
+            TryReadUInt32(process, record + SkillStaticRecordAuraFxOffset, out detail.AuraFx);
+            TryReadUInt32(process, record + SkillStaticRecordCounterSkillOffset, out detail.CounterSkill);
+            TryReadUInt32(process, record + SkillStaticRecordChainCategoryPriorityOffset, out detail.ChainCategoryPriority);
+            TryReadUInt32(process, record + SkillStaticRecordChainCategoryLevelOffset, out detail.ChainCategoryLevel);
+            TryReadUInt32(process, record + SkillStaticRecordChainCategoryNameOffset, out detail.ChainCategoryName);
+            TryReadUInt32(process, record + SkillStaticRecordPrechainCategoryNameOffset, out detail.PrechainCategoryName);
+            TryReadUInt32(process, record + SkillStaticRecordChainTimeOffset, out detail.ChainTime);
+            TryReadUInt32(process, record + SkillStaticRecordChainSkillProb1Offset, out detail.ChainSkillProb1);
+            TryReadUInt32(process, record + SkillStaticRecordChainSkillProb2Offset, out detail.ChainSkillProb2);
+
+            return true;
+        }
+
         private static bool TryReadHighestLearnedSkillFromOuterNode(
             VmmProcess process,
             ulong outerNode,
@@ -9014,6 +10713,37 @@ namespace Tool
                 return false;
             }
 
+            if (skill.HasXmlStaticDetail)
+            {
+                if (IsManualSkillXmlActivation(skill.XmlStaticDetail.ActivationAttribute) ||
+                    IsChainSkill(skill.XmlStaticDetail) ||
+                    IsStatusSkill(skill.XmlStaticDetail))
+                {
+                    return true;
+                }
+
+                if (IsPassiveSkillXmlActivation(skill.XmlStaticDetail.ActivationAttribute))
+                {
+                    return false;
+                }
+            }
+
+            if (skill.HasStaticDetail)
+            {
+                if (skill.StaticDetail.Activation == 8 ||
+                    skill.StaticDetail.Activation == 16)
+                {
+                    return false;
+                }
+
+                if (IsManualSkillActivation(skill.StaticDetail.Activation) ||
+                    IsChainSkill(skill.StaticDetail) ||
+                    IsStatusSkill(skill.StaticDetail))
+                {
+                    return true;
+                }
+            }
+
             if (skill.ToggleState != 0)
             {
                 return true;
@@ -9027,6 +10757,132 @@ namespace Tool
             return skill.StaticFieldD8 != 0 ||
                    skill.RuntimeState != 0 ||
                    skill.SourceFlags != 0;
+        }
+
+        private static bool IsPlausibleSkillActivation(uint activation)
+        {
+            return activation == 0 ||
+                   activation == 1 ||
+                   activation == 2 ||
+                   activation == 4 ||
+                   activation == 8 ||
+                   activation == 16;
+        }
+
+        private static bool IsManualSkillActivation(uint activation)
+        {
+            return activation == 1 ||
+                   activation == 2 ||
+                   activation == 4;
+        }
+
+        private static bool IsChainSkill(SkillStaticDetail detail)
+        {
+            return detail.ChainCategoryName != 0 ||
+                   detail.PrechainCategoryName != 0 ||
+                   detail.ChainTime > 0;
+        }
+
+        private static bool IsStatusSkill(SkillStaticDetail detail)
+        {
+            return detail.TargetSlot == 0 ||
+                   detail.TargetSlot == 1 ||
+                   detail.TargetSlot == 2 ||
+                   detail.TargetSlot == 5 ||
+                   detail.StatusFx != 0 ||
+                   detail.AuraFx != 0;
+        }
+
+        private static bool IsManualSkillXmlActivation(string activation)
+        {
+            string token = NormalizeSkillXmlName(activation);
+            return string.Equals(token, "active", StringComparison.Ordinal) ||
+                   string.Equals(token, "act", StringComparison.Ordinal) ||
+                   string.Equals(token, "action", StringComparison.Ordinal) ||
+                   string.Equals(token, "manual", StringComparison.Ordinal) ||
+                   string.Equals(token, "toggle", StringComparison.Ordinal) ||
+                   string.Equals(token, "maintain", StringComparison.Ordinal) ||
+                   string.Equals(token, "2", StringComparison.Ordinal) ||
+                   string.Equals(token, "1", StringComparison.Ordinal) ||
+                   string.Equals(token, "4", StringComparison.Ordinal);
+        }
+
+        private static bool IsPassiveSkillXmlActivation(string activation)
+        {
+            string token = NormalizeSkillXmlName(activation);
+            return string.Equals(token, "passive", StringComparison.Ordinal) ||
+                   string.Equals(token, "provoked", StringComparison.Ordinal) ||
+                   string.Equals(token, "8", StringComparison.Ordinal) ||
+                   string.Equals(token, "16", StringComparison.Ordinal);
+        }
+
+        private static bool IsChainSkill(SkillXmlStaticDetail detail)
+        {
+            return HasUsefulSkillXmlValue(detail.ChainCategoryName) ||
+                   HasUsefulSkillXmlValue(detail.PrechainCategoryName) ||
+                   HasUsefulSkillXmlValue(detail.ChainTime);
+        }
+
+        private static bool IsStatusSkill(SkillXmlStaticDetail detail)
+        {
+            string targetSlot = NormalizeSkillXmlName(detail.TargetSlot);
+            return string.Equals(targetSlot, "buff", StringComparison.Ordinal) ||
+                   string.Equals(targetSlot, "debuff", StringComparison.Ordinal) ||
+                   string.Equals(targetSlot, "chant", StringComparison.Ordinal) ||
+                   string.Equals(targetSlot, "boost", StringComparison.Ordinal) ||
+                   string.Equals(targetSlot, "0", StringComparison.Ordinal) ||
+                   string.Equals(targetSlot, "1", StringComparison.Ordinal) ||
+                   string.Equals(targetSlot, "2", StringComparison.Ordinal) ||
+                   string.Equals(targetSlot, "5", StringComparison.Ordinal) ||
+                   HasUsefulSkillXmlValue(detail.StatusFx) ||
+                   HasUsefulSkillXmlValue(detail.AuraFx);
+        }
+
+        private static bool HasUsefulSkillXmlValue(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            string trimmed = value.Trim();
+            uint uintValue;
+            if (TryParseSkillXmlUInt(trimmed, out uintValue) && uintValue == 0)
+            {
+                return false;
+            }
+
+            if (IsZeroSkillXmlNumber(trimmed))
+            {
+                return false;
+            }
+
+            string token = NormalizeSkillXmlName(trimmed);
+            return !string.Equals(token, "none", StringComparison.Ordinal) &&
+                   !string.Equals(token, "null", StringComparison.Ordinal) &&
+                   !string.Equals(token, "false", StringComparison.Ordinal) &&
+                   !string.Equals(token, "na", StringComparison.Ordinal);
+        }
+
+        private static bool HasDisplayableSkillXmlValue(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            string token = NormalizeSkillXmlName(value);
+            return !string.Equals(token, "none", StringComparison.Ordinal) &&
+                   !string.Equals(token, "null", StringComparison.Ordinal) &&
+                   !string.Equals(token, "false", StringComparison.Ordinal) &&
+                   !string.Equals(token, "na", StringComparison.Ordinal);
+        }
+
+        private static bool IsZeroSkillXmlNumber(string value)
+        {
+            double number;
+            return double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out number) && Math.Abs(number) < 0.000001 ||
+                   double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out number) && Math.Abs(number) < 0.000001;
         }
 
         private static bool IsIgnoredUtilitySkillName(string name)
@@ -9331,7 +11187,469 @@ namespace Tool
                    " Field5C=0x" + skill.Field5C.ToString("X") +
                    " Field78=0x" + skill.Field78.ToString("X") +
                    " LevelTreeSize=" + skill.LevelTreeSize +
-                   " ItemListSize=" + skill.ItemListSize;
+                   " ItemListSize=" + skill.ItemListSize +
+                   FormatSkillStaticPackedHandle(skill) +
+                   FormatSkillStaticDetail(skill) +
+                   FormatSkillXmlStaticDetail(skill);
+        }
+
+        private static string FormatSkillStaticPackedHandle(LearnedSkillInfo skill)
+        {
+            if (!skill.HasStaticPackedHandle)
+            {
+                return " StaticPackedHandle=n/a";
+            }
+
+            return " StaticPackedHandle=0x" + skill.StaticPackedHandle.ToString("X8") +
+                   " StaticChunk=0x" + skill.StaticPackedChunk.ToString("X") +
+                   " StaticOffset=0x" + skill.StaticPackedOffset.ToString("X");
+        }
+
+        private static string FormatSkillStaticDetail(LearnedSkillInfo skill)
+        {
+            if (!skill.HasStaticDetail)
+            {
+                return " StaticDetail=n/a";
+            }
+
+            SkillStaticDetail detail = skill.StaticDetail;
+            return " StaticRecord=" + FormatAddress(detail.Address) +
+                   " StaticSource=" + detail.Source +
+                   " Activation=" + FormatSkillActivation(detail.Activation) + "(" + detail.Activation + ")" +
+                   " Manual=" + FormatYesNo(IsManualSkillActivation(detail.Activation)) +
+                   " Chain=" + FormatYesNo(IsChainSkill(detail)) +
+                   " Status=" + FormatYesNo(IsStatusSkill(detail)) +
+                   " Tags=" + FormatSkillTags(detail) +
+                   " School=" + FormatSkillSchool(detail.School) + "(" + detail.School + ")" +
+                   " Subtype=" + detail.Subtype +
+                   " TargetSlot=" + FormatSkillTargetSlot(detail.TargetSlot) + "(" + detail.TargetSlot + ")" +
+                   " Dispel=" + FormatAbnormalCategory(detail.DispelCategory) + "(" + detail.DispelCategory + ")" +
+                   " FirstTarget=" + detail.FirstTarget +
+                   " TargetRange=" + detail.TargetRange +
+                   " TargetRelation=" + detail.TargetRelation +
+                   " TargetArea=" + detail.TargetAreaType +
+                   " TargetValidStatus=0x" + detail.TargetValidStatus.ToString("X") +
+                   " Delay=" + detail.DelayType + "/" + detail.DelayTime +
+                   " Cast=" + detail.CastingDelay +
+                   " Charge=" + detail.ChargingDelay +
+                   " CostType=" + detail.CostParameter +
+                   " Effects=[" +
+                   detail.Effect1Type + "," +
+                   detail.Effect2Type + "," +
+                   detail.Effect3Type + "," +
+                   detail.Effect4Type + "]" +
+                   " StatusFx=0x" + detail.StatusFx.ToString("X") +
+                   " AuraFx=0x" + detail.AuraFx.ToString("X") +
+                   " CounterSkill=" + detail.CounterSkill +
+                   " ChainCategory=" + detail.ChainCategoryName +
+                   " PrechainCategory=" + detail.PrechainCategoryName +
+                   " ChainLevel=" + detail.ChainCategoryLevel +
+                   " ChainPriority=" + detail.ChainCategoryPriority +
+                   " ChainTime=" + detail.ChainTime +
+                   " ChainProb=" + detail.ChainSkillProb1 + "/" + detail.ChainSkillProb2;
+        }
+
+        private static string FormatSkillXmlStaticDetail(LearnedSkillInfo skill)
+        {
+            if (!skill.HasXmlStaticDetail)
+            {
+                return " XmlStatic=n/a";
+            }
+
+            SkillXmlStaticDetail detail = skill.XmlStaticDetail;
+            return " XmlStatic=yes" +
+                   " XmlName=" + FormatSkillXmlOutputValue(detail.XmlName) +
+                   " XmlActivation=" + FormatSkillXmlOutputValue(detail.ActivationAttribute) +
+                   " XmlManual=" + FormatYesNo(IsManualSkillXmlActivation(detail.ActivationAttribute)) +
+                   " XmlChain=" + FormatYesNo(IsChainSkill(detail)) +
+                   " XmlStatus=" + FormatYesNo(IsStatusSkill(detail)) +
+                   " XmlTags=" + FormatSkillXmlTags(detail) +
+                   " XmlTargetSlot=" + FormatSkillXmlOutputValue(detail.TargetSlot) +
+                   " XmlEffects=[" +
+                   FormatSkillXmlListValue(detail.Effect1Type) + "," +
+                   FormatSkillXmlListValue(detail.Effect2Type) + "," +
+                   FormatSkillXmlListValue(detail.Effect3Type) + "," +
+                   FormatSkillXmlListValue(detail.Effect4Type) + "]" +
+                   " XmlStatusFx=" + FormatSkillXmlOutputValue(detail.StatusFx) +
+                   " XmlAuraFx=" + FormatSkillXmlOutputValue(detail.AuraFx) +
+                   " XmlCounterSkill=" + FormatSkillXmlOutputValue(detail.CounterSkill) +
+                   " XmlChainCategory=" + FormatSkillXmlOutputValue(detail.ChainCategoryName) +
+                   " XmlPrechainCategory=" + FormatSkillXmlOutputValue(detail.PrechainCategoryName) +
+                   " XmlChainTime=" + FormatSkillXmlOutputValue(detail.ChainTime);
+        }
+
+        private static string FormatSkillXmlTags(SkillXmlStaticDetail detail)
+        {
+            var tags = new List<string>();
+            string activation = FormatSkillXmlActivationTag(detail.ActivationAttribute);
+            if (!string.IsNullOrWhiteSpace(activation))
+            {
+                tags.Add(activation);
+            }
+
+            if (IsManualSkillXmlActivation(detail.ActivationAttribute))
+            {
+                tags.Add("manual");
+            }
+
+            if (IsChainSkill(detail))
+            {
+                tags.Add("chain");
+            }
+
+            if (IsStatusSkill(detail))
+            {
+                tags.Add("status");
+            }
+
+            string targetSlot = FormatSkillXmlTargetSlotTag(detail.TargetSlot);
+            if (!string.IsNullOrWhiteSpace(targetSlot) &&
+                !string.Equals(targetSlot, "default", StringComparison.Ordinal) &&
+                !string.Equals(targetSlot, "none", StringComparison.Ordinal) &&
+                !string.Equals(targetSlot, "null", StringComparison.Ordinal) &&
+                !string.Equals(targetSlot, "false", StringComparison.Ordinal) &&
+                !string.Equals(targetSlot, "na", StringComparison.Ordinal) &&
+                !string.Equals(targetSlot, "7", StringComparison.Ordinal))
+            {
+                tags.Add(targetSlot);
+            }
+
+            if (HasUsefulSkillXmlValue(detail.CounterSkill))
+            {
+                tags.Add("counter");
+            }
+
+            return tags.Count == 0 ? "n/a" : string.Join(",", tags.ToArray());
+        }
+
+        private static string FormatSkillXmlActivationTag(string activation)
+        {
+            string token = NormalizeSkillXmlName(activation);
+            switch (token)
+            {
+                case "1":
+                    return "toggle";
+                case "2":
+                    return "active";
+                case "4":
+                    return "maintain";
+                case "8":
+                    return "passive";
+                case "16":
+                    return "provoked";
+                default:
+                    return token;
+            }
+        }
+
+        private static string FormatSkillXmlTargetSlotTag(string targetSlot)
+        {
+            string token = NormalizeSkillXmlName(targetSlot);
+            switch (token)
+            {
+                case "0":
+                    return "buff";
+                case "1":
+                    return "debuff";
+                case "2":
+                    return "chant";
+                case "3":
+                    return "special";
+                case "4":
+                    return "special2";
+                case "5":
+                    return "boost";
+                case "6":
+                    return "noshow";
+                case "7":
+                    return "default";
+                default:
+                    return token;
+            }
+        }
+
+        private static string FormatSkillXmlListValue(string value)
+        {
+            return HasUsefulSkillXmlValue(value) ? CleanOneLineSkillXmlValue(value) : "n/a";
+        }
+
+        private static string FormatSkillXmlOutputValue(string value)
+        {
+            return HasDisplayableSkillXmlValue(value) ? "\"" + CleanOneLineSkillXmlValue(value).Replace("\"", "'") + "\"" : "n/a";
+        }
+
+        private static string CleanOneLineSkillXmlValue(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            var builder = new StringBuilder(value.Length);
+            bool previousWhitespace = false;
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                if (char.IsWhiteSpace(c))
+                {
+                    if (!previousWhitespace)
+                    {
+                        builder.Append(' ');
+                    }
+
+                    previousWhitespace = true;
+                }
+                else
+                {
+                    builder.Append(c);
+                    previousWhitespace = false;
+                }
+            }
+
+            return builder.ToString().Trim();
+        }
+
+        private static string FormatSkillTags(SkillStaticDetail detail)
+        {
+            var tags = new List<string>();
+            tags.Add(FormatSkillActivation(detail.Activation).ToLowerInvariant());
+
+            if (IsManualSkillActivation(detail.Activation))
+            {
+                tags.Add("manual");
+            }
+
+            if (IsChainSkill(detail))
+            {
+                tags.Add("chain");
+            }
+
+            if (IsStatusSkill(detail))
+            {
+                tags.Add("status");
+            }
+
+            string targetSlot = FormatSkillTargetSlot(detail.TargetSlot);
+            if (!string.Equals(targetSlot, "unknown", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(targetSlot, "default", StringComparison.OrdinalIgnoreCase))
+            {
+                tags.Add(targetSlot.ToLowerInvariant());
+            }
+
+            if (detail.CounterSkill != 0)
+            {
+                tags.Add("counter");
+            }
+
+            return string.Join(",", tags.ToArray());
+        }
+
+        private static string FormatSkillActivation(uint activation)
+        {
+            switch (activation)
+            {
+                case 1:
+                    return "Toggle";
+                case 2:
+                    return "Active";
+                case 4:
+                    return "Maintain";
+                case 8:
+                    return "Passive";
+                case 16:
+                    return "Provoked";
+                case 0:
+                    return "Unknown";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        private static string FormatSkillTargetSlot(uint targetSlot)
+        {
+            switch (targetSlot)
+            {
+                case 0:
+                    return "buff";
+                case 1:
+                    return "debuff";
+                case 2:
+                    return "chant";
+                case 3:
+                    return "special";
+                case 4:
+                    return "special2";
+                case 5:
+                    return "boost";
+                case 6:
+                    return "noshow";
+                case 7:
+                    return "default";
+                default:
+                    return "unknown";
+            }
+        }
+
+        private static string FormatSkillSchool(uint school)
+        {
+            switch (school)
+            {
+                case 0:
+                    return "Physical";
+                case 1:
+                    return "Magical";
+                default:
+                    return "Unknown";
+            }
+        }
+
+        private static string FormatYesNo(bool value)
+        {
+            return value ? "yes" : "no";
+        }
+
+        private static string FormatSkillCooldownUsability(int index, LearnedSkillInfo skill, uint osTick)
+        {
+            int rawRemainingMs = unchecked((int)(skill.CooldownEndTime - osTick));
+            bool clockAligned = IsCooldownClockAligned(skill, rawRemainingMs);
+            int remainingMs = clockAligned && rawRemainingMs > 0
+                ? rawRemainingMs
+                : 0;
+            bool cooldownReady = clockAligned && remainingMs == 0;
+
+            string activationSource;
+            string activationLabel;
+            bool isManualSkill;
+            bool isToggleSkill;
+            bool hasActivation = TryResolveSkillActivation(
+                skill,
+                out activationSource,
+                out activationLabel,
+                out isManualSkill,
+                out isToggleSkill);
+            bool toggleIsOn = isToggleSkill && skill.ToggleState == 4;
+            bool canTurnOnToggle = isToggleSkill && !toggleIsOn && cooldownReady;
+            bool hasLearnedLevel = skill.HighestLevel > 0 || skill.SkillLevel > 0;
+            bool isChainSkill = IsConfiguredChainSkill(skill);
+            bool basicUsable =
+                skill.SkillId != 0 &&
+                hasLearnedLevel &&
+                hasActivation &&
+                isManualSkill &&
+                cooldownReady &&
+                !toggleIsOn;
+
+            return "#" + index.ToString("000") +
+                   " Id=" + skill.SkillId +
+                   " Level=" + skill.SkillLevel +
+                   " HighestLevel=" + skill.HighestLevel +
+                   " Item=" + FormatAddress(skill.SkillItem) +
+                   " Name=\"" + skill.Name + "\"" +
+                   FormatDisplaySkillGroup(skill) +
+                   " DurationMs=" + skill.CooldownDuration +
+                   " EndTick=" + skill.CooldownEndTime +
+                   " OSTick=" + osTick +
+                   " RawRemainingMs=" + rawRemainingMs +
+                   " RemainingMs=" + remainingMs +
+                   " CooldownReady=" + FormatYesNoUnknown(clockAligned, cooldownReady) +
+                   " ClockAligned=" + FormatYesNo(clockAligned) +
+                   FormatCooldownStartTick(skill, osTick) +
+                   " Activation=" + activationSource + ":" + activationLabel +
+                   " Manual=" + FormatYesNo(hasActivation && isManualSkill) +
+                   " Chain=" + FormatYesNo(isChainSkill) +
+                   " ToggleState=" + skill.ToggleState +
+                   " ToggleOn=" + FormatYesNo(toggleIsOn) +
+                   " CanTurnOnToggle=" + FormatYesNo(isToggleSkill && canTurnOnToggle) +
+                   " BasicUsable=" + FormatYesNo(basicUsable) +
+                   " CanUseSkillNow=n/a(read-only)";
+        }
+
+        private static bool IsCooldownClockAligned(LearnedSkillInfo skill, int rawRemainingMs)
+        {
+            if (skill.CooldownEndTime == 0)
+            {
+                return true;
+            }
+
+            if (rawRemainingMs <= 0)
+            {
+                return true;
+            }
+
+            if (skill.CooldownDuration == 0)
+            {
+                return false;
+            }
+
+            long maxExpectedRemainingMs = (long)skill.CooldownDuration + 60000L;
+            return rawRemainingMs <= maxExpectedRemainingMs;
+        }
+
+        private static string FormatYesNoUnknown(bool known, bool value)
+        {
+            return known ? FormatYesNo(value) : "unknown";
+        }
+
+        private static string FormatCooldownStartTick(LearnedSkillInfo skill, uint osTick)
+        {
+            if (skill.CooldownDuration == 0 || skill.CooldownEndTime == 0)
+            {
+                return string.Empty;
+            }
+
+            uint startTick = unchecked(skill.CooldownEndTime - skill.CooldownDuration);
+            int startVsOsMs = unchecked((int)(startTick - osTick));
+            return " StartTick=" + startTick +
+                   " StartVsOsMs=" + startVsOsMs;
+        }
+
+        private static bool TryResolveSkillActivation(
+            LearnedSkillInfo skill,
+            out string source,
+            out string label,
+            out bool isManualSkill,
+            out bool isToggleSkill)
+        {
+            source = "none";
+            label = "unknown";
+            isManualSkill = false;
+            isToggleSkill = false;
+
+            if (skill.HasXmlStaticDetail &&
+                !string.IsNullOrWhiteSpace(skill.XmlStaticDetail.ActivationAttribute))
+            {
+                string activation = skill.XmlStaticDetail.ActivationAttribute;
+                string token = NormalizeSkillXmlName(activation);
+                source = "xml";
+                label = FormatSkillXmlActivationTag(activation);
+                isManualSkill = IsManualSkillXmlActivation(activation);
+                isToggleSkill =
+                    string.Equals(token, "toggle", StringComparison.Ordinal) ||
+                    string.Equals(token, "1", StringComparison.Ordinal);
+                return true;
+            }
+
+            if (skill.HasStaticDetail && IsPlausibleSkillActivation(skill.StaticDetail.Activation))
+            {
+                uint activation = skill.StaticDetail.Activation;
+                source = "static";
+                label = FormatSkillActivation(activation) + "(" + activation + ")";
+                isManualSkill = IsManualSkillActivation(activation);
+                isToggleSkill = activation == 1;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsConfiguredChainSkill(LearnedSkillInfo skill)
+        {
+            if (skill.HasXmlStaticDetail && IsChainSkill(skill.XmlStaticDetail))
+            {
+                return true;
+            }
+
+            return skill.HasStaticDetail && IsChainSkill(skill.StaticDetail);
         }
 
         private static string FormatDisplaySkillGroup(LearnedSkillInfo skill)

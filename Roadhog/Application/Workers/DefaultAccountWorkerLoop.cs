@@ -34,10 +34,14 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         {
             ["account"] = context.Config.AccountName,
             ["mode"] = scriptSettings.Skills.Mode.ToString(),
-            ["rootCount"] = semiAutoPlan.Roots.Count,
+            ["topLevelSkillCount"] = semiAutoPlan.Roots.Count,
+            ["chainRootCount"] = semiAutoPlan.Roots.Count(root => root.Children.Count > 0),
             ["triggerPrefixCount"] = semiAutoPlan.TriggerPrefixRoots.Count,
+            ["skillReadIdCount"] = semiAutoPlan.SkillReadIds.Count,
+            ["requiresFullSkillRead"] = semiAutoPlan.RequiresFullSkillRead,
             ["hasExecutableSkills"] = semiAutoPlan.HasExecutableSkills,
-            ["roots"] = string.Join(" > ", semiAutoPlan.Roots.Select(root => root.Name + "[" + root.Type + "]@" + root.Key))
+            ["topLevelSkills"] = string.Join(" > ", semiAutoPlan.Roots.Select(root => root.Name + "[" + root.Type + "]@" + root.Key)),
+            ["chainRoots"] = string.Join(" > ", semiAutoPlan.Roots.Where(root => root.Children.Count > 0).Select(root => root.Name + "@" + root.Key))
         });
 
         while (!context.StopToken.IsCancellationRequested)

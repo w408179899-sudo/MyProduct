@@ -44,6 +44,8 @@ public sealed class SemiAutoSkillNode
 
     public bool IsTrigger => string.Equals(Type, "触发技能", StringComparison.Ordinal);
 
+    public bool IsDp => Type.Contains("DP", StringComparison.OrdinalIgnoreCase);
+
     public bool IsChainNode => Children.Count > 0 || Parent is not null || string.Equals(Type, "连续技", StringComparison.Ordinal);
 
     public static SemiAutoSkillNode FromConfigTree(SkillConfigNode config, string key, SemiAutoSkillNode? parent = null)

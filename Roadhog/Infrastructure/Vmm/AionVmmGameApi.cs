@@ -110,7 +110,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadSkillsCore(context), cancellationToken);
+        return Task.Run(() => ReadSkillsCore(context, null), cancellationToken);
+    }
+
+    public Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
+        GameApiReadContext context,
+        IReadOnlyCollection<uint> skillIds,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadSkillsCore(context, skillIds), cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(CancellationToken cancellationToken = default)
@@ -169,10 +177,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         }
     }
 
-    private OperationResult<IReadOnlyList<SkillSnapshot>> ReadSkillsCore(GameApiReadContext context)
+    private OperationResult<IReadOnlyList<SkillSnapshot>> ReadSkillsCore(
+        GameApiReadContext context,
+        IReadOnlyCollection<uint>? requestedSkillIds)
     {
         try
         {
+            var skillIdFilter = BuildSkillIdFilter(requestedSkillIds);
             var connection = GetOrCreateConnection(context.VmmDeviceName);
             lock (connection.SyncRoot)
             {
@@ -188,7 +199,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
                     return OperationResult<IReadOnlyList<SkillSnapshot>>.Fail("Module not found: " + moduleName);
                 }
 
-                if (!TryReadHighestLearnedSkills(process, gameBase, out var skills, out _, out var readError))
+                if (!TryReadHighestLearnedSkills(process, gameBase, skillIdFilter, out var skills, out _, out var readError))
                 {
                     return OperationResult<IReadOnlyList<SkillSnapshot>>.Fail(readError);
                 }
@@ -215,7 +226,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
                     ["account"] = context.AccountName,
                     ["pid"] = SafeGetProcessPid(process),
                     ["processName"] = process.Name,
-                    ["count"] = snapshots.Length
+                    ["count"] = snapshots.Length,
+                    ["requestedSkillCount"] = skillIdFilter?.Count
                 });
 
                 return OperationResult<IReadOnlyList<SkillSnapshot>>.Ok(snapshots);
@@ -774,9 +786,22 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         return count;
     }
 
+    private static IReadOnlySet<uint>? BuildSkillIdFilter(IReadOnlyCollection<uint>? requestedSkillIds)
+    {
+        if (requestedSkillIds is null || requestedSkillIds.Count == 0)
+        {
+            return null;
+        }
+
+        return requestedSkillIds
+            .Where(id => id != 0)
+            .ToHashSet();
+    }
+
     private static bool TryReadHighestLearnedSkills(
         VmmProcess process,
         ulong gameBase,
+        IReadOnlySet<uint>? skillIdFilter,
         out List<LearnedSkillInfo> skills,
         out int outerNodeCount,
         out string error)
@@ -812,7 +837,20 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             }
 
             outerNodeCount++;
-            if (TryReadHighestLearnedSkillFromOuterNode(process, outerNode, out var skill))
+            if (!TryReadUInt32(process, outerNode + LearnedSkillOuterSkillIdOffset, out var skillId) ||
+                skillId == 0 ||
+                (skillIdFilter is not null && !skillIdFilter.Contains(skillId)))
+            {
+                if (!TryGetNextTreeNode(process, outerHeader, outerNode, out var filteredNext) || filteredNext == outerNode)
+                {
+                    break;
+                }
+
+                outerNode = filteredNext;
+                continue;
+            }
+
+            if (TryReadHighestLearnedSkillFromOuterNode(process, outerNode, skillId, out var skill))
             {
                 skills.Add(skill);
             }
@@ -832,6 +870,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private static bool TryReadHighestLearnedSkillFromOuterNode(
         VmmProcess process,
         ulong outerNode,
+        uint skillId,
         out LearnedSkillInfo skill)
     {
         skill = new LearnedSkillInfo
@@ -839,11 +878,6 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             Name = string.Empty,
             DisplayBaseName = string.Empty
         };
-
-        if (!TryReadUInt32(process, outerNode + LearnedSkillOuterSkillIdOffset, out var skillId) || skillId == 0)
-        {
-            return false;
-        }
 
         if (!TryReadPointer(process, outerNode + LearnedSkillOuterLevelTreeHeaderOffset, out var innerHeader) || innerHeader == 0)
         {

@@ -1,13 +1,27 @@
+using Roadhog.Core.Model;
+
 namespace Roadhog.Application.SemiAuto;
 
 public sealed class SemiAutoCombatState
 {
-    private readonly Dictionary<string, DateTimeOffset> _lastPressByNode = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, DateTimeOffset> _suppressedUntilByNode = new(StringComparer.Ordinal);
+    private int? cooldownTickOffsetMs;
+    private uint? lastPressedSkillId;
+    private uint lastPressedCooldownEndTime;
+    private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
 
-    public SemiAutoSkillNode? ActiveChainNode { get; private set; }
+    public SemiAutoSkillNode? PendingChainSourceNode { get; private set; }
 
-    public DateTimeOffset ChainExpiresAt { get; private set; }
+    public SemiAutoSkillNode? PendingChainNextNode { get; private set; }
+
+    public uint PendingChainSourceCooldownEndTime { get; private set; }
+
+    public DateTimeOffset PendingChainExpiresAt { get; private set; }
+
+    public bool HasChainWork => PendingChainSourceNode is not null;
+
+    public bool HasCooldownTickCalibration => cooldownTickOffsetMs.HasValue;
+
+    public int? CooldownTickOffsetMs => cooldownTickOffsetMs;
 
     public DateTimeOffset LastTargetWarningAt { get; set; } = DateTimeOffset.MinValue;
 
@@ -19,42 +33,123 @@ public sealed class SemiAutoCombatState
 
     public DateTimeOffset LastNoSkillLogAt { get; set; } = DateTimeOffset.MinValue;
 
-    public void StartChain(SemiAutoSkillNode node, DateTimeOffset expiresAt)
-    {
-        ActiveChainNode = node;
-        ChainExpiresAt = expiresAt;
-    }
-
     public void ClearChain()
     {
-        ActiveChainNode = null;
-        ChainExpiresAt = DateTimeOffset.MinValue;
+        ClearPendingChainAdvance();
     }
 
-    public bool IsChainExpired(DateTimeOffset now)
+    public void StartPendingChainAdvance(
+        SemiAutoSkillNode sourceNode,
+        SemiAutoSkillNode nextNode,
+        DateTimeOffset expiresAt,
+        uint sourceCooldownEndTime)
     {
-        return ActiveChainNode is not null && now >= ChainExpiresAt;
+        PendingChainSourceNode = sourceNode;
+        PendingChainNextNode = nextNode;
+        PendingChainSourceCooldownEndTime = sourceCooldownEndTime;
+        PendingChainExpiresAt = expiresAt;
     }
 
-    public bool CanPress(SemiAutoSkillNode node, DateTimeOffset now, TimeSpan repeatGuard)
+    public void ClearPendingChainAdvance()
     {
-        return !IsSuppressed(node, now) &&
-               (!_lastPressByNode.TryGetValue(node.NodeKey, out var lastPress) ||
-                now - lastPress >= repeatGuard);
+        PendingChainSourceNode = null;
+        PendingChainNextNode = null;
+        PendingChainSourceCooldownEndTime = 0;
+        PendingChainExpiresAt = DateTimeOffset.MinValue;
     }
 
-    public void MarkPressed(SemiAutoSkillNode node, DateTimeOffset now)
+    public bool IsPendingChainExpired(DateTimeOffset now)
     {
-        _lastPressByNode[node.NodeKey] = now;
+        return PendingChainSourceNode is not null && now >= PendingChainExpiresAt;
     }
 
-    public bool IsSuppressed(SemiAutoSkillNode node, DateTimeOffset now)
+    public bool HasPendingChainSourceCooldownAdvanced(SkillSnapshot sourceSkill)
     {
-        return _suppressedUntilByNode.TryGetValue(node.NodeKey, out var until) && now < until;
+        return DidCooldownEndAdvance(PendingChainSourceCooldownEndTime, sourceSkill.CooldownEndTime);
     }
 
-    public void Suppress(SemiAutoSkillNode node, DateTimeOffset until)
+    public void MarkSkillPressed(
+        SkillSnapshot skill,
+        DateTimeOffset cooldownConfirmationExpiresAt)
     {
-        _suppressedUntilByNode[node.NodeKey] = until;
+        if (skill.CooldownDuration == 0)
+        {
+            return;
+        }
+
+        lastPressedSkillId = skill.SkillId;
+        lastPressedCooldownEndTime = skill.CooldownEndTime;
+        lastPressedCooldownExpiresAt = cooldownConfirmationExpiresAt;
+    }
+
+    public bool TryUpdateCooldownTickCalibration(
+        IReadOnlyList<SkillSnapshot> skills,
+        uint osTick,
+        DateTimeOffset now,
+        out SemiAutoCooldownTickCalibration calibration)
+    {
+        calibration = default;
+        if (lastPressedSkillId is not uint skillId)
+        {
+            return false;
+        }
+
+        if (now > lastPressedCooldownExpiresAt)
+        {
+            ClearLastPressedSkill();
+            return false;
+        }
+
+        var skill = skills.FirstOrDefault(item => item.SkillId == skillId);
+        if (skill is null ||
+            skill.CooldownDuration == 0 ||
+            skill.CooldownEndTime == 0 ||
+            !DidCooldownEndAdvance(lastPressedCooldownEndTime, skill.CooldownEndTime))
+        {
+            return false;
+        }
+
+        var startTick = unchecked(skill.CooldownEndTime - skill.CooldownDuration);
+        var offsetMs = unchecked((int)(startTick - osTick));
+        cooldownTickOffsetMs = offsetMs;
+        ClearLastPressedSkill();
+
+        calibration = new SemiAutoCooldownTickCalibration(
+            skill.SkillId,
+            skill.Name,
+            osTick,
+            skill.CooldownDuration,
+            skill.CooldownEndTime,
+            startTick,
+            offsetMs);
+        return true;
+    }
+
+    public uint EstimateGameTick(uint osTick)
+    {
+        return unchecked(osTick + (uint)(cooldownTickOffsetMs ?? 0));
+    }
+
+    private void ClearLastPressedSkill()
+    {
+        lastPressedSkillId = null;
+        lastPressedCooldownEndTime = 0;
+        lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
+    }
+
+    private static bool DidCooldownEndAdvance(uint previousEndTime, uint currentEndTime)
+    {
+        return currentEndTime != 0 &&
+               currentEndTime != previousEndTime &&
+               unchecked((int)(currentEndTime - previousEndTime)) > 0;
     }
 }
+
+public readonly record struct SemiAutoCooldownTickCalibration(
+    uint SkillId,
+    string SkillName,
+    uint OsTick,
+    uint CooldownDuration,
+    uint CooldownEndTime,
+    uint CooldownStartTick,
+    int OffsetMs);

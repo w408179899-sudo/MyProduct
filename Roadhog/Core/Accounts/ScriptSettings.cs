@@ -36,9 +36,9 @@ public sealed class ScriptSettings
 
 public sealed class SemiAutoScriptSettings
 {
-    public int TickIntervalMs { get; set; } = 50;
+    public int TickIntervalMs { get; set; } = 40;
 
-    public int ChainTickIntervalMs { get; set; } = 30;
+    public int ChainTickIntervalMs { get; set; } = 40;
 
     public int TargetIdleDelayMs { get; set; } = 200;
 
@@ -48,7 +48,9 @@ public sealed class SemiAutoScriptSettings
 
     public int RepeatGuardMs { get; set; } = 120;
 
-    public int ConfirmTimeoutMs { get; set; } = 500;
+    public int PostPressSuppressMs { get; set; } = 650;
+
+    public int ConfirmTimeoutMs { get; set; } = 1500;
 
     public int ConfirmPollMs { get; set; } = 30;
 
@@ -64,6 +66,7 @@ public sealed class SemiAutoScriptSettings
             KeyHoldMs = KeyHoldMs,
             KeyGapMs = KeyGapMs,
             RepeatGuardMs = RepeatGuardMs,
+            PostPressSuppressMs = PostPressSuppressMs,
             ConfirmTimeoutMs = ConfirmTimeoutMs,
             ConfirmPollMs = ConfirmPollMs,
             DefaultChainTimeMs = DefaultChainTimeMs

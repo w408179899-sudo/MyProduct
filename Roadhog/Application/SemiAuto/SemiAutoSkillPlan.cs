@@ -16,7 +16,11 @@ public sealed class SemiAutoSkillPlan
 
     public IReadOnlyList<SemiAutoSkillNode> TriggerPrefixRoots { get; }
 
-    public bool HasExecutableSkills => Roots.Any(root => !root.IsTrigger);
+    public IReadOnlyList<uint> SkillReadIds { get; private init; } = Array.Empty<uint>();
+
+    public bool RequiresFullSkillRead { get; private init; }
+
+    public bool HasExecutableSkills => Roots.Any(root => !root.IsTrigger && !root.IsDp);
 
     public static SemiAutoSkillPlan FromSettings(SkillScriptSettings settings)
     {
@@ -24,11 +28,50 @@ public sealed class SemiAutoSkillPlan
             ? BuildAutoRoots(settings)
             : BuildManualRoots(settings);
 
-        var triggerPrefix = roots
-            .TakeWhile(root => root.IsTrigger)
-            .ToArray();
+        var triggerPrefix = BuildTriggerPrefixRoots(roots, settings.TriggerPrefixMode);
 
-        return new SemiAutoSkillPlan(roots, triggerPrefix);
+        return new SemiAutoSkillPlan(roots, triggerPrefix)
+        {
+            SkillReadIds = BuildSkillReadIds(roots, out var requiresFullSkillRead),
+            RequiresFullSkillRead = requiresFullSkillRead
+        };
+    }
+
+    private static IReadOnlyList<uint> BuildSkillReadIds(
+        IReadOnlyList<SemiAutoSkillNode> roots,
+        out bool requiresFullSkillRead)
+    {
+        requiresFullSkillRead = false;
+        var ids = new HashSet<uint>();
+        foreach (var node in FlattenNodes(roots))
+        {
+            if (node.IsTrigger || node.IsDp)
+            {
+                continue;
+            }
+
+            if (node.SkillId == 0)
+            {
+                requiresFullSkillRead = true;
+                continue;
+            }
+
+            ids.Add(node.SkillId);
+        }
+
+        return ids.OrderBy(id => id).ToArray();
+    }
+
+    private static IEnumerable<SemiAutoSkillNode> FlattenNodes(IEnumerable<SemiAutoSkillNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            yield return node;
+            foreach (var child in FlattenNodes(node.Children))
+            {
+                yield return child;
+            }
+        }
     }
 
     private static IReadOnlyList<SemiAutoSkillNode> BuildAutoRoots(SkillScriptSettings settings)
@@ -45,6 +88,36 @@ public sealed class SemiAutoSkillPlan
         }
 
         return roots;
+    }
+
+    private static IReadOnlyList<SemiAutoSkillNode> BuildTriggerPrefixRoots(
+        IReadOnlyList<SemiAutoSkillNode> roots,
+        string? mode)
+    {
+        if (string.Equals(mode, "AllTriggerSkills", StringComparison.OrdinalIgnoreCase))
+        {
+            return roots.Where(root => root.IsTrigger).ToArray();
+        }
+
+        var firstTriggerIndex = -1;
+        for (var i = 0; i < roots.Count; i++)
+        {
+            if (roots[i].IsTrigger)
+            {
+                firstTriggerIndex = i;
+                break;
+            }
+        }
+
+        if (firstTriggerIndex < 0)
+        {
+            return Array.Empty<SemiAutoSkillNode>();
+        }
+
+        return roots
+            .Skip(firstTriggerIndex)
+            .TakeWhile(root => root.IsTrigger)
+            .ToArray();
     }
 
     private static IReadOnlyList<SemiAutoSkillNode> BuildManualRoots(SkillScriptSettings settings)
