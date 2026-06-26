@@ -208,13 +208,19 @@ public sealed class SemiAutoCombatController
             .ConfigureAwait(false);
         if (decision.Kind == SemiAutoSkillReleaseDecisionKind.PressChain)
         {
-            state.ClearPendingChainAdvance();
             if (pressed)
             {
                 state.MarkSkillPressed(
                     decision.Skill,
                     DateTimeOffset.Now + Ms(settings.ConfirmTimeoutMs, 1500));
-                StartPendingChainAdvance(context, state, node, decision.Skill, settings);
+                if (state.IsPendingChainNextNode(node))
+                {
+                    state.MarkPendingChainNextPressed(decision.Skill);
+                }
+                else
+                {
+                    StartPendingChainConfirmation(context, state, node, decision.Skill, settings);
+                }
             }
             else
             {
@@ -302,6 +308,35 @@ public sealed class SemiAutoCombatController
         SemiAutoScriptSettings settings,
         string phase = "skill")
     {
+        if (!string.Equals(node.Key, "C", StringComparison.OrdinalIgnoreCase))
+        {
+            var preResult = await _keyboard
+                .PressKeyAsync("C", Ms(settings.KeyHoldMs, 25), context.StopToken)
+                .ConfigureAwait(false);
+
+            if (!preResult.Success)
+            {
+                context.Logger.Warn("semi_auto.key.failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["skill"] = node.Name,
+                    ["key"] = "C",
+                    ["phase"] = phase + "_pre",
+                    ["error"] = preResult.Error
+                });
+                return false;
+            }
+
+            context.Logger.Info("semi_auto.key.pressed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["skill"] = node.Name,
+                ["key"] = "C",
+                ["type"] = node.Type,
+                ["phase"] = phase + "_pre"
+            });
+        }
+
         var result = await _keyboard
             .PressKeyAsync(node.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
             .ConfigureAwait(false);
@@ -413,6 +448,36 @@ public sealed class SemiAutoCombatController
             ["sourceCooldownEndTime"] = sourceSkill.CooldownEndTime,
             ["nextSkill"] = nextNode.Name,
             ["nextKey"] = nextNode.Key,
+            ["configuredChildCount"] = sourceNode.Children.Count,
+            ["expiresInMs"] = windowMs
+        });
+    }
+
+    private static void StartPendingChainConfirmation(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoSkillNode chainNode,
+        SkillSnapshot chainSkill,
+        SemiAutoScriptSettings settings)
+    {
+        var sourceNode = chainNode.Parent ?? chainNode;
+        var windowMs = chainNode.ChainTimeMs ??
+                       sourceNode.ChainTimeMs ??
+                       settings.DefaultChainTimeMs;
+        state.StartPendingChainAdvance(
+            sourceNode,
+            chainNode,
+            DateTimeOffset.Now + Ms(windowMs, 5000),
+            chainSkill.CooldownEndTime);
+        state.MarkPendingChainNextPressed(chainSkill);
+        context.Logger.Info("semi_auto.chain.pending", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["sourceSkill"] = sourceNode.Name,
+            ["sourceKey"] = sourceNode.Key,
+            ["sourceCooldownEndTime"] = chainSkill.CooldownEndTime,
+            ["nextSkill"] = chainNode.Name,
+            ["nextKey"] = chainNode.Key,
             ["configuredChildCount"] = sourceNode.Children.Count,
             ["expiresInMs"] = windowMs
         });

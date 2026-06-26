@@ -17,6 +17,10 @@ public sealed class SemiAutoCombatState
 
     public DateTimeOffset PendingChainExpiresAt { get; private set; }
 
+    public bool PendingChainNextPressStarted { get; private set; }
+
+    public uint PendingChainNextCooldownEndTime { get; private set; }
+
     public bool HasChainWork => PendingChainSourceNode is not null;
 
     public bool HasCooldownTickCalibration => cooldownTickOffsetMs.HasValue;
@@ -48,6 +52,8 @@ public sealed class SemiAutoCombatState
         PendingChainNextNode = nextNode;
         PendingChainSourceCooldownEndTime = sourceCooldownEndTime;
         PendingChainExpiresAt = expiresAt;
+        PendingChainNextPressStarted = false;
+        PendingChainNextCooldownEndTime = 0;
     }
 
     public void ClearPendingChainAdvance()
@@ -56,6 +62,8 @@ public sealed class SemiAutoCombatState
         PendingChainNextNode = null;
         PendingChainSourceCooldownEndTime = 0;
         PendingChainExpiresAt = DateTimeOffset.MinValue;
+        PendingChainNextPressStarted = false;
+        PendingChainNextCooldownEndTime = 0;
     }
 
     public bool IsPendingChainExpired(DateTimeOffset now)
@@ -66,6 +74,29 @@ public sealed class SemiAutoCombatState
     public bool HasPendingChainSourceCooldownAdvanced(SkillSnapshot sourceSkill)
     {
         return DidCooldownEndAdvance(PendingChainSourceCooldownEndTime, sourceSkill.CooldownEndTime);
+    }
+
+    public bool IsPendingChainNextNode(SemiAutoSkillNode node)
+    {
+        return PendingChainNextNode is not null &&
+               string.Equals(PendingChainNextNode.NodeKey, node.NodeKey, StringComparison.Ordinal);
+    }
+
+    public void MarkPendingChainNextPressed(SkillSnapshot skill)
+    {
+        if (PendingChainNextPressStarted)
+        {
+            return;
+        }
+
+        PendingChainNextPressStarted = true;
+        PendingChainNextCooldownEndTime = skill.CooldownEndTime;
+    }
+
+    public bool HasPendingChainNextCooldownAdvanced(SkillSnapshot nextSkill)
+    {
+        return PendingChainNextPressStarted &&
+               DidCooldownEndAdvance(PendingChainNextCooldownEndTime, nextSkill.CooldownEndTime);
     }
 
     public void MarkSkillPressed(

@@ -35,6 +35,7 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
     private static readonly IReadOnlyDictionary<string, int> SkillKeyHidCodes =
         new Dictionary<string, int>(StringComparer.Ordinal)
         {
+            ["C"] = 0x06,
             ["D1"] = 0x1E,
             ["D2"] = 0x1F,
             ["D3"] = 0x20,

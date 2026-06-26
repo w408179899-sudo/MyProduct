@@ -18,10 +18,26 @@ public static class SemiAutoSkillReleasePriority
         {
             if (state.IsPendingChainExpired(now))
             {
-                return SemiAutoSkillReleaseDecision.ClearPendingChain(pendingSource, "source_not_confirmed");
+                return SemiAutoSkillReleaseDecision.ClearPendingChain(pendingNext, "chain_not_confirmed");
             }
 
-            foreach (var child in pendingSource.Children)
+            var pendingNextSkill = pendingNext.ResolveSkill(skills);
+            if (pendingNextSkill is null)
+            {
+                return SemiAutoSkillReleaseDecision.None;
+            }
+
+            if (!state.HasPendingChainNextCooldownAdvanced(pendingNextSkill))
+            {
+                return SemiAutoSkillReleaseDecision.PressChain(pendingNext, pendingNextSkill);
+            }
+
+            if (pendingNext.Children.Count == 0)
+            {
+                return SemiAutoSkillReleaseDecision.ClearPendingChain(pendingNext, "chain_complete", pendingNextSkill);
+            }
+
+            foreach (var child in pendingNext.Children)
             {
                 var childSkill = child.ResolveSkill(skills);
                 if (childSkill is null)
