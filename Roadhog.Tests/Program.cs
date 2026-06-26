@@ -18,9 +18,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("calibrated nonzero cooldown skips cooling roots", TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
-    ("chain repeats source until cooldown before pressing next stage", TestChainRepeatsSourceUntilCooldownAsync),
-    ("chain selects ready configured sibling branch", TestChainSelectsReadyConfiguredSiblingBranchAsync),
+    ("chain presses next stage without waiting for source cooldown", TestChainPressesNextStageWithoutSourceCooldownAsync),
+    ("chain presses configured child without cooldown filter", TestChainPressesConfiguredChildWithoutCooldownFilterAsync),
     ("chain survives target gap and target switch", TestChainSurvivesTargetGapAsync),
+    ("chain lock prevents root fallback while child is missing", TestChainLockPreventsRootFallbackWhileChildMissingAsync),
     ("chain keeps root key and does not fall back in same tick when chain breaks", TestChainStrictOrderAsync)
 };
 
@@ -305,7 +306,7 @@ static async Task TestPollResultAdvancesRootOrderAsync()
         [10] = 0
     });
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "D2", "D3", "D4", "D5" }, keyboard.Keys.ToArray(), "chain child inherits D5");
+    AssertSequence(new[] { "D5" }, keyboard.Keys.ToArray(), "chain child inherits D5 without trigger prefix");
 
     keyboard.Keys.Clear();
     gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
@@ -354,7 +355,7 @@ static async Task TestDpSkillSkippedAsync()
     AssertContains("暗黑之惩戒 II[DP技能]@D0:dp-skip", Convert.ToString(noneReady!.Fields["reasons"]) ?? string.Empty, "dp skip reason");
 }
 
-static async Task TestChainRepeatsSourceUntilCooldownAsync()
+static async Task TestChainPressesNextStageWithoutSourceCooldownAsync()
 {
     var settings = CreateScriptSettings();
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
@@ -394,8 +395,8 @@ static async Task TestChainRepeatsSourceUntilCooldownAsync()
         [10] = 0
     });
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "D2", "D3", "D4", "D6" }, keyboard.Keys.ToArray(), "chain repeats source while source remains ready");
-    AssertEqual(plan.Roots.Single(root => root.SkillId == 6).Name, LastPressedSkill(logger), "repeated source skill");
+    AssertSequence(new[] { "D6" }, keyboard.Keys.ToArray(), "chain next stage skips trigger prefix");
+    AssertEqual(plan.Roots.Single(root => root.SkillId == 6).Children[0].Name, LastPressedSkill(logger), "next stage skill");
 
     keyboard.Keys.Clear();
     gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
@@ -411,11 +412,11 @@ static async Task TestChainRepeatsSourceUntilCooldownAsync()
         [10] = 0
     });
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "D2", "D3", "D4", "D6" }, keyboard.Keys.ToArray(), "second stage waits for source cooldown");
-    AssertEqual(plan.Roots.Single(root => root.SkillId == 6).Children[0].Name, LastPressedSkill(logger), "second stage skill");
+    AssertSequence(new[] { "D6" }, keyboard.Keys.ToArray(), "third stage skips trigger prefix");
+    AssertEqual(plan.Roots.Single(root => root.SkillId == 6).Children[0].Children[0].Name, LastPressedSkill(logger), "third stage skill");
 }
 
-static async Task TestChainSelectsReadyConfiguredSiblingBranchAsync()
+static async Task TestChainPressesConfiguredChildWithoutCooldownFilterAsync()
 {
     var settings = CreateScriptSettings();
     var robustRoot = settings.Skills.ExecutionTree.Single(node => node.SkillId == 6);
@@ -450,8 +451,8 @@ static async Task TestChainSelectsReadyConfiguredSiblingBranchAsync()
 
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
 
-    AssertSequence(new[] { "D2", "D3", "D4", "D6" }, keyboard.Keys.ToArray(), "sibling chain key");
-    AssertEqual(root.Children[1].Name, LastPressedSkill(logger), "sibling chain skill");
+    AssertSequence(new[] { "D6" }, keyboard.Keys.ToArray(), "chain child skips trigger prefix");
+    AssertEqual(root.Children[0].Name, LastPressedSkill(logger), "chain child ignores ordinary cooldown filter");
 }
 
 static async Task TestChainSurvivesTargetGapAsync()
@@ -500,8 +501,42 @@ static async Task TestChainSurvivesTargetGapAsync()
         [10] = 0
     });
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "D2", "D3", "D4", "D6" }, keyboard.Keys.ToArray(), "target switch should keep chain next stage");
+    AssertSequence(new[] { "D6" }, keyboard.Keys.ToArray(), "target switch should keep chain next stage without trigger prefix");
     AssertEqual(plan.Roots.Single(root => root.SkillId == 6).Children[0].Name, LastPressedSkill(logger), "target switch second stage skill");
+}
+
+static async Task TestChainLockPreventsRootFallbackWhileChildMissingAsync()
+{
+    var settings = CreateScriptSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi();
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+    var root = plan.Roots.Single(node => node.SkillId == 6);
+
+    state.StartPendingChainAdvance(root, root.Children[0], DateTimeOffset.Now.AddSeconds(5), 0);
+    gameApi.Skills = Flatten(plan.Roots)
+        .Where(node => node.SkillId is 1 or 5 or 6 or 7 or 8 or 9 or 10)
+        .Select(node => new SkillSnapshot(
+            node.SkillId,
+            node.Name,
+            1,
+            1,
+            node.BaseName,
+            1,
+            false,
+            0,
+            0))
+        .ToArray();
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    AssertEqual(0, keyboard.Keys.Count, "pending chain must not fall back to ready root when child is missing");
+    AssertFalse(!state.HasChainWork, "pending chain should remain locked while waiting for child snapshot");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.chain.ended"), "missing child should not clear chain before timeout");
 }
 
 static async Task TestChainStrictOrderAsync()
@@ -559,7 +594,7 @@ static async Task TestChainStrictOrderAsync()
         [10] = 0
     });
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "D2", "D3", "D4", "D6" }, keyboard.Keys.ToArray(), "chain second stage order");
+    AssertSequence(new[] { "D6" }, keyboard.Keys.ToArray(), "chain second stage skips trigger prefix");
 
     keyboard.Keys.Clear();
     gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
@@ -575,11 +610,11 @@ static async Task TestChainStrictOrderAsync()
         [10] = 0
     });
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertEqual(0, keyboard.Keys.Count, "broken chain must not fall back to other roots in same tick");
-
-    var ended = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.chain.ended");
-    AssertNotNull(ended, "chain ended log");
-    AssertEqual("node_not_ready", Convert.ToString(ended!.Fields["reason"]), "chain ended reason");
+    AssertSequence(new[] { "D6" }, keyboard.Keys.ToArray(), "chain child should be attempted without ordinary cooldown filter");
+    AssertEqual(
+        plan.Roots.Single(root => root.SkillId == 6).Children[0].Children[0].Name,
+        LastPressedSkill(logger),
+        "third stage skill");
 }
 
 static ScriptSettings CreateScriptSettings()

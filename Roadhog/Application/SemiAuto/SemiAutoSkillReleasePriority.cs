@@ -21,59 +21,18 @@ public static class SemiAutoSkillReleasePriority
                 return SemiAutoSkillReleaseDecision.ClearPendingChain(pendingSource, "source_not_confirmed");
             }
 
-            var sourceSkill = pendingSource.ResolveSkill(skills);
-            if (sourceSkill is null)
-            {
-                return SemiAutoSkillReleaseDecision.ClearPendingChain(pendingSource, "source_missing");
-            }
-
-            if (!state.HasPendingChainSourceCooldownAdvanced(sourceSkill))
-            {
-                return SemiAutoSkillReleaseDecision.PressChain(pendingSource, sourceSkill);
-            }
-
-            var missingChildren = 0;
-            SkillSnapshot? firstUnavailableSkill = null;
-            SemiAutoSkillReleaseDecision? firstUnknownChild = null;
             foreach (var child in pendingSource.Children)
             {
                 var childSkill = child.ResolveSkill(skills);
                 if (childSkill is null)
                 {
-                    missingChildren++;
                     continue;
                 }
 
-                var readiness = GetCooldownReadiness(childSkill, state);
-                if (readiness == SemiAutoSkillCooldownReadiness.Ready)
-                {
-                    return SemiAutoSkillReleaseDecision.PressChain(child, childSkill);
-                }
-
-                if (readiness == SemiAutoSkillCooldownReadiness.Unknown)
-                {
-                    firstUnknownChild ??= SemiAutoSkillReleaseDecision.PressChain(child, childSkill);
-                }
-                else
-                {
-                    firstUnavailableSkill ??= childSkill;
-                }
+                return SemiAutoSkillReleaseDecision.PressChain(child, childSkill);
             }
 
-            if (firstUnknownChild is not null)
-            {
-                return firstUnknownChild;
-            }
-
-            if (missingChildren == pendingSource.Children.Count)
-            {
-                return SemiAutoSkillReleaseDecision.ClearPendingChain(pendingNext, "next_missing");
-            }
-
-            return SemiAutoSkillReleaseDecision.ClearPendingChain(
-                pendingNext,
-                "node_not_ready",
-                firstUnavailableSkill);
+            return SemiAutoSkillReleaseDecision.None;
         }
 
         SemiAutoSkillReleaseDecision? firstUnknownRoot = null;

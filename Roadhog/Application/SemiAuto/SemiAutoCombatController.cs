@@ -198,7 +198,14 @@ public sealed class SemiAutoCombatController
             return;
         }
 
-        var pressed = await PressSkillAsync(context, plan, state, node, settings).ConfigureAwait(false);
+        var pressed = await PressSkillAsync(
+                context,
+                plan,
+                state,
+                node,
+                settings,
+                includeTriggerPrefix: decision.Kind != SemiAutoSkillReleaseDecisionKind.PressChain)
+            .ConfigureAwait(false);
         if (decision.Kind == SemiAutoSkillReleaseDecisionKind.PressChain)
         {
             state.ClearPendingChainAdvance();
@@ -235,13 +242,15 @@ public sealed class SemiAutoCombatController
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
         SemiAutoSkillNode node,
-        SemiAutoScriptSettings settings)
+        SemiAutoScriptSettings settings,
+        bool includeTriggerPrefix)
     {
         return await PressSkillKeysAsync(
                 context,
                 plan,
                 node,
-                settings)
+                settings,
+                includeTriggerPrefix)
             .ConfigureAwait(false);
     }
 
@@ -249,9 +258,10 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
         SemiAutoSkillNode node,
-        SemiAutoScriptSettings settings)
+        SemiAutoScriptSettings settings,
+        bool includeTriggerPrefix)
     {
-        if (!node.IsTrigger)
+        if (includeTriggerPrefix && !node.IsTrigger)
         {
             await PressTriggerPrefixAsync(context, plan, node, settings).ConfigureAwait(false);
         }
