@@ -11,6 +11,7 @@ namespace Tool
 {
     public class Program
     {
+        [STAThread]
         static void Main(string[] args)
         {
             try
@@ -31,6 +32,22 @@ namespace Tool
 
 
 
+
+            var earlyAionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE");
+            if (string.Equals(earlyAionTestMode, "path_follow_budget_test", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(earlyAionTestMode, "path_follow_budget_tests", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(earlyAionTestMode, "path_budget_test", StringComparison.OrdinalIgnoreCase))
+            {
+                bool passed = Tests.PathFollowDistanceBudgetTests.RunAll();
+                passed = Tests.PathFollowMoveControlTests.RunAll() && passed;
+                passed = Tests.CameraTurnVerificationTests.RunAll() && passed;
+                if (!passed)
+                {
+                    Environment.ExitCode = 1;
+                }
+
+                return;
+            }
 
             // Optional: load native MemProcFS libs if they are not already on PATH.
             var memProcFsPath = Environment.GetEnvironmentVariable("MEMPROCFS_HOME");
@@ -81,10 +98,26 @@ namespace Tool
 
                     Console.WriteLine("Module base: " + moduleName + " = 0x" + gameBase.ToString("X"));
 
-                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "face_target";
+                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "path_follow_test";
                     if (string.Equals(aionTestMode, "player", StringComparison.OrdinalIgnoreCase))
                     {
                         RunLocalPlayerInfoTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "player_offset", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "player_probe", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "player_6c8", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunPlayerOffsetProbeTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "player_float_scan", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "player_scan_float", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "player_find_float", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunPlayerFloatScanTest(process, gameBase);
                         return;
                     }
 
@@ -133,6 +166,24 @@ namespace Tool
                         return;
                     }
 
+                    if (string.Equals(aionTestMode, "path_recorder", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "path_record", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "record_path", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "path_ui", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunPathRecorderWindow(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "path_follow_test", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "path_follow", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "follow_path", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "auto_path", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunPathFollowTest(process, gameBase);
+                        return;
+                    }
+
                     if (string.Equals(aionTestMode, "face_target", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "facetarget", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "turn_target", StringComparison.OrdinalIgnoreCase))
@@ -141,11 +192,36 @@ namespace Tool
                         return;
                     }
 
+                    if (string.Equals(aionTestMode, "face_target_combined", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "facetarget_combined", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "turn_target_combined", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "aim_target", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunFaceTargetCombinedCameraTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "fixed_yaw_pitch", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "fixed_aim", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "camera_fixed_yaw_pitch", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunFixedCameraYawPitchTest(process, gameBase, ReadFaceTargetOptions());
+                        return;
+                    }
+
                     if (string.Equals(aionTestMode, "fixed_yaw", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "camera_fixed_yaw", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "turn_fixed_yaw", StringComparison.OrdinalIgnoreCase))
                     {
                         RunFixedCameraYawTest(process, gameBase, ReadFaceTargetOptions());
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "fixed_pitch", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "camera_fixed_pitch", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "turn_fixed_pitch", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunFixedCameraPitchTest(process, gameBase, ReadFaceTargetOptions());
                         return;
                     }
 
@@ -162,6 +238,14 @@ namespace Tool
                         string.Equals(aionTestMode, "pixel_yaw", StringComparison.OrdinalIgnoreCase))
                     {
                         RunCameraPixelCalibrationTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "camera_pitch_pixel_calibration", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "pitch_pixel", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "pixel_pitch", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunCameraPitchPixelCalibrationTest(process, gameBase);
                         return;
                     }
 
@@ -447,6 +531,63 @@ namespace Tool
             public ulong CameraYawRva;
         }
 
+        private struct PathFollowPoint
+        {
+            public double X;
+            public double Y;
+            public double Z;
+        }
+
+        private struct PathFollowPollSnapshot
+        {
+            public LocalPlayerInfo Local;
+            public long AgeMs;
+            public long ReadCount;
+            public double Distance;
+            public double TargetYaw;
+            public double CameraYaw;
+            public double CameraPitch;
+            public double YawError;
+            public double PitchError;
+        }
+
+        private sealed class PathFollowPollState
+        {
+            public readonly object SyncRoot = new object();
+            public Thread Thread;
+            public KmBoxInputWorker InputWorker;
+            public bool StopRequested;
+            public bool HasLocal;
+            public LocalPlayerInfo Local;
+            public string Error;
+            public DateTime LastReadTime;
+            public long ReadCount;
+            public int TargetIndex = -1;
+            public PathFollowPoint TargetPoint;
+            public double ReachDistance;
+            public bool HasMetrics;
+            public double Distance;
+            public double TargetYaw;
+            public double CameraYaw;
+            public double CameraPitch;
+            public double YawError;
+            public double PitchError;
+            public bool IsMoving;
+            public bool HasMoveStop;
+            public bool MoveStopRequested;
+            public int MoveStopTargetIndex;
+            public LocalPlayerInfo MoveStopLocal;
+            public double MoveStopDistance;
+            public string MoveStopReason;
+            public PathFollowDistanceBudget TravelBudget;
+            public double TravelBudgetMovedDistance;
+            public double TravelBudgetTotalDistance;
+            public bool HasArrived;
+            public int ArrivedTargetIndex;
+            public LocalPlayerInfo ArrivedLocal;
+            public double ArrivedDistance;
+        }
+
         private struct LockedTargetMonsterInfo
         {
             public ushort TargetEntityId;
@@ -627,7 +768,10 @@ namespace Tool
             public double ToleranceDegrees;
             public double PixelsPerDegreeAbs;
             public double FixedTargetYawDegrees;
+            public double FixedTargetPitchDegrees;
+            public double PitchPixelsPerDegreeAbs;
             public double TargetYawOffsetDegrees;
+            public string CameraPitchUnit;
             public string CameraYawUnit;
             public string BearingMode;
             public string YawFeedbackMode;
@@ -656,8 +800,235 @@ namespace Tool
             public int AdaptiveMidBatchPixels;
             public int AdaptiveFineStepPixels;
             public bool UseFixedYaw;
+            public bool PitchInvertMouse;
             public bool AutoCalibrate;
             public bool ApplyMouse;
+        }
+
+        private interface IKmBoxInput
+        {
+            void KeyDown(int key);
+            void KeyUp(int key);
+            void MouseDown(KmMouseButton button);
+            void MouseUp(KmMouseButton button);
+            void MoveRelative(int deltaX, int deltaY);
+        }
+
+        private sealed class KmBoxClientInput : IKmBoxInput
+        {
+            private readonly KmBoxClient _client;
+
+            public KmBoxClientInput(KmBoxClient client)
+            {
+                _client = client;
+            }
+
+            public void KeyDown(int key) { _client.KeyDown(key); }
+            public void KeyUp(int key) { _client.KeyUp(key); }
+            public void MouseDown(KmMouseButton button) { _client.MouseDown(button); }
+            public void MouseUp(KmMouseButton button) { _client.MouseUp(button); }
+            public void MoveRelative(int deltaX, int deltaY) { _client.MoveRelative(deltaX, deltaY); }
+        }
+
+        private sealed class KmBoxInputWorker : IKmBoxInput, IDisposable
+        {
+            private sealed class InputCommand
+            {
+                public Action<KmBoxClient> Action;
+                public ManualResetEventSlim Done;
+                public Exception Error;
+            }
+
+            private readonly object _syncRoot = new object();
+            private readonly Queue<InputCommand> _urgentQueue = new Queue<InputCommand>();
+            private readonly Queue<InputCommand> _normalQueue = new Queue<InputCommand>();
+            private readonly KmBoxOptions _options;
+            private readonly Thread _thread;
+            private readonly ManualResetEventSlim _ready = new ManualResetEventSlim(false);
+            private Exception _startupError;
+            private bool _stopping;
+            private bool _disposed;
+
+            public KmBoxInputWorker(KmBoxOptions options)
+            {
+                _options = options;
+                _thread = new Thread(Run);
+                _thread.IsBackground = true;
+                _thread.Name = "KMBox input worker";
+                _thread.Start();
+                _ready.Wait();
+                if (_startupError != null)
+                {
+                    throw new InvalidOperationException("KMBox input worker failed to start.", _startupError);
+                }
+            }
+
+            public void KeyDown(int key)
+            {
+                Invoke(km => km.KeyDown(key), false);
+            }
+
+            public void KeyUp(int key)
+            {
+                Invoke(km => km.KeyUp(key), false);
+            }
+
+            public void MouseDown(KmMouseButton button)
+            {
+                Invoke(km => km.MouseDown(button), false);
+            }
+
+            public void MouseUp(KmMouseButton button)
+            {
+                Invoke(km => km.MouseUp(button), false);
+            }
+
+            public void MoveRelative(int deltaX, int deltaY)
+            {
+                Invoke(km => km.MoveRelative(deltaX, deltaY), false);
+            }
+
+            public void RequestPathFollowArrivedStop()
+            {
+                RequestPathFollowStop("poll_arrived");
+            }
+
+            public void RequestPathFollowStop(string reason)
+            {
+                Post(km =>
+                {
+                    km.KeyUp(KmBoxKeyCodes.KEY_W);
+                    Console.WriteLine("PathFollowInputUrgentKey W=up Reason=" + reason);
+                    km.MouseUp(KmMouseButton.Right);
+                    Console.WriteLine("PathFollowInputUrgentMouse Right=up Reason=" + reason);
+                }, true);
+            }
+
+            public void Dispose()
+            {
+                lock (_syncRoot)
+                {
+                    _disposed = true;
+                    _stopping = true;
+                    Monitor.PulseAll(_syncRoot);
+                }
+
+                if (Thread.CurrentThread != _thread)
+                {
+                    _thread.Join(2000);
+                }
+
+                _ready.Dispose();
+            }
+
+            private void Invoke(Action<KmBoxClient> action, bool urgent)
+            {
+                var command = new InputCommand
+                {
+                    Action = action,
+                    Done = new ManualResetEventSlim(false)
+                };
+
+                Enqueue(command, urgent);
+                command.Done.Wait();
+                command.Done.Dispose();
+                if (command.Error != null)
+                {
+                    throw command.Error;
+                }
+            }
+
+            private void Post(Action<KmBoxClient> action, bool urgent)
+            {
+                var command = new InputCommand { Action = action };
+                Enqueue(command, urgent);
+            }
+
+            private void Enqueue(InputCommand command, bool urgent)
+            {
+                lock (_syncRoot)
+                {
+                    if (_disposed)
+                    {
+                        return;
+                    }
+
+                    if (urgent)
+                    {
+                        _urgentQueue.Enqueue(command);
+                    }
+                    else
+                    {
+                        _normalQueue.Enqueue(command);
+                    }
+
+                    Monitor.PulseAll(_syncRoot);
+                }
+            }
+
+            private InputCommand Dequeue()
+            {
+                lock (_syncRoot)
+                {
+                    while (!_stopping && _urgentQueue.Count == 0 && _normalQueue.Count == 0)
+                    {
+                        Monitor.Wait(_syncRoot);
+                    }
+
+                    if (_urgentQueue.Count > 0)
+                    {
+                        return _urgentQueue.Dequeue();
+                    }
+
+                    if (_normalQueue.Count > 0)
+                    {
+                        return _normalQueue.Dequeue();
+                    }
+
+                    return null;
+                }
+            }
+
+            private void Run()
+            {
+                try
+                {
+                    using (var km = new KmBoxClient(_options))
+                    {
+                        km.Open();
+                        _ready.Set();
+                        while (true)
+                        {
+                            InputCommand command = Dequeue();
+                            if (command == null)
+                            {
+                                break;
+                            }
+
+                            try
+                            {
+                                command.Action(km);
+                            }
+                            catch (Exception ex)
+                            {
+                                command.Error = ex;
+                            }
+                            finally
+                            {
+                                if (command.Done != null)
+                                {
+                                    command.Done.Set();
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _startupError = ex;
+                    _ready.Set();
+                }
+            }
         }
 
         private static void RunLocalPlayerInfoTest(VmmProcess process, ulong gameBase)
@@ -697,6 +1068,193 @@ namespace Tool
             }
 
             Console.ReadKey(true);
+        }
+
+        private static void RunPlayerOffsetProbeTest(VmmProcess process, ulong gameBase)
+        {
+            ulong offset = ReadRvaFromEnv("AION_PLAYER_OFFSET_PROBE_OFFSET", 0x6C8);
+            int byteCount = ClampInt(ReadIntFromEnv("AION_PLAYER_OFFSET_PROBE_BYTES", 64), 8, 256);
+            int beforeBytes = ClampInt(ReadIntFromEnv("AION_PLAYER_OFFSET_PROBE_BEFORE_BYTES", 32), 0, 128);
+
+            Console.WriteLine("AION player offset probe.");
+            Console.WriteLine("Offset=Player+0x" + offset.ToString("X") +
+                              " Bytes=" + byteCount +
+                              " BeforeBytes=" + beforeBytes +
+                              " EnvOffset=AION_PLAYER_OFFSET_PROBE_OFFSET");
+
+            LocalPlayerInfo info;
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out info, out error))
+            {
+                Console.WriteLine("Read failed: " + error);
+                return;
+            }
+
+            if (info.Entity == 0)
+            {
+                Console.WriteLine("Read failed: local player entity pointer is empty.");
+                return;
+            }
+
+            ulong address = info.Entity + offset;
+            Console.WriteLine("Local EntityId=" + info.EntityId +
+                              " TargetId=" + info.TargetEntityId +
+                              " PlayerEntity=" + FormatAddress(info.Entity) +
+                              " ProbeAddress=" + FormatAddress(address) +
+                              " Pos=" + FormatPosition(info));
+
+            byte[] bytes;
+            if (!TryReadBytes(process, address, byteCount, out bytes))
+            {
+                Console.WriteLine("Read failed: unable to read " + byteCount + " bytes at " + FormatAddress(address));
+                return;
+            }
+
+            PrintScalarProbeValues(process, address, bytes);
+
+            string inlineText;
+            if (TryReadUtf16String(process, address, 64, out inlineText) && IsUsefulProbeText(inlineText))
+            {
+                Console.WriteLine("InlineUtf16=\"" + EscapeProbeText(inlineText) + "\"");
+            }
+
+            string msvcText;
+            if (TryReadMsvcWString(process, address, out msvcText) && IsUsefulProbeText(msvcText))
+            {
+                Console.WriteLine("InlineMsvcWString=\"" + EscapeProbeText(msvcText) + "\"");
+            }
+
+            ulong pointer;
+            if (TryReadPointer(process, address, out pointer))
+            {
+                Console.WriteLine("PointerCandidate=" + FormatAddress(pointer));
+
+                byte[] pointedBytes;
+                if (TryReadBytes(process, pointer, Math.Min(byteCount, 64), out pointedBytes))
+                {
+                    Console.WriteLine("PointerBytes:");
+                    PrintHexDump(pointer, pointedBytes, 16);
+                }
+
+                string pointerUtf16;
+                if (TryReadUtf16String(process, pointer, 64, out pointerUtf16) && IsUsefulProbeText(pointerUtf16))
+                {
+                    Console.WriteLine("PointerUtf16=\"" + EscapeProbeText(pointerUtf16) + "\"");
+                }
+
+                string pointerMsvcText;
+                if (TryReadMsvcWString(process, pointer, out pointerMsvcText) && IsUsefulProbeText(pointerMsvcText))
+                {
+                    Console.WriteLine("PointerMsvcWString=\"" + EscapeProbeText(pointerMsvcText) + "\"");
+                }
+            }
+            else
+            {
+                Console.WriteLine("PointerCandidate=n/a");
+            }
+
+            Console.WriteLine("BytesAtOffset:");
+            PrintHexDump(address, bytes, 16);
+
+            if (beforeBytes > 0 && address >= info.Entity + (ulong)beforeBytes)
+            {
+                ulong aroundAddress = address - (ulong)beforeBytes;
+                int aroundBytes = ClampInt(beforeBytes + byteCount, byteCount, 384);
+                byte[] around;
+                if (TryReadBytes(process, aroundAddress, aroundBytes, out around))
+                {
+                    Console.WriteLine("AroundBytes Player+0x" + (offset - (ulong)beforeBytes).ToString("X") +
+                                      "..Player+0x" + (offset + (ulong)byteCount - 1).ToString("X") + ":");
+                    PrintHexDump(aroundAddress, around, 16);
+                }
+            }
+        }
+
+        private static void RunPlayerFloatScanTest(VmmProcess process, ulong gameBase)
+        {
+            ulong startOffset = ReadRvaFromEnv("AION_PLAYER_FLOAT_SCAN_START_OFFSET", 0x600);
+            ulong endOffset = ReadRvaFromEnv("AION_PLAYER_FLOAT_SCAN_END_OFFSET", 0x780);
+            if (endOffset < startOffset)
+            {
+                ulong tmp = startOffset;
+                startOffset = endOffset;
+                endOffset = tmp;
+            }
+
+            double target = ReadSignedDoubleFromEnv("AION_PLAYER_FLOAT_SCAN_TARGET", 6.0);
+            double tolerance = ReadDoubleFromEnv("AION_PLAYER_FLOAT_SCAN_TOLERANCE", 0.01);
+            int stride = ClampInt(ReadIntFromEnv("AION_PLAYER_FLOAT_SCAN_STRIDE", 4), 1, 16);
+            int contextCount = ClampInt(ReadIntFromEnv("AION_PLAYER_FLOAT_SCAN_CONTEXT", 3), 0, 8);
+            ulong byteLength = endOffset - startOffset + 4;
+            if (byteLength > 0x4000)
+            {
+                byteLength = 0x4000;
+                endOffset = startOffset + byteLength - 4;
+            }
+
+            Console.WriteLine("AION player float scan.");
+            Console.WriteLine("Target=" + target.ToString("F6") +
+                              " Tolerance=" + tolerance.ToString("F6") +
+                              " Range=Player+0x" + startOffset.ToString("X") + "..Player+0x" + endOffset.ToString("X") +
+                              " Stride=" + stride +
+                              " Context=" + contextCount);
+
+            LocalPlayerInfo info;
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out info, out error))
+            {
+                Console.WriteLine("Read failed: " + error);
+                return;
+            }
+
+            if (info.Entity == 0)
+            {
+                Console.WriteLine("Read failed: local player entity pointer is empty.");
+                return;
+            }
+
+            ulong startAddress = info.Entity + startOffset;
+            byte[] bytes;
+            if (!TryReadBytes(process, startAddress, (int)byteLength, out bytes))
+            {
+                Console.WriteLine("Read failed: unable to read range at " + FormatAddress(startAddress) +
+                                  " Length=" + byteLength);
+                return;
+            }
+
+            Console.WriteLine("Local EntityId=" + info.EntityId +
+                              " PlayerEntity=" + FormatAddress(info.Entity) +
+                              " Pos=" + FormatPosition(info));
+
+            int matches = 0;
+            for (int i = 0; i + 4 <= bytes.Length; i += stride)
+            {
+                float value = BitConverter.ToSingle(bytes, i);
+                if (float.IsNaN(value) || float.IsInfinity(value))
+                {
+                    continue;
+                }
+
+                double delta = Math.Abs(value - target);
+                if (delta <= tolerance)
+                {
+                    matches++;
+                    ulong offset = startOffset + (ulong)i;
+                    ulong address = startAddress + (ulong)i;
+                    Console.WriteLine("Match#" + matches +
+                                      " Offset=Player+0x" + offset.ToString("X") +
+                                      " Address=" + FormatAddress(address) +
+                                      " F32=" + value.ToString("R") +
+                                      " Delta=" + delta.ToString("F6") +
+                                      " Context=" + FormatFloatScanContext(bytes, i, startOffset, contextCount));
+                }
+            }
+
+            Console.WriteLine("FloatScanResult Matches=" + matches);
+            if (matches == 0)
+            {
+                Console.WriteLine("No match in this range. Try widening AION_PLAYER_FLOAT_SCAN_START_OFFSET/END_OFFSET or set AION_PLAYER_FLOAT_SCAN_STRIDE=1.");
+            }
         }
 
         private static void RunCameraWatchTest(VmmProcess process, ulong gameBase)
@@ -1076,6 +1634,843 @@ namespace Tool
             Console.ReadKey(true);
         }
 
+        private static void RunPathRecorderWindow(VmmProcess process, ulong gameBase)
+        {
+            Console.WriteLine("AION path recorder WPF test.");
+            Console.WriteLine("Reading local player position and recording path points.");
+
+            var app = System.Windows.Application.Current ?? new System.Windows.Application();
+            app.ShutdownMode = System.Windows.ShutdownMode.OnMainWindowClose;
+            var window = new PathRecorderWindow(() => ReadPathRecorderSnapshot(process, gameBase));
+            app.Run(window);
+        }
+
+        private static PathRecorderReadResult ReadPathRecorderSnapshot(VmmProcess process, ulong gameBase)
+        {
+            LocalPlayerInfo info;
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out info, out error))
+            {
+                return PathRecorderReadResult.Fail(error);
+            }
+
+            if (!info.HasPosition)
+            {
+                return PathRecorderReadResult.Fail("local player position is not available");
+            }
+
+            var snapshot = new PathRecorderSnapshot
+            {
+                ReadTime = DateTime.Now,
+                EntityId = info.EntityId,
+                X = info.X,
+                Y = info.Y,
+                Z = info.Z,
+                HasTransform = info.HasTransform,
+                ActorYaw = info.HasTransform ? NormalizeSignedDegrees(info.Transform.WorldAngles.Z) : 0.0,
+                CameraPitch = info.CameraPitch,
+                CameraYaw = info.CameraYaw
+            };
+
+            return PathRecorderReadResult.Ok(snapshot);
+        }
+
+        private static PathFollowPollState StartPathFollowPoller(
+            VmmProcess process,
+            ulong gameBase,
+            int intervalMs,
+            LocalPlayerInfo initialLocal,
+            FaceTargetOptions options,
+            double targetPitch,
+            KmBoxInputWorker inputWorker)
+        {
+            var state = new PathFollowPollState();
+            lock (state.SyncRoot)
+            {
+                state.HasLocal = initialLocal.HasPosition;
+                state.Local = initialLocal;
+                state.LastReadTime = DateTime.Now;
+                state.InputWorker = inputWorker;
+            }
+
+            state.Thread = new Thread(() =>
+            {
+                while (true)
+                {
+                    lock (state.SyncRoot)
+                    {
+                        if (state.StopRequested)
+                        {
+                            return;
+                        }
+                    }
+
+                    LocalPlayerInfo polledLocal;
+                    string error;
+                    bool ok = TryReadLocalPlayerInfo(process, gameBase, out polledLocal, out error) && polledLocal.HasPosition;
+                    bool requestArrivedStop = false;
+                    bool requestMoveStop = false;
+                    string moveStopReason = null;
+                    lock (state.SyncRoot)
+                    {
+                        if (ok)
+                        {
+                            state.Local = polledLocal;
+                            state.HasLocal = true;
+                            state.Error = null;
+                            state.LastReadTime = DateTime.Now;
+                            state.ReadCount++;
+                            UpdatePathFollowPollMetricsLocked(state, options, targetPitch);
+                            if (state.HasMoveStop && !state.MoveStopRequested)
+                            {
+                                state.MoveStopRequested = true;
+                                moveStopReason = string.IsNullOrWhiteSpace(state.MoveStopReason) ? "move_stop" : state.MoveStopReason;
+                                requestMoveStop = true;
+                            }
+                            if (state.TargetIndex >= 0 && !state.HasArrived)
+                            {
+                                if (state.Distance <= state.ReachDistance)
+                                {
+                                    state.HasArrived = true;
+                                    state.ArrivedTargetIndex = state.TargetIndex;
+                                    state.ArrivedLocal = polledLocal;
+                                    state.ArrivedDistance = state.Distance;
+                                    requestArrivedStop = true;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            state.Error = error ?? "local position unavailable";
+                        }
+                    }
+
+                    if (requestArrivedStop && state.InputWorker != null)
+                    {
+                        state.InputWorker.RequestPathFollowArrivedStop();
+                    }
+
+                    if (requestMoveStop && state.InputWorker != null)
+                    {
+                        state.InputWorker.RequestPathFollowStop(moveStopReason ?? "move_stop");
+                    }
+
+                    Thread.Sleep(intervalMs);
+                }
+            });
+
+            state.Thread.IsBackground = true;
+            state.Thread.Name = "AION path follow poll";
+            state.Thread.Start();
+            return state;
+        }
+
+        private static bool TryGetPathFollowPolledLocal(
+            PathFollowPollState state,
+            out LocalPlayerInfo local,
+            out string error,
+            out long ageMs)
+        {
+            lock (state.SyncRoot)
+            {
+                local = state.Local;
+                error = state.Error;
+                if (!state.HasLocal)
+                {
+                    ageMs = 0;
+                    return false;
+                }
+
+                ageMs = Math.Max(0, (long)(DateTime.Now - state.LastReadTime).TotalMilliseconds);
+                return true;
+            }
+        }
+
+        private static bool TryGetPathFollowPollSnapshot(
+            PathFollowPollState state,
+            out PathFollowPollSnapshot snapshot,
+            out string error)
+        {
+            lock (state.SyncRoot)
+            {
+                error = state.Error;
+                snapshot = new PathFollowPollSnapshot();
+                if (!state.HasLocal || !state.HasMetrics)
+                {
+                    return false;
+                }
+
+                snapshot.Local = state.Local;
+                snapshot.AgeMs = Math.Max(0, (long)(DateTime.Now - state.LastReadTime).TotalMilliseconds);
+                snapshot.ReadCount = state.ReadCount;
+                snapshot.Distance = state.Distance;
+                snapshot.TargetYaw = state.TargetYaw;
+                snapshot.CameraYaw = state.CameraYaw;
+                snapshot.CameraPitch = state.CameraPitch;
+                snapshot.YawError = state.YawError;
+                snapshot.PitchError = state.PitchError;
+                return true;
+            }
+        }
+
+        private static bool TryWaitForPathFollowPollSnapshot(
+            PathFollowPollState state,
+            long previousReadCount,
+            int timeoutMs,
+            out PathFollowPollSnapshot snapshot,
+            out string error)
+        {
+            DateTime deadline = DateTime.UtcNow.AddMilliseconds(Math.Max(0, timeoutMs));
+            do
+            {
+                if (TryGetPathFollowPollSnapshot(state, out snapshot, out error) &&
+                    (snapshot.ReadCount != previousReadCount || timeoutMs <= 0))
+                {
+                    return true;
+                }
+
+                if (DateTime.UtcNow >= deadline)
+                {
+                    break;
+                }
+
+                Thread.Sleep(1);
+            }
+            while (true);
+
+            return TryGetPathFollowPollSnapshot(state, out snapshot, out error);
+        }
+
+        private static void SetPathFollowPollTarget(
+            PathFollowPollState state,
+            int targetIndex,
+            PathFollowPoint target,
+            double reachDistance,
+            FaceTargetOptions options,
+            double targetPitch)
+        {
+            lock (state.SyncRoot)
+            {
+                if (state.TargetIndex != targetIndex)
+                {
+                    state.HasArrived = false;
+                    state.HasMetrics = false;
+                    state.HasMoveStop = false;
+                    state.MoveStopRequested = false;
+                    state.MoveStopReason = null;
+                    state.TravelBudget = null;
+                    state.TravelBudgetMovedDistance = 0.0;
+                    state.TravelBudgetTotalDistance = 0.0;
+                }
+
+                state.TargetIndex = targetIndex;
+                state.TargetPoint = target;
+                state.ReachDistance = reachDistance;
+                UpdatePathFollowPollMetricsLocked(state, options, targetPitch);
+            }
+        }
+
+        private static void UpdatePathFollowPollMetricsLocked(
+            PathFollowPollState state,
+            FaceTargetOptions options,
+            double targetPitch)
+        {
+            if (!state.HasLocal || state.TargetIndex < 0 || !state.Local.HasPosition)
+            {
+                state.HasMetrics = false;
+                return;
+            }
+
+            state.Distance = GetHorizontalDistance(state.Local, state.TargetPoint);
+            state.TargetYaw = CalculatePathTargetYawDegrees(state.Local, state.TargetPoint, options);
+            state.CameraYaw = GetCameraYawDegrees(state.Local.CameraYaw, options);
+            state.CameraPitch = GetCameraPitchDegrees(state.Local.CameraPitch, options);
+            state.YawError = NormalizeSignedDegrees(state.TargetYaw - state.CameraYaw);
+            state.PitchError = targetPitch - state.CameraPitch;
+            state.HasMetrics = true;
+            UpdatePathFollowTravelBudgetLocked(state);
+        }
+
+        private static void UpdatePathFollowTravelBudgetLocked(PathFollowPollState state)
+        {
+            if (!state.IsMoving || state.HasArrived || state.HasMoveStop || state.TargetIndex < 0 || !state.HasMetrics || !state.Local.HasPosition)
+            {
+                return;
+            }
+
+            if (state.TravelBudget == null)
+            {
+                StartPathFollowTravelBudgetLocked(state);
+            }
+
+            if (state.TravelBudget == null)
+            {
+                return;
+            }
+
+            PathFollowDistanceBudgetResult result = state.TravelBudget.Update(ToPathFollowBudgetPoint(state.Local), state.ReachDistance);
+            state.TravelBudgetMovedDistance = result.MovedDistance;
+            state.TravelBudgetTotalDistance = result.TotalDistance;
+            if (result.Decision == PathFollowDistanceBudgetDecision.TravelBudgetExceeded)
+            {
+                state.HasMoveStop = true;
+                state.MoveStopReason = "travel_budget_exhausted";
+                state.MoveStopTargetIndex = state.TargetIndex;
+                state.MoveStopLocal = state.Local;
+                state.MoveStopDistance = result.DistanceToTarget;
+            }
+        }
+
+        private static void StartPathFollowTravelBudgetLocked(PathFollowPollState state)
+        {
+            if (state.TargetIndex < 0 || !state.Local.HasPosition)
+            {
+                state.TravelBudget = null;
+                state.TravelBudgetMovedDistance = 0.0;
+                state.TravelBudgetTotalDistance = 0.0;
+                return;
+            }
+
+            state.TravelBudget = new PathFollowDistanceBudget(
+                ToPathFollowBudgetPoint(state.Local),
+                ToPathFollowBudgetPoint(state.TargetPoint));
+            state.TravelBudgetMovedDistance = 0.0;
+            state.TravelBudgetTotalDistance = state.TravelBudget.TotalDistance;
+        }
+
+        private static bool TryConsumePathFollowArrived(
+            PathFollowPollState state,
+            int targetIndex,
+            out LocalPlayerInfo arrivedLocal,
+            out double arrivedDistance)
+        {
+            lock (state.SyncRoot)
+            {
+                if (state.HasArrived && state.ArrivedTargetIndex == targetIndex)
+                {
+                    arrivedLocal = state.ArrivedLocal;
+                    arrivedDistance = state.ArrivedDistance;
+                    state.HasArrived = false;
+                    return true;
+                }
+            }
+
+            arrivedLocal = new LocalPlayerInfo();
+            arrivedDistance = 0.0;
+            return false;
+        }
+
+        private static bool TryConsumePathFollowMoveStop(
+            PathFollowPollState state,
+            int targetIndex,
+            out LocalPlayerInfo stopLocal,
+            out double stopDistance,
+            out string stopReason)
+        {
+            lock (state.SyncRoot)
+            {
+                if (state.HasMoveStop && state.MoveStopTargetIndex == targetIndex)
+                {
+                    stopLocal = state.MoveStopLocal;
+                    stopDistance = state.MoveStopDistance;
+                    stopReason = string.IsNullOrWhiteSpace(state.MoveStopReason) ? "move_stop" : state.MoveStopReason;
+                    state.HasMoveStop = false;
+                    state.MoveStopRequested = false;
+                    state.MoveStopReason = null;
+                    return true;
+                }
+            }
+
+            stopLocal = new LocalPlayerInfo();
+            stopDistance = 0.0;
+            stopReason = null;
+            return false;
+        }
+
+        private static bool IsPathFollowStopPending(
+            PathFollowPollState state,
+            out string reason)
+        {
+            reason = null;
+            if (state == null)
+            {
+                return false;
+            }
+
+            lock (state.SyncRoot)
+            {
+                if (state.StopRequested)
+                {
+                    reason = "poller_stop_requested";
+                    return true;
+                }
+
+                if (state.HasMoveStop)
+                {
+                    reason = string.IsNullOrWhiteSpace(state.MoveStopReason) ? "move_stop" : state.MoveStopReason;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void SetPathFollowMoving(PathFollowPollState state, bool moving)
+        {
+            if (state == null)
+            {
+                return;
+            }
+
+            lock (state.SyncRoot)
+            {
+                if (state.IsMoving == moving)
+                {
+                    return;
+                }
+
+                state.IsMoving = moving;
+                if (moving)
+                {
+                    StartPathFollowTravelBudgetLocked(state);
+                }
+                else
+                {
+                    state.HasMoveStop = false;
+                    state.MoveStopRequested = false;
+                    state.MoveStopReason = null;
+                    state.TravelBudget = null;
+                    state.TravelBudgetMovedDistance = 0.0;
+                    state.TravelBudgetTotalDistance = 0.0;
+                }
+            }
+        }
+
+        private static bool TryMarkPathFollowArrivedNow(
+            PathFollowPollState state,
+            out int arrivedTargetIndex,
+            out double arrivedDistance)
+        {
+            lock (state.SyncRoot)
+            {
+                if (state.TargetIndex >= 0 && state.HasMetrics && state.Distance <= state.ReachDistance)
+                {
+                    state.HasArrived = true;
+                    state.ArrivedTargetIndex = state.TargetIndex;
+                    state.ArrivedLocal = state.Local;
+                    state.ArrivedDistance = state.Distance;
+                    arrivedTargetIndex = state.TargetIndex;
+                    arrivedDistance = state.Distance;
+                    return true;
+                }
+            }
+
+            arrivedTargetIndex = -1;
+            arrivedDistance = 0.0;
+            return false;
+        }
+
+        private static void StopPathFollowPoller(PathFollowPollState state)
+        {
+            if (state == null)
+            {
+                return;
+            }
+
+            lock (state.SyncRoot)
+            {
+                state.StopRequested = true;
+            }
+
+            if (state.Thread != null && state.Thread.IsAlive)
+            {
+                state.Thread.Join(1000);
+            }
+        }
+
+        private static void RunPathFollowTest(VmmProcess process, ulong gameBase)
+        {
+            FaceTargetOptions options = ReadFaceTargetOptions();
+            List<PathFollowPoint> path = LoadPathFollowPoints();
+            if (path.Count == 0)
+            {
+                Console.WriteLine("AION path follow test failed: no path points.");
+                return;
+            }
+
+            double reachDistance = Math.Max(0.2, ReadDoubleFromEnv("AION_PATH_FOLLOW_REACH_DISTANCE", 3.0));
+            double yawTolerance = Math.Max(0.1, ReadDoubleFromEnv("AION_PATH_FOLLOW_YAW_TOLERANCE_DEG", 10.0));
+            double microYawTolerance = Math.Max(0.1, ReadDoubleFromEnv("AION_PATH_FOLLOW_MICRO_YAW_TOLERANCE_DEG", 1.5));
+            double restartYawThreshold = Math.Max(0.1, ReadDoubleFromEnv("AION_PATH_FOLLOW_RESTART_YAW_DEG", 15.0));
+            double disableMoveAdjustDistance = Math.Max(0.0, ReadDoubleFromEnv("AION_PATH_FOLLOW_DISABLE_MOVE_ADJUST_DISTANCE", 15.0));
+            double pitchTolerance = Math.Max(0.5, ReadDoubleFromEnv("AION_PATH_FOLLOW_PITCH_TOLERANCE_DEG", 5.0));
+            double targetPitch = ClampDouble(ReadSignedDoubleFromEnv("AION_PATH_FOLLOW_PITCH_DEG", options.FixedTargetPitchDegrees), -65.0, 85.0);
+            options.ToleranceDegrees = Math.Min(options.ToleranceDegrees, yawTolerance);
+            int tickMs = ClampInt(ReadIntFromEnv("AION_PATH_FOLLOW_TICK_MS", 10), 1, 2000);
+            int logIntervalMs = ClampInt(ReadIntFromEnv("AION_PATH_FOLLOW_LOG_MS", 500), 0, 10000);
+            int maxRunMs = ReadIntFromEnv("AION_PATH_FOLLOW_MAX_MS", 0);
+            maxRunMs = maxRunMs <= 0 ? 0 : ClampInt(maxRunMs, 1000, 600000);
+            bool loop = ReadBoolFromEnv("AION_PATH_FOLLOW_LOOP", true);
+            bool reverse = ReadBoolFromEnv("AION_PATH_FOLLOW_REVERSE", false);
+            if (reverse)
+            {
+                path.Reverse();
+            }
+
+            LocalPlayerInfo local;
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error) || !local.HasPosition)
+            {
+                Console.WriteLine("AION path follow test failed: " + (error ?? "local position unavailable"));
+                return;
+            }
+
+            string startMode = Environment.GetEnvironmentVariable("AION_PATH_FOLLOW_START_MODE");
+            int targetIndex = ResolvePathFollowStartIndex(path, local, reachDistance, startMode);
+
+            Console.WriteLine("AION path follow test.");
+            Console.WriteLine("KmBoxPort=" + options.KmBoxPortName +
+                              " Points=" + path.Count +
+                              " StartTargetIndex=" + (targetIndex + 1) +
+                              " StartMode=" + FormatPathFollowStartMode(startMode) +
+                              " Reverse=" + (reverse ? "yes" : "no") +
+                              " ReachDistance=" + reachDistance.ToString("F2") +
+                              " TickMs=" + tickMs +
+                              " LogMs=" + logIntervalMs +
+                              " MaxRunMs=" + maxRunMs +
+                              " Loop=" + (loop ? "yes" : "no") +
+                              " BearingMode=" + options.BearingMode +
+                              " TargetPitchDeg=" + targetPitch.ToString("F2") +
+                              " YawPixelsPerDeg=" + options.PixelsPerDegreeAbs.ToString("F2") +
+                              " PitchPixelsPerDeg=" + options.PitchPixelsPerDegreeAbs.ToString("F2") +
+                              " YawToleranceDeg=" + yawTolerance.ToString("F2") +
+                              " MicroYawToleranceDeg=" + microYawTolerance.ToString("F2") +
+                              " RestartYawDeg=" + restartYawThreshold.ToString("F2") +
+                              " DisableMoveAdjustDistance=" + disableMoveAdjustDistance.ToString("F2") +
+                              " PitchToleranceDeg=" + pitchTolerance.ToString("F2"));
+            Console.WriteLine("Camera yaw faces the next path point; pitch is fixed; W moves forward.");
+
+            PathFollowPollState pollState = null;
+            using (var input = new KmBoxInputWorker(new KmBoxOptions { PortName = options.KmBoxPortName }))
+            {
+                pollState = StartPathFollowPoller(process, gameBase, tickMs, local, options, targetPitch, input);
+                try
+                {
+                    bool wDown = false;
+                    bool rightMouseDown = false;
+                    var stopwatch = Stopwatch.StartNew();
+                    long nextTickLogAt = 0;
+                    try
+                    {
+                        input.KeyUp(KmBoxKeyCodes.KEY_W);
+                        SetPathFollowMoving(pollState, false);
+                        Console.WriteLine("PathFollowKey W=up Reason=start");
+
+                        while (maxRunMs <= 0 || stopwatch.ElapsedMilliseconds <= maxRunMs)
+                        {
+                            PathFollowPoint target = path[targetIndex];
+                            SetPathFollowPollTarget(pollState, targetIndex, target, reachDistance, options, targetPitch);
+
+                            PathFollowPollSnapshot snapshot;
+                            if (!TryGetPathFollowPollSnapshot(pollState, out snapshot, out error) || !snapshot.Local.HasPosition)
+                            {
+                                Console.WriteLine("PathFollowReadFailed Reason=" + (error ?? "local position unavailable"));
+                                break;
+                            }
+
+                            local = snapshot.Local;
+                            double distance = snapshot.Distance;
+                            LocalPlayerInfo arrivedLocal;
+                            double arrivedDistance;
+                            bool latchedArrived = TryConsumePathFollowArrived(pollState, targetIndex, out arrivedLocal, out arrivedDistance);
+                            if (latchedArrived)
+                            {
+                                local = arrivedLocal;
+                                distance = arrivedDistance;
+                            }
+
+                            if (latchedArrived || distance <= reachDistance)
+                            {
+                                input.KeyUp(KmBoxKeyCodes.KEY_W);
+                                wDown = false;
+                                SetPathFollowMoving(pollState, false);
+                                Console.WriteLine("PathFollowKey W=up Reason=arrived");
+                                input.MouseUp(KmMouseButton.Right);
+                                rightMouseDown = false;
+                                Console.WriteLine("PathFollowMouse Right=up Reason=arrived");
+
+                                Console.WriteLine("PathFollowArrived Index=" + (targetIndex + 1) +
+                                                  " Distance=" + distance.ToString("F2") +
+                                                  " Source=" + (latchedArrived ? "latched" : "current") +
+                                                  " Pos=(" + local.X.ToString("F3") + "," + local.Y.ToString("F3") + "," + local.Z.ToString("F3") + ")");
+
+                                if (targetIndex + 1 < path.Count)
+                                {
+                                    targetIndex++;
+                                    continue;
+                                }
+
+                                if (loop)
+                                {
+                                    targetIndex = 0;
+                                    continue;
+                                }
+
+                                Console.WriteLine("PathFollowResult=finished ElapsedMs=" + stopwatch.ElapsedMilliseconds);
+                                break;
+                            }
+
+                            LocalPlayerInfo moveStopLocal;
+                            double moveStopDistance;
+                            string moveStopReason;
+                            bool moveStopped = TryConsumePathFollowMoveStop(pollState, targetIndex, out moveStopLocal, out moveStopDistance, out moveStopReason);
+                            if (moveStopped)
+                            {
+                                local = moveStopLocal;
+                                distance = moveStopDistance;
+                                input.KeyUp(KmBoxKeyCodes.KEY_W);
+                                Console.WriteLine("PathFollowKey W=up Reason=" + moveStopReason);
+                                wDown = false;
+                                SetPathFollowMoving(pollState, false);
+                                input.MouseUp(KmMouseButton.Right);
+                                rightMouseDown = false;
+                                Console.WriteLine("PathFollowMouse Right=up Reason=" + moveStopReason);
+
+                                Console.WriteLine("PathFollowMoveStopped" +
+                                                  " TargetIndex=" + (targetIndex + 1) +
+                                                  " Reason=" + moveStopReason +
+                                                  " Distance=" + distance.ToString("F2") +
+                                                  " Pos=(" + local.X.ToString("F3") + "," + local.Y.ToString("F3") + "," + local.Z.ToString("F3") + ")");
+                                Thread.Sleep(tickMs);
+                                continue;
+                            }
+
+                            double targetYaw = snapshot.TargetYaw;
+                            double currentYaw = snapshot.CameraYaw;
+                            double currentPitch = snapshot.CameraPitch;
+                            double yawError = snapshot.YawError;
+                            double pitchError = snapshot.PitchError;
+                            bool restartMoveForLargeYaw = PathFollowMoveControl.ShouldRestartMoveForYaw(wDown, yawError, restartYawThreshold);
+                            if (restartMoveForLargeYaw)
+                            {
+                                input.KeyUp(KmBoxKeyCodes.KEY_W);
+                                wDown = false;
+                                SetPathFollowMoving(pollState, false);
+                                Console.WriteLine("PathFollowKey W=up Reason=restart_yaw_error" +
+                                                  " YawErrorDeg=" + yawError.ToString("F2") +
+                                                  " RestartYawDeg=" + restartYawThreshold.ToString("F2"));
+                                input.MouseUp(KmMouseButton.Right);
+                                rightMouseDown = false;
+                                Console.WriteLine("PathFollowMouse Right=up Reason=restart_yaw_error");
+                            }
+
+                            double activeYawTolerance = wDown ? microYawTolerance : yawTolerance;
+                            bool moveAdjustDisabledByDistance = PathFollowMoveControl.ShouldDisableMoveAdjustByDistance(wDown, distance, disableMoveAdjustDistance);
+                            bool needsTurn = PathFollowMoveControl.ShouldTurn(
+                                restartMoveForLargeYaw,
+                                moveAdjustDisabledByDistance,
+                                yawError,
+                                pitchError,
+                                activeYawTolerance,
+                                pitchTolerance);
+                            long elapsedMs = stopwatch.ElapsedMilliseconds;
+                            bool shouldLogTick = needsTurn || (logIntervalMs > 0 && elapsedMs >= nextTickLogAt);
+
+                            if (shouldLogTick)
+                            {
+                                Console.WriteLine("PathFollowTick" +
+                                                  " ElapsedMs=" + elapsedMs +
+                                                  " TargetIndex=" + (targetIndex + 1) +
+                                                  " Distance=" + distance.ToString("F2") +
+                                                  " Pos=(" + local.X.ToString("F3") + "," + local.Y.ToString("F3") + "," + local.Z.ToString("F3") + ")" +
+                                                  " CameraYaw=" + currentYaw.ToString("F2") +
+                                                  " TargetYaw=" + targetYaw.ToString("F2") +
+                                                  " YawError=" + yawError.ToString("F2") +
+                                                  " ActiveYawTolerance=" + activeYawTolerance.ToString("F2") +
+                                                  " CameraPitch=" + currentPitch.ToString("F2") +
+                                                  " TargetPitch=" + targetPitch.ToString("F2") +
+                                                  " PitchError=" + pitchError.ToString("F2") +
+                                                  " PollAgeMs=" + snapshot.AgeMs +
+                                                  " MoveAdjustDisabledByDistance=" + (moveAdjustDisabledByDistance ? "yes" : "no") +
+                                                  " NeedsTurn=" + (needsTurn ? "yes" : "no"));
+                                if (logIntervalMs > 0)
+                                {
+                                    nextTickLogAt = elapsedMs + logIntervalMs;
+                                }
+                            }
+
+                            if (needsTurn)
+                            {
+                                double finalYawError;
+                                double finalPitchError;
+                                bool turnAligned;
+                                if (wDown)
+                                {
+                                    if (!rightMouseDown)
+                                    {
+                                        input.MouseDown(KmMouseButton.Right);
+                                        rightMouseDown = true;
+                                        Console.WriteLine("PathFollowMouse Right=down Reason=move_angle_adjust");
+                                        if (options.MouseDownWarmupMs > 0)
+                                        {
+                                            Thread.Sleep(options.MouseDownWarmupMs);
+                                        }
+                                    }
+
+                                    turnAligned = DragPathFollowAngleAdjust(
+                                        process,
+                                        gameBase,
+                                        input,
+                                        pollState,
+                                        target,
+                                        targetPitch,
+                                        options.PixelsPerDegreeAbs,
+                                        options.PitchPixelsPerDegreeAbs,
+                                        options,
+                                        microYawTolerance,
+                                        pitchTolerance,
+                                        restartYawThreshold,
+                                        out bool arrivedDuringAdjust,
+                                        out bool restartDuringAdjust);
+                                    Console.WriteLine("PathFollowMoveAngleAdjust W=down Aligned=" + (turnAligned ? "yes" : "no"));
+                                    if (arrivedDuringAdjust)
+                                    {
+                                        wDown = false;
+                                        SetPathFollowMoving(pollState, false);
+                                        input.MouseUp(KmMouseButton.Right);
+                                        rightMouseDown = false;
+                                        Console.WriteLine("PathFollowMouse Right=up Reason=arrived_during_angle_adjust");
+
+                                        continue;
+                                    }
+
+                                    if (restartDuringAdjust)
+                                    {
+                                        input.KeyUp(KmBoxKeyCodes.KEY_W);
+                                        wDown = false;
+                                        SetPathFollowMoving(pollState, false);
+                                        Console.WriteLine("PathFollowKey W=up Reason=restart_yaw_error_during_adjust");
+                                        input.MouseUp(KmMouseButton.Right);
+                                        rightMouseDown = false;
+                                        Console.WriteLine("PathFollowMouse Right=up Reason=restart_yaw_error_during_adjust");
+
+                                        turnAligned = DragCameraCombinedTwoPassFixedYawPitch(
+                                            process,
+                                            gameBase,
+                                            input,
+                                            targetYaw,
+                                            targetPitch,
+                                            options.PixelsPerDegreeAbs,
+                                            options.PitchPixelsPerDegreeAbs,
+                                            options,
+                                            false,
+                                            true,
+                                            true,
+                                            out finalYawError,
+                                            out finalPitchError);
+                                        if (turnAligned)
+                                        {
+                                            rightMouseDown = true;
+                                            Console.WriteLine("PathFollowMouse Right=held Reason=restart_turn_complete");
+                                        }
+
+                                        if (!turnAligned)
+                                        {
+                                            Console.WriteLine("PathFollowMoveHold Reason=restart_angle_not_aligned");
+                                            Thread.Sleep(tickMs);
+                                            continue;
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    turnAligned = DragCameraCombinedTwoPassFixedYawPitch(
+                                        process,
+                                        gameBase,
+                                        input,
+                                        targetYaw,
+                                        targetPitch,
+                                        options.PixelsPerDegreeAbs,
+                                        options.PitchPixelsPerDegreeAbs,
+                                        options,
+                                        false,
+                                        true,
+                                        true,
+                                        out finalYawError,
+                                        out finalPitchError);
+                                    if (turnAligned)
+                                    {
+                                        rightMouseDown = true;
+                                        Console.WriteLine("PathFollowMouse Right=held Reason=turn_complete");
+                                    }
+
+                                    if (!turnAligned)
+                                    {
+                                        Console.WriteLine("PathFollowMoveHold Reason=angle_not_aligned");
+                                        Thread.Sleep(tickMs);
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            if (!wDown)
+                            {
+                                if (!rightMouseDown)
+                                {
+                                    input.MouseDown(KmMouseButton.Right);
+                                    rightMouseDown = true;
+                                    Console.WriteLine("PathFollowMouse Right=down Reason=move_start");
+                                    if (options.MouseDownWarmupMs > 0)
+                                    {
+                                        Thread.Sleep(options.MouseDownWarmupMs);
+                                    }
+                                }
+
+                                input.KeyUp(KmBoxKeyCodes.KEY_W);
+                                input.KeyDown(KmBoxKeyCodes.KEY_W);
+                                wDown = true;
+                                SetPathFollowMoving(pollState, true);
+                                Console.WriteLine("PathFollowKey W=down");
+                            }
+
+                            Thread.Sleep(tickMs);
+                        }
+                    }
+                    finally
+                    {
+                        if (wDown)
+                        {
+                            try
+                            {
+                                input.KeyUp(KmBoxKeyCodes.KEY_W);
+                                SetPathFollowMoving(pollState, false);
+                                Console.WriteLine("PathFollowKey W=up");
+                            }
+                            catch
+                            {
+                            }
+                        }
+
+                        if (rightMouseDown)
+                        {
+                            try
+                            {
+                                input.MouseUp(KmMouseButton.Right);
+                                Console.WriteLine("PathFollowMouse Right=up");
+                            }
+                            catch
+                            {
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    StopPathFollowPoller(pollState);
+                }
+            }
+        }
+
         private static void RunFaceTargetCameraTest(VmmProcess process, ulong gameBase)
         {
             FaceTargetOptions options = ReadFaceTargetOptions();
@@ -1233,6 +2628,80 @@ namespace Tool
                     Console.WriteLine("Result=" + (success ? "aligned" : "not_aligned") +
                                       " FinalErrorDeg=" + finalError.ToString("F2") +
                                       " AttemptsUsed=" + attemptsUsed);
+                }
+                else
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Final read failed: " + error);
+                }
+            }
+        }
+
+        private static void RunFaceTargetCombinedCameraTest(VmmProcess process, ulong gameBase)
+        {
+            FaceTargetOptions options = ReadFaceTargetOptions();
+            double targetPitch = ClampDouble(options.FixedTargetPitchDegrees, -65.0, 85.0);
+            Console.WriteLine("AION face locked target combined yaw/pitch camera test.");
+            Console.WriteLine("KmBoxPort=" + options.KmBoxPortName +
+                              " DurationMs=" + options.DurationMs +
+                              " ToleranceDeg=" + options.ToleranceDegrees.ToString("F2") +
+                              " BearingMode=" + options.BearingMode +
+                              " CameraYawUnit=" + options.CameraYawUnit +
+                              " CameraPitchUnit=" + options.CameraPitchUnit +
+                              " FixedTargetPitchDeg=" + targetPitch.ToString("F2") +
+                              " YawPixelsPerDeg=" + options.PixelsPerDegreeAbs.ToString("F4") +
+                              " PitchPixelsPerDeg=" + options.PitchPixelsPerDegreeAbs.ToString("F4") +
+                              " DragMoveMode=" + options.DragMoveMode +
+                              " TwoPassMaxPasses=" + options.TwoPassMaxPasses +
+                              " MaxChunkPixels=" + options.DragStepPixels +
+                              " DragPrimePixels=" + options.DragPrimePixels +
+                              " DragTailPixels=" + options.DragTailPixels +
+                              " PitchInvertMouse=" + (options.PitchInvertMouse ? "yes" : "no") +
+                              " ApplyMouse=" + (options.ApplyMouse ? "yes" : "no"));
+            Console.WriteLine("Lock a target first. Yaw comes from target coordinates; pitch is fixed.");
+
+            LocalPlayerInfo local;
+            LockedTargetMonsterInfo target;
+            string error;
+            if (!TryReadFaceTargetSnapshot(process, gameBase, out local, out target, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                return;
+            }
+
+            PrintFaceTargetCombinedState("initial", local, target, targetPitch, options);
+            if (!options.ApplyMouse)
+            {
+                Console.WriteLine("AION_FACE_TARGET_APPLY_MOUSE=0, snapshot only.");
+                return;
+            }
+
+            using (var km = new KmBoxClient(new KmBoxOptions { PortName = options.KmBoxPortName }))
+            {
+                km.Open();
+                double finalYawError = 0.0;
+                double finalPitchError = 0.0;
+                bool success = DragCameraCombinedTwoPassFaceTarget(
+                    process,
+                    gameBase,
+                    km,
+                    targetPitch,
+                    options.PixelsPerDegreeAbs,
+                    options.PitchPixelsPerDegreeAbs,
+                    options,
+                    out finalYawError,
+                    out finalPitchError);
+
+                if (TryReadFaceTargetSnapshot(process, gameBase, out local, out target, out error))
+                {
+                    PrintFaceTargetCombinedState("final", local, target, targetPitch, options);
+                    finalYawError = NormalizeSignedDegrees(CalculateTargetYawDegrees(local, target, options) - GetCameraYawDegrees(local.CameraYaw, options));
+                    finalPitchError = targetPitch - GetCameraPitchDegrees(local.CameraPitch, options);
+                    success = success ||
+                              (Math.Abs(finalYawError) <= options.ToleranceDegrees &&
+                               Math.Abs(finalPitchError) <= options.ToleranceDegrees);
+                    Console.WriteLine("Result=" + (success ? "aligned" : "not_aligned") +
+                                      " FinalYawErrorDeg=" + finalYawError.ToString("F2") +
+                                      " FinalPitchErrorDeg=" + finalPitchError.ToString("F2"));
                 }
                 else
                 {
@@ -1427,6 +2896,200 @@ namespace Tool
             }
         }
 
+        private static void RunFixedCameraYawPitchTest(VmmProcess process, ulong gameBase, FaceTargetOptions options)
+        {
+            double targetYaw = NormalizeSignedDegrees(options.FixedTargetYawDegrees);
+            double targetPitch = ClampDouble(options.FixedTargetPitchDegrees, -65.0, 85.0);
+            Console.WriteLine("AION fixed camera yaw/pitch combined test.");
+            Console.WriteLine("KmBoxPort=" + options.KmBoxPortName +
+                              " DurationMs=" + options.DurationMs +
+                              " ToleranceDeg=" + options.ToleranceDegrees.ToString("F2") +
+                              " CameraYawUnit=" + options.CameraYawUnit +
+                              " CameraPitchUnit=" + options.CameraPitchUnit +
+                              " FixedTargetYawDeg=" + targetYaw.ToString("F2") +
+                              " FixedTargetPitchDeg=" + targetPitch.ToString("F2") +
+                              " YawPixelsPerDeg=" + options.PixelsPerDegreeAbs.ToString("F4") +
+                              " PitchPixelsPerDeg=" + options.PitchPixelsPerDegreeAbs.ToString("F4") +
+                              " DragMoveMode=" + options.DragMoveMode +
+                              " TwoPassMaxPasses=" + options.TwoPassMaxPasses +
+                              " MaxChunkPixels=" + options.DragStepPixels +
+                              " DragPrimePixels=" + options.DragPrimePixels +
+                              " DragTailPixels=" + options.DragTailPixels +
+                              " PitchInvertMouse=" + (options.PitchInvertMouse ? "yes" : "no") +
+                              " ApplyMouse=" + (options.ApplyMouse ? "yes" : "no"));
+            Console.WriteLine("No locked target required. Do not move the mouse while this test is running.");
+
+            LocalPlayerInfo local;
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                return;
+            }
+
+            PrintFixedCameraYawPitchState("initial", local, targetYaw, targetPitch, options);
+            if (!options.ApplyMouse)
+            {
+                Console.WriteLine("AION_FACE_TARGET_APPLY_MOUSE=0, snapshot only.");
+                return;
+            }
+
+            using (var km = new KmBoxClient(new KmBoxOptions { PortName = options.KmBoxPortName }))
+            {
+                km.Open();
+                double finalYawError;
+                double finalPitchError;
+                bool success = DragCameraCombinedTwoPassFixedYawPitch(
+                    process,
+                    gameBase,
+                    km,
+                    targetYaw,
+                    targetPitch,
+                    options.PixelsPerDegreeAbs,
+                    options.PitchPixelsPerDegreeAbs,
+                    options,
+                    false,
+                    false,
+                    false,
+                    out finalYawError,
+                    out finalPitchError);
+
+                if (TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+                {
+                    PrintFixedCameraYawPitchState("final", local, targetYaw, targetPitch, options);
+                    finalYawError = NormalizeSignedDegrees(targetYaw - GetCameraYawDegrees(local.CameraYaw, options));
+                    finalPitchError = targetPitch - GetCameraPitchDegrees(local.CameraPitch, options);
+                    success = success ||
+                              (Math.Abs(finalYawError) <= options.ToleranceDegrees &&
+                               Math.Abs(finalPitchError) <= options.ToleranceDegrees);
+                    Console.WriteLine("Result=" + (success ? "aligned" : "not_aligned") +
+                                      " FinalYawErrorDeg=" + finalYawError.ToString("F2") +
+                                      " FinalPitchErrorDeg=" + finalPitchError.ToString("F2"));
+                }
+                else
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Final read failed: " + error);
+                }
+            }
+        }
+
+        private static void RunFixedCameraPitchTest(VmmProcess process, ulong gameBase, FaceTargetOptions options)
+        {
+            double targetPitch = ClampDouble(options.FixedTargetPitchDegrees, -65.0, 85.0);
+            Console.WriteLine("AION fixed camera pitch test.");
+            Console.WriteLine("KmBoxPort=" + options.KmBoxPortName +
+                              " DurationMs=" + options.DurationMs +
+                              " ToleranceDeg=" + options.ToleranceDegrees.ToString("F2") +
+                              " CameraPitchUnit=" + options.CameraPitchUnit +
+                              " FixedTargetPitchDeg=" + targetPitch.ToString("F2") +
+                              " ApplyMouse=" + (options.ApplyMouse ? "yes" : "no") +
+                              " MaxAttempts=" + options.MaxAttempts +
+                              " MinCorrectionPixels=" + options.MinCorrectionPixels +
+                              " DragMoveMode=" + options.DragMoveMode +
+                              " TwoPassMaxPasses=" + options.TwoPassMaxPasses +
+                              " MaxChunkPixels=" + options.DragStepPixels +
+                              " DragPrimePixels=" + options.DragPrimePixels +
+                              " DragTailPixels=" + options.DragTailPixels +
+                              " DragStepDelayMs=" + options.DragStepDelayMs +
+                              " MouseDownWarmupMs=" + options.MouseDownWarmupMs +
+                              " MouseHoldAfterMoveMs=" + options.MouseHoldAfterMoveMs +
+                              " PitchInvertMouse=" + (options.PitchInvertMouse ? "yes" : "no"));
+            Console.WriteLine("No locked target required. Do not move the mouse while this test is running.");
+
+            LocalPlayerInfo local;
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                return;
+            }
+
+            PrintFixedCameraPitchState("initial", local, targetPitch, options);
+            if (!options.ApplyMouse)
+            {
+                Console.WriteLine("AION_FACE_TARGET_APPLY_MOUSE=0, snapshot only.");
+                return;
+            }
+
+            using (var km = new KmBoxClient(new KmBoxOptions { PortName = options.KmBoxPortName }))
+            {
+                km.Open();
+
+                double pixelsPerDegreeAbs = options.PitchPixelsPerDegreeAbs;
+                Console.WriteLine("PitchPixelsPerDegreeAbs=" + pixelsPerDegreeAbs.ToString("F4") +
+                                  " (set AION_CAMERA_PITCH_PIXELS_PER_DEG_ABS to tune; ErrorDeg>0 => drag " +
+                                  (options.PitchInvertMouse ? "up/dy<0" : "down/dy>0") + ").");
+
+                bool success = false;
+                int attemptsUsed = 0;
+                double finalError = 0.0;
+                for (int attempt = 1; attempt <= options.MaxAttempts; attempt++)
+                {
+                    attemptsUsed = attempt;
+                    if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+                    {
+                        Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                        return;
+                    }
+
+                    double currentPitch = GetCameraPitchDegrees(local.CameraPitch, options);
+                    double errorDegrees = targetPitch - currentPitch;
+                    finalError = errorDegrees;
+                    Console.WriteLine(
+                        "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                        "Attempt=" + attempt +
+                        " CameraPitch=" + currentPitch.ToString("F2") +
+                        " TargetPitch=" + targetPitch.ToString("F2") +
+                        " ErrorDeg=" + errorDegrees.ToString("F2"));
+
+                    if (Math.Abs(errorDegrees) <= options.ToleranceDegrees)
+                    {
+                        success = true;
+                        break;
+                    }
+
+                    if (IsTwoPassChunkDragMode(options))
+                    {
+                        finalError = DragCameraVerticalTwoPassFixedPitch(process, gameBase, km, targetPitch, pixelsPerDegreeAbs, options);
+                        success = Math.Abs(finalError) <= options.ToleranceDegrees;
+                        break;
+                    }
+
+                    double rawDy;
+                    bool minApplied;
+                    int dy = CalculateCameraDragDy(errorDegrees, pixelsPerDegreeAbs, options, out rawDy, out minApplied);
+
+                    Console.WriteLine(
+                        "Attempt=" + attempt +
+                        " PitchDecision=" + (errorDegrees > 0 ? "increase" : "decrease") +
+                        " MouseDrag=" + (dy < 0 ? "up" : "down") +
+                        " RawDy=" + rawDy.ToString("F2") +
+                        " Dy=" + dy +
+                        " MoveCommands=" + EstimateDragMoveCommandCount(dy, options) +
+                        " MinApplied=" + (minApplied ? "yes" : "no"));
+                    DragCameraVertical(km, dy, options);
+                    if (options.SettleMs > 0)
+                    {
+                        Thread.Sleep(options.SettleMs);
+                    }
+                }
+
+                if (TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+                {
+                    PrintFixedCameraPitchState("final", local, targetPitch, options);
+                    finalError = targetPitch - GetCameraPitchDegrees(local.CameraPitch, options);
+                    success = success || Math.Abs(finalError) <= options.ToleranceDegrees;
+                    Console.WriteLine("Result=" + (success ? "aligned" : "not_aligned") +
+                                      " FinalErrorDeg=" + finalError.ToString("F2") +
+                                      " AttemptsUsed=" + attemptsUsed);
+                }
+                else
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Final read failed: " + error);
+                }
+            }
+        }
+
         private static void RunCameraPixelCalibrationTest(VmmProcess process, ulong gameBase)
         {
             FaceTargetOptions options = ReadFaceTargetOptions();
@@ -1561,6 +3224,140 @@ namespace Tool
                               " Direction=" + (yawDelta > 0 ? "yaw_increased" : yawDelta < 0 ? "yaw_decreased" : "unchanged"));
         }
 
+        private static void RunCameraPitchPixelCalibrationTest(VmmProcess process, ulong gameBase)
+        {
+            FaceTargetOptions options = ReadFaceTargetOptions();
+            int totalPixels = ReadIntFromEnv("AION_CAMERA_PITCH_PIXEL_CALIBRATION_TOTAL_PX", -500);
+            int stepPixels = ReadIntFromEnv("AION_CAMERA_PITCH_PIXEL_CALIBRATION_STEP_PX", -1);
+            int stepDelayMs = ReadIntFromEnv("AION_CAMERA_PITCH_PIXEL_CALIBRATION_STEP_DELAY_MS", 0);
+            totalPixels = ClampInt(totalPixels, -5000, 5000);
+            stepPixels = ClampInt(stepPixels, -100, 100);
+            stepDelayMs = ClampInt(stepDelayMs, 0, 50);
+
+            if (totalPixels == 0)
+            {
+                totalPixels = -500;
+            }
+
+            if (stepPixels == 0)
+            {
+                stepPixels = totalPixels > 0 ? 1 : -1;
+            }
+
+            if ((totalPixels > 0 && stepPixels < 0) ||
+                (totalPixels < 0 && stepPixels > 0))
+            {
+                stepPixels = -stepPixels;
+            }
+
+            int steps = Math.Abs(totalPixels / stepPixels);
+            int remainder = totalPixels - (steps * stepPixels);
+
+            Console.WriteLine("AION camera pitch pixel calibration test.");
+            Console.WriteLine("KmBoxPort=" + options.KmBoxPortName +
+                              " CameraPitchUnit=" + options.CameraPitchUnit +
+                              " TotalPixelsY=" + totalPixels +
+                              " StepPixelsY=" + stepPixels +
+                              " Steps=" + steps +
+                              " RemainderY=" + remainder +
+                              " StepDelayMs=" + stepDelayMs +
+                              " MouseDownWarmupMs=" + options.MouseDownWarmupMs +
+                              " MouseHoldAfterMoveMs=" + options.MouseHoldAfterMoveMs +
+                              " SettleMs=" + options.SettleMs);
+            Console.WriteLine("This test holds right mouse button and sends raw MoveRelative(0, dy) one step at a time.");
+
+            LocalPlayerInfo before;
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out before, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                return;
+            }
+
+            double pitchBefore = GetCameraPitchDegrees(before.CameraPitch, options);
+            Console.WriteLine(
+                "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] before" +
+                " CameraPitch=" + pitchBefore.ToString("F4") +
+                " RawCameraPitch=" + before.CameraPitch.ToString("F4") +
+                " CameraYaw=" + GetCameraYawDegrees(before.CameraYaw, options).ToString("F4"));
+
+            using (var km = new KmBoxClient(new KmBoxOptions { PortName = options.KmBoxPortName }))
+            {
+                km.Open();
+                try
+                {
+                    km.MouseUp(KmMouseButton.Right);
+                    Thread.Sleep(8);
+                    km.MouseDown(KmMouseButton.Right);
+                    if (options.MouseDownWarmupMs > 0)
+                    {
+                        Thread.Sleep(options.MouseDownWarmupMs);
+                    }
+
+                    for (int i = 0; i < steps; i++)
+                    {
+                        km.MoveRelative(0, stepPixels);
+                        if (stepDelayMs > 0)
+                        {
+                            Thread.Sleep(stepDelayMs);
+                        }
+                    }
+
+                    if (remainder != 0)
+                    {
+                        km.MoveRelative(0, remainder);
+                    }
+
+                    if (options.MouseHoldAfterMoveMs > 0)
+                    {
+                        Thread.Sleep(options.MouseHoldAfterMoveMs);
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        km.MouseUp(KmMouseButton.Right);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            if (options.SettleMs > 0)
+            {
+                Thread.Sleep(options.SettleMs);
+            }
+
+            LocalPlayerInfo after;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out after, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Final read failed: " + error);
+                return;
+            }
+
+            double pitchAfter = GetCameraPitchDegrees(after.CameraPitch, options);
+            double pitchDelta = pitchAfter - pitchBefore;
+            double absPitchDelta = Math.Abs(pitchDelta);
+            double pixelsPerDegree = absPitchDelta > 0.0001 ? Math.Abs(totalPixels) / absPitchDelta : 0.0;
+            double degreesPerPixel = Math.Abs(totalPixels) > 0 ? pitchDelta / Math.Abs(totalPixels) : 0.0;
+
+            Console.WriteLine(
+                "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] after" +
+                " CameraPitch=" + pitchAfter.ToString("F4") +
+                " RawCameraPitch=" + after.CameraPitch.ToString("F4") +
+                " CameraYaw=" + GetCameraYawDegrees(after.CameraYaw, options).ToString("F4"));
+            Console.WriteLine("Result" +
+                              " TotalPixelsY=" + totalPixels +
+                              " PitchBefore=" + pitchBefore.ToString("F4") +
+                              " PitchAfter=" + pitchAfter.ToString("F4") +
+                              " DeltaDeg=" + pitchDelta.ToString("F4") +
+                              " AbsPixelsPerDeg=" + pixelsPerDegree.ToString("F4") +
+                              " SignedDegPerPixel=" + degreesPerPixel.ToString("F6") +
+                              " Direction=" + (pitchDelta > 0 ? "pitch_increased" : pitchDelta < 0 ? "pitch_decreased" : "unchanged"));
+        }
+
         private static FaceTargetOptions ReadFaceTargetOptions()
         {
             string portName = Environment.GetEnvironmentVariable("KMBOX_PORT");
@@ -1607,6 +3404,7 @@ namespace Tool
             }
 
             double fixedTargetYawDegrees = ReadSignedDoubleFromEnv("AION_FACE_TARGET_FIXED_YAW_DEG", 90.0);
+            double fixedTargetPitchDegrees = ReadSignedDoubleFromEnv("AION_CAMERA_FIXED_PITCH_DEG", 20.0);
             double pixelsPerDegreeAbs = Math.Abs(ReadSignedDoubleFromEnv("AION_FACE_TARGET_PIXELS_PER_DEG_ABS", 0.0));
             if (pixelsPerDegreeAbs < 0.0001)
             {
@@ -1618,7 +3416,19 @@ namespace Tool
                 pixelsPerDegreeAbs = 13.0;
             }
 
+            double pitchPixelsPerDegreeAbs = Math.Abs(ReadSignedDoubleFromEnv("AION_CAMERA_PITCH_PIXELS_PER_DEG_ABS", 0.0));
+            if (pitchPixelsPerDegreeAbs < 0.0001)
+            {
+                pitchPixelsPerDegreeAbs = Math.Abs(ReadSignedDoubleFromEnv("AION_CAMERA_PITCH_PIXELS_PER_DEG", 13.0));
+            }
+
+            if (pitchPixelsPerDegreeAbs < 0.0001)
+            {
+                pitchPixelsPerDegreeAbs = 13.0;
+            }
+
             double yawOffset = ReadSignedDoubleFromEnv("AION_FACE_TARGET_YAW_OFFSET_DEG", 0.0);
+            string pitchUnit = Environment.GetEnvironmentVariable("AION_CAMERA_PITCH_UNIT");
             string yawUnit = Environment.GetEnvironmentVariable("AION_CAMERA_YAW_UNIT");
             string bearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
             string yawFeedbackMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_YAW_FEEDBACK");
@@ -1638,7 +3448,10 @@ namespace Tool
                 ToleranceDegrees = Math.Max(0.1, toleranceDegrees),
                 PixelsPerDegreeAbs = pixelsPerDegreeAbs,
                 FixedTargetYawDegrees = fixedTargetYawDegrees,
+                FixedTargetPitchDegrees = ClampDouble(fixedTargetPitchDegrees, -65.0, 85.0),
+                PitchPixelsPerDegreeAbs = pitchPixelsPerDegreeAbs,
                 TargetYawOffsetDegrees = yawOffset,
+                CameraPitchUnit = string.IsNullOrWhiteSpace(pitchUnit) ? "deg" : pitchUnit.Trim(),
                 CameraYawUnit = string.IsNullOrWhiteSpace(yawUnit) ? "deg" : yawUnit.Trim(),
                 BearingMode = string.IsNullOrWhiteSpace(bearingMode) ? "y-x" : bearingMode.Trim(),
                 YawFeedbackMode = string.IsNullOrWhiteSpace(yawFeedbackMode) ? "camera" : yawFeedbackMode.Trim(),
@@ -1667,6 +3480,7 @@ namespace Tool
                 AdaptiveMidBatchPixels = ClampInt(Math.Abs(adaptiveMidBatchPixels), 1, 500),
                 AdaptiveFineStepPixels = ClampInt(Math.Abs(adaptiveFineStepPixels), 1, 100),
                 UseFixedYaw = ReadBoolFromEnv("AION_FACE_TARGET_USE_FIXED_YAW", false),
+                PitchInvertMouse = ReadBoolFromEnv("AION_CAMERA_PITCH_INVERT_MOUSE", false),
                 AutoCalibrate = ReadBoolFromEnv("AION_FACE_TARGET_AUTO_CALIBRATE", false),
                 ApplyMouse = ReadBoolFromEnv("AION_FACE_TARGET_APPLY_MOUSE", true)
             };
@@ -2095,6 +3909,834 @@ namespace Tool
             return finalError;
         }
 
+        private static double DragCameraVerticalTwoPassFixedPitch(
+            VmmProcess process,
+            ulong gameBase,
+            KmBoxClient km,
+            double targetPitch,
+            double pixelsPerDegreeAbs,
+            FaceTargetOptions options)
+        {
+            double finalError = 0.0;
+            bool mouseDown = false;
+            try
+            {
+                km.MouseUp(KmMouseButton.Right);
+                Thread.Sleep(8);
+                km.MouseDown(KmMouseButton.Right);
+                mouseDown = true;
+                if (options.MouseDownWarmupMs > 0)
+                {
+                    Thread.Sleep(options.MouseDownWarmupMs);
+                }
+
+                Console.WriteLine("TwoPassPitchSession=begin HoldRight=yes MaxPasses=" + options.TwoPassMaxPasses);
+                for (int pass = 1; pass <= options.TwoPassMaxPasses; pass++)
+                {
+                    double currentPitch;
+                    if (!TryReadStableCameraPitch(process, gameBase, options, out currentPitch))
+                    {
+                        Console.WriteLine("TwoPassPitchReadFailed Pass=" + pass + " Reason=camera_pitch");
+                        return finalError;
+                    }
+
+                    double errorDegrees = targetPitch - currentPitch;
+                    finalError = errorDegrees;
+                    if (Math.Abs(errorDegrees) <= options.ToleranceDegrees)
+                    {
+                        Console.WriteLine("TwoPassPitchStop Pass=" + pass +
+                                          " CameraPitch=" + currentPitch.ToString("F2") +
+                                          " ErrorDeg=" + errorDegrees.ToString("F2") +
+                                          " Reason=within_tolerance");
+                        break;
+                    }
+
+                    double rawDy;
+                    bool minApplied;
+                    int dy = CalculateCameraDragDy(errorDegrees, pixelsPerDegreeAbs, options, false, out rawDy, out minApplied);
+                    Console.WriteLine("TwoPassPitch Pass=" + pass +
+                                      " CameraPitch=" + currentPitch.ToString("F2") +
+                                      " TargetPitch=" + targetPitch.ToString("F2") +
+                                      " ErrorDeg=" + errorDegrees.ToString("F2") +
+                                      " PixelsPerDeg=" + pixelsPerDegreeAbs.ToString("F2") +
+                                      " RawDy=" + rawDy.ToString("F2") +
+                                      " Dy=" + dy +
+                                      " MoveCommands=" + EstimateChunkDragMoveCommandCount(dy, options) +
+                                      " MaxChunkPx=" + options.DragStepPixels +
+                                      " PrimeTail=" + options.DragPrimePixels + "/" + options.DragTailPixels +
+                                      " PitchInvertMouse=" + (options.PitchInvertMouse ? "yes" : "no") +
+                                      " MinApplied=" + (minApplied ? "yes" : "no"));
+
+                    DragCameraVerticalChunks(km, dy, options);
+                    if (options.MouseHoldAfterMoveMs > 0)
+                    {
+                        Thread.Sleep(options.MouseHoldAfterMoveMs);
+                    }
+
+                    double afterPitch;
+                    if (TryReadStableCameraPitch(process, gameBase, options, out afterPitch))
+                    {
+                        finalError = targetPitch - afterPitch;
+                        Console.WriteLine("TwoPassPitchResult Pass=" + pass +
+                                          " CameraPitch=" + afterPitch.ToString("F2") +
+                                          " ErrorDeg=" + finalError.ToString("F2") +
+                                          " HoldRight=yes");
+                    }
+                }
+            }
+            finally
+            {
+                if (mouseDown)
+                {
+                    try
+                    {
+                        km.MouseUp(KmMouseButton.Right);
+                        Console.WriteLine("TwoPassPitchSession=end MouseUp=right");
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            if (options.DurationMs > 0)
+            {
+                Thread.Sleep(options.DurationMs);
+            }
+
+            return finalError;
+        }
+
+        private static bool DragCameraCombinedTwoPassFixedYawPitch(
+            VmmProcess process,
+            ulong gameBase,
+            KmBoxClient km,
+            double targetYaw,
+            double targetPitch,
+            double yawPixelsPerDegreeAbs,
+            double pitchPixelsPerDegreeAbs,
+            FaceTargetOptions options,
+            out double finalYawError,
+            out double finalPitchError)
+        {
+            return DragCameraCombinedTwoPassFixedYawPitch(
+                process,
+                gameBase,
+                new KmBoxClientInput(km),
+                targetYaw,
+                targetPitch,
+                yawPixelsPerDegreeAbs,
+                pitchPixelsPerDegreeAbs,
+                options,
+                false,
+                false,
+                false,
+                out finalYawError,
+                out finalPitchError);
+        }
+
+        private static bool DragCameraCombinedTwoPassFixedYawPitch(
+            VmmProcess process,
+            ulong gameBase,
+            KmBoxClient km,
+            double targetYaw,
+            double targetPitch,
+            double yawPixelsPerDegreeAbs,
+            double pitchPixelsPerDegreeAbs,
+            FaceTargetOptions options,
+            bool keepRightDown,
+            bool useFaceTargetMouseMove,
+            bool leaveRightDown,
+            out double finalYawError,
+            out double finalPitchError)
+        {
+            return DragCameraCombinedTwoPassFixedYawPitch(
+                process,
+                gameBase,
+                new KmBoxClientInput(km),
+                targetYaw,
+                targetPitch,
+                yawPixelsPerDegreeAbs,
+                pitchPixelsPerDegreeAbs,
+                options,
+                keepRightDown,
+                useFaceTargetMouseMove,
+                leaveRightDown,
+                out finalYawError,
+                out finalPitchError);
+        }
+
+        private static bool DragPathFollowAngleAdjust(
+            VmmProcess process,
+            ulong gameBase,
+            IKmBoxInput km,
+            PathFollowPollState pollState,
+            PathFollowPoint target,
+            double targetPitch,
+            double yawPixelsPerDegreeAbs,
+            double pitchPixelsPerDegreeAbs,
+            FaceTargetOptions options,
+            double yawTolerance,
+            double pitchTolerance,
+            double restartYawThreshold,
+            out bool arrivedDuringAdjust,
+            out bool restartDuringAdjust)
+        {
+            arrivedDuringAdjust = false;
+            restartDuringAdjust = false;
+            string error;
+            PathFollowPollSnapshot snapshot;
+            if (!TryGetPathFollowPollSnapshot(pollState, out snapshot, out error) || !snapshot.Local.HasPosition)
+            {
+                Console.WriteLine("PathFollowAngleAdjustSkipped Reason=" + (error ?? "local position unavailable"));
+                return false;
+            }
+
+            double targetYaw = snapshot.TargetYaw;
+            double currentYaw = snapshot.CameraYaw;
+            double currentPitch = snapshot.CameraPitch;
+            double yawError = snapshot.YawError;
+            double pitchError = snapshot.PitchError;
+            if (PathFollowMoveControl.ShouldRestartMoveForYaw(true, yawError, restartYawThreshold))
+            {
+                restartDuringAdjust = true;
+                km.KeyUp(KmBoxKeyCodes.KEY_W);
+                km.MouseUp(KmMouseButton.Right);
+                SetPathFollowMoving(pollState, false);
+                Console.WriteLine("PathFollowAngleAdjustStopped Reason=restart_yaw_error" +
+                                  " YawErrorDeg=" + yawError.ToString("F2") +
+                                  " RestartYawDeg=" + restartYawThreshold.ToString("F2") +
+                                  " MoveCommands=0");
+                return false;
+            }
+
+            if (Math.Abs(yawError) <= yawTolerance && Math.Abs(pitchError) <= pitchTolerance)
+            {
+                Console.WriteLine("PathFollowAngleAdjustSkipped Reason=within_tolerance" +
+                                  " CameraYaw=" + currentYaw.ToString("F2") +
+                                  " TargetYaw=" + targetYaw.ToString("F2") +
+                                  " YawErrorDeg=" + yawError.ToString("F2") +
+                                  " CameraPitch=" + currentPitch.ToString("F2") +
+                                  " TargetPitch=" + targetPitch.ToString("F2") +
+                                  " PitchErrorDeg=" + pitchError.ToString("F2") +
+                                  " PollAgeMs=" + snapshot.AgeMs);
+                return true;
+            }
+
+            double correctionYawError = Math.Abs(yawError) > yawTolerance ? yawError / 2.0 : 0.0;
+            double correctionPitchError = Math.Abs(pitchError) > pitchTolerance ? pitchError / 2.0 : 0.0;
+            double rawDx = 0.0;
+            double rawDy = 0.0;
+            bool minXApplied = false;
+            bool minYApplied = false;
+            int plannedDx = correctionYawError == 0.0
+                ? 0
+                : CalculateCameraDragDx(correctionYawError, yawPixelsPerDegreeAbs, options, false, out rawDx, out minXApplied);
+            if (correctionYawError == 0.0)
+            {
+                rawDx = 0.0;
+                minXApplied = false;
+            }
+
+            int plannedDy = correctionPitchError == 0.0
+                ? 0
+                : CalculateCameraDragDy(correctionPitchError, pitchPixelsPerDegreeAbs, options, false, out rawDy, out minYApplied);
+            if (correctionPitchError == 0.0)
+            {
+                rawDy = 0.0;
+                minYApplied = false;
+            }
+
+            int remainingX = Math.Abs(plannedDx);
+            int remainingY = Math.Abs(plannedDy);
+            int plannedMoveCommands = remainingX + remainingY;
+            int pollWaitMs = ClampInt(ReadIntFromEnv("AION_PATH_FOLLOW_ANGLE_ADJUST_POLL_WAIT_MS", 20), 0, 200);
+            Console.WriteLine("PathFollowAngleRecalc" +
+                              " CameraYaw=" + currentYaw.ToString("F2") +
+                              " TargetYaw=" + targetYaw.ToString("F2") +
+                              " YawErrorDeg=" + yawError.ToString("F2") +
+                              " CorrectionYawDeg=" + correctionYawError.ToString("F2") +
+                              " CameraPitch=" + currentPitch.ToString("F2") +
+                              " TargetPitch=" + targetPitch.ToString("F2") +
+                              " PitchErrorDeg=" + pitchError.ToString("F2") +
+                              " CorrectionPitchDeg=" + correctionPitchError.ToString("F2") +
+                              " RawDx=" + rawDx.ToString("F2") +
+                              " RawDy=" + rawDy.ToString("F2") +
+                              " PlannedDx=" + plannedDx +
+                              " PlannedDy=" + plannedDy +
+                              " MoveCommands=" + plannedMoveCommands +
+                              " StepPx=1" +
+                              " CheckEachStep=yes" +
+                              " PollWaitMs=" + pollWaitMs +
+                              " MinApplied=" + (minXApplied || minYApplied ? "yes" : "no") +
+                              " PollAgeMs=" + snapshot.AgeMs);
+
+            int movedDx = 0;
+            int movedDy = 0;
+            int moveCommands = 0;
+            bool aligned = false;
+            while (remainingX > 0 || remainingY > 0)
+            {
+                string stopReason;
+                if (IsPathFollowStopPending(pollState, out stopReason))
+                {
+                    Console.WriteLine("PathFollowAngleAdjustStopped Reason=" + stopReason +
+                                      " MoveCommands=" + moveCommands);
+                    break;
+                }
+
+                int arrivedTargetIndex;
+                double arrivedDistance;
+                if (pollState != null && TryMarkPathFollowArrivedNow(pollState, out arrivedTargetIndex, out arrivedDistance))
+                {
+                    arrivedDuringAdjust = true;
+                    Console.WriteLine("PathFollowArrivedLatch During=move_angle_adjust" +
+                                      " Index=" + (arrivedTargetIndex + 1) +
+                                      " Distance=" + arrivedDistance.ToString("F2"));
+                    break;
+                }
+
+                if (!TryGetPathFollowPollSnapshot(pollState, out snapshot, out error) || !snapshot.Local.HasPosition)
+                {
+                    Console.WriteLine("PathFollowAngleAdjustStopped Reason=" + (error ?? "poll snapshot unavailable"));
+                    break;
+                }
+
+                yawError = snapshot.YawError;
+                pitchError = snapshot.PitchError;
+                if (PathFollowMoveControl.ShouldRestartMoveForYaw(true, yawError, restartYawThreshold))
+                {
+                    restartDuringAdjust = true;
+                    km.KeyUp(KmBoxKeyCodes.KEY_W);
+                    km.MouseUp(KmMouseButton.Right);
+                    SetPathFollowMoving(pollState, false);
+                    Console.WriteLine("PathFollowAngleAdjustStopped Reason=restart_yaw_error" +
+                                      " YawErrorDeg=" + yawError.ToString("F2") +
+                                      " RestartYawDeg=" + restartYawThreshold.ToString("F2") +
+                                      " MoveCommands=" + moveCommands);
+                    break;
+                }
+
+                if (Math.Abs(yawError) <= yawTolerance && Math.Abs(pitchError) <= pitchTolerance)
+                {
+                    aligned = true;
+                    break;
+                }
+
+                bool movedOnePixel = false;
+                if (remainingX > 0 && Math.Abs(yawError) > yawTolerance)
+                {
+                    if (IsPathFollowStopPending(pollState, out stopReason))
+                    {
+                        Console.WriteLine("PathFollowAngleAdjustStopped Reason=" + stopReason +
+                                          " MoveCommands=" + moveCommands);
+                        break;
+                    }
+
+                    double stepRawDx;
+                    bool stepMinApplied;
+                    int currentDx = CalculateCameraDragDx(yawError, yawPixelsPerDegreeAbs, options, false, out stepRawDx, out stepMinApplied);
+                    int stepX = currentDx < 0 ? -1 : 1;
+                    long previousReadCount = snapshot.ReadCount;
+                    SendCameraCombinedMoveStep(km, stepX, 0, options);
+                    movedDx += stepX;
+                    remainingX--;
+                    moveCommands++;
+                    movedOnePixel = true;
+
+                    if (TryWaitForPathFollowPollSnapshot(pollState, previousReadCount, pollWaitMs, out snapshot, out error) &&
+                        snapshot.Local.HasPosition)
+                    {
+                        if (IsPathFollowStopPending(pollState, out stopReason))
+                        {
+                            Console.WriteLine("PathFollowAngleAdjustStopped Reason=" + stopReason +
+                                              " MoveCommands=" + moveCommands);
+                            break;
+                        }
+
+                        if (PathFollowMoveControl.ShouldRestartMoveForYaw(true, snapshot.YawError, restartYawThreshold))
+                        {
+                            restartDuringAdjust = true;
+                            km.KeyUp(KmBoxKeyCodes.KEY_W);
+                            km.MouseUp(KmMouseButton.Right);
+                            SetPathFollowMoving(pollState, false);
+                            Console.WriteLine("PathFollowAngleAdjustStopped Reason=restart_yaw_error" +
+                                              " YawErrorDeg=" + snapshot.YawError.ToString("F2") +
+                                              " RestartYawDeg=" + restartYawThreshold.ToString("F2") +
+                                              " MoveCommands=" + moveCommands);
+                            break;
+                        }
+
+                        if (TryMarkPathFollowArrivedNow(pollState, out arrivedTargetIndex, out arrivedDistance))
+                        {
+                            arrivedDuringAdjust = true;
+                            Console.WriteLine("PathFollowArrivedLatch During=move_angle_adjust" +
+                                              " Index=" + (arrivedTargetIndex + 1) +
+                                              " Distance=" + arrivedDistance.ToString("F2"));
+                            break;
+                        }
+
+                        if (Math.Abs(snapshot.YawError) <= yawTolerance &&
+                            Math.Abs(snapshot.PitchError) <= pitchTolerance)
+                        {
+                            aligned = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (remainingY > 0 && Math.Abs(snapshot.PitchError) > pitchTolerance)
+                {
+                    if (IsPathFollowStopPending(pollState, out stopReason))
+                    {
+                        Console.WriteLine("PathFollowAngleAdjustStopped Reason=" + stopReason +
+                                          " MoveCommands=" + moveCommands);
+                        break;
+                    }
+
+                    double stepRawDy;
+                    bool stepMinApplied;
+                    int currentDy = CalculateCameraDragDy(snapshot.PitchError, pitchPixelsPerDegreeAbs, options, false, out stepRawDy, out stepMinApplied);
+                    int stepY = currentDy < 0 ? -1 : 1;
+                    long previousReadCount = snapshot.ReadCount;
+                    SendCameraCombinedMoveStep(km, 0, stepY, options);
+                    movedDy += stepY;
+                    remainingY--;
+                    moveCommands++;
+                    movedOnePixel = true;
+
+                    if (TryWaitForPathFollowPollSnapshot(pollState, previousReadCount, pollWaitMs, out snapshot, out error) &&
+                        snapshot.Local.HasPosition)
+                    {
+                        if (IsPathFollowStopPending(pollState, out stopReason))
+                        {
+                            Console.WriteLine("PathFollowAngleAdjustStopped Reason=" + stopReason +
+                                              " MoveCommands=" + moveCommands);
+                            break;
+                        }
+
+                        if (PathFollowMoveControl.ShouldRestartMoveForYaw(true, snapshot.YawError, restartYawThreshold))
+                        {
+                            restartDuringAdjust = true;
+                            km.KeyUp(KmBoxKeyCodes.KEY_W);
+                            km.MouseUp(KmMouseButton.Right);
+                            SetPathFollowMoving(pollState, false);
+                            Console.WriteLine("PathFollowAngleAdjustStopped Reason=restart_yaw_error" +
+                                              " YawErrorDeg=" + snapshot.YawError.ToString("F2") +
+                                              " RestartYawDeg=" + restartYawThreshold.ToString("F2") +
+                                              " MoveCommands=" + moveCommands);
+                            break;
+                        }
+
+                        if (TryMarkPathFollowArrivedNow(pollState, out arrivedTargetIndex, out arrivedDistance))
+                        {
+                            arrivedDuringAdjust = true;
+                            Console.WriteLine("PathFollowArrivedLatch During=move_angle_adjust" +
+                                              " Index=" + (arrivedTargetIndex + 1) +
+                                              " Distance=" + arrivedDistance.ToString("F2"));
+                            break;
+                        }
+
+                        if (Math.Abs(snapshot.YawError) <= yawTolerance &&
+                            Math.Abs(snapshot.PitchError) <= pitchTolerance)
+                        {
+                            aligned = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!movedOnePixel)
+                {
+                    aligned = Math.Abs(snapshot.YawError) <= yawTolerance &&
+                              Math.Abs(snapshot.PitchError) <= pitchTolerance;
+                    break;
+                }
+            }
+
+            if (arrivedDuringAdjust)
+            {
+                km.KeyUp(KmBoxKeyCodes.KEY_W);
+                Console.WriteLine("PathFollowKey W=up Reason=arrived_during_angle_adjust");
+                SetPathFollowMoving(pollState, false);
+                return true;
+            }
+
+            if (options.MouseHoldAfterMoveMs > 0)
+            {
+                Thread.Sleep(options.MouseHoldAfterMoveMs);
+            }
+
+            double finalYawError = yawError;
+            double finalPitchError = pitchError;
+            PathFollowPollSnapshot afterSnapshot;
+            if (TryGetPathFollowPollSnapshot(pollState, out afterSnapshot, out error) && afterSnapshot.Local.HasPosition)
+            {
+                finalYawError = afterSnapshot.YawError;
+                finalPitchError = afterSnapshot.PitchError;
+                aligned = Math.Abs(finalYawError) <= yawTolerance && Math.Abs(finalPitchError) <= pitchTolerance;
+            }
+
+            Console.WriteLine("PathFollowAngleAdjustResult" +
+                              " Aligned=" + (aligned ? "yes" : "no") +
+                              " MoveCommands=" + moveCommands +
+                              " MovedDx=" + movedDx +
+                              " MovedDy=" + movedDy +
+                              " FinalYawErrorDeg=" + finalYawError.ToString("F2") +
+                              " FinalPitchErrorDeg=" + finalPitchError.ToString("F2"));
+
+            return aligned ||
+                   (Math.Abs(finalYawError) <= yawTolerance &&
+                    Math.Abs(finalPitchError) <= pitchTolerance);
+        }
+
+        private static bool DragCameraCombinedTwoPassFixedYawPitch(
+            VmmProcess process,
+            ulong gameBase,
+            IKmBoxInput km,
+            double targetYaw,
+            double targetPitch,
+            double yawPixelsPerDegreeAbs,
+            double pitchPixelsPerDegreeAbs,
+            FaceTargetOptions options,
+            bool keepRightDown,
+            bool useFaceTargetMouseMove,
+            bool leaveRightDown,
+            out double finalYawError,
+            out double finalPitchError)
+        {
+            finalYawError = 0.0;
+            finalPitchError = 0.0;
+            bool success = false;
+            bool mouseDown = false;
+            try
+            {
+                if (!keepRightDown)
+                {
+                    km.MouseUp(KmMouseButton.Right);
+                    Thread.Sleep(8);
+                    km.MouseDown(KmMouseButton.Right);
+                    mouseDown = true;
+                    if (options.MouseDownWarmupMs > 0)
+                    {
+                        Thread.Sleep(options.MouseDownWarmupMs);
+                    }
+                }
+
+                Console.WriteLine("CombinedTwoPassSession=begin HoldRight=yes MaxPasses=" + options.TwoPassMaxPasses);
+                for (int pass = 1; pass <= options.TwoPassMaxPasses; pass++)
+                {
+                    LocalPlayerInfo local;
+                    string error;
+                    if (!TryReadStableLocalPlayerInfo(process, gameBase, options, out local, out error))
+                    {
+                        Console.WriteLine("CombinedTwoPassReadFailed Pass=" + pass + " Reason=" + error);
+                        break;
+                    }
+
+                    double currentYaw = GetCameraYawDegrees(local.CameraYaw, options);
+                    double currentPitch = GetCameraPitchDegrees(local.CameraPitch, options);
+                    finalYawError = NormalizeSignedDegrees(targetYaw - currentYaw);
+                    finalPitchError = targetPitch - currentPitch;
+                    double beforeYawError = finalYawError;
+                    double beforePitchError = finalPitchError;
+                    if (Math.Abs(finalYawError) <= options.ToleranceDegrees &&
+                        Math.Abs(finalPitchError) <= options.ToleranceDegrees)
+                    {
+                        success = true;
+                        Console.WriteLine("CombinedTwoPassStop Pass=" + pass +
+                                          " CameraYaw=" + currentYaw.ToString("F2") +
+                                          " CameraPitch=" + currentPitch.ToString("F2") +
+                                          " YawErrorDeg=" + finalYawError.ToString("F2") +
+                                          " PitchErrorDeg=" + finalPitchError.ToString("F2") +
+                                          " Reason=within_tolerance");
+                        break;
+                    }
+
+                    double rawDx;
+                    double rawDy;
+                    bool minXApplied;
+                    bool minYApplied;
+                    int dx;
+                    int dy;
+                    if (useFaceTargetMouseMove)
+                    {
+                        dx = CalculateCameraDragDx(finalYawError, yawPixelsPerDegreeAbs, options, false, out rawDx, out minXApplied);
+                        dy = CalculateCameraDragDy(finalPitchError, pitchPixelsPerDegreeAbs, options, false, out rawDy, out minYApplied);
+                    }
+                    else
+                    {
+                        dx = 0;
+                        dy = 0;
+                        rawDx = 0.0;
+                        rawDy = 0.0;
+                        minXApplied = false;
+                        minYApplied = false;
+                        if (Math.Abs(finalYawError) > options.ToleranceDegrees)
+                        {
+                            dx = CalculateCameraDragDx(finalYawError, yawPixelsPerDegreeAbs, options, true, out rawDx, out minXApplied);
+                        }
+
+                        if (Math.Abs(finalPitchError) > options.ToleranceDegrees)
+                        {
+                            dy = CalculateCameraDragDy(finalPitchError, pitchPixelsPerDegreeAbs, options, true, out rawDy, out minYApplied);
+                        }
+                    }
+
+                    Console.WriteLine("CombinedTwoPass Pass=" + pass +
+                                      " CameraYaw=" + currentYaw.ToString("F2") +
+                                      " TargetYaw=" + targetYaw.ToString("F2") +
+                                      " YawErrorDeg=" + finalYawError.ToString("F2") +
+                                      " CameraPitch=" + currentPitch.ToString("F2") +
+                                      " TargetPitch=" + targetPitch.ToString("F2") +
+                                      " PitchErrorDeg=" + finalPitchError.ToString("F2") +
+                                      " RawDx=" + rawDx.ToString("F2") +
+                                      " RawDy=" + rawDy.ToString("F2") +
+                                      " Dx=" + dx +
+                                      " Dy=" + dy +
+                                      " MoveCommands=" + EstimateCombinedChunkDragMoveCommandCount(dx, dy, options) +
+                                      " MaxChunkPx=" + options.DragStepPixels +
+                                      " PrimeTail=" + options.DragPrimePixels + "/" + options.DragTailPixels +
+                                      " MoveLogic=" + (useFaceTargetMouseMove ? "face_target" : "fixed") +
+                                      " MinApplied=" + (minXApplied || minYApplied ? "yes" : "no"));
+
+                    DragCameraCombinedChunks(km, dx, dy, options);
+                    if (options.MouseHoldAfterMoveMs > 0)
+                    {
+                        Thread.Sleep(options.MouseHoldAfterMoveMs);
+                    }
+
+                    LocalPlayerInfo afterLocal;
+                    if (!WaitForCameraAnglesChange(process, gameBase, currentYaw, currentPitch, options, out afterLocal))
+                    {
+                        Console.WriteLine("CombinedTwoPassWait Pass=" + pass +
+                                          " PreviousYaw=" + currentYaw.ToString("F2") +
+                                          " PreviousPitch=" + currentPitch.ToString("F2") +
+                                          " Result=no_angle_update_stop");
+                        break;
+                    }
+
+                    double afterYaw = GetCameraYawDegrees(afterLocal.CameraYaw, options);
+                    double afterPitch = GetCameraPitchDegrees(afterLocal.CameraPitch, options);
+                    finalYawError = NormalizeSignedDegrees(targetYaw - afterYaw);
+                    finalPitchError = targetPitch - afterPitch;
+                    CameraTurnVerificationResult verification = CameraTurnVerification.Verify(
+                        beforeYawError,
+                        beforePitchError,
+                        finalYawError,
+                        finalPitchError);
+                    Console.WriteLine("CombinedTwoPassResult Pass=" + pass +
+                                      " CameraYaw=" + afterYaw.ToString("F2") +
+                                      " CameraPitch=" + afterPitch.ToString("F2") +
+                                      " YawErrorDeg=" + finalYawError.ToString("F2") +
+                                      " PitchErrorDeg=" + finalPitchError.ToString("F2") +
+                                      " HoldRight=yes");
+                    Console.WriteLine("CombinedTwoPassVerify Pass=" + pass +
+                                      " BeforeYawErrorDeg=" + beforeYawError.ToString("F2") +
+                                      " AfterYawErrorDeg=" + finalYawError.ToString("F2") +
+                                      " YawImproved=" + (verification.YawImproved ? "yes" : "no") +
+                                      " YawOvershot=" + (verification.YawOvershot ? "yes" : "no") +
+                                      " BeforePitchErrorDeg=" + beforePitchError.ToString("F2") +
+                                      " AfterPitchErrorDeg=" + finalPitchError.ToString("F2") +
+                                      " PitchImproved=" + (verification.PitchImproved ? "yes" : "no") +
+                                      " PitchOvershot=" + (verification.PitchOvershot ? "yes" : "no") +
+                                      " AnyImproved=" + (verification.AnyImproved ? "yes" : "no"));
+
+                    if (Math.Abs(finalYawError) <= options.ToleranceDegrees &&
+                        Math.Abs(finalPitchError) <= options.ToleranceDegrees)
+                    {
+                        success = true;
+                        break;
+                    }
+
+                    if (!verification.AnyImproved)
+                    {
+                        Console.WriteLine("CombinedTwoPassStop Pass=" + pass +
+                                          " Reason=no_improvement_after_move");
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                if (mouseDown && !keepRightDown && !leaveRightDown)
+                {
+                    try
+                    {
+                        km.MouseUp(KmMouseButton.Right);
+                        Console.WriteLine("CombinedTwoPassSession=end MouseUp=right");
+                    }
+                    catch
+                    {
+                    }
+                }
+                else if (mouseDown && leaveRightDown)
+                {
+                    Console.WriteLine("CombinedTwoPassSession=end MouseHeld=right");
+                }
+            }
+
+            if (options.DurationMs > 0)
+            {
+                Thread.Sleep(options.DurationMs);
+            }
+
+            return success;
+        }
+
+        private static bool DragCameraCombinedTwoPassFaceTarget(
+            VmmProcess process,
+            ulong gameBase,
+            KmBoxClient km,
+            double targetPitch,
+            double yawPixelsPerDegreeAbs,
+            double pitchPixelsPerDegreeAbs,
+            FaceTargetOptions options,
+            out double finalYawError,
+            out double finalPitchError)
+        {
+            finalYawError = 0.0;
+            finalPitchError = 0.0;
+            bool success = false;
+            bool mouseDown = false;
+            try
+            {
+                km.MouseUp(KmMouseButton.Right);
+                Thread.Sleep(8);
+                km.MouseDown(KmMouseButton.Right);
+                mouseDown = true;
+                if (options.MouseDownWarmupMs > 0)
+                {
+                    Thread.Sleep(options.MouseDownWarmupMs);
+                }
+
+                Console.WriteLine("CombinedTargetSession=begin HoldRight=yes MaxPasses=" + options.TwoPassMaxPasses);
+                for (int pass = 1; pass <= options.TwoPassMaxPasses; pass++)
+                {
+                    LocalPlayerInfo local;
+                    LockedTargetMonsterInfo target;
+                    string error;
+                    if (!TryReadFaceTargetSnapshot(process, gameBase, out local, out target, out error))
+                    {
+                        Console.WriteLine("CombinedTargetReadFailed Pass=" + pass + " Reason=" + error);
+                        break;
+                    }
+
+                    double currentYaw = GetCameraYawDegrees(local.CameraYaw, options);
+                    double currentPitch = GetCameraPitchDegrees(local.CameraPitch, options);
+                    double targetYaw = CalculateTargetYawDegrees(local, target, options);
+                    finalYawError = NormalizeSignedDegrees(targetYaw - currentYaw);
+                    finalPitchError = targetPitch - currentPitch;
+                    if (Math.Abs(finalYawError) <= options.ToleranceDegrees &&
+                        Math.Abs(finalPitchError) <= options.ToleranceDegrees)
+                    {
+                        success = true;
+                        Console.WriteLine("CombinedTargetStop Pass=" + pass +
+                                          " CameraYaw=" + currentYaw.ToString("F2") +
+                                          " TargetYaw=" + targetYaw.ToString("F2") +
+                                          " CameraPitch=" + currentPitch.ToString("F2") +
+                                          " TargetPitch=" + targetPitch.ToString("F2") +
+                                          " YawErrorDeg=" + finalYawError.ToString("F2") +
+                                          " PitchErrorDeg=" + finalPitchError.ToString("F2") +
+                                          " Distance=" + FormatDistance(target) +
+                                          " Reason=within_tolerance");
+                        break;
+                    }
+
+                    double rawDx;
+                    double rawDy;
+                    bool minXApplied;
+                    bool minYApplied;
+                    int dx = CalculateCameraDragDx(finalYawError, yawPixelsPerDegreeAbs, options, false, out rawDx, out minXApplied);
+                    int dy = CalculateCameraDragDy(finalPitchError, pitchPixelsPerDegreeAbs, options, false, out rawDy, out minYApplied);
+
+                    Console.WriteLine("CombinedTarget Pass=" + pass +
+                                      " CameraYaw=" + currentYaw.ToString("F2") +
+                                      " TargetYaw=" + targetYaw.ToString("F2") +
+                                      " YawErrorDeg=" + finalYawError.ToString("F2") +
+                                      " CameraPitch=" + currentPitch.ToString("F2") +
+                                      " TargetPitch=" + targetPitch.ToString("F2") +
+                                      " PitchErrorDeg=" + finalPitchError.ToString("F2") +
+                                      " Distance=" + FormatDistance(target) +
+                                      " RawDx=" + rawDx.ToString("F2") +
+                                      " RawDy=" + rawDy.ToString("F2") +
+                                      " Dx=" + dx +
+                                      " Dy=" + dy +
+                                      " MoveCommands=" + EstimateCombinedChunkDragMoveCommandCount(dx, dy, options) +
+                                      " MaxChunkPx=" + options.DragStepPixels +
+                                      " PrimeTail=" + options.DragPrimePixels + "/" + options.DragTailPixels +
+                                      " MinApplied=" + (minXApplied || minYApplied ? "yes" : "no"));
+
+                    DragCameraCombinedChunks(km, dx, dy, options);
+                    if (options.MouseHoldAfterMoveMs > 0)
+                    {
+                        Thread.Sleep(options.MouseHoldAfterMoveMs);
+                    }
+
+                    LocalPlayerInfo afterLocal;
+                    if (!WaitForCameraAnglesChange(process, gameBase, currentYaw, currentPitch, options, out afterLocal))
+                    {
+                        Console.WriteLine("CombinedTargetWait Pass=" + pass +
+                                          " PreviousYaw=" + currentYaw.ToString("F2") +
+                                          " PreviousPitch=" + currentPitch.ToString("F2") +
+                                          " Result=no_angle_update_stop");
+                        break;
+                    }
+
+                    if (TryReadFaceTargetSnapshot(process, gameBase, out local, out target, out error))
+                    {
+                        currentYaw = GetCameraYawDegrees(local.CameraYaw, options);
+                        currentPitch = GetCameraPitchDegrees(local.CameraPitch, options);
+                        targetYaw = CalculateTargetYawDegrees(local, target, options);
+                        finalYawError = NormalizeSignedDegrees(targetYaw - currentYaw);
+                        finalPitchError = targetPitch - currentPitch;
+                        Console.WriteLine("CombinedTargetResult Pass=" + pass +
+                                          " CameraYaw=" + currentYaw.ToString("F2") +
+                                          " TargetYaw=" + targetYaw.ToString("F2") +
+                                          " CameraPitch=" + currentPitch.ToString("F2") +
+                                          " TargetPitch=" + targetPitch.ToString("F2") +
+                                          " YawErrorDeg=" + finalYawError.ToString("F2") +
+                                          " PitchErrorDeg=" + finalPitchError.ToString("F2") +
+                                          " Distance=" + FormatDistance(target) +
+                                          " HoldRight=yes");
+
+                        if (Math.Abs(finalYawError) <= options.ToleranceDegrees &&
+                            Math.Abs(finalPitchError) <= options.ToleranceDegrees)
+                        {
+                            success = true;
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("CombinedTargetResultReadFailed Pass=" + pass + " Reason=" + error);
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                if (mouseDown)
+                {
+                    try
+                    {
+                        km.MouseUp(KmMouseButton.Right);
+                        Console.WriteLine("CombinedTargetSession=end MouseUp=right");
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            if (options.DurationMs > 0)
+            {
+                Thread.Sleep(options.DurationMs);
+            }
+
+            return success;
+        }
+
         private static double DragCameraHorizontalAdaptiveFixedYaw(
             VmmProcess process,
             ulong gameBase,
@@ -2394,6 +5036,112 @@ namespace Tool
             return false;
         }
 
+        private static bool WaitForCameraAnglesChange(
+            VmmProcess process,
+            ulong gameBase,
+            double previousYaw,
+            double previousPitch,
+            FaceTargetOptions options,
+            out LocalPlayerInfo observed)
+        {
+            observed = new LocalPlayerInfo();
+
+            if (options.AdaptiveReadSettleMs > 0)
+            {
+                Thread.Sleep(options.AdaptiveReadSettleMs);
+            }
+
+            int timeoutMs = Math.Max(0, options.AdaptiveReadTimeoutMs);
+            if (timeoutMs <= 0)
+            {
+                return TryReadChangedCameraAngles(process, gameBase, previousYaw, previousPitch, options, out observed);
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            while (stopwatch.ElapsedMilliseconds <= timeoutMs)
+            {
+                if (TryReadChangedCameraAngles(process, gameBase, previousYaw, previousPitch, options, out observed))
+                {
+                    WaitForCameraAnglesStable(process, gameBase, options, ref observed);
+                    return true;
+                }
+
+                Thread.Sleep(10);
+            }
+
+            return false;
+        }
+
+        private static bool TryReadChangedCameraAngles(
+            VmmProcess process,
+            ulong gameBase,
+            double previousYaw,
+            double previousPitch,
+            FaceTargetOptions options,
+            out LocalPlayerInfo observed)
+        {
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out observed, out error))
+            {
+                return false;
+            }
+
+            double yaw = GetCameraYawDegrees(observed.CameraYaw, options);
+            double pitch = GetCameraPitchDegrees(observed.CameraPitch, options);
+            double yawDelta = Math.Abs(NormalizeSignedDegrees(yaw - previousYaw));
+            double pitchDelta = Math.Abs(pitch - previousPitch);
+            return yawDelta >= options.AdaptiveMinYawDeltaDegrees ||
+                   pitchDelta >= options.AdaptiveMinYawDeltaDegrees;
+        }
+
+        private static bool WaitForCameraAnglesStable(
+            VmmProcess process,
+            ulong gameBase,
+            FaceTargetOptions options,
+            ref LocalPlayerInfo stableLocal)
+        {
+            int stableMs = Math.Max(0, options.AdaptiveStableMs);
+            int timeoutMs = Math.Max(stableMs, options.AdaptiveStableTimeoutMs);
+            if (stableMs <= 0 || timeoutMs <= 0)
+            {
+                return true;
+            }
+
+            double stableYaw = GetCameraYawDegrees(stableLocal.CameraYaw, options);
+            double stablePitch = GetCameraPitchDegrees(stableLocal.CameraPitch, options);
+            var stopwatch = Stopwatch.StartNew();
+            long stableSince = stopwatch.ElapsedMilliseconds;
+
+            while (stopwatch.ElapsedMilliseconds <= timeoutMs)
+            {
+                LocalPlayerInfo local;
+                string error;
+                if (TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+                {
+                    double yaw = GetCameraYawDegrees(local.CameraYaw, options);
+                    double pitch = GetCameraPitchDegrees(local.CameraPitch, options);
+                    double yawDelta = Math.Abs(NormalizeSignedDegrees(yaw - stableYaw));
+                    double pitchDelta = Math.Abs(pitch - stablePitch);
+                    if (yawDelta >= options.AdaptiveMinYawDeltaDegrees ||
+                        pitchDelta >= options.AdaptiveMinYawDeltaDegrees)
+                    {
+                        stableLocal = local;
+                        stableYaw = yaw;
+                        stablePitch = pitch;
+                        stableSince = stopwatch.ElapsedMilliseconds;
+                    }
+                    else if (stopwatch.ElapsedMilliseconds - stableSince >= stableMs)
+                    {
+                        return true;
+                    }
+                }
+
+                Thread.Sleep(10);
+            }
+
+            return false;
+        }
+
         private static bool WaitForCameraYawStable(
             VmmProcess process,
             ulong gameBase,
@@ -2474,6 +5222,101 @@ namespace Tool
             }
 
             return true;
+        }
+
+        private static bool TryReadCameraPitch(
+            VmmProcess process,
+            ulong gameBase,
+            FaceTargetOptions options,
+            out double cameraPitch)
+        {
+            cameraPitch = 0.0;
+            LocalPlayerInfo local;
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+            {
+                return false;
+            }
+
+            cameraPitch = GetCameraPitchDegrees(local.CameraPitch, options);
+            return true;
+        }
+
+        private static bool TryReadStableCameraPitch(
+            VmmProcess process,
+            ulong gameBase,
+            FaceTargetOptions options,
+            out double cameraPitch)
+        {
+            cameraPitch = 0.0;
+            if (options.SettleMs > 0)
+            {
+                Thread.Sleep(options.SettleMs);
+            }
+
+            if (!TryReadCameraPitch(process, gameBase, options, out cameraPitch))
+            {
+                return false;
+            }
+
+            double stablePitch;
+            if (WaitForCameraPitchStable(process, gameBase, cameraPitch, options, out stablePitch))
+            {
+                cameraPitch = stablePitch;
+            }
+
+            return true;
+        }
+
+        private static bool TryReadStableLocalPlayerInfo(
+            VmmProcess process,
+            ulong gameBase,
+            FaceTargetOptions options,
+            out LocalPlayerInfo local,
+            out string error)
+        {
+            if (options.SettleMs > 0)
+            {
+                Thread.Sleep(options.SettleMs);
+            }
+
+            return TryReadLocalPlayerInfo(process, gameBase, out local, out error);
+        }
+
+        private static bool WaitForCameraPitchStable(
+            VmmProcess process,
+            ulong gameBase,
+            double startPitch,
+            FaceTargetOptions options,
+            out double stablePitch)
+        {
+            stablePitch = startPitch;
+            int stableMs = Math.Max(0, options.AdaptiveStableMs);
+            int timeoutMs = Math.Max(stableMs, options.AdaptiveStableTimeoutMs);
+            var stopwatch = Stopwatch.StartNew();
+            var stableWatch = Stopwatch.StartNew();
+
+            while (stopwatch.ElapsedMilliseconds <= timeoutMs)
+            {
+                double pitch;
+                if (TryReadCameraPitch(process, gameBase, options, out pitch))
+                {
+                    double delta = Math.Abs(pitch - stablePitch);
+                    if (delta >= options.AdaptiveMinYawDeltaDegrees)
+                    {
+                        stablePitch = pitch;
+                        stableWatch.Restart();
+                    }
+                    else if (stableWatch.ElapsedMilliseconds >= stableMs)
+                    {
+                        return true;
+                    }
+                }
+
+                Thread.Sleep(10);
+            }
+
+            return false;
         }
 
         private static string FormatAdaptiveStepMode(double errorDegrees, FaceTargetOptions options)
@@ -2710,6 +5553,39 @@ namespace Tool
             }
         }
 
+        private static void SendCameraVerticalMoveStep(KmBoxClient km, int dy, FaceTargetOptions options)
+        {
+            if (dy == 0)
+            {
+                return;
+            }
+
+            km.MoveRelative(0, dy);
+            if (options.DragStepDelayMs > 0)
+            {
+                Thread.Sleep(options.DragStepDelayMs);
+            }
+        }
+
+        private static void SendCameraCombinedMoveStep(KmBoxClient km, int dx, int dy, FaceTargetOptions options)
+        {
+            SendCameraCombinedMoveStep(new KmBoxClientInput(km), dx, dy, options);
+        }
+
+        private static void SendCameraCombinedMoveStep(IKmBoxInput km, int dx, int dy, FaceTargetOptions options)
+        {
+            if (dx == 0 && dy == 0)
+            {
+                return;
+            }
+
+            km.MoveRelative(dx, dy);
+            if (options.DragStepDelayMs > 0)
+            {
+                Thread.Sleep(options.DragStepDelayMs);
+            }
+        }
+
         private static void RestartCameraRightDrag(KmBoxClient km, FaceTargetOptions options)
         {
             km.MouseUp(KmMouseButton.Right);
@@ -2759,6 +5635,193 @@ namespace Tool
             if (options.DurationMs > 0)
             {
                 Thread.Sleep(options.DurationMs);
+            }
+        }
+
+        private static int EstimateCombinedChunkDragMoveCommandCount(int dx, int dy, FaceTargetOptions options)
+        {
+            return Math.Max(EstimateChunkDragMoveCommandCount(dx, options), EstimateChunkDragMoveCommandCount(dy, options));
+        }
+
+        private static int EstimateCombinedOnePixelMoveCommandCount(int dx, int dy)
+        {
+            return Math.Max(Math.Abs(dx), Math.Abs(dy));
+        }
+
+        private static void DragCameraCombinedOnePixelSteps(KmBoxClient km, int dx, int dy, FaceTargetOptions options)
+        {
+            DragCameraCombinedOnePixelSteps(new KmBoxClientInput(km), dx, dy, options);
+        }
+
+        private static void DragCameraCombinedOnePixelSteps(IKmBoxInput km, int dx, int dy, FaceTargetOptions options)
+        {
+            bool arrivedDuringMove;
+            DragCameraCombinedOnePixelSteps(km, dx, dy, options, null, out arrivedDuringMove);
+        }
+
+        private static void DragCameraCombinedOnePixelSteps(
+            IKmBoxInput km,
+            int dx,
+            int dy,
+            FaceTargetOptions options,
+            PathFollowPollState pollState,
+            out bool arrivedDuringMove)
+        {
+            arrivedDuringMove = false;
+            int xSign = dx < 0 ? -1 : 1;
+            int ySign = dy < 0 ? -1 : 1;
+            int xCount = Math.Abs(dx);
+            int yCount = Math.Abs(dy);
+            int count = Math.Max(xCount, yCount);
+            for (int i = 0; i < count; i++)
+            {
+                string stopReason;
+                if (IsPathFollowStopPending(pollState, out stopReason))
+                {
+                    Console.WriteLine("PathFollowOnePixelMoveStopped Reason=" + stopReason +
+                                      " MoveCommands=" + i);
+                    break;
+                }
+
+                int stepX = i < xCount ? xSign : 0;
+                int stepY = i < yCount ? ySign : 0;
+                SendCameraCombinedMoveStep(km, stepX, stepY, options);
+                int arrivedTargetIndex;
+                double arrivedDistance;
+                if (pollState != null && TryMarkPathFollowArrivedNow(pollState, out arrivedTargetIndex, out arrivedDistance))
+                {
+                    arrivedDuringMove = true;
+                    Console.WriteLine("PathFollowArrivedLatch During=angle_adjust" +
+                                      " Index=" + (arrivedTargetIndex + 1) +
+                                      " Distance=" + arrivedDistance.ToString("F2"));
+                    break;
+                }
+
+                if (IsPathFollowStopPending(pollState, out stopReason))
+                {
+                    Console.WriteLine("PathFollowOnePixelMoveStopped Reason=" + stopReason +
+                                      " MoveCommands=" + (i + 1));
+                    break;
+                }
+            }
+        }
+
+        private static void DragCameraCombinedChunks(KmBoxClient km, int dx, int dy, FaceTargetOptions options)
+        {
+            DragCameraCombinedChunks(new KmBoxClientInput(km), dx, dy, options);
+        }
+
+        private static void DragCameraCombinedChunks(IKmBoxInput km, int dx, int dy, FaceTargetOptions options)
+        {
+            int[] xChunks = BuildSignedCameraChunks(dx, options);
+            int[] yChunks = BuildSignedCameraChunks(dy, options);
+            int count = Math.Max(xChunks.Length, yChunks.Length);
+            for (int i = 0; i < count; i++)
+            {
+                int stepX = i < xChunks.Length ? xChunks[i] : 0;
+                int stepY = i < yChunks.Length ? yChunks[i] : 0;
+                SendCameraCombinedMoveStep(km, stepX, stepY, options);
+            }
+        }
+
+        private static int[] BuildSignedCameraChunks(int pixels, FaceTargetOptions options)
+        {
+            if (pixels == 0)
+            {
+                return new int[0];
+            }
+
+            int sign = pixels < 0 ? -1 : 1;
+            int remaining = Math.Abs(pixels);
+            var chunks = new List<int>();
+            int prime = Math.Min(Math.Max(0, options.DragPrimePixels), remaining);
+
+            for (int i = 0; i < prime; i++)
+            {
+                chunks.Add(sign);
+                remaining -= 1;
+            }
+
+            int tail = Math.Min(Math.Max(0, options.DragTailPixels), remaining);
+            int chunkRemaining = remaining - tail;
+            int[] middleChunks = BuildGradientChunks(chunkRemaining, Math.Max(1, options.DragStepPixels));
+            for (int i = 0; i < middleChunks.Length; i++)
+            {
+                chunks.Add(sign * middleChunks[i]);
+            }
+
+            for (int i = 0; i < tail; i++)
+            {
+                chunks.Add(sign);
+            }
+
+            return chunks.ToArray();
+        }
+
+        private static void DragCameraVertical(KmBoxClient km, int dy, FaceTargetOptions options)
+        {
+            if (dy == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                km.MouseUp(KmMouseButton.Right);
+                Thread.Sleep(8);
+                km.MouseDown(KmMouseButton.Right);
+                if (options.MouseDownWarmupMs > 0)
+                {
+                    Thread.Sleep(options.MouseDownWarmupMs);
+                }
+
+                DragCameraVerticalChunks(km, dy, options);
+
+                if (options.MouseHoldAfterMoveMs > 0)
+                {
+                    Thread.Sleep(options.MouseHoldAfterMoveMs);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    km.MouseUp(KmMouseButton.Right);
+                }
+                catch
+                {
+                }
+            }
+
+            if (options.DurationMs > 0)
+            {
+                Thread.Sleep(options.DurationMs);
+            }
+        }
+
+        private static void DragCameraVerticalChunks(KmBoxClient km, int dy, FaceTargetOptions options)
+        {
+            int sign = dy < 0 ? -1 : 1;
+            int remaining = Math.Abs(dy);
+            int prime = Math.Min(Math.Max(0, options.DragPrimePixels), remaining);
+
+            for (int i = 0; i < prime; i++)
+            {
+                SendCameraVerticalMoveStep(km, sign, options);
+                remaining -= 1;
+            }
+
+            int tail = Math.Min(Math.Max(0, options.DragTailPixels), remaining);
+            int chunkRemaining = remaining - tail;
+            int[] middleChunks = BuildGradientChunks(chunkRemaining, Math.Max(1, options.DragStepPixels));
+            for (int i = 0; i < middleChunks.Length; i++)
+            {
+                SendCameraVerticalMoveStep(km, sign * middleChunks[i], options);
+            }
+
+            for (int i = 0; i < tail; i++)
+            {
+                SendCameraVerticalMoveStep(km, sign, options);
             }
         }
 
@@ -3091,6 +6154,81 @@ namespace Tool
                 " ErrorDeg=" + errorDegrees.ToString("F2"));
         }
 
+        private static void PrintFixedCameraPitchState(
+            string label,
+            LocalPlayerInfo local,
+            double targetPitch,
+            FaceTargetOptions options)
+        {
+            double cameraPitch = GetCameraPitchDegrees(local.CameraPitch, options);
+            double errorDegrees = targetPitch - cameraPitch;
+            Console.WriteLine(
+                "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                label +
+                " Local=(" + local.X.ToString("F2") + "," + local.Y.ToString("F2") + "," + local.Z.ToString("F2") + ")" +
+                " CameraMode=" + FormatCameraMode(local) +
+                " RawCameraPitch=" + local.CameraPitch.ToString("F4") +
+                " CameraPitchDeg=" + cameraPitch.ToString("F2") +
+                " CameraYawDeg=" + GetCameraYawDegrees(local.CameraYaw, options).ToString("F2") +
+                " TargetPitchDeg=" + targetPitch.ToString("F2") +
+                " ErrorDeg=" + errorDegrees.ToString("F2"));
+        }
+
+        private static void PrintFixedCameraYawPitchState(
+            string label,
+            LocalPlayerInfo local,
+            double targetYaw,
+            double targetPitch,
+            FaceTargetOptions options)
+        {
+            double cameraYaw = GetCameraYawDegrees(local.CameraYaw, options);
+            double cameraPitch = GetCameraPitchDegrees(local.CameraPitch, options);
+            double yawErrorDegrees = NormalizeSignedDegrees(targetYaw - cameraYaw);
+            double pitchErrorDegrees = targetPitch - cameraPitch;
+            Console.WriteLine(
+                "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                label +
+                " Local=(" + local.X.ToString("F2") + "," + local.Y.ToString("F2") + "," + local.Z.ToString("F2") + ")" +
+                " CameraMode=" + FormatCameraMode(local) +
+                " RawCameraYaw=" + local.CameraYaw.ToString("F4") +
+                " RawCameraPitch=" + local.CameraPitch.ToString("F4") +
+                " CameraYawDeg=" + cameraYaw.ToString("F2") +
+                " CameraPitchDeg=" + cameraPitch.ToString("F2") +
+                " TargetYawDeg=" + targetYaw.ToString("F2") +
+                " TargetPitchDeg=" + targetPitch.ToString("F2") +
+                " YawErrorDeg=" + yawErrorDegrees.ToString("F2") +
+                " PitchErrorDeg=" + pitchErrorDegrees.ToString("F2"));
+        }
+
+        private static void PrintFaceTargetCombinedState(
+            string label,
+            LocalPlayerInfo local,
+            LockedTargetMonsterInfo target,
+            double targetPitch,
+            FaceTargetOptions options)
+        {
+            double cameraYaw = GetCameraYawDegrees(local.CameraYaw, options);
+            double cameraPitch = GetCameraPitchDegrees(local.CameraPitch, options);
+            double targetYaw = CalculateTargetYawDegrees(local, target, options);
+            double yawErrorDegrees = NormalizeSignedDegrees(targetYaw - cameraYaw);
+            double pitchErrorDegrees = targetPitch - cameraPitch;
+            Console.WriteLine(
+                "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                label +
+                " Local=(" + local.X.ToString("F2") + "," + local.Y.ToString("F2") + "," + local.Z.ToString("F2") + ")" +
+                " Target=(" + target.X.ToString("F2") + "," + target.Y.ToString("F2") + "," + target.Z.ToString("F2") + ")" +
+                " CameraMode=" + FormatCameraMode(local) +
+                " RawCameraYaw=" + local.CameraYaw.ToString("F4") +
+                " RawCameraPitch=" + local.CameraPitch.ToString("F4") +
+                " CameraYawDeg=" + cameraYaw.ToString("F2") +
+                " CameraPitchDeg=" + cameraPitch.ToString("F2") +
+                " TargetYawDeg=" + targetYaw.ToString("F2") +
+                " TargetPitchDeg=" + targetPitch.ToString("F2") +
+                " YawErrorDeg=" + yawErrorDegrees.ToString("F2") +
+                " PitchErrorDeg=" + pitchErrorDegrees.ToString("F2") +
+                " Distance=" + FormatDistance(target));
+        }
+
         private static double CalculateTargetYawDegrees(
             LocalPlayerInfo local,
             LockedTargetMonsterInfo target,
@@ -3098,6 +6236,24 @@ namespace Tool
         {
             double dx = target.X - local.X;
             double dy = target.Y - local.Y;
+            return CalculateYawFromDeltaDegrees(dx, dy, options);
+        }
+
+        private static double CalculatePathTargetYawDegrees(
+            LocalPlayerInfo local,
+            PathFollowPoint target,
+            FaceTargetOptions options)
+        {
+            double dx = target.X - local.X;
+            double dy = target.Y - local.Y;
+            return CalculateYawFromDeltaDegrees(dx, dy, options);
+        }
+
+        private static double CalculateYawFromDeltaDegrees(
+            double dx,
+            double dy,
+            FaceTargetOptions options)
+        {
             double angleRadians;
             string mode = (options.BearingMode ?? "yx").Trim().ToLowerInvariant();
 
@@ -3151,6 +6307,165 @@ namespace Tool
                 " ErrPlus180=" + NormalizeSignedDegrees(plus180 - cameraYaw).ToString("F2"));
         }
 
+        private static List<PathFollowPoint> LoadPathFollowPoints()
+        {
+            string pathFile = Environment.GetEnvironmentVariable("AION_PATH_FILE");
+            if (!string.IsNullOrWhiteSpace(pathFile) && System.IO.File.Exists(pathFile))
+            {
+                return ParsePathFollowPoints(System.IO.File.ReadAllText(pathFile));
+            }
+
+            string pathText = Environment.GetEnvironmentVariable("AION_PATH_POINTS");
+            if (!string.IsNullOrWhiteSpace(pathText))
+            {
+                return ParsePathFollowPoints(pathText);
+            }
+
+            return ParsePathFollowPoints(GetDefaultPathFollowText());
+        }
+
+        private static List<PathFollowPoint> ParsePathFollowPoints(string text)
+        {
+            var points = new List<PathFollowPoint>();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return points;
+            }
+
+            string normalized = text.Replace(";", Environment.NewLine);
+            string[] lines = normalized.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i].Trim();
+                if (line.Length == 0 || line.StartsWith("#", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string[] parts = line.Split(new[] { ',', ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 3)
+                {
+                    continue;
+                }
+
+                double x;
+                double y;
+                double z;
+                if (TryParsePathDouble(parts[0], out x) &&
+                    TryParsePathDouble(parts[1], out y) &&
+                    TryParsePathDouble(parts[2], out z))
+                {
+                    points.Add(new PathFollowPoint { X = x, Y = y, Z = z });
+                }
+            }
+
+            return points;
+        }
+
+        private static bool TryParsePathDouble(string text, out double value)
+        {
+            return double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) ||
+                   double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.CurrentCulture, out value);
+        }
+
+        private static string GetDefaultPathFollowText()
+        {
+            return
+                "1188.123, 1368.177, 209.254\n" +
+                "1154.359, 1404.967, 209.196\n" +
+                "1222.136, 1381.585, 208.125";
+        }
+
+        private static int FindNearestPathPointIndex(List<PathFollowPoint> path, LocalPlayerInfo local)
+        {
+            int bestIndex = 0;
+            double bestDistance = double.MaxValue;
+            for (int i = 0; i < path.Count; i++)
+            {
+                double distance = GetHorizontalDistance(local, path[i]);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    bestIndex = i;
+                }
+            }
+
+            return bestIndex;
+        }
+
+        private static int ResolvePathFollowStartIndex(
+            List<PathFollowPoint> path,
+            LocalPlayerInfo local,
+            double reachDistance,
+            string startMode)
+        {
+            int configuredStart = ReadIntFromEnv("AION_PATH_FOLLOW_START_INDEX", 0);
+            if (configuredStart > 0)
+            {
+                return ClampInt(configuredStart - 1, 0, path.Count - 1);
+            }
+
+            string mode = FormatPathFollowStartMode(startMode);
+            if (string.Equals(mode, "first", StringComparison.OrdinalIgnoreCase))
+            {
+                return 0;
+            }
+
+            if (string.Equals(mode, "last", StringComparison.OrdinalIgnoreCase))
+            {
+                return path.Count - 1;
+            }
+
+            int targetIndex = FindNearestPathPointIndex(path, local);
+            if (targetIndex + 1 < path.Count && GetHorizontalDistance(local, path[targetIndex]) <= reachDistance)
+            {
+                targetIndex++;
+            }
+
+            return targetIndex;
+        }
+
+        private static string FormatPathFollowStartMode(string startMode)
+        {
+            if (string.IsNullOrWhiteSpace(startMode))
+            {
+                return "nearest";
+            }
+
+            string mode = startMode.Trim().ToLowerInvariant();
+            if (string.Equals(mode, "first", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(mode, "start", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(mode, "begin", StringComparison.OrdinalIgnoreCase))
+            {
+                return "first";
+            }
+
+            if (string.Equals(mode, "last", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(mode, "end", StringComparison.OrdinalIgnoreCase))
+            {
+                return "last";
+            }
+
+            return "nearest";
+        }
+
+        private static double GetHorizontalDistance(LocalPlayerInfo local, PathFollowPoint point)
+        {
+            double dx = point.X - local.X;
+            double dy = point.Y - local.Y;
+            return Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        private static PathFollowBudgetPoint ToPathFollowBudgetPoint(LocalPlayerInfo local)
+        {
+            return new PathFollowBudgetPoint(local.X, local.Y);
+        }
+
+        private static PathFollowBudgetPoint ToPathFollowBudgetPoint(PathFollowPoint point)
+        {
+            return new PathFollowBudgetPoint(point.X, point.Y);
+        }
+
         private static double GetCameraYawDegrees(float rawYaw, FaceTargetOptions options)
         {
             string unit = (options.CameraYawUnit ?? "auto").Trim().ToLowerInvariant();
@@ -3174,6 +6489,29 @@ namespace Tool
             }
 
             return NormalizeSignedDegrees(rawYaw);
+        }
+
+        private static double GetCameraPitchDegrees(float rawPitch, FaceTargetOptions options)
+        {
+            string unit = (options.CameraPitchUnit ?? "auto").Trim().ToLowerInvariant();
+            double pitch;
+            if (string.Equals(unit, "rad", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(unit, "radian", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(unit, "radians", StringComparison.OrdinalIgnoreCase))
+            {
+                pitch = RadiansToDegrees(rawPitch);
+            }
+            else if (string.Equals(unit, "auto", StringComparison.OrdinalIgnoreCase) &&
+                     Math.Abs(rawPitch) <= (Math.PI * 2.0 + 0.25))
+            {
+                pitch = RadiansToDegrees(rawPitch);
+            }
+            else
+            {
+                pitch = rawPitch;
+            }
+
+            return ClampDouble(pitch, -65.0, 85.0);
         }
 
         private static int CalculateCameraDragDx(
@@ -3212,6 +6550,53 @@ namespace Tool
             }
 
             return dx;
+        }
+
+        private static int CalculateCameraDragDy(
+            double errorDegrees,
+            double pixelsPerDegreeAbs,
+            FaceTargetOptions options,
+            out double rawDy,
+            out bool minApplied)
+        {
+            return CalculateCameraDragDy(errorDegrees, pixelsPerDegreeAbs, options, true, out rawDy, out minApplied);
+        }
+
+        private static int CalculateCameraDragDy(
+            double errorDegrees,
+            double pixelsPerDegreeAbs,
+            FaceTargetOptions options,
+            bool applyMinCorrection,
+            out double rawDy,
+            out bool minApplied)
+        {
+            rawDy = errorDegrees * pixelsPerDegreeAbs;
+            if (options.PitchInvertMouse)
+            {
+                rawDy = -rawDy;
+            }
+
+            minApplied = false;
+
+            int dy = (int)Math.Round(rawDy, MidpointRounding.AwayFromZero);
+            if (dy == 0)
+            {
+                dy = errorDegrees > 0 ? 1 : -1;
+                if (options.PitchInvertMouse)
+                {
+                    dy = -dy;
+                }
+            }
+
+            int sign = dy < 0 ? -1 : 1;
+            int absDy = Math.Abs(dy);
+            if (applyMinCorrection && options.MinCorrectionPixels > 0 && absDy < options.MinCorrectionPixels)
+            {
+                dy = sign * options.MinCorrectionPixels;
+                minApplied = true;
+            }
+
+            return dy;
         }
 
         private static double GetFeedbackYawDegrees(LocalPlayerInfo local, FaceTargetOptions options, out string source)
@@ -3291,6 +6676,21 @@ namespace Tool
         }
 
         private static int ClampInt(int value, int min, int max)
+        {
+            if (value < min)
+            {
+                return min;
+            }
+
+            if (value > max)
+            {
+                return max;
+            }
+
+            return value;
+        }
+
+        private static double ClampDouble(double value, double min, double max)
         {
             if (value < min)
             {
@@ -5948,6 +9348,139 @@ namespace Tool
         private static string FormatAddress(ulong address)
         {
             return address == 0 ? "n/a" : "0x" + address.ToString("X");
+        }
+
+        private static void PrintScalarProbeValues(VmmProcess process, ulong address, byte[] bytes)
+        {
+            string u8 = bytes.Length >= 1 ? bytes[0].ToString() : "n/a";
+            string u16 = bytes.Length >= 2 ? BitConverter.ToUInt16(bytes, 0).ToString() : "n/a";
+            string i16 = bytes.Length >= 2 ? BitConverter.ToInt16(bytes, 0).ToString() : "n/a";
+            string u32 = bytes.Length >= 4 ? BitConverter.ToUInt32(bytes, 0).ToString() : "n/a";
+            string i32 = bytes.Length >= 4 ? BitConverter.ToInt32(bytes, 0).ToString() : "n/a";
+            string f32 = bytes.Length >= 4 ? BitConverter.ToSingle(bytes, 0).ToString("R") : "n/a";
+            string u64 = bytes.Length >= 8 ? BitConverter.ToUInt64(bytes, 0).ToString() : "n/a";
+            string i64 = bytes.Length >= 8 ? BitConverter.ToInt64(bytes, 0).ToString() : "n/a";
+            string f64 = bytes.Length >= 8 ? BitConverter.ToDouble(bytes, 0).ToString("R") : "n/a";
+
+            ulong rawPointer = 0;
+            bool hasPointer = TryReadPointer(process, address, out rawPointer);
+            Console.WriteLine("Scalar" +
+                              " U8=" + u8 +
+                              " U16=" + u16 +
+                              " I16=" + i16 +
+                              " U32=" + u32 +
+                              " I32=" + i32 +
+                              " F32=" + f32 +
+                              " U64=" + u64 +
+                              " I64=" + i64 +
+                              " F64=" + f64 +
+                              " Ptr=" + (hasPointer ? FormatAddress(rawPointer) : "n/a"));
+        }
+
+        private static void PrintHexDump(ulong address, byte[] bytes, int columns)
+        {
+            if (bytes == null || bytes.Length == 0)
+            {
+                Console.WriteLine("  <empty>");
+                return;
+            }
+
+            columns = Math.Max(4, columns);
+            for (int offset = 0; offset < bytes.Length; offset += columns)
+            {
+                int count = Math.Min(columns, bytes.Length - offset);
+                var hex = new StringBuilder();
+                var ascii = new StringBuilder();
+                for (int i = 0; i < count; i++)
+                {
+                    byte b = bytes[offset + i];
+                    if (i > 0)
+                    {
+                        hex.Append(' ');
+                    }
+
+                    hex.Append(b.ToString("X2"));
+                    ascii.Append(b >= 32 && b <= 126 ? (char)b : '.');
+                }
+
+                Console.WriteLine("  " + FormatAddress(address + (ulong)offset) +
+                                  "  " + hex.ToString().PadRight(columns * 3 - 1) +
+                                  "  " + ascii);
+            }
+        }
+
+        private static bool IsUsefulProbeText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            string trimmed = text.Trim();
+            int printable = 0;
+            for (int i = 0; i < trimmed.Length; i++)
+            {
+                if (!char.IsControl(trimmed[i]))
+                {
+                    printable++;
+                }
+            }
+
+            return printable >= 2;
+        }
+
+        private static string EscapeProbeText(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return string.Empty;
+            }
+
+            return text.Replace("\\", "\\\\")
+                       .Replace("\r", "\\r")
+                       .Replace("\n", "\\n")
+                       .Replace("\t", "\\t")
+                       .Replace("\"", "\\\"");
+        }
+
+        private static string FormatFloatScanContext(byte[] bytes, int centerByteOffset, ulong startOffset, int contextCount)
+        {
+            if (contextCount <= 0)
+            {
+                return "[]";
+            }
+
+            var builder = new StringBuilder();
+            builder.Append('[');
+            bool hasAny = false;
+            for (int contextIndex = -contextCount; contextIndex <= contextCount; contextIndex++)
+            {
+                int byteOffset = centerByteOffset + contextIndex * 4;
+                if (byteOffset < 0 || byteOffset + 4 > bytes.Length)
+                {
+                    continue;
+                }
+
+                float value = BitConverter.ToSingle(bytes, byteOffset);
+                if (float.IsNaN(value) || float.IsInfinity(value))
+                {
+                    continue;
+                }
+
+                if (hasAny)
+                {
+                    builder.Append(" | ");
+                }
+
+                builder.Append("0x");
+                builder.Append((startOffset + (ulong)byteOffset).ToString("X"));
+                builder.Append('=');
+                builder.Append(value.ToString("R"));
+                hasAny = true;
+            }
+
+            builder.Append(']');
+            return builder.ToString();
         }
 
         private static string FormatPosition(LocalPlayerInfo info)
