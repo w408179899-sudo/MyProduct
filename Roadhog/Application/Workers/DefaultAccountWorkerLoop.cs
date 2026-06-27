@@ -44,29 +44,36 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             ["chainRoots"] = string.Join(" > ", semiAutoPlan.Roots.Where(root => root.Children.Count > 0).Select(root => root.Name + "@" + root.Key))
         });
 
-        while (!context.StopToken.IsCancellationRequested)
+        try
         {
-            context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
+            while (!context.StopToken.IsCancellationRequested)
+            {
+                context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
 
-            var delay = context.Options.TickInterval;
-            if (context.Config.MainMode == AccountMainMode.SemiAuto)
-            {
-                delay = await _semiAuto.TickAsync(context, semiAutoPlan, semiAutoState).ConfigureAwait(false);
-            }
-            else if (context.Options.PollPlayerSnapshot)
-            {
-                var result = await context.GameApi.ReadPlayerAsync(context.StopToken).ConfigureAwait(false);
-                if (!result.Success)
+                var delay = context.Options.TickInterval;
+                if (context.Config.MainMode == AccountMainMode.SemiAuto)
                 {
-                    context.Logger.Warn("worker.player_poll.failed", new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["error"] = result.Error
-                    });
+                    delay = await _semiAuto.TickAsync(context, semiAutoPlan, semiAutoState).ConfigureAwait(false);
                 }
-            }
+                else if (context.Options.PollPlayerSnapshot)
+                {
+                    var result = await context.GameApi.ReadPlayerAsync(context.StopToken).ConfigureAwait(false);
+                    if (!result.Success)
+                    {
+                        context.Logger.Warn("worker.player_poll.failed", new Dictionary<string, object?>
+                        {
+                            ["account"] = context.Config.AccountName,
+                            ["error"] = result.Error
+                        });
+                    }
+                }
 
-            await Task.Delay(delay, context.StopToken).ConfigureAwait(false);
+                await Task.Delay(delay, context.StopToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
         }
     }
 }

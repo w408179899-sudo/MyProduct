@@ -44,6 +44,10 @@ public sealed class SemiAutoScriptSettings
 
     public int KeyHoldMs { get; set; } = 25;
 
+    public bool AttackKeyLoopEnabled { get; set; } = true;
+
+    public int AttackKeyLoopIntervalMs { get; set; } = 70;
+
     public int KeyGapMs { get; set; } = 30;
 
     public int RepeatGuardMs { get; set; } = 120;
@@ -64,6 +68,8 @@ public sealed class SemiAutoScriptSettings
             ChainTickIntervalMs = ChainTickIntervalMs,
             TargetIdleDelayMs = TargetIdleDelayMs,
             KeyHoldMs = KeyHoldMs,
+            AttackKeyLoopEnabled = AttackKeyLoopEnabled,
+            AttackKeyLoopIntervalMs = AttackKeyLoopIntervalMs,
             KeyGapMs = KeyGapMs,
             RepeatGuardMs = RepeatGuardMs,
             PostPressSuppressMs = PostPressSuppressMs,

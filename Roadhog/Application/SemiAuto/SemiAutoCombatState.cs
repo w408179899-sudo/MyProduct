@@ -6,6 +6,8 @@ public sealed class SemiAutoCombatState
 {
     private int? cooldownTickOffsetMs;
     private readonly Dictionary<uint, uint> observedCooldownEndTimes = new();
+    private CancellationTokenSource? attackKeyLoopCancellation;
+    private Task? attackKeyLoopTask;
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
@@ -37,6 +39,62 @@ public sealed class SemiAutoCombatState
     public DateTimeOffset LastTargetStateLogAt { get; set; } = DateTimeOffset.MinValue;
 
     public DateTimeOffset LastNoSkillLogAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastAttackKeyLoopWarningAt { get; set; } = DateTimeOffset.MinValue;
+
+    public bool IsAttackKeyLoopRunning => attackKeyLoopTask is { IsCompleted: false };
+
+    public void StartAttackKeyLoop(
+        CancellationTokenSource cancellation,
+        Task task)
+    {
+        ClearCompletedAttackKeyLoop();
+        attackKeyLoopCancellation?.Cancel();
+        attackKeyLoopCancellation?.Dispose();
+        attackKeyLoopCancellation = cancellation;
+        attackKeyLoopTask = task;
+    }
+
+    public async Task StopAttackKeyLoopAsync()
+    {
+        var cancellation = attackKeyLoopCancellation;
+        var task = attackKeyLoopTask;
+        attackKeyLoopCancellation = null;
+        attackKeyLoopTask = null;
+
+        if (cancellation is null)
+        {
+            return;
+        }
+
+        try
+        {
+            cancellation.Cancel();
+            if (task is not null)
+            {
+                await task.ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
+
+    public void ClearCompletedAttackKeyLoop()
+    {
+        if (attackKeyLoopTask is not { IsCompleted: true })
+        {
+            return;
+        }
+
+        attackKeyLoopCancellation?.Dispose();
+        attackKeyLoopCancellation = null;
+        attackKeyLoopTask = null;
+    }
 
     public void ClearChain()
     {

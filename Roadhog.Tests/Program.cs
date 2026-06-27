@@ -18,6 +18,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("uncalibrated nonzero cooldown falls back to first configured root", TestUncalibratedNonzeroCooldownFallsBackToFirstRootAsync),
     ("calibrated nonzero cooldown skips cooling roots", TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync),
     ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
+    ("attack key loop presses C independently", TestAttackKeyLoopPressesCIndependentlyAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
     ("chain presses next stage without waiting for source cooldown", TestChainPressesNextStageWithoutSourceCooldownAsync),
@@ -317,6 +318,41 @@ static async Task TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
     AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "near-ready calibrated cooldown should be treated as ready");
+}
+
+static async Task TestAttackKeyLoopPressesCIndependentlyAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.SemiAuto.AttackKeyLoopEnabled = true;
+    settings.SemiAuto.AttackKeyLoopIntervalMs = 10;
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = ActiveCooldownEnd(),
+            [5] = ActiveCooldownEnd(),
+            [51] = ActiveCooldownEnd(),
+            [6] = ActiveCooldownEnd(),
+            [61] = ActiveCooldownEnd(),
+            [62] = ActiveCooldownEnd(),
+            [7] = ActiveCooldownEnd(),
+            [8] = ActiveCooldownEnd(),
+            [9] = ActiveCooldownEnd(),
+            [10] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    await WaitUntilAsync(() => keyboard.Keys.Contains("C"), TimeSpan.FromMilliseconds(250)).ConfigureAwait(false);
+    await state.StopAttackKeyLoopAsync().ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Any(key => key != "C"), "attack key loop should not press skill keys");
 }
 
 static async Task TestPollResultAdvancesRootOrderAsync()
@@ -718,6 +754,8 @@ static ScriptSettings CreateScriptSettings()
             ChainTickIntervalMs = 30,
             TargetIdleDelayMs = 50,
             KeyHoldMs = 1,
+            AttackKeyLoopEnabled = false,
+            AttackKeyLoopIntervalMs = 70,
             KeyGapMs = 1,
             RepeatGuardMs = 1,
             PostPressSuppressMs = 1,
@@ -890,18 +928,25 @@ static AccountWorkerContext CreateContext(
 
 static string[] WithPreSkillKey(params string[] keys)
 {
-    var result = new List<string>(keys.Length * 2);
-    foreach (var key in keys)
+    return keys.ToArray();
+}
+
+static async Task WaitUntilAsync(
+    Func<bool> condition,
+    TimeSpan timeout)
+{
+    var startedAt = DateTimeOffset.Now;
+    while (DateTimeOffset.Now - startedAt < timeout)
     {
-        if (!string.Equals(key, "C", StringComparison.OrdinalIgnoreCase))
+        if (condition())
         {
-            result.Add("C");
+            return;
         }
 
-        result.Add(key);
+        await Task.Delay(5).ConfigureAwait(false);
     }
 
-    return result.ToArray();
+    throw new InvalidOperationException("condition was not met before timeout");
 }
 
 static void AssertSequence<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, string label)
