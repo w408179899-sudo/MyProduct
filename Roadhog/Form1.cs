@@ -45,7 +45,6 @@ namespace Roadhog
                     "",
                     device.BindingKey,
                     "idle",
-                    "0",
                     "0.0",
                     "00:00:00"));
             }
@@ -60,7 +59,7 @@ namespace Roadhog
             accountTable.ColumnStyles.Clear();
             accountTable.RowStyles.Clear();
             accountTable.RowCount = 1;
-            accountTable.ColumnCount = 12;
+            accountTable.ColumnCount = 11;
             _accountRows = 0;
 
             AddColumns();
@@ -69,10 +68,9 @@ namespace Roadhog
             AddHeader("角色", 1);
             AddHeader("硬件特征(空=自动)", 2);
             AddHeader("状态", 3);
-            AddHeader("金币/h", 4);
-            AddHeader("杀怪/h", 5);
-            AddHeader("时长", 6);
-            AddHeader("操作", 7, 5);
+            AddHeader("杀怪/h", 4);
+            AddHeader("时长", 5);
+            AddHeader("操作", 6, 5);
 
             foreach (var account in _accounts)
             {
@@ -88,7 +86,6 @@ namespace Roadhog
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 7F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 8F));
-            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 7F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 7F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 8F));
 
@@ -131,15 +128,14 @@ namespace Roadhog
             AddCell(account.Role, row, 1, alt);
             AddHardwareInput(account, row, alt);
             AddCell(account.Status, row, 3, alt);
-            AddCell(account.GoldPerHour, row, 4, alt, ContentAlignment.MiddleCenter);
-            AddCell(account.KillsPerHour, row, 5, alt, ContentAlignment.MiddleCenter);
-            AddCell(account.Duration, row, 6, alt, ContentAlignment.MiddleCenter);
+            AddCell(account.KillsPerHour, row, 4, alt, ContentAlignment.MiddleCenter);
+            AddCell(account.Duration, row, 5, alt, ContentAlignment.MiddleCenter);
 
-            AddActionButton("登录", row, 7, account.Account);
-            AddActionButton("设置", row, 8, account.Account);
-            AddActionButton("启动", row, 9, account.Account);
-            AddActionButton("停止", row, 10, account.Account);
-            AddActionButton("删除", row, 11, account.Account);
+            AddActionButton("登录", row, 6, account.Account);
+            AddActionButton("设置", row, 7, account.Account);
+            AddActionButton("启动", row, 8, account.Account);
+            AddActionButton("停止", row, 9, account.Account);
+            AddActionButton("删除", row, 10, account.Account);
 
             _accountRows++;
             UpdateTableHeight();
@@ -252,7 +248,7 @@ namespace Roadhog
                 return;
             }
 
-            using var settingsForm = new AccountSettingsForm(account, _services.Runtime, _services.AccountConfigStore);
+            using var settingsForm = new AccountSettingsForm(account, _services.Runtime, _services.AccountConfigStore, _services.SharedPathStore);
             settingsForm.ShowDialog(this);
         }
 
@@ -417,7 +413,6 @@ namespace Roadhog
             string Role,
             string HardwareKey,
             string Status,
-            string GoldPerHour,
             string KillsPerHour,
             string Duration);
 

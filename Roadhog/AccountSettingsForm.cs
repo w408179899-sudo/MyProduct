@@ -1,7 +1,9 @@
+using System.Globalization;
 using System.Drawing.Drawing2D;
 using Roadhog.Application;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Model;
+using Roadhog.Core.Paths;
 
 namespace Roadhog
 {
@@ -12,6 +14,14 @@ namespace Roadhog
         private readonly string _account;
         private readonly RoadhogRuntime _runtime;
         private readonly IAccountConfigStore _configStore;
+        private readonly ISharedPathStore _pathStore;
+        private readonly Dictionary<SharedPathKind, PathEditorControls> pathEditors = new();
+        private readonly Dictionary<SharedPathKind, Label> pathOverviewLabels = new();
+        private readonly System.Windows.Forms.Timer pathRecordTimer = new() { Interval = 250 };
+        private IReadOnlyList<SharedPathSummary> currentPathSummaries = Array.Empty<SharedPathSummary>();
+        private SharedPathKind? recordingPathKind;
+        private bool loadingPathCombos;
+        private bool pathRecordReadInFlight;
         private readonly Color _primaryGreen = Color.FromArgb(22, 163, 74);
         private readonly Color _darkGreen = Color.FromArgb(21, 128, 61);
         private readonly Color _headerGreen = Color.FromArgb(34, 139, 84);
@@ -23,7 +33,11 @@ namespace Roadhog
         private TabControl settingsTabs = null!;
         private RoundedTextBox? profileNameTextBox;
         private RoundedComboBox? mainModeCombo;
+        private Label? combatModeLabel;
         private RoundedComboBox? combatModeCombo;
+        private Button? stationaryCombatPositionButton;
+        private Label? stationaryCombatPositionLabel;
+        private Vector3Snapshot? stationaryCombatPosition;
         private RoundedCheckBox? enableLootCheckBox;
         private RoundedCheckBox? contestMonsterCheckBox;
         private RoundedCheckBox? counterEnemyRaceCheckBox;
@@ -51,12 +65,21 @@ namespace Roadhog
         private IReadOnlyList<SkillSnapshot> currentManualSkills = Array.Empty<SkillSnapshot>();
         private int manualSkillDropLineY = -1;
 
-        public AccountSettingsForm(string account, RoadhogRuntime runtime, IAccountConfigStore configStore)
+        public AccountSettingsForm(string account, RoadhogRuntime runtime, IAccountConfigStore configStore, ISharedPathStore pathStore)
         {
             _account = account;
             _runtime = runtime;
             _configStore = configStore;
+            _pathStore = pathStore;
+            pathRecordTimer.Tick += PathRecordTimer_Tick;
             InitializeSettingsForm();
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            pathRecordTimer.Stop();
+            pathRecordTimer.Dispose();
+            base.OnFormClosed(e);
         }
 
         private void InitializeSettingsForm()
@@ -175,6 +198,8 @@ namespace Roadhog
             SetText(profileNameTextBox, settings.ProfileName);
             SetComboText(mainModeCombo, FormatMainMode(settings.MainMode));
             SetComboText(combatModeCombo, FormatCombatMode(settings.CombatMode));
+            SetStationaryCombatPosition(settings.Combat);
+            RefreshCombatModeVisibility();
 
             SetChecked(enableLootCheckBox, settings.Combat.EnableLoot);
             SetChecked(contestMonsterCheckBox, settings.Combat.ContestMonster);
@@ -186,6 +211,10 @@ namespace Roadhog
             SetChecked(loopPathCheckBox, settings.Paths.LoopPath);
             SetChecked(reverseAtEndCheckBox, settings.Paths.ReverseAtEnd);
             SetChecked(deathStopPathCheckBox, settings.Paths.DeathStopPath);
+            RefreshPathLibrary();
+            SelectConfiguredPath(SharedPathKind.Revive, settings.Paths.RevivePathName);
+            SelectConfiguredPath(SharedPathKind.Combat, settings.Paths.CombatPathName);
+            SelectConfiguredPath(SharedPathKind.Maintenance, settings.Paths.MaintenancePathName);
 
             SetChecked(sitMaintenanceCheckBox, settings.Maintenance.SitMaintenanceEnabled);
             SetText(sitMpBelowTextBox, settings.Maintenance.SitMpBelowPercent.ToString());
@@ -262,7 +291,11 @@ namespace Roadhog
                 {
                     EnableLoot = enableLootCheckBox?.Checked ?? true,
                     ContestMonster = contestMonsterCheckBox?.Checked ?? false,
-                    CounterEnemyRace = counterEnemyRaceCheckBox?.Checked ?? false
+                    CounterEnemyRace = counterEnemyRaceCheckBox?.Checked ?? false,
+                    HasStationaryCombatPosition = stationaryCombatPosition is not null,
+                    StationaryCombatX = stationaryCombatPosition?.X ?? 0.0D,
+                    StationaryCombatY = stationaryCombatPosition?.Y ?? 0.0D,
+                    StationaryCombatZ = stationaryCombatPosition?.Z ?? 0.0D
                 },
                 Paths = new PathScriptSettings
                 {
@@ -394,10 +427,15 @@ namespace Roadhog
             AddLabel(page, "方案名", 230, 36, 80, 22);
 
             mainModeCombo = AddCombo(page, 4, 72, 220, 28, "自定义打怪", "采集", "制作", "半自动");
+            mainModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
             AddLabel(page, "主模式", 230, 76, 80, 22, Color.FromArgb(220, 38, 38), FontStyle.Bold);
 
             combatModeCombo = AddCombo(page, 4, 104, 220, 28, "原地打怪", "路径打怪");
-            AddLabel(page, "打怪模式", 230, 108, 80, 22);
+            combatModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
+            combatModeLabel = AddLabel(page, "打怪模式", 230, 108, 80, 22);
+            stationaryCombatPositionButton = AddButton(page, "设置当前坐标", 306, 104, 128, 30, SetStationaryCombatPositionButton_Click);
+            stationaryCombatPositionLabel = AddLabel(page, "未设置打怪坐标", 444, 108, 360, 22);
+            RefreshCombatModeVisibility();
 
             enableLootCheckBox = AddCheckBox(page, "启用拾取", 4, 142, 88, true);
             contestMonsterCheckBox = AddCheckBox(page, "抢怪", 96, 142, 64, false);
@@ -409,6 +447,108 @@ namespace Roadhog
             return tab;
         }
 
+        private void RefreshCombatModeVisibility()
+        {
+            var visible = ParseMainMode(mainModeCombo?.Text) == AccountMainMode.CustomCombat;
+            var stationaryVisible = visible && ParseCombatMode(combatModeCombo?.Text) == AccountCombatMode.Stationary;
+            if (combatModeCombo is not null)
+            {
+                combatModeCombo.Visible = visible;
+            }
+
+            if (combatModeLabel is not null)
+            {
+                combatModeLabel.Visible = visible;
+            }
+
+            if (stationaryCombatPositionButton is not null)
+            {
+                stationaryCombatPositionButton.Visible = stationaryVisible;
+            }
+
+            if (stationaryCombatPositionLabel is not null)
+            {
+                stationaryCombatPositionLabel.Visible = stationaryVisible;
+            }
+        }
+
+        private async void SetStationaryCombatPositionButton_Click(object? sender, EventArgs e)
+        {
+            if (sender is not Button button)
+            {
+                return;
+            }
+
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "读取坐标...";
+
+            try
+            {
+                var result = await _runtime.ReadPlayerAsync(_account).ConfigureAwait(true);
+                if (!result.Success || result.Value is null)
+                {
+                    SetStationaryCombatPositionStatus(result.Error ?? "读取玩家坐标失败", true);
+                    return;
+                }
+
+                if (result.Value.Position is not { } position)
+                {
+                    SetStationaryCombatPositionStatus("玩家坐标为空", true);
+                    return;
+                }
+
+                stationaryCombatPosition = position;
+                RefreshStationaryCombatPositionLabel("已设置，保存配置后生效");
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+
+        private void SetStationaryCombatPosition(CombatScriptSettings combat)
+        {
+            stationaryCombatPosition = combat.HasStationaryCombatPosition
+                ? new Vector3Snapshot(
+                    (float)combat.StationaryCombatX,
+                    (float)combat.StationaryCombatY,
+                    (float)combat.StationaryCombatZ)
+                : null;
+            RefreshStationaryCombatPositionLabel(null);
+        }
+
+        private void RefreshStationaryCombatPositionLabel(string? prefix)
+        {
+            if (stationaryCombatPositionLabel is null)
+            {
+                return;
+            }
+
+            var text = stationaryCombatPosition is { } position
+                ? FormatVector(position)
+                : "未设置打怪坐标";
+            stationaryCombatPositionLabel.ForeColor = _textGreen;
+            stationaryCombatPositionLabel.Text = string.IsNullOrWhiteSpace(prefix)
+                ? text
+                : prefix + "  " + text;
+        }
+
+        private void SetStationaryCombatPositionStatus(string text, bool isError)
+        {
+            if (stationaryCombatPositionLabel is null)
+            {
+                return;
+            }
+
+            stationaryCombatPositionLabel.ForeColor = isError ? Color.FromArgb(166, 40, 40) : _textGreen;
+            stationaryCombatPositionLabel.Text = text;
+        }
+
         private TabPage CreatePathTab()
         {
             var tab = CreateBaseTab("路径");
@@ -416,9 +556,9 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             AddLabel(page, "挂机路径选择:", 4, 8, 130, 22, _textGreen, FontStyle.Bold);
-            AddLabel(page, "复活路径:  穆尔海姆00133（1点）", 24, 34, 320, 22);
-            AddLabel(page, "打怪路径:  未选（0点）", 24, 60, 260, 22);
-            AddLabel(page, "维护路径:  未选（0点）", 24, 86, 260, 22);
+            pathOverviewLabels[SharedPathKind.Revive] = AddLabel(page, "复活路径:  未选（0点）", 24, 34, 320, 22);
+            pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 24, 60, 260, 22);
+            pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "维护路径:  未选（0点）", 24, 86, 260, 22);
 
             var pathTabs = new TabControl
             {
@@ -433,15 +573,15 @@ namespace Roadhog
             };
 
             pathTabs.DrawItem += GreenTabs_DrawItem;
-            pathTabs.TabPages.Add(CreatePathEditorTab("复活路径", "死亡复活后返回主路径", true));
-            pathTabs.TabPages.Add(CreatePathEditorTab("打怪路径", "打怪巡逻路径", false));
-            pathTabs.TabPages.Add(CreatePathEditorTab("维护路径", "维护补给路径", false));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Revive, "复活路径", "死亡复活后返回主路径", true));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Combat, "打怪路径", "打怪巡逻路径", false));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Maintenance, "维护路径", "维护补给路径", false));
             page.Controls.Add(pathTabs);
 
             return tab;
         }
 
-        private TabPage CreatePathEditorTab(string title, string caption, bool includeSamplePoint)
+        private TabPage CreatePathEditorTab(SharedPathKind kind, string title, string caption, bool includeSamplePoint)
         {
             var tab = new TabPage
             {
@@ -453,33 +593,41 @@ namespace Roadhog
             var page = CreatePagePanel();
             tab.Controls.Add(page);
 
+            var editor = new PathEditorControls(kind);
+            pathEditors[kind] = editor;
+
             AddLabel(page, caption, 4, 8, 220, 22, _textGreen, FontStyle.Bold);
             var pathNameTextBox = AddTextBox(page, includeSamplePoint ? "穆尔海姆00133" : string.Empty, 4, 38, 242, 28);
-            if (string.Equals(title, "复活路径", StringComparison.Ordinal))
+            editor.PathNameTextBox = pathNameTextBox;
+            if (kind == SharedPathKind.Revive)
             {
                 revivePathNameTextBox = pathNameTextBox;
             }
-            else if (string.Equals(title, "打怪路径", StringComparison.Ordinal))
+            else if (kind == SharedPathKind.Combat)
             {
                 combatPathNameTextBox = pathNameTextBox;
             }
-            else if (string.Equals(title, "维护路径", StringComparison.Ordinal))
+            else if (kind == SharedPathKind.Maintenance)
             {
                 maintenancePathNameTextBox = pathNameTextBox;
             }
 
             AddLabel(page, "路径名", 252, 42, 54, 22);
-            AddCombo(page, "穆尔海姆00133（1点）", 306, 38, 254, 28);
+            editor.SavedPathCombo = AddCombo(page, 306, 38, 254, 28);
+            editor.SavedPathCombo.SelectedIndexChanged += (_, _) => LoadSelectedPath(editor);
             AddLabel(page, "已保存路径", 566, 42, 120, 22);
 
-            AddButton(page, "保存到列表", 6, 74, 100, 30);
-            AddButton(page, "删除保存", 114, 74, 92, 30);
-            AddLabel(page, "点数  1  |  总距  0.0  |  无效  0", 6, 112, 300, 24, _textGreen, FontStyle.Bold);
+            AddButton(page, "保存到列表", 6, 74, 100, 30, (_, _) => SavePath(editor));
+            AddButton(page, "删除保存", 114, 74, 92, 30, (_, _) => DeleteSavedPath(editor));
+            editor.SummaryLabel = AddLabel(page, "点数  0  |  总距  0.0  |  跳过  0", 6, 112, 300, 24, _textGreen, FontStyle.Bold);
+            editor.StatusLabel = AddLabel(page, "等待读取坐标", 316, 112, 420, 24);
 
-            AddButton(page, "开始录制", 6, 144, 100, 30);
-            AddButton(page, "停止录制", 116, 144, 100, 30);
-            AddButton(page, "清空", 226, 144, 68, 30);
-            AddButton(page, "复制路径", 304, 144, 88, 30);
+            editor.ManualButton = AddButton(page, "手动录点", 6, 144, 92, 30, (_, _) => AddManualPathPoint(editor));
+            editor.StartButton = AddButton(page, "开始录制", 106, 144, 92, 30, (_, _) => StartPathRecording(editor));
+            editor.StopButton = AddButton(page, "停止录制", 206, 144, 92, 30, (_, _) => StopPathRecording(editor));
+            AddButton(page, "删除末点", 306, 144, 82, 30, (_, _) => RemoveLastPathPoint(editor));
+            AddButton(page, "清空", 396, 144, 62, 30, (_, _) => ClearPathPoints(editor));
+            AddButton(page, "复制路径", 466, 144, 88, 30, (_, _) => CopyPath(editor));
 
             var pointsBox = new RoundedTextBox
             {
@@ -490,11 +638,12 @@ namespace Roadhog
                 ForeColor = _textGreen,
                 Location = new Point(6, 184),
                 Multiline = true,
-                ReadOnly = false,
+                ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
                 Size = new Size(562, 106),
-                Text = includeSamplePoint ? "1307.758, 2844.230, 259.832" : string.Empty
+                Text = string.Empty
             };
+            editor.PointsTextBox = pointsBox;
             page.Controls.Add(pointsBox);
 
             var pathAdvanced = CreateFoldout(page, "高级路径设置", 302, 850, true);
@@ -502,14 +651,397 @@ namespace Roadhog
             var loopCheckBox = AddCheckBox(pathAdvanced.Content, "循环路径", 6, 12, 92, true);
             var reverseCheckBox = AddCheckBox(pathAdvanced.Content, "到终点反向", 102, 12, 106, false);
             var deathStopCheckBox = AddCheckBox(pathAdvanced.Content, "死亡停止路径", 206, 12, 130, true);
-            if (string.Equals(title, "复活路径", StringComparison.Ordinal))
+            AddLabel(pathAdvanced.Content, "最短录制距离固定 5 米，自动录制每 250ms 读取一次", 346, 13, 360, 24);
+            if (kind == SharedPathKind.Revive)
             {
                 loopPathCheckBox = loopCheckBox;
                 reverseAtEndCheckBox = reverseCheckBox;
                 deathStopPathCheckBox = deathStopCheckBox;
             }
 
+            RefreshPathEditor(editor);
             return tab;
+        }
+
+        private void RefreshPathLibrary()
+        {
+            var result = _pathStore.LoadSummariesAsync().GetAwaiter().GetResult();
+            if (!result.Success || result.Value is null)
+            {
+                currentPathSummaries = Array.Empty<SharedPathSummary>();
+                foreach (var editor in pathEditors.Values)
+                {
+                    SetPathStatus(editor, result.Error ?? "读取共享路径失败", true);
+                }
+
+                return;
+            }
+
+            currentPathSummaries = result.Value;
+            RefreshSavedPathCombos();
+            RefreshPathOverviews();
+        }
+
+        private void RefreshSavedPathCombos()
+        {
+            loadingPathCombos = true;
+            try
+            {
+                foreach (var editor in pathEditors.Values)
+                {
+                    var selectedName = GetSelectedPathName(editor);
+                    if (string.IsNullOrWhiteSpace(selectedName))
+                    {
+                        selectedName = editor.PathNameTextBox?.Text;
+                    }
+
+                    editor.SavedPathCombo?.Items.Clear();
+                    foreach (var summary in currentPathSummaries)
+                    {
+                        editor.SavedPathCombo?.Items.Add(new PathComboItem(summary));
+                    }
+
+                    SelectPathComboItem(editor, selectedName, loadPath: false);
+                }
+            }
+            finally
+            {
+                loadingPathCombos = false;
+            }
+        }
+
+        private void SelectConfiguredPath(SharedPathKind kind, string? pathName)
+        {
+            if (!pathEditors.TryGetValue(kind, out var editor) || string.IsNullOrWhiteSpace(pathName))
+            {
+                RefreshPathOverviews();
+                return;
+            }
+
+            if (!SelectPathComboItem(editor, pathName, loadPath: true))
+            {
+                SetPathStatus(editor, "路径未保存: " + pathName, true);
+                RefreshPathOverviews();
+            }
+        }
+
+        private bool SelectPathComboItem(PathEditorControls editor, string? pathName, bool loadPath)
+        {
+            if (editor.SavedPathCombo is null || string.IsNullOrWhiteSpace(pathName))
+            {
+                return false;
+            }
+
+            for (var i = 0; i < editor.SavedPathCombo.Items.Count; i++)
+            {
+                if (editor.SavedPathCombo.Items[i] is PathComboItem item &&
+                    string.Equals(item.Name, pathName.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    var wasLoading = loadingPathCombos;
+                    loadingPathCombos = true;
+                    try
+                    {
+                        editor.SavedPathCombo.SelectedIndex = i;
+                    }
+                    finally
+                    {
+                        loadingPathCombos = wasLoading;
+                    }
+
+                    if (loadPath)
+                    {
+                        LoadPathByName(editor, item.Name);
+                    }
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void LoadSelectedPath(PathEditorControls editor)
+        {
+            if (loadingPathCombos)
+            {
+                return;
+            }
+
+            var name = GetSelectedPathName(editor);
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                LoadPathByName(editor, name);
+            }
+        }
+
+        private void LoadPathByName(PathEditorControls editor, string name)
+        {
+            var result = _pathStore.LoadAsync(name).GetAwaiter().GetResult();
+            if (!result.Success || result.Value is null)
+            {
+                SetPathStatus(editor, result.Error ?? "加载路径失败", true);
+                return;
+            }
+
+            editor.Buffer.Load(result.Value.Points);
+            editor.SkippedCount = 0;
+            SetText(editor.PathNameTextBox, result.Value.Name);
+            RefreshPathEditor(editor);
+            RefreshPathOverviews();
+            SetPathStatus(editor, "已加载路径: " + result.Value.Name, false);
+        }
+
+        private async void SavePath(PathEditorControls editor)
+        {
+            var name = GetText(editor.PathNameTextBox, string.Empty);
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                SetPathStatus(editor, "路径名不能为空", true);
+                return;
+            }
+
+            var result = await _pathStore.SaveAsync(editor.Buffer.ToDocument(name)).ConfigureAwait(true);
+            if (!result.Success)
+            {
+                SetPathStatus(editor, result.Error ?? "保存路径失败", true);
+                return;
+            }
+
+            RefreshPathLibrary();
+            SelectPathComboItem(editor, name, loadPath: false);
+            RefreshPathOverviews();
+            SetPathStatus(editor, "已保存共享路径: " + name, false);
+        }
+
+        private async void DeleteSavedPath(PathEditorControls editor)
+        {
+            var name = GetSelectedPathName(editor);
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = GetText(editor.PathNameTextBox, string.Empty);
+            }
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                SetPathStatus(editor, "没有可删除的路径名", true);
+                return;
+            }
+
+            var confirm = MessageBox.Show(
+                this,
+                "删除共享路径: " + name + "?",
+                "删除保存路径",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+            if (confirm != DialogResult.Yes)
+            {
+                return;
+            }
+
+            var result = await _pathStore.DeleteAsync(name).ConfigureAwait(true);
+            if (!result.Success)
+            {
+                SetPathStatus(editor, result.Error ?? "删除路径失败", true);
+                return;
+            }
+
+            RefreshPathLibrary();
+            SetPathStatus(editor, "已删除共享路径: " + name, false);
+        }
+
+        private async void AddManualPathPoint(PathEditorControls editor)
+        {
+            await AddCurrentPlayerPointAsync(editor, "手动录点", showSkipped: true).ConfigureAwait(true);
+        }
+
+        private void StartPathRecording(PathEditorControls editor)
+        {
+            if (recordingPathKind.HasValue && recordingPathKind.Value != editor.Kind)
+            {
+                if (pathEditors.TryGetValue(recordingPathKind.Value, out var previous))
+                {
+                    SetPathStatus(previous, "自动录制已切换到其他路径", false);
+                }
+            }
+
+            recordingPathKind = editor.Kind;
+            pathRecordTimer.Interval = 250;
+            pathRecordTimer.Start();
+            SetPathStatus(editor, "自动录制中", false);
+        }
+
+        private void StopPathRecording(PathEditorControls editor)
+        {
+            if (recordingPathKind == editor.Kind)
+            {
+                pathRecordTimer.Stop();
+                recordingPathKind = null;
+                pathRecordReadInFlight = false;
+            }
+
+            SetPathStatus(editor, "自动录制已停止", false);
+        }
+
+        private async void PathRecordTimer_Tick(object? sender, EventArgs e)
+        {
+            if (!recordingPathKind.HasValue ||
+                pathRecordReadInFlight ||
+                !pathEditors.TryGetValue(recordingPathKind.Value, out var editor))
+            {
+                return;
+            }
+
+            pathRecordReadInFlight = true;
+            try
+            {
+                await AddCurrentPlayerPointAsync(editor, "自动录点", showSkipped: false).ConfigureAwait(true);
+            }
+            finally
+            {
+                pathRecordReadInFlight = false;
+            }
+        }
+
+        private async Task AddCurrentPlayerPointAsync(PathEditorControls editor, string reason, bool showSkipped)
+        {
+            var result = await _runtime.ReadPlayerAsync(_account).ConfigureAwait(true);
+            if (!result.Success || result.Value is null)
+            {
+                SetPathStatus(editor, result.Error ?? "读取玩家坐标失败", true);
+                return;
+            }
+
+            if (result.Value.Position is not { } position)
+            {
+                SetPathStatus(editor, "玩家坐标为空", true);
+                return;
+            }
+
+            var addResult = editor.Buffer.TryAdd(position, result.Value.CapturedAt);
+            if (!addResult.Success)
+            {
+                editor.SkippedCount++;
+                RefreshPathEditor(editor);
+                if (showSkipped)
+                {
+                    SetPathStatus(editor, addResult.Error ?? "距离不足 5 米，未录点", true);
+                }
+
+                return;
+            }
+
+            RefreshPathEditor(editor);
+            RefreshPathOverviews();
+            SetPathStatus(editor, reason + "成功: " + FormatVector(position), false);
+        }
+
+        private void RemoveLastPathPoint(PathEditorControls editor)
+        {
+            var result = editor.Buffer.RemoveLast();
+            if (!result.Success)
+            {
+                SetPathStatus(editor, result.Error ?? "没有路径点", true);
+                return;
+            }
+
+            RefreshPathEditor(editor);
+            RefreshPathOverviews();
+            SetPathStatus(editor, "已删除末点", false);
+        }
+
+        private void ClearPathPoints(PathEditorControls editor)
+        {
+            editor.Buffer.Clear();
+            editor.SkippedCount = 0;
+            RefreshPathEditor(editor);
+            RefreshPathOverviews();
+            SetPathStatus(editor, "路径点已清空", false);
+        }
+
+        private void CopyPath(PathEditorControls editor)
+        {
+            var text = editor.Buffer.ToCoordinateText();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                SetPathStatus(editor, "没有可复制的路径点", true);
+                return;
+            }
+
+            Clipboard.SetText(text);
+            SetPathStatus(editor, "路径文本已复制", false);
+        }
+
+        private void RefreshPathEditor(PathEditorControls editor)
+        {
+            if (editor.PointsTextBox is not null)
+            {
+                editor.PointsTextBox.Text = editor.Buffer.ToCoordinateText();
+            }
+
+            if (editor.SummaryLabel is not null)
+            {
+                editor.SummaryLabel.Text =
+                    "点数  " + editor.Buffer.Count.ToString(CultureInfo.InvariantCulture) +
+                    "  |  总距  " + editor.Buffer.TotalDistance.ToString("F1", CultureInfo.InvariantCulture) +
+                    "  |  跳过  " + editor.SkippedCount.ToString(CultureInfo.InvariantCulture);
+            }
+        }
+
+        private void RefreshPathOverviews()
+        {
+            SetPathOverview(SharedPathKind.Revive, "复活路径", revivePathNameTextBox?.Text);
+            SetPathOverview(SharedPathKind.Combat, "打怪路径", combatPathNameTextBox?.Text);
+            SetPathOverview(SharedPathKind.Maintenance, "维护路径", maintenancePathNameTextBox?.Text);
+        }
+
+        private void SetPathOverview(SharedPathKind kind, string label, string? pathName)
+        {
+            if (!pathOverviewLabels.TryGetValue(kind, out var overview))
+            {
+                return;
+            }
+
+            var name = string.IsNullOrWhiteSpace(pathName) ? "未选" : pathName.Trim();
+            var summary = currentPathSummaries.FirstOrDefault(item =>
+                string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
+            var pointCount = summary?.PointCount ?? (pathEditors.TryGetValue(kind, out var editor) ? editor.Buffer.Count : 0);
+            overview.Text = label + ":  " + name + "（" + pointCount.ToString(CultureInfo.InvariantCulture) + "点）";
+        }
+
+        private string GetSelectedPathName(PathEditorControls editor)
+        {
+            if (editor.SavedPathCombo is null)
+            {
+                return string.Empty;
+            }
+
+            var selectedIndex = editor.SavedPathCombo.SelectedIndex;
+            if (selectedIndex >= 0 &&
+                selectedIndex < editor.SavedPathCombo.Items.Count &&
+                editor.SavedPathCombo.Items[selectedIndex] is PathComboItem item)
+            {
+                return item.Name;
+            }
+
+            return editor.SavedPathCombo.Text;
+        }
+
+        private void SetPathStatus(PathEditorControls editor, string text, bool isError)
+        {
+            if (editor.StatusLabel is null)
+            {
+                return;
+            }
+
+            editor.StatusLabel.Text = text;
+            editor.StatusLabel.ForeColor = isError ? Color.FromArgb(166, 40, 40) : _textGreen;
+        }
+
+        private static string FormatVector(Vector3Snapshot position)
+        {
+            return "X=" + position.X.ToString("F2", CultureInfo.InvariantCulture) +
+                   " Y=" + position.Y.ToString("F2", CultureInfo.InvariantCulture) +
+                   " Z=" + position.Z.ToString("F2", CultureInfo.InvariantCulture);
         }
 
         private TabPage CreateMaintenanceTab()
@@ -648,9 +1180,9 @@ namespace Roadhog
             };
         }
 
-        private void AddLabel(Control parent, string text, int x, int y, int width, int height, Color? foreColor = null, FontStyle style = FontStyle.Regular)
+        private Label AddLabel(Control parent, string text, int x, int y, int width, int height, Color? foreColor = null, FontStyle style = FontStyle.Regular)
         {
-            parent.Controls.Add(new Label
+            var label = new Label
             {
                 AutoSize = false,
                 BackColor = Color.Transparent,
@@ -660,7 +1192,10 @@ namespace Roadhog
                 Size = new Size(width, height),
                 Text = text,
                 TextAlign = ContentAlignment.MiddleLeft
-            });
+            };
+
+            parent.Controls.Add(label);
+            return label;
         }
 
         private RoundedTextBox AddTextBox(Control parent, string text, int x, int y, int width, int height)
@@ -2231,6 +2766,58 @@ namespace Roadhog
             Up,
             Down,
             Bottom
+        }
+
+        private sealed class PathEditorControls
+        {
+            public PathEditorControls(SharedPathKind kind)
+            {
+                Kind = kind;
+            }
+
+            public SharedPathKind Kind { get; }
+
+            public RoundedTextBox? PathNameTextBox { get; set; }
+
+            public RoundedComboBox? SavedPathCombo { get; set; }
+
+            public Label? SummaryLabel { get; set; }
+
+            public Label? StatusLabel { get; set; }
+
+            public RoundedTextBox? PointsTextBox { get; set; }
+
+            public Button? ManualButton { get; set; }
+
+            public Button? StartButton { get; set; }
+
+            public Button? StopButton { get; set; }
+
+            public PathRecordingBuffer Buffer { get; } = new();
+
+            public int SkippedCount { get; set; }
+        }
+
+        private sealed class PathComboItem
+        {
+            private readonly SharedPathSummary _summary;
+
+            public PathComboItem(SharedPathSummary summary)
+            {
+                _summary = summary;
+            }
+
+            public string Name => _summary.Name;
+
+            public override string ToString()
+            {
+                return _summary.Name +
+                       "（" +
+                       _summary.PointCount.ToString(CultureInfo.InvariantCulture) +
+                       "点 / " +
+                       _summary.TotalDistance.ToString("F1", CultureInfo.InvariantCulture) +
+                       "m）";
+            }
         }
 
         private void GreenTabs_DrawItem(object? sender, DrawItemEventArgs e)

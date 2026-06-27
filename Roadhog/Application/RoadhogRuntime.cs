@@ -26,6 +26,31 @@ public sealed class RoadhogRuntime
 
     public AccountOrchestrator Orchestrator { get; }
 
+    public async Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ReadPlayerSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        if (result.Success)
+        {
+            _logger.Info("player.refresh.ok", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["hasPosition"] = result.Value?.Position is not null
+            });
+        }
+        else
+        {
+            _logger.Warn("player.refresh.failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["error"] = result.Error
+            });
+        }
+
+        return result;
+    }
+
     public async Task<OperationResult<IReadOnlyList<SkillSnapshot>>> RefreshSkillsAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
@@ -58,20 +83,36 @@ public sealed class RoadhogRuntime
         if (_gameApi is IRoadhogScopedGameApi scopedApi &&
             !string.IsNullOrWhiteSpace(accountName))
         {
-            var account = Accounts.Snapshot()
-                .FirstOrDefault(item => string.Equals(item.AccountName, accountName, StringComparison.OrdinalIgnoreCase));
-
-            var context = account is null
-                ? new GameApiReadContext(accountName, 0, string.Empty, string.Empty)
-                : new GameApiReadContext(
-                    account.AccountName,
-                    account.ProcessId,
-                    account.TargetProcessName,
-                    account.VmmDeviceName);
-
-            return scopedApi.ReadSkillsAsync(context, cancellationToken);
+            return scopedApi.ReadSkillsAsync(CreateReadContext(accountName), cancellationToken);
         }
 
         return _gameApi.ReadSkillsAsync(cancellationToken);
+    }
+
+    private Task<OperationResult<PlayerSnapshot>> ReadPlayerSnapshotAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            return scopedApi.ReadPlayerAsync(CreateReadContext(accountName), cancellationToken);
+        }
+
+        return _gameApi.ReadPlayerAsync(cancellationToken);
+    }
+
+    private GameApiReadContext CreateReadContext(string accountName)
+    {
+        var account = Accounts.Snapshot()
+            .FirstOrDefault(item => string.Equals(item.AccountName, accountName, StringComparison.OrdinalIgnoreCase));
+
+        return account is null
+            ? new GameApiReadContext(accountName, 0, string.Empty, string.Empty)
+            : new GameApiReadContext(
+                account.AccountName,
+                account.ProcessId,
+                account.TargetProcessName,
+                account.VmmDeviceName);
     }
 }

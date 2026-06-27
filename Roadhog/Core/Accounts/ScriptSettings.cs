@@ -88,13 +88,25 @@ public sealed class CombatScriptSettings
 
     public bool CounterEnemyRace { get; set; }
 
+    public bool HasStationaryCombatPosition { get; set; }
+
+    public double StationaryCombatX { get; set; }
+
+    public double StationaryCombatY { get; set; }
+
+    public double StationaryCombatZ { get; set; }
+
     public CombatScriptSettings Clone()
     {
         return new CombatScriptSettings
         {
             EnableLoot = EnableLoot,
             ContestMonster = ContestMonster,
-            CounterEnemyRace = CounterEnemyRace
+            CounterEnemyRace = CounterEnemyRace,
+            HasStationaryCombatPosition = HasStationaryCombatPosition,
+            StationaryCombatX = StationaryCombatX,
+            StationaryCombatY = StationaryCombatY,
+            StationaryCombatZ = StationaryCombatZ
         };
     }
 }

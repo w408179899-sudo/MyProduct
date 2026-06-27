@@ -5,6 +5,10 @@ namespace Roadhog.Core.Api;
 
 public interface IRoadhogScopedGameApi : IRoadhogGameApi
 {
+    Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default);
+
     Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(
         GameApiReadContext context,
         CancellationToken cancellationToken = default);

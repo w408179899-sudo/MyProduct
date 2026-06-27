@@ -84,7 +84,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 
     public Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(OperationResult<PlayerSnapshot>.Fail("Direct VMM player snapshot is not implemented yet."));
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadPlayerAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadPlayerCore(context), cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
@@ -174,6 +182,49 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         {
             _logger.Error("vmm.locked_target.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<LockedTargetSnapshot>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<PlayerSnapshot> ReadPlayerCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<PlayerSnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<PlayerSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                if (!TryReadLocalPlayer(process, gameBase, out var snapshot, out var readError))
+                {
+                    return OperationResult<PlayerSnapshot>.Fail(readError);
+                }
+
+                _logger.Info("vmm.player.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["entityId"] = snapshot.EntityId,
+                    ["targetEntityId"] = snapshot.TargetEntityId,
+                    ["hasPosition"] = snapshot.Position is not null
+                });
+
+                return OperationResult<PlayerSnapshot>.Ok(snapshot);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.player.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<PlayerSnapshot>.Fail(ex.Message);
         }
     }
 
@@ -1491,6 +1542,68 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             info.Actor = actor;
         }
 
+        return true;
+    }
+
+    private static bool TryReadLocalPlayer(
+        VmmProcess process,
+        ulong gameBase,
+        out PlayerSnapshot snapshot,
+        out string error)
+    {
+        snapshot = new PlayerSnapshot(0, 0, 0, 0, 0, 0, 0, null, DateTimeOffset.Now);
+        error = string.Empty;
+
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        {
+            error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
+            return false;
+        }
+
+        TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out var targetEntityId);
+
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        {
+            error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        {
+            error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
+            return false;
+        }
+
+        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity))
+        {
+            error = "local entity id " + localEntityId + " was not found in EntitySystem tree";
+            return false;
+        }
+
+        if (!TryReadEntityPosition(process, localEntity, out var x, out var y, out var z))
+        {
+            error = "failed to read local entity position at CEntity+0x" + EntityWorldPositionOffset.ToString("X");
+            return false;
+        }
+
+        uint currentHp = 0;
+        uint maxHp = 0;
+        if (TryResolveActorFromEntity(process, localEntity, 0, out var actor))
+        {
+            currentHp = actor.CurrentHp;
+            maxHp = actor.MaxHp;
+        }
+
+        snapshot = new PlayerSnapshot(
+            localEntityId,
+            targetEntityId,
+            currentHp,
+            maxHp,
+            0,
+            0,
+            0,
+            new Vector3Snapshot(x, y, z),
+            DateTimeOffset.Now);
         return true;
     }
 

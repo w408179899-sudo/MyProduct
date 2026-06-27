@@ -13,6 +13,8 @@ using Roadhog.Infrastructure.Hardware;
 using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Mock;
 using Roadhog.Infrastructure.Offsets;
+using Roadhog.Core.Paths;
+using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Processes;
 using Roadhog.Infrastructure.ToolBridge;
 using Roadhog.Infrastructure.Vmm;
@@ -27,6 +29,7 @@ public sealed class RoadhogServices
         IHardwareDeviceResolver hardwareResolver,
         ITargetProcessResolver processResolver,
         IAccountConfigStore accountConfigStore,
+        ISharedPathStore sharedPathStore,
         AccountRuntimeManager accountRuntimeManager,
         AccountOrchestrator accountOrchestrator,
         RoadhogRuntime runtime,
@@ -37,6 +40,7 @@ public sealed class RoadhogServices
         HardwareResolver = hardwareResolver;
         ProcessResolver = processResolver;
         AccountConfigStore = accountConfigStore;
+        SharedPathStore = sharedPathStore;
         AccountRuntimeManager = accountRuntimeManager;
         AccountOrchestrator = accountOrchestrator;
         Runtime = runtime;
@@ -52,6 +56,8 @@ public sealed class RoadhogServices
     public ITargetProcessResolver ProcessResolver { get; }
 
     public IAccountConfigStore AccountConfigStore { get; }
+
+    public ISharedPathStore SharedPathStore { get; }
 
     public AccountRuntimeManager AccountRuntimeManager { get; }
 
@@ -73,6 +79,7 @@ public sealed class RoadhogServices
         {
             ["logDirectory"] = options.LogDirectory,
             ["accountConfigPath"] = options.AccountConfigPath,
+            ["pathLibraryDirectory"] = options.PathLibraryDirectory,
             ["keyboardInput"] = "KMbox",
             ["keyboardPort"] = options.KeyboardInput.PortName,
             ["useMockGameApi"] = options.UseMockGameApi,
@@ -86,6 +93,7 @@ public sealed class RoadhogServices
         var hardwareResolver = new WindowsHardwareDeviceResolver(options.HardwareResolver);
         var processResolver = new AionProcessResolver(options.ProcessResolver);
         var accountConfigStore = new JsonAccountConfigStore(options.AccountConfigPath);
+        var sharedPathStore = new JsonSharedPathStore(options.PathLibraryDirectory);
         var accounts = new AccountRuntimeManager(logger);
         IKeyboardInput keyboardInput = new KmBoxKeyboardInput(options.KeyboardInput);
         var semiAutoController = new SemiAutoCombatController(keyboardInput);
@@ -106,6 +114,6 @@ public sealed class RoadhogServices
         var runtime = new RoadhogRuntime(gameApi, logger, accounts, accountOrchestrator);
         var offsets = new OffsetCatalogProvider(new OffsetCatalogLoader(), logger);
 
-        return new RoadhogServices(logger, gameApi, hardwareResolver, processResolver, accountConfigStore, accounts, accountOrchestrator, runtime, offsets);
+        return new RoadhogServices(logger, gameApi, hardwareResolver, processResolver, accountConfigStore, sharedPathStore, accounts, accountOrchestrator, runtime, offsets);
     }
 }

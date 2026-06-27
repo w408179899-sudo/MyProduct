@@ -7,9 +7,17 @@ using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
+using Roadhog.Core.Paths;
+using Roadhog.Infrastructure.Config;
+using Roadhog.Infrastructure.Paths;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
+    ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
+    ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
+    ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
+    ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
     ("skill tree maps at most configured roots across the 22 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
@@ -51,7 +59,186 @@ if (failures > 0)
 }
 else
 {
-    Console.WriteLine("All semi-auto skill tests passed.");
+    Console.WriteLine("All Roadhog tests passed.");
+}
+
+static Task TestPathRecorderMinimumDistanceAsync()
+{
+    var buffer = new PathRecordingBuffer();
+    var now = DateTimeOffset.Parse("2026-06-27T12:00:00+08:00");
+
+    var first = buffer.TryAdd(new Vector3Snapshot(0, 0, 0), now);
+    AssertFalse(!first.Success, "first path point should always be accepted");
+
+    var tooClose = buffer.TryAdd(new Vector3Snapshot(4.9F, 0, 0), now.AddSeconds(1));
+    AssertFalse(tooClose.Success, "point below five meters must be skipped");
+
+    var exactMinimum = buffer.TryAdd(new Vector3Snapshot(3, 4, 0), now.AddSeconds(2));
+    AssertFalse(!exactMinimum.Success, "point at five meters must be accepted");
+
+    AssertEqual(2, buffer.Count, "accepted point count");
+    AssertEqual(5.0D, Math.Round(buffer.TotalDistance, 2), "total distance");
+    AssertSequence(
+        new[] { "0.000, 0.000, 0.000", "3.000, 4.000, 0.000" },
+        buffer.ToCoordinateText().Split(Environment.NewLine),
+        "coordinate export");
+
+    return Task.CompletedTask;
+}
+
+static async Task TestSharedPathStoreRoundTripAsync()
+{
+    var directory = CreateTempDirectory("roadhog-paths-");
+    try
+    {
+        var store = new JsonSharedPathStore(directory);
+        var buffer = new PathRecordingBuffer();
+        buffer.TryAdd(new Vector3Snapshot(10, 20, 30), DateTimeOffset.Now);
+        buffer.TryAdd(new Vector3Snapshot(16, 20, 30), DateTimeOffset.Now);
+        var name = "测试路径/共享";
+
+        var save = await store.SaveAsync(buffer.ToDocument(name)).ConfigureAwait(false);
+        AssertFalse(!save.Success, "path save should succeed");
+
+        var summaries = await store.LoadSummariesAsync().ConfigureAwait(false);
+        AssertFalse(!summaries.Success, "path summaries should load");
+        AssertEqual(1, summaries.Value?.Count ?? 0, "summary count");
+        AssertEqual(name, summaries.Value![0].Name, "summary name");
+        AssertEqual(2, summaries.Value[0].PointCount, "summary point count");
+
+        var loaded = await store.LoadAsync(name).ConfigureAwait(false);
+        AssertFalse(!loaded.Success, "saved path should load");
+        AssertEqual(2, loaded.Value?.PointCount ?? 0, "loaded point count");
+        AssertEqual(6.0D, Math.Round(loaded.Value?.TotalDistance ?? 0, 2), "loaded total distance");
+
+        var delete = await store.DeleteAsync(name).ConfigureAwait(false);
+        AssertFalse(!delete.Success, "path delete should succeed");
+        summaries = await store.LoadSummariesAsync().ConfigureAwait(false);
+        AssertEqual(0, summaries.Value?.Count ?? -1, "summary count after delete");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+}
+
+static async Task TestRuntimePlayerReadUsesAccountScopeAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    accounts.MarkStarting(new AccountConfig
+    {
+        AccountName = "account-scope",
+        ProcessId = 712,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga"
+    });
+
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            10,
+            11,
+            100,
+            100,
+            50,
+            50,
+            0,
+            new Vector3Snapshot(1, 2, 3),
+            DateTimeOffset.Now)
+    };
+    var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
+
+    var result = await runtime.ReadPlayerAsync("account-scope").ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "runtime player read should succeed");
+    AssertEqual(712, gameApi.LastPlayerContext?.ProcessId ?? 0, "scoped process id");
+    AssertEqual("Aion.bin", gameApi.LastPlayerContext?.TargetProcessName ?? string.Empty, "scoped process name");
+    AssertEqual("fpga", gameApi.LastPlayerContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
+}
+
+static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
+{
+    var directory = CreateTempDirectory("roadhog-account-paths-");
+    try
+    {
+        var accountPath = Path.Combine(directory, "accounts.json");
+        var store = new JsonAccountConfigStore(accountPath);
+        var pathName = "共享打怪路径001";
+        var account = new AccountConfig
+        {
+            AccountName = "account-path",
+            ScriptSettings = new ScriptSettings
+            {
+                Paths = new PathScriptSettings
+                {
+                    CombatPathName = pathName
+                }
+            }
+        };
+
+        var save = await store.UpsertAsync(account).ConfigureAwait(false);
+        AssertFalse(!save.Success, "account save should succeed");
+
+        var text = await File.ReadAllTextAsync(accountPath).ConfigureAwait(false);
+        AssertFalse(!text.Contains("\"CombatPathName\"", StringComparison.Ordinal), "account config should contain shared path reference field");
+        AssertFalse(text.Contains("\"Points\"", StringComparison.Ordinal), "account config should not contain path points");
+
+        var load = await store.LoadAllAsync().ConfigureAwait(false);
+        AssertFalse(!load.Success, "account config should load");
+        AssertEqual(pathName, load.Value?[0].ScriptSettings?.Paths.CombatPathName ?? string.Empty, "loaded combat path name");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+}
+
+static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
+{
+    var directory = CreateTempDirectory("roadhog-stationary-combat-");
+    try
+    {
+        var accountPath = Path.Combine(directory, "accounts.json");
+        var store = new JsonAccountConfigStore(accountPath);
+        var account = new AccountConfig
+        {
+            AccountName = "account-stationary",
+            ScriptSettings = new ScriptSettings
+            {
+                MainMode = AccountMainMode.CustomCombat,
+                CombatMode = AccountCombatMode.Stationary,
+                Combat = new CombatScriptSettings
+                {
+                    EnableLoot = true,
+                    HasStationaryCombatPosition = true,
+                    StationaryCombatX = 1307.758D,
+                    StationaryCombatY = 2844.230D,
+                    StationaryCombatZ = 259.832D
+                }
+            }
+        };
+
+        var save = await store.UpsertAsync(account).ConfigureAwait(false);
+        AssertFalse(!save.Success, "stationary combat account save should succeed");
+
+        var load = await store.LoadAllAsync().ConfigureAwait(false);
+        AssertFalse(!load.Success, "stationary combat account should load");
+        var combat = load.Value?[0].ScriptSettings?.Combat;
+        AssertFalse(combat is null, "combat settings should load");
+        AssertFalse(!combat!.HasStationaryCombatPosition, "stationary combat position flag should persist");
+        AssertEqual(1307.758D, combat.StationaryCombatX, "stationary x");
+        AssertEqual(2844.230D, combat.StationaryCombatY, "stationary y");
+        AssertEqual(259.832D, combat.StationaryCombatZ, "stationary z");
+
+        var clone = account.ScriptSettings.Combat.Clone();
+        AssertFalse(!clone.HasStationaryCombatPosition, "stationary combat position flag should clone");
+        AssertEqual(1307.758D, clone.StationaryCombatX, "cloned stationary x");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
 }
 
 static Task TestSkillTreeKeyMappingAsync()
@@ -935,6 +1122,21 @@ static async Task WaitUntilAsync(
     throw new InvalidOperationException("condition was not met before timeout");
 }
 
+static string CreateTempDirectory(string prefix)
+{
+    var directory = Path.Combine(Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(directory);
+    return directory;
+}
+
+static void DeleteDirectoryIfExists(string directory)
+{
+    if (Directory.Exists(directory))
+    {
+        Directory.Delete(directory, recursive: true);
+    }
+}
+
 static void AssertSequence<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual, string label)
 {
     if (!expected.SequenceEqual(actual))
@@ -981,9 +1183,22 @@ sealed class RecordingKeyboardInput : IKeyboardInput
 
 sealed class FakeGameApi : IRoadhogScopedGameApi
 {
+    public PlayerSnapshot Player { get; set; } = new(
+        1,
+        0,
+        100,
+        100,
+        100,
+        100,
+        0,
+        new Vector3Snapshot(0, 0, 0),
+        DateTimeOffset.Now);
+
     public IReadOnlyList<SkillSnapshot> Skills { get; set; } = Array.Empty<SkillSnapshot>();
 
     public IReadOnlyList<uint>? LastRequestedSkillIds { get; private set; }
+
+    public GameApiReadContext? LastPlayerContext { get; private set; }
 
     public ushort TargetEntityId { get; set; } = 100;
 
@@ -991,7 +1206,15 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
 
     public Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(OperationResult<PlayerSnapshot>.Fail("not used"));
+        return Task.FromResult(OperationResult<PlayerSnapshot>.Ok(Player));
+    }
+
+    public Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        LastPlayerContext = context;
+        return ReadPlayerAsync(cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)

@@ -14,6 +14,8 @@ public sealed class RoadhogServiceOptions
 
     public string AccountConfigPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "accounts.json");
 
+    public string PathLibraryDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "paths");
+
     public string LogDirectory { get; set; } = Path.Combine(ResolveRoadhogProjectDirectory(), "logs");
 
     public TimeSpan AccountWorkerTickInterval { get; set; } = TimeSpan.FromMilliseconds(250);
