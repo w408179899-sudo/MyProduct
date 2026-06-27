@@ -17,6 +17,7 @@ public sealed class StationaryCombatController
     private const double ReturnStopDistance = 2.0D;
     private const double AcquireDistance = 25.0D;
     private const double TargetLeashExtraDistance = 5.0D;
+    private const double PreLockFaceYawToleranceDegrees = 20.0D;
 
     private readonly IKeyboardInput _input;
     private readonly SemiAutoCombatController _semiAuto;
@@ -108,6 +109,7 @@ public sealed class StationaryCombatController
             await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
             await StopMovementAsync(context, state).ConfigureAwait(false);
             state.CandidateEntityId = 0;
+            state.FacedCandidateEntityId = 0;
             return IdleDelay;
         }
 
@@ -118,6 +120,7 @@ public sealed class StationaryCombatController
         var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
         if (previousCandidateEntityId != target.EntityId)
         {
+            state.FacedCandidateEntityId = 0;
             context.Logger.Info("stationary_combat.target.selected", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -133,14 +136,35 @@ public sealed class StationaryCombatController
         {
             await StopMovementAsync(context, state).ConfigureAwait(false);
             state.CandidateEntityId = 0;
+            state.FacedCandidateEntityId = 0;
             return IdleDelay;
         }
 
-        var isFacingTarget = await FaceTargetStepAsync(context, state, player, targetPosition, target).ConfigureAwait(false);
-        if (!isFacingTarget)
+        var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        var acquiredDelay = await TryAcquireLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedResult,
+                "pre_move")
+            .ConfigureAwait(false);
+        if (acquiredDelay is not null)
         {
-            await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
-            return MoveTickDelay;
+            return acquiredDelay.Value;
+        }
+
+        if (state.FacedCandidateEntityId != target.EntityId)
+        {
+            var isFacingTarget = await FaceTargetStepAsync(context, state, player, targetPosition, target).ConfigureAwait(false);
+            if (!isFacingTarget)
+            {
+                await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+                return MoveTickDelay;
+            }
+
+            state.FacedCandidateEntityId = target.EntityId;
         }
 
         if (playerDistanceToTarget > AcquireDistance)
@@ -319,6 +343,7 @@ public sealed class StationaryCombatController
         state.CurrentTargetEntityId = target.EntityId;
         state.CandidateEntityId = target.EntityId;
         await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
         context.Logger.Info("stationary_combat.target.acquired", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -484,11 +509,11 @@ public sealed class StationaryCombatController
         }
 
         await EnsureRightMouseDownAsync(context, state).ConfigureAwait(false);
-        await EnsureMoveForwardAsync(context, state).ConfigureAwait(false);
+        var moveStarted = await EnsureMoveForwardAsync(context, state).ConfigureAwait(false);
         LogActionThrottled(context, state, "stationary_combat.path_follow", "move_forward", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
-            ["action"] = "move_forward",
+            ["action"] = moveStarted ? "move_start" : "move_hold",
             ["targetX"] = Math.Round(target.X, 2),
             ["targetY"] = Math.Round(target.Y, 2),
             ["targetZ"] = Math.Round(target.Z, 2),
@@ -508,7 +533,11 @@ public sealed class StationaryCombatController
             return false;
         }
 
-        var options = ReadPathFollowTurnOptions();
+        var options = ReadPathFollowTurnOptions() with
+        {
+            ToleranceDegrees = PreLockFaceYawToleranceDegrees,
+            YawToleranceDegrees = PreLockFaceYawToleranceDegrees
+        };
         var snapshot = BuildCameraTurnSnapshot(player, targetPosition, options);
         if (snapshot is null)
         {
@@ -584,16 +613,15 @@ public sealed class StationaryCombatController
         return turn.Success;
     }
 
-    private async Task EnsureMoveForwardAsync(
+    private async Task<bool> EnsureMoveForwardAsync(
         AccountWorkerContext context,
         StationaryCombatState state)
     {
         if (state.IsMovingForward)
         {
-            return;
+            return false;
         }
 
-        await _input.KeyUpAsync("W", context.StopToken).ConfigureAwait(false);
         var down = await _input.KeyDownAsync("W", context.StopToken).ConfigureAwait(false);
         state.IsMovingForward = down.Success;
         SetPathFollowMoving(state, state.IsMovingForward);
@@ -606,6 +634,16 @@ public sealed class StationaryCombatController
                 ["error"] = down.Error
             });
         }
+
+        if (down.Success)
+        {
+            context.Logger.Info("stationary_combat.input.w_down", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName
+            });
+        }
+
+        return down.Success;
     }
 
     private async Task EnsureRightMouseDownAsync(
@@ -642,6 +680,11 @@ public sealed class StationaryCombatController
         await _input.KeyUpAsync("W", context.StopToken).ConfigureAwait(false);
         state.IsMovingForward = false;
         SetPathFollowMoving(state, false);
+        context.Logger.Info("stationary_combat.input.w_up", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["source"] = "stop_move_forward"
+        });
     }
 
     private async Task StopMovementAsync(
@@ -653,6 +696,11 @@ public sealed class StationaryCombatController
             await _input.KeyUpAsync("W", context.StopToken).ConfigureAwait(false);
             state.IsMovingForward = false;
             SetPathFollowMoving(state, false);
+            context.Logger.Info("stationary_combat.input.w_up", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["source"] = "stop_movement"
+            });
         }
 
         if (state.IsRightMouseDown)
@@ -2055,7 +2103,7 @@ public sealed class StationaryCombatController
         public CameraTurnSnapshot? ArrivedSnapshot { get; set; }
     }
 
-    private sealed class PathFollowTurnOptions
+    private sealed record PathFollowTurnOptions
     {
         public int DurationMs { get; init; }
         public int SettleMs { get; init; }

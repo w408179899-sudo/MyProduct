@@ -22,9 +22,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
+    ("stationary combat accepts twenty degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
     ("stationary combat verifies target after each tab press", TestStationaryCombatVerifiesAfterEachTabAsync),
     ("stationary combat releases path follow movement after target is verified", TestStationaryCombatReleasesMovementAfterAcquireAsync),
+    ("stationary combat does not pulse W while approaching same target", TestStationaryCombatDoesNotPulseWWhileApproachingAsync),
+    ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
     ("skill tree maps at most configured roots across the 22 supported keys", TestConfiguredRootKeyBoundaryAsync),
@@ -34,6 +37,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("uncalibrated nonzero cooldown falls back to first configured root", TestUncalibratedNonzeroCooldownFallsBackToFirstRootAsync),
     ("calibrated nonzero cooldown skips cooling roots", TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync),
     ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
+    ("observed cooldown survives zero end tick read", TestObservedCooldownSurvivesZeroEndTickReadAsync),
     ("attack key loop presses C independently", TestAttackKeyLoopPressesCIndependentlyAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
@@ -321,7 +325,7 @@ static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
         var gameApi = new FakeGameApi
         {
             Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 20, 0),
-            TargetEntityId = 100,
+            TargetEntityId = 0,
             TargetCurrentHp = 1000,
             TargetPosition = new Vector3Snapshot(5, 0, 0),
             WorldObjects = new[]
@@ -356,6 +360,78 @@ static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
     finally
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousYawOffset = Environment.GetEnvironmentVariable("AION_FACE_TARGET_YAW_OFFSET_DEG");
+    var previousPathPitch = Environment.GetEnvironmentVariable("AION_PATH_FOLLOW_PITCH_DEG");
+    var previousCameraPitch = Environment.GetEnvironmentVariable("AION_CAMERA_FIXED_PITCH_DEG");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_YAW_OFFSET_DEG", "0");
+    Environment.SetEnvironmentVariable("AION_PATH_FOLLOW_PITCH_DEG", "20");
+    Environment.SetEnvironmentVariable("AION_CAMERA_FIXED_PITCH_DEG", "20");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 75, 20, 75),
+            TargetEntityId = 999,
+            TargetCurrentHp = 1000,
+            TargetPosition = new Vector3Snapshot(5, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), new StationaryCombatState())
+            .ConfigureAwait(false);
+
+        AssertFalse(keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)), "15 degree pre-lock yaw error should not move mouse");
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "15 degree pre-lock yaw error should continue to Tab verification");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.face_target" &&
+            string.Equals(Convert.ToString(entry.Fields["action"]), "face_aligned", StringComparison.Ordinal) &&
+            Math.Abs(Convert.ToDouble(entry.Fields["yawTolerance"]) - 20.0D) < 0.001D),
+            "face target log should show 20 degree yaw tolerance");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_YAW_OFFSET_DEG", previousYawOffset);
+        Environment.SetEnvironmentVariable("AION_PATH_FOLLOW_PITCH_DEG", previousPathPitch);
+        Environment.SetEnvironmentVariable("AION_CAMERA_FIXED_PITCH_DEG", previousCameraPitch);
     }
 }
 
@@ -518,7 +594,7 @@ static async Task TestStationaryCombatReleasesMovementAfterAcquireAsync()
         var gameApi = new FakeGameApi
         {
             Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
-            TargetEntityId = 100,
+            TargetEntityId = 999,
             TargetCurrentHp = 1000,
             TargetPosition = new Vector3Snapshot(40, 0, 0),
             WorldObjects = new[]
@@ -549,6 +625,7 @@ static async Task TestStationaryCombatReleasesMovementAfterAcquireAsync()
         AssertFalse(!state.IsRightMouseDown, "approach should hold right mouse while outside acquire distance");
         AssertFalse(!keyboard.KeyDowns.Contains("W"), "approach should send W down");
 
+        gameApi.TargetEntityId = 100;
         gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(20, 0, 0), TargetEntityId = 100 };
         await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
@@ -562,6 +639,127 @@ static async Task TestStationaryCombatReleasesMovementAfterAcquireAsync()
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
     }
+}
+
+static async Task TestStationaryCombatDoesNotPulseWWhileApproachingAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 999,
+            TargetCurrentHp = 1000,
+            TargetPosition = new Vector3Snapshot(40, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(40, 0, 0), 40, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        var firstKeyUpCount = keyboard.KeyUps.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase));
+        var firstKeyDownCount = keyboard.KeyDowns.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase));
+        AssertFalse(!state.IsMovingForward, "first approach tick should hold W");
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        var secondKeyUpCount = keyboard.KeyUps.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase));
+        var secondKeyDownCount = keyboard.KeyDowns.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase));
+
+        AssertEqual(firstKeyUpCount, secondKeyUpCount, "same candidate approach must not send another W up");
+        AssertEqual(firstKeyDownCount, secondKeyDownCount, "same candidate approach must not send another W down");
+        AssertEqual((ushort)100, state.FacedCandidateEntityId, "candidate should stay marked as initially faced");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+        TargetEntityId = 100,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = new Vector3Snapshot(40, 0, 0),
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(40, 0, 0), 40, 1000, 1000)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, state)
+        .ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "locked zero-hp monster snapshot should enter fighting state");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "locked target should not start W movement");
+    AssertFalse(keyboard.KeyUps.Contains("W"), "locked target should not pulse W before combat");
+    AssertFalse(!keyboard.Keys.Contains("D2"), "locked zero-hp monster snapshot should enter skill logic");
 }
 
 static async Task TestStationaryCombatFinishesFightBeforeReturningHomeAsync()
@@ -877,6 +1075,46 @@ static async Task TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
     AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "near-ready calibrated cooldown should be treated as ready");
+}
+
+static async Task TestObservedCooldownSurvivesZeroEndTickReadAsync()
+{
+    var settings = CreateScriptSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi();
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    var observedCoolingSkill = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = CooldownEndIn(30_000)
+    }).Single(skill => skill.SkillId == 1);
+    state.TryUpdateCooldownTickCalibration(
+        new[] { observedCoolingSkill },
+        unchecked((uint)Environment.TickCount64),
+        DateTimeOffset.Now,
+        out _);
+
+    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = 0,
+        [5] = ActiveCooldownEnd(),
+        [51] = ActiveCooldownEnd(),
+        [6] = ActiveCooldownEnd(),
+        [61] = ActiveCooldownEnd(),
+        [62] = ActiveCooldownEnd(),
+        [7] = ActiveCooldownEnd(),
+        [8] = ActiveCooldownEnd(),
+        [9] = ActiveCooldownEnd(),
+        [10] = ActiveCooldownEnd()
+    });
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("D1"), "known future cooldown should block a zero end-tick read");
 }
 
 static async Task TestAttackKeyLoopPressesCIndependentlyAsync()
@@ -1657,6 +1895,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
 
     public uint TargetCurrentHp { get; set; } = 1000;
 
+    public uint TargetMaxHp { get; set; } = 1000;
+
     public Vector3Snapshot? TargetPosition { get; set; }
 
     public IReadOnlyList<WorldObjectSnapshot> WorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
@@ -1683,7 +1923,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
             LockedTargetSnapshot.MonsterObjectType,
             "训练用稻草人",
             TargetCurrentHp,
-            1000,
+            TargetMaxHp,
             TargetPosition,
             null,
             DateTimeOffset.Now)));

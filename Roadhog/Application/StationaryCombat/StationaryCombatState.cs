@@ -16,6 +16,8 @@ public sealed class StationaryCombatState
 
     public ushort CandidateEntityId { get; set; }
 
+    public ushort FacedCandidateEntityId { get; set; }
+
     public DateTimeOffset LastTabAt { get; set; }
 
     public DateTimeOffset LastWorldScanAt { get; set; }
@@ -33,5 +35,6 @@ public sealed class StationaryCombatState
         Fighting = false;
         CurrentTargetEntityId = 0;
         CandidateEntityId = 0;
+        FacedCandidateEntityId = 0;
     }
 }

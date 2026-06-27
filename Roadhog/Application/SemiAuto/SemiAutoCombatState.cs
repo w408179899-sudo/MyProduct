@@ -6,6 +6,7 @@ public sealed class SemiAutoCombatState
 {
     private int? cooldownTickOffsetMs;
     private readonly Dictionary<uint, uint> observedCooldownEndTimes = new();
+    private readonly Dictionary<uint, uint> knownCooldownEndTimes = new();
     private CancellationTokenSource? attackKeyLoopCancellation;
     private Task? attackKeyLoopTask;
     private uint? lastPressedSkillId;
@@ -203,6 +204,36 @@ public sealed class SemiAutoCombatState
         lastPressedCooldownExpiresAt = cooldownConfirmationExpiresAt;
     }
 
+    public uint GetEffectiveCooldownEndTime(
+        SkillSnapshot skill,
+        uint gameTick,
+        int readyToleranceMs)
+    {
+        var currentEndTime = skill.CooldownEndTime;
+        if (skill.CooldownDuration == 0 ||
+            !knownCooldownEndTimes.TryGetValue(skill.SkillId, out var knownEndTime) ||
+            knownEndTime == 0)
+        {
+            return currentEndTime;
+        }
+
+        var knownRemainingMs = unchecked((int)(knownEndTime - gameTick));
+        if (knownRemainingMs <= readyToleranceMs)
+        {
+            return currentEndTime;
+        }
+
+        if (currentEndTime == 0)
+        {
+            return knownEndTime;
+        }
+
+        var currentRemainingMs = unchecked((int)(currentEndTime - gameTick));
+        return knownRemainingMs > currentRemainingMs
+            ? knownEndTime
+            : currentEndTime;
+    }
+
     public bool TryUpdateCooldownTickCalibration(
         IReadOnlyList<SkillSnapshot> skills,
         uint osTick,
@@ -221,6 +252,7 @@ public sealed class SemiAutoCombatState
 
             var hasPrevious = observedCooldownEndTimes.TryGetValue(observedSkill.SkillId, out var previousEndTime);
             observedCooldownEndTimes[observedSkill.SkillId] = observedSkill.CooldownEndTime;
+            RememberKnownCooldownEndTime(observedSkill);
 
             if (!hasPrevious ||
                 observedSkill.CooldownEndTime == 0 ||
@@ -274,6 +306,21 @@ public sealed class SemiAutoCombatState
         lastPressedSkillId = null;
         lastPressedCooldownEndTime = 0;
         lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
+    }
+
+    private void RememberKnownCooldownEndTime(SkillSnapshot skill)
+    {
+        if (skill.CooldownDuration == 0 || skill.CooldownEndTime == 0)
+        {
+            return;
+        }
+
+        if (!knownCooldownEndTimes.TryGetValue(skill.SkillId, out var knownEndTime) ||
+            knownEndTime == 0 ||
+            DidCooldownEndAdvance(knownEndTime, skill.CooldownEndTime))
+        {
+            knownCooldownEndTimes[skill.SkillId] = skill.CooldownEndTime;
+        }
     }
 
     private SemiAutoCooldownTickCalibration ApplyCooldownTickCalibration(

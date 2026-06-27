@@ -140,18 +140,24 @@ public static class SemiAutoSkillReleasePriority
         SkillSnapshot skill,
         SemiAutoCombatState state)
     {
-        if (skill.CooldownEndTime == 0)
-        {
-            return SemiAutoSkillCooldownReadiness.Ready;
-        }
-
         if (!state.HasCooldownTickCalibration)
         {
+            if (skill.CooldownEndTime == 0)
+            {
+                return SemiAutoSkillCooldownReadiness.Ready;
+            }
+
             return SemiAutoSkillCooldownReadiness.Unknown;
         }
 
         var gameTick = state.EstimateGameTick(CurrentOsTick());
-        var remainingMs = unchecked((int)(skill.CooldownEndTime - gameTick));
+        var cooldownEndTime = state.GetEffectiveCooldownEndTime(skill, gameTick, CooldownReadyToleranceMs);
+        if (cooldownEndTime == 0)
+        {
+            return SemiAutoSkillCooldownReadiness.Ready;
+        }
+
+        var remainingMs = unchecked((int)(cooldownEndTime - gameTick));
         return remainingMs > CooldownReadyToleranceMs
             ? SemiAutoSkillCooldownReadiness.CoolingDown
             : SemiAutoSkillCooldownReadiness.Ready;
@@ -167,8 +173,10 @@ public static class SemiAutoSkillReleasePriority
 
         var osTick = CurrentOsTick();
         var gameTick = state.EstimateGameTick(osTick);
-        var remainingMs = Math.Max(0, unchecked((int)(skill.CooldownEndTime - gameTick)));
-        return "cooldown_end=" + skill.CooldownEndTime +
+        var cooldownEndTime = state.GetEffectiveCooldownEndTime(skill, gameTick, CooldownReadyToleranceMs);
+        var remainingMs = Math.Max(0, unchecked((int)(cooldownEndTime - gameTick)));
+        return "cooldown_end=" + cooldownEndTime +
+               "/raw_end=" + skill.CooldownEndTime +
                "/duration=" + skill.CooldownDuration +
                "/game_tick=" + gameTick +
                "/os_tick=" + osTick +

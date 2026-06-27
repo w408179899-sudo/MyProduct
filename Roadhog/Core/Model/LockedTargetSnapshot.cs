@@ -18,7 +18,11 @@ public sealed record LockedTargetSnapshot(
 
     public bool IsMonster => ObjectType == MonsterObjectType;
 
-    public bool IsAlive => CurrentHp > 0;
+    public bool HasKnownHealth => CurrentHp > 0 || MaxHp > 0;
+
+    public bool IsAlive => !HasKnownHealth || CurrentHp > 0;
+
+    public bool IsLockedMonster => HasTarget && IsMonster;
 
     public bool IsMonsterAlive => HasTarget && IsMonster && IsAlive;
 
