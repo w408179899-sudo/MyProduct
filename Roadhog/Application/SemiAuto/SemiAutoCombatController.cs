@@ -154,6 +154,12 @@ public sealed class SemiAutoCombatController
                 : Ms(settings.TickIntervalMs, 40);
         }
 
+        if (ShouldPressTriggerFallback(plan, state, configuredSkills))
+        {
+            await PressTriggerFallbackAsync(context, plan, settings).ConfigureAwait(false);
+            return Ms(settings.TickIntervalMs, 40);
+        }
+
         if (ShouldLog(state.LastNoSkillLogAt, now))
         {
             state.LastNoSkillLogAt = now;
@@ -308,6 +314,22 @@ public sealed class SemiAutoCombatController
         }
     }
 
+    private async Task PressTriggerFallbackAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoScriptSettings settings)
+    {
+        foreach (var trigger in plan.TriggerPrefixRoots)
+        {
+            await PressNodeKeyAsync(
+                    context,
+                    trigger,
+                    settings,
+                    phase: "trigger_fallback")
+                .ConfigureAwait(false);
+        }
+    }
+
     private async Task<bool> PressNodeKeyAsync(
         AccountWorkerContext context,
         SemiAutoSkillNode node,
@@ -340,6 +362,40 @@ public sealed class SemiAutoCombatController
             ["phase"] = phase
         });
         return true;
+    }
+
+    private static bool ShouldPressTriggerFallback(
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState state,
+        IReadOnlyList<SkillSnapshot> skills)
+    {
+        if (state.HasChainWork || plan.TriggerPrefixRoots.Count == 0)
+        {
+            return false;
+        }
+
+        var hasExecutableRoot = false;
+        foreach (var root in plan.Roots)
+        {
+            if (root.IsTrigger || root.IsDp)
+            {
+                continue;
+            }
+
+            hasExecutableRoot = true;
+            var skill = root.ResolveSkill(skills);
+            if (skill is null)
+            {
+                return false;
+            }
+
+            if (SemiAutoSkillReleasePriority.GetCooldownReadiness(skill, state) != SemiAutoSkillCooldownReadiness.CoolingDown)
+            {
+                return false;
+            }
+        }
+
+        return hasExecutableRoot;
     }
 
     private async Task EnsureAttackKeyLoopAsync(

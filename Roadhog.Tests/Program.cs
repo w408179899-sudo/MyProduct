@@ -330,19 +330,7 @@ static async Task TestAttackKeyLoopPressesCIndependentlyAsync()
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
-        {
-            [1] = ActiveCooldownEnd(),
-            [5] = ActiveCooldownEnd(),
-            [51] = ActiveCooldownEnd(),
-            [6] = ActiveCooldownEnd(),
-            [61] = ActiveCooldownEnd(),
-            [62] = ActiveCooldownEnd(),
-            [7] = ActiveCooldownEnd(),
-            [8] = ActiveCooldownEnd(),
-            [9] = ActiveCooldownEnd(),
-            [10] = 0
-        })
+        Skills = Array.Empty<SkillSnapshot>()
     };
     var controller = new SemiAutoCombatController(keyboard);
     var state = new SemiAutoCombatState();
@@ -457,10 +445,8 @@ static async Task TestDpSkillSkippedAsync()
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
-    AssertEqual(0, keyboard.Keys.Count, "no key should be pressed when only dp is ready");
-    var noneReady = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.skill.none_ready");
-    AssertNotNull(noneReady, "none ready log");
-    AssertContains("暗黑之惩戒 II[DP技能]@D0:dp-skip", Convert.ToString(noneReady!.Fields["reasons"]) ?? string.Empty, "dp skip reason");
+    AssertSequence(WithPreSkillKey("D2", "D3", "D4"), keyboard.Keys.ToArray(), "trigger fallback should run when only dp is ready");
+    AssertFalse(keyboard.Keys.Contains("D0"), "dp skill should not be pressed by trigger fallback");
 }
 
 static async Task TestChainPressesNextStageWithoutSourceCooldownAsync()
@@ -970,22 +956,6 @@ static void AssertFalse(bool value, string label)
     if (value)
     {
         throw new InvalidOperationException(label);
-    }
-}
-
-static void AssertNotNull(object? value, string label)
-{
-    if (value is null)
-    {
-        throw new InvalidOperationException(label + " should not be null");
-    }
-}
-
-static void AssertContains(string expected, string actual, string label)
-{
-    if (!actual.Contains(expected, StringComparison.Ordinal))
-    {
-        throw new InvalidOperationException(label + ": expected to contain [" + expected + "] but got [" + actual + "]");
     }
 }
 
