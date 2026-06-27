@@ -11,7 +11,7 @@ namespace Roadhog.Application.SemiAuto;
 public sealed class SemiAutoCombatController
 {
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
-    private static readonly string AttackKey = "C";
+    private static readonly string AttackKey = "NumPad0";
 
     private readonly IKeyboardInput _keyboard;
 
@@ -428,7 +428,7 @@ public sealed class SemiAutoCombatController
 
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(context.StopToken);
         var holdDuration = Ms(settings.KeyHoldMs, 25);
-        var interval = Ms(settings.AttackKeyLoopIntervalMs, 70);
+        var interval = Ms(settings.AttackKeyLoopIntervalMs, 300);
         var task = Task.Run(
             () => RunAttackKeyLoopAsync(context, state, holdDuration, interval, cancellation.Token),
             CancellationToken.None);

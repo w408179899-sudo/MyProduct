@@ -38,7 +38,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("calibrated nonzero cooldown skips cooling roots", TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync),
     ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
     ("observed cooldown survives zero end tick read", TestObservedCooldownSurvivesZeroEndTickReadAsync),
-    ("attack key loop presses C independently", TestAttackKeyLoopPressesCIndependentlyAsync),
+    ("attack key loop presses NumPad0 independently", TestAttackKeyLoopPressesNumPad0IndependentlyAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
     ("chain presses next stage without waiting for source cooldown", TestChainPressesNextStageWithoutSourceCooldownAsync),
@@ -1117,7 +1117,7 @@ static async Task TestObservedCooldownSurvivesZeroEndTickReadAsync()
     AssertFalse(keyboard.Keys.Contains("D1"), "known future cooldown should block a zero end-tick read");
 }
 
-static async Task TestAttackKeyLoopPressesCIndependentlyAsync()
+static async Task TestAttackKeyLoopPressesNumPad0IndependentlyAsync()
 {
     var settings = CreateScriptSettings();
     settings.SemiAuto.AttackKeyLoopEnabled = true;
@@ -1134,10 +1134,10 @@ static async Task TestAttackKeyLoopPressesCIndependentlyAsync()
     CalibrateCooldownClock(state);
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    await WaitUntilAsync(() => keyboard.Keys.Contains("C"), TimeSpan.FromMilliseconds(250)).ConfigureAwait(false);
+    await WaitUntilAsync(() => keyboard.Keys.Contains("NumPad0"), TimeSpan.FromMilliseconds(250)).ConfigureAwait(false);
     await state.StopAttackKeyLoopAsync().ConfigureAwait(false);
 
-    AssertFalse(keyboard.Keys.Any(key => key != "C"), "attack key loop should not press skill keys");
+    AssertFalse(keyboard.Keys.Any(key => key != "NumPad0"), "attack key loop should not press skill keys");
 }
 
 static async Task TestPollResultAdvancesRootOrderAsync()
@@ -1567,7 +1567,7 @@ static ScriptSettings CreateScriptSettings()
             TargetIdleDelayMs = 50,
             KeyHoldMs = 1,
             AttackKeyLoopEnabled = false,
-            AttackKeyLoopIntervalMs = 70,
+            AttackKeyLoopIntervalMs = 300,
             KeyGapMs = 1,
             RepeatGuardMs = 1,
             PostPressSuppressMs = 1,

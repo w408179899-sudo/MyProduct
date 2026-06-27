@@ -46,7 +46,7 @@ public sealed class SemiAutoScriptSettings
 
     public bool AttackKeyLoopEnabled { get; set; } = true;
 
-    public int AttackKeyLoopIntervalMs { get; set; } = 70;
+    public int AttackKeyLoopIntervalMs { get; set; } = 300;
 
     public int KeyGapMs { get; set; } = 30;
 
