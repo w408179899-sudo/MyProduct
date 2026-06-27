@@ -14,8 +14,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("skill tree maps at most configured roots across the 22 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
     ("combat tick requests only configured skill ids", TestCombatTickRequestsOnlyConfiguredSkillIdsAsync),
+    ("observed configured cooldown advance calibrates clock", TestObservedConfiguredCooldownAdvanceCalibratesClockAsync),
     ("uncalibrated nonzero cooldown falls back to first configured root", TestUncalibratedNonzeroCooldownFallsBackToFirstRootAsync),
     ("calibrated nonzero cooldown skips cooling roots", TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync),
+    ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
     ("chain presses next stage without waiting for source cooldown", TestChainPressesNextStageWithoutSourceCooldownAsync),
@@ -195,6 +197,43 @@ static Task TestConfiguredRootKeyBoundaryAsync()
     return Task.CompletedTask;
 }
 
+static Task TestObservedConfiguredCooldownAdvanceCalibratesClockAsync()
+{
+    var state = new SemiAutoCombatState();
+    var osTick = 207_728_500u;
+    var before = new SkillSnapshot(
+        424,
+        "保护之盾 I",
+        1,
+        1,
+        "保护之盾",
+        1,
+        false,
+        60_000,
+        807_375);
+    var after = before with { CooldownEndTime = 1_346_921 };
+
+    var firstUpdated = state.TryUpdateCooldownTickCalibration(
+        new[] { before },
+        osTick,
+        DateTimeOffset.Now,
+        out _);
+    AssertFalse(firstUpdated, "first observation should not calibrate without a previous EndTick");
+
+    var secondUpdated = state.TryUpdateCooldownTickCalibration(
+        new[] { after },
+        osTick,
+        DateTimeOffset.Now,
+        out var calibration);
+
+    AssertFalse(!secondUpdated, "configured skill EndTick advance should calibrate cooldown clock");
+    AssertEqual(424u, calibration.SkillId, "calibration skill id");
+    AssertEqual(1_286_921u, calibration.CooldownStartTick, "calibration start tick");
+    AssertEqual(-206_441_579, calibration.OffsetMs, "calibration offset");
+    AssertEqual(-206_441_579, state.CooldownTickOffsetMs, "state calibration offset");
+    return Task.CompletedTask;
+}
+
 static async Task TestUncalibratedNonzeroCooldownFallsBackToFirstRootAsync()
 {
     var settings = CreateScriptSettings();
@@ -249,6 +288,35 @@ static async Task TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
     AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "calibrated active cooldown should skip D1");
+}
+
+static async Task TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync()
+{
+    var settings = CreateScriptSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = CooldownEndIn(SemiAutoSkillReleasePriority.CooldownReadyToleranceMs),
+            [5] = 0,
+            [51] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "near-ready calibrated cooldown should be treated as ready");
 }
 
 static async Task TestPollResultAdvancesRootOrderAsync()
@@ -749,6 +817,11 @@ static uint NormalizeCooldownEnd(uint cooldownEnd)
 static uint ActiveCooldownEnd()
 {
     return unchecked((uint)Environment.TickCount64 + 1_000u);
+}
+
+static uint CooldownEndIn(int remainingMs)
+{
+    return unchecked((uint)Environment.TickCount64 + (uint)Math.Max(0, remainingMs));
 }
 
 static uint StaleCooldownEnd()

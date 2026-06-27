@@ -5,6 +5,8 @@ namespace Roadhog.Application.SemiAuto;
 
 public static class SemiAutoSkillReleasePriority
 {
+    public const int CooldownReadyToleranceMs = 80;
+
     public static SemiAutoSkillReleaseDecision SelectNext(
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
@@ -150,7 +152,7 @@ public static class SemiAutoSkillReleasePriority
 
         var gameTick = state.EstimateGameTick(CurrentOsTick());
         var remainingMs = unchecked((int)(skill.CooldownEndTime - gameTick));
-        return remainingMs > 0
+        return remainingMs > CooldownReadyToleranceMs
             ? SemiAutoSkillCooldownReadiness.CoolingDown
             : SemiAutoSkillCooldownReadiness.Ready;
     }
@@ -171,6 +173,7 @@ public static class SemiAutoSkillReleasePriority
                "/game_tick=" + gameTick +
                "/os_tick=" + osTick +
                "/offset_ms=" + state.CooldownTickOffsetMs +
+               "/ready_tolerance_ms=" + CooldownReadyToleranceMs +
                "/remaining_ms=" + remainingMs;
     }
 

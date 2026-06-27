@@ -5,6 +5,7 @@ namespace Roadhog.Application.SemiAuto;
 public sealed class SemiAutoCombatState
 {
     private int? cooldownTickOffsetMs;
+    private readonly Dictionary<uint, uint> observedCooldownEndTimes = new();
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
@@ -108,6 +109,7 @@ public sealed class SemiAutoCombatState
             return;
         }
 
+        observedCooldownEndTimes[skill.SkillId] = skill.CooldownEndTime;
         lastPressedSkillId = skill.SkillId;
         lastPressedCooldownEndTime = skill.CooldownEndTime;
         lastPressedCooldownExpiresAt = cooldownConfirmationExpiresAt;
@@ -120,6 +122,35 @@ public sealed class SemiAutoCombatState
         out SemiAutoCooldownTickCalibration calibration)
     {
         calibration = default;
+        SemiAutoCooldownTickCalibration? updatedCalibration = null;
+
+        foreach (var observedSkill in skills)
+        {
+            if (observedSkill.CooldownDuration == 0)
+            {
+                continue;
+            }
+
+            var hasPrevious = observedCooldownEndTimes.TryGetValue(observedSkill.SkillId, out var previousEndTime);
+            observedCooldownEndTimes[observedSkill.SkillId] = observedSkill.CooldownEndTime;
+
+            if (!hasPrevious ||
+                observedSkill.CooldownEndTime == 0 ||
+                !DidCooldownEndAdvance(previousEndTime, observedSkill.CooldownEndTime))
+            {
+                continue;
+            }
+
+            updatedCalibration = ApplyCooldownTickCalibration(observedSkill, osTick);
+        }
+
+        if (updatedCalibration.HasValue)
+        {
+            calibration = updatedCalibration.Value;
+            ClearLastPressedSkill();
+            return true;
+        }
+
         if (lastPressedSkillId is not uint skillId)
         {
             return false;
@@ -140,19 +171,8 @@ public sealed class SemiAutoCombatState
             return false;
         }
 
-        var startTick = unchecked(skill.CooldownEndTime - skill.CooldownDuration);
-        var offsetMs = unchecked((int)(startTick - osTick));
-        cooldownTickOffsetMs = offsetMs;
+        calibration = ApplyCooldownTickCalibration(skill, osTick);
         ClearLastPressedSkill();
-
-        calibration = new SemiAutoCooldownTickCalibration(
-            skill.SkillId,
-            skill.Name,
-            osTick,
-            skill.CooldownDuration,
-            skill.CooldownEndTime,
-            startTick,
-            offsetMs);
         return true;
     }
 
@@ -166,6 +186,24 @@ public sealed class SemiAutoCombatState
         lastPressedSkillId = null;
         lastPressedCooldownEndTime = 0;
         lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
+    }
+
+    private SemiAutoCooldownTickCalibration ApplyCooldownTickCalibration(
+        SkillSnapshot skill,
+        uint osTick)
+    {
+        var startTick = unchecked(skill.CooldownEndTime - skill.CooldownDuration);
+        var offsetMs = unchecked((int)(startTick - osTick));
+        cooldownTickOffsetMs = offsetMs;
+
+        return new SemiAutoCooldownTickCalibration(
+            skill.SkillId,
+            skill.Name,
+            osTick,
+            skill.CooldownDuration,
+            skill.CooldownEndTime,
+            startTick,
+            offsetMs);
     }
 
     private static bool DidCooldownEndAdvance(uint previousEndTime, uint currentEndTime)

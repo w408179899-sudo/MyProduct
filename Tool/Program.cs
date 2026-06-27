@@ -108,7 +108,7 @@ namespace Tool
 
                     Console.WriteLine("Module base: " + moduleName + " = 0x" + gameBase.ToString("X"));
 
-                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "skill_cooldown";
+                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "skill_remaining";
                     if (string.Equals(aionTestMode, "player", StringComparison.OrdinalIgnoreCase))
                     {
                         RunLocalPlayerInfoTest(process, gameBase);
@@ -177,6 +177,15 @@ namespace Tool
                         string.Equals(aionTestMode, "cooldown", StringComparison.OrdinalIgnoreCase))
                     {
                         RunSkillCooldownUsabilityTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "skill_remaining", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "skills_remaining", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "remaining_cooldown", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "cooldown_remaining", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunSkillRemainingCooldownTest(process, gameBase);
                         return;
                     }
 
@@ -806,6 +815,26 @@ namespace Tool
             public SkillStaticDetail StaticDetail;
             public bool HasXmlStaticDetail;
             public SkillXmlStaticDetail XmlStaticDetail;
+        }
+
+        private struct SkillRemainingCooldownRow
+        {
+            public SkillRemainingCooldownRow(
+                LearnedSkillInfo skill,
+                int formulaRemainingMs,
+                bool hasCalibratedRemaining,
+                int calibratedRemainingMs)
+            {
+                Skill = skill;
+                FormulaRemainingMs = formulaRemainingMs;
+                HasCalibratedRemaining = hasCalibratedRemaining;
+                CalibratedRemainingMs = calibratedRemainingMs;
+            }
+
+            public LearnedSkillInfo Skill;
+            public int FormulaRemainingMs;
+            public bool HasCalibratedRemaining;
+            public int CalibratedRemainingMs;
         }
 
         private struct SkillStaticDetail
@@ -1845,6 +1874,162 @@ namespace Tool
 
             Console.WriteLine("If ClockAligned=no, do not use GetTickCount() as the current cooldown tick until a game tick source or calibration is confirmed.");
             Console.WriteLine("Set AION_TEST_MODE=skills for the full raw skill dump.");
+            if (!Console.IsInputRedirected)
+            {
+                Console.WriteLine("Press any key to exit.");
+                Console.ReadKey(true);
+            }
+        }
+
+        private static void RunSkillRemainingCooldownTest(VmmProcess process, ulong gameBase)
+        {
+            bool groupByName = ReadBoolFromEnv("AION_SKILL_GROUP_BY_NAME", true);
+            bool filterUseful = ReadBoolFromEnv("AION_SKILL_FILTER_USEFUL", true);
+            bool activeOnly = ReadBoolFromEnv("AION_SKILL_REMAINING_ACTIVE_ONLY", false);
+            bool showReady = !activeOnly;
+            int samples = ClampInt(ReadIntFromEnv("AION_SKILL_REMAINING_SAMPLES", 30), 1, 300);
+            int intervalMs = ClampInt(ReadIntFromEnv("AION_SKILL_REMAINING_INTERVAL_MS", 250), 50, 10000);
+            int limit = ClampInt(ReadIntFromEnv("AION_SKILL_REMAINING_LIMIT", 40), 1, 500);
+            uint skillIdFilter = ReadUIntFromEnv("AION_SKILL_ID", 0);
+            string nameFilter = Environment.GetEnvironmentVariable("AION_SKILL_NAME") ?? string.Empty;
+
+            Console.WriteLine("AION skill remaining-cooldown formula probe.");
+            Console.WriteLine("Formula: FormulaRemainingMs=max(0, unchecked((int)(SkillItem+0x54 EndTick - kernel32 GetTickCount()))).");
+            Console.WriteLine("Duration source: SkillItem+0x50. EndTick source: SkillItem+0x54.");
+            Console.WriteLine("Calibrated formula: CalibratedRemainingMs=max(0, EndTick - (GetTickCount + CooldownOffset)).");
+            Console.WriteLine("Samples=" + samples +
+                              " IntervalMs=" + intervalMs +
+                              " GroupByName=" + FormatYesNo(groupByName) +
+                              " UsefulFilter=" + FormatYesNo(filterUseful) +
+                              " ShowReady=" + FormatYesNo(showReady) +
+                              " ActiveOnly=" + FormatYesNo(activeOnly) +
+                              " Limit=" + limit +
+                              " SkillIdFilter=" + (skillIdFilter == 0 ? "none" : skillIdFilter.ToString()) +
+                              " NameFilter=\"" + nameFilter + "\"");
+            Console.WriteLine("Tip: set AION_SKILL_ID=<id> or AION_SKILL_NAME=<text>, cast that skill, and watch CalibratedRemainingMs jump near DurationMs then decrease.");
+            Console.WriteLine("CalibratedRemainingMs auto-calibrates when any SkillItem+0x54 EndTick advances between samples.");
+            Console.WriteLine("Set AION_SKILL_REMAINING_ACTIVE_ONLY=1 to print only skills with remaining cooldown > 0.");
+
+            var previousEndTicks = new Dictionary<uint, uint>();
+            bool hasCooldownTickOffset = false;
+            int cooldownTickOffsetMs = 0;
+            string cooldownTickOffsetSource = "none";
+
+            for (int sample = 1; sample <= samples; sample++)
+            {
+                List<LearnedSkillInfo> skills;
+                int outerNodeCount;
+                string error;
+                if (!TryReadHighestLearnedSkills(process, gameBase, out skills, out outerNodeCount, out error))
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                }
+                else
+                {
+                    uint osTick = GetTickCount();
+                    int rawSkillCount = skills.Count;
+                    int newCooldownTickOffsetMs;
+                    string newCooldownTickOffsetSource;
+                    bool calibratedThisSample = TryUpdateSkillRemainingCooldownOffset(
+                        skills,
+                        previousEndTicks,
+                        osTick,
+                        out newCooldownTickOffsetMs,
+                        out newCooldownTickOffsetSource);
+                    if (calibratedThisSample)
+                    {
+                        hasCooldownTickOffset = true;
+                        cooldownTickOffsetMs = newCooldownTickOffsetMs;
+                        cooldownTickOffsetSource = newCooldownTickOffsetSource;
+                    }
+
+                    if (groupByName)
+                    {
+                        skills = SelectHighestDisplaySkillPerName(skills);
+                    }
+
+                    int groupedSkillCount = skills.Count;
+                    if (filterUseful)
+                    {
+                        skills = FilterUsefulLearnedSkills(skills);
+                    }
+
+                    if (skillIdFilter != 0)
+                    {
+                        skills = skills
+                            .Where(skill => skill.SkillId == skillIdFilter)
+                            .ToList();
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(nameFilter))
+                    {
+                        skills = skills
+                            .Where(skill =>
+                                ContainsIgnoreCase(skill.Name, nameFilter) ||
+                                ContainsIgnoreCase(skill.DisplayBaseName, nameFilter))
+                            .ToList();
+                    }
+
+                    var rows = skills
+                        .Select(skill => CreateSkillRemainingCooldownRow(
+                            skill,
+                            osTick,
+                            hasCooldownTickOffset,
+                            cooldownTickOffsetMs))
+                        .Where(row =>
+                            showReady ||
+                            GetBestRemainingCooldownMs(row) > 0 ||
+                            skillIdFilter != 0 ||
+                            !string.IsNullOrWhiteSpace(nameFilter))
+                        .OrderByDescending(GetBestRemainingCooldownMs)
+                        .ThenBy(row => row.Skill.DisplayBaseName, StringComparer.CurrentCulture)
+                        .ThenBy(row => row.Skill.SkillId)
+                        .Take(limit)
+                        .ToArray();
+
+                    uint calibratedGameTick = hasCooldownTickOffset
+                        ? EstimateCooldownGameTick(osTick, cooldownTickOffsetMs)
+                        : 0;
+                    Console.WriteLine(
+                        "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                        "Sample=" + sample + "/" + samples +
+                        " OSTick=" + osTick +
+                        " CooldownOffset=" + (hasCooldownTickOffset ? cooldownTickOffsetMs.ToString() : "n/a") +
+                        " GameTick=" + (hasCooldownTickOffset ? calibratedGameTick.ToString() : "n/a") +
+                        " OffsetSource=\"" + cooldownTickOffsetSource + "\"" +
+                        " CalibratedNow=" + FormatYesNo(calibratedThisSample) +
+                        " Rows=" + rows.Length +
+                        " CandidateRows=" + skills.Count +
+                        " RawRows=" + rawSkillCount +
+                        " GroupedRows=" + groupedSkillCount +
+                        " OuterNodes=" + outerNodeCount);
+
+                    for (int i = 0; i < rows.Length; i++)
+                    {
+                        Console.WriteLine(FormatSkillRemainingCooldown(
+                            i + 1,
+                            rows[i].Skill,
+                            osTick,
+                            rows[i].FormulaRemainingMs,
+                            rows[i].HasCalibratedRemaining,
+                            rows[i].CalibratedRemainingMs,
+                            hasCooldownTickOffset,
+                            cooldownTickOffsetMs));
+                    }
+
+                    if (rows.Length == 0 && activeOnly)
+                    {
+                        Console.WriteLine("  No active cooldown rows in this sample. ActiveOnly hides ready skills.");
+                    }
+                }
+
+                if (sample < samples)
+                {
+                    Thread.Sleep(intervalMs);
+                }
+            }
+
+            Console.WriteLine("If FormulaRemainingMs stays 0 while EndTick advances, use CalibratedRemainingMs after CooldownOffset appears.");
             if (!Console.IsInputRedirected)
             {
                 Console.WriteLine("Press any key to exit.");
@@ -10922,6 +11107,13 @@ namespace Tool
             return false;
         }
 
+        private static bool ContainsIgnoreCase(string text, string value)
+        {
+            return !string.IsNullOrWhiteSpace(text) &&
+                   !string.IsNullOrWhiteSpace(value) &&
+                   text.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         private static readonly string[] IgnoredUtilitySkillNames =
         {
             "紧急返回",
@@ -11564,6 +11756,129 @@ namespace Tool
                    " CanUseSkillNow=n/a(read-only)";
         }
 
+        private static string FormatSkillRemainingCooldown(
+            int index,
+            LearnedSkillInfo skill,
+            uint osTick,
+            int formulaRemainingMs,
+            bool hasCalibratedRemaining,
+            int calibratedRemainingMs,
+            bool hasCooldownTickOffset,
+            int cooldownTickOffsetMs)
+        {
+            int rawRemainingMs = unchecked((int)(skill.CooldownEndTime - osTick));
+            bool clockAligned = IsCooldownClockAligned(skill, rawRemainingMs);
+            uint calibratedGameTick = hasCooldownTickOffset
+                ? EstimateCooldownGameTick(osTick, cooldownTickOffsetMs)
+                : 0;
+            return "#" + index.ToString("000") +
+                   " Id=" + skill.SkillId +
+                   " Level=" + skill.SkillLevel +
+                   " HighestLevel=" + skill.HighestLevel +
+                   " Item=" + FormatAddress(skill.SkillItem) +
+                   " Name=\"" + skill.Name + "\"" +
+                   FormatDisplaySkillGroup(skill) +
+                   " DurationMs=" + skill.CooldownDuration +
+                   " EndTick=" + skill.CooldownEndTime +
+                   " OSTick=" + osTick +
+                   " RawRemainingMs=" + rawRemainingMs +
+                   " FormulaRemainingMs=" + formulaRemainingMs +
+                   " RemainingSeconds=" + (formulaRemainingMs / 1000.0).ToString("F2") +
+                   " OffsetMs=" + (hasCooldownTickOffset ? cooldownTickOffsetMs.ToString() : "n/a") +
+                   " GameTick=" + (hasCooldownTickOffset ? calibratedGameTick.ToString() : "n/a") +
+                   " CalibratedRemainingMs=" + (hasCalibratedRemaining ? calibratedRemainingMs.ToString() : "n/a") +
+                   " CalibratedSeconds=" + (hasCalibratedRemaining ? (calibratedRemainingMs / 1000.0).ToString("F2") : "n/a") +
+                   " ClockAligned=" + FormatYesNo(clockAligned) +
+                   FormatCooldownStartTick(skill, osTick);
+        }
+
+        private static SkillRemainingCooldownRow CreateSkillRemainingCooldownRow(
+            LearnedSkillInfo skill,
+            uint osTick,
+            bool hasCooldownTickOffset,
+            int cooldownTickOffsetMs)
+        {
+            int formulaRemainingMs = CalculateSkillFormulaRemainingMs(skill, osTick);
+            int calibratedRemainingMs = hasCooldownTickOffset
+                ? CalculateSkillCalibratedRemainingMs(skill, osTick, cooldownTickOffsetMs)
+                : 0;
+            return new SkillRemainingCooldownRow(
+                skill,
+                formulaRemainingMs,
+                hasCooldownTickOffset,
+                calibratedRemainingMs);
+        }
+
+        private static int CalculateSkillFormulaRemainingMs(LearnedSkillInfo skill, uint osTick)
+        {
+            int rawRemainingMs = unchecked((int)(skill.CooldownEndTime - osTick));
+            return rawRemainingMs > 0 ? rawRemainingMs : 0;
+        }
+
+        private static int CalculateSkillCalibratedRemainingMs(
+            LearnedSkillInfo skill,
+            uint osTick,
+            int cooldownTickOffsetMs)
+        {
+            uint gameTick = EstimateCooldownGameTick(osTick, cooldownTickOffsetMs);
+            int rawRemainingMs = unchecked((int)(skill.CooldownEndTime - gameTick));
+            return rawRemainingMs > 0 ? rawRemainingMs : 0;
+        }
+
+        private static uint EstimateCooldownGameTick(uint osTick, int cooldownTickOffsetMs)
+        {
+            return unchecked(osTick + (uint)cooldownTickOffsetMs);
+        }
+
+        private static int GetBestRemainingCooldownMs(SkillRemainingCooldownRow row)
+        {
+            return row.HasCalibratedRemaining
+                ? row.CalibratedRemainingMs
+                : row.FormulaRemainingMs;
+        }
+
+        private static bool TryUpdateSkillRemainingCooldownOffset(
+            IReadOnlyList<LearnedSkillInfo> skills,
+            Dictionary<uint, uint> previousEndTicks,
+            uint osTick,
+            out int cooldownTickOffsetMs,
+            out string source)
+        {
+            cooldownTickOffsetMs = 0;
+            source = "none";
+            bool updated = false;
+
+            for (int i = 0; i < skills.Count; i++)
+            {
+                LearnedSkillInfo skill = skills[i];
+                uint previousEndTick;
+                bool hasPrevious = previousEndTicks.TryGetValue(skill.SkillId, out previousEndTick);
+                previousEndTicks[skill.SkillId] = skill.CooldownEndTime;
+
+                if (!hasPrevious ||
+                    skill.CooldownDuration == 0 ||
+                    skill.CooldownEndTime == 0 ||
+                    !DidCooldownEndAdvance(previousEndTick, skill.CooldownEndTime))
+                {
+                    continue;
+                }
+
+                uint startTick = unchecked(skill.CooldownEndTime - skill.CooldownDuration);
+                cooldownTickOffsetMs = unchecked((int)(startTick - osTick));
+                source = skill.SkillId + ":" + skill.Name;
+                updated = true;
+            }
+
+            return updated;
+        }
+
+        private static bool DidCooldownEndAdvance(uint previousEndTime, uint currentEndTime)
+        {
+            return currentEndTime != 0 &&
+                   currentEndTime != previousEndTime &&
+                   unchecked((int)(currentEndTime - previousEndTime)) > 0;
+        }
+
         private static bool IsCooldownClockAligned(LearnedSkillInfo skill, int rawRemainingMs)
         {
             if (skill.CooldownEndTime == 0)
@@ -12015,6 +12330,30 @@ namespace Tool
             }
 
             return defaultValue;
+        }
+
+        private static uint ReadUIntFromEnv(string name, uint defaultValue)
+        {
+            string text = Environment.GetEnvironmentVariable(name);
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return defaultValue;
+            }
+
+            text = text.Trim();
+            try
+            {
+                if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Convert.ToUInt32(text.Substring(2), 16);
+                }
+
+                return Convert.ToUInt32(text, 10);
+            }
+            catch
+            {
+                return defaultValue;
+            }
         }
 
         private static string FormatPercent(uint current, uint max)
