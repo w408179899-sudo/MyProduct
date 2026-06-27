@@ -1,18 +1,22 @@
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Core.Accounts;
+using Roadhog.Core.Input;
 
 namespace Roadhog.Application.Workers;
 
 public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
 {
+    private readonly IKeyboardInput _keyboard;
     private readonly SemiAutoCombatController _semiAuto;
     private readonly StationaryCombatController _stationaryCombat;
 
     public DefaultAccountWorkerLoop(
+        IKeyboardInput keyboard,
         SemiAutoCombatController semiAuto,
         StationaryCombatController stationaryCombat)
     {
+        _keyboard = keyboard;
         _semiAuto = semiAuto;
         _stationaryCombat = stationaryCombat;
     }
@@ -26,6 +30,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             ["hardwareKey"] = context.Config.HardwareKey,
             ["vmmDevice"] = context.Config.VmmDeviceName
         });
+        await ReleaseStartupMovementAsync(context).ConfigureAwait(false);
 
         var scriptSettings = context.Config.ScriptSettings ?? new ScriptSettings
         {
@@ -86,7 +91,28 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         }
         finally
         {
-            await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+            semiAutoState.ResetAttackKeyPressThrottle();
         }
+    }
+
+    private async Task ReleaseStartupMovementAsync(AccountWorkerContext context)
+    {
+        var result = await _keyboard.KeyUpAsync("W", context.StopToken).ConfigureAwait(false);
+        if (result.Success)
+        {
+            context.Logger.Info("worker.startup.key_up", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["key"] = "W"
+            });
+            return;
+        }
+
+        context.Logger.Warn("worker.startup.key_up_failed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = "W",
+            ["error"] = result.Error
+        });
     }
 }

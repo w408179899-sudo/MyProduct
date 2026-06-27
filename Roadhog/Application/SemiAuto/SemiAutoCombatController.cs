@@ -11,7 +11,7 @@ namespace Roadhog.Application.SemiAuto;
 public sealed class SemiAutoCombatController
 {
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
-    private static readonly string AttackKey = "NumPad0";
+    private static readonly string AttackKey = "C";
 
     private readonly IKeyboardInput _keyboard;
 
@@ -30,7 +30,7 @@ public sealed class SemiAutoCombatController
 
         if (!plan.HasExecutableSkills)
         {
-            await state.StopAttackKeyLoopAsync().ConfigureAwait(false);
+            state.ResetAttackKeyPressThrottle();
             if (ShouldLog(state.LastPlanWarningAt, now))
             {
                 state.LastPlanWarningAt = now;
@@ -45,7 +45,7 @@ public sealed class SemiAutoCombatController
         var targetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         if (!targetResult.Success || targetResult.Value is null)
         {
-            await state.StopAttackKeyLoopAsync().ConfigureAwait(false);
+            state.ResetAttackKeyPressThrottle();
             if (ShouldLog(state.LastTargetWarningAt, now))
             {
                 state.LastTargetWarningAt = now;
@@ -74,7 +74,7 @@ public sealed class SemiAutoCombatController
 
         if (!targetResult.Value.IsMonsterAlive)
         {
-            await state.StopAttackKeyLoopAsync().ConfigureAwait(false);
+            state.ResetAttackKeyPressThrottle();
             if (ShouldLog(state.LastTargetStateLogAt, now))
             {
                 state.LastTargetStateLogAt = now;
@@ -97,8 +97,6 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TargetIdleDelayMs, 200);
         }
 
-        await EnsureAttackKeyLoopAsync(context, state, settings).ConfigureAwait(false);
-
         var skillsResult = await ReadSkillsAsync(context, plan).ConfigureAwait(false);
         if (!skillsResult.Success || skillsResult.Value is null)
         {
@@ -114,6 +112,7 @@ public sealed class SemiAutoCombatController
                 });
             }
 
+            await PressAttackKeyIfDueAsync(context, state, settings).ConfigureAwait(false);
             return Ms(settings.TickIntervalMs, 50);
         }
 
@@ -132,6 +131,7 @@ public sealed class SemiAutoCombatController
                     });
             }
 
+            await PressAttackKeyIfDueAsync(context, state, settings).ConfigureAwait(false);
             return Ms(settings.TickIntervalMs, 50);
         }
 
@@ -168,6 +168,7 @@ public sealed class SemiAutoCombatController
         if (ShouldPressTriggerFallback(plan, state, configuredSkills))
         {
             await PressTriggerFallbackAsync(context, plan, settings).ConfigureAwait(false);
+            await PressAttackKeyIfDueAsync(context, state, settings).ConfigureAwait(false);
             return Ms(settings.TickIntervalMs, 40);
         }
 
@@ -193,6 +194,7 @@ public sealed class SemiAutoCombatController
                 });
         }
 
+        await PressAttackKeyIfDueAsync(context, state, settings).ConfigureAwait(false);
         return Ms(settings.TickIntervalMs, 40);
     }
 
@@ -409,83 +411,39 @@ public sealed class SemiAutoCombatController
         return hasExecutableRoot;
     }
 
-    private async Task EnsureAttackKeyLoopAsync(
+    private async Task PressAttackKeyIfDueAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoScriptSettings settings)
     {
-        state.ClearCompletedAttackKeyLoop();
         if (!settings.AttackKeyLoopEnabled)
         {
-            await state.StopAttackKeyLoopAsync().ConfigureAwait(false);
             return;
         }
 
-        if (state.IsAttackKeyLoopRunning)
-        {
-            return;
-        }
-
-        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(context.StopToken);
-        var holdDuration = Ms(settings.KeyHoldMs, 25);
+        var now = DateTimeOffset.Now;
         var interval = Ms(settings.AttackKeyLoopIntervalMs, 300);
-        var task = Task.Run(
-            () => RunAttackKeyLoopAsync(context, state, holdDuration, interval, cancellation.Token),
-            CancellationToken.None);
-        state.StartAttackKeyLoop(cancellation, task);
-    }
-
-    private async Task RunAttackKeyLoopAsync(
-        AccountWorkerContext context,
-        SemiAutoCombatState state,
-        TimeSpan holdDuration,
-        TimeSpan interval,
-        CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
+        if (!state.ShouldPressAttackKey(now, interval))
         {
-            try
-            {
-                var result = await _keyboard
-                    .PressKeyAsync(AttackKey, holdDuration, cancellationToken)
-                    .ConfigureAwait(false);
+            return;
+        }
 
-                if (!result.Success)
+        state.MarkAttackKeyAttempted(now);
+        var result = await _keyboard
+            .PressKeyAsync(AttackKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            var failedAt = DateTimeOffset.Now;
+            if (ShouldLog(state.LastAttackKeyWarningAt, failedAt))
+            {
+                state.LastAttackKeyWarningAt = failedAt;
+                context.Logger.Warn("semi_auto.attack_key.failed", new Dictionary<string, object?>
                 {
-                    var now = DateTimeOffset.Now;
-                    if (ShouldLog(state.LastAttackKeyLoopWarningAt, now))
-                    {
-                        state.LastAttackKeyLoopWarningAt = now;
-                        context.Logger.Warn("semi_auto.attack_key.failed", new Dictionary<string, object?>
-                        {
-                            ["account"] = context.Config.AccountName,
-                            ["key"] = AttackKey,
-                            ["error"] = result.Error
-                        });
-                    }
-                }
-
-                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
-                var now = DateTimeOffset.Now;
-                if (ShouldLog(state.LastAttackKeyLoopWarningAt, now))
-                {
-                    state.LastAttackKeyLoopWarningAt = now;
-                    context.Logger.Warn("semi_auto.attack_key.exception", new Dictionary<string, object?>
-                    {
-                        ["account"] = context.Config.AccountName,
-                        ["key"] = AttackKey,
-                        ["error"] = ex.Message
-                    });
-                }
-
-                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+                    ["account"] = context.Config.AccountName,
+                    ["key"] = AttackKey,
+                    ["error"] = result.Error
+                });
             }
         }
     }

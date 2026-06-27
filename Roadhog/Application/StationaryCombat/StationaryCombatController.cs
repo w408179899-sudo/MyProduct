@@ -37,7 +37,7 @@ public sealed class StationaryCombatController
         var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
         if (!combat.HasStationaryCombatPosition)
         {
-            await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+            semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             StopPathFollowPoller(state);
             LogThrottled(context, state, "stationary_combat.position.missing", new Dictionary<string, object?>
@@ -56,7 +56,7 @@ public sealed class StationaryCombatController
         var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
         if (!playerResult.Success || playerResult.Value?.Position is null)
         {
-            await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+            semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             StopPathFollowPoller(state);
             LogThrottled(context, state, "stationary_combat.player.failed", new Dictionary<string, object?>
@@ -97,7 +97,7 @@ public sealed class StationaryCombatController
             }
             else
             {
-                await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+                semiAutoState.ResetAttackKeyPressThrottle();
                 await PathFollowStepAsync(context, state, player, home, ReturnStopDistance).ConfigureAwait(false);
                 return MoveTickDelay;
             }
@@ -106,7 +106,7 @@ public sealed class StationaryCombatController
         var target = await SelectTargetAsync(context, state, playerPosition, home, radius).ConfigureAwait(false);
         if (target?.Position is null)
         {
-            await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+            semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             state.CandidateEntityId = 0;
             state.FacedCandidateEntityId = 0;
@@ -160,7 +160,7 @@ public sealed class StationaryCombatController
             var isFacingTarget = await FaceTargetStepAsync(context, state, player, targetPosition, target).ConfigureAwait(false);
             if (!isFacingTarget)
             {
-                await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+                semiAutoState.ResetAttackKeyPressThrottle();
                 return MoveTickDelay;
             }
 
@@ -169,7 +169,7 @@ public sealed class StationaryCombatController
 
         if (playerDistanceToTarget > AcquireDistance)
         {
-            await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+            semiAutoState.ResetAttackKeyPressThrottle();
             await PathFollowStepAsync(context, state, player, targetPosition, AcquireDistance).ConfigureAwait(false);
             return MoveTickDelay;
         }
@@ -191,7 +191,7 @@ public sealed class StationaryCombatController
         if (!targetResult.Success || targetResult.Value is null)
         {
             state.ClearTarget();
-            await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+            semiAutoState.ResetAttackKeyPressThrottle();
             return IdleDelay;
         }
 
@@ -199,7 +199,7 @@ public sealed class StationaryCombatController
         if (!target.IsMonsterAlive || target.TargetEntityId != state.CurrentTargetEntityId)
         {
             state.ClearTarget();
-            await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+            semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
         }
@@ -214,7 +214,7 @@ public sealed class StationaryCombatController
                 ["targetName"] = target.Name
             });
             state.ClearTarget();
-            await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+            semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             return IdleDelay;
         }
@@ -245,7 +245,7 @@ public sealed class StationaryCombatController
             return acquiredDelay.Value;
         }
 
-        await semiAutoState.StopAttackKeyLoopAsync().ConfigureAwait(false);
+        semiAutoState.ResetAttackKeyPressThrottle();
         var now = DateTimeOffset.Now;
         if (now - state.LastTabAt >= TabInterval)
         {

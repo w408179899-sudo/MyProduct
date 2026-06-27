@@ -38,7 +38,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("calibrated nonzero cooldown skips cooling roots", TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync),
     ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
     ("observed cooldown survives zero end tick read", TestObservedCooldownSurvivesZeroEndTickReadAsync),
-    ("attack key loop presses NumPad0 independently", TestAttackKeyLoopPressesNumPad0IndependentlyAsync),
+    ("attack key fallback presses C synchronously", TestAttackKeyFallbackPressesCSynchronouslyAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
     ("chain presses next stage without waiting for source cooldown", TestChainPressesNextStageWithoutSourceCooldownAsync),
@@ -1117,7 +1117,7 @@ static async Task TestObservedCooldownSurvivesZeroEndTickReadAsync()
     AssertFalse(keyboard.Keys.Contains("D1"), "known future cooldown should block a zero end-tick read");
 }
 
-static async Task TestAttackKeyLoopPressesNumPad0IndependentlyAsync()
+static async Task TestAttackKeyFallbackPressesCSynchronouslyAsync()
 {
     var settings = CreateScriptSettings();
     settings.SemiAuto.AttackKeyLoopEnabled = true;
@@ -1134,10 +1134,14 @@ static async Task TestAttackKeyLoopPressesNumPad0IndependentlyAsync()
     CalibrateCooldownClock(state);
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    await WaitUntilAsync(() => keyboard.Keys.Contains("NumPad0"), TimeSpan.FromMilliseconds(250)).ConfigureAwait(false);
-    await state.StopAttackKeyLoopAsync().ConfigureAwait(false);
+    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "attack key fallback should press C in the combat tick");
 
-    AssertFalse(keyboard.Keys.Any(key => key != "NumPad0"), "attack key loop should not press skill keys");
+    await Task.Delay(30).ConfigureAwait(false);
+    AssertEqual(1, keyboard.Keys.Count, "attack key fallback must not run on a background loop");
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "C", "C" }, keyboard.Keys.ToArray(), "attack key fallback should only advance on the next combat tick");
 }
 
 static async Task TestPollResultAdvancesRootOrderAsync()
@@ -1742,24 +1746,6 @@ static AccountWorkerContext CreateContext(
 static string[] WithPreSkillKey(params string[] keys)
 {
     return keys.ToArray();
-}
-
-static async Task WaitUntilAsync(
-    Func<bool> condition,
-    TimeSpan timeout)
-{
-    var startedAt = DateTimeOffset.Now;
-    while (DateTimeOffset.Now - startedAt < timeout)
-    {
-        if (condition())
-        {
-            return;
-        }
-
-        await Task.Delay(5).ConfigureAwait(false);
-    }
-
-    throw new InvalidOperationException("condition was not met before timeout");
 }
 
 static string CreateTempDirectory(string prefix)

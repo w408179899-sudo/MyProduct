@@ -111,7 +111,7 @@ public sealed class RoadhogServices
             accounts,
             hardwareResolver,
             processResolver,
-            new DefaultAccountWorkerLoop(semiAutoController, stationaryCombatController),
+            new DefaultAccountWorkerLoop(keyboardInput, semiAutoController, stationaryCombatController),
             workerOptions);
         var runtime = new RoadhogRuntime(gameApi, logger, accounts, accountOrchestrator);
         var offsets = new OffsetCatalogProvider(new OffsetCatalogLoader(), logger);

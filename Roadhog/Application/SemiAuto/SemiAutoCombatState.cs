@@ -7,8 +7,7 @@ public sealed class SemiAutoCombatState
     private int? cooldownTickOffsetMs;
     private readonly Dictionary<uint, uint> observedCooldownEndTimes = new();
     private readonly Dictionary<uint, uint> knownCooldownEndTimes = new();
-    private CancellationTokenSource? attackKeyLoopCancellation;
-    private Task? attackKeyLoopTask;
+    private DateTimeOffset lastAttackKeyPressedAt = DateTimeOffset.MinValue;
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
@@ -43,9 +42,7 @@ public sealed class SemiAutoCombatState
 
     public DateTimeOffset LastNoSkillLogAt { get; set; } = DateTimeOffset.MinValue;
 
-    public DateTimeOffset LastAttackKeyLoopWarningAt { get; set; } = DateTimeOffset.MinValue;
-
-    public bool IsAttackKeyLoopRunning => attackKeyLoopTask is { IsCompleted: false };
+    public DateTimeOffset LastAttackKeyWarningAt { get; set; } = DateTimeOffset.MinValue;
 
     public bool ObserveTarget(LockedTargetSnapshot target, out ushort killedTargetEntityId)
     {
@@ -75,56 +72,20 @@ public sealed class SemiAutoCombatState
         return true;
     }
 
-    public void StartAttackKeyLoop(
-        CancellationTokenSource cancellation,
-        Task task)
+    public bool ShouldPressAttackKey(DateTimeOffset now, TimeSpan interval)
     {
-        ClearCompletedAttackKeyLoop();
-        attackKeyLoopCancellation?.Cancel();
-        attackKeyLoopCancellation?.Dispose();
-        attackKeyLoopCancellation = cancellation;
-        attackKeyLoopTask = task;
+        return lastAttackKeyPressedAt == DateTimeOffset.MinValue ||
+               now - lastAttackKeyPressedAt >= interval;
     }
 
-    public async Task StopAttackKeyLoopAsync()
+    public void MarkAttackKeyAttempted(DateTimeOffset now)
     {
-        var cancellation = attackKeyLoopCancellation;
-        var task = attackKeyLoopTask;
-        attackKeyLoopCancellation = null;
-        attackKeyLoopTask = null;
-
-        if (cancellation is null)
-        {
-            return;
-        }
-
-        try
-        {
-            cancellation.Cancel();
-            if (task is not null)
-            {
-                await task.ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        finally
-        {
-            cancellation.Dispose();
-        }
+        lastAttackKeyPressedAt = now;
     }
 
-    public void ClearCompletedAttackKeyLoop()
+    public void ResetAttackKeyPressThrottle()
     {
-        if (attackKeyLoopTask is not { IsCompleted: true })
-        {
-            return;
-        }
-
-        attackKeyLoopCancellation?.Dispose();
-        attackKeyLoopCancellation = null;
-        attackKeyLoopTask = null;
+        lastAttackKeyPressedAt = DateTimeOffset.MinValue;
     }
 
     public void ClearChain()
