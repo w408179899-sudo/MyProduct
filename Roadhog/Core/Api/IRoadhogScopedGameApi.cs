@@ -21,4 +21,8 @@ public interface IRoadhogScopedGameApi : IRoadhogGameApi
         GameApiReadContext context,
         IReadOnlyCollection<uint> skillIds,
         CancellationToken cancellationToken = default);
+
+    Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default);
 }

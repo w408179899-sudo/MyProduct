@@ -30,6 +30,12 @@
     <Content Include="Source\client_skills.xml" Condition="Exists('Source\client_skills.xml')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="..\Tool\Source\client_npcs.xml" Link="Source\client_npcs.xml" Condition="Exists('..\Tool\Source\client_npcs.xml')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\Tool\Source\npc_tribe_relation.xml" Link="Source\npc_tribe_relation.xml" Condition="Exists('..\Tool\Source\npc_tribe_relation.xml')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>

@@ -96,6 +96,8 @@ public sealed class CombatScriptSettings
 
     public double StationaryCombatZ { get; set; }
 
+    public double StationaryCombatRadius { get; set; } = 30.0D;
+
     public CombatScriptSettings Clone()
     {
         return new CombatScriptSettings
@@ -106,7 +108,8 @@ public sealed class CombatScriptSettings
             HasStationaryCombatPosition = HasStationaryCombatPosition,
             StationaryCombatX = StationaryCombatX,
             StationaryCombatY = StationaryCombatY,
-            StationaryCombatZ = StationaryCombatZ
+            StationaryCombatZ = StationaryCombatZ,
+            StationaryCombatRadius = StationaryCombatRadius
         };
     }
 }

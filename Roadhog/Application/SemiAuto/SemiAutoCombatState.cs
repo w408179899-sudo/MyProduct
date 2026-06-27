@@ -11,6 +11,8 @@ public sealed class SemiAutoCombatState
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
+    private ushort observedTargetEntityId;
+    private bool observedTargetWasAliveMonster;
 
     public SemiAutoSkillNode? PendingChainSourceNode { get; private set; }
 
@@ -43,6 +45,34 @@ public sealed class SemiAutoCombatState
     public DateTimeOffset LastAttackKeyLoopWarningAt { get; set; } = DateTimeOffset.MinValue;
 
     public bool IsAttackKeyLoopRunning => attackKeyLoopTask is { IsCompleted: false };
+
+    public bool ObserveTarget(LockedTargetSnapshot target, out ushort killedTargetEntityId)
+    {
+        killedTargetEntityId = 0;
+        if (!target.HasTarget)
+        {
+            observedTargetEntityId = 0;
+            observedTargetWasAliveMonster = false;
+            return false;
+        }
+
+        var targetEntityId = target.TargetEntityId;
+        var killed = observedTargetEntityId == targetEntityId &&
+                     observedTargetWasAliveMonster &&
+                     target.IsMonster &&
+                     !target.IsAlive;
+
+        observedTargetEntityId = targetEntityId;
+        observedTargetWasAliveMonster = target.IsMonsterAlive;
+
+        if (!killed)
+        {
+            return false;
+        }
+
+        killedTargetEntityId = targetEntityId;
+        return true;
+    }
 
     public void StartAttackKeyLoop(
         CancellationTokenSource cancellation,

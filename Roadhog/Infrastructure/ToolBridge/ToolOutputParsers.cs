@@ -58,6 +58,7 @@ internal static partial class ToolOutputParsers
             latest = new PlayerSnapshot(
                 ParseUShort(match.Groups["entity"].Value),
                 ParseUShort(match.Groups["target"].Value),
+                string.Empty,
                 ParseUInt(match.Groups["hp"].Value),
                 ParseUInt(match.Groups["maxHp"].Value),
                 ParseUInt(match.Groups["mp"].Value),
@@ -68,6 +69,39 @@ internal static partial class ToolOutputParsers
         }
 
         return latest;
+    }
+
+    public static IReadOnlyList<WorldObjectSnapshot> ParseWorldObjects(IEnumerable<string> lines)
+    {
+        var result = new List<WorldObjectSnapshot>();
+
+        foreach (var line in lines)
+        {
+            var match = WorldObjectLineRegex().Match(line);
+            if (!match.Success)
+            {
+                continue;
+            }
+
+            var isMonster = match.Groups["isMonster"].Value;
+            if (!string.Equals(isMonster, "yes", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            result.Add(new WorldObjectSnapshot(
+                ParseUShort(match.Groups["entity"].Value),
+                ParseUInt(match.Groups["server"].Value),
+                match.Groups["name"].Value,
+                "monster",
+                new Vector3Snapshot(
+                    ParseFloat(match.Groups["x"].Value),
+                    ParseFloat(match.Groups["y"].Value),
+                    ParseFloat(match.Groups["z"].Value)),
+                ParseDouble(match.Groups["dist"].Value)));
+        }
+
+        return result;
     }
 
     private static Vector3Snapshot? TryParsePosition(Match match)
@@ -133,9 +167,17 @@ internal static partial class ToolOutputParsers
         return float.Parse(value, CultureInfo.InvariantCulture);
     }
 
+    private static double ParseDouble(string value)
+    {
+        return double.Parse(value, CultureInfo.InvariantCulture);
+    }
+
     [GeneratedRegex(@"#\d+\s+Id=(?<id>\d+).*?HighestLevel=(?<highest>\d+).*?ItemLevel=(?<itemlevel>\d+).*?Name=""(?<name>[^""]*)""(?: Base=""(?<base>[^""]*)"" Tier=(?<tier>\d+))?.*?Toggle=(?<toggle>\d+).*?Cooldown=(?<cooldown>\d+)/(?<cooldownEnd>\d+)", RegexOptions.Compiled)]
     private static partial Regex SkillLineRegex();
 
     [GeneratedRegex(@"EntityId=(?<entity>\d+)\s+TargetId=(?<target>\d+).*?HP=(?<hp>\d+)/(?<maxHp>\d+).*?MP=(?<mp>\d+)/(?<maxMp>\d+).*?DP=(?<dp>\d+).*?Pos=(?:n/a|X=(?<x>-?\d+(?:\.\d+)?)\s+Y=(?<y>-?\d+(?:\.\d+)?)\s+Z=(?<z>-?\d+(?:\.\d+)?))", RegexOptions.Compiled)]
     private static partial Regex PlayerLineRegex();
+
+    [GeneratedRegex(@"#\d+.*?Dist=(?<dist>-?\d+(?:\.\d+)?)\s+EntityId=(?<entity>\d+)\s+ServerId=(?<server>\d+).*?IsMonster=(?<isMonster>yes|no|n/a).*?\sName=""(?<name>[^""]*)"".*?Pos=X=(?<x>-?\d+(?:\.\d+)?)\s+Y=(?<y>-?\d+(?:\.\d+)?)\s+Z=(?<z>-?\d+(?:\.\d+)?)", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
+    private static partial Regex WorldObjectLineRegex();
 }

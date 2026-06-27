@@ -61,6 +61,17 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TargetIdleDelayMs, 200);
         }
 
+        if (state.ObserveTarget(targetResult.Value, out var killedTargetEntityId))
+        {
+            context.RuntimeStates.MarkKill(context.Config.AccountName);
+            context.Logger.Info("semi_auto.target.kill_counted", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = killedTargetEntityId,
+                ["targetName"] = targetResult.Value.Name
+            });
+        }
+
         if (!targetResult.Value.IsMonsterAlive)
         {
             await state.StopAttackKeyLoopAsync().ConfigureAwait(false);

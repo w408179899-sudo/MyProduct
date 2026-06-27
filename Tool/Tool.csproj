@@ -72,11 +72,14 @@
     <Compile Include="Tests\PathFollowMoveControlTests.cs" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Aion_RE_Living_Document.md" />
     <None Include="App.config" />
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="Source\client_npcs.xml" />
     <Content Include="Source\client_skills.xml" />
+    <Content Include="Source\npc_tribe_relation.xml" />
     <Content Include="TXT\AION.txt" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

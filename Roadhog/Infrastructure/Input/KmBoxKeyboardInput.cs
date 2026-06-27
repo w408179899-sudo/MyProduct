@@ -36,6 +36,7 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
         new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["C"] = 0x06,
+            ["W"] = 0x1A,
             ["D1"] = 0x1E,
             ["D2"] = 0x1F,
             ["D3"] = 0x20,
@@ -48,6 +49,7 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
             ["D0"] = 0x27,
             ["OemMinus"] = 0x2D,
             ["OemPlus"] = 0x2E,
+            ["Tab"] = 0x2B,
             ["NumPad1"] = 0x59,
             ["NumPad2"] = 0x5A,
             ["NumPad3"] = 0x5B,
@@ -129,6 +131,50 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
         {
             _ioSemaphore.Release();
         }
+    }
+
+    public Task<OperationResult> KeyDownAsync(
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        return SendResolvedKeyCommandAsync(key, "down", cancellationToken);
+    }
+
+    public Task<OperationResult> KeyUpAsync(
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        return SendResolvedKeyCommandAsync(key, "up", cancellationToken);
+    }
+
+    public Task<OperationResult> MouseDownAsync(
+        RoadhogMouseButton button,
+        CancellationToken cancellationToken = default)
+    {
+        return SendMouseButtonCommandAsync(button, true, cancellationToken);
+    }
+
+    public Task<OperationResult> MouseUpAsync(
+        RoadhogMouseButton button,
+        CancellationToken cancellationToken = default)
+    {
+        return SendMouseButtonCommandAsync(button, false, cancellationToken);
+    }
+
+    public async Task<OperationResult> MoveMouseRelativeAsync(
+        int deltaX,
+        int deltaY,
+        CancellationToken cancellationToken = default)
+    {
+        if (deltaX < -32768 || deltaX > 32767 || deltaY < -32768 || deltaY > 32767)
+        {
+            return OperationResult.Fail("KMbox mouse delta is out of range.");
+        }
+
+        return await SendRawCommandAsync(
+            "km.move(" + deltaX + "," + deltaY + ")",
+            "KMbox mouse move failed.",
+            cancellationToken).ConfigureAwait(false);
     }
 
     public void Dispose()
@@ -216,6 +262,79 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
         }
         catch
         {
+        }
+    }
+
+    private async Task<OperationResult> SendResolvedKeyCommandAsync(
+        string key,
+        string command,
+        CancellationToken cancellationToken)
+    {
+        if (!TryResolveSkillKey(key, out var hidCode))
+        {
+            return OperationResult.Fail(
+                "Unsupported KMbox key: " + key +
+                ". Allowed keys: " + string.Join(", ", SkillKeyHidCodes.Keys));
+        }
+
+        return await SendRawCommandAsync(
+            "km." + command + "(" + hidCode + ")",
+            "KMbox key command failed.",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private Task<OperationResult> SendMouseButtonCommandAsync(
+        RoadhogMouseButton button,
+        bool down,
+        CancellationToken cancellationToken)
+    {
+        var name = button switch
+        {
+            RoadhogMouseButton.Left => "left",
+            RoadhogMouseButton.Right => "right",
+            RoadhogMouseButton.Middle => "middle",
+            RoadhogMouseButton.Side1 => "side1",
+            RoadhogMouseButton.Side2 => "side2",
+            _ => throw new ArgumentOutOfRangeException(nameof(button), button, "Unknown mouse button.")
+        };
+
+        return SendRawCommandAsync(
+            "km." + name + "(" + (down ? "1" : "0") + ")",
+            "KMbox mouse button command failed.",
+            cancellationToken);
+    }
+
+    private async Task<OperationResult> SendRawCommandAsync(
+        string pythonCommand,
+        string errorPrefix,
+        CancellationToken cancellationToken)
+    {
+        await _ioSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+
+            var port = GetOrOpenPort();
+            SendCommandOnPort(port, pythonCommand);
+            return OperationResult.Ok();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            ClosePort();
+            return OperationResult.Fail(
+                errorPrefix +
+                " port=" + _options.PortName +
+                " availablePorts=" + GetAvailablePortNamesText() +
+                " command=\"" + pythonCommand + "\"" +
+                " error=" + ex.Message);
+        }
+        finally
+        {
+            _ioSemaphore.Release();
         }
     }
 

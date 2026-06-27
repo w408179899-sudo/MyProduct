@@ -1,5 +1,6 @@
 using Roadhog.Application;
 using Roadhog.Application.SemiAuto;
+using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Api;
 using Roadhog.Core.Accounts;
@@ -97,6 +98,7 @@ public sealed class RoadhogServices
         var accounts = new AccountRuntimeManager(logger);
         IKeyboardInput keyboardInput = new KmBoxKeyboardInput(options.KeyboardInput);
         var semiAutoController = new SemiAutoCombatController(keyboardInput);
+        var stationaryCombatController = new StationaryCombatController(keyboardInput, semiAutoController);
         var workerOptions = new AccountWorkerOptions
         {
             TickInterval = options.AccountWorkerTickInterval,
@@ -109,7 +111,7 @@ public sealed class RoadhogServices
             accounts,
             hardwareResolver,
             processResolver,
-            new DefaultAccountWorkerLoop(semiAutoController),
+            new DefaultAccountWorkerLoop(semiAutoController, stationaryCombatController),
             workerOptions);
         var runtime = new RoadhogRuntime(gameApi, logger, accounts, accountOrchestrator);
         var offsets = new OffsetCatalogProvider(new OffsetCatalogLoader(), logger);

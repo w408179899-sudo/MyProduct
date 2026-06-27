@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using System.Text;
+using System.Xml;
 using System.Xml.Linq;
 using Roadhog.Core.Api;
 using Roadhog.Core.Common;
@@ -17,6 +18,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private const ulong EntitySystemPointerRva = 0x904690;
     private const ulong ServerObjectTreeRva = 0xD21740;
     private const ulong LocalEntityIdRva = 0xD21798;
+    private const ulong CameraPitchRva = 0xD1AD14;
+    private const ulong CameraRollRva = 0xD1AD18;
+    private const ulong CameraYawRva = 0xD1AD1C;
+    private const ulong SpecialCameraModeRva = 0xD218C8;
+    private const ulong SpecialCameraPitchRva = 0xD218D8;
+    private const ulong SpecialCameraRollRva = 0xD218DC;
+    private const ulong SpecialCameraYawRva = 0xD218E0;
     private const ulong SkillManagerGlobalRva = 0xD004A0;
     private const ulong LearnedSkillTreeOffset = 0x828;
     private const ulong LearnedSkillOuterSkillIdOffset = 0x20;
@@ -39,11 +47,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private const ulong EntityPositionFlagsOffset = 0xC0;
     private const uint EntityUseAlternatePositionFlag = 0x400;
     private const ulong EntityWorldPositionOffset = 0x4B4;
+    private const ulong EntityWorldAnglesOffset = 0x4E8;
     private const ulong EntityLocalPositionOffset = 0x4F4;
     private const ulong EntityProxyManagerVfuncOffset = 0xB8;
 
     private const ulong ServerNodeServerObjectIdOffset = 0x1C;
     private const ulong ServerNodeEntityIdOffset = 0x20;
+    private const ushort EntityTypeNpc = 3;
 
     private const ulong ActorEntityOffset = 0x08;
     private const ulong ActorObjectTypeOffset = 0x20;
@@ -74,6 +84,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private readonly object _connectionSync = new();
     private readonly object _xmlSync = new();
     private SkillXmlCatalog? _xmlCatalog;
+    private NpcXmlCatalog? _npcXmlCatalog;
     private bool _nativeLibrariesLoaded;
 
     public AionVmmGameApi(AionVmmGameApiOptions options, IRoadhogLogger logger)
@@ -136,7 +147,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("Direct VMM world object snapshot is not implemented yet."));
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadWorldObjectsAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadWorldObjectsCore(context), cancellationToken);
     }
 
     private OperationResult<LockedTargetSnapshot> ReadLockedTargetCore(GameApiReadContext context)
@@ -225,6 +244,41 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         {
             _logger.Error("vmm.player.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<PlayerSnapshot>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<IReadOnlyList<WorldObjectSnapshot>> ReadWorldObjectsCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("Module not found: " + moduleName);
+                }
+
+                var npcCatalog = GetNpcXmlCatalog();
+                if (!TryReadWorldObjects(process, gameBase, npcCatalog.Details, out var objects, out var counters, out var readError))
+                {
+                    return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(readError);
+                }
+
+                return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(objects);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.world_objects.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(ex.Message);
         }
     }
 
@@ -601,6 +655,64 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         }
     }
 
+    private NpcXmlCatalog GetNpcXmlCatalog()
+    {
+        var npcXmlPath = ResolveNpcStaticXmlPath(out var npcResolveError);
+        var tribeXmlPath = ResolveNpcTribeXmlPath(out var tribeResolveError);
+        if (string.IsNullOrWhiteSpace(npcXmlPath) || !string.IsNullOrWhiteSpace(npcResolveError))
+        {
+            return new NpcXmlCatalog(
+                npcXmlPath,
+                DateTimeOffset.MinValue,
+                0,
+                new Dictionary<uint, NpcStaticDetail>(),
+                npcResolveError);
+        }
+
+        var npcInfo = new FileInfo(npcXmlPath);
+        var tribeInfo = string.IsNullOrWhiteSpace(tribeXmlPath) || !File.Exists(tribeXmlPath)
+            ? null
+            : new FileInfo(tribeXmlPath);
+        var catalogKey = npcXmlPath + "|" + tribeXmlPath;
+        var length = npcInfo.Length + (tribeInfo?.Length ?? 0);
+        var npcLastWrite = new DateTimeOffset(npcInfo.LastWriteTimeUtc, TimeSpan.Zero);
+        var tribeLastWrite = tribeInfo is null
+            ? DateTimeOffset.MinValue
+            : new DateTimeOffset(tribeInfo.LastWriteTimeUtc, TimeSpan.Zero);
+        var lastWrite = npcLastWrite > tribeLastWrite ? npcLastWrite : tribeLastWrite;
+
+        lock (_xmlSync)
+        {
+            if (_npcXmlCatalog is not null &&
+                string.Equals(_npcXmlCatalog.Path, catalogKey, StringComparison.OrdinalIgnoreCase) &&
+                _npcXmlCatalog.LastWriteTime == lastWrite &&
+                _npcXmlCatalog.Length == length)
+            {
+                return _npcXmlCatalog;
+            }
+
+            var tribeRelations = LoadNpcTribeRelations(tribeXmlPath, out var tribeLoadError);
+            var details = LoadNpcStaticDetails(npcXmlPath, tribeRelations, out var npcLoadError);
+            var error = !string.IsNullOrWhiteSpace(npcLoadError)
+                ? npcLoadError
+                : !string.IsNullOrWhiteSpace(tribeResolveError)
+                    ? tribeResolveError
+                    : tribeLoadError;
+
+            _npcXmlCatalog = new NpcXmlCatalog(catalogKey, lastWrite, length, details, error);
+            _logger.Info("npcs.xml.loaded", new Dictionary<string, object?>
+            {
+                ["npcPath"] = npcXmlPath,
+                ["tribePath"] = tribeXmlPath,
+                ["npcRows"] = details.Count,
+                ["tribeRows"] = tribeRelations.Count,
+                ["error"] = error
+            });
+
+            return _npcXmlCatalog;
+        }
+    }
+
     private string ResolveSkillXmlPath(out string error)
     {
         error = string.Empty;
@@ -668,6 +780,89 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         return string.Empty;
     }
 
+    private static string ResolveNpcStaticXmlPath(out string error)
+    {
+        return ResolveXmlFilePath(
+            "client_npcs.xml",
+            new[] { "AION_CLIENT_NPCS_XML", "AION_CLIENT_NPC_XML", "AION_NPC_XML" },
+            out error);
+    }
+
+    private static string ResolveNpcTribeXmlPath(out string error)
+    {
+        return ResolveXmlFilePath(
+            "npc_tribe_relation.xml",
+            new[] { "AION_NPC_TRIBE_RELATION_XML", "AION_NPC_TRIBE_XML" },
+            out error);
+    }
+
+    private static string ResolveXmlFilePath(
+        string fileName,
+        IReadOnlyList<string> environmentVariables,
+        out string error)
+    {
+        error = string.Empty;
+        foreach (var environmentVariable in environmentVariables)
+        {
+            var explicitPath = Environment.GetEnvironmentVariable(environmentVariable);
+            if (string.IsNullOrWhiteSpace(explicitPath))
+            {
+                continue;
+            }
+
+            var expanded = Environment.ExpandEnvironmentVariables(explicitPath.Trim().Trim('"'));
+            try
+            {
+                expanded = Path.GetFullPath(expanded);
+            }
+            catch
+            {
+            }
+
+            if (File.Exists(expanded))
+            {
+                return expanded;
+            }
+
+            error = fileName + " path not found: " + expanded;
+            return expanded;
+        }
+
+        var baseDirectory = AppContext.BaseDirectory;
+        var currentDirectory = Environment.CurrentDirectory;
+        var candidates = new[]
+        {
+            Path.Combine(baseDirectory, "Source", fileName),
+            Path.Combine(baseDirectory, fileName),
+            Path.Combine(currentDirectory, "Roadhog", "Source", fileName),
+            Path.Combine(currentDirectory, "Tool", "Source", fileName),
+            Path.Combine(currentDirectory, "Source", fileName),
+            Path.Combine("Roadhog", "Source", fileName),
+            Path.Combine("Tool", "Source", fileName),
+            Path.Combine("Source", fileName),
+            fileName
+        };
+
+        foreach (var candidate in candidates)
+        {
+            if (!File.Exists(candidate))
+            {
+                continue;
+            }
+
+            try
+            {
+                return Path.GetFullPath(candidate);
+            }
+            catch
+            {
+                return candidate;
+            }
+        }
+
+        return string.Empty;
+    }
+
     private static Dictionary<uint, SkillXmlStaticDetail> LoadSkillXmlStaticDetails(string xmlPath, out string error)
     {
         var details = new Dictionary<uint, SkillXmlStaticDetail>();
@@ -697,6 +892,282 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         }
 
         return details;
+    }
+
+    private static Dictionary<uint, NpcStaticDetail> LoadNpcStaticDetails(
+        string xmlPath,
+        IReadOnlyDictionary<string, NpcTribeRelation> tribeRelations,
+        out string error)
+    {
+        var details = new Dictionary<uint, NpcStaticDetail>();
+        error = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(xmlPath) || !File.Exists(xmlPath))
+        {
+            return details;
+        }
+
+        try
+        {
+            var settings = new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Ignore,
+                IgnoreComments = true,
+                IgnoreWhitespace = true
+            };
+
+            using var reader = XmlReader.Create(xmlPath, settings);
+            while (!reader.EOF)
+            {
+                if (reader.NodeType == XmlNodeType.Element &&
+                    string.Equals(reader.Name, "npc_client", StringComparison.OrdinalIgnoreCase))
+                {
+                    var element = (XElement)XNode.ReadFrom(reader);
+                    if (TryReadNpcStaticDetail(element, tribeRelations, out var detail))
+                    {
+                        details[detail.Id] = detail;
+                    }
+                }
+                else if (!reader.Read())
+                {
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            error = "failed to load client_npcs.xml: " + ex.Message;
+            details.Clear();
+        }
+
+        return details;
+    }
+
+    private static Dictionary<string, NpcTribeRelation> LoadNpcTribeRelations(
+        string xmlPath,
+        out string error)
+    {
+        var relations = new Dictionary<string, NpcTribeRelation>(StringComparer.OrdinalIgnoreCase);
+        error = string.Empty;
+        if (string.IsNullOrWhiteSpace(xmlPath) || !File.Exists(xmlPath))
+        {
+            return relations;
+        }
+
+        try
+        {
+            var document = XDocument.Load(xmlPath);
+            if (document.Root is null)
+            {
+                error = "npc_tribe_relation.xml has no root element";
+                return relations;
+            }
+
+            foreach (var element in document.Root.Elements())
+            {
+                if (!string.Equals(element.Name.LocalName, "tribe", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var tribe = GetSkillXmlValue(element, "Tribe", "tribe");
+                if (string.IsNullOrWhiteSpace(tribe))
+                {
+                    continue;
+                }
+
+                var relation = new NpcTribeRelation
+                {
+                    Tribe = tribe,
+                    BaseTribe = GetSkillXmlValue(element, "base_tribe", "basetribe"),
+                    Aggressive = GetSkillXmlValue(element, "aggressive")
+                };
+                relation.AggressiveToPlayer =
+                    ContainsRelationToken(relation.Aggressive, "PC") ||
+                    ContainsRelationToken(relation.Aggressive, "PC_Dark");
+                relations[tribe] = relation;
+            }
+        }
+        catch (Exception ex)
+        {
+            error = "failed to load npc_tribe_relation.xml: " + ex.Message;
+            relations.Clear();
+        }
+
+        return relations;
+    }
+
+    private static bool TryReadNpcStaticDetail(
+        XElement element,
+        IReadOnlyDictionary<string, NpcTribeRelation> tribeRelations,
+        out NpcStaticDetail detail)
+    {
+        detail = new NpcStaticDetail();
+        var idText = GetSkillXmlValue(element, "id");
+        if (!TryParseSkillXmlUInt(idText, out var id))
+        {
+            return false;
+        }
+
+        detail.Id = id;
+        detail.Name = GetSkillXmlValue(element, "name");
+        detail.UiType = GetSkillXmlValue(element, "ui_type", "uitype");
+        detail.CursorType = GetSkillXmlValue(element, "cursor_type", "cursortype");
+        detail.NpcType = GetSkillXmlValue(element, "npc_type", "npctype");
+        detail.Tribe = GetSkillXmlValue(element, "tribe");
+
+        var aggressive = GetSkillXmlValue(element, "aggressive");
+        detail.HasDirectAggressive = !string.IsNullOrWhiteSpace(aggressive);
+        detail.DirectAggressive = IsTruthyNpcXmlValue(aggressive);
+        ApplyNpcStaticClassification(tribeRelations, ref detail);
+        return true;
+    }
+
+    private static void ApplyNpcStaticClassification(
+        IReadOnlyDictionary<string, NpcTribeRelation> tribeRelations,
+        ref NpcStaticDetail detail)
+    {
+        if (!string.IsNullOrWhiteSpace(detail.NpcType))
+        {
+            detail.IsMonsterKnown = true;
+            detail.IsMonster = string.Equals(detail.NpcType, "monster", StringComparison.OrdinalIgnoreCase);
+        }
+        else if (LooksLikeMonsterUi(detail) || IsTribeDerivedFrom(detail.Tribe, "Monster", tribeRelations))
+        {
+            detail.IsMonsterKnown = true;
+            detail.IsMonster = true;
+        }
+
+        if (detail.HasDirectAggressive)
+        {
+            detail.AggressiveKnown = true;
+            detail.AggressiveToPlayer = detail.DirectAggressive;
+            detail.AggressiveSource = "npc_xml";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(detail.Tribe) && IsAggressiveToPlayerTribe(detail.Tribe, tribeRelations))
+        {
+            detail.AggressiveKnown = true;
+            detail.AggressiveToPlayer = true;
+            detail.AggressiveSource = "tribe_relation";
+            return;
+        }
+
+        if (detail.IsMonsterKnown && detail.IsMonster)
+        {
+            detail.AggressiveKnown = true;
+            detail.AggressiveToPlayer = false;
+            detail.AggressiveSource = "tribe_relation";
+        }
+    }
+
+    private static bool LooksLikeMonsterUi(NpcStaticDetail detail)
+    {
+        var monsterUi =
+            string.Equals(detail.UiType, "monster", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(detail.UiType, "monster_raid", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(detail.UiType, "monster_subordinate", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(detail.UiType, "hidden_monster", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(detail.UiType, "monster_notitle", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(detail.UiType, "monster_namedisplay", StringComparison.OrdinalIgnoreCase);
+        var attackCursor = string.Equals(detail.CursorType, "attack", StringComparison.OrdinalIgnoreCase);
+        return monsterUi && attackCursor;
+    }
+
+    private static bool IsTribeDerivedFrom(
+        string tribe,
+        string expectedBase,
+        IReadOnlyDictionary<string, NpcTribeRelation> tribeRelations)
+    {
+        if (string.IsNullOrWhiteSpace(tribe) || string.IsNullOrWhiteSpace(expectedBase))
+        {
+            return false;
+        }
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var current = tribe;
+        for (var guard = 0; guard < 32 && !string.IsNullOrWhiteSpace(current); guard++)
+        {
+            if (!visited.Add(current))
+            {
+                return false;
+            }
+
+            if (string.Equals(current, expectedBase, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (!tribeRelations.TryGetValue(current, out var relation) ||
+                string.IsNullOrWhiteSpace(relation.BaseTribe))
+            {
+                return false;
+            }
+
+            current = relation.BaseTribe;
+        }
+
+        return false;
+    }
+
+    private static bool IsAggressiveToPlayerTribe(
+        string tribe,
+        IReadOnlyDictionary<string, NpcTribeRelation> tribeRelations)
+    {
+        if (string.IsNullOrWhiteSpace(tribe))
+        {
+            return false;
+        }
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var current = tribe;
+        for (var guard = 0; guard < 32 && !string.IsNullOrWhiteSpace(current); guard++)
+        {
+            if (!visited.Add(current))
+            {
+                return false;
+            }
+
+            if (!tribeRelations.TryGetValue(current, out var relation))
+            {
+                return false;
+            }
+
+            if (relation.AggressiveToPlayer)
+            {
+                return true;
+            }
+
+            current = relation.BaseTribe;
+        }
+
+        return false;
+    }
+
+    private static bool ContainsRelationToken(string text, string token)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(token))
+        {
+            return false;
+        }
+
+        var parts = text.Split(new[] { ',', ';', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        return parts.Any(part => string.Equals(part.Trim(), token, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsTruthyNpcXmlValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        value = value.Trim();
+        return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(value, "on", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryReadSkillXmlStaticDetail(XElement element, out SkillXmlStaticDetail detail)
@@ -1551,7 +2022,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         out PlayerSnapshot snapshot,
         out string error)
     {
-        snapshot = new PlayerSnapshot(0, 0, 0, 0, 0, 0, 0, null, DateTimeOffset.Now);
+        snapshot = new PlayerSnapshot(0, 0, string.Empty, 0, 0, 0, 0, 0, null, DateTimeOffset.Now);
         error = string.Empty;
 
         if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
@@ -1588,23 +2059,171 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 
         uint currentHp = 0;
         uint maxHp = 0;
+        var characterName = string.Empty;
+        double? actorYaw = null;
         if (TryResolveActorFromEntity(process, localEntity, 0, out var actor))
         {
             currentHp = actor.CurrentHp;
             maxHp = actor.MaxHp;
+            characterName = actor.Name;
+        }
+
+        if (TryReadSingle(process, localEntity + EntityWorldAnglesOffset + 8, out var rawActorYaw))
+        {
+            actorYaw = NormalizeSignedDegrees(rawActorYaw);
+        }
+
+        double? cameraYaw = null;
+        double? cameraPitch = null;
+        if (TryReadCameraAngles(process, gameBase, out var rawCameraPitch, out _, out var rawCameraYaw))
+        {
+            cameraPitch = GetCameraPitchDegrees(rawCameraPitch);
+            cameraYaw = GetCameraYawDegrees(rawCameraYaw);
         }
 
         snapshot = new PlayerSnapshot(
             localEntityId,
             targetEntityId,
+            characterName,
             currentHp,
             maxHp,
             0,
             0,
             0,
             new Vector3Snapshot(x, y, z),
-            DateTimeOffset.Now);
+            DateTimeOffset.Now,
+            cameraYaw,
+            cameraPitch,
+            actorYaw);
         return true;
+    }
+
+    private static bool TryReadCameraAngles(
+        VmmProcess process,
+        ulong gameBase,
+        out float pitch,
+        out float roll,
+        out float yaw)
+    {
+        pitch = 0;
+        roll = 0;
+        yaw = 0;
+
+        TryReadUInt16(process, gameBase + SpecialCameraModeRva, out var specialCameraMode);
+        var useSpecialCamera = specialCameraMode != 0 && !HasCameraRvaOverride();
+        var pitchRva = useSpecialCamera ? SpecialCameraPitchRva : GetCameraPitchRva();
+        var rollRva = useSpecialCamera ? SpecialCameraRollRva : GetCameraRollRva();
+        var yawRva = useSpecialCamera ? SpecialCameraYawRva : GetCameraYawRva();
+
+        return TryReadSingle(process, gameBase + pitchRva, out pitch) &&
+               TryReadSingle(process, gameBase + rollRva, out roll) &&
+               TryReadSingle(process, gameBase + yawRva, out yaw);
+    }
+
+    private static double GetCameraYawDegrees(float rawYaw)
+    {
+        var unit = (Environment.GetEnvironmentVariable("AION_CAMERA_YAW_UNIT") ?? "deg").Trim().ToLowerInvariant();
+        if (unit is "rad" or "radian" or "radians")
+        {
+            return NormalizeSignedDegrees(RadiansToDegrees(rawYaw));
+        }
+
+        if (unit == "auto" && Math.Abs(rawYaw) <= Math.PI * 2.0 + 0.25)
+        {
+            return NormalizeSignedDegrees(RadiansToDegrees(rawYaw));
+        }
+
+        return NormalizeSignedDegrees(rawYaw);
+    }
+
+    private static double GetCameraPitchDegrees(float rawPitch)
+    {
+        var unit = (Environment.GetEnvironmentVariable("AION_CAMERA_PITCH_UNIT") ?? "deg").Trim().ToLowerInvariant();
+        double pitch = unit is "rad" or "radian" or "radians"
+            ? RadiansToDegrees(rawPitch)
+            : unit == "auto" && Math.Abs(rawPitch) <= Math.PI * 2.0 + 0.25
+                ? RadiansToDegrees(rawPitch)
+                : rawPitch;
+        return Math.Max(-65.0, Math.Min(85.0, pitch));
+    }
+
+    private static ulong GetCameraPitchRva()
+    {
+        return ReadRvaFromEnv("AION_CAMERA_PITCH_RVA", CameraPitchRva);
+    }
+
+    private static ulong GetCameraRollRva()
+    {
+        return ReadRvaFromEnv("AION_CAMERA_ROLL_RVA", CameraRollRva);
+    }
+
+    private static ulong GetCameraYawRva()
+    {
+        return ReadRvaFromEnv("AION_CAMERA_YAW_RVA", CameraYawRva);
+    }
+
+    private static bool HasCameraRvaOverride()
+    {
+        return !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AION_CAMERA_PITCH_RVA")) ||
+               !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AION_CAMERA_ROLL_RVA")) ||
+               !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AION_CAMERA_YAW_RVA"));
+    }
+
+    private static ulong ReadRvaFromEnv(string name, ulong defaultValue)
+    {
+        var text = Environment.GetEnvironmentVariable(name);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return defaultValue;
+        }
+
+        text = text.Trim();
+        try
+        {
+            if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                return Convert.ToUInt64(text[2..], 16);
+            }
+
+            return Convert.ToUInt64(text, CultureInfo.InvariantCulture);
+        }
+        catch
+        {
+            return defaultValue;
+        }
+    }
+
+    private static double NormalizeSignedDegrees(double angle)
+    {
+        angle %= 360.0;
+        if (angle > 180.0)
+        {
+            angle -= 360.0;
+        }
+        else if (angle <= -180.0)
+        {
+            angle += 360.0;
+        }
+
+        return angle;
+    }
+
+    private static double RadiansToDegrees(double radians)
+    {
+        return radians * 180.0 / Math.PI;
+    }
+
+    private static bool IsReasonablePosition(float x, float y, float z)
+    {
+        return !float.IsNaN(x) &&
+               !float.IsNaN(y) &&
+               !float.IsNaN(z) &&
+               !float.IsInfinity(x) &&
+               !float.IsInfinity(y) &&
+               !float.IsInfinity(z) &&
+               Math.Abs(x) < 10000000.0F &&
+               Math.Abs(y) < 10000000.0F &&
+               Math.Abs(z) < 10000000.0F;
     }
 
     private static LockedTargetSnapshot ToLockedTargetSnapshot(LockedTargetInfo info)
@@ -1625,6 +2244,123 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             info.Position,
             info.DistanceToLocalPlayer,
             DateTimeOffset.Now);
+    }
+
+    private static bool TryReadWorldObjects(
+        VmmProcess process,
+        ulong gameBase,
+        IReadOnlyDictionary<uint, NpcStaticDetail> npcStaticDetails,
+        out IReadOnlyList<WorldObjectSnapshot> objects,
+        out WorldObjectReadCounters counters,
+        out string error)
+    {
+        var result = new List<WorldObjectSnapshot>();
+        objects = result;
+        counters = new WorldObjectReadCounters();
+        error = string.Empty;
+
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        {
+            error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        {
+            error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
+            return false;
+        }
+
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        {
+            error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
+            return false;
+        }
+
+        TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out var targetEntityId);
+
+        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity) ||
+            !TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ))
+        {
+            error = "failed to read local entity position";
+            return false;
+        }
+
+        if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader) || serverTreeHeader == 0)
+        {
+            error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node))
+        {
+            error = "failed to read ServerObject tree begin node";
+            return false;
+        }
+
+        for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
+        {
+            if (IsNilNode(process, node, serverTreeHeader))
+            {
+                break;
+            }
+
+            counters.ScannedServerObjects++;
+
+            if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out var serverObjectId) &&
+                TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var entityId) &&
+                entityId != 0 &&
+                entityId != localEntityId &&
+                TryFindEntityById(process, entityTreeHeader, entityId, out var entity) &&
+                entity != 0)
+            {
+                counters.ResolvedEntities++;
+
+                if (TryReadUInt16(process, entity + EntityTypeOffset, out var entityType) &&
+                    entityType == EntityTypeNpc)
+                {
+                    counters.NpcLikeEntities++;
+
+                    if (TryReadEntityPosition(process, entity, out var x, out var y, out var z) &&
+                        IsReasonablePosition(x, y, z) &&
+                        TryResolveActorFromEntity(process, entity, serverObjectId, out var actor) &&
+                        npcStaticDetails.TryGetValue(actor.NpcTemplateId, out var npcStaticDetail) &&
+                        npcStaticDetail.IsMonsterKnown &&
+                        npcStaticDetail.IsMonster)
+                    {
+                        var dx = x - localX;
+                        var dy = y - localY;
+                        var dz = z - localZ;
+                        var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                        result.Add(new WorldObjectSnapshot(
+                            entityId,
+                            serverObjectId,
+                            string.IsNullOrWhiteSpace(actor.Name) ? npcStaticDetail.Name : actor.Name,
+                            "monster",
+                            new Vector3Snapshot(x, y, z),
+                            distance,
+                            actor.CurrentHp,
+                            actor.MaxHp));
+                    }
+                }
+            }
+
+            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next) || next == node)
+            {
+                break;
+            }
+
+            node = next;
+        }
+
+        result.Sort(static (left, right) =>
+        {
+            var leftDistance = left.DistanceToLocalPlayer ?? double.MaxValue;
+            var rightDistance = right.DistanceToLocalPlayer ?? double.MaxValue;
+            return leftDistance.CompareTo(rightDistance);
+        });
+
+        return true;
     }
 
     private static bool TryFindEntityById(VmmProcess process, ulong header, ushort entityId, out ulong entity)
@@ -2280,6 +3016,45 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         long Length,
         IReadOnlyDictionary<uint, SkillXmlStaticDetail> Details,
         string Error);
+
+    private sealed record NpcXmlCatalog(
+        string Path,
+        DateTimeOffset LastWriteTime,
+        long Length,
+        IReadOnlyDictionary<uint, NpcStaticDetail> Details,
+        string Error);
+
+    private struct NpcStaticDetail
+    {
+        public uint Id;
+        public string Name;
+        public string UiType;
+        public string CursorType;
+        public string NpcType;
+        public string Tribe;
+        public bool HasDirectAggressive;
+        public bool DirectAggressive;
+        public bool IsMonsterKnown;
+        public bool IsMonster;
+        public bool AggressiveKnown;
+        public bool AggressiveToPlayer;
+        public string AggressiveSource;
+    }
+
+    private struct NpcTribeRelation
+    {
+        public string Tribe;
+        public string BaseTribe;
+        public string Aggressive;
+        public bool AggressiveToPlayer;
+    }
+
+    private struct WorldObjectReadCounters
+    {
+        public int ScannedServerObjects;
+        public int ResolvedEntities;
+        public int NpcLikeEntities;
+    }
 
     private struct LearnedSkillInfo
     {

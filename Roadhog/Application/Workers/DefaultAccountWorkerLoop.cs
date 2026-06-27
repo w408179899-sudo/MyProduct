@@ -1,4 +1,5 @@
 using Roadhog.Application.SemiAuto;
+using Roadhog.Application.StationaryCombat;
 using Roadhog.Core.Accounts;
 
 namespace Roadhog.Application.Workers;
@@ -6,10 +7,14 @@ namespace Roadhog.Application.Workers;
 public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
 {
     private readonly SemiAutoCombatController _semiAuto;
+    private readonly StationaryCombatController _stationaryCombat;
 
-    public DefaultAccountWorkerLoop(SemiAutoCombatController semiAuto)
+    public DefaultAccountWorkerLoop(
+        SemiAutoCombatController semiAuto,
+        StationaryCombatController stationaryCombat)
     {
         _semiAuto = semiAuto;
+        _stationaryCombat = stationaryCombat;
     }
 
     public async Task RunAsync(AccountWorkerContext context)
@@ -30,6 +35,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         };
         var semiAutoPlan = SemiAutoSkillPlan.FromSettings(scriptSettings.Skills);
         var semiAutoState = new SemiAutoCombatState();
+        var stationaryCombatState = new StationaryCombatState();
         context.Logger.Info("semi_auto.plan.loaded", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -54,6 +60,13 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 if (context.Config.MainMode == AccountMainMode.SemiAuto)
                 {
                     delay = await _semiAuto.TickAsync(context, semiAutoPlan, semiAutoState).ConfigureAwait(false);
+                }
+                else if (context.Config.MainMode == AccountMainMode.CustomCombat &&
+                         context.Config.CombatMode == AccountCombatMode.Stationary)
+                {
+                    delay = await _stationaryCombat
+                        .TickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)
+                        .ConfigureAwait(false);
                 }
                 else if (context.Options.PollPlayerSnapshot)
                 {

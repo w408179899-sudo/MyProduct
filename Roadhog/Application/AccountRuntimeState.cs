@@ -48,6 +48,10 @@ public sealed class AccountRuntimeState
 
     public string? LastError { get; private set; }
 
+    public int KillCount { get; private set; }
+
+    public DateTimeOffset? LastKillAt { get; private set; }
+
     public bool StopRequested { get; private set; }
 
     public void ApplyAccountInfo(string characterName, AccountConfigSnapshot config)
@@ -81,6 +85,11 @@ public sealed class AccountRuntimeState
         ThreadId = null;
         StopRequested = false;
         LastError = null;
+        StartedAt = null;
+        StoppedAt = null;
+        LastHeartbeatAt = null;
+        KillCount = 0;
+        LastKillAt = null;
         Touch();
     }
 
@@ -124,6 +133,13 @@ public sealed class AccountRuntimeState
         ThreadId = null;
         StopRequested = false;
         StoppedAt = DateTimeOffset.Now;
+        Touch();
+    }
+
+    public void MarkKill()
+    {
+        KillCount++;
+        LastKillAt = DateTimeOffset.Now;
         Touch();
     }
 

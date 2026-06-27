@@ -37,6 +37,9 @@ namespace Roadhog
         private RoundedComboBox? combatModeCombo;
         private Button? stationaryCombatPositionButton;
         private Label? stationaryCombatPositionLabel;
+        private Label? stationaryCombatRadiusLabel;
+        private RoundedTextBox? stationaryCombatRadiusTextBox;
+        private Label? stationaryCombatRadiusUnitLabel;
         private Vector3Snapshot? stationaryCombatPosition;
         private RoundedCheckBox? enableLootCheckBox;
         private RoundedCheckBox? contestMonsterCheckBox;
@@ -295,7 +298,8 @@ namespace Roadhog
                     HasStationaryCombatPosition = stationaryCombatPosition is not null,
                     StationaryCombatX = stationaryCombatPosition?.X ?? 0.0D,
                     StationaryCombatY = stationaryCombatPosition?.Y ?? 0.0D,
-                    StationaryCombatZ = stationaryCombatPosition?.Z ?? 0.0D
+                    StationaryCombatZ = stationaryCombatPosition?.Z ?? 0.0D,
+                    StationaryCombatRadius = ReadDouble(stationaryCombatRadiusTextBox, 30.0D, 1.0D, 500.0D)
                 },
                 Paths = new PathScriptSettings
                 {
@@ -382,6 +386,17 @@ namespace Roadhog
                 : fallback;
         }
 
+        private static double ReadDouble(RoundedTextBox? textBox, double fallback, double minimum, double maximum)
+        {
+            if (!double.TryParse(textBox?.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) &&
+                !double.TryParse(textBox?.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out value))
+            {
+                value = fallback;
+            }
+
+            return Math.Clamp(value, minimum, maximum);
+        }
+
         private static string FormatMainMode(AccountMainMode mode)
         {
             return mode switch
@@ -434,7 +449,10 @@ namespace Roadhog
             combatModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
             combatModeLabel = AddLabel(page, "打怪模式", 230, 108, 80, 22);
             stationaryCombatPositionButton = AddButton(page, "设置当前坐标", 306, 104, 128, 30, SetStationaryCombatPositionButton_Click);
-            stationaryCombatPositionLabel = AddLabel(page, "未设置打怪坐标", 444, 108, 360, 22);
+            stationaryCombatPositionLabel = AddLabel(page, "未设置打怪坐标", 444, 108, 178, 22);
+            stationaryCombatRadiusLabel = AddLabel(page, "半径", 632, 108, 38, 22);
+            stationaryCombatRadiusTextBox = AddTextBox(page, "30.0", 672, 104, 70, 28);
+            stationaryCombatRadiusUnitLabel = AddLabel(page, "m", 748, 108, 20, 22);
             RefreshCombatModeVisibility();
 
             enableLootCheckBox = AddCheckBox(page, "启用拾取", 4, 142, 88, true);
@@ -469,6 +487,21 @@ namespace Roadhog
             if (stationaryCombatPositionLabel is not null)
             {
                 stationaryCombatPositionLabel.Visible = stationaryVisible;
+            }
+
+            if (stationaryCombatRadiusLabel is not null)
+            {
+                stationaryCombatRadiusLabel.Visible = stationaryVisible;
+            }
+
+            if (stationaryCombatRadiusTextBox is not null)
+            {
+                stationaryCombatRadiusTextBox.Visible = stationaryVisible;
+            }
+
+            if (stationaryCombatRadiusUnitLabel is not null)
+            {
+                stationaryCombatRadiusUnitLabel.Visible = stationaryVisible;
             }
         }
 
@@ -519,6 +552,10 @@ namespace Roadhog
                     (float)combat.StationaryCombatY,
                     (float)combat.StationaryCombatZ)
                 : null;
+            var radius = combat.StationaryCombatRadius <= 0.0D
+                ? 30.0D
+                : Math.Min(combat.StationaryCombatRadius, 500.0D);
+            SetText(stationaryCombatRadiusTextBox, radius.ToString("F1", CultureInfo.InvariantCulture));
             RefreshStationaryCombatPositionLabel(null);
         }
 

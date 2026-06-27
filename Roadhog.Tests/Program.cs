@@ -1,5 +1,6 @@
 using Roadhog.Application;
 using Roadhog.Application.SemiAuto;
+using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
@@ -16,8 +17,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
+    ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
+    ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
+    ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
+    ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
+    ("stationary combat verifies target after each tab press", TestStationaryCombatVerifiesAfterEachTabAsync),
+    ("stationary combat releases path follow movement after target is verified", TestStationaryCombatReleasesMovementAfterAcquireAsync),
+    ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
     ("skill tree maps at most configured roots across the 22 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
@@ -33,7 +41,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("chain presses configured child without cooldown filter", TestChainPressesConfiguredChildWithoutCooldownFilterAsync),
     ("chain survives target gap and target switch", TestChainSurvivesTargetGapAsync),
     ("chain lock prevents root fallback while child is missing", TestChainLockPreventsRootFallbackWhileChildMissingAsync),
-    ("chain keeps root key and does not fall back in same tick when chain breaks", TestChainStrictOrderAsync)
+    ("chain keeps root key and does not fall back in same tick when chain breaks", TestChainStrictOrderAsync),
+    ("combat tick counts kill when monster target dies", TestCombatTickCountsKillAsync)
 };
 
 var failures = 0;
@@ -139,6 +148,7 @@ static async Task TestRuntimePlayerReadUsesAccountScopeAsync()
         Player = new PlayerSnapshot(
             10,
             11,
+            "Scoped Character",
             100,
             100,
             50,
@@ -155,6 +165,31 @@ static async Task TestRuntimePlayerReadUsesAccountScopeAsync()
     AssertEqual(712, gameApi.LastPlayerContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastPlayerContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastPlayerContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
+}
+
+static async Task TestRuntimePlayerReadReturnsCharacterNameAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            10,
+            0,
+            "测试角色",
+            100,
+            100,
+            50,
+            50,
+            0,
+            new Vector3Snapshot(1, 2, 3),
+            DateTimeOffset.Now)
+    };
+    var runtime = new RoadhogRuntime(gameApi, logger, new AccountRuntimeManager(logger), null!);
+
+    var result = await runtime.ReadPlayerAsync("account-character").ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "runtime player read should succeed");
+    AssertEqual("测试角色", result.Value?.CharacterName ?? string.Empty, "character name");
 }
 
 static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
@@ -214,7 +249,8 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
                     HasStationaryCombatPosition = true,
                     StationaryCombatX = 1307.758D,
                     StationaryCombatY = 2844.230D,
-                    StationaryCombatZ = 259.832D
+                    StationaryCombatZ = 259.832D,
+                    StationaryCombatRadius = 42.5D
                 }
             }
         };
@@ -230,15 +266,351 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(1307.758D, combat.StationaryCombatX, "stationary x");
         AssertEqual(2844.230D, combat.StationaryCombatY, "stationary y");
         AssertEqual(259.832D, combat.StationaryCombatZ, "stationary z");
+        AssertEqual(42.5D, combat.StationaryCombatRadius, "stationary radius");
 
         var clone = account.ScriptSettings.Combat.Clone();
         AssertFalse(!clone.HasStationaryCombatPosition, "stationary combat position flag should clone");
         AssertEqual(1307.758D, clone.StationaryCombatX, "cloned stationary x");
+        AssertEqual(42.5D, clone.StationaryCombatRadius, "cloned stationary radius");
     }
     finally
     {
         DeleteDirectoryIfExists(directory);
     }
+}
+
+static Task TestStationaryTargetSelectorAsync()
+{
+    var player = new Vector3Snapshot(0, 0, 0);
+    var home = new Vector3Snapshot(0, 0, 0);
+    var objects = new[]
+    {
+        new WorldObjectSnapshot(10, 10, "npc", "npc", new Vector3Snapshot(1, 0, 0), 1, 100, 100),
+        new WorldObjectSnapshot(11, 11, "dead", "monster", new Vector3Snapshot(2, 0, 0), 2, 0, 100),
+        new WorldObjectSnapshot(12, 12, "outside", "monster", new Vector3Snapshot(40, 0, 0), 40, 100, 100),
+        new WorldObjectSnapshot(13, 13, "farther", "monster", new Vector3Snapshot(8, 0, 0), 8, 100, 100),
+        new WorldObjectSnapshot(14, 14, "nearest", "monster", new Vector3Snapshot(5, 0, 0), 5, 100, 100)
+    };
+
+    var selected = StationaryCombatTargetSelector.SelectNearest(objects, player, home, 30);
+
+    AssertEqual((ushort)14, selected?.EntityId ?? 0, "nearest selectable monster");
+    return Task.CompletedTask;
+}
+
+static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 20, 0),
+            TargetEntityId = 100,
+            TargetCurrentHp = 1000,
+            TargetPosition = new Vector3Snapshot(5, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), new StationaryCombatState())
+            .ConfigureAwait(false);
+
+        AssertFalse(!keyboard.MouseCommands.Contains("down:Right"), "unfaced target should hold right mouse");
+        AssertFalse(!keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)), "unfaced target should move mouse");
+        AssertFalse(keyboard.Keys.Contains("Tab"), "unfaced target should not Tab yet");
+        AssertFalse(keyboard.Keys.Contains("D2"), "unfaced target should not release skills yet");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.face_target"), "face target action should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatTabsUntilTargetVerifiedAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 999,
+            TargetCurrentHp = 1000,
+            TargetPosition = new Vector3Snapshot(5, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "first acquire tick should press Tab when target is wrong");
+
+        gameApi.TargetEntityId = 100;
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        AssertFalse(!keyboard.Keys.Contains("D2"), "verified target should enter semi-auto skill release");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatVerifiesAfterEachTabAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 999,
+            TargetCurrentHp = 1000,
+            TargetPosition = new Vector3Snapshot(5, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var keyboard = new RecordingKeyboardInput
+        {
+            AfterPress = key =>
+            {
+                if (string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase))
+                {
+                    gameApi.TargetEntityId = 100;
+                }
+            }
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), new StationaryCombatState())
+            .ConfigureAwait(false);
+
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "acquire tick should press Tab");
+        AssertFalse(!keyboard.Keys.Contains("D2"), "same tick should release skills after after-tab verify succeeds");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.tab.verify"), "after-tab verify should be logged");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.acquired" &&
+            string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab", StringComparison.Ordinal)),
+            "after-tab target acquisition should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
+static async Task TestStationaryCombatReleasesMovementAfterAcquireAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 100,
+            TargetCurrentHp = 1000,
+            TargetPosition = new Vector3Snapshot(40, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(40, 0, 0), 40, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.IsMovingForward, "approach should hold W while outside acquire distance");
+        AssertFalse(!state.IsRightMouseDown, "approach should hold right mouse while outside acquire distance");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "approach should send W down");
+
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(20, 0, 0), TargetEntityId = 100 };
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(state.IsMovingForward, "verified target should release W");
+        AssertFalse(state.IsRightMouseDown, "verified target should release right mouse");
+        AssertFalse(!keyboard.KeyUps.Contains("W"), "verified target should send W up");
+        AssertFalse(!keyboard.MouseCommands.Contains("up:Right"), "verified target should send right mouse up");
+        AssertFalse(!keyboard.Keys.Contains("D2"), "verified target should enter semi-auto skill release");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatFinishesFightBeforeReturningHomeAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(50, 0, 0), DateTimeOffset.Now, 0, 0, 0),
+        TargetEntityId = 100,
+        TargetCurrentHp = 1000,
+        TargetPosition = new Vector3Snapshot(10, 0, 0),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CandidateEntityId = 100
+    };
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("W"), "fighting outside radius should not return home before target dies");
+    AssertFalse(!keyboard.Keys.Contains("D2"), "fighting outside radius should keep releasing skills");
 }
 
 static Task TestSkillTreeKeyMappingAsync()
@@ -915,6 +1287,35 @@ static async Task TestChainStrictOrderAsync()
         "third stage skill");
 }
 
+static async Task TestCombatTickCountsKillAsync()
+{
+    var settings = CreateScriptSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var runtimeStates = new AccountRuntimeManager(logger);
+    runtimeStates.GetOrCreate("account1");
+    var gameApi = new FakeGameApi
+    {
+        Skills = Array.Empty<SkillSnapshot>(),
+        TargetEntityId = 321,
+        TargetCurrentHp = 1000
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger, runtimeStates);
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertEqual(0, runtimeStates.Snapshot().First().KillCount, "alive target should not count as kill");
+
+    gameApi.TargetCurrentHp = 0;
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertEqual(1, runtimeStates.Snapshot().First().KillCount, "dead transition should count one kill");
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertEqual(1, runtimeStates.Snapshot().First().KillCount, "same dead target must not count repeatedly");
+}
+
 static ScriptSettings CreateScriptSettings()
 {
     return new ScriptSettings
@@ -1082,7 +1483,8 @@ static IEnumerable<SemiAutoSkillNode> Flatten(IEnumerable<SemiAutoSkillNode> roo
 static AccountWorkerContext CreateContext(
     ScriptSettings settings,
     IRoadhogGameApi gameApi,
-    IRoadhogLogger logger)
+    IRoadhogLogger logger,
+    AccountRuntimeManager? runtimeStates = null)
 {
     var account = new AccountConfig
     {
@@ -1094,7 +1496,7 @@ static AccountWorkerContext CreateContext(
         account,
         gameApi,
         logger,
-        new AccountRuntimeManager(logger),
+        runtimeStates ?? new AccountRuntimeManager(logger),
         new AccountWorkerOptions(),
         CancellationToken.None);
 }
@@ -1171,12 +1573,62 @@ sealed class RecordingKeyboardInput : IKeyboardInput
 {
     public List<string> Keys { get; } = new();
 
+    public List<string> KeyDowns { get; } = new();
+
+    public List<string> KeyUps { get; } = new();
+
+    public List<string> MouseCommands { get; } = new();
+
+    public Action<string>? AfterPress { get; set; }
+
     public Task<OperationResult> PressKeyAsync(
         string key,
         TimeSpan holdDuration,
         CancellationToken cancellationToken = default)
     {
         Keys.Add(key);
+        AfterPress?.Invoke(key);
+        return Task.FromResult(OperationResult.Ok());
+    }
+
+    public Task<OperationResult> KeyDownAsync(
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        KeyDowns.Add(key);
+        return Task.FromResult(OperationResult.Ok());
+    }
+
+    public Task<OperationResult> KeyUpAsync(
+        string key,
+        CancellationToken cancellationToken = default)
+    {
+        KeyUps.Add(key);
+        return Task.FromResult(OperationResult.Ok());
+    }
+
+    public Task<OperationResult> MouseDownAsync(
+        RoadhogMouseButton button,
+        CancellationToken cancellationToken = default)
+    {
+        MouseCommands.Add("down:" + button);
+        return Task.FromResult(OperationResult.Ok());
+    }
+
+    public Task<OperationResult> MouseUpAsync(
+        RoadhogMouseButton button,
+        CancellationToken cancellationToken = default)
+    {
+        MouseCommands.Add("up:" + button);
+        return Task.FromResult(OperationResult.Ok());
+    }
+
+    public Task<OperationResult> MoveMouseRelativeAsync(
+        int deltaX,
+        int deltaY,
+        CancellationToken cancellationToken = default)
+    {
+        MouseCommands.Add("move:" + deltaX + "," + deltaY);
         return Task.FromResult(OperationResult.Ok());
     }
 }
@@ -1186,6 +1638,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
     public PlayerSnapshot Player { get; set; } = new(
         1,
         0,
+        "Fake Character",
         100,
         100,
         100,
@@ -1203,6 +1656,10 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
     public ushort TargetEntityId { get; set; } = 100;
 
     public uint TargetCurrentHp { get; set; } = 1000;
+
+    public Vector3Snapshot? TargetPosition { get; set; }
+
+    public IReadOnlyList<WorldObjectSnapshot> WorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
 
     public Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(CancellationToken cancellationToken = default)
     {
@@ -1227,7 +1684,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
             "训练用稻草人",
             TargetCurrentHp,
             1000,
-            null,
+            TargetPosition,
             null,
             DateTimeOffset.Now)));
     }
@@ -1272,6 +1729,13 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail("not used"));
+        return Task.FromResult(OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(WorldObjects));
+    }
+
+    public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return ReadWorldObjectsAsync(cancellationToken);
     }
 }

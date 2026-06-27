@@ -11,6 +11,7 @@ public sealed class MockRoadhogGameApi : IRoadhogGameApi
         var snapshot = new PlayerSnapshot(
             1,
             0,
+            "Mock Character",
             100,
             100,
             80,

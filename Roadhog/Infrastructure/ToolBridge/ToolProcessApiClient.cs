@@ -59,8 +59,8 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
     public async Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
     {
         var output = await RunToolModeAsync(ToolApiMode.Monsters, cancellationToken).ConfigureAwait(false);
-        return output.Success
-            ? OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(Array.Empty<WorldObjectSnapshot>())
+        return output.Success && output.Value is not null
+            ? OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(ToolOutputParsers.ParseWorldObjects(output.Value.StandardOutput))
             : OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(output.Error ?? "Tool world-object mode failed.");
     }
 
@@ -162,6 +162,11 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
         startInfo.Environment["VMM_PROCESS"] = _options.ProcessName;
         startInfo.Environment["VMM_MODULE"] = _options.ModuleName;
         startInfo.Environment["VMM_DEVICE"] = _options.VmmDevice;
+        if (mode == ToolApiMode.Monsters)
+        {
+            startInfo.Environment["AION_MONSTER_LIST_SAMPLES"] = "1";
+            startInfo.Environment["AION_MONSTER_LIST_INCLUDE_NPCS"] = "0";
+        }
 
         if (!string.IsNullOrWhiteSpace(_options.MemProcFsHome))
         {

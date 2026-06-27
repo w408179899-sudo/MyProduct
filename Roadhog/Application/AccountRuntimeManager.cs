@@ -80,6 +80,15 @@ public sealed class AccountRuntimeManager
         }
     }
 
+    public void MarkKill(string accountName)
+    {
+        lock (_syncRoot)
+        {
+            var state = GetOrCreate(accountName);
+            state.MarkKill();
+        }
+    }
+
     public void RequestStop(string accountName)
     {
         lock (_syncRoot)
@@ -132,7 +141,9 @@ public sealed class AccountRuntimeManager
             state.StartedAt,
             state.StoppedAt,
             state.LastHeartbeatAt,
-            state.LastError);
+            state.LastError,
+            state.KillCount,
+            state.LastKillAt);
     }
 
     private static AccountRuntimeState.AccountConfigSnapshot ToConfigSnapshot(AccountConfig config)

@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
 using System.Xml.Linq;
 using Vmmsharp;
 
@@ -108,7 +109,7 @@ namespace Tool
 
                     Console.WriteLine("Module base: " + moduleName + " = 0x" + gameBase.ToString("X"));
 
-                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "skill_remaining";
+                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "monsters";
                     if (string.Equals(aionTestMode, "player", StringComparison.OrdinalIgnoreCase))
                     {
                         RunLocalPlayerInfoTest(process, gameBase);
@@ -588,6 +589,32 @@ namespace Tool
             public string ResolveSource;
         }
 
+        private struct NpcStaticDetail
+        {
+            public uint Id;
+            public string Name;
+            public string Desc;
+            public string UiType;
+            public string CursorType;
+            public string NpcType;
+            public string Tribe;
+            public bool HasDirectAggressive;
+            public bool DirectAggressive;
+            public bool IsMonsterKnown;
+            public bool IsMonster;
+            public bool AggressiveKnown;
+            public bool AggressiveToPlayer;
+            public string AggressiveSource;
+        }
+
+        private struct NpcTribeRelation
+        {
+            public string Tribe;
+            public string BaseTribe;
+            public string Aggressive;
+            public bool AggressiveToPlayer;
+        }
+
         private struct LocalPlayerInfo
         {
             public ushort EntityId;
@@ -710,6 +737,14 @@ namespace Tool
             public float Y;
             public float Z;
             public double DistanceToLocalPlayer;
+            public bool IsLockedTarget;
+            public bool HasActor;
+            public ActorInfo Actor;
+            public bool IsAlive;
+            public bool HasNpcStaticDetail;
+            public NpcStaticDetail NpcStaticDetail;
+            public bool HasAggressive;
+            public int Aggressive;
         }
 
         private struct GatherListEntry
@@ -7920,14 +7955,33 @@ namespace Tool
         {
             double radius = ReadDoubleFromEnv("AION_MONSTER_LIST_RADIUS", 80.0);
             int limit = ReadIntFromEnv("AION_MONSTER_LIST_LIMIT", 30);
+            int samples = ReadIntFromEnv("AION_MONSTER_LIST_SAMPLES", 0);
+            bool monsterOnly = !ReadBoolFromEnv("AION_MONSTER_LIST_INCLUDE_NPCS", false);
+            string tribeXmlPath;
+            string tribeXmlError;
+            Dictionary<string, NpcTribeRelation> tribeRelations = LoadNpcTribeRelations(out tribeXmlPath, out tribeXmlError);
+            string npcXmlPath;
+            string npcXmlError;
+            Dictionary<uint, NpcStaticDetail> npcStaticDetails = LoadNpcStaticDetails(
+                tribeRelations,
+                out npcXmlPath,
+                out npcXmlError);
 
             Console.WriteLine("AION monster/NPC list test from TXT/AION.txt offsets.");
             Console.WriteLine("Traversing ServerObject tree -> EntitySystem tree -> CEntity. CEntity+0xF2 == 3 is treated as NPC/monster-like.");
-            Console.WriteLine("Radius=" + radius.ToString("F1") + ", Limit=" + limit + ". Press any key to stop.");
+            Console.WriteLine(
+                "Radius=" + radius.ToString("F1") +
+                ", Limit=" + limit +
+                ", Samples=" + (samples <= 0 ? "infinite" : samples.ToString()) +
+                ", MonsterOnly=" + FormatYesNo(monsterOnly) +
+                ". Press any key to stop.");
             Console.WriteLine("Set AION_TEST_MODE=target for locked target test, AION_TEST_MODE=player for local player test.");
+            Console.WriteLine(FormatNpcXmlLoadStatus(npcXmlPath, npcXmlError, npcStaticDetails.Count, tribeXmlPath, tribeXmlError, tribeRelations.Count));
 
-            while (!Console.KeyAvailable)
+            int sampleIndex = 0;
+            while ((samples <= 0 || sampleIndex < samples) && !IsConsoleKeyAvailable())
             {
+                sampleIndex++;
                 List<MonsterListEntry> entries;
                 int scannedServerObjects;
                 int resolvedEntities;
@@ -7939,6 +7993,8 @@ namespace Tool
                     gameBase,
                     radius,
                     limit,
+                    monsterOnly,
+                    npcStaticDetails,
                     out entries,
                     out scannedServerObjects,
                     out resolvedEntities,
@@ -7957,11 +8013,28 @@ namespace Tool
                         MonsterListEntry entry = entries[i];
                         Console.WriteLine(
                             "#" + (i + 1).ToString("00") +
+                            (entry.IsLockedTarget ? " [TARGET]" : string.Empty) +
                             " Dist=" + entry.DistanceToLocalPlayer.ToString("F2") +
                             " EntityId=" + entry.EntityId +
                             " ServerId=" + entry.ServerObjectId +
                             " CEntityType=" + entry.EntityType +
                             " Entity=" + FormatAddress(entry.Entity) +
+                            " Actor=" + FormatMonsterActor(entry) +
+                            " ObjType=" + FormatMonsterObjectType(entry) +
+                            " TemplateId=" + FormatMonsterTemplateId(entry) +
+                            " StaticName=\"" + FormatMonsterStaticName(entry) + "\"" +
+                            " NpcType=" + FormatMonsterNpcType(entry) +
+                            " UiType=" + FormatMonsterUiType(entry) +
+                            " Cursor=" + FormatMonsterCursorType(entry) +
+                            " Tribe=" + FormatMonsterTribe(entry) +
+                            " IsMonster=" + FormatMonsterIsMonster(entry) +
+                            " Level=" + FormatMonsterLevel(entry) +
+                            " HP=" + FormatMonsterHp(entry) +
+                            " HpPercent=" + FormatMonsterHpPercent(entry) +
+                            " Alive=" + FormatMonsterAlive(entry) +
+                            " Locked=" + FormatYesNo(entry.IsLockedTarget) +
+                            " Aggressive=" + FormatMonsterAggressive(entry) +
+                            " Name=\"" + FormatMonsterName(entry) + "\"" +
                             " Pos=X=" + entry.X.ToString("F2") +
                             " Y=" + entry.Y.ToString("F2") +
                             " Z=" + entry.Z.ToString("F2") +
@@ -7976,7 +8049,10 @@ namespace Tool
                 Thread.Sleep(1500);
             }
 
-            Console.ReadKey(true);
+            if (IsConsoleKeyAvailable())
+            {
+                Console.ReadKey(true);
+            }
         }
 
         private static bool TryReadLocalPlayerInfo(
@@ -8165,6 +8241,8 @@ namespace Tool
             ulong gameBase,
             double radius,
             int limit,
+            bool monsterOnly,
+            Dictionary<uint, NpcStaticDetail> npcStaticDetails,
             out List<MonsterListEntry> entries,
             out int scannedServerObjects,
             out int resolvedEntities,
@@ -8197,6 +8275,9 @@ namespace Tool
                 error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
                 return false;
             }
+
+            ushort targetEntityId = 0;
+            TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out targetEntityId);
 
             ulong localEntity;
             if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out localEntity))
@@ -8270,18 +8351,45 @@ namespace Tool
 
                                 if (radius <= 0 || distance <= radius)
                                 {
-                                    entries.Add(new MonsterListEntry
+                                    ActorInfo actor;
+                                    bool hasActor = TryResolveActorFromEntityExperimental(
+                                        process,
+                                        entity,
+                                        serverObjectId,
+                                        out actor);
+                                    NpcStaticDetail npcStaticDetail = new NpcStaticDetail();
+                                    bool hasNpcStaticDetail =
+                                        hasActor &&
+                                        npcStaticDetails != null &&
+                                        npcStaticDetails.TryGetValue(actor.NpcTemplateId, out npcStaticDetail);
+                                    bool includeEntry =
+                                        !monsterOnly ||
+                                        (hasNpcStaticDetail &&
+                                         npcStaticDetail.IsMonsterKnown &&
+                                         npcStaticDetail.IsMonster);
+                                    if (includeEntry)
                                     {
-                                        EntityId = entityId,
-                                        ServerObjectId = serverObjectId,
-                                        Entity = entity,
-                                        EntityType = entityType,
-                                        PositionOffset = positionOffset,
-                                        X = x,
-                                        Y = y,
-                                        Z = z,
-                                        DistanceToLocalPlayer = distance
-                                    });
+                                        entries.Add(new MonsterListEntry
+                                        {
+                                            EntityId = entityId,
+                                            ServerObjectId = serverObjectId,
+                                            Entity = entity,
+                                            EntityType = entityType,
+                                            PositionOffset = positionOffset,
+                                            X = x,
+                                            Y = y,
+                                            Z = z,
+                                            DistanceToLocalPlayer = distance,
+                                            IsLockedTarget = entityId == targetEntityId,
+                                            HasActor = hasActor,
+                                            Actor = actor,
+                                            IsAlive = hasActor && actor.CurrentHp > 0,
+                                            HasNpcStaticDetail = hasNpcStaticDetail,
+                                            NpcStaticDetail = npcStaticDetail,
+                                            HasAggressive = hasNpcStaticDetail && npcStaticDetail.AggressiveKnown,
+                                            Aggressive = hasNpcStaticDetail && npcStaticDetail.AggressiveToPlayer ? 1 : 0
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -8299,6 +8407,11 @@ namespace Tool
 
             entries.Sort(delegate (MonsterListEntry left, MonsterListEntry right)
             {
+                if (left.IsLockedTarget != right.IsLockedTarget)
+                {
+                    return left.IsLockedTarget ? -1 : 1;
+                }
+
                 return left.DistanceToLocalPlayer.CompareTo(right.DistanceToLocalPlayer);
             });
 
@@ -9409,6 +9522,456 @@ namespace Tool
             }
 
             return "XML static classification=off (client_skills.xml not found). Set AION_CLIENT_SKILLS_XML=<client_skills.xml path>.";
+        }
+
+        private static Dictionary<uint, NpcStaticDetail> LoadNpcStaticDetails(
+            Dictionary<string, NpcTribeRelation> tribeRelations,
+            out string xmlPath,
+            out string error)
+        {
+            var details = new Dictionary<uint, NpcStaticDetail>();
+            xmlPath = ResolveNpcStaticXmlPath(out error);
+            if (string.IsNullOrWhiteSpace(xmlPath) || !string.IsNullOrWhiteSpace(error))
+            {
+                return details;
+            }
+
+            try
+            {
+                var settings = new XmlReaderSettings
+                {
+                    DtdProcessing = DtdProcessing.Ignore,
+                    IgnoreComments = true,
+                    IgnoreWhitespace = true
+                };
+
+                using (XmlReader reader = XmlReader.Create(xmlPath, settings))
+                {
+                    while (!reader.EOF)
+                    {
+                        if (reader.NodeType == XmlNodeType.Element &&
+                            string.Equals(reader.Name, "npc_client", StringComparison.OrdinalIgnoreCase))
+                        {
+                            XElement element = (XElement)XNode.ReadFrom(reader);
+                            NpcStaticDetail detail;
+                            if (TryReadNpcStaticDetail(element, tribeRelations, out detail))
+                            {
+                                details[detail.Id] = detail;
+                            }
+                        }
+                        else if (!reader.Read())
+                        {
+                            break;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                error = "failed to load client_npcs.xml: " + ex.Message;
+                details.Clear();
+            }
+
+            return details;
+        }
+
+        private static Dictionary<string, NpcTribeRelation> LoadNpcTribeRelations(
+            out string xmlPath,
+            out string error)
+        {
+            var relations = new Dictionary<string, NpcTribeRelation>(StringComparer.OrdinalIgnoreCase);
+            xmlPath = ResolveNpcTribeXmlPath(out error);
+            if (string.IsNullOrWhiteSpace(xmlPath) || !string.IsNullOrWhiteSpace(error))
+            {
+                return relations;
+            }
+
+            try
+            {
+                XDocument document = XDocument.Load(xmlPath);
+                if (document.Root == null)
+                {
+                    error = "npc_tribe_relation.xml has no root element";
+                    return relations;
+                }
+
+                foreach (XElement element in document.Root.Elements())
+                {
+                    if (!string.Equals(element.Name.LocalName, "tribe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string tribe = GetNpcXmlAttributeValue(element, "Tribe");
+                    if (string.IsNullOrWhiteSpace(tribe))
+                    {
+                        continue;
+                    }
+
+                    var relation = new NpcTribeRelation
+                    {
+                        Tribe = tribe,
+                        BaseTribe = GetNpcXmlValue(element, "base_tribe"),
+                        Aggressive = GetNpcXmlValue(element, "aggressive")
+                    };
+                    relation.AggressiveToPlayer =
+                        ContainsRelationToken(relation.Aggressive, "PC") ||
+                        ContainsRelationToken(relation.Aggressive, "PC_Dark");
+                    relations[tribe] = relation;
+                }
+            }
+            catch (Exception ex)
+            {
+                error = "failed to load npc_tribe_relation.xml: " + ex.Message;
+                relations.Clear();
+            }
+
+            return relations;
+        }
+
+        private static bool TryReadNpcStaticDetail(
+            XElement element,
+            Dictionary<string, NpcTribeRelation> tribeRelations,
+            out NpcStaticDetail detail)
+        {
+            detail = new NpcStaticDetail();
+            string idText = GetNpcXmlValue(element, "id");
+            uint id;
+            if (!TryParseSkillXmlUInt(idText, out id))
+            {
+                return false;
+            }
+
+            detail.Id = id;
+            detail.Name = GetNpcXmlValue(element, "name");
+            detail.Desc = GetNpcXmlValue(element, "desc");
+            detail.UiType = GetNpcXmlValue(element, "ui_type");
+            detail.CursorType = GetNpcXmlValue(element, "cursor_type");
+            detail.NpcType = GetNpcXmlValue(element, "npc_type");
+            detail.Tribe = GetNpcXmlValue(element, "tribe");
+
+            string aggressive = GetNpcXmlValue(element, "aggressive");
+            detail.HasDirectAggressive = !string.IsNullOrWhiteSpace(aggressive);
+            detail.DirectAggressive = IsTruthyNpcXmlValue(aggressive);
+
+            ApplyNpcStaticClassification(tribeRelations, ref detail);
+            return true;
+        }
+
+        private static void ApplyNpcStaticClassification(
+            Dictionary<string, NpcTribeRelation> tribeRelations,
+            ref NpcStaticDetail detail)
+        {
+            if (!string.IsNullOrWhiteSpace(detail.NpcType))
+            {
+                detail.IsMonsterKnown = true;
+                detail.IsMonster = IsMonsterNpcType(detail.NpcType);
+            }
+            else if (LooksLikeMonsterUi(detail) || IsMonsterTribe(detail.Tribe, tribeRelations))
+            {
+                detail.IsMonsterKnown = true;
+                detail.IsMonster = true;
+            }
+
+            if (detail.HasDirectAggressive)
+            {
+                detail.AggressiveKnown = true;
+                detail.AggressiveToPlayer = detail.DirectAggressive;
+                detail.AggressiveSource = "npc_xml";
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(detail.Tribe) &&
+                IsAggressiveToPlayerTribe(detail.Tribe, tribeRelations))
+            {
+                detail.AggressiveKnown = true;
+                detail.AggressiveToPlayer = true;
+                detail.AggressiveSource = "tribe_relation";
+                return;
+            }
+
+            if (detail.IsMonsterKnown && detail.IsMonster)
+            {
+                detail.AggressiveKnown = true;
+                detail.AggressiveToPlayer = false;
+                detail.AggressiveSource = "tribe_relation";
+            }
+        }
+
+        private static bool IsMonsterNpcType(string npcType)
+        {
+            return string.Equals(npcType, "monster", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool LooksLikeMonsterUi(NpcStaticDetail detail)
+        {
+            bool monsterUi =
+                string.Equals(detail.UiType, "monster", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(detail.UiType, "monster_raid", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(detail.UiType, "monster_subordinate", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(detail.UiType, "hidden_monster", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(detail.UiType, "monster_notitle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(detail.UiType, "monster_namedisplay", StringComparison.OrdinalIgnoreCase);
+            bool attackCursor = string.Equals(detail.CursorType, "attack", StringComparison.OrdinalIgnoreCase);
+            return monsterUi && attackCursor;
+        }
+
+        private static bool IsMonsterTribe(
+            string tribe,
+            Dictionary<string, NpcTribeRelation> tribeRelations)
+        {
+            return IsTribeDerivedFrom(tribe, "Monster", tribeRelations);
+        }
+
+        private static bool IsTribeDerivedFrom(
+            string tribe,
+            string expectedBase,
+            Dictionary<string, NpcTribeRelation> tribeRelations)
+        {
+            if (string.IsNullOrWhiteSpace(tribe) || string.IsNullOrWhiteSpace(expectedBase))
+            {
+                return false;
+            }
+
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string current = tribe;
+            for (int guard = 0; guard < 32 && !string.IsNullOrWhiteSpace(current); guard++)
+            {
+                if (!visited.Add(current))
+                {
+                    return false;
+                }
+
+                if (string.Equals(current, expectedBase, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                NpcTribeRelation relation;
+                if (tribeRelations == null ||
+                    !tribeRelations.TryGetValue(current, out relation) ||
+                    string.IsNullOrWhiteSpace(relation.BaseTribe))
+                {
+                    return false;
+                }
+
+                current = relation.BaseTribe;
+            }
+
+            return false;
+        }
+
+        private static bool IsAggressiveToPlayerTribe(
+            string tribe,
+            Dictionary<string, NpcTribeRelation> tribeRelations)
+        {
+            if (string.IsNullOrWhiteSpace(tribe) || tribeRelations == null)
+            {
+                return false;
+            }
+
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string current = tribe;
+            for (int guard = 0; guard < 32 && !string.IsNullOrWhiteSpace(current); guard++)
+            {
+                if (!visited.Add(current))
+                {
+                    return false;
+                }
+
+                NpcTribeRelation relation;
+                if (!tribeRelations.TryGetValue(current, out relation))
+                {
+                    return false;
+                }
+
+                if (relation.AggressiveToPlayer)
+                {
+                    return true;
+                }
+
+                current = relation.BaseTribe;
+            }
+
+            return false;
+        }
+
+        private static bool ContainsRelationToken(string text, string token)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(token))
+            {
+                return false;
+            }
+
+            string[] parts = text.Split(new[] { ',', ';', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (string.Equals(parts[i].Trim(), token, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsTruthyNpcXmlValue(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            value = value.Trim();
+            return string.Equals(value, "1", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(value, "true", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(value, "on", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetNpcXmlValue(XElement element, string name)
+        {
+            if (element == null || string.IsNullOrWhiteSpace(name))
+            {
+                return string.Empty;
+            }
+
+            foreach (XElement child in element.Elements())
+            {
+                if (string.Equals(child.Name.LocalName, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return CleanSkillXmlValue(child.Value);
+                }
+            }
+
+            return GetNpcXmlAttributeValue(element, name);
+        }
+
+        private static string GetNpcXmlAttributeValue(XElement element, string name)
+        {
+            if (element == null || string.IsNullOrWhiteSpace(name))
+            {
+                return string.Empty;
+            }
+
+            foreach (XAttribute attribute in element.Attributes())
+            {
+                if (string.Equals(attribute.Name.LocalName, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return CleanSkillXmlValue(attribute.Value);
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string ResolveNpcStaticXmlPath(out string error)
+        {
+            return ResolveXmlFilePath(
+                out error,
+                "client_npcs.xml",
+                new[] { "AION_CLIENT_NPCS_XML", "AION_CLIENT_NPC_XML", "AION_NPC_XML" });
+        }
+
+        private static string ResolveNpcTribeXmlPath(out string error)
+        {
+            return ResolveXmlFilePath(
+                out error,
+                "npc_tribe_relation.xml",
+                new[] { "AION_NPC_TRIBE_RELATION_XML", "AION_NPC_TRIBE_XML" });
+        }
+
+        private static string ResolveXmlFilePath(
+            out string error,
+            string fileName,
+            string[] environmentVariables)
+        {
+            error = string.Empty;
+            if (environmentVariables != null)
+            {
+                for (int i = 0; i < environmentVariables.Length; i++)
+                {
+                    string explicitPath = Environment.GetEnvironmentVariable(environmentVariables[i]);
+                    if (string.IsNullOrWhiteSpace(explicitPath))
+                    {
+                        continue;
+                    }
+
+                    string expanded = Environment.ExpandEnvironmentVariables(explicitPath.Trim().Trim('"'));
+                    try
+                    {
+                        expanded = Path.GetFullPath(expanded);
+                    }
+                    catch
+                    {
+                        // Keep the user-provided path in the error message.
+                    }
+
+                    if (File.Exists(expanded))
+                    {
+                        return expanded;
+                    }
+
+                    error = fileName + " path not found: " + expanded;
+                    return expanded;
+                }
+            }
+
+            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            string desktopPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+                fileName);
+            string[] candidates =
+            {
+                Path.Combine("Source", fileName),
+                Path.Combine("Tool", "Source", fileName),
+                Path.Combine(baseDirectory, "Source", fileName),
+                fileName,
+                Path.Combine("TXT", fileName),
+                Path.Combine("Tool", "TXT", fileName),
+                Path.Combine(baseDirectory, fileName),
+                Path.Combine(baseDirectory, "TXT", fileName),
+                desktopPath
+            };
+
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                string candidate = candidates[i];
+                if (File.Exists(candidate))
+                {
+                    try
+                    {
+                        return Path.GetFullPath(candidate);
+                    }
+                    catch
+                    {
+                        return candidate;
+                    }
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string FormatNpcXmlLoadStatus(
+            string npcXmlPath,
+            string npcXmlError,
+            int npcRows,
+            string tribeXmlPath,
+            string tribeXmlError,
+            int tribeRows)
+        {
+            string npcStatus = !string.IsNullOrWhiteSpace(npcXmlError)
+                ? "client_npcs=off(" + npcXmlError + ")"
+                : npcRows > 0
+                    ? "client_npcs=on Rows=" + npcRows + " Source=\"" + npcXmlPath + "\""
+                    : "client_npcs=off(client_npcs.xml not found)";
+            string tribeStatus = !string.IsNullOrWhiteSpace(tribeXmlError)
+                ? "tribe_relation=off(" + tribeXmlError + ")"
+                : tribeRows > 0
+                    ? "tribe_relation=on Rows=" + tribeRows + " Source=\"" + tribeXmlPath + "\""
+                    : "tribe_relation=off(npc_tribe_relation.xml not found)";
+            return "NPC static classification: " + npcStatus + "; " + tribeStatus + ".";
         }
 
         private static bool TryReadSkillXmlStaticDetail(
@@ -10615,6 +11178,97 @@ namespace Tool
                    " Cell=" + (item.Cell + 1) +
                    " Row=" + (item.Row + 1) +
                    " Col=" + (item.Column + 1);
+        }
+
+        private static string FormatMonsterActor(MonsterListEntry entry)
+        {
+            return entry.HasActor ? FormatAddress(entry.Actor.Actor) : "n/a";
+        }
+
+        private static string FormatMonsterObjectType(MonsterListEntry entry)
+        {
+            return entry.HasActor ? entry.Actor.ObjectType.ToString() : "n/a";
+        }
+
+        private static string FormatMonsterTemplateId(MonsterListEntry entry)
+        {
+            return entry.HasActor ? entry.Actor.NpcTemplateId.ToString() : "n/a";
+        }
+
+        private static string FormatMonsterStaticName(MonsterListEntry entry)
+        {
+            return entry.HasNpcStaticDetail ? (entry.NpcStaticDetail.Name ?? string.Empty) : string.Empty;
+        }
+
+        private static string FormatMonsterNpcType(MonsterListEntry entry)
+        {
+            return entry.HasNpcStaticDetail ? FormatEmptyAsNotAvailable(entry.NpcStaticDetail.NpcType) : "n/a";
+        }
+
+        private static string FormatMonsterUiType(MonsterListEntry entry)
+        {
+            return entry.HasNpcStaticDetail ? FormatEmptyAsNotAvailable(entry.NpcStaticDetail.UiType) : "n/a";
+        }
+
+        private static string FormatMonsterCursorType(MonsterListEntry entry)
+        {
+            return entry.HasNpcStaticDetail ? FormatEmptyAsNotAvailable(entry.NpcStaticDetail.CursorType) : "n/a";
+        }
+
+        private static string FormatMonsterTribe(MonsterListEntry entry)
+        {
+            return entry.HasNpcStaticDetail ? FormatEmptyAsNotAvailable(entry.NpcStaticDetail.Tribe) : "n/a";
+        }
+
+        private static string FormatMonsterIsMonster(MonsterListEntry entry)
+        {
+            if (!entry.HasNpcStaticDetail || !entry.NpcStaticDetail.IsMonsterKnown)
+            {
+                return "n/a";
+            }
+
+            return FormatYesNo(entry.NpcStaticDetail.IsMonster);
+        }
+
+        private static string FormatMonsterLevel(MonsterListEntry entry)
+        {
+            return entry.HasActor ? entry.Actor.Level.ToString() : "n/a";
+        }
+
+        private static string FormatMonsterHp(MonsterListEntry entry)
+        {
+            return entry.HasActor ? entry.Actor.CurrentHp + "/" + entry.Actor.MaxHp : "n/a";
+        }
+
+        private static string FormatMonsterHpPercent(MonsterListEntry entry)
+        {
+            return entry.HasActor ? entry.Actor.HpPercent.ToString() : "n/a";
+        }
+
+        private static string FormatMonsterAlive(MonsterListEntry entry)
+        {
+            return entry.HasActor ? FormatYesNo(entry.IsAlive) : "n/a";
+        }
+
+        private static string FormatMonsterAggressive(MonsterListEntry entry)
+        {
+            if (!entry.HasNpcStaticDetail || !entry.NpcStaticDetail.AggressiveKnown)
+            {
+                return "n/a";
+            }
+
+            return FormatYesNo(entry.NpcStaticDetail.AggressiveToPlayer) +
+                   "(" + FormatEmptyAsNotAvailable(entry.NpcStaticDetail.AggressiveSource) + ")";
+        }
+
+        private static string FormatMonsterName(MonsterListEntry entry)
+        {
+            return entry.HasActor ? (entry.Actor.Name ?? string.Empty) : string.Empty;
+        }
+
+        private static string FormatEmptyAsNotAvailable(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "n/a" : value;
         }
 
         private static string FormatGatherListEntry(int index, GatherListEntry entry)
@@ -12229,6 +12883,18 @@ namespace Tool
             }
 
             return defaultValue;
+        }
+
+        private static bool IsConsoleKeyAvailable()
+        {
+            try
+            {
+                return Console.KeyAvailable;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
         }
 
         private static double ReadSignedDoubleFromEnv(string name, double defaultValue)
