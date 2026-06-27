@@ -30,6 +30,7 @@ public sealed class SemiAutoCombatController
 
         if (!plan.HasExecutableSkills)
         {
+            state.ResetOpeningAttackKey();
             state.ResetAttackKeyPressThrottle();
             if (ShouldLog(state.LastPlanWarningAt, now))
             {
@@ -45,6 +46,7 @@ public sealed class SemiAutoCombatController
         var targetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         if (!targetResult.Success || targetResult.Value is null)
         {
+            state.ResetOpeningAttackKey();
             state.ResetAttackKeyPressThrottle();
             if (ShouldLog(state.LastTargetWarningAt, now))
             {
@@ -74,6 +76,7 @@ public sealed class SemiAutoCombatController
 
         if (!targetResult.Value.IsMonsterAlive)
         {
+            state.ResetOpeningAttackKey();
             state.ResetAttackKeyPressThrottle();
             if (ShouldLog(state.LastTargetStateLogAt, now))
             {
@@ -95,6 +98,11 @@ public sealed class SemiAutoCombatController
             }
 
             return Ms(settings.TargetIdleDelayMs, 200);
+        }
+
+        if (await PressOpeningAttackKeyIfNeededAsync(context, state, settings, targetResult.Value).ConfigureAwait(false))
+        {
+            return Ms(settings.TickIntervalMs, 40);
         }
 
         var skillsResult = await ReadSkillsAsync(context, plan).ConfigureAwait(false);
@@ -258,9 +266,11 @@ public sealed class SemiAutoCombatController
 
         if (pressed)
         {
+            var confirmationExpiresAt = DateTimeOffset.Now + Ms(settings.ConfirmTimeoutMs, 1500);
             state.MarkSkillPressed(
                 decision.Skill,
-                DateTimeOffset.Now + Ms(settings.ConfirmTimeoutMs, 1500));
+                confirmationExpiresAt);
+            state.SuppressUncalibratedUnknownSkill(decision.Skill, confirmationExpiresAt);
             if (node.Children.Count > 0)
             {
                 StartPendingChainAdvance(context, state, node, decision.Skill, settings);
@@ -411,6 +421,21 @@ public sealed class SemiAutoCombatController
         return hasExecutableRoot;
     }
 
+    private async Task<bool> PressOpeningAttackKeyIfNeededAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        LockedTargetSnapshot target)
+    {
+        if (!settings.AttackKeyLoopEnabled || !state.ShouldPressOpeningAttackKey(target))
+        {
+            return false;
+        }
+
+        state.MarkOpeningAttackKeyAttempted(target);
+        return await PressAttackKeyAsync(context, state, settings).ConfigureAwait(false);
+    }
+
     private async Task PressAttackKeyIfDueAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
@@ -428,7 +453,15 @@ public sealed class SemiAutoCombatController
             return;
         }
 
-        state.MarkAttackKeyAttempted(now);
+        await PressAttackKeyAsync(context, state, settings).ConfigureAwait(false);
+    }
+
+    private async Task<bool> PressAttackKeyAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings)
+    {
+        state.MarkAttackKeyAttempted(DateTimeOffset.Now);
         var result = await _keyboard
             .PressKeyAsync(AttackKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
             .ConfigureAwait(false);
@@ -446,6 +479,8 @@ public sealed class SemiAutoCombatController
                 });
             }
         }
+
+        return result.Success;
     }
 
     private static IReadOnlyList<SkillSnapshot> ResolveConfiguredSkills(

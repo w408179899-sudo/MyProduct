@@ -75,7 +75,10 @@ public static class SemiAutoSkillReleasePriority
 
             if (readiness == SemiAutoSkillCooldownReadiness.Unknown)
             {
-                firstUnknownRoot ??= SemiAutoSkillReleaseDecision.PressRoot(root, skill);
+                if (!state.IsUncalibratedUnknownSuppressed(skill, now))
+                {
+                    firstUnknownRoot ??= SemiAutoSkillReleaseDecision.PressRoot(root, skill);
+                }
             }
         }
 
@@ -120,8 +123,11 @@ public static class SemiAutoSkillReleasePriority
                 }
                 else if (readiness == SemiAutoSkillCooldownReadiness.Unknown)
                 {
-                    reason = "ready_unverified_cooldown_end=" + skill.CooldownEndTime +
-                             "/duration=" + skill.CooldownDuration;
+                    reason = state.IsUncalibratedUnknownSuppressed(skill, DateTimeOffset.Now)
+                        ? "unverified_suppressed_cooldown_end=" + skill.CooldownEndTime +
+                          "/duration=" + skill.CooldownDuration
+                        : "ready_unverified_cooldown_end=" + skill.CooldownEndTime +
+                          "/duration=" + skill.CooldownDuration;
                 }
             }
 

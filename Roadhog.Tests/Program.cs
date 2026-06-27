@@ -35,6 +35,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("combat tick requests only configured skill ids", TestCombatTickRequestsOnlyConfiguredSkillIdsAsync),
     ("observed configured cooldown advance calibrates clock", TestObservedConfiguredCooldownAdvanceCalibratesClockAsync),
     ("uncalibrated nonzero cooldown falls back to first configured root", TestUncalibratedNonzeroCooldownFallsBackToFirstRootAsync),
+    ("uncalibrated unknown cooldown rotates after failed attempt", TestUncalibratedUnknownCooldownRotatesAfterFailedAttemptAsync),
     ("calibrated nonzero cooldown skips cooling roots", TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync),
     ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
     ("observed cooldown survives zero end tick read", TestObservedCooldownSurvivesZeroEndTickReadAsync),
@@ -1017,6 +1018,39 @@ static async Task TestUncalibratedNonzeroCooldownFallsBackToFirstRootAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
 
     AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "uncalibrated stale cooldown should not block all roots");
+}
+
+static async Task TestUncalibratedUnknownCooldownRotatesAfterFailedAttemptAsync()
+{
+    var settings = CreateScriptSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = StaleCooldownEnd(),
+            [5] = StaleCooldownEnd(),
+            [51] = StaleCooldownEnd(),
+            [6] = StaleCooldownEnd(),
+            [7] = StaleCooldownEnd(),
+            [8] = StaleCooldownEnd(),
+            [9] = StaleCooldownEnd(),
+            [10] = StaleCooldownEnd()
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "first unknown root should be tried once");
+
+    keyboard.Keys.Clear();
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "failed unknown root should yield to the next unknown root");
 }
 
 static async Task TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync()

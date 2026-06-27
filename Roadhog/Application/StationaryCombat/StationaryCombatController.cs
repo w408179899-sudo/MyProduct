@@ -382,11 +382,31 @@ public sealed class StationaryCombatController
             state.LastWorldScanAt = now;
         }
 
+        if (state.CandidateEntityId != 0)
+        {
+            var candidate = state.CachedWorldObjects.FirstOrDefault(
+                target => target.EntityId == state.CandidateEntityId);
+            if (IsCandidateStillSelectable(candidate, home, radius))
+            {
+                return candidate;
+            }
+        }
+
         return StationaryCombatTargetSelector.SelectNearest(
             state.CachedWorldObjects,
             playerPosition,
             home,
             radius);
+    }
+
+    private static bool IsCandidateStillSelectable(
+        WorldObjectSnapshot? candidate,
+        Vector3Snapshot home,
+        double radius)
+    {
+        return candidate is { Position: not null } target &&
+               StationaryCombatTargetSelector.IsSelectableMonster(target) &&
+               StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) <= radius;
     }
 
     private async Task PathFollowStepAsync(

@@ -7,10 +7,12 @@ public sealed class SemiAutoCombatState
     private int? cooldownTickOffsetMs;
     private readonly Dictionary<uint, uint> observedCooldownEndTimes = new();
     private readonly Dictionary<uint, uint> knownCooldownEndTimes = new();
+    private readonly Dictionary<uint, DateTimeOffset> uncalibratedUnknownSuppressUntil = new();
     private DateTimeOffset lastAttackKeyPressedAt = DateTimeOffset.MinValue;
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
+    private ushort openingAttackTargetEntityId;
     private ushort observedTargetEntityId;
     private bool observedTargetWasAliveMonster;
 
@@ -51,6 +53,7 @@ public sealed class SemiAutoCombatState
         {
             observedTargetEntityId = 0;
             observedTargetWasAliveMonster = false;
+            openingAttackTargetEntityId = 0;
             return false;
         }
 
@@ -62,6 +65,10 @@ public sealed class SemiAutoCombatState
 
         observedTargetEntityId = targetEntityId;
         observedTargetWasAliveMonster = target.IsMonsterAlive;
+        if (!target.IsMonsterAlive)
+        {
+            openingAttackTargetEntityId = 0;
+        }
 
         if (!killed)
         {
@@ -70,6 +77,23 @@ public sealed class SemiAutoCombatState
 
         killedTargetEntityId = targetEntityId;
         return true;
+    }
+
+    public bool ShouldPressOpeningAttackKey(LockedTargetSnapshot target)
+    {
+        return target.IsMonsterAlive &&
+               target.TargetEntityId != 0 &&
+               openingAttackTargetEntityId != target.TargetEntityId;
+    }
+
+    public void MarkOpeningAttackKeyAttempted(LockedTargetSnapshot target)
+    {
+        openingAttackTargetEntityId = target.TargetEntityId;
+    }
+
+    public void ResetOpeningAttackKey()
+    {
+        openingAttackTargetEntityId = 0;
     }
 
     public bool ShouldPressAttackKey(DateTimeOffset now, TimeSpan interval)
@@ -195,6 +219,35 @@ public sealed class SemiAutoCombatState
             : currentEndTime;
     }
 
+    public bool IsUncalibratedUnknownSuppressed(SkillSnapshot skill, DateTimeOffset now)
+    {
+        if (HasCooldownTickCalibration ||
+            !uncalibratedUnknownSuppressUntil.TryGetValue(skill.SkillId, out var suppressedUntil))
+        {
+            return false;
+        }
+
+        if (now < suppressedUntil)
+        {
+            return true;
+        }
+
+        uncalibratedUnknownSuppressUntil.Remove(skill.SkillId);
+        return false;
+    }
+
+    public void SuppressUncalibratedUnknownSkill(SkillSnapshot skill, DateTimeOffset suppressedUntil)
+    {
+        if (HasCooldownTickCalibration ||
+            skill.CooldownDuration == 0 ||
+            skill.CooldownEndTime == 0)
+        {
+            return;
+        }
+
+        uncalibratedUnknownSuppressUntil[skill.SkillId] = suppressedUntil;
+    }
+
     public bool TryUpdateCooldownTickCalibration(
         IReadOnlyList<SkillSnapshot> skills,
         uint osTick,
@@ -202,6 +255,7 @@ public sealed class SemiAutoCombatState
         out SemiAutoCooldownTickCalibration calibration)
     {
         calibration = default;
+        ClearExpiredUncalibratedUnknownSuppressions(now);
         SemiAutoCooldownTickCalibration? updatedCalibration = null;
 
         foreach (var observedSkill in skills)
@@ -228,6 +282,7 @@ public sealed class SemiAutoCombatState
         if (updatedCalibration.HasValue)
         {
             calibration = updatedCalibration.Value;
+            uncalibratedUnknownSuppressUntil.Clear();
             ClearLastPressedSkill();
             return true;
         }
@@ -267,6 +322,17 @@ public sealed class SemiAutoCombatState
         lastPressedSkillId = null;
         lastPressedCooldownEndTime = 0;
         lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
+    }
+
+    private void ClearExpiredUncalibratedUnknownSuppressions(DateTimeOffset now)
+    {
+        foreach (var pair in uncalibratedUnknownSuppressUntil.ToArray())
+        {
+            if (now >= pair.Value)
+            {
+                uncalibratedUnknownSuppressUntil.Remove(pair.Key);
+            }
+        }
     }
 
     private void RememberKnownCooldownEndTime(SkillSnapshot skill)
