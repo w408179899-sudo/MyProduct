@@ -98,7 +98,7 @@ public sealed class RoadhogServices
         var accounts = new AccountRuntimeManager(logger);
         IKeyboardInput keyboardInput = new KmBoxKeyboardInput(options.KeyboardInput);
         var semiAutoController = new SemiAutoCombatController(keyboardInput);
-        var stationaryCombatController = new StationaryCombatController(keyboardInput, semiAutoController);
+        var stationaryCombatController = new StationaryCombatController(keyboardInput, semiAutoController, sharedPathStore);
         var workerOptions = new AccountWorkerOptions
         {
             TickInterval = options.AccountWorkerTickInterval,

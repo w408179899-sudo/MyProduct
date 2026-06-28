@@ -18,6 +18,8 @@ public sealed class StationaryCombatState
 
     public ushort FacedCandidateEntityId { get; set; }
 
+    public DateTimeOffset TargetStartedAt { get; private set; } = DateTimeOffset.MinValue;
+
     public ushort PendingTabCandidateEntityId { get; private set; }
 
     public DateTimeOffset PendingTabVerifyUntil { get; private set; } = DateTimeOffset.MinValue;
@@ -32,7 +34,19 @@ public sealed class StationaryCombatState
 
     public IReadOnlyList<WorldObjectSnapshot> CachedWorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
 
+    public HashSet<ushort> IgnoredTargetEntityIds { get; } = new();
+
     public object? PathFollowPoller { get; set; }
+
+    public bool StartupRecoveryChecked { get; private set; }
+
+    public bool StartupRecoveryActive { get; private set; }
+
+    public string StartupRecoveryPathName { get; private set; } = string.Empty;
+
+    public int StartupRecoveryPointIndex { get; private set; } = -1;
+
+    public IReadOnlyList<Vector3Snapshot> StartupRecoveryPoints { get; private set; } = Array.Empty<Vector3Snapshot>();
 
     public void ClearTarget()
     {
@@ -40,7 +54,76 @@ public sealed class StationaryCombatState
         CurrentTargetEntityId = 0;
         CandidateEntityId = 0;
         FacedCandidateEntityId = 0;
+        TargetStartedAt = DateTimeOffset.MinValue;
         ClearPendingTabVerification();
+    }
+
+    public bool MarkCandidate(ushort entityId, DateTimeOffset now)
+    {
+        var changed = CandidateEntityId != entityId;
+        CandidateEntityId = entityId;
+        if (changed || TargetStartedAt == DateTimeOffset.MinValue)
+        {
+            TargetStartedAt = now;
+        }
+
+        return changed;
+    }
+
+    public bool IsTargetIgnored(ushort entityId)
+    {
+        return entityId != 0 && IgnoredTargetEntityIds.Contains(entityId);
+    }
+
+    public void IgnoreTarget(ushort entityId)
+    {
+        if (entityId != 0)
+        {
+            IgnoredTargetEntityIds.Add(entityId);
+        }
+    }
+
+    public void MarkStartupRecoveryChecked()
+    {
+        StartupRecoveryChecked = true;
+    }
+
+    public void StartStartupRecovery(
+        string pathName,
+        IReadOnlyList<Vector3Snapshot> points,
+        int pointIndex)
+    {
+        StartupRecoveryChecked = true;
+        StartupRecoveryActive = true;
+        StartupRecoveryPathName = pathName;
+        StartupRecoveryPoints = points;
+        StartupRecoveryPointIndex = Math.Max(0, pointIndex);
+    }
+
+    public void AdvanceStartupRecoveryPoint()
+    {
+        if (StartupRecoveryActive)
+        {
+            StartupRecoveryPointIndex++;
+        }
+    }
+
+    public void ClearStartupRecovery()
+    {
+        StartupRecoveryChecked = true;
+        StartupRecoveryActive = false;
+        StartupRecoveryPathName = string.Empty;
+        StartupRecoveryPointIndex = -1;
+        StartupRecoveryPoints = Array.Empty<Vector3Snapshot>();
+    }
+
+    public void PruneIgnoredTargets(IEnumerable<WorldObjectSnapshot> objects)
+    {
+        var liveEntityIds = objects
+            .Where(target => target.IsAlive)
+            .Select(target => target.EntityId)
+            .ToHashSet();
+        IgnoredTargetEntityIds.RemoveWhere(entityId => !liveEntityIds.Contains(entityId));
     }
 
     public bool IsPendingTabCandidate(ushort entityId)

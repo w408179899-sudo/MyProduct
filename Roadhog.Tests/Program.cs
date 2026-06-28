@@ -21,6 +21,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
+    ("stationary combat startup recovery follows nearest revive path point", TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync),
+    ("stationary combat startup recovery skips revive path when home is nearest", TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
     ("stationary combat accepts twenty degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
@@ -28,6 +30,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat pending tab verify blocks pre-acquire", TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync),
     ("stationary combat releases path follow movement after target is verified", TestStationaryCombatReleasesMovementAfterAcquireAsync),
     ("stationary combat does not pulse W while approaching same target", TestStationaryCombatDoesNotPulseWWhileApproachingAsync),
+    ("stationary combat ignores target when lock times out", TestStationaryCombatIgnoresTargetWhenLockTimesOutAsync),
+    ("stationary combat ignores target when kill times out", TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
@@ -302,6 +306,119 @@ static Task TestStationaryTargetSelectorAsync()
 
     AssertEqual((ushort)14, selected?.EntityId ?? 0, "nearest selectable monster");
     return Task.CompletedTask;
+}
+
+static async Task TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 100,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 20
+        };
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("revive-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(10, 0, 0),
+                new Vector3Snapshot(50, 0, 0),
+                new Vector3Snapshot(100, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(10, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var state = new StationaryCombatState();
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!state.StartupRecoveryActive, "startup recovery should be active");
+        AssertEqual(2, state.StartupRecoveryPointIndex, "second path point should be reached and next point should be active");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "startup recovery should move along revive path");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.startup_recovery.selected" &&
+            Convert.ToInt32(entry.Fields["startPointIndex"]) == 1),
+            "nearest revive path point should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Paths.RevivePathName = "revive-a";
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 100,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 20
+    };
+
+    var pathStore = new InMemorySharedPathStore(
+        CreatePath("revive-a",
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(10, 0, 0),
+            new Vector3Snapshot(50, 0, 0)));
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(100, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+        TargetEntityId = 0,
+        TargetCurrentHp = 1000,
+        TargetPosition = new Vector3Snapshot(105, 0, 0),
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(105, 0, 0), 5, 1000, 1000)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+    var state = new StationaryCombatState();
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), state)
+        .ConfigureAwait(false);
+
+    AssertFalse(state.StartupRecoveryActive, "startup recovery should not be active when home is nearest");
+    AssertFalse(!state.StartupRecoveryChecked, "startup recovery should be checked once");
+    AssertEqual((ushort)100, state.CandidateEntityId, "home-nearest startup should continue normal stationary target selection");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.startup_recovery.home_nearest"),
+        "home-nearest recovery decision should be logged");
 }
 
 static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
@@ -784,6 +901,135 @@ static async Task TestStationaryCombatDoesNotPulseWWhileApproachingAsync()
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
     }
+}
+
+static async Task TestStationaryCombatIgnoresTargetWhenLockTimesOutAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 999,
+            TargetCurrentHp = 1000,
+            TargetPosition = new Vector3Snapshot(40, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "stuck", "monster", new Vector3Snapshot(40, 0, 0), 40, 1000, 1000),
+                new WorldObjectSnapshot(101, 101, "next", "monster", new Vector3Snapshot(42, 0, 0), 42, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+        state.MarkCandidate(100, DateTimeOffset.Now - TimeSpan.FromMinutes(2));
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.IsTargetIgnored(100), "unlocked timed-out target should be ignored");
+        AssertEqual((ushort)0, state.CandidateEntityId, "timed-out target should clear current candidate");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.ignored" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "not_locked", StringComparison.Ordinal)),
+            "lock timeout should be logged");
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertEqual((ushort)101, state.CandidateEntityId, "next tick should select a non-ignored target");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+        TargetEntityId = 100,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(40, 0, 0),
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, 100, "slow", "monster", new Vector3Snapshot(40, 0, 0), 40, 1000, 1000)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100
+    };
+    state.MarkCandidate(100, DateTimeOffset.Now - TimeSpan.FromMinutes(2));
+    var semiAutoState = new SemiAutoCombatState();
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(state.Fighting, "alive timed-out fight should clear fighting state");
+    AssertFalse(!state.IsTargetIgnored(100), "alive timed-out fight target should be ignored");
+    AssertFalse(keyboard.Keys.Contains("D2"), "timed-out fight should not continue releasing skills");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.ignored" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "not_dead", StringComparison.Ordinal)),
+        "kill timeout should be logged");
 }
 
 static async Task TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync()
@@ -1833,6 +2079,37 @@ static IEnumerable<SemiAutoSkillNode> Flatten(IEnumerable<SemiAutoSkillNode> roo
     }
 }
 
+static SharedPathDocument CreatePath(string name, params Vector3Snapshot[] points)
+{
+    var document = new SharedPathDocument
+    {
+        Name = name,
+        CreatedAt = DateTimeOffset.Now,
+        UpdatedAt = DateTimeOffset.Now
+    };
+
+    double totalDistance = 0.0D;
+    for (var i = 0; i < points.Length; i++)
+    {
+        var segmentDistance = i == 0
+            ? 0.0D
+            : StationaryCombatTargetSelector.HorizontalDistance(points[i - 1], points[i]);
+        totalDistance += segmentDistance;
+        document.Points.Add(new SharedPathPoint
+        {
+            Index = i,
+            X = points[i].X,
+            Y = points[i].Y,
+            Z = points[i].Z,
+            SegmentDistance = segmentDistance,
+            TotalDistance = totalDistance,
+            RecordedAt = DateTimeOffset.Now
+        });
+    }
+
+    return document;
+}
+
 static AccountWorkerContext CreateContext(
     ScriptSettings settings,
     IRoadhogGameApi gameApi,
@@ -1964,6 +2241,50 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         CancellationToken cancellationToken = default)
     {
         MouseCommands.Add("move:" + deltaX + "," + deltaY);
+        return Task.FromResult(OperationResult.Ok());
+    }
+}
+
+sealed class InMemorySharedPathStore : ISharedPathStore
+{
+    private readonly Dictionary<string, SharedPathDocument> _paths;
+
+    public InMemorySharedPathStore(params SharedPathDocument[] paths)
+    {
+        _paths = paths.ToDictionary(path => path.Name, path => path.Clone(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    public Task<OperationResult<IReadOnlyList<SharedPathSummary>>> LoadSummariesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<SharedPathSummary> summaries = _paths.Values
+            .Select(path => new SharedPathSummary(path.Name, path.PointCount, path.TotalDistance, path.UpdatedAt))
+            .ToArray();
+        return Task.FromResult(OperationResult<IReadOnlyList<SharedPathSummary>>.Ok(summaries));
+    }
+
+    public Task<OperationResult<SharedPathDocument>> LoadAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(_paths.TryGetValue(name, out var path)
+            ? OperationResult<SharedPathDocument>.Ok(path.Clone())
+            : OperationResult<SharedPathDocument>.Fail("Path file was not found: " + name));
+    }
+
+    public Task<OperationResult> SaveAsync(
+        SharedPathDocument path,
+        CancellationToken cancellationToken = default)
+    {
+        _paths[path.Name] = path.Clone();
+        return Task.FromResult(OperationResult.Ok());
+    }
+
+    public Task<OperationResult> DeleteAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        _paths.Remove(name);
         return Task.FromResult(OperationResult.Ok());
     }
 }

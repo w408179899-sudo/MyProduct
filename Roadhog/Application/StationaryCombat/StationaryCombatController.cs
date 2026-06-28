@@ -5,6 +5,7 @@ using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
+using Roadhog.Core.Paths;
 
 namespace Roadhog.Application.StationaryCombat;
 
@@ -14,18 +15,25 @@ public sealed class StationaryCombatController
     private static readonly TimeSpan TabInterval = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan MoveTickDelay = TimeSpan.FromMilliseconds(80);
     private static readonly TimeSpan IdleDelay = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan TargetTimeout = TimeSpan.FromMinutes(1);
     private const double ReturnStopDistance = 2.0D;
     private const double AcquireDistance = 25.0D;
     private const double TargetLeashExtraDistance = 5.0D;
     private const double PreLockFaceYawToleranceDegrees = 20.0D;
+    private const double StartupRecoveryReachDistance = 3.0D;
 
     private readonly IKeyboardInput _input;
     private readonly SemiAutoCombatController _semiAuto;
+    private readonly ISharedPathStore? _pathStore;
 
-    public StationaryCombatController(IKeyboardInput input, SemiAutoCombatController semiAuto)
+    public StationaryCombatController(
+        IKeyboardInput input,
+        SemiAutoCombatController semiAuto,
+        ISharedPathStore? pathStore = null)
     {
         _input = input;
         _semiAuto = semiAuto;
+        _pathStore = pathStore;
     }
 
     public async Task<TimeSpan> TickAsync(
@@ -83,6 +91,20 @@ public sealed class StationaryCombatController
                 playerDistanceFromHome).ConfigureAwait(false);
         }
 
+        var startupRecoveryDelay = await TickStartupRecoveryAsync(
+                context,
+                semiAutoState,
+                state,
+                player,
+                playerPosition,
+                home,
+                playerDistanceFromHome)
+            .ConfigureAwait(false);
+        if (startupRecoveryDelay is not null)
+        {
+            return startupRecoveryDelay.Value;
+        }
+
         if (playerDistanceFromHome > radius)
         {
             state.ReturningHome = true;
@@ -108,14 +130,12 @@ public sealed class StationaryCombatController
         {
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
-            state.CandidateEntityId = 0;
-            state.FacedCandidateEntityId = 0;
-            state.ClearPendingTabVerification();
+            state.ClearTarget();
             return IdleDelay;
         }
 
         var previousCandidateEntityId = state.CandidateEntityId;
-        state.CandidateEntityId = target.EntityId;
+        state.MarkCandidate(target.EntityId, DateTimeOffset.Now);
         var targetPosition = target.Position.Value;
         var targetDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(targetPosition, home);
         var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
@@ -137,10 +157,20 @@ public sealed class StationaryCombatController
         if (targetDistanceFromHome > radius)
         {
             await StopMovementAsync(context, state).ConfigureAwait(false);
-            state.CandidateEntityId = 0;
-            state.FacedCandidateEntityId = 0;
-            state.ClearPendingTabVerification();
+            state.ClearTarget();
             return IdleDelay;
+        }
+
+        if (IsTargetTimedOut(state, DateTimeOffset.Now))
+        {
+            return await IgnoreCurrentTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    target.EntityId,
+                    target.Name,
+                    "not_locked")
+                .ConfigureAwait(false);
         }
 
         var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
@@ -193,6 +223,150 @@ public sealed class StationaryCombatController
         return await TickAcquireAsync(context, plan, semiAutoState, state, target).ConfigureAwait(false);
     }
 
+    private async Task<TimeSpan?> TickStartupRecoveryAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double playerDistanceFromHome)
+    {
+        if (state.StartupRecoveryActive)
+        {
+            return await ContinueStartupRecoveryAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    player,
+                    playerPosition)
+                .ConfigureAwait(false);
+        }
+
+        if (state.StartupRecoveryChecked)
+        {
+            return null;
+        }
+
+        state.MarkStartupRecoveryChecked();
+        var revivePathName = GetRevivePathName(context);
+        if (_pathStore is null || string.IsNullOrWhiteSpace(revivePathName))
+        {
+            return null;
+        }
+
+        var pathResult = await _pathStore.LoadAsync(revivePathName, context.StopToken).ConfigureAwait(false);
+        if (!pathResult.Success || pathResult.Value?.Points is not { Count: >= 2 } points)
+        {
+            context.Logger.Warn("stationary_combat.startup_recovery.path_unavailable", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = revivePathName,
+                ["error"] = pathResult.Error,
+                ["pointCount"] = pathResult.Value?.PointCount ?? 0
+            });
+            return null;
+        }
+
+        var revivePoints = points
+            .Select(point => point.ToVector3())
+            .ToArray();
+        var nearestPointIndex = FindNearestPathPointIndex(playerPosition, revivePoints, playerDistanceFromHome);
+        if (nearestPointIndex < 0)
+        {
+            context.Logger.Info("stationary_combat.startup_recovery.home_nearest", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = revivePathName,
+                ["homeDistance"] = Math.Round(playerDistanceFromHome, 2),
+                ["pathPointCount"] = revivePoints.Length
+            });
+            return null;
+        }
+
+        var nearestDistance = StationaryCombatTargetSelector.HorizontalDistance(
+            playerPosition,
+            revivePoints[nearestPointIndex]);
+        state.StartStartupRecovery(revivePathName, revivePoints, nearestPointIndex);
+        state.ReturningHome = false;
+        state.ClearTarget();
+        context.Logger.Info("stationary_combat.startup_recovery.selected", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["pathName"] = revivePathName,
+            ["startPointIndex"] = nearestPointIndex,
+            ["startPointNumber"] = nearestPointIndex + 1,
+            ["pathPointCount"] = revivePoints.Length,
+            ["pathPointDistance"] = Math.Round(nearestDistance, 2),
+            ["homeDistance"] = Math.Round(playerDistanceFromHome, 2)
+        });
+
+        return await ContinueStartupRecoveryAsync(
+                context,
+                semiAutoState,
+                state,
+                player,
+                playerPosition)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan?> ContinueStartupRecoveryAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot playerPosition)
+    {
+        while (state.StartupRecoveryActive &&
+               state.StartupRecoveryPointIndex >= 0 &&
+               state.StartupRecoveryPointIndex < state.StartupRecoveryPoints.Count)
+        {
+            var point = state.StartupRecoveryPoints[state.StartupRecoveryPointIndex];
+            var distance = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, point);
+            if (distance > StartupRecoveryReachDistance)
+            {
+                semiAutoState.ResetAttackKeyPressThrottle();
+                await PathFollowStepAsync(context, state, player, point, StartupRecoveryReachDistance).ConfigureAwait(false);
+                LogActionThrottled(context, state, "stationary_combat.startup_recovery", "move:" + state.StartupRecoveryPointIndex, new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["action"] = "move",
+                    ["pathName"] = state.StartupRecoveryPathName,
+                    ["pointIndex"] = state.StartupRecoveryPointIndex,
+                    ["pointNumber"] = state.StartupRecoveryPointIndex + 1,
+                    ["pointCount"] = state.StartupRecoveryPoints.Count,
+                    ["distance"] = Math.Round(distance, 2)
+                }, TimeSpan.FromMilliseconds(500));
+                return MoveTickDelay;
+            }
+
+            context.Logger.Info("stationary_combat.startup_recovery.point_reached", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = state.StartupRecoveryPathName,
+                ["pointIndex"] = state.StartupRecoveryPointIndex,
+                ["pointNumber"] = state.StartupRecoveryPointIndex + 1,
+                ["pointCount"] = state.StartupRecoveryPoints.Count,
+                ["distance"] = Math.Round(distance, 2)
+            });
+            state.AdvanceStartupRecoveryPoint();
+        }
+
+        if (state.StartupRecoveryActive)
+        {
+            var pathName = state.StartupRecoveryPathName;
+            state.ClearStartupRecovery();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            context.Logger.Info("stationary_combat.startup_recovery.complete", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = pathName
+            });
+        }
+
+        return null;
+    }
+
     private async Task<TimeSpan> TickFightAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
@@ -202,21 +376,66 @@ public sealed class StationaryCombatController
         double radius,
         double playerDistanceFromHome)
     {
+        var now = DateTimeOffset.Now;
         var targetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         if (!targetResult.Success || targetResult.Value is null)
         {
+            if (IsTargetTimedOut(state, now))
+            {
+                return await IgnoreCurrentTargetAsync(
+                        context,
+                        semiAutoState,
+                        state,
+                        state.CurrentTargetEntityId,
+                        string.Empty,
+                        "not_locked")
+                    .ConfigureAwait(false);
+            }
+
             state.ClearTarget();
             semiAutoState.ResetAttackKeyPressThrottle();
             return IdleDelay;
         }
 
         var target = targetResult.Value;
-        if (!target.IsMonsterAlive || target.TargetEntityId != state.CurrentTargetEntityId)
+        if (!target.IsMonsterAlive)
         {
             state.ClearTarget();
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
+        }
+
+        if (target.TargetEntityId != state.CurrentTargetEntityId)
+        {
+            if (IsTargetTimedOut(state, now))
+            {
+                return await IgnoreCurrentTargetAsync(
+                        context,
+                        semiAutoState,
+                        state,
+                        state.CurrentTargetEntityId,
+                        string.Empty,
+                        "not_locked")
+                    .ConfigureAwait(false);
+            }
+
+            state.ClearTarget();
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
+        }
+
+        if (IsTargetTimedOut(state, now))
+        {
+            return await IgnoreCurrentTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    target.TargetEntityId,
+                    target.Name,
+                    "not_dead")
+                .ConfigureAwait(false);
         }
 
         if (target.Position is not null &&
@@ -491,7 +710,7 @@ public sealed class StationaryCombatController
 
         state.Fighting = true;
         state.CurrentTargetEntityId = target.EntityId;
-        state.CandidateEntityId = target.EntityId;
+        state.MarkCandidate(target.EntityId, DateTimeOffset.Now);
         state.ClearPendingTabVerification();
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
@@ -503,6 +722,72 @@ public sealed class StationaryCombatController
             ["phase"] = phase
         });
         return await _semiAuto.TickAsync(context, plan, semiAutoState).ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan> IgnoreCurrentTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        ushort targetEntityId,
+        string targetName,
+        string reason)
+    {
+        var now = DateTimeOffset.Now;
+        var elapsedMs = state.TargetStartedAt == DateTimeOffset.MinValue
+            ? 0
+            : (long)Math.Max(0.0D, (now - state.TargetStartedAt).TotalMilliseconds);
+        state.IgnoreTarget(targetEntityId);
+        context.Logger.Info("stationary_combat.target.ignored", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = targetEntityId,
+            ["targetName"] = targetName,
+            ["reason"] = reason,
+            ["elapsedMs"] = elapsedMs,
+            ["timeoutMs"] = (long)TargetTimeout.TotalMilliseconds
+        });
+        state.ClearTarget();
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
+        return IdleDelay;
+    }
+
+    private static bool IsTargetTimedOut(StationaryCombatState state, DateTimeOffset now)
+    {
+        return state.TargetStartedAt != DateTimeOffset.MinValue &&
+               now - state.TargetStartedAt >= TargetTimeout;
+    }
+
+    private static string GetRevivePathName(AccountWorkerContext context)
+    {
+        var pathName = context.Config.ScriptSettings?.Paths?.RevivePathName;
+        if (!string.IsNullOrWhiteSpace(pathName))
+        {
+            return pathName.Trim();
+        }
+
+        return context.Config.RevivePathName?.Trim() ?? string.Empty;
+    }
+
+    private static int FindNearestPathPointIndex(
+        Vector3Snapshot playerPosition,
+        IReadOnlyList<Vector3Snapshot> points,
+        double homeDistance)
+    {
+        var nearestIndex = -1;
+        var nearestDistance = homeDistance;
+        for (var i = 0; i < points.Count; i++)
+        {
+            var distance = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, points[i]);
+            if (distance < nearestDistance)
+            {
+                nearestIndex = i;
+                nearestDistance = distance;
+            }
+        }
+
+        return nearestIndex;
     }
 
     private async Task<WorldObjectSnapshot?> SelectTargetAsync(
@@ -533,18 +818,21 @@ public sealed class StationaryCombatController
             state.LastWorldScanAt = now;
         }
 
+        state.PruneIgnoredTargets(state.CachedWorldObjects);
+
         if (state.CandidateEntityId != 0)
         {
             var candidate = state.CachedWorldObjects.FirstOrDefault(
                 target => target.EntityId == state.CandidateEntityId);
-            if (IsCandidateStillSelectable(candidate, home, radius))
+            if (!state.IsTargetIgnored(state.CandidateEntityId) &&
+                IsCandidateStillSelectable(candidate, home, radius))
             {
                 return candidate;
             }
         }
 
         return StationaryCombatTargetSelector.SelectNearest(
-            state.CachedWorldObjects,
+            state.CachedWorldObjects.Where(target => !state.IsTargetIgnored(target.EntityId)),
             playerPosition,
             home,
             radius);
