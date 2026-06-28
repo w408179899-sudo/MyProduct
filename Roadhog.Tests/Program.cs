@@ -32,6 +32,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat does not pulse W while approaching same target", TestStationaryCombatDoesNotPulseWWhileApproachingAsync),
     ("stationary combat ignores target when lock times out", TestStationaryCombatIgnoresTargetWhenLockTimesOutAsync),
     ("stationary combat ignores target when kill times out", TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync),
+    ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("stationary combat interrupts sit when targeted by monster", TestStationaryCombatInterruptsSitWhenTargetedAsync),
@@ -47,7 +48,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("calibrated nonzero cooldown skips cooling roots", TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync),
     ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
     ("observed cooldown survives zero end tick read", TestObservedCooldownSurvivesZeroEndTickReadAsync),
-    ("attack key fallback presses C synchronously", TestAttackKeyFallbackPressesCSynchronouslyAsync),
+    ("opening attack key switch presses C once", TestOpeningAttackKeySwitchPressesCOnceAsync),
     ("maintenance hp rule presses configured key before skills", TestMaintenanceHpRulePressesConfiguredKeyAsync),
     ("maintenance hp rule runs without attackable target", TestMaintenanceHpRuleRunsWithoutAttackableTargetAsync),
     ("maintenance mp rule presses configured key before skills", TestMaintenanceMpRulePressesConfiguredKeyAsync),
@@ -1043,6 +1044,80 @@ static async Task TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync()
         "kill timeout should be logged");
 }
 
+static async Task TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync()
+{
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 200, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 200,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(8, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "original", "monster", new Vector3Snapshot(40, 0, 0), 40, 1000, 1000),
+                new WorldObjectSnapshot(200, 200, "nearby", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CandidateEntityId = 100
+        };
+        state.MarkCandidate(100, DateTimeOffset.Now);
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!state.Fighting, "lock mismatch should keep fight state for reacquire");
+        AssertEqual((ushort)100, state.CurrentTargetEntityId, "lock mismatch should keep current fight target");
+        AssertEqual((ushort)100, state.CandidateEntityId, "lock mismatch should keep original candidate");
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "lock mismatch should try to reacquire the original target");
+        AssertFalse(keyboard.Keys.Contains("D2"), "wrong locked target must not enter skill release");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.reacquire" &&
+            Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), (ushort)100)),
+            "lock mismatch should log original target reacquire");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
 static async Task TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync()
 {
     var settings = CreateScriptSettings();
@@ -1762,11 +1837,10 @@ static async Task TestObservedCooldownSurvivesZeroEndTickReadAsync()
     AssertFalse(keyboard.Keys.Contains("D1"), "known future cooldown should block a zero end-tick read");
 }
 
-static async Task TestAttackKeyFallbackPressesCSynchronouslyAsync()
+static async Task TestOpeningAttackKeySwitchPressesCOnceAsync()
 {
     var settings = CreateScriptSettings();
     settings.SemiAuto.AttackKeyLoopEnabled = true;
-    settings.SemiAuto.AttackKeyLoopIntervalMs = 10;
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
@@ -1779,14 +1853,14 @@ static async Task TestAttackKeyFallbackPressesCSynchronouslyAsync()
     CalibrateCooldownClock(state);
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "attack key fallback should press C in the combat tick");
+    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "opening attack key should press C once when enabled");
 
     await Task.Delay(30).ConfigureAwait(false);
-    AssertEqual(1, keyboard.Keys.Count, "attack key fallback must not run on a background loop");
+    AssertEqual(1, keyboard.Keys.Count, "opening attack key must not run on a background loop");
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
-    AssertSequence(new[] { "C", "C" }, keyboard.Keys.ToArray(), "attack key fallback should only advance on the next combat tick");
+    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "fallback should not press C after opening key was attempted");
 }
 
 static async Task TestMaintenanceHpRulePressesConfiguredKeyAsync()
@@ -2716,14 +2790,12 @@ static string[] WithPreSkillKey(params string[] keys)
 
 static string[] WithPreSkillAttackKey(params string[] keys)
 {
-    var result = keys.ToList();
-    result.Insert(Math.Max(0, result.Count - 1), "C");
-    return result.ToArray();
+    return keys.ToArray();
 }
 
 static string[] WithTriggerFallbackAttackKey(params string[] keys)
 {
-    return keys.Concat(new[] { "C" }).ToArray();
+    return keys.ToArray();
 }
 
 static string CreateTempDirectory(string prefix)

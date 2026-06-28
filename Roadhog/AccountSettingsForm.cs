@@ -44,6 +44,7 @@ namespace Roadhog
         private RoundedCheckBox? enableLootCheckBox;
         private RoundedCheckBox? contestMonsterCheckBox;
         private RoundedCheckBox? counterEnemyRaceCheckBox;
+        private RoundedCheckBox? openingAttackKeyCheckBox;
         private RoundedTextBox? revivePathNameTextBox;
         private RoundedTextBox? combatPathNameTextBox;
         private RoundedTextBox? maintenancePathNameTextBox;
@@ -236,6 +237,7 @@ namespace Roadhog
             SetChecked(autoDecomposeCheckBox, settings.Maintenance.AutoDecompose);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
             SetText(bagTotalSlotsTextBox, settings.Maintenance.BagTotalSlots.ToString());
+            SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
 
             if (settings.Skills.Mode == SkillConfigurationMode.Auto)
             {
@@ -277,6 +279,8 @@ namespace Roadhog
             var previousSettings = BuildEffectiveScriptSettings(account);
             var capturedSettings = CaptureScriptSettings();
             capturedSettings.SemiAuto = previousSettings.SemiAuto.Clone();
+            capturedSettings.SemiAuto.AttackKeyLoopEnabled =
+                openingAttackKeyCheckBox?.Checked ?? capturedSettings.SemiAuto.AttackKeyLoopEnabled;
             capturedSettings.Skills.KeyOrder = previousSettings.Skills.KeyOrder.Count == 0
                 ? SkillScriptSettings.DefaultKeyOrder()
                 : previousSettings.Skills.KeyOrder.ToList();
@@ -1427,6 +1431,7 @@ namespace Roadhog
             skillAutoModeRadio = autoMode;
             var manualMode = AddRadioButton(page, "手动技能Mapping", 184, 14, 142, true);
             skillManualModeRadio = manualMode;
+            openingAttackKeyCheckBox = AddCheckBox(page, "开怪按C", 548, 14, 92, true);
 
             var autoPanel = CreateSkillModePanel(page, "autoSkillPanel", false);
             autoSkillPanel = autoPanel;

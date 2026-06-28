@@ -447,9 +447,17 @@ public sealed class StationaryCombatController
                     .ConfigureAwait(false);
             }
 
-            state.ClearTarget();
-            semiAutoState.ResetAttackKeyPressThrottle();
-            return IdleDelay;
+            return await ReacquireCurrentFightTargetAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    home,
+                    radius,
+                    playerDistanceFromHome,
+                    targetResult,
+                    "target_read_failed")
+                .ConfigureAwait(false);
         }
 
         var target = targetResult.Value;
@@ -475,10 +483,17 @@ public sealed class StationaryCombatController
                     .ConfigureAwait(false);
             }
 
-            state.ClearTarget();
-            semiAutoState.ResetAttackKeyPressThrottle();
-            await StopMovementAsync(context, state).ConfigureAwait(false);
-            return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
+            return await ReacquireCurrentFightTargetAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    home,
+                    radius,
+                    playerDistanceFromHome,
+                    targetResult,
+                    "target_mismatch")
+                .ConfigureAwait(false);
         }
 
         if (IsTargetTimedOut(state, now))
@@ -497,22 +512,154 @@ public sealed class StationaryCombatController
             target.Position is not null &&
             StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) > radius + TargetLeashExtraDistance)
         {
-            context.Logger.Info("stationary_combat.target.leash_drop", new Dictionary<string, object?>
+            LogActionThrottled(context, state, "stationary_combat.target.leash_wait", "target:" + target.TargetEntityId, new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
                 ["targetEntityId"] = target.TargetEntityId,
-                ["targetName"] = target.Name
-            });
-            state.ClearTarget();
-            semiAutoState.ResetAttackKeyPressThrottle();
-            await StopMovementAsync(context, state).ConfigureAwait(false);
-            return IdleDelay;
+                ["targetName"] = target.Name,
+                ["distanceFromHome"] = Math.Round(
+                    StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home),
+                    2),
+                ["allowedDistance"] = Math.Round(radius + TargetLeashExtraDistance, 2)
+            }, TimeSpan.FromMilliseconds(500));
+            return await WaitForCurrentFightTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    target.TargetEntityId,
+                    target.Name,
+                    playerDistanceFromHome,
+                    radius,
+                    targetResult,
+                    "target_outside_leash")
+                .ConfigureAwait(false);
         }
 
         await StopMovementAsync(context, state).ConfigureAwait(false);
         return await _semiAuto
             .TickAsync(context, plan, semiAutoState, requireCooldownCalibrationForMaintenance: true)
             .ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan> ReacquireCurrentFightTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        Vector3Snapshot home,
+        double radius,
+        double playerDistanceFromHome,
+        OperationResult<LockedTargetSnapshot> lockedResult,
+        string reason)
+    {
+        var targetEntityId = state.CurrentTargetEntityId != 0
+            ? state.CurrentTargetEntityId
+            : state.CandidateEntityId;
+        if (targetEntityId == 0)
+        {
+            state.ClearTarget();
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
+        }
+
+        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh: true).ConfigureAwait(false);
+        var target = objects.FirstOrDefault(candidate => candidate.EntityId == targetEntityId);
+        if (state.IsTargetIgnored(targetEntityId))
+        {
+            state.ClearTarget();
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
+        }
+
+        if (target is null)
+        {
+            return await WaitForCurrentFightTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    targetEntityId,
+                    string.Empty,
+                    playerDistanceFromHome,
+                    radius,
+                    lockedResult,
+                    reason + "_target_missing")
+                .ConfigureAwait(false);
+        }
+
+        if (!target.IsAlive)
+        {
+            state.ClearTarget();
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
+        }
+
+        if (!IsCurrentFightTargetStillSelectable(target, home, radius, state.CurrentTargetIsMaintenanceDefense))
+        {
+            return await WaitForCurrentFightTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    targetEntityId,
+                    target.Name,
+                    playerDistanceFromHome,
+                    radius,
+                    lockedResult,
+                    reason + "_target_not_selectable")
+                .ConfigureAwait(false);
+        }
+
+        state.MarkCandidate(targetEntityId, DateTimeOffset.Now);
+        semiAutoState.ResetAttackKeyPressThrottle();
+        LogActionThrottled(context, state, "stationary_combat.target.reacquire", reason + ":" + targetEntityId, new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["targetEntityId"] = targetEntityId,
+            ["targetName"] = target!.Name,
+            ["lockedReadSuccess"] = lockedResult.Success,
+            ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
+            ["lockedName"] = lockedResult.Value?.Name ?? string.Empty,
+            ["lockedAlive"] = lockedResult.Value?.IsMonsterAlive ?? false,
+            ["lockedHp"] = lockedResult.Value?.CurrentHp ?? 0,
+            ["error"] = lockedResult.Error
+        }, TimeSpan.FromMilliseconds(500));
+
+        return await TickAcquireAsync(context, plan, semiAutoState, state, target).ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan> WaitForCurrentFightTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        ushort targetEntityId,
+        string targetName,
+        double playerDistanceFromHome,
+        double radius,
+        OperationResult<LockedTargetSnapshot> lockedResult,
+        string reason)
+    {
+        state.Fighting = true;
+        state.CurrentTargetEntityId = targetEntityId;
+        state.MarkCandidate(targetEntityId, DateTimeOffset.Now);
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        LogActionThrottled(context, state, "stationary_combat.target.reacquire_wait", reason + ":" + targetEntityId, new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["targetEntityId"] = targetEntityId,
+            ["targetName"] = targetName,
+            ["lockedReadSuccess"] = lockedResult.Success,
+            ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
+            ["lockedName"] = lockedResult.Value?.Name ?? string.Empty,
+            ["lockedAlive"] = lockedResult.Value?.IsMonsterAlive ?? false,
+            ["lockedHp"] = lockedResult.Value?.CurrentHp ?? 0,
+            ["error"] = lockedResult.Error
+        }, TimeSpan.FromMilliseconds(500));
+        return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
     }
 
     private async Task<TimeSpan> TickAcquireAsync(
@@ -936,6 +1083,19 @@ public sealed class StationaryCombatController
                StationaryCombatTargetSelector.IsSelectableMonster(target) &&
                (target.IsTargetingLocalPlayer ||
                 StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) <= radius);
+    }
+
+    private static bool IsCurrentFightTargetStillSelectable(
+        WorldObjectSnapshot? candidate,
+        Vector3Snapshot home,
+        double radius,
+        bool currentTargetIsMaintenanceDefense)
+    {
+        return candidate is { Position: not null } target &&
+               StationaryCombatTargetSelector.IsSelectableMonster(target) &&
+               (currentTargetIsMaintenanceDefense ||
+                target.IsTargetingLocalPlayer ||
+                StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) <= radius + TargetLeashExtraDistance);
     }
 
     private async Task PathFollowStepAsync(
