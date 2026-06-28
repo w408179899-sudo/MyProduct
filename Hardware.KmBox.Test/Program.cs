@@ -39,6 +39,13 @@ try
         await Task.Delay(60);
         await device.KeyUpAsync(Keys.Enter);
 
+        await device.PressKeyAsync(KmBoxKeyCodes.KEY_ENTER);
+        await device.HotkeyAsync(new[]
+        {
+            KmBoxKeyCodes.KEY_LEFTCONTROL,
+            KmBoxKeyCodes.KEY_A
+        });
+
         Console.WriteLine("Smoke test finished.");
         return 0;
     }

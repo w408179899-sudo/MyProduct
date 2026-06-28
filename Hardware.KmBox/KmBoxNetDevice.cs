@@ -312,6 +312,134 @@ public sealed class KmBoxNetDevice : IKmBoxDevice, IDisposable
             ct);
     }
 
+    public Task KeyDownAsync(int keyCode, CancellationToken ct = default)
+    {
+        return ExecuteKeyCodeAsync(keyCode, keyDown: true, "KMBox key code down failed.", ct);
+    }
+
+    public Task KeyUpAsync(int keyCode, CancellationToken ct = default)
+    {
+        return ExecuteKeyCodeAsync(keyCode, keyDown: false, "KMBox key code up failed.", ct);
+    }
+
+    public async Task PressKeyAsync(Keys key, int holdMs = 30, CancellationToken ct = default)
+    {
+        if (holdMs < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(holdMs), "holdMs must be greater than or equal to 0.");
+        }
+
+        await KeyDownAsync(key, ct).ConfigureAwait(false);
+        try
+        {
+            if (holdMs > 0)
+            {
+                await Task.Delay(holdMs, ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            await KeyUpAsync(key, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    public async Task PressKeyAsync(int keyCode, int holdMs = 30, CancellationToken ct = default)
+    {
+        if (holdMs < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(holdMs), "holdMs must be greater than or equal to 0.");
+        }
+
+        await KeyDownAsync(keyCode, ct).ConfigureAwait(false);
+        try
+        {
+            if (holdMs > 0)
+            {
+                await Task.Delay(holdMs, ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            await KeyUpAsync(keyCode, CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    public async Task HotkeyAsync(IReadOnlyList<Keys> keys, int holdMs = 30, CancellationToken ct = default)
+    {
+        if (keys is null)
+        {
+            throw new ArgumentNullException(nameof(keys));
+        }
+
+        if (keys.Count == 0)
+        {
+            throw new ArgumentException("At least one key is required.", nameof(keys));
+        }
+
+        if (holdMs < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(holdMs), "holdMs must be greater than or equal to 0.");
+        }
+
+        for (var i = 0; i < keys.Count; i++)
+        {
+            await KeyDownAsync(keys[i], ct).ConfigureAwait(false);
+        }
+
+        try
+        {
+            if (holdMs > 0)
+            {
+                await Task.Delay(holdMs, ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            for (var i = keys.Count - 1; i >= 0; i--)
+            {
+                await KeyUpAsync(keys[i], CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+    }
+
+    public async Task HotkeyAsync(IReadOnlyList<int> keyCodes, int holdMs = 30, CancellationToken ct = default)
+    {
+        if (keyCodes is null)
+        {
+            throw new ArgumentNullException(nameof(keyCodes));
+        }
+
+        if (keyCodes.Count == 0)
+        {
+            throw new ArgumentException("At least one key code is required.", nameof(keyCodes));
+        }
+
+        if (holdMs < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(holdMs), "holdMs must be greater than or equal to 0.");
+        }
+
+        for (var i = 0; i < keyCodes.Count; i++)
+        {
+            await KeyDownAsync(keyCodes[i], ct).ConfigureAwait(false);
+        }
+
+        try
+        {
+            if (holdMs > 0)
+            {
+                await Task.Delay(holdMs, ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            for (var i = keyCodes.Count - 1; i >= 0; i--)
+            {
+                await KeyUpAsync(keyCodes[i], CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+    }
+
     public Task TypeTextAsync(string text, CancellationToken ct = default)
     {
         if (text is null)
@@ -435,6 +563,38 @@ public sealed class KmBoxNetDevice : IKmBoxDevice, IDisposable
 
             throw new KmBoxException(errorMessage, ex);
         }
+    }
+
+    private Task ExecuteKeyCodeAsync(int keyCode, bool keyDown, string errorMessage, CancellationToken ct)
+    {
+        return ExecuteAsync(
+            async token =>
+            {
+                var stroke = HidKeyboardMap.FromKeyCode(keyCode);
+
+                await _ioLock.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    EnsureConnected();
+                    if (keyDown)
+                    {
+                        ApplyKeyDown(stroke);
+                    }
+                    else
+                    {
+                        ApplyKeyUp(stroke);
+                    }
+
+                    await SendKeyboardStateUnlockedAsync(token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _ioLock.Release();
+                }
+            },
+            errorMessage,
+            releaseAllOnFailure: true,
+            ct);
     }
 
     private async Task TryReleaseAllAfterFailureAsync()

@@ -177,6 +177,22 @@ internal static class HidKeyboardMap
         return stroke;
     }
 
+    public static HidKeyStroke FromKeyCode(int keyCode)
+    {
+        if (keyCode < 0 || keyCode > byte.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(keyCode), keyCode, "KMBox key code must be between 0 and 255.");
+        }
+
+        if (keyCode >= KmBoxKeyCodes.KEY_LEFTCONTROL && keyCode <= KmBoxKeyCodes.KEY_RIGHT_GUI)
+        {
+            var modifier = (byte)(1 << (keyCode - KmBoxKeyCodes.KEY_LEFTCONTROL));
+            return new HidKeyStroke(0, modifier);
+        }
+
+        return new HidKeyStroke((byte)keyCode, 0);
+    }
+
     private static byte ModifierFlagsFromKeys(Keys key)
     {
         byte modifiers = 0;

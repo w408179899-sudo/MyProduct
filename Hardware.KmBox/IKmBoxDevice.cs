@@ -24,6 +24,18 @@ public interface IKmBoxDevice
 
     Task KeyUpAsync(Keys key, CancellationToken ct = default);
 
+    Task KeyDownAsync(int keyCode, CancellationToken ct = default);
+
+    Task KeyUpAsync(int keyCode, CancellationToken ct = default);
+
+    Task PressKeyAsync(Keys key, int holdMs = 30, CancellationToken ct = default);
+
+    Task PressKeyAsync(int keyCode, int holdMs = 30, CancellationToken ct = default);
+
+    Task HotkeyAsync(IReadOnlyList<Keys> keys, int holdMs = 30, CancellationToken ct = default);
+
+    Task HotkeyAsync(IReadOnlyList<int> keyCodes, int holdMs = 30, CancellationToken ct = default);
+
     Task TypeTextAsync(string text, CancellationToken ct = default);
 
     Task ReleaseAllAsync(CancellationToken ct = default);
