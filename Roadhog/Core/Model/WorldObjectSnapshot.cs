@@ -8,7 +8,9 @@ public sealed record WorldObjectSnapshot(
     Vector3Snapshot? Position,
     double? DistanceToLocalPlayer,
     uint CurrentHp = 0,
-    uint MaxHp = 0)
+    uint MaxHp = 0,
+    uint TargetServerObjectId = 0,
+    bool IsTargetingLocalPlayer = false)
 {
     public bool HasKnownHealth => CurrentHp > 0 || MaxHp > 0;
 

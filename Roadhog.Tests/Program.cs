@@ -34,6 +34,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat ignores target when kill times out", TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
+    ("stationary combat interrupts sit when targeted by monster", TestStationaryCombatInterruptsSitWhenTargetedAsync),
+    ("stationary combat hp rule runs before defense target workflow", TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync),
+    ("stationary combat stops movement before hp maintenance", TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
     ("skill tree maps at most configured roots across the 22 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
@@ -45,6 +48,14 @@ var tests = new (string Name, Func<Task> Run)[]
     ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
     ("observed cooldown survives zero end tick read", TestObservedCooldownSurvivesZeroEndTickReadAsync),
     ("attack key fallback presses C synchronously", TestAttackKeyFallbackPressesCSynchronouslyAsync),
+    ("maintenance hp rule presses configured key before skills", TestMaintenanceHpRulePressesConfiguredKeyAsync),
+    ("maintenance hp rule runs without attackable target", TestMaintenanceHpRuleRunsWithoutAttackableTargetAsync),
+    ("maintenance mp rule presses configured key before skills", TestMaintenanceMpRulePressesConfiguredKeyAsync),
+    ("maintenance selected skill confirms by skill id", TestMaintenanceSelectedSkillConfirmsBySkillIdAsync),
+    ("maintenance selected cooling skill skips key and continues combat", TestMaintenanceSelectedCoolingSkillSkipsKeyAsync),
+    ("stationary combat skips skill maintenance before cooldown calibration", TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync),
+    ("maintenance sit enters with comma and exits with x", TestMaintenanceSitEnterExitAsync),
+    ("semi auto skips sit maintenance", TestSemiAutoSkipsSitMaintenanceAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
     ("chain presses next stage without waiting for source cooldown", TestChainPressesNextStageWithoutSourceCooldownAsync),
@@ -1135,6 +1146,283 @@ static async Task TestStationaryCombatFinishesFightBeforeReturningHomeAsync()
     AssertFalse(!keyboard.Keys.Contains("D2"), "fighting outside radius should keep releasing skills");
 }
 
+static async Task TestStationaryCombatInterruptsSitWhenTargetedAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 25;
+    settings.Maintenance.SitHpRecoverToPercent = 75;
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 20, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 0, 0),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetPosition = null,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        }),
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                200,
+                2000,
+                "attacker",
+                "monster",
+                new Vector3Snapshot(5, 0, 0),
+                5,
+                1000,
+                1000,
+                TargetServerObjectId: 100,
+                IsTargetingLocalPlayer: true)
+        }
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var stationaryState = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    semiAutoState.StartMaintenanceRest(forHp: true, forMp: false);
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, stationaryState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!keyboard.Keys.Contains("X"), "targeting monster should interrupt sit maintenance with x");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "targeting monster should block re-entering sit maintenance");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "interrupted sit maintenance should clear rest state");
+    AssertEqual((ushort)200, stationaryState.CandidateEntityId, "targeting monster should become the combat candidate");
+}
+
+static async Task TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "D8",
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 0, 0),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetPosition = null,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        }),
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                201,
+                2001,
+                "attacker",
+                "monster",
+                new Vector3Snapshot(5, 0, 0),
+                5,
+                1000,
+                1000,
+                TargetServerObjectId: 100,
+                IsTargetingLocalPlayer: true)
+        }
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var stationaryState = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "D8", StringComparison.Ordinal))
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [8] = ActiveCooldownEnd(),
+                [5] = 0,
+                [6] = 0
+            });
+        }
+    };
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, stationaryState)
+        .ConfigureAwait(false);
+
+    AssertSequence(new[] { "D8" }, keyboard.Keys.ToArray(), "stationary hp maintenance key should run before target workflow");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "stationary hp key maintenance must not enter sit maintenance");
+    AssertEqual((ushort)0, stationaryState.CandidateEntityId, "target workflow should wait until maintenance key tick finishes");
+}
+
+static async Task TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "D8",
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 0, 0),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        }),
+        WorldObjects = Array.Empty<WorldObjectSnapshot>()
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var stationaryState = new StationaryCombatState
+    {
+        IsMovingForward = true,
+        IsRightMouseDown = true
+    };
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "D8", StringComparison.Ordinal))
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [8] = ActiveCooldownEnd(),
+                [5] = 0,
+                [6] = 0
+            });
+        }
+    };
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, stationaryState)
+        .ConfigureAwait(false);
+
+    AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "hp maintenance should release W before pressing key");
+    AssertSequence(new[] { "up:Right" }, keyboard.MouseCommands.ToArray(), "hp maintenance should release right mouse before pressing key");
+    AssertSequence(new[] { "D8" }, keyboard.Keys.ToArray(), "hp maintenance key");
+    AssertFalse(stationaryState.IsMovingForward, "hp maintenance should clear moving state");
+    AssertFalse(stationaryState.IsRightMouseDown, "hp maintenance should clear right mouse state");
+}
+
+static async Task TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 73,
+        Key = "NumPad0",
+        SkillId = 506,
+        SkillName = "主神之盔甲 I"
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var learnedSkills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = 0,
+        [5] = 0,
+        [6] = 0
+    }).Concat(new[]
+    {
+        new SkillSnapshot(
+            506,
+            "主神之盔甲 I",
+            1,
+            1,
+            "主神之盔甲 I",
+            1,
+            false,
+            360_000,
+            0)
+    }).ToArray();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 0, 0),
+        TargetEntityId = 100,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(5, 0, 0),
+        Skills = learnedSkills,
+        WorldObjects = Array.Empty<WorldObjectSnapshot>()
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var stationaryState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100
+    };
+    var semiAutoState = new SemiAutoCombatState();
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, stationaryState)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("NumPad0"), "stationary combat should skip skill maintenance before cooldown calibration");
+    AssertFalse(keyboard.Keys.Count == 0, "stationary combat should continue releasing combat skills before cooldown calibration");
+}
+
 static Task TestSkillTreeKeyMappingAsync()
 {
     var plan = SemiAutoSkillPlan.FromSettings(CreateSkillSettings());
@@ -1499,6 +1787,296 @@ static async Task TestAttackKeyFallbackPressesCSynchronouslyAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
     AssertSequence(new[] { "C", "C" }, keyboard.Keys.ToArray(), "attack key fallback should only advance on the next combat tick");
+}
+
+static async Task TestMaintenanceHpRulePressesConfiguredKeyAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "D8",
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "D8", StringComparison.Ordinal))
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [8] = ActiveCooldownEnd(),
+                [5] = 0,
+                [6] = 0
+            });
+        }
+    };
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "D8" }, keyboard.Keys.ToArray(), "low hp maintenance key");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.key_pressed"), "maintenance key press should be logged");
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertEqual(1, keyboard.Keys.Count(key => key == "D8"), "maintenance key should not repeat while the mapped skill is cooling");
+}
+
+static async Task TestMaintenanceHpRuleRunsWithoutAttackableTargetAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "D8",
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "D8", StringComparison.Ordinal))
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [8] = ActiveCooldownEnd(),
+                [5] = 0,
+                [6] = 0
+            });
+        }
+    };
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "D8" }, keyboard.Keys.ToArray(), "low hp maintenance key should run before target validation");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.key_pressed"), "maintenance key press should be logged without target");
+}
+
+static async Task TestMaintenanceMpRulePressesConfiguredKeyAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 30,
+        Key = "NumPad1",
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 20, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "NumPad1", StringComparison.Ordinal))
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = ActiveCooldownEnd(),
+                [5] = 0,
+                [6] = 0
+            });
+        }
+    };
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad1" }, keyboard.Keys.ToArray(), "low mp maintenance key");
+}
+
+static async Task TestMaintenanceSelectedSkillConfirmsBySkillIdAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "NumPad0",
+        SkillId = 1,
+        SkillName = "淇濇姢涔嬬浘 I",
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "NumPad0", StringComparison.Ordinal))
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = ActiveCooldownEnd(),
+                [5] = 0,
+                [6] = 0
+            });
+        }
+    };
+
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "selected maintenance skill key");
+    var entry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.key_pressed");
+    AssertFalse(entry is null, "selected maintenance skill should log a confirmed key press");
+    AssertEqual(1u, Convert.ToUInt32(entry!.Fields["confirmedSkillId"]), "confirmed maintenance skill id");
+}
+
+static async Task TestMaintenanceSelectedCoolingSkillSkipsKeyAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "NumPad0",
+        SkillId = 1,
+        SkillName = "淇濇姢涔嬬浘 I",
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = CooldownEndIn(30_000),
+            [5] = 0,
+            [6] = 0
+        })
+    };
+
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("NumPad0"), "cooling selected maintenance skill should not press maintenance key");
+    AssertFalse(keyboard.Keys.Count == 0, "combat should continue when selected maintenance skill is cooling");
+}
+
+static async Task TestMaintenanceSitEnterExitAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 25;
+    settings.Maintenance.SitHpRecoverToPercent = 75;
+    settings.Maintenance.SitMpBelowPercent = 10;
+    settings.Maintenance.SitMpRecoverToPercent = 60;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 20, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "low hp should enter sit maintenance with comma");
+    AssertFalse(!state.IsMaintenanceResting, "maintenance rest should stay active after sitting down");
+
+    gameApi.Player = gameApi.Player with { CurrentHp = 74 };
+    await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "rest should continue until hp reaches recovery threshold");
+
+    gameApi.Player = gameApi.Player with { CurrentHp = 75 };
+    await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(new[] { "OemComma", "X" }, keyboard.Keys.ToArray(), "recovered hp should exit sit maintenance with x");
+    AssertFalse(state.IsMaintenanceResting, "maintenance rest should clear after standing up");
+}
+
+static async Task TestSemiAutoSkipsSitMaintenanceAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 25;
+    settings.Maintenance.SitHpRecoverToPercent = 75;
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 20, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "semi-auto tick should not enter sit maintenance");
+    AssertFalse(state.IsMaintenanceResting, "semi-auto tick should not start rest state");
+    AssertFalse(!keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "semi-auto should continue skill release");
 }
 
 static async Task TestPollResultAdvancesRootOrderAsync()

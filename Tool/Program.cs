@@ -730,6 +730,7 @@ namespace Tool
         {
             public ushort EntityId;
             public uint ServerObjectId;
+            public uint TargetServerObjectId;
             public ulong Entity;
             public ushort EntityType;
             public ulong PositionOffset;
@@ -745,6 +746,7 @@ namespace Tool
             public NpcStaticDetail NpcStaticDetail;
             public bool HasAggressive;
             public int Aggressive;
+            public bool IsTargetingLocalPlayer;
         }
 
         private struct GatherListEntry
@@ -8017,6 +8019,8 @@ namespace Tool
                             " Dist=" + entry.DistanceToLocalPlayer.ToString("F2") +
                             " EntityId=" + entry.EntityId +
                             " ServerId=" + entry.ServerObjectId +
+                            " TargetServerId=" + FormatMonsterTargetServerId(entry) +
+                            " TargetingMe=" + FormatMonsterTargetingLocalPlayer(entry) +
                             " CEntityType=" + entry.EntityType +
                             " Entity=" + FormatAddress(entry.Entity) +
                             " Actor=" + FormatMonsterActor(entry) +
@@ -8296,6 +8300,17 @@ namespace Tool
                 return false;
             }
 
+            uint localServerObjectId = 0;
+            ActorInfo localActor;
+            if (TryResolveActorFromEntityExperimental(
+                process,
+                localEntity,
+                0,
+                out localActor))
+            {
+                localServerObjectId = localActor.ServerObjectId;
+            }
+
             ulong serverTreeHeader;
             if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out serverTreeHeader) || serverTreeHeader == 0)
             {
@@ -8373,6 +8388,7 @@ namespace Tool
                                         {
                                             EntityId = entityId,
                                             ServerObjectId = serverObjectId,
+                                            TargetServerObjectId = hasActor ? actor.TargetServerObjectId : 0,
                                             Entity = entity,
                                             EntityType = entityType,
                                             PositionOffset = positionOffset,
@@ -8387,7 +8403,10 @@ namespace Tool
                                             HasNpcStaticDetail = hasNpcStaticDetail,
                                             NpcStaticDetail = npcStaticDetail,
                                             HasAggressive = hasNpcStaticDetail && npcStaticDetail.AggressiveKnown,
-                                            Aggressive = hasNpcStaticDetail && npcStaticDetail.AggressiveToPlayer ? 1 : 0
+                                            Aggressive = hasNpcStaticDetail && npcStaticDetail.AggressiveToPlayer ? 1 : 0,
+                                            IsTargetingLocalPlayer = hasActor &&
+                                                localServerObjectId != 0 &&
+                                                actor.TargetServerObjectId == localServerObjectId
                                         });
                                     }
                                 }
@@ -11193,6 +11212,16 @@ namespace Tool
         private static string FormatMonsterTemplateId(MonsterListEntry entry)
         {
             return entry.HasActor ? entry.Actor.NpcTemplateId.ToString() : "n/a";
+        }
+
+        private static string FormatMonsterTargetServerId(MonsterListEntry entry)
+        {
+            return entry.HasActor ? entry.TargetServerObjectId.ToString() : "n/a";
+        }
+
+        private static string FormatMonsterTargetingLocalPlayer(MonsterListEntry entry)
+        {
+            return entry.HasActor ? FormatYesNo(entry.IsTargetingLocalPlayer) : "n/a";
         }
 
         private static string FormatMonsterStaticName(MonsterListEntry entry)

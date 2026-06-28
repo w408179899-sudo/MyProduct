@@ -53,6 +53,12 @@ namespace Roadhog
         private RoundedCheckBox? sitMaintenanceCheckBox;
         private RoundedTextBox? sitMpBelowTextBox;
         private RoundedTextBox? sitMpRecoverToTextBox;
+        private RoundedTextBox? sitHpBelowTextBox;
+        private RoundedTextBox? sitHpRecoverToTextBox;
+        private FlowLayoutPanel? hpMaintenanceRuleList;
+        private FlowLayoutPanel? mpMaintenanceRuleList;
+        private Label? hpMaintenanceEmptyLabel;
+        private Label? mpMaintenanceEmptyLabel;
         private RoundedCheckBox? autoEquipCheckBox;
         private RoundedCheckBox? autoDecomposeCheckBox;
         private RoundedTextBox? bagCleanupThresholdTextBox;
@@ -222,6 +228,10 @@ namespace Roadhog
             SetChecked(sitMaintenanceCheckBox, settings.Maintenance.SitMaintenanceEnabled);
             SetText(sitMpBelowTextBox, settings.Maintenance.SitMpBelowPercent.ToString());
             SetText(sitMpRecoverToTextBox, settings.Maintenance.SitMpRecoverToPercent.ToString());
+            SetText(sitHpBelowTextBox, settings.Maintenance.SitHpBelowPercent.ToString());
+            SetText(sitHpRecoverToTextBox, settings.Maintenance.SitHpRecoverToPercent.ToString());
+            PopulateMaintenanceKeyRules(hpMaintenanceRuleList, hpMaintenanceEmptyLabel, settings.Maintenance.HpMaintenanceRules);
+            PopulateMaintenanceKeyRules(mpMaintenanceRuleList, mpMaintenanceEmptyLabel, settings.Maintenance.MpMaintenanceRules);
             SetChecked(autoEquipCheckBox, settings.Maintenance.AutoEquip);
             SetChecked(autoDecomposeCheckBox, settings.Maintenance.AutoDecompose);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
@@ -313,8 +323,12 @@ namespace Roadhog
                 Maintenance = new MaintenanceScriptSettings
                 {
                     SitMaintenanceEnabled = sitMaintenanceCheckBox?.Checked ?? true,
-                    SitMpBelowPercent = ReadInt(sitMpBelowTextBox, 10),
-                    SitMpRecoverToPercent = ReadInt(sitMpRecoverToTextBox, 90),
+                    SitMpBelowPercent = ReadPercent(sitMpBelowTextBox, 10),
+                    SitMpRecoverToPercent = ReadPercent(sitMpRecoverToTextBox, 90),
+                    SitHpBelowPercent = ReadPercent(sitHpBelowTextBox, 25),
+                    SitHpRecoverToPercent = ReadPercent(sitHpRecoverToTextBox, 75),
+                    HpMaintenanceRules = CaptureMaintenanceKeyRules(hpMaintenanceRuleList),
+                    MpMaintenanceRules = CaptureMaintenanceKeyRules(mpMaintenanceRuleList),
                     AutoEquip = autoEquipCheckBox?.Checked ?? true,
                     AutoDecompose = autoDecomposeCheckBox?.Checked ?? true,
                     BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 85),
@@ -384,6 +398,11 @@ namespace Roadhog
             return int.TryParse(textBox?.Text, out var value)
                 ? value
                 : fallback;
+        }
+
+        private static int ReadPercent(RoundedTextBox? textBox, int fallback)
+        {
+            return Math.Clamp(ReadInt(textBox, fallback), 0, 100);
         }
 
         private static double ReadDouble(RoundedTextBox? textBox, double fallback, double minimum, double maximum)
@@ -1096,32 +1115,305 @@ namespace Roadhog
             sitMpRecoverToTextBox = AddTextBox(page, "90", 272, 42, 70, 28);
             AddLabel(page, "%  起来继续打怪", 348, 44, 160, 24);
 
-            AddLabel(page, "血量维护", 4, 82, 66, 24, _textGreen, FontStyle.Bold);
-            AddButton(page, "新增血量维护", 68, 78, 120, 30);
-            AddLabel(page, "暂无血量维护", 4, 116, 140, 24);
+            AddLabel(page, "血量低于", 4, 78, 66, 24);
+            sitHpBelowTextBox = AddTextBox(page, "25", 68, 76, 70, 28);
+            AddLabel(page, "%  坐地板，恢复到", 144, 78, 130, 24);
+            sitHpRecoverToTextBox = AddTextBox(page, "75", 272, 76, 70, 28);
+            AddLabel(page, "%  起来继续打怪", 348, 78, 160, 24);
 
-            AddLabel(page, "蓝量维护", 4, 154, 66, 24, _textGreen, FontStyle.Bold);
-            AddButton(page, "新增蓝量维护", 68, 150, 120, 30);
-            AddLabel(page, "暂无蓝量维护", 4, 188, 140, 24);
+            AddLabel(page, "血量维护", 4, 120, 66, 24, _textGreen, FontStyle.Bold);
+            AddButton(page, "新增血量维护", 68, 116, 120, 30, (_, _) => AddMaintenanceKeyRuleRow(hpMaintenanceRuleList, hpMaintenanceEmptyLabel));
+            var refreshMaintenanceSkillsButton = AddButton(page, "刷新技能", 196, 116, 90, 30);
+            refreshMaintenanceSkillsButton.Click += async (_, _) =>
+                await RefreshCurrentSkillsAsync(refreshMaintenanceSkillsButton, refreshAutoTree: false, availableTree: null).ConfigureAwait(true);
+            hpMaintenanceRuleList = CreateMaintenanceRuleList(page, 4, 154, 830, 82);
+            hpMaintenanceEmptyLabel = AddLabel(page, "暂无血量维护", 4, 154, 140, 24);
+            hpMaintenanceEmptyLabel.BringToFront();
+
+            AddLabel(page, "蓝量维护", 4, 246, 66, 24, _textGreen, FontStyle.Bold);
+            AddButton(page, "新增蓝量维护", 68, 242, 120, 30, (_, _) => AddMaintenanceKeyRuleRow(mpMaintenanceRuleList, mpMaintenanceEmptyLabel));
+            mpMaintenanceRuleList = CreateMaintenanceRuleList(page, 4, 280, 830, 82);
+            mpMaintenanceEmptyLabel = AddLabel(page, "暂无蓝量维护", 4, 280, 140, 24);
+            mpMaintenanceEmptyLabel.BringToFront();
 
             var separator = new Panel
             {
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = _softGreen,
-                Location = new Point(0, 222),
+                Location = new Point(0, 374),
                 Size = new Size(850, 1)
             };
             page.Controls.Add(separator);
 
-            autoEquipCheckBox = AddCheckBox(page, "自动穿装备", 4, 230, 106, true);
-            autoDecomposeCheckBox = AddCheckBox(page, "自动分解装备", 112, 230, 126, true);
+            autoEquipCheckBox = AddCheckBox(page, "自动穿装备", 4, 382, 106, true);
+            autoDecomposeCheckBox = AddCheckBox(page, "自动分解装备", 112, 382, 126, true);
 
-            var advanced = CreateFoldout(page, "高级设置", 266, 850, true);
+            var advanced = CreateFoldout(page, "高级设置", 418, 850, true);
             advanced.Content.Height = 88;
             bagCleanupThresholdTextBox = AddNumberSetting(advanced.Content, "85", "清包阈值", 6, 12);
             bagTotalSlotsTextBox = AddNumberSetting(advanced.Content, "100", "背包总格数", 6, 46);
 
             return tab;
+        }
+
+        private FlowLayoutPanel CreateMaintenanceRuleList(Control parent, int x, int y, int width, int height)
+        {
+            var list = new FlowLayoutPanel
+            {
+                AutoScroll = true,
+                BackColor = _pageBackground,
+                FlowDirection = FlowDirection.TopDown,
+                Location = new Point(x, y),
+                Size = new Size(width, height),
+                WrapContents = false
+            };
+
+            parent.Controls.Add(list);
+            return list;
+        }
+
+        private void PopulateMaintenanceKeyRules(
+            FlowLayoutPanel? list,
+            Label? emptyLabel,
+            IEnumerable<MaintenanceKeyRuleConfig>? rules)
+        {
+            if (list is null)
+            {
+                return;
+            }
+
+            list.Controls.Clear();
+            foreach (var rule in rules ?? Array.Empty<MaintenanceKeyRuleConfig>())
+            {
+                AddMaintenanceKeyRuleRow(
+                    list,
+                    emptyLabel,
+                    rule.BelowPercent,
+                    rule.Key,
+                    rule.SkillId,
+                    rule.SkillName);
+            }
+
+            RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+        }
+
+        private void AddMaintenanceKeyRuleRow(
+            FlowLayoutPanel? list,
+            Label? emptyLabel,
+            int belowPercent = 50,
+            string key = "",
+            uint skillId = 0,
+            string skillName = "")
+        {
+            if (list is null)
+            {
+                return;
+            }
+
+            var row = new Panel
+            {
+                BackColor = _pageBackground,
+                BorderStyle = BorderStyle.None,
+                Margin = new Padding(0, 0, 0, 7),
+                Size = new Size(535, 31)
+            };
+
+            row.Controls.Add(new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                Font = new Font("Microsoft YaHei UI", 9F),
+                ForeColor = _textGreen,
+                Location = new Point(0, 3),
+                Size = new Size(34, 24),
+                Text = "低于",
+                TextAlign = ContentAlignment.MiddleLeft
+            });
+
+            var thresholdTextBox = AddTextBox(
+                row,
+                Math.Clamp(belowPercent, 0, 100).ToString(CultureInfo.InvariantCulture),
+                36,
+                1,
+                54,
+                28);
+            thresholdTextBox.Name = "maintenanceRuleBelowTextBox";
+
+            row.Controls.Add(new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                Font = new Font("Microsoft YaHei UI", 9F),
+                ForeColor = _textGreen,
+                Location = new Point(94, 3),
+                Size = new Size(42, 24),
+                Text = "% 按",
+                TextAlign = ContentAlignment.MiddleLeft
+            });
+
+            var skillCombo = AddCombo(row, 138, 1, 210, 28);
+            skillCombo.Name = "maintenanceRuleSkillCombo";
+            PopulateMaintenanceSkillCombo(skillCombo, skillId, skillName);
+
+            var keyButton = AddButton(row, "选择按键", 356, 0, 104, 30);
+            keyButton.Name = "maintenanceRuleKeyButton";
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                keyButton.Tag = key;
+                keyButton.Text = FormatSkillKey(key);
+            }
+
+            var deleteButton = AddButton(row, "删除", 468, 0, 58, 30);
+            deleteButton.Click += (_, _) =>
+            {
+                list.Controls.Remove(row);
+                row.Dispose();
+                RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+            };
+
+            keyButton.Click += (_, _) =>
+            {
+                var selectedKey = ShowKeyboardPicker(keyButton.Tag as string);
+                if (!string.IsNullOrWhiteSpace(selectedKey))
+                {
+                    keyButton.Tag = selectedKey;
+                    keyButton.Text = FormatSkillKey(selectedKey);
+                }
+            };
+
+            list.Controls.Add(row);
+            RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+        }
+
+        private static void RefreshMaintenanceRuleEmptyLabel(FlowLayoutPanel? list, Label? emptyLabel)
+        {
+            if (emptyLabel is not null)
+            {
+                emptyLabel.Visible = list?.Controls.OfType<Panel>().Any() != true;
+            }
+        }
+
+        private void RefreshMaintenanceSkillCombos()
+        {
+            RefreshMaintenanceSkillCombos(hpMaintenanceRuleList);
+            RefreshMaintenanceSkillCombos(mpMaintenanceRuleList);
+        }
+
+        private void RefreshMaintenanceSkillCombos(FlowLayoutPanel? list)
+        {
+            if (list is null)
+            {
+                return;
+            }
+
+            foreach (var row in list.Controls.OfType<Panel>())
+            {
+                var skillCombo = row.Controls
+                    .OfType<RoundedComboBox>()
+                    .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleSkillCombo", StringComparison.Ordinal));
+                if (skillCombo is null)
+                {
+                    continue;
+                }
+
+                var selectedSkill = GetSelectedMaintenanceSkill(skillCombo);
+                PopulateMaintenanceSkillCombo(skillCombo, selectedSkill.SkillId, selectedSkill.SkillName);
+            }
+        }
+
+        private void PopulateMaintenanceSkillCombo(RoundedComboBox combo, uint selectedSkillId, string? selectedSkillName)
+        {
+            var normalizedSelectedName = selectedSkillName?.Trim() ?? string.Empty;
+            combo.Items.Clear();
+            combo.Items.Add(MaintenanceSkillComboItem.Empty);
+
+            var selectedIndex = 0;
+            var index = 1;
+            foreach (var skill in currentManualSkills
+                         .GroupBy(skill => skill.SkillId)
+                         .Select(group => group.First())
+                         .OrderBy(FormatManualSkillName, StringComparer.CurrentCulture))
+            {
+                var name = FormatManualSkillName(skill);
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                var item = new MaintenanceSkillComboItem(skill.SkillId, name);
+                combo.Items.Add(item);
+                if ((selectedSkillId != 0 && skill.SkillId == selectedSkillId) ||
+                    (selectedSkillId == 0 && string.Equals(name, normalizedSelectedName, StringComparison.Ordinal)))
+                {
+                    selectedIndex = index;
+                }
+
+                index++;
+            }
+
+            if (selectedIndex == 0 && (!string.IsNullOrWhiteSpace(normalizedSelectedName) || selectedSkillId != 0))
+            {
+                var savedItem = new MaintenanceSkillComboItem(selectedSkillId, normalizedSelectedName);
+                combo.Items.Add(savedItem);
+                selectedIndex = combo.Items.Count - 1;
+            }
+
+            combo.SelectedIndex = selectedIndex;
+        }
+
+        private static MaintenanceSkillComboItem GetSelectedMaintenanceSkill(RoundedComboBox? combo)
+        {
+            if (combo is null ||
+                combo.SelectedIndex < 0 ||
+                combo.SelectedIndex >= combo.Items.Count)
+            {
+                return MaintenanceSkillComboItem.Empty;
+            }
+
+            if (combo.Items[combo.SelectedIndex] is MaintenanceSkillComboItem item)
+            {
+                return item.SkillId == 0 && string.IsNullOrWhiteSpace(item.SkillName)
+                    ? MaintenanceSkillComboItem.Empty
+                    : item;
+            }
+
+            var text = combo.Text.Trim();
+            return string.IsNullOrWhiteSpace(text)
+                ? MaintenanceSkillComboItem.Empty
+                : new MaintenanceSkillComboItem(0, text);
+        }
+
+        private static List<MaintenanceKeyRuleConfig> CaptureMaintenanceKeyRules(FlowLayoutPanel? list)
+        {
+            if (list is null)
+            {
+                return new List<MaintenanceKeyRuleConfig>();
+            }
+
+            return list.Controls
+                .OfType<Panel>()
+                .Select(row =>
+                {
+                    var belowTextBox = row.Controls
+                        .OfType<RoundedTextBox>()
+                        .FirstOrDefault(textBox => string.Equals(textBox.Name, "maintenanceRuleBelowTextBox", StringComparison.Ordinal));
+                    var keyButton = row.Controls
+                        .OfType<Button>()
+                        .FirstOrDefault(button => string.Equals(button.Name, "maintenanceRuleKeyButton", StringComparison.Ordinal));
+                    var skillCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleSkillCombo", StringComparison.Ordinal));
+                    var selectedSkill = GetSelectedMaintenanceSkill(skillCombo);
+
+                    return new MaintenanceKeyRuleConfig
+                    {
+                        BelowPercent = ReadPercent(belowTextBox, 50),
+                        Key = keyButton?.Tag as string ?? string.Empty,
+                        SkillId = selectedSkill.SkillId,
+                        SkillName = selectedSkill.SkillName
+                    };
+                })
+                .ToList();
         }
 
         private TabPage CreateSkillTab()
@@ -1709,6 +2001,39 @@ namespace Roadhog
             string Type,
             int? ChainTimeMs);
 
+        private sealed class MaintenanceSkillComboItem
+        {
+            public static readonly MaintenanceSkillComboItem Empty = new(0, string.Empty, "选择技能");
+
+            public MaintenanceSkillComboItem(uint skillId, string skillName)
+                : this(
+                    skillId,
+                    skillName,
+                    string.IsNullOrWhiteSpace(skillName)
+                        ? (skillId == 0 ? "选择技能" : "Skill " + skillId)
+                        : skillName.Trim() + (skillId == 0 ? string.Empty : " #" + skillId.ToString(CultureInfo.InvariantCulture)))
+            {
+            }
+
+            private MaintenanceSkillComboItem(uint skillId, string skillName, string displayText)
+            {
+                SkillId = skillId;
+                SkillName = skillName?.Trim() ?? string.Empty;
+                DisplayText = displayText;
+            }
+
+            public uint SkillId { get; }
+
+            public string SkillName { get; }
+
+            private string DisplayText { get; }
+
+            public override string ToString()
+            {
+                return DisplayText;
+            }
+        }
+
         private void PopulateSelectedSkillTree(TreeView tree)
         {
             tree.BeginUpdate();
@@ -1993,7 +2318,7 @@ namespace Roadhog
             list.Controls.Add(row);
         }
 
-        private async Task RefreshCurrentSkillsAsync(Button button, bool refreshAutoTree, TreeView availableTree)
+        private async Task RefreshCurrentSkillsAsync(Button button, bool refreshAutoTree, TreeView? availableTree)
         {
             var originalText = button.Text;
             button.Enabled = false;
@@ -2014,7 +2339,7 @@ namespace Roadhog
                 }
 
                 currentManualSkills = result.Value;
-                if (refreshAutoTree)
+                if (refreshAutoTree && availableTree is not null)
                 {
                     PopulateAvailableSkillTreeFromSkills(availableTree, currentManualSkills);
                 }
@@ -2023,6 +2348,7 @@ namespace Roadhog
                     RefreshManualSkillMappingCombos();
                 }
 
+                RefreshMaintenanceSkillCombos();
                 button.Text = "已刷新 " + currentManualSkills.Count;
                 await Task.Delay(700).ConfigureAwait(true);
             }
@@ -2662,7 +2988,9 @@ namespace Roadhog
                     ("9", "D9"),
                     ("0", "D0"),
                     ("-", "OemMinus"),
-                    ("=", "OemPlus")
+                    ("=", "OemPlus"),
+                    (",", "OemComma"),
+                    ("X", "X")
                 },
                 new[]
                 {
@@ -2747,6 +3075,8 @@ namespace Roadhog
                 "D0" => "0",
                 "OemMinus" => "-",
                 "OemPlus" => "=",
+                "OemComma" => ",",
+                "X" => "X",
                 "NumPad1" => "Num1",
                 "NumPad2" => "Num2",
                 "NumPad3" => "Num3",

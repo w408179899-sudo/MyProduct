@@ -11,7 +11,12 @@ namespace Roadhog.Application.SemiAuto;
 public sealed class SemiAutoCombatController
 {
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan MaintenanceConfirmWindow = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan MaintenanceConfirmPollInterval = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan MaintenanceKeyRetryInterval = TimeSpan.FromSeconds(3);
     private static readonly string AttackKey = "C";
+    private static readonly string RestEnterKey = "OemComma";
+    private static readonly string RestExitKey = "X";
 
     private readonly IKeyboardInput _keyboard;
 
@@ -23,10 +28,22 @@ public sealed class SemiAutoCombatController
     public async Task<TimeSpan> TickAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
-        SemiAutoCombatState state)
+        SemiAutoCombatState state,
+        bool requireCooldownCalibrationForMaintenance = false)
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var now = DateTimeOffset.Now;
+
+        if (await TryHandleMaintenanceAsync(
+                    context,
+                    state,
+                    allowSitMaintenance: false,
+                    plan: plan,
+                    requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance)
+                .ConfigureAwait(false))
+        {
+            return Ms(settings.TickIntervalMs, 40);
+        }
 
         if (!plan.HasExecutableSkills)
         {
@@ -204,6 +221,461 @@ public sealed class SemiAutoCombatController
 
         await PressAttackKeyIfDueAsync(context, state, settings).ConfigureAwait(false);
         return Ms(settings.TickIntervalMs, 40);
+    }
+
+    public async Task<bool> TryHandleMaintenanceAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        PlayerSnapshot player,
+        bool allowSitMaintenance = true,
+        bool clearSitWhenDisallowed = true,
+        Func<Task>? beforeMaintenanceKeyPress = null,
+        SemiAutoSkillPlan? plan = null,
+        bool requireCooldownCalibrationForMaintenance = false)
+    {
+        var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
+        var maintenance = context.Config.ScriptSettings?.Maintenance;
+        return maintenance is not null &&
+               await TryHandleMaintenanceAsync(
+                       context,
+                       state,
+                       settings,
+                       maintenance,
+                       player,
+                       allowSitMaintenance,
+                        clearSitWhenDisallowed,
+                        beforeMaintenanceKeyPress,
+                        plan,
+                        requireCooldownCalibrationForMaintenance)
+                   .ConfigureAwait(false);
+    }
+
+    private async Task<bool> TryHandleMaintenanceAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        bool allowSitMaintenance,
+        bool clearSitWhenDisallowed = true,
+        SemiAutoSkillPlan? plan = null,
+        bool requireCooldownCalibrationForMaintenance = false)
+    {
+        var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
+        var maintenance = context.Config.ScriptSettings?.Maintenance;
+        if (maintenance is null || !HasMaintenanceWork(maintenance, allowSitMaintenance))
+        {
+            if (clearSitWhenDisallowed)
+            {
+                state.ClearMaintenanceRest();
+            }
+
+            return false;
+        }
+
+        var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (!playerResult.Success || playerResult.Value is null)
+        {
+            var now = DateTimeOffset.Now;
+            if (ShouldLog(state.LastMaintenanceWarningAt, now))
+            {
+                state.LastMaintenanceWarningAt = now;
+                context.Logger.Warn("semi_auto.maintenance.player_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["error"] = playerResult.Error
+                });
+            }
+
+            return false;
+        }
+
+        return await TryHandleMaintenanceAsync(
+                context,
+                state,
+                settings,
+                maintenance,
+                playerResult.Value,
+                allowSitMaintenance,
+                clearSitWhenDisallowed,
+                plan: plan,
+                requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<bool> TryHandleMaintenanceAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        MaintenanceScriptSettings maintenance,
+        PlayerSnapshot player,
+        bool allowSitMaintenance,
+        bool clearSitWhenDisallowed,
+        Func<Task>? beforeMaintenanceKeyPress = null,
+        SemiAutoSkillPlan? plan = null,
+        bool requireCooldownCalibrationForMaintenance = false)
+    {
+        if (!HasMaintenanceWork(maintenance, allowSitMaintenance))
+        {
+            if (clearSitWhenDisallowed)
+            {
+                state.ClearMaintenanceRest();
+            }
+
+            return false;
+        }
+
+        if (clearSitWhenDisallowed &&
+            (!allowSitMaintenance || !maintenance.SitMaintenanceEnabled) &&
+            state.IsMaintenanceResting)
+        {
+            state.ClearMaintenanceRest();
+        }
+
+        if (allowSitMaintenance && state.IsMaintenanceResting)
+        {
+            return await ContinueSitMaintenanceAsync(context, state, settings, maintenance, player).ConfigureAwait(false);
+        }
+
+        if (await TryPressMaintenanceRuleAsync(
+                context,
+                state,
+                settings,
+                maintenance.HpMaintenanceRules,
+                "hp",
+                player.CurrentHp,
+                player.MaxHp,
+                beforeMaintenanceKeyPress,
+                plan,
+                requireCooldownCalibrationForMaintenance)
+            .ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        if (await TryPressMaintenanceRuleAsync(
+                context,
+                state,
+                settings,
+                maintenance.MpMaintenanceRules,
+                "mp",
+                player.CurrentMp,
+                player.MaxMp,
+                beforeMaintenanceKeyPress,
+                plan,
+                requireCooldownCalibrationForMaintenance)
+            .ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        if (!allowSitMaintenance || !maintenance.SitMaintenanceEnabled)
+        {
+            return false;
+        }
+
+        var restForHp = IsPercentAtOrBelow(player.CurrentHp, player.MaxHp, maintenance.SitHpBelowPercent);
+        var restForMp = IsPercentAtOrBelow(player.CurrentMp, player.MaxMp, maintenance.SitMpBelowPercent);
+        if (!restForHp && !restForMp)
+        {
+            return false;
+        }
+
+        var result = await _keyboard
+            .PressKeyAsync(RestEnterKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            LogMaintenanceKeyFailure(context, state, RestEnterKey, "rest_enter", result.Error);
+            return false;
+        }
+
+        state.StartMaintenanceRest(restForHp, restForMp);
+        context.Logger.Info("semi_auto.maintenance.rest_enter", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = RestEnterKey,
+            ["forHp"] = restForHp,
+            ["forMp"] = restForMp,
+            ["hp"] = player.CurrentHp,
+            ["maxHp"] = player.MaxHp,
+            ["mp"] = player.CurrentMp,
+            ["maxMp"] = player.MaxMp,
+            ["hpBelowPercent"] = maintenance.SitHpBelowPercent,
+            ["mpBelowPercent"] = maintenance.SitMpBelowPercent
+        });
+        return true;
+    }
+
+    public async Task<bool> CancelMaintenanceRestAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        string reason)
+    {
+        if (!state.IsMaintenanceResting)
+        {
+            return false;
+        }
+
+        var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
+        var result = await _keyboard
+            .PressKeyAsync(RestExitKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            LogMaintenanceKeyFailure(context, state, RestExitKey, "rest_interrupt", result.Error);
+            state.ClearMaintenanceRest();
+            return false;
+        }
+
+        context.Logger.Info("semi_auto.maintenance.rest_interrupt", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = RestExitKey,
+            ["reason"] = reason
+        });
+        state.ClearMaintenanceRest();
+        return true;
+    }
+
+    private async Task<bool> ContinueSitMaintenanceAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        MaintenanceScriptSettings maintenance,
+        PlayerSnapshot player)
+    {
+        var hpRecovered = !state.MaintenanceRestingForHp ||
+                          IsPercentAtOrAbove(player.CurrentHp, player.MaxHp, maintenance.SitHpRecoverToPercent);
+        var mpRecovered = !state.MaintenanceRestingForMp ||
+                          IsPercentAtOrAbove(player.CurrentMp, player.MaxMp, maintenance.SitMpRecoverToPercent);
+        if (!hpRecovered || !mpRecovered)
+        {
+            return true;
+        }
+
+        var result = await _keyboard
+            .PressKeyAsync(RestExitKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            LogMaintenanceKeyFailure(context, state, RestExitKey, "rest_exit", result.Error);
+            return true;
+        }
+
+        context.Logger.Info("semi_auto.maintenance.rest_exit", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = RestExitKey,
+            ["hp"] = player.CurrentHp,
+            ["maxHp"] = player.MaxHp,
+            ["mp"] = player.CurrentMp,
+            ["maxMp"] = player.MaxMp
+        });
+        state.ClearMaintenanceRest();
+        return true;
+    }
+
+    private async Task<bool> TryPressMaintenanceRuleAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        IEnumerable<MaintenanceKeyRuleConfig>? rules,
+        string resource,
+        uint current,
+        uint max,
+        Func<Task>? beforeMaintenanceKeyPress = null,
+        SemiAutoSkillPlan? plan = null,
+        bool requireCooldownCalibrationForMaintenance = false)
+    {
+        if (max == 0)
+        {
+            return false;
+        }
+
+        var percent = Percent(current, max);
+        OperationResult<IReadOnlyList<SkillSnapshot>>? skillsResult = null;
+        foreach (var rule in (rules ?? Array.Empty<MaintenanceKeyRuleConfig>())
+                     .Where(rule => !string.IsNullOrWhiteSpace(rule.Key))
+                     .OrderBy(rule => Math.Clamp(rule.BelowPercent, 0, 100)))
+        {
+            var threshold = Math.Clamp(rule.BelowPercent, 0, 100);
+            if (percent > threshold)
+            {
+                continue;
+            }
+
+            var now = DateTimeOffset.Now;
+            if (requireCooldownCalibrationForMaintenance &&
+                !state.HasCooldownTickCalibration)
+            {
+                continue;
+            }
+
+            var hasExplicitSkill = HasExplicitMaintenanceSkill(rule);
+            SkillSnapshot? maintenanceSkill = null;
+            if (hasExplicitSkill || plan is not null)
+            {
+                skillsResult ??= await ReadAllSkillsAsync(context).ConfigureAwait(false);
+                if (skillsResult.Success && skillsResult.Value is not null)
+                {
+                    TryUpdateMaintenanceCooldownCalibration(context, state, skillsResult.Value);
+                    maintenanceSkill = ResolveMaintenanceRuleSkill(rule, plan, skillsResult.Value);
+                    if (maintenanceSkill is not null &&
+                        GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
+                    {
+                        LogMaintenanceRuleSkippedCooling(context, state, rule, resource, maintenanceSkill);
+                        continue;
+                    }
+
+                    if (hasExplicitSkill && maintenanceSkill is null)
+                    {
+                        LogMaintenanceRuleSkippedMissing(context, state, rule, resource);
+                        continue;
+                    }
+                }
+                else if (hasExplicitSkill)
+                {
+                    LogMaintenanceRuleSkillReadFailed(context, state, rule, resource, skillsResult.Error);
+                    continue;
+                }
+            }
+
+            if (maintenanceSkill is null)
+            {
+                if (!state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
+                {
+                    continue;
+                }
+            }
+
+            return await ExecuteMaintenanceKeyRuleAsync(
+                    context,
+                    state,
+                    settings,
+                    rule,
+                    resource,
+                    current,
+                    max,
+                    percent,
+                    threshold,
+                    beforeMaintenanceKeyPress,
+                    maintenanceSkill)
+                .ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
+    private async Task<bool> ExecuteMaintenanceKeyRuleAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        MaintenanceKeyRuleConfig rule,
+        string resource,
+        uint current,
+        uint max,
+        double percent,
+        int threshold,
+        Func<Task>? beforeMaintenanceKeyPress,
+        SkillSnapshot? maintenanceSkill)
+    {
+        if (beforeMaintenanceKeyPress is not null)
+        {
+            await beforeMaintenanceKeyPress().ConfigureAwait(false);
+        }
+
+        var baselineResult = await ReadAllSkillsAsync(context).ConfigureAwait(false);
+        var baselineCooldowns = baselineResult.Success && baselineResult.Value is not null
+            ? SnapshotCooldownEndTimes(baselineResult.Value)
+            : null;
+        if (baselineResult.Success && baselineResult.Value is not null)
+        {
+            TryUpdateMaintenanceCooldownCalibration(context, state, baselineResult.Value);
+        }
+
+        var startedAt = DateTimeOffset.Now;
+        var deadline = startedAt + MaintenanceConfirmWindow;
+        var attempts = 0;
+        SkillSnapshot? confirmedSkill = null;
+
+        while (DateTimeOffset.Now <= deadline)
+        {
+            attempts++;
+            var result = await _keyboard
+                .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
+                .ConfigureAwait(false);
+            if (!result.Success)
+            {
+                LogMaintenanceKeyFailure(context, state, rule.Key, resource, result.Error);
+                return false;
+            }
+
+            if (baselineCooldowns is not null)
+            {
+                var skillsResult = await ReadAllSkillsAsync(context).ConfigureAwait(false);
+                if (skillsResult.Success &&
+                    skillsResult.Value is not null)
+                {
+                    TryUpdateMaintenanceCooldownCalibration(context, state, skillsResult.Value);
+                    if (TryFindAdvancedCooldown(baselineCooldowns, skillsResult.Value, maintenanceSkill, out confirmedSkill))
+                    {
+                        break;
+                    }
+                }
+            }
+
+            var remaining = deadline - DateTimeOffset.Now;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            var delay = remaining < MaintenanceConfirmPollInterval
+                ? remaining
+                : MaintenanceConfirmPollInterval;
+            await Task.Delay(delay, context.StopToken).ConfigureAwait(false);
+        }
+
+        var completedAt = DateTimeOffset.Now;
+        if (confirmedSkill is null)
+        {
+            context.Logger.Warn("semi_auto.maintenance.unconfirmed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["resource"] = resource,
+                ["key"] = rule.Key,
+                ["current"] = current,
+                ["max"] = max,
+                ["percent"] = Math.Round(percent, 1),
+                ["belowPercent"] = threshold,
+                ["attempts"] = attempts,
+                ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
+                ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds),
+                ["baselineReadSuccess"] = baselineResult.Success,
+                ["baselineError"] = baselineResult.Error,
+                ["maintenanceSkillId"] = maintenanceSkill?.SkillId,
+                ["maintenanceSkillName"] = maintenanceSkill?.Name
+            });
+            return true;
+        }
+
+        state.MarkMaintenanceKeyAttempted(rule.Key, completedAt);
+        context.Logger.Info("semi_auto.maintenance.key_pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["current"] = current,
+            ["max"] = max,
+            ["percent"] = Math.Round(percent, 1),
+            ["belowPercent"] = threshold,
+            ["attempts"] = attempts,
+            ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
+            ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds),
+            ["confirmed"] = true,
+            ["confirmedSkillId"] = confirmedSkill.SkillId,
+            ["confirmedSkillName"] = confirmedSkill.Name,
+            ["confirmedCooldownEndTime"] = confirmedSkill.CooldownEndTime
+        });
+        return true;
     }
 
     private async Task ExecuteReleaseDecisionAsync(
@@ -619,6 +1091,296 @@ public sealed class SemiAutoCombatController
         });
     }
 
+    private static bool HasMaintenanceWork(MaintenanceScriptSettings maintenance, bool allowSitMaintenance)
+    {
+        return (allowSitMaintenance && maintenance.SitMaintenanceEnabled) ||
+               HasMaintenanceRules(maintenance.HpMaintenanceRules) ||
+               HasMaintenanceRules(maintenance.MpMaintenanceRules);
+    }
+
+    private static bool HasMaintenanceRules(IEnumerable<MaintenanceKeyRuleConfig>? rules)
+    {
+        return rules?.Any(rule => !string.IsNullOrWhiteSpace(rule.Key)) == true;
+    }
+
+    private static Dictionary<uint, uint> SnapshotCooldownEndTimes(IEnumerable<SkillSnapshot> skills)
+    {
+        var result = new Dictionary<uint, uint>();
+        foreach (var skill in skills)
+        {
+            result[skill.SkillId] = skill.CooldownEndTime;
+        }
+
+        return result;
+    }
+
+    private static bool HasExplicitMaintenanceSkill(MaintenanceKeyRuleConfig rule)
+    {
+        return rule.SkillId != 0 || !string.IsNullOrWhiteSpace(rule.SkillName);
+    }
+
+    private static SkillSnapshot? ResolveMaintenanceRuleSkill(
+        MaintenanceKeyRuleConfig rule,
+        SemiAutoSkillPlan? plan,
+        IReadOnlyList<SkillSnapshot> skills)
+    {
+        if (HasExplicitMaintenanceSkill(rule))
+        {
+            return skills.FirstOrDefault(skill => MatchesMaintenanceSkill(skill, rule.SkillId, rule.SkillName));
+        }
+
+        if (plan is null)
+        {
+            return null;
+        }
+
+        foreach (var node in FlattenNodes(plan.Roots)
+                     .Where(node => string.Equals(node.Key, rule.Key, StringComparison.OrdinalIgnoreCase)))
+        {
+            var skill = node.ResolveSkill(skills);
+            if (skill is not null)
+            {
+                return skill;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool MatchesMaintenanceSkill(SkillSnapshot skill, uint skillId, string? skillName)
+    {
+        if (skillId != 0)
+        {
+            return skill.SkillId == skillId;
+        }
+
+        return EqualsSkillName(skill.Name, skillName) ||
+               EqualsSkillName(skill.DisplayBaseName, skillName);
+    }
+
+    private static bool EqualsSkillName(string? left, string? right)
+    {
+        return !string.IsNullOrWhiteSpace(left) &&
+               !string.IsNullOrWhiteSpace(right) &&
+               string.Equals(left.Trim(), right.Trim(), StringComparison.Ordinal);
+    }
+
+    private static SemiAutoSkillCooldownReadiness GetMaintenanceCooldownReadiness(
+        SkillSnapshot skill,
+        SemiAutoCombatState state)
+    {
+        var readiness = SemiAutoSkillReleasePriority.GetCooldownReadiness(skill, state);
+        if (readiness != SemiAutoSkillCooldownReadiness.Unknown ||
+            state.HasCooldownTickCalibration ||
+            skill.CooldownEndTime == 0)
+        {
+            return readiness;
+        }
+
+        var rawRemainingMs = unchecked((int)(skill.CooldownEndTime - CurrentOsTick()));
+        if (rawRemainingMs <= SemiAutoSkillReleasePriority.CooldownReadyToleranceMs)
+        {
+            return SemiAutoSkillCooldownReadiness.Ready;
+        }
+
+        var maxExpectedRemainingMs = (long)skill.CooldownDuration + 60_000L;
+        return skill.CooldownDuration > 0 && rawRemainingMs <= maxExpectedRemainingMs
+            ? SemiAutoSkillCooldownReadiness.CoolingDown
+            : SemiAutoSkillCooldownReadiness.Unknown;
+    }
+
+    private static void TryUpdateMaintenanceCooldownCalibration(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        IReadOnlyList<SkillSnapshot> skills)
+    {
+        var osTick = CurrentOsTick();
+        if (!state.TryUpdateCooldownTickCalibration(
+                skills,
+                osTick,
+                DateTimeOffset.Now,
+                out var calibration))
+        {
+            return;
+        }
+
+        context.Logger.Info("semi_auto.cooldown.calibrated", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["skill"] = calibration.SkillName,
+            ["skillId"] = calibration.SkillId,
+            ["durationMs"] = calibration.CooldownDuration,
+            ["endTick"] = calibration.CooldownEndTime,
+            ["startTick"] = calibration.CooldownStartTick,
+            ["osTick"] = calibration.OsTick,
+            ["offsetMs"] = calibration.OffsetMs,
+            ["source"] = "maintenance"
+        });
+    }
+
+    private static bool TryFindAdvancedCooldown(
+        IReadOnlyDictionary<uint, uint> baseline,
+        IEnumerable<SkillSnapshot> skills,
+        SkillSnapshot? maintenanceSkill,
+        out SkillSnapshot confirmedSkill)
+    {
+        foreach (var skill in skills)
+        {
+            if (maintenanceSkill is not null &&
+                !MatchesMaintenanceSkill(skill, maintenanceSkill.SkillId, maintenanceSkill.Name))
+            {
+                continue;
+            }
+
+            if (skill.CooldownEndTime == 0)
+            {
+                continue;
+            }
+
+            if (!baseline.TryGetValue(skill.SkillId, out var previousEndTime) ||
+                HasCooldownEndAdvanced(previousEndTime, skill.CooldownEndTime))
+            {
+                confirmedSkill = skill;
+                return true;
+            }
+        }
+
+        confirmedSkill = default!;
+        return false;
+    }
+
+    private static bool HasCooldownEndAdvanced(uint previousEndTime, uint currentEndTime)
+    {
+        return currentEndTime != 0 &&
+               (previousEndTime == 0 ||
+                unchecked((int)(currentEndTime - previousEndTime)) > 0);
+    }
+
+    private static void LogMaintenanceRuleSkippedCooling(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        MaintenanceKeyRuleConfig rule,
+        string resource,
+        SkillSnapshot skill)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastMaintenanceWarningAt, now))
+        {
+            return;
+        }
+
+        state.LastMaintenanceWarningAt = now;
+        context.Logger.Info("semi_auto.maintenance.skill_cooling", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["skillId"] = skill.SkillId,
+            ["skillName"] = skill.Name,
+            ["cooldownDuration"] = skill.CooldownDuration,
+            ["cooldownEndTime"] = skill.CooldownEndTime,
+            ["cooldownOffsetMs"] = state.CooldownTickOffsetMs
+        });
+    }
+
+    private static void LogMaintenanceRuleSkippedMissing(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        MaintenanceKeyRuleConfig rule,
+        string resource)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastMaintenanceWarningAt, now))
+        {
+            return;
+        }
+
+        state.LastMaintenanceWarningAt = now;
+        context.Logger.Warn("semi_auto.maintenance.skill_missing", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["skillId"] = rule.SkillId,
+            ["skillName"] = rule.SkillName
+        });
+    }
+
+    private static void LogMaintenanceRuleSkillReadFailed(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        MaintenanceKeyRuleConfig rule,
+        string resource,
+        string? error)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastMaintenanceWarningAt, now))
+        {
+            return;
+        }
+
+        state.LastMaintenanceWarningAt = now;
+        context.Logger.Warn("semi_auto.maintenance.skill_read_failed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["skillId"] = rule.SkillId,
+            ["skillName"] = rule.SkillName,
+            ["error"] = error
+        });
+    }
+
+    private static bool IsPercentAtOrBelow(uint current, uint max, int threshold)
+    {
+        return max > 0 && Percent(current, max) <= Math.Clamp(threshold, 0, 100);
+    }
+
+    private static bool IsPercentAtOrAbove(uint current, uint max, int threshold)
+    {
+        return max > 0 && Percent(current, max) >= Math.Clamp(threshold, 0, 100);
+    }
+
+    private static double Percent(uint current, uint max)
+    {
+        return max == 0
+            ? 100.0D
+            : Math.Clamp(current * 100.0D / max, 0.0D, 100.0D);
+    }
+
+    private static void LogMaintenanceKeyFailure(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        string key,
+        string phase,
+        string? error)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastMaintenanceWarningAt, now))
+        {
+            return;
+        }
+
+        state.LastMaintenanceWarningAt = now;
+        context.Logger.Warn("semi_auto.maintenance.key_failed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = key,
+            ["phase"] = phase,
+            ["error"] = error
+        });
+    }
+
+    private static Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(AccountWorkerContext context)
+    {
+        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
+        {
+            return scopedApi.ReadPlayerAsync(CreateReadContext(context), context.StopToken);
+        }
+
+        return context.GameApi.ReadPlayerAsync(context.StopToken);
+    }
+
     private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(AccountWorkerContext context)
     {
         if (context.GameApi is IRoadhogScopedGameApi scopedApi)
@@ -642,6 +1404,17 @@ public sealed class SemiAutoCombatController
             }
 
             return scopedApi.ReadSkillsAsync(readContext, context.StopToken);
+        }
+
+        return context.GameApi.ReadSkillsAsync(context.StopToken);
+    }
+
+    private static Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadAllSkillsAsync(
+        AccountWorkerContext context)
+    {
+        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
+        {
+            return scopedApi.ReadSkillsAsync(CreateReadContext(context), context.StopToken);
         }
 
         return context.GameApi.ReadSkillsAsync(context.StopToken);

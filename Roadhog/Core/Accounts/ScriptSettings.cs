@@ -150,6 +150,14 @@ public sealed class MaintenanceScriptSettings
 
     public int SitMpRecoverToPercent { get; set; } = 90;
 
+    public int SitHpBelowPercent { get; set; } = 25;
+
+    public int SitHpRecoverToPercent { get; set; } = 75;
+
+    public List<MaintenanceKeyRuleConfig> HpMaintenanceRules { get; set; } = new();
+
+    public List<MaintenanceKeyRuleConfig> MpMaintenanceRules { get; set; } = new();
+
     public bool AutoEquip { get; set; } = true;
 
     public bool AutoDecompose { get; set; } = true;
@@ -165,10 +173,36 @@ public sealed class MaintenanceScriptSettings
             SitMaintenanceEnabled = SitMaintenanceEnabled,
             SitMpBelowPercent = SitMpBelowPercent,
             SitMpRecoverToPercent = SitMpRecoverToPercent,
+            SitHpBelowPercent = SitHpBelowPercent,
+            SitHpRecoverToPercent = SitHpRecoverToPercent,
+            HpMaintenanceRules = HpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<MaintenanceKeyRuleConfig>(),
+            MpMaintenanceRules = MpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<MaintenanceKeyRuleConfig>(),
             AutoEquip = AutoEquip,
             AutoDecompose = AutoDecompose,
             BagCleanupThreshold = BagCleanupThreshold,
             BagTotalSlots = BagTotalSlots
+        };
+    }
+}
+
+public sealed class MaintenanceKeyRuleConfig
+{
+    public int BelowPercent { get; set; } = 50;
+
+    public string Key { get; set; } = string.Empty;
+
+    public uint SkillId { get; set; }
+
+    public string SkillName { get; set; } = string.Empty;
+
+    public MaintenanceKeyRuleConfig Clone()
+    {
+        return new MaintenanceKeyRuleConfig
+        {
+            BelowPercent = BelowPercent,
+            Key = Key,
+            SkillId = SkillId,
+            SkillName = SkillName
         };
     }
 }

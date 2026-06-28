@@ -2286,6 +2286,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             return false;
         }
 
+        uint localServerObjectId = 0;
+        if (TryResolveActorFromEntity(process, localEntity, 0, out var localActor))
+        {
+            localServerObjectId = localActor.ServerObjectId;
+        }
+
         if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader) || serverTreeHeader == 0)
         {
             error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
@@ -2340,7 +2346,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
                             new Vector3Snapshot(x, y, z),
                             distance,
                             actor.CurrentHp,
-                            actor.MaxHp));
+                            actor.MaxHp,
+                            actor.TargetServerObjectId,
+                            localServerObjectId != 0 && actor.TargetServerObjectId == localServerObjectId));
                     }
                 }
             }

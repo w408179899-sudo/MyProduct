@@ -98,7 +98,9 @@ internal static partial class ToolOutputParsers
                     ParseFloat(match.Groups["x"].Value),
                     ParseFloat(match.Groups["y"].Value),
                     ParseFloat(match.Groups["z"].Value)),
-                ParseDouble(match.Groups["dist"].Value)));
+                ParseDouble(match.Groups["dist"].Value),
+                TargetServerObjectId: ParseOptionalUInt(match.Groups["targetServer"]),
+                IsTargetingLocalPlayer: IsYes(match.Groups["targetingMe"])));
         }
 
         return result;
@@ -157,6 +159,13 @@ internal static partial class ToolOutputParsers
         return uint.Parse(value, CultureInfo.InvariantCulture);
     }
 
+    private static uint ParseOptionalUInt(Group group)
+    {
+        return group.Success && uint.TryParse(group.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : 0;
+    }
+
     private static ushort ParseUShort(string value)
     {
         return ushort.Parse(value, CultureInfo.InvariantCulture);
@@ -172,12 +181,17 @@ internal static partial class ToolOutputParsers
         return double.Parse(value, CultureInfo.InvariantCulture);
     }
 
+    private static bool IsYes(Group group)
+    {
+        return group.Success && string.Equals(group.Value, "yes", StringComparison.OrdinalIgnoreCase);
+    }
+
     [GeneratedRegex(@"#\d+\s+Id=(?<id>\d+).*?HighestLevel=(?<highest>\d+).*?ItemLevel=(?<itemlevel>\d+).*?Name=""(?<name>[^""]*)""(?: Base=""(?<base>[^""]*)"" Tier=(?<tier>\d+))?.*?Toggle=(?<toggle>\d+).*?Cooldown=(?<cooldown>\d+)/(?<cooldownEnd>\d+)", RegexOptions.Compiled)]
     private static partial Regex SkillLineRegex();
 
     [GeneratedRegex(@"EntityId=(?<entity>\d+)\s+TargetId=(?<target>\d+).*?HP=(?<hp>\d+)/(?<maxHp>\d+).*?MP=(?<mp>\d+)/(?<maxMp>\d+).*?DP=(?<dp>\d+).*?Pos=(?:n/a|X=(?<x>-?\d+(?:\.\d+)?)\s+Y=(?<y>-?\d+(?:\.\d+)?)\s+Z=(?<z>-?\d+(?:\.\d+)?))", RegexOptions.Compiled)]
     private static partial Regex PlayerLineRegex();
 
-    [GeneratedRegex(@"#\d+.*?Dist=(?<dist>-?\d+(?:\.\d+)?)\s+EntityId=(?<entity>\d+)\s+ServerId=(?<server>\d+).*?IsMonster=(?<isMonster>yes|no|n/a).*?\sName=""(?<name>[^""]*)"".*?Pos=X=(?<x>-?\d+(?:\.\d+)?)\s+Y=(?<y>-?\d+(?:\.\d+)?)\s+Z=(?<z>-?\d+(?:\.\d+)?)", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"#\d+.*?Dist=(?<dist>-?\d+(?:\.\d+)?)\s+EntityId=(?<entity>\d+)\s+ServerId=(?<server>\d+)(?:\s+TargetServerId=(?<targetServer>\d+|n/a)\s+TargetingMe=(?<targetingMe>yes|no|n/a))?.*?IsMonster=(?<isMonster>yes|no|n/a).*?\sName=""(?<name>[^""]*)"".*?Pos=X=(?<x>-?\d+(?:\.\d+)?)\s+Y=(?<y>-?\d+(?:\.\d+)?)\s+Z=(?<z>-?\d+(?:\.\d+)?)", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
     private static partial Regex WorldObjectLineRegex();
 }

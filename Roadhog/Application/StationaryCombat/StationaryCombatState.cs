@@ -14,6 +14,8 @@ public sealed class StationaryCombatState
 
     public ushort CurrentTargetEntityId { get; set; }
 
+    public bool CurrentTargetIsMaintenanceDefense { get; set; }
+
     public ushort CandidateEntityId { get; set; }
 
     public ushort FacedCandidateEntityId { get; set; }
@@ -52,6 +54,7 @@ public sealed class StationaryCombatState
     {
         Fighting = false;
         CurrentTargetEntityId = 0;
+        CurrentTargetIsMaintenanceDefense = false;
         CandidateEntityId = 0;
         FacedCandidateEntityId = 0;
         TargetStartedAt = DateTimeOffset.MinValue;

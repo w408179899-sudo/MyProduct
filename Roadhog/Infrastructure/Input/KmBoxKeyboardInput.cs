@@ -37,6 +37,7 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
         {
             ["C"] = 0x06,
             ["W"] = 0x1A,
+            ["X"] = 0x1B,
             ["D1"] = 0x1E,
             ["D2"] = 0x1F,
             ["D3"] = 0x20,
@@ -49,6 +50,7 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
             ["D0"] = 0x27,
             ["OemMinus"] = 0x2D,
             ["OemPlus"] = 0x2E,
+            ["OemComma"] = 0x36,
             ["Tab"] = 0x2B,
             ["NumPad1"] = 0x59,
             ["NumPad2"] = 0x5A,

@@ -79,6 +79,27 @@ public sealed class StationaryCombatController
         var playerPosition = player.Position.Value;
         var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home);
 
+        if (await _semiAuto
+                .TryHandleMaintenanceAsync(
+                    context,
+                    semiAutoState,
+                    player,
+                    allowSitMaintenance: false,
+                    clearSitWhenDisallowed: false,
+                    beforeMaintenanceKeyPress: async () =>
+                    {
+                        semiAutoState.ResetAttackKeyPressThrottle();
+                        await StopMovementAsync(context, state).ConfigureAwait(false);
+                        StopPathFollowPoller(state);
+                    },
+                    plan: plan,
+                    requireCooldownCalibrationForMaintenance: true)
+                .ConfigureAwait(false))
+        {
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            return IdleDelay;
+        }
+
         if (state.Fighting)
         {
             return await TickFightAsync(
@@ -125,7 +146,39 @@ public sealed class StationaryCombatController
             }
         }
 
-        var target = await SelectTargetAsync(context, state, playerPosition, home, radius).ConfigureAwait(false);
+        var target = await SelectMaintenanceDefenseTargetAsync(
+                context,
+                state,
+                playerPosition,
+                forceRefresh: semiAutoState.IsMaintenanceResting)
+            .ConfigureAwait(false);
+        if (target is not null)
+        {
+            if (semiAutoState.IsMaintenanceResting)
+            {
+                await _semiAuto
+                    .CancelMaintenanceRestAsync(context, semiAutoState, "targeting_monster_detected")
+                    .ConfigureAwait(false);
+            }
+        }
+        else
+        {
+            if (await _semiAuto
+                    .TryHandleMaintenanceAsync(
+                        context,
+                        semiAutoState,
+                        player,
+                        plan: plan,
+                        requireCooldownCalibrationForMaintenance: true)
+                    .ConfigureAwait(false))
+            {
+                await StopMovementAsync(context, state).ConfigureAwait(false);
+                return IdleDelay;
+            }
+
+            target = await SelectTargetAsync(context, state, playerPosition, home, radius).ConfigureAwait(false);
+        }
+
         if (target?.Position is null)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
@@ -150,11 +203,13 @@ public sealed class StationaryCombatController
                 ["targetName"] = target.Name,
                 ["playerDistanceToTarget"] = Math.Round(playerDistanceToTarget, 2),
                 ["targetDistanceFromHome"] = Math.Round(targetDistanceFromHome, 2),
-                ["radius"] = Math.Round(radius, 2)
+                ["radius"] = Math.Round(radius, 2),
+                ["targetingMe"] = target.IsTargetingLocalPlayer,
+                ["targetServerObjectId"] = target.TargetServerObjectId
             });
         }
 
-        if (targetDistanceFromHome > radius)
+        if (!target.IsTargetingLocalPlayer && targetDistanceFromHome > radius)
         {
             await StopMovementAsync(context, state).ConfigureAwait(false);
             state.ClearTarget();
@@ -438,7 +493,8 @@ public sealed class StationaryCombatController
                 .ConfigureAwait(false);
         }
 
-        if (target.Position is not null &&
+        if (!state.CurrentTargetIsMaintenanceDefense &&
+            target.Position is not null &&
             StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) > radius + TargetLeashExtraDistance)
         {
             context.Logger.Info("stationary_combat.target.leash_drop", new Dictionary<string, object?>
@@ -454,7 +510,9 @@ public sealed class StationaryCombatController
         }
 
         await StopMovementAsync(context, state).ConfigureAwait(false);
-        return await _semiAuto.TickAsync(context, plan, semiAutoState).ConfigureAwait(false);
+        return await _semiAuto
+            .TickAsync(context, plan, semiAutoState, requireCooldownCalibrationForMaintenance: true)
+            .ConfigureAwait(false);
     }
 
     private async Task<TimeSpan> TickAcquireAsync(
@@ -710,6 +768,7 @@ public sealed class StationaryCombatController
 
         state.Fighting = true;
         state.CurrentTargetEntityId = target.EntityId;
+        state.CurrentTargetIsMaintenanceDefense = target.IsTargetingLocalPlayer;
         state.MarkCandidate(target.EntityId, DateTimeOffset.Now);
         state.ClearPendingTabVerification();
         await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -719,9 +778,13 @@ public sealed class StationaryCombatController
             ["account"] = context.Config.AccountName,
             ["targetEntityId"] = target.EntityId,
             ["targetName"] = target.Name,
-            ["phase"] = phase
+            ["phase"] = phase,
+            ["targetingMe"] = target.IsTargetingLocalPlayer,
+            ["targetServerObjectId"] = target.TargetServerObjectId
         });
-        return await _semiAuto.TickAsync(context, plan, semiAutoState).ConfigureAwait(false);
+        return await _semiAuto
+            .TickAsync(context, plan, semiAutoState, requireCooldownCalibrationForMaintenance: true)
+            .ConfigureAwait(false);
     }
 
     private async Task<TimeSpan> IgnoreCurrentTargetAsync(
@@ -797,8 +860,50 @@ public sealed class StationaryCombatController
         Vector3Snapshot home,
         double radius)
     {
+        var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
+
+        if (state.CandidateEntityId != 0)
+        {
+            var candidate = objects.FirstOrDefault(
+                target => target.EntityId == state.CandidateEntityId);
+            if (!state.IsTargetIgnored(state.CandidateEntityId) &&
+                IsCandidateStillSelectable(candidate, home, radius))
+            {
+                return candidate;
+            }
+        }
+
+        return StationaryCombatTargetSelector.SelectNearest(
+            objects.Where(target => !state.IsTargetIgnored(target.EntityId)),
+            playerPosition,
+            home,
+            radius);
+    }
+
+    private async Task<WorldObjectSnapshot?> SelectMaintenanceDefenseTargetAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        bool forceRefresh)
+    {
+        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+        return objects
+            .Where(target => !state.IsTargetIgnored(target.EntityId))
+            .Where(target => target.IsTargetingLocalPlayer)
+            .Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Where(target => target.Position is not null)
+            .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition))
+            .ThenBy(target => target.EntityId)
+            .FirstOrDefault();
+    }
+
+    private async Task<IReadOnlyList<WorldObjectSnapshot>> RefreshWorldObjectsAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        bool forceRefresh = false)
+    {
         var now = DateTimeOffset.Now;
-        if (state.CachedWorldObjects.Count == 0 || now - state.LastWorldScanAt >= ScanInterval)
+        if (forceRefresh || state.CachedWorldObjects.Count == 0 || now - state.LastWorldScanAt >= ScanInterval)
         {
             var objectsResult = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
             if (!objectsResult.Success || objectsResult.Value is null)
@@ -819,23 +924,7 @@ public sealed class StationaryCombatController
         }
 
         state.PruneIgnoredTargets(state.CachedWorldObjects);
-
-        if (state.CandidateEntityId != 0)
-        {
-            var candidate = state.CachedWorldObjects.FirstOrDefault(
-                target => target.EntityId == state.CandidateEntityId);
-            if (!state.IsTargetIgnored(state.CandidateEntityId) &&
-                IsCandidateStillSelectable(candidate, home, radius))
-            {
-                return candidate;
-            }
-        }
-
-        return StationaryCombatTargetSelector.SelectNearest(
-            state.CachedWorldObjects.Where(target => !state.IsTargetIgnored(target.EntityId)),
-            playerPosition,
-            home,
-            radius);
+        return state.CachedWorldObjects;
     }
 
     private static bool IsCandidateStillSelectable(
@@ -845,7 +934,8 @@ public sealed class StationaryCombatController
     {
         return candidate is { Position: not null } target &&
                StationaryCombatTargetSelector.IsSelectableMonster(target) &&
-               StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) <= radius;
+               (target.IsTargetingLocalPlayer ||
+                StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) <= radius);
     }
 
     private async Task PathFollowStepAsync(

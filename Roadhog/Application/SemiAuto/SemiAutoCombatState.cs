@@ -8,6 +8,7 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<uint, uint> observedCooldownEndTimes = new();
     private readonly Dictionary<uint, uint> knownCooldownEndTimes = new();
     private readonly Dictionary<uint, DateTimeOffset> uncalibratedUnknownSuppressUntil = new();
+    private readonly Dictionary<string, DateTimeOffset> maintenanceKeyPressedAt = new(StringComparer.OrdinalIgnoreCase);
     private DateTimeOffset lastAttackKeyPressedAt = DateTimeOffset.MinValue;
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
@@ -45,6 +46,14 @@ public sealed class SemiAutoCombatState
     public DateTimeOffset LastNoSkillLogAt { get; set; } = DateTimeOffset.MinValue;
 
     public DateTimeOffset LastAttackKeyWarningAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastMaintenanceWarningAt { get; set; } = DateTimeOffset.MinValue;
+
+    public bool IsMaintenanceResting { get; private set; }
+
+    public bool MaintenanceRestingForHp { get; private set; }
+
+    public bool MaintenanceRestingForMp { get; private set; }
 
     public bool ObserveTarget(LockedTargetSnapshot target, out ushort killedTargetEntityId)
     {
@@ -110,6 +119,39 @@ public sealed class SemiAutoCombatState
     public void ResetAttackKeyPressThrottle()
     {
         lastAttackKeyPressedAt = DateTimeOffset.MinValue;
+    }
+
+    public bool ShouldPressMaintenanceKey(string key, DateTimeOffset now, TimeSpan interval)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return false;
+        }
+
+        return !maintenanceKeyPressedAt.TryGetValue(key.Trim(), out var lastPressedAt) ||
+               now - lastPressedAt >= interval;
+    }
+
+    public void MarkMaintenanceKeyAttempted(string key, DateTimeOffset now)
+    {
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            maintenanceKeyPressedAt[key.Trim()] = now;
+        }
+    }
+
+    public void StartMaintenanceRest(bool forHp, bool forMp)
+    {
+        IsMaintenanceResting = true;
+        MaintenanceRestingForHp = forHp;
+        MaintenanceRestingForMp = forMp;
+    }
+
+    public void ClearMaintenanceRest()
+    {
+        IsMaintenanceResting = false;
+        MaintenanceRestingForHp = false;
+        MaintenanceRestingForMp = false;
     }
 
     public void ClearChain()
