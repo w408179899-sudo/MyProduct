@@ -15,6 +15,7 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan MaintenanceConfirmPollInterval = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan MaintenanceKeyRetryInterval = TimeSpan.FromSeconds(3);
     private static readonly string AttackKey = "C";
+    private static readonly string PostKillStopKey = "S";
     private static readonly string RestEnterKey = "OemComma";
     private static readonly string RestExitKey = "X";
 
@@ -83,6 +84,7 @@ public sealed class SemiAutoCombatController
         if (state.ObserveTarget(targetResult.Value, out var killedTargetEntityId))
         {
             context.RuntimeStates.MarkKill(context.Config.AccountName);
+            await PressPostKillStopKeyAsync(context, settings).ConfigureAwait(false);
             context.Logger.Info("semi_auto.target.kill_counted", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -192,8 +194,7 @@ public sealed class SemiAutoCombatController
 
         if (ShouldPressTriggerFallback(plan, state, configuredSkills))
         {
-            await PressTriggerFallbackAsync(context, plan, settings).ConfigureAwait(false);
-            await PressAttackKeyIfDueAsync(context, state, settings).ConfigureAwait(false);
+            await PressTriggerFallbackAsync(context, plan, state, settings).ConfigureAwait(false);
             return Ms(settings.TickIntervalMs, 40);
         }
 
@@ -761,6 +762,7 @@ public sealed class SemiAutoCombatController
         return await PressSkillKeysAsync(
                 context,
                 plan,
+                state,
                 node,
                 settings,
                 includeTriggerPrefix)
@@ -770,6 +772,7 @@ public sealed class SemiAutoCombatController
     private async Task<bool> PressSkillKeysAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
+        SemiAutoCombatState state,
         SemiAutoSkillNode node,
         SemiAutoScriptSettings settings,
         bool includeTriggerPrefix)
@@ -777,6 +780,7 @@ public sealed class SemiAutoCombatController
         if (includeTriggerPrefix && !node.IsTrigger)
         {
             await PressTriggerPrefixAsync(context, plan, node, settings).ConfigureAwait(false);
+            await PressAttackKeyAsync(context, state, settings).ConfigureAwait(false);
         }
 
         return await PressNodeKeyAsync(
@@ -812,6 +816,7 @@ public sealed class SemiAutoCombatController
     private async Task PressTriggerFallbackAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
+        SemiAutoCombatState state,
         SemiAutoScriptSettings settings)
     {
         foreach (var trigger in plan.TriggerPrefixRoots)
@@ -823,6 +828,8 @@ public sealed class SemiAutoCombatController
                     phase: "trigger_fallback")
                 .ConfigureAwait(false);
         }
+
+        await PressAttackKeyAsync(context, state, settings).ConfigureAwait(false);
     }
 
     private async Task<bool> PressNodeKeyAsync(
@@ -953,6 +960,24 @@ public sealed class SemiAutoCombatController
         }
 
         return result.Success;
+    }
+
+    private async Task PressPostKillStopKeyAsync(
+        AccountWorkerContext context,
+        SemiAutoScriptSettings settings)
+    {
+        var result = await _keyboard
+            .PressKeyAsync(PostKillStopKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            context.Logger.Warn("semi_auto.post_kill_stop.failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["key"] = PostKillStopKey,
+                ["error"] = result.Error
+            });
+        }
     }
 
     private static IReadOnlyList<SkillSnapshot> ResolveConfiguredSkills(

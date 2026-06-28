@@ -1471,7 +1471,7 @@ static async Task TestCombatTickPressesPrefixThenReadyRootAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
     AssertSequence(
-        WithPreSkillKey("D2", "D3", "D4", "D5"),
+        WithPreSkillAttackKey("D2", "D3", "D4", "D5"),
         keyboard.Keys.ToArray(),
         "key press order");
     AssertFalse(keyboard.Keys.Contains("D9"), "late trigger D9 should not be used as prefix");
@@ -1628,7 +1628,7 @@ static async Task TestUncalibratedNonzeroCooldownFallsBackToFirstRootAsync()
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
 
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "uncalibrated stale cooldown should not block all roots");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "uncalibrated stale cooldown should not block all roots");
 }
 
 static async Task TestUncalibratedUnknownCooldownRotatesAfterFailedAttemptAsync()
@@ -1656,12 +1656,12 @@ static async Task TestUncalibratedUnknownCooldownRotatesAfterFailedAttemptAsync(
     var context = CreateContext(settings, gameApi, logger);
 
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "first unknown root should be tried once");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "first unknown root should be tried once");
 
     keyboard.Keys.Clear();
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
 
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "failed unknown root should yield to the next unknown root");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "failed unknown root should yield to the next unknown root");
 }
 
 static async Task TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync()
@@ -1690,7 +1690,7 @@ static async Task TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync()
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "calibrated active cooldown should skip D1");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "calibrated active cooldown should skip D1");
 }
 
 static async Task TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync()
@@ -1719,7 +1719,7 @@ static async Task TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync()
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "near-ready calibrated cooldown should be treated as ready");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "near-ready calibrated cooldown should be treated as ready");
 }
 
 static async Task TestObservedCooldownSurvivesZeroEndTickReadAsync()
@@ -2104,7 +2104,7 @@ static async Task TestPollResultAdvancesRootOrderAsync()
     var context = CreateContext(settings, gameApi, logger);
 
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "first ready root");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D1"), keyboard.Keys.ToArray(), "first ready root");
 
     keyboard.Keys.Clear();
     gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
@@ -2119,7 +2119,7 @@ static async Task TestPollResultAdvancesRootOrderAsync()
         [10] = 0
     });
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "second ready root");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "second ready root");
 
     keyboard.Keys.Clear();
     gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
@@ -2153,7 +2153,7 @@ static async Task TestPollResultAdvancesRootOrderAsync()
 
     keyboard.Keys.Clear();
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "poll-unavailable early roots allow D6");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "poll-unavailable early roots allow D6");
 }
 
 static async Task TestDpSkillSkippedAsync()
@@ -2181,7 +2181,7 @@ static async Task TestDpSkillSkippedAsync()
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4"), keyboard.Keys.ToArray(), "trigger fallback should run when only dp is ready");
+    AssertSequence(WithTriggerFallbackAttackKey("D2", "D3", "D4"), keyboard.Keys.ToArray(), "trigger fallback should run when only dp is ready");
     AssertFalse(keyboard.Keys.Contains("D0"), "dp skill should not be pressed by trigger fallback");
 }
 
@@ -2209,7 +2209,7 @@ static async Task TestChainPressesNextStageWithoutSourceCooldownAsync()
         [10] = 0
     });
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "first stage root press");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "first stage root press");
 
     keyboard.Keys.Clear();
     gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
@@ -2326,7 +2326,7 @@ static async Task TestChainSurvivesTargetGapAsync()
         [10] = 0
     });
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "source press before target gap");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "source press before target gap");
 
     keyboard.Keys.Clear();
     gameApi.TargetCurrentHp = 0;
@@ -2425,7 +2425,7 @@ static async Task TestChainStrictOrderAsync()
     });
 
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "root chain start order");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D6"), keyboard.Keys.ToArray(), "root chain start order");
 
     keyboard.Keys.Clear();
     gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
@@ -2712,6 +2712,18 @@ static AccountWorkerContext CreateContext(
 static string[] WithPreSkillKey(params string[] keys)
 {
     return keys.ToArray();
+}
+
+static string[] WithPreSkillAttackKey(params string[] keys)
+{
+    var result = keys.ToList();
+    result.Insert(Math.Max(0, result.Count - 1), "C");
+    return result.ToArray();
+}
+
+static string[] WithTriggerFallbackAttackKey(params string[] keys)
+{
+    return keys.Concat(new[] { "C" }).ToArray();
 }
 
 static string CreateTempDirectory(string prefix)
