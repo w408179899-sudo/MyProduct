@@ -18,6 +18,10 @@ public sealed class StationaryCombatState
 
     public ushort FacedCandidateEntityId { get; set; }
 
+    public ushort PendingTabCandidateEntityId { get; private set; }
+
+    public DateTimeOffset PendingTabVerifyUntil { get; private set; } = DateTimeOffset.MinValue;
+
     public DateTimeOffset LastTabAt { get; set; }
 
     public DateTimeOffset LastWorldScanAt { get; set; }
@@ -36,5 +40,30 @@ public sealed class StationaryCombatState
         CurrentTargetEntityId = 0;
         CandidateEntityId = 0;
         FacedCandidateEntityId = 0;
+        ClearPendingTabVerification();
+    }
+
+    public bool IsPendingTabCandidate(ushort entityId)
+    {
+        return PendingTabCandidateEntityId != 0 &&
+               PendingTabCandidateEntityId == entityId;
+    }
+
+    public bool IsPendingTabVerifyExpired(DateTimeOffset now)
+    {
+        return PendingTabCandidateEntityId != 0 &&
+               now >= PendingTabVerifyUntil;
+    }
+
+    public void StartPendingTabVerification(ushort entityId, DateTimeOffset verifyUntil)
+    {
+        PendingTabCandidateEntityId = entityId;
+        PendingTabVerifyUntil = verifyUntil;
+    }
+
+    public void ClearPendingTabVerification()
+    {
+        PendingTabCandidateEntityId = 0;
+        PendingTabVerifyUntil = DateTimeOffset.MinValue;
     }
 }

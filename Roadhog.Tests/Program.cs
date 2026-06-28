@@ -25,6 +25,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat accepts twenty degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
     ("stationary combat verifies target after each tab press", TestStationaryCombatVerifiesAfterEachTabAsync),
+    ("stationary combat pending tab verify blocks pre-acquire", TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync),
     ("stationary combat releases path follow movement after target is verified", TestStationaryCombatReleasesMovementAfterAcquireAsync),
     ("stationary combat does not pulse W while approaching same target", TestStationaryCombatDoesNotPulseWWhileApproachingAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
@@ -564,6 +565,82 @@ static async Task TestStationaryCombatVerifiesAfterEachTabAsync()
             entry.EventName == "stationary_combat.target.acquired" &&
             string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab", StringComparison.Ordinal)),
             "after-tab target acquisition should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
+static async Task TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var logger = new InMemoryRoadhogLogger();
+        var keyboard = new RecordingKeyboardInput();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 999,
+            TargetCurrentHp = 1000,
+            TargetPosition = new Vector3Snapshot(5, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "first acquire tick should press Tab");
+        AssertFalse(keyboard.Keys.Contains("D2"), "failed immediate tab verify must not release skills");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.acquired"), "failed immediate tab verify must not acquire");
+
+        gameApi.TargetEntityId = 100;
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!keyboard.Keys.Contains("D2"), "delayed tab match should enter semi-auto skill release");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.acquired" &&
+            string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab", StringComparison.Ordinal)),
+            "delayed target update must acquire through tab verification");
+        AssertFalse(logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.acquired" &&
+            !string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab", StringComparison.Ordinal)),
+            "pending tab verification must block pre-move/pre-tab acquire");
     }
     finally
     {

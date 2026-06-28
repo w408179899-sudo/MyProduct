@@ -110,6 +110,7 @@ public sealed class StationaryCombatController
             await StopMovementAsync(context, state).ConfigureAwait(false);
             state.CandidateEntityId = 0;
             state.FacedCandidateEntityId = 0;
+            state.ClearPendingTabVerification();
             return IdleDelay;
         }
 
@@ -121,6 +122,7 @@ public sealed class StationaryCombatController
         if (previousCandidateEntityId != target.EntityId)
         {
             state.FacedCandidateEntityId = 0;
+            state.ClearPendingTabVerification();
             context.Logger.Info("stationary_combat.target.selected", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -137,10 +139,23 @@ public sealed class StationaryCombatController
             await StopMovementAsync(context, state).ConfigureAwait(false);
             state.CandidateEntityId = 0;
             state.FacedCandidateEntityId = 0;
+            state.ClearPendingTabVerification();
             return IdleDelay;
         }
 
         var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        if (state.IsPendingTabCandidate(target.EntityId))
+        {
+            return await TickPendingTabVerificationAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    target,
+                    lockedResult)
+                .ConfigureAwait(false);
+        }
+
         var acquiredDelay = await TryAcquireLockedTargetAsync(
                 context,
                 plan,
@@ -231,6 +246,18 @@ public sealed class StationaryCombatController
         WorldObjectSnapshot target)
     {
         var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        if (state.IsPendingTabCandidate(target.EntityId))
+        {
+            return await TickPendingTabVerificationAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    target,
+                    lockedResult)
+                .ConfigureAwait(false);
+        }
+
         var acquiredDelay = await TryAcquireLockedTargetAsync(
                 context,
                 plan,
@@ -249,7 +276,6 @@ public sealed class StationaryCombatController
         var now = DateTimeOffset.Now;
         if (now - state.LastTabAt >= TabInterval)
         {
-            state.LastTabAt = now;
             LogActionThrottled(context, state, "stationary_combat.target.verify_failed", "verify:" + target.EntityId, new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -263,64 +289,188 @@ public sealed class StationaryCombatController
                 ["error"] = lockedResult.Error
             }, TimeSpan.FromMilliseconds(500));
 
-            var tabResult = await _input
-                .PressKeyAsync("Tab", TimeSpan.FromMilliseconds(25), context.StopToken)
+            return await PressTabAndVerifyAsync(context, plan, semiAutoState, state, target).ConfigureAwait(false);
+        }
+
+        return MoveTickDelay;
+    }
+
+    private async Task<TimeSpan> TickPendingTabVerificationAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        OperationResult<LockedTargetSnapshot> lockedResult)
+    {
+        var acquiredDelay = await VerifyPendingTabTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedResult,
+                delayMs: 0)
+            .ConfigureAwait(false);
+        if (acquiredDelay is not null)
+        {
+            return acquiredDelay.Value;
+        }
+
+        var now = DateTimeOffset.Now;
+        if (!state.IsPendingTabVerifyExpired(now))
+        {
+            return MoveTickDelay;
+        }
+
+        if (now - state.LastTabAt >= TabInterval)
+        {
+            return await PressTabAndVerifyAsync(context, plan, semiAutoState, state, target).ConfigureAwait(false);
+        }
+
+        return MoveTickDelay;
+    }
+
+    private async Task<TimeSpan> PressTabAndVerifyAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        WorldObjectSnapshot target)
+    {
+        var now = DateTimeOffset.Now;
+        state.LastTabAt = now;
+        var verifyWindowMs = ReadTabVerifyWindowMs();
+
+        var tabResult = await _input
+            .PressKeyAsync("Tab", TimeSpan.FromMilliseconds(25), context.StopToken)
+            .ConfigureAwait(false);
+        if (!tabResult.Success)
+        {
+            context.Logger.Warn("stationary_combat.tab.failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = target.EntityId,
+                ["error"] = tabResult.Error
+            });
+            return MoveTickDelay;
+        }
+
+        state.StartPendingTabVerification(
+            target.EntityId,
+            DateTimeOffset.Now + TimeSpan.FromMilliseconds(verifyWindowMs));
+        context.Logger.Info("stationary_combat.tab.pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["candidateEntityId"] = target.EntityId,
+            ["candidateName"] = target.Name,
+            ["verifyWindowMs"] = verifyWindowMs
+        });
+
+        return await PollTabVerifyAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan> PollTabVerifyAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        WorldObjectSnapshot target)
+    {
+        var verifyDelayMs = ReadTabVerifyDelayMs();
+        var pollMs = ReadTabVerifyPollMs();
+        if (verifyDelayMs <= 0)
+        {
+            var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+            var acquiredDelay = await VerifyPendingTabTargetAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    target,
+                    lockedResult,
+                    delayMs: 0)
                 .ConfigureAwait(false);
-            if (!tabResult.Success)
-            {
-                context.Logger.Warn("stationary_combat.tab.failed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["targetEntityId"] = target.EntityId,
-                    ["error"] = tabResult.Error
-                });
-            }
-            else
-            {
-                context.Logger.Info("stationary_combat.tab.pressed", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["candidateEntityId"] = target.EntityId,
-                    ["candidateName"] = target.Name
-                });
+            return acquiredDelay ?? MoveTickDelay;
+        }
 
-                var verifyDelayMs = ReadTabVerifyDelayMs();
-                await DelayAsync(TimeSpan.FromMilliseconds(verifyDelayMs), context).ConfigureAwait(false);
-                var afterTabLockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-                context.Logger.Info("stationary_combat.tab.verify", new Dictionary<string, object?>
-                {
-                    ["account"] = context.Config.AccountName,
-                    ["candidateEntityId"] = target.EntityId,
-                    ["candidateName"] = target.Name,
-                    ["delayMs"] = verifyDelayMs,
-                    ["lockedReadSuccess"] = afterTabLockedResult.Success,
-                    ["lockedEntityId"] = afterTabLockedResult.Value?.TargetEntityId ?? 0,
-                    ["lockedName"] = afterTabLockedResult.Value?.Name ?? string.Empty,
-                    ["lockedAlive"] = afterTabLockedResult.Value?.IsMonsterAlive ?? false,
-                    ["lockedHp"] = afterTabLockedResult.Value?.CurrentHp ?? 0,
-                    ["matched"] = afterTabLockedResult.Success &&
-                                  afterTabLockedResult.Value is { IsMonsterAlive: true } afterTabLockedTarget &&
-                                  afterTabLockedTarget.TargetEntityId == target.EntityId,
-                    ["error"] = afterTabLockedResult.Error
-                });
+        var elapsedMs = 0;
+        while (elapsedMs < verifyDelayMs)
+        {
+            var waitMs = Math.Min(pollMs, verifyDelayMs - elapsedMs);
+            await DelayAsync(TimeSpan.FromMilliseconds(waitMs), context).ConfigureAwait(false);
+            elapsedMs += waitMs;
 
-                acquiredDelay = await TryAcquireLockedTargetAsync(
-                        context,
-                        plan,
-                        semiAutoState,
-                        state,
-                        target,
-                        afterTabLockedResult,
-                        "after_tab")
-                    .ConfigureAwait(false);
-                if (acquiredDelay is not null)
-                {
-                    return acquiredDelay.Value;
-                }
+            var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+            var acquiredDelay = await VerifyPendingTabTargetAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    target,
+                    lockedResult,
+                    elapsedMs)
+                .ConfigureAwait(false);
+            if (acquiredDelay is not null)
+            {
+                return acquiredDelay.Value;
             }
         }
 
         return MoveTickDelay;
+    }
+
+    private async Task<TimeSpan?> VerifyPendingTabTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        OperationResult<LockedTargetSnapshot> lockedResult,
+        int delayMs)
+    {
+        LogTabVerify(context, state, target, lockedResult, delayMs);
+        return await TryAcquireLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedResult,
+                "after_tab")
+            .ConfigureAwait(false);
+    }
+
+    private static void LogTabVerify(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        OperationResult<LockedTargetSnapshot> lockedResult,
+        int delayMs)
+    {
+        context.Logger.Info("stationary_combat.tab.verify", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["candidateEntityId"] = target.EntityId,
+            ["candidateName"] = target.Name,
+            ["delayMs"] = delayMs,
+            ["lockedReadSuccess"] = lockedResult.Success,
+            ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
+            ["lockedName"] = lockedResult.Value?.Name ?? string.Empty,
+            ["lockedAlive"] = lockedResult.Value?.IsMonsterAlive ?? false,
+            ["lockedHp"] = lockedResult.Value?.CurrentHp ?? 0,
+            ["matched"] = lockedResult.Success &&
+                          lockedResult.Value is { IsMonsterAlive: true } lockedTarget &&
+                          lockedTarget.TargetEntityId == target.EntityId,
+            ["pendingUntil"] = state.PendingTabVerifyUntil,
+            ["error"] = lockedResult.Error
+        });
     }
 
     private async Task<TimeSpan?> TryAcquireLockedTargetAsync(
@@ -342,6 +492,7 @@ public sealed class StationaryCombatController
         state.Fighting = true;
         state.CurrentTargetEntityId = target.EntityId;
         state.CandidateEntityId = target.EntityId;
+        state.ClearPendingTabVerification();
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
         context.Logger.Info("stationary_combat.target.acquired", new Dictionary<string, object?>
@@ -1944,7 +2095,17 @@ public sealed class StationaryCombatController
 
     private static int ReadTabVerifyDelayMs()
     {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", 60), 0, 500);
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", 500), 0, 1000);
+    }
+
+    private static int ReadTabVerifyPollMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_STATIONARY_TAB_VERIFY_POLL_MS", 20), 1, 500);
+    }
+
+    private static int ReadTabVerifyWindowMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_STATIONARY_TAB_VERIFY_WINDOW_MS", 300), 1, 2000);
     }
 
     private static int ReadPathFollowTickMs()
