@@ -13,4 +13,15 @@ public sealed record PlayerSnapshot(
     DateTimeOffset CapturedAt,
     double? CameraYawDegrees = null,
     double? CameraPitchDegrees = null,
-    double? ActorYawDegrees = null);
+    double? ActorYawDegrees = null)
+{
+    public bool HasKnownHealth => MaxHp > 0;
+
+    public bool IsDead => HasKnownHealth && CurrentHp == 0;
+
+    public bool IsAlive => HasKnownHealth && CurrentHp > 0;
+
+    public double HpPercent => MaxHp == 0
+        ? 100.0D
+        : Math.Clamp(CurrentHp * 100.0D / MaxHp, 0.0D, 100.0D);
+}

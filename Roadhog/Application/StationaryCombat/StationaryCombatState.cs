@@ -4,6 +4,10 @@ namespace Roadhog.Application.StationaryCombat;
 
 public sealed class StationaryCombatState
 {
+    public StationaryCombatTopLevelState TopLevelState { get; private set; } = StationaryCombatTopLevelState.Normal;
+
+    public StationaryCombatDeathRecoveryState DeathRecovery { get; } = new();
+
     public bool ReturningHome { get; set; }
 
     public bool Fighting { get; set; }
@@ -59,6 +63,21 @@ public sealed class StationaryCombatState
         FacedCandidateEntityId = 0;
         TargetStartedAt = DateTimeOffset.MinValue;
         ClearPendingTabVerification();
+    }
+
+    public void EnterDeathRecovery(DateTimeOffset now)
+    {
+        TopLevelState = StationaryCombatTopLevelState.DeathRecovery;
+        ReturningHome = false;
+        ClearStartupRecovery();
+        ClearTarget();
+        DeathRecovery.Start(now);
+    }
+
+    public void ExitDeathRecovery()
+    {
+        TopLevelState = StationaryCombatTopLevelState.Normal;
+        DeathRecovery.Reset();
     }
 
     public bool MarkCandidate(ushort entityId, DateTimeOffset now)
@@ -152,4 +171,82 @@ public sealed class StationaryCombatState
         PendingTabCandidateEntityId = 0;
         PendingTabVerifyUntil = DateTimeOffset.MinValue;
     }
+}
+
+public enum StationaryCombatTopLevelState
+{
+    Normal,
+    DeathRecovery
+}
+
+public sealed class StationaryCombatDeathRecoveryState
+{
+    public StationaryCombatDeathRecoveryStep Step { get; private set; } = StationaryCombatDeathRecoveryStep.StopInput;
+
+    public DateTimeOffset StartedAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset StepStartedAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public bool ReviveClicked { get; set; }
+
+    public string RevivePathName { get; set; } = string.Empty;
+
+    public int RevivePathPointIndex { get; set; } = -1;
+
+    public IReadOnlyList<Vector3Snapshot> RevivePathPoints { get; set; } = Array.Empty<Vector3Snapshot>();
+
+    public void Start(DateTimeOffset now)
+    {
+        Step = StationaryCombatDeathRecoveryStep.StopInput;
+        StartedAt = now;
+        StepStartedAt = now;
+        ReviveClicked = false;
+        RevivePathName = string.Empty;
+        RevivePathPointIndex = -1;
+        RevivePathPoints = Array.Empty<Vector3Snapshot>();
+    }
+
+    public void Advance(DateTimeOffset now)
+    {
+        Step = Step switch
+        {
+            StationaryCombatDeathRecoveryStep.StopInput => StationaryCombatDeathRecoveryStep.WaitBeforeReviveClick,
+            StationaryCombatDeathRecoveryStep.WaitBeforeReviveClick => StationaryCombatDeathRecoveryStep.ClickRevive,
+            StationaryCombatDeathRecoveryStep.ClickRevive => StationaryCombatDeathRecoveryStep.WaitAlive,
+            StationaryCombatDeathRecoveryStep.WaitAlive => StationaryCombatDeathRecoveryStep.PostReviveMaintenance,
+            StationaryCombatDeathRecoveryStep.PostReviveMaintenance => StationaryCombatDeathRecoveryStep.FollowRevivePath,
+            StationaryCombatDeathRecoveryStep.FollowRevivePath => StationaryCombatDeathRecoveryStep.Complete,
+            _ => StationaryCombatDeathRecoveryStep.Complete
+        };
+        StepStartedAt = now;
+    }
+
+    public void Reset()
+    {
+        Step = StationaryCombatDeathRecoveryStep.StopInput;
+        StartedAt = DateTimeOffset.MinValue;
+        StepStartedAt = DateTimeOffset.MinValue;
+        ReviveClicked = false;
+        RevivePathName = string.Empty;
+        RevivePathPointIndex = -1;
+        RevivePathPoints = Array.Empty<Vector3Snapshot>();
+    }
+}
+
+public enum StationaryCombatDeathRecoveryStep
+{
+    StopInput,
+    WaitBeforeReviveClick,
+    ClickRevive,
+    WaitAlive,
+    PostReviveMaintenance,
+    FollowRevivePath,
+    Complete
+}
+
+internal enum StationaryCombatBehaviorStatus
+{
+    Running,
+    Success,
+    Failure
 }

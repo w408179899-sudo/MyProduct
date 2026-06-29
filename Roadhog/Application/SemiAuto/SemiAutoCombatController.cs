@@ -246,7 +246,105 @@ public sealed class SemiAutoCombatController
                         beforeMaintenanceKeyPress,
                         plan,
                         requireCooldownCalibrationForMaintenance)
-                   .ConfigureAwait(false);
+                    .ConfigureAwait(false);
+    }
+
+    public async Task<bool> TryRecoverAfterReviveAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        PlayerSnapshot player,
+        SemiAutoSkillPlan? plan = null,
+        Func<Task>? beforeMaintenanceKeyPress = null,
+        bool requireCooldownCalibrationForMaintenance = false)
+    {
+        var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
+        var maintenance = context.Config.ScriptSettings?.Maintenance;
+        if (maintenance is null || !player.HasKnownHealth || player.IsDead)
+        {
+            state.ClearMaintenanceRest();
+            return false;
+        }
+
+        var hpRecoverToPercent = Math.Clamp(maintenance.SitHpRecoverToPercent, 1, 100);
+        if (state.IsMaintenanceResting)
+        {
+            return await ContinueSitMaintenanceAsync(
+                    context,
+                    state,
+                    settings,
+                    maintenance,
+                    player,
+                    hpRecoverToPercent)
+                .ConfigureAwait(false);
+        }
+
+        if (await TryPressMaintenanceRuleAsync(
+                context,
+                state,
+                settings,
+                maintenance.HpMaintenanceRules,
+                "hp",
+                player.CurrentHp,
+                player.MaxHp,
+                beforeMaintenanceKeyPress,
+                plan,
+                requireCooldownCalibrationForMaintenance)
+            .ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        if (await TryPressMaintenanceRuleAsync(
+                context,
+                state,
+                settings,
+                maintenance.MpMaintenanceRules,
+                "mp",
+                player.CurrentMp,
+                player.MaxMp,
+                beforeMaintenanceKeyPress,
+                plan,
+                requireCooldownCalibrationForMaintenance)
+            .ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        if (IsPercentAtOrAbove(player.CurrentHp, player.MaxHp, hpRecoverToPercent))
+        {
+            return false;
+        }
+
+        if (!maintenance.SitMaintenanceEnabled)
+        {
+            return false;
+        }
+
+        if (beforeMaintenanceKeyPress is not null)
+        {
+            await beforeMaintenanceKeyPress().ConfigureAwait(false);
+        }
+
+        var result = await _keyboard
+            .PressKeyAsync(RestEnterKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            LogMaintenanceKeyFailure(context, state, RestEnterKey, "revive_rest_enter", result.Error);
+            return false;
+        }
+
+        state.StartMaintenanceRest(forHp: true, forMp: false);
+        context.Logger.Info("semi_auto.maintenance.revive_rest_enter", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = RestEnterKey,
+            ["hp"] = player.CurrentHp,
+            ["maxHp"] = player.MaxHp,
+            ["hpPercent"] = Math.Round(player.HpPercent, 1),
+            ["recoverToPercent"] = hpRecoverToPercent
+        });
+        return true;
     }
 
     private async Task<bool> TryHandleMaintenanceAsync(
@@ -439,10 +537,12 @@ public sealed class SemiAutoCombatController
         SemiAutoCombatState state,
         SemiAutoScriptSettings settings,
         MaintenanceScriptSettings maintenance,
-        PlayerSnapshot player)
+        PlayerSnapshot player,
+        int? hpRecoverToPercentOverride = null)
     {
+        var hpRecoverToPercent = hpRecoverToPercentOverride ?? maintenance.SitHpRecoverToPercent;
         var hpRecovered = !state.MaintenanceRestingForHp ||
-                          IsPercentAtOrAbove(player.CurrentHp, player.MaxHp, maintenance.SitHpRecoverToPercent);
+                          IsPercentAtOrAbove(player.CurrentHp, player.MaxHp, hpRecoverToPercent);
         var mpRecovered = !state.MaintenanceRestingForMp ||
                           IsPercentAtOrAbove(player.CurrentMp, player.MaxMp, maintenance.SitMpRecoverToPercent);
         if (!hpRecovered || !mpRecovered)

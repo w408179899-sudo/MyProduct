@@ -27,6 +27,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
     ("stationary combat startup recovery follows nearest revive path point", TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync),
     ("stationary combat startup recovery skips revive path when home is nearest", TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync),
+    ("stationary combat death recovery clicks revive and recovers before path", TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
     ("stationary combat accepts twenty degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
@@ -499,6 +500,92 @@ static async Task TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync()
     AssertEqual((ushort)100, state.CandidateEntityId, "home-nearest startup should continue normal stationary target selection");
     AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.startup_recovery.home_nearest"),
         "home-nearest recovery decision should be logged");
+}
+
+static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync()
+{
+    var previousClickDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
+    var previousStepDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
+    var previousClickHold = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS");
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", "1");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Maintenance.SitMaintenanceEnabled = true;
+        settings.Maintenance.SitHpRecoverToPercent = 75;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 20,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 10
+        };
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("revive-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(10, 0, 0),
+                new Vector3Snapshot(20, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 0, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var stationaryState = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertEqual(StationaryCombatTopLevelState.DeathRecovery, stationaryState.TopLevelState, "dead player should enter death recovery");
+        AssertSequence(
+            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:680,460", "down:Left", "up:Left" },
+            keyboard.MouseCommands.ToArray(),
+            "death recovery should absolute-click revive button");
+        AssertFalse(keyboard.Keys.Contains("Tab"), "death recovery must not enter target acquisition");
+        AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "death recovery must not release combat skills");
+
+        gameApi.Player = gameApi.Player with { CurrentHp = 10 };
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+        AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "revived low hp should sit for recovery");
+        AssertFalse(!semiAutoState.IsMaintenanceResting, "revive recovery should track resting state");
+
+        gameApi.Player = gameApi.Player with { CurrentHp = 74 };
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+        AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "revive recovery should keep sitting below recover percent");
+
+        gameApi.Player = gameApi.Player with { CurrentHp = 75 };
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+        AssertSequence(new[] { "OemComma", "X" }, keyboard.Keys.ToArray(), "revive recovery should stand up at recover percent");
+
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+        AssertEqual(StationaryCombatDeathRecoveryStep.FollowRevivePath, stationaryState.DeathRecovery.Step, "recovered player should start revive path follow");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "recovered player should move along revive path");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", previousClickDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousStepDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", previousClickHold);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
 }
 
 static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
