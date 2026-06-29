@@ -34,6 +34,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat accepts twenty degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
     ("stationary combat verifies target after each tab press", TestStationaryCombatVerifiesAfterEachTabAsync),
+    ("stationary combat nudges forward when tab locks corpse", TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync),
     ("stationary combat pending tab verify blocks pre-acquire", TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync),
     ("stationary combat releases path follow movement after target is verified", TestStationaryCombatReleasesMovementAfterAcquireAsync),
     ("stationary combat does not pulse W while approaching same target", TestStationaryCombatDoesNotPulseWWhileApproachingAsync),
@@ -41,8 +42,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat ignores target when kill times out", TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync),
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
-    ("stationary combat loots dead target and ignores corpse", TestStationaryCombatLootsDeadTargetAndIgnoresCorpseAsync),
-    ("stationary combat waits after kill before corpse scan", TestStationaryCombatWaitsAfterKillBeforeCorpseScanAsync),
+    ("stationary combat loots locked dead target directly", TestStationaryCombatLootsLockedDeadTargetDirectlyAsync),
+    ("stationary combat waits after kill before loot key", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
+    ("stationary combat waits near corpse after loot key", TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("stationary combat interrupts sit when targeted by monster", TestStationaryCombatInterruptsSitWhenTargetedAsync),
     ("stationary combat hp rule runs before defense target workflow", TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync),
@@ -1004,6 +1006,76 @@ static async Task TestStationaryCombatVerifiesAfterEachTabAsync()
     }
 }
 
+static async Task TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var logger = new InMemoryRoadhogLogger();
+        var keyboard = new RecordingKeyboardInput();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 200,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(3, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller
+            .TickAsync(context, plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertSequence(new[] { "Tab", "W" }, keyboard.Keys, "tab corpse nudge key sequence");
+        AssertFalse(keyboard.Keys.Contains("D2"), "corpse lock must not release skills");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.tab.corpse_nudge_pressed"), "corpse nudge should be logged");
+
+        await controller
+            .TickAsync(context, plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase)), "same pending tab verify should nudge only once");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
 static async Task TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
@@ -1474,14 +1546,16 @@ static async Task TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync()
     AssertFalse(!keyboard.Keys.Contains("D2"), "locked zero-hp monster snapshot should enter skill logic");
 }
 
-static async Task TestStationaryCombatLootsDeadTargetAndIgnoresCorpseAsync()
+static async Task TestStationaryCombatLootsLockedDeadTargetDirectlyAsync()
 {
     var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
     var previousWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS");
-    var previousVerify = Environment.GetEnvironmentVariable("ROADHOG_LOOT_VERIFY_MS");
+    var previousPressCount = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT");
+    var previousPressInterval = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS");
     Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "0");
     Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", "0");
-    Environment.SetEnvironmentVariable("ROADHOG_LOOT_VERIFY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", null);
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", "0");
     try
     {
         var settings = CreateScriptSettings();
@@ -1497,32 +1571,15 @@ static async Task TestStationaryCombatLootsDeadTargetAndIgnoresCorpseAsync()
             StationaryCombatRadius = 60
         };
 
-        var corpse = new LootCorpseSnapshot(
-            100,
-            1000,
-            3,
-            LootCorpseSnapshot.MonsterObjectType,
-            211371,
-            27,
-            "dead-target",
-            new Vector3Snapshot(1, 0, 0),
-            1,
-            0,
-            4430,
-            0,
-            1,
-            0x25,
-            DateTimeOffset.Now);
         var keyboard = new RecordingKeyboardInput();
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(1, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
             TargetEntityId = 100,
             TargetCurrentHp = 0,
             TargetMaxHp = 4430,
-            TargetPosition = corpse.Position,
-            LootCorpses = new[] { corpse },
+            TargetPosition = new Vector3Snapshot(2.5f, 0, 0),
             Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
             {
                 [1] = 0,
@@ -1548,20 +1605,21 @@ static async Task TestStationaryCombatLootsDeadTargetAndIgnoresCorpseAsync()
             .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
             .ConfigureAwait(false);
 
-        AssertSequence(new[] { "F9", "NumPadDecimal", "S" }, keyboard.Keys, "post-kill loot key sequence");
+        AssertSequence(new[] { "NumPadDecimal" }, keyboard.Keys, "post-kill loot key sequence");
+        AssertEqual(0, gameApi.LootReadCount, "locked dead target loot should not scan corpse list");
         AssertFalse(state.LootAfterKill.Active, "loot state should finish in one zero-wait test tick");
-        AssertFalse(!state.IsLootCorpseIgnored(corpse, DateTimeOffset.Now), "picked corpse should be ignored");
         AssertEqual((ushort)0, state.CurrentTargetEntityId, "combat target should clear after loot");
     }
     finally
     {
         Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
         Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", previousWait);
-        Environment.SetEnvironmentVariable("ROADHOG_LOOT_VERIFY_MS", previousVerify);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
     }
 }
 
-static async Task TestStationaryCombatWaitsAfterKillBeforeCorpseScanAsync()
+static async Task TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync()
 {
     var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
     Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "1000");
@@ -1603,12 +1661,74 @@ static async Task TestStationaryCombatWaitsAfterKillBeforeCorpseScanAsync()
             .TickAsync(CreateContext(settings, gameApi, new InMemoryRoadhogLogger()), plan, new SemiAutoCombatState(), state)
             .ConfigureAwait(false);
 
-        AssertEqual(0, gameApi.LootReadCount, "loot corpse scan should wait after kill");
+        AssertSequence(Array.Empty<string>(), keyboard.Keys, "loot key should wait after kill");
+        AssertEqual(0, gameApi.LootReadCount, "locked dead target loot should not scan corpse list");
         AssertEqual(StationaryCombatLootAfterKillStep.WaitAfterKill, state.LootAfterKill.Step, "loot should be waiting after kill");
     }
     finally
     {
         Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+    }
+}
+
+static async Task TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync()
+{
+    var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
+    var previousPressCount = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT");
+    var previousPressInterval = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS");
+    var previousApproachTimeout = Environment.GetEnvironmentVariable("ROADHOG_LOOT_APPROACH_TIMEOUT_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", null);
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_APPROACH_TIMEOUT_MS", "5000");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 100,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 4430,
+            TargetPosition = new Vector3Snapshot(10, 0, 0),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var keyboard = new RecordingKeyboardInput();
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CandidateEntityId = 100
+        };
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, new InMemoryRoadhogLogger()), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertSequence(new[] { "NumPadDecimal" }, keyboard.Keys, "loot key should be pressed before approach wait");
+        AssertEqual(StationaryCombatLootAfterKillStep.WaitNearCorpse, state.LootAfterKill.Step, "loot should wait until player is near corpse");
+        AssertFalse(!state.LootAfterKill.Active, "loot state should stay active while approaching corpse");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_APPROACH_TIMEOUT_MS", previousApproachTimeout);
     }
 }
 

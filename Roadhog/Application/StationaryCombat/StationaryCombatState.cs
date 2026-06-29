@@ -32,6 +32,8 @@ public sealed class StationaryCombatState
 
     public DateTimeOffset PendingTabVerifyUntil { get; private set; } = DateTimeOffset.MinValue;
 
+    public bool PendingTabCorpseNudged { get; private set; }
+
     public DateTimeOffset LastTabAt { get; set; }
 
     public DateTimeOffset LastWorldScanAt { get; set; }
@@ -43,8 +45,6 @@ public sealed class StationaryCombatState
     public IReadOnlyList<WorldObjectSnapshot> CachedWorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
 
     public HashSet<ushort> IgnoredTargetEntityIds { get; } = new();
-
-    private readonly List<StationaryCombatIgnoredLootCorpse> ignoredLootCorpses = new();
 
     public object? PathFollowPoller { get; set; }
 
@@ -107,49 +107,6 @@ public sealed class StationaryCombatState
     public void ClearLootAfterKill()
     {
         LootAfterKill.Reset();
-    }
-
-    public void IgnoreLootCorpse(LootCorpseSnapshot corpse, DateTimeOffset now, TimeSpan ttl)
-    {
-        PruneIgnoredLootCorpses(now);
-        ignoredLootCorpses.RemoveAll(ignored => MatchesIgnoredLootCorpse(ignored, corpse));
-        ignoredLootCorpses.Add(new StationaryCombatIgnoredLootCorpse(
-            corpse.EntityId,
-            corpse.ServerObjectId,
-            corpse.Name,
-            corpse.Position,
-            now + ttl));
-    }
-
-    public bool IsLootCorpseIgnored(LootCorpseSnapshot corpse, DateTimeOffset now)
-    {
-        PruneIgnoredLootCorpses(now);
-        return ignoredLootCorpses.Any(ignored => MatchesIgnoredLootCorpse(ignored, corpse));
-    }
-
-    private void PruneIgnoredLootCorpses(DateTimeOffset now)
-    {
-        ignoredLootCorpses.RemoveAll(ignored => ignored.ExpiresAt <= now);
-    }
-
-    private static bool MatchesIgnoredLootCorpse(
-        StationaryCombatIgnoredLootCorpse ignored,
-        LootCorpseSnapshot corpse)
-    {
-        if (ignored.ServerObjectId != 0 && corpse.ServerObjectId != 0)
-        {
-            return ignored.ServerObjectId == corpse.ServerObjectId;
-        }
-
-        if (ignored.EntityId != 0 && corpse.EntityId != 0)
-        {
-            return ignored.EntityId == corpse.EntityId;
-        }
-
-        return string.Equals(ignored.Name, corpse.Name, StringComparison.Ordinal) &&
-               ignored.Position is { } ignoredPosition &&
-               corpse.Position is { } corpsePosition &&
-               StationaryCombatTargetSelector.HorizontalDistance(ignoredPosition, corpsePosition) <= 1.0D;
     }
 
     public bool IsTargetIgnored(ushort entityId)
@@ -224,12 +181,25 @@ public sealed class StationaryCombatState
     {
         PendingTabCandidateEntityId = entityId;
         PendingTabVerifyUntil = verifyUntil;
+        PendingTabCorpseNudged = false;
     }
 
     public void ClearPendingTabVerification()
     {
         PendingTabCandidateEntityId = 0;
         PendingTabVerifyUntil = DateTimeOffset.MinValue;
+        PendingTabCorpseNudged = false;
+    }
+
+    public bool TryMarkPendingTabCorpseNudged()
+    {
+        if (PendingTabCorpseNudged)
+        {
+            return false;
+        }
+
+        PendingTabCorpseNudged = true;
+        return true;
     }
 }
 
@@ -341,10 +311,6 @@ public sealed class StationaryCombatLootAfterKillState
 
     public Vector3Snapshot? KilledTargetPosition { get; private set; }
 
-    public LootCorpseSnapshot? TargetCorpse { get; private set; }
-
-    public int SelectRetryCount { get; private set; }
-
     public bool LootKeyPressed { get; private set; }
 
     public bool Active => Step != StationaryCombatLootAfterKillStep.Inactive &&
@@ -359,14 +325,7 @@ public sealed class StationaryCombatLootAfterKillState
         KilledTargetServerObjectId = killedTarget.ServerObjectId;
         KilledTargetName = killedTarget.Name ?? string.Empty;
         KilledTargetPosition = killedTarget.Position;
-        TargetCorpse = null;
-        SelectRetryCount = 0;
         LootKeyPressed = false;
-    }
-
-    public void SetTargetCorpse(LootCorpseSnapshot corpse)
-    {
-        TargetCorpse = corpse;
     }
 
     public void MarkLootKeyPressed()
@@ -374,26 +333,15 @@ public sealed class StationaryCombatLootAfterKillState
         LootKeyPressed = true;
     }
 
-    public void RetrySelect(DateTimeOffset now)
-    {
-        SelectRetryCount++;
-        MoveTo(StationaryCombatLootAfterKillStep.PressF9, now);
-    }
-
     public void Advance(DateTimeOffset now)
     {
         Step = Step switch
         {
             StationaryCombatLootAfterKillStep.StopInput => StationaryCombatLootAfterKillStep.WaitAfterKill,
-            StationaryCombatLootAfterKillStep.WaitAfterKill => StationaryCombatLootAfterKillStep.ScanLootableCorpses,
-            StationaryCombatLootAfterKillStep.ScanLootableCorpses => StationaryCombatLootAfterKillStep.MoveToCorpse,
-            StationaryCombatLootAfterKillStep.MoveToCorpse => StationaryCombatLootAfterKillStep.PressF9,
-            StationaryCombatLootAfterKillStep.PressF9 => StationaryCombatLootAfterKillStep.VerifyLockedCorpse,
-            StationaryCombatLootAfterKillStep.VerifyLockedCorpse => StationaryCombatLootAfterKillStep.PressLootKey,
-            StationaryCombatLootAfterKillStep.PressLootKey => StationaryCombatLootAfterKillStep.WaitAfterLoot,
-            StationaryCombatLootAfterKillStep.WaitAfterLoot => StationaryCombatLootAfterKillStep.PressStopKey,
-            StationaryCombatLootAfterKillStep.PressStopKey => StationaryCombatLootAfterKillStep.IgnoreCorpse,
-            StationaryCombatLootAfterKillStep.IgnoreCorpse => StationaryCombatLootAfterKillStep.Complete,
+            StationaryCombatLootAfterKillStep.WaitAfterKill => StationaryCombatLootAfterKillStep.PressLootKey,
+            StationaryCombatLootAfterKillStep.PressLootKey => StationaryCombatLootAfterKillStep.WaitNearCorpse,
+            StationaryCombatLootAfterKillStep.WaitNearCorpse => StationaryCombatLootAfterKillStep.WaitAfterNear,
+            StationaryCombatLootAfterKillStep.WaitAfterNear => StationaryCombatLootAfterKillStep.Complete,
             _ => StationaryCombatLootAfterKillStep.Complete
         };
         StepStartedAt = now;
@@ -408,15 +356,7 @@ public sealed class StationaryCombatLootAfterKillState
         KilledTargetServerObjectId = 0;
         KilledTargetName = string.Empty;
         KilledTargetPosition = null;
-        TargetCorpse = null;
-        SelectRetryCount = 0;
         LootKeyPressed = false;
-    }
-
-    private void MoveTo(StationaryCombatLootAfterKillStep step, DateTimeOffset now)
-    {
-        Step = step;
-        StepStartedAt = now;
     }
 }
 
@@ -425,23 +365,11 @@ public enum StationaryCombatLootAfterKillStep
     Inactive,
     StopInput,
     WaitAfterKill,
-    ScanLootableCorpses,
-    MoveToCorpse,
-    PressF9,
-    VerifyLockedCorpse,
     PressLootKey,
-    WaitAfterLoot,
-    PressStopKey,
-    IgnoreCorpse,
+    WaitNearCorpse,
+    WaitAfterNear,
     Complete
 }
-
-public sealed record StationaryCombatIgnoredLootCorpse(
-    ushort EntityId,
-    uint ServerObjectId,
-    string Name,
-    Vector3Snapshot? Position,
-    DateTimeOffset ExpiresAt);
 
 internal enum StationaryCombatBehaviorStatus
 {
