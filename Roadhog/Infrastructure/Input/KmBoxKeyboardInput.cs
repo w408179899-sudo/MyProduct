@@ -147,6 +147,16 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IInputStateReset, IDisp
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<OperationResult> ScrollMouseAsync(
+        int wheelDelta,
+        CancellationToken cancellationToken = default)
+    {
+        return await SendRawCommandAsync(
+            "km.wheel(" + wheelDelta + ")",
+            "KMbox mouse wheel failed.",
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<OperationResult> ReleaseAllAsync(CancellationToken cancellationToken = default)
     {
         await _ioSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);

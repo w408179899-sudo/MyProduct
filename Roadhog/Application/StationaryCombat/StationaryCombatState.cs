@@ -189,6 +189,12 @@ public sealed class StationaryCombatDeathRecoveryState
 
     public bool ReviveClicked { get; set; }
 
+    public DateTimeOffset LastReviveClickAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public int ReviveClickCount { get; private set; }
+
+    public int PostReviveScrollsSent { get; set; }
+
     public string RevivePathName { get; set; } = string.Empty;
 
     public int RevivePathPointIndex { get; set; } = -1;
@@ -201,9 +207,19 @@ public sealed class StationaryCombatDeathRecoveryState
         StartedAt = now;
         StepStartedAt = now;
         ReviveClicked = false;
+        LastReviveClickAt = DateTimeOffset.MinValue;
+        ReviveClickCount = 0;
+        PostReviveScrollsSent = 0;
         RevivePathName = string.Empty;
         RevivePathPointIndex = -1;
         RevivePathPoints = Array.Empty<Vector3Snapshot>();
+    }
+
+    public void MarkReviveClicked(DateTimeOffset now)
+    {
+        ReviveClicked = true;
+        LastReviveClickAt = now;
+        ReviveClickCount++;
     }
 
     public void Advance(DateTimeOffset now)
@@ -213,7 +229,8 @@ public sealed class StationaryCombatDeathRecoveryState
             StationaryCombatDeathRecoveryStep.StopInput => StationaryCombatDeathRecoveryStep.WaitBeforeReviveClick,
             StationaryCombatDeathRecoveryStep.WaitBeforeReviveClick => StationaryCombatDeathRecoveryStep.ClickRevive,
             StationaryCombatDeathRecoveryStep.ClickRevive => StationaryCombatDeathRecoveryStep.WaitAlive,
-            StationaryCombatDeathRecoveryStep.WaitAlive => StationaryCombatDeathRecoveryStep.PostReviveMaintenance,
+            StationaryCombatDeathRecoveryStep.WaitAlive => StationaryCombatDeathRecoveryStep.PostReviveScroll,
+            StationaryCombatDeathRecoveryStep.PostReviveScroll => StationaryCombatDeathRecoveryStep.PostReviveMaintenance,
             StationaryCombatDeathRecoveryStep.PostReviveMaintenance => StationaryCombatDeathRecoveryStep.FollowRevivePath,
             StationaryCombatDeathRecoveryStep.FollowRevivePath => StationaryCombatDeathRecoveryStep.Complete,
             _ => StationaryCombatDeathRecoveryStep.Complete
@@ -227,6 +244,9 @@ public sealed class StationaryCombatDeathRecoveryState
         StartedAt = DateTimeOffset.MinValue;
         StepStartedAt = DateTimeOffset.MinValue;
         ReviveClicked = false;
+        LastReviveClickAt = DateTimeOffset.MinValue;
+        ReviveClickCount = 0;
+        PostReviveScrollsSent = 0;
         RevivePathName = string.Empty;
         RevivePathPointIndex = -1;
         RevivePathPoints = Array.Empty<Vector3Snapshot>();
@@ -239,6 +259,7 @@ public enum StationaryCombatDeathRecoveryStep
     WaitBeforeReviveClick,
     ClickRevive,
     WaitAlive,
+    PostReviveScroll,
     PostReviveMaintenance,
     FollowRevivePath,
     Complete

@@ -113,6 +113,16 @@ public sealed class KmBoxNetKeyboardInput : IKeyboardInput, IInputStateReset, ID
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<OperationResult> ScrollMouseAsync(
+        int wheelDelta,
+        CancellationToken cancellationToken = default)
+    {
+        return await ExecuteAsync(
+            device => device.WheelAsync(wheelDelta, cancellationToken),
+            "KMBox Net mouse wheel failed.",
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<OperationResult> ReleaseAllAsync(CancellationToken cancellationToken = default)
     {
         if (!_connected)

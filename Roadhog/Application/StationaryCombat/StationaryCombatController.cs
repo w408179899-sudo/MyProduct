@@ -23,6 +23,8 @@ public sealed class StationaryCombatController
     private const double StartupRecoveryReachDistance = 3.0D;
     private const int DefaultReviveClickX = 680;
     private const int DefaultReviveClickY = 460;
+    private const int DefaultPostReviveScrollCount = 10;
+    private const int DefaultPostReviveScrollDelta = -1;
     private const int AbsoluteMouseResetDelta = -32768;
 
     private readonly IKeyboardInput _input;
@@ -106,7 +108,8 @@ public sealed class StationaryCombatController
                     state,
                     player,
                     home,
-                    playerDistanceFromHome)
+                    playerDistanceFromHome,
+                    followRevivePath: true)
                 .ConfigureAwait(false);
         }
 
@@ -309,6 +312,70 @@ public sealed class StationaryCombatController
         return await TickAcquireAsync(context, plan, semiAutoState, state, target).ConfigureAwait(false);
     }
 
+    public async Task<TimeSpan?> TickPlayerLifeGuardAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        bool followRevivePath)
+    {
+        var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (!playerResult.Success || playerResult.Value is null)
+        {
+            if (state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
+            {
+                return null;
+            }
+
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+            LogThrottled(context, state, "player_life.guard.player_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["error"] = playerResult.Error
+            });
+            return IdleDelay;
+        }
+
+        var player = playerResult.Value;
+        if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
+        {
+            state.EnterDeathRecovery(DateTimeOffset.Now);
+            semiAutoState.ResetAttackKeyPressThrottle();
+            context.Logger.Warn("player_life.death.detected", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["hp"] = player.CurrentHp,
+                ["maxHp"] = player.MaxHp,
+                ["x"] = player.Position?.X,
+                ["y"] = player.Position?.Y,
+                ["z"] = player.Position?.Z
+            });
+        }
+
+        if (state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
+        {
+            return null;
+        }
+
+        var hasStationaryHome = TryGetStationaryHome(context, out var home);
+        var shouldFollowRevivePath = followRevivePath && hasStationaryHome;
+        var playerDistanceFromHome = player.Position is not null && hasStationaryHome
+            ? StationaryCombatTargetSelector.HorizontalDistance(player.Position.Value, home)
+            : 0.0D;
+        return await TickDeathRecoveryAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                home,
+                playerDistanceFromHome,
+                shouldFollowRevivePath)
+            .ConfigureAwait(false);
+    }
+
     private async Task<TimeSpan> TickDeathRecoveryAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
@@ -316,7 +383,8 @@ public sealed class StationaryCombatController
         StationaryCombatState state,
         PlayerSnapshot player,
         Vector3Snapshot home,
-        double playerDistanceFromHome)
+        double playerDistanceFromHome,
+        bool followRevivePath)
     {
         while (!context.StopToken.IsCancellationRequested)
         {
@@ -349,7 +417,16 @@ public sealed class StationaryCombatController
                         state,
                         player)
                     .ConfigureAwait(false),
-                StationaryCombatDeathRecoveryStep.WaitAlive => TickDeathWaitAliveNode(context, state, player),
+                StationaryCombatDeathRecoveryStep.WaitAlive => await TickDeathWaitAliveNodeAsync(
+                        context,
+                        state,
+                        player)
+                    .ConfigureAwait(false),
+                StationaryCombatDeathRecoveryStep.PostReviveScroll => await TickDeathPostReviveScrollNodeAsync(
+                        context,
+                        state,
+                        player)
+                    .ConfigureAwait(false),
                 StationaryCombatDeathRecoveryStep.PostReviveMaintenance => await TickDeathPostReviveMaintenanceNodeAsync(
                         context,
                         plan,
@@ -357,14 +434,16 @@ public sealed class StationaryCombatController
                         state,
                         player)
                     .ConfigureAwait(false),
-                StationaryCombatDeathRecoveryStep.FollowRevivePath => await TickDeathFollowRevivePathNodeAsync(
-                        context,
-                        semiAutoState,
-                        state,
-                        player,
-                        home,
-                        playerDistanceFromHome)
-                    .ConfigureAwait(false),
+                StationaryCombatDeathRecoveryStep.FollowRevivePath => followRevivePath
+                    ? await TickDeathFollowRevivePathNodeAsync(
+                            context,
+                            semiAutoState,
+                            state,
+                            player,
+                            home,
+                            playerDistanceFromHome)
+                        .ConfigureAwait(false)
+                    : StationaryCombatBehaviorStatus.Success,
                 _ => StationaryCombatBehaviorStatus.Success
             };
 
@@ -460,17 +539,18 @@ public sealed class StationaryCombatController
             return StationaryCombatBehaviorStatus.Running;
         }
 
-        state.DeathRecovery.ReviveClicked = true;
+        state.DeathRecovery.MarkReviveClicked(DateTimeOffset.Now);
         context.Logger.Info("stationary_combat.death_recovery.revive_clicked", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["x"] = x,
-            ["y"] = y
+            ["y"] = y,
+            ["clickCount"] = state.DeathRecovery.ReviveClickCount
         });
-        return StationaryCombatBehaviorStatus.Success;
+        return StationaryCombatBehaviorStatus.Running;
     }
 
-    private static StationaryCombatBehaviorStatus TickDeathWaitAliveNode(
+    private async Task<StationaryCombatBehaviorStatus> TickDeathWaitAliveNodeAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
         PlayerSnapshot player)
@@ -492,9 +572,109 @@ public sealed class StationaryCombatController
             ["account"] = context.Config.AccountName,
             ["hp"] = player.CurrentHp,
             ["maxHp"] = player.MaxHp,
-            ["reviveClicked"] = state.DeathRecovery.ReviveClicked
+            ["reviveClicked"] = state.DeathRecovery.ReviveClicked,
+            ["clickCount"] = state.DeathRecovery.ReviveClickCount
         }, TimeSpan.FromSeconds(1));
+
+        var retryDelay = TimeSpan.FromMilliseconds(ReadDeathReviveRetryMs());
+        var lastClickAt = state.DeathRecovery.LastReviveClickAt == DateTimeOffset.MinValue
+            ? state.DeathRecovery.StepStartedAt
+            : state.DeathRecovery.LastReviveClickAt;
+        var elapsed = DateTimeOffset.Now - lastClickAt;
+        if (elapsed < retryDelay)
+        {
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        var x = ReadDeathReviveClickX();
+        var y = ReadDeathReviveClickY();
+        var result = await ClickAbsoluteScreenPointAsync(context, x, y).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            context.Logger.Warn("stationary_combat.death_recovery.revive_retry_click_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["x"] = x,
+                ["y"] = y,
+                ["clickCount"] = state.DeathRecovery.ReviveClickCount,
+                ["retryWaitMs"] = (long)retryDelay.TotalMilliseconds,
+                ["error"] = result.Error
+            });
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        state.DeathRecovery.MarkReviveClicked(DateTimeOffset.Now);
+        context.Logger.Info("stationary_combat.death_recovery.revive_retry_clicked", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["x"] = x,
+            ["y"] = y,
+            ["clickCount"] = state.DeathRecovery.ReviveClickCount,
+            ["retryWaitMs"] = (long)retryDelay.TotalMilliseconds
+        });
         return StationaryCombatBehaviorStatus.Running;
+    }
+
+    private async Task<StationaryCombatBehaviorStatus> TickDeathPostReviveScrollNodeAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        PlayerSnapshot player)
+    {
+        if (player.IsDead)
+        {
+            state.EnterDeathRecovery(DateTimeOffset.Now);
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        if (!player.IsAlive)
+        {
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        var count = ReadDeathPostReviveScrollCount();
+        var delta = ReadDeathPostReviveScrollDelta();
+        var interval = TimeSpan.FromMilliseconds(ReadDeathPostReviveScrollIntervalMs());
+        while (state.DeathRecovery.PostReviveScrollsSent < count)
+        {
+            var result = await _input.ScrollMouseAsync(delta, context.StopToken).ConfigureAwait(false);
+            if (!result.Success)
+            {
+                context.Logger.Warn("stationary_combat.death_recovery.post_revive_scroll_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["delta"] = delta,
+                    ["sent"] = state.DeathRecovery.PostReviveScrollsSent,
+                    ["targetCount"] = count,
+                    ["error"] = result.Error
+                });
+                return StationaryCombatBehaviorStatus.Running;
+            }
+
+            state.DeathRecovery.PostReviveScrollsSent++;
+            context.Logger.Info("stationary_combat.death_recovery.post_revive_scroll_sent", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["input"] = _input.GetType().Name,
+                ["delta"] = delta,
+                ["sent"] = state.DeathRecovery.PostReviveScrollsSent,
+                ["targetCount"] = count
+            });
+
+            if (state.DeathRecovery.PostReviveScrollsSent < count && interval > TimeSpan.Zero)
+            {
+                await DelayAsync(interval, context).ConfigureAwait(false);
+            }
+        }
+
+        context.Logger.Info("stationary_combat.death_recovery.post_revive_scroll_complete", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["input"] = _input.GetType().Name,
+            ["delta"] = delta,
+            ["count"] = count,
+            ["intervalMs"] = (long)interval.TotalMilliseconds
+        });
+        return StationaryCombatBehaviorStatus.Success;
     }
 
     private async Task<StationaryCombatBehaviorStatus> TickDeathPostReviveMaintenanceNodeAsync(
@@ -515,11 +695,17 @@ public sealed class StationaryCombatController
             return StationaryCombatBehaviorStatus.Running;
         }
 
-        var recoverToPercent = Math.Clamp(
+        var hpRecoverToPercent = Math.Clamp(
             context.Config.ScriptSettings?.Maintenance?.SitHpRecoverToPercent ?? 75,
             1,
             100);
-        if (!semiAutoState.IsMaintenanceResting && player.HpPercent >= recoverToPercent)
+        var mpRecoverToPercent = Math.Clamp(
+            context.Config.ScriptSettings?.Maintenance?.SitMpRecoverToPercent ?? 90,
+            1,
+            100);
+        var hpRecovered = player.HpPercent >= hpRecoverToPercent;
+        var mpRecovered = player.MaxMp == 0 || player.MpPercent >= mpRecoverToPercent;
+        if (!semiAutoState.IsMaintenanceResting && hpRecovered && mpRecovered)
         {
             context.Logger.Info("stationary_combat.death_recovery.maintenance_complete", new Dictionary<string, object?>
             {
@@ -527,7 +713,11 @@ public sealed class StationaryCombatController
                 ["hp"] = player.CurrentHp,
                 ["maxHp"] = player.MaxHp,
                 ["hpPercent"] = Math.Round(player.HpPercent, 1),
-                ["recoverToPercent"] = recoverToPercent
+                ["hpRecoverToPercent"] = hpRecoverToPercent,
+                ["mp"] = player.CurrentMp,
+                ["maxMp"] = player.MaxMp,
+                ["mpPercent"] = Math.Round(player.MpPercent, 1),
+                ["mpRecoverToPercent"] = mpRecoverToPercent
             });
             return StationaryCombatBehaviorStatus.Success;
         }
@@ -551,7 +741,7 @@ public sealed class StationaryCombatController
             return StationaryCombatBehaviorStatus.Running;
         }
 
-        if (player.HpPercent < recoverToPercent)
+        if (!hpRecovered || !mpRecovered)
         {
             context.Logger.Warn("stationary_combat.death_recovery.maintenance_unavailable", new Dictionary<string, object?>
             {
@@ -559,7 +749,11 @@ public sealed class StationaryCombatController
                 ["hp"] = player.CurrentHp,
                 ["maxHp"] = player.MaxHp,
                 ["hpPercent"] = Math.Round(player.HpPercent, 1),
-                ["recoverToPercent"] = recoverToPercent
+                ["hpRecoverToPercent"] = hpRecoverToPercent,
+                ["mp"] = player.CurrentMp,
+                ["maxMp"] = player.MaxMp,
+                ["mpPercent"] = Math.Round(player.MpPercent, 1),
+                ["mpRecoverToPercent"] = mpRecoverToPercent
             });
         }
 
@@ -1473,6 +1667,22 @@ public sealed class StationaryCombatController
         }
 
         return context.Config.RevivePathName?.Trim() ?? string.Empty;
+    }
+
+    private static bool TryGetStationaryHome(AccountWorkerContext context, out Vector3Snapshot home)
+    {
+        var combat = context.Config.ScriptSettings?.Combat;
+        if (combat?.HasStationaryCombatPosition == true)
+        {
+            home = new Vector3Snapshot(
+                (float)combat.StationaryCombatX,
+                (float)combat.StationaryCombatY,
+                (float)combat.StationaryCombatZ);
+            return true;
+        }
+
+        home = default;
+        return false;
     }
 
     private static int FindNearestPathPointIndex(
@@ -3179,6 +3389,26 @@ public sealed class StationaryCombatController
     private static int ReadDeathReviveMouseStepDelayMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", 10), 0, 1000);
+    }
+
+    private static int ReadDeathReviveRetryMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_RETRY_MS", 500), 0, 60_000);
+    }
+
+    private static int ReadDeathPostReviveScrollCount()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_POST_REVIVE_SCROLL_COUNT", DefaultPostReviveScrollCount), 0, 100);
+    }
+
+    private static int ReadDeathPostReviveScrollDelta()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_POST_REVIVE_SCROLL_DELTA", DefaultPostReviveScrollDelta), -120, 120);
+    }
+
+    private static int ReadDeathPostReviveScrollIntervalMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", 100), 0, 10_000);
     }
 
     private static double NormalizeSignedDegrees(double angle)

@@ -62,12 +62,29 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
 
                 var delay = context.Options.TickInterval;
-                if (context.Config.MainMode == AccountMainMode.SemiAuto)
+                var isStationaryCombat =
+                    context.Config.MainMode == AccountMainMode.CustomCombat &&
+                    context.Config.CombatMode == AccountCombatMode.Stationary;
+                var followRevivePath =
+                    isStationaryCombat &&
+                    (context.Config.ScriptSettings?.Combat?.HasStationaryCombatPosition == true);
+                var lifeGuardDelay = await _stationaryCombat
+                    .TickPlayerLifeGuardAsync(
+                        context,
+                        semiAutoPlan,
+                        semiAutoState,
+                        stationaryCombatState,
+                        followRevivePath)
+                    .ConfigureAwait(false);
+                if (lifeGuardDelay.HasValue)
+                {
+                    delay = lifeGuardDelay.Value;
+                }
+                else if (context.Config.MainMode == AccountMainMode.SemiAuto)
                 {
                     delay = await _semiAuto.TickAsync(context, semiAutoPlan, semiAutoState).ConfigureAwait(false);
                 }
-                else if (context.Config.MainMode == AccountMainMode.CustomCombat &&
-                         context.Config.CombatMode == AccountCombatMode.Stationary)
+                else if (isStationaryCombat)
                 {
                     delay = await _stationaryCombat
                         .TickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)

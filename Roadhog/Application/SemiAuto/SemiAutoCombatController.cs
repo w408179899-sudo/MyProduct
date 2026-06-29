@@ -266,6 +266,7 @@ public sealed class SemiAutoCombatController
         }
 
         var hpRecoverToPercent = Math.Clamp(maintenance.SitHpRecoverToPercent, 1, 100);
+        var mpRecoverToPercent = Math.Clamp(maintenance.SitMpRecoverToPercent, 1, 100);
         if (state.IsMaintenanceResting)
         {
             return await ContinueSitMaintenanceAsync(
@@ -310,7 +311,10 @@ public sealed class SemiAutoCombatController
             return true;
         }
 
-        if (IsPercentAtOrAbove(player.CurrentHp, player.MaxHp, hpRecoverToPercent))
+        var hpRecovered = IsPercentAtOrAbove(player.CurrentHp, player.MaxHp, hpRecoverToPercent);
+        var mpRecovered = player.MaxMp == 0 ||
+                          IsPercentAtOrAbove(player.CurrentMp, player.MaxMp, mpRecoverToPercent);
+        if (hpRecovered && mpRecovered)
         {
             return false;
         }
@@ -334,15 +338,21 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        state.StartMaintenanceRest(forHp: true, forMp: false);
+        state.StartMaintenanceRest(forHp: !hpRecovered, forMp: player.MaxMp > 0 && !mpRecovered);
         context.Logger.Info("semi_auto.maintenance.revive_rest_enter", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["key"] = RestEnterKey,
+            ["forHp"] = !hpRecovered,
+            ["forMp"] = player.MaxMp > 0 && !mpRecovered,
             ["hp"] = player.CurrentHp,
             ["maxHp"] = player.MaxHp,
             ["hpPercent"] = Math.Round(player.HpPercent, 1),
-            ["recoverToPercent"] = hpRecoverToPercent
+            ["hpRecoverToPercent"] = hpRecoverToPercent,
+            ["mp"] = player.CurrentMp,
+            ["maxMp"] = player.MaxMp,
+            ["mpPercent"] = Math.Round(player.MpPercent, 1),
+            ["mpRecoverToPercent"] = mpRecoverToPercent
         });
         return true;
     }

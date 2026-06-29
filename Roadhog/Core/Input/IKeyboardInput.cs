@@ -29,6 +29,10 @@ public interface IKeyboardInput
         int deltaX,
         int deltaY,
         CancellationToken cancellationToken = default);
+
+    Task<OperationResult> ScrollMouseAsync(
+        int wheelDelta,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IInputStateReset

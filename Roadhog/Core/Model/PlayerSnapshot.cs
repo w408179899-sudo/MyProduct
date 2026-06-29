@@ -24,4 +24,8 @@ public sealed record PlayerSnapshot(
     public double HpPercent => MaxHp == 0
         ? 100.0D
         : Math.Clamp(CurrentHp * 100.0D / MaxHp, 0.0D, 100.0D);
+
+    public double MpPercent => MaxMp == 0
+        ? 100.0D
+        : Math.Clamp(CurrentMp * 100.0D / MaxMp, 0.0D, 100.0D);
 }

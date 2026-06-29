@@ -28,6 +28,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat startup recovery follows nearest revive path point", TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync),
     ("stationary combat startup recovery skips revive path when home is nearest", TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync),
     ("stationary combat death recovery clicks revive and recovers before path", TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync),
+    ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
+    ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
     ("stationary combat accepts twenty degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
@@ -507,10 +509,14 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
     var previousClickDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
     var previousStepDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
     var previousClickHold = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS");
+    var previousRetry = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_RETRY_MS");
+    var previousScrollInterval = Environment.GetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS");
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
     Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", "0");
     Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
     Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", "1");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_RETRY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", "0");
     Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
     try
     {
@@ -562,8 +568,26 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         AssertFalse(keyboard.Keys.Contains("Tab"), "death recovery must not enter target acquisition");
         AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "death recovery must not release combat skills");
 
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+        AssertSequence(
+            new[]
+            {
+                "move:-32768,-32768",
+                "move:-32768,-32768",
+                "move:680,460",
+                "down:Left",
+                "up:Left"
+            },
+            keyboard.MouseCommands.Skip(5).Take(5).ToArray(),
+            "death recovery should retry revive click when player is still dead after retry delay");
+        AssertEqual(2, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record retry revive click count");
+
         gameApi.Player = gameApi.Player with { CurrentHp = 10 };
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+        AssertSequence(
+            Enumerable.Repeat("wheel:-1", 10).ToArray(),
+            keyboard.MouseCommands.Skip(10).Take(10).ToArray(),
+            "revived player should scroll wheel down ten times before maintenance");
         AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "revived low hp should sit for recovery");
         AssertFalse(!semiAutoState.IsMaintenanceResting, "revive recovery should track resting state");
 
@@ -584,7 +608,125 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", previousClickDelay);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousStepDelay);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", previousClickHold);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_RETRY_MS", previousRetry);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", previousScrollInterval);
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestWorkerLifeGuardRevivesBeforeSemiAutoAsync()
+{
+    var previousClickDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
+    var previousStepDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
+    var previousClickHold = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", "1");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.SemiAuto;
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 0, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+            TargetEntityId = 100,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(5, 0, 0),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var stationary = new StationaryCombatController(keyboard, semiAuto);
+        var worker = new DefaultAccountWorkerLoop(keyboard, semiAuto, stationary);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var context = CreateContext(
+            settings,
+            gameApi,
+            logger,
+            options: new AccountWorkerOptions { TickInterval = TimeSpan.FromMilliseconds(40) },
+            stopToken: cts.Token);
+
+        var runTask = worker.RunAsync(context);
+        await WaitUntilAsync(
+                () => keyboard.MouseCommands.Contains("up:Left"),
+                "semi-auto worker death guard revive click")
+            .ConfigureAwait(false);
+        cts.Cancel();
+        await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
+
+        AssertSequence(
+            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:680,460", "down:Left", "up:Left" },
+            keyboard.MouseCommands.Take(5).ToArray(),
+            "semi-auto death guard should absolute-click revive button");
+        AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "semi-auto combat keys must not run while dead");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "player_life.death.detected"), "worker life guard should log death detection");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", previousClickDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousStepDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", previousClickHold);
+    }
+}
+
+static async Task TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync()
+{
+    var previousClickDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
+    var previousStepDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
+    var previousClickHold = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", "1");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat.HasStationaryCombatPosition = false;
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 0, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetPosition = null,
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var stationary = new StationaryCombatController(keyboard, semiAuto);
+        var worker = new DefaultAccountWorkerLoop(keyboard, semiAuto, stationary);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var context = CreateContext(
+            settings,
+            gameApi,
+            logger,
+            options: new AccountWorkerOptions { TickInterval = TimeSpan.FromMilliseconds(40) },
+            stopToken: cts.Token);
+
+        var runTask = worker.RunAsync(context);
+        await WaitUntilAsync(
+                () => keyboard.MouseCommands.Contains("up:Left"),
+                "stationary worker death guard revive click")
+            .ConfigureAwait(false);
+        cts.Cancel();
+        await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
+
+        AssertFalse(!keyboard.MouseCommands.Contains("up:Left"), "stationary worker should revive before checking combat position");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.position.missing"), "death recovery should block normal stationary validation while dead");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", previousClickDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousStepDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", previousClickHold);
     }
 }
 
@@ -2921,7 +3063,9 @@ static AccountWorkerContext CreateContext(
     ScriptSettings settings,
     IRoadhogGameApi gameApi,
     IRoadhogLogger logger,
-    AccountRuntimeManager? runtimeStates = null)
+    AccountRuntimeManager? runtimeStates = null,
+    AccountWorkerOptions? options = null,
+    CancellationToken stopToken = default)
 {
     var account = new AccountConfig
     {
@@ -2934,8 +3078,35 @@ static AccountWorkerContext CreateContext(
         gameApi,
         logger,
         runtimeStates ?? new AccountRuntimeManager(logger),
-        new AccountWorkerOptions(),
-        CancellationToken.None);
+        options ?? new AccountWorkerOptions(),
+        stopToken);
+}
+
+static async Task WaitUntilAsync(Func<bool> predicate, string label)
+{
+    var deadline = DateTimeOffset.Now + TimeSpan.FromSeconds(2);
+    while (DateTimeOffset.Now < deadline)
+    {
+        if (predicate())
+        {
+            return;
+        }
+
+        await Task.Delay(10).ConfigureAwait(false);
+    }
+
+    throw new InvalidOperationException("Timed out waiting for " + label + ".");
+}
+
+static async Task IgnoreCancellationAsync(Task task)
+{
+    try
+    {
+        await task.ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+    }
 }
 
 static string[] WithPreSkillKey(params string[] keys)
@@ -3066,6 +3237,14 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         CancellationToken cancellationToken = default)
     {
         MouseCommands.Add("move:" + deltaX + "," + deltaY);
+        return Task.FromResult(OperationResult.Ok());
+    }
+
+    public Task<OperationResult> ScrollMouseAsync(
+        int wheelDelta,
+        CancellationToken cancellationToken = default)
+    {
+        MouseCommands.Add("wheel:" + wheelDelta);
         return Task.FromResult(OperationResult.Ok());
     }
 }
