@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Ports;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -60,6 +61,8 @@ namespace Tool
                 return;
             }
 
+
+
             // Optional: load native MemProcFS libs if they are not already on PATH.
             var memProcFsPath = Environment.GetEnvironmentVariable("MEMPROCFS_HOME");
             if (string.IsNullOrWhiteSpace(memProcFsPath))
@@ -109,7 +112,14 @@ namespace Tool
 
                     Console.WriteLine("Module base: " + moduleName + " = 0x" + gameBase.ToString("X"));
 
-                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "monsters";
+                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "loot";
+
+                    if (IsKmBoxClickTestMode(aionTestMode))
+                    {
+                        RunKmBoxFixedLeftClickTest();
+                        return;
+                    }
+
                     if (string.Equals(aionTestMode, "player", StringComparison.OrdinalIgnoreCase))
                     {
                         RunLocalPlayerInfoTest(process, gameBase);
@@ -144,6 +154,16 @@ namespace Tool
                         string.Equals(aionTestMode, "gatherlist", StringComparison.OrdinalIgnoreCase))
                     {
                         RunGatherListTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "loot", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "lootlist", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "loot_probe", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "corpse", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "corpses", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunLootCorpseListTest(process, gameBase);
                         return;
                     }
 
@@ -354,6 +374,420 @@ namespace Tool
             }
         }
 
+        private static void RunKmBoxFixedLeftClickTest()
+        {
+            const int ManualClickX = 100;
+            const int ManualClickY = 200;
+            const int DefaultKmBoxScreenWidth = 1024;
+            const int DefaultKmBoxScreenHeight = 768;
+
+            string portName = Environment.GetEnvironmentVariable("KMBOX_PORT");
+            if (string.IsNullOrWhiteSpace(portName))
+            {
+                portName = "COM11";
+            }
+
+            int holdMs = ClampInt(ReadIntFromEnv("KMBOX_CLICK_HOLD_MS", 35), 0, 1000);
+            int settleMs = ClampInt(ReadIntFromEnv("KMBOX_CLICK_SETTLE_MS", 80), 0, 3000);
+            int moveSegments = ClampInt(ReadIntFromEnv("KMBOX_MOVE_SEGMENTS", 0), 0, 50);
+            int screenWidth = ClampInt(ReadIntFromEnv("KMBOX_SCREEN_WIDTH", DefaultKmBoxScreenWidth), 1, 32767);
+            int screenHeight = ClampInt(ReadIntFromEnv("KMBOX_SCREEN_HEIGHT", DefaultKmBoxScreenHeight), 1, 32767);
+            int zeroSettleMs = ClampInt(ReadIntFromEnv("KMBOX_ZERO_SETTLE_MS", 1200), 0, 10000);
+            int relativeDx = ClampInt(ReadSignedIntFromEnv("KMBOX_RELATIVE_DX", 100), -5000, 5000);
+            int relativeDy = ClampInt(ReadSignedIntFromEnv("KMBOX_RELATIVE_DY", 0), -5000, 5000);
+            bool testRelative = ReadBoolFromEnv("KMBOX_TEST_RELATIVE", false);
+            bool probeOnly = ReadBoolFromEnv("KMBOX_PROBE_ONLY", false);
+            bool doClick = ReadBoolFromEnv("KMBOX_DO_CLICK", false);
+            bool lowLevelApi = ReadBoolFromEnv("KMBOX_LOW_LEVEL_API", false);
+
+            int x;
+            int y;
+            if (!TryReadKmBoxClickCoordinatesFromEnv(out x, out y))
+            {
+                x = ManualClickX;
+                y = ManualClickY;
+            }
+
+            x = ClampInt(x, 0, screenWidth - 1);
+            y = ClampInt(y, 0, screenHeight - 1);
+            if (x == 0 && y == 0)
+            {
+                x = 1;
+            }
+
+            Console.WriteLine("KMBox B+ simple absolute move test.");
+            Console.WriteLine("Port=" + portName + ", AvailablePorts=" + FormatSerialPortNames());
+            Console.WriteLine("Screen=" + screenWidth + "x" + screenHeight + ", Target=" + x + "," + y + ", MoveSegments=" + moveSegments + ", TestRelative=" + FormatYesNo(testRelative) + ", RelativeDelta=" + relativeDx + "," + relativeDy + ", ProbeOnly=" + FormatYesNo(probeOnly) + ", LowLevelApi=" + FormatYesNo(lowLevelApi) + ", DoClick=" + FormatYesNo(doClick) + ", HoldMs=" + holdMs + ", SettleMs=" + settleMs + ", ZeroSettleMs=" + zeroSettleMs + ".");
+
+            try
+            {
+                using (var port = new SerialPort(portName, 115200)
+                {
+                    NewLine = "\r",
+                    ReadTimeout = 300,
+                    WriteTimeout = 300,
+                    DtrEnable = false,
+                    RtsEnable = false
+                })
+                {
+                    port.Open();
+                    Thread.Sleep(1000);
+
+                    port.Write("\r");
+                    Thread.Sleep(100);
+                    port.DiscardInBuffer();
+
+                    if (probeOnly)
+                    {
+                        SendKmBoxSimpleCommand(port, "km.version()", 300);
+                        SendKmBoxSimpleCommand(port, "print(dir(km))", 300);
+                        SendKmBoxSimpleCommand(port, "print('VERSION', km.version())", 300);
+                        SendKmBoxSimpleCommand(port, "print('DIR', dir(km))", 300);
+                        SendKmBoxSimpleCommand(port, "print('POS', km.getpos())", 300);
+                        SendKmBoxSimpleCommand(port, "print('SCREEN', km.Screen())", 100);
+                        Console.WriteLine("KMBox probe only; no movement beyond optional relative test.");
+                        if (testRelative)
+                        {
+                            SendKmBoxSimpleCommand(port, "km.move(" + relativeDx + "," + relativeDy + ")", 100);
+                        }
+
+                        return;
+                    }
+
+                    if (testRelative)
+                    {
+                        SendKmBoxSimpleCommand(port, "km.move(" + relativeDx + "," + relativeDy + ")", 100);
+                    }
+
+                    string screenGetCommand = lowLevelApi ? "km.km_screen()" : "km.Screen()";
+                    string screenSetCommand = lowLevelApi
+                        ? "km.km_screen(" + screenWidth + "," + screenHeight + ")"
+                        : "km.Screen(" + screenWidth + "," + screenHeight + ")";
+                    string zeroCommand = lowLevelApi ? "km.km_zero(1)" : "km.zero(1)";
+                    string getposCommand = lowLevelApi ? "km.km_getpos()" : "km.getpos()";
+
+                    SendKmBoxSimpleCommand(port, "print('VERSION', km.version())", 300);
+                    SendKmBoxSimpleCommand(port, "print('SCREEN_BEFORE', " + screenGetCommand + ")", 100);
+                    SendKmBoxSimpleCommand(port, screenSetCommand, 100);
+                    SendKmBoxSimpleCommand(port, "print('SCREEN_AFTER', " + screenGetCommand + ")", 100);
+                    SendKmBoxSimpleCommand(port, zeroCommand, zeroSettleMs);
+                    SendKmBoxSimpleCommand(port, "print('POS_AFTER_ZERO', " + getposCommand + ")", 100);
+                    string moveToCommand = moveSegments > 0
+                        ? (lowLevelApi
+                            ? "km.km_moveto(" + x + "," + y + "," + moveSegments + ")"
+                            : "km.moveto(" + x + "," + y + "," + moveSegments + ")")
+                        : (lowLevelApi
+                            ? "km.km_moveto(" + x + "," + y + ")"
+                            : "km.moveto(" + x + "," + y + ")");
+                    SendKmBoxSimpleCommand(port, moveToCommand, settleMs);
+                    SendKmBoxSimpleCommand(port, "print('POS_AFTER_MOVETO', " + getposCommand + ")", 100);
+
+                    if (doClick)
+                    {
+                        SendKmBoxSimpleCommand(port, "km.left(1)", holdMs);
+                        SendKmBoxSimpleCommand(port, "km.left(0)", 20);
+                    }
+
+                    Console.WriteLine("KMBox simple move command sequence sent.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("KMBox click test failed: " + ex.Message);
+            }
+        }
+
+        private static bool IsKmBoxClickTestMode(string mode)
+        {
+            return string.Equals(mode, "kmbox_click", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "kmbox_left_click", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(mode, "kmbox_mouse", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void SendKmBoxSimpleCommand(SerialPort port, string command, int delayMs)
+        {
+            Console.WriteLine("KMBox send: " + command);
+            port.Write(command + "\r");
+            if (delayMs > 0)
+            {
+                Thread.Sleep(delayMs);
+            }
+
+            string response = string.Empty;
+            try
+            {
+                response = port.ReadExisting();
+            }
+            catch
+            {
+            }
+
+            if (!string.IsNullOrEmpty(response))
+            {
+                Console.WriteLine("KMBox read: " + FormatKmBoxReadText(response));
+            }
+        }
+
+        private static bool TryReadKmBoxClickCoordinatesFromEnv(out int x, out int y)
+        {
+            x = 0;
+            y = 0;
+            string xText = Environment.GetEnvironmentVariable("KMBOX_CLICK_X");
+            string yText = Environment.GetEnvironmentVariable("KMBOX_CLICK_Y");
+            if (string.IsNullOrWhiteSpace(xText))
+            {
+                xText = Environment.GetEnvironmentVariable("AION_KMBOX_CLICK_X");
+            }
+
+            if (string.IsNullOrWhiteSpace(yText))
+            {
+                yText = Environment.GetEnvironmentVariable("AION_KMBOX_CLICK_Y");
+            }
+
+            return !string.IsNullOrWhiteSpace(xText) &&
+                   !string.IsNullOrWhiteSpace(yText) &&
+                   int.TryParse(xText.Trim(), out x) &&
+                   int.TryParse(yText.Trim(), out y);
+        }
+
+        private static bool ExecuteKmBoxFixedLeftClick(
+            KmBoxClient km,
+            int x,
+            int y,
+            string moveMode,
+            int screenWidth,
+            int screenHeight,
+            bool zeroBeforeMove,
+            int zeroSettleMs,
+            int moveDx,
+            int moveDy,
+            int holdMs,
+            int settleMs,
+            bool debugRead,
+            int debugReadMs)
+        {
+            if (IsKmBoxAbsoluteMoveMode(moveMode))
+            {
+                SendKmBoxBPlusAbsoluteMove(km, x, y, screenWidth, screenHeight, zeroBeforeMove, zeroSettleMs, debugRead, debugReadMs);
+            }
+            else if (IsKmBoxManualAbsoluteMoveMode(moveMode))
+            {
+                SendKmBoxBPlusManualAbsoluteMove(km, x, y, screenWidth, screenHeight, zeroBeforeMove, zeroSettleMs, debugRead, debugReadMs);
+            }
+            else if (string.Equals(moveMode, "relative", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("KMBox visible relative move command: km.move(" + moveDx + "," + moveDy + ")");
+                SendKmBoxCommand(km, "km.move(" + moveDx + "," + moveDy + ")", debugRead, debugReadMs);
+            }
+            else if (!string.Equals(moveMode, "none", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("Unknown KMBOX_CLICK_MOVE_MODE=" + moveMode + "; using no movement before click.");
+            }
+
+            if (settleMs > 0)
+            {
+                Thread.Sleep(settleMs);
+            }
+
+            Console.WriteLine("KMBox left click at X=" + x + " Y=" + y + ".");
+            SendKmBoxCommand(km, "km.left(1)", debugRead, debugReadMs);
+            if (holdMs > 0)
+            {
+                Thread.Sleep(holdMs);
+            }
+
+            SendKmBoxCommand(km, "km.left(0)", debugRead, debugReadMs);
+            Console.WriteLine("Clicked.");
+
+            if (string.Equals(moveMode, "relative", StringComparison.OrdinalIgnoreCase) &&
+                (moveDx != 0 || moveDy != 0))
+            {
+                Thread.Sleep(80);
+                Console.WriteLine("KMBox relative move-back command: km.move(" + (-moveDx) + "," + (-moveDy) + ")");
+                SendKmBoxCommand(km, "km.move(" + (-moveDx) + "," + (-moveDy) + ")", debugRead, debugReadMs);
+            }
+
+            return true;
+        }
+
+        private static bool IsKmBoxAbsoluteMoveMode(string moveMode)
+        {
+            return string.Equals(moveMode, "moveto", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(moveMode, "move_to", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(moveMode, "absolute", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsKmBoxManualAbsoluteMoveMode(string moveMode)
+        {
+            return string.Equals(moveMode, "manual", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(moveMode, "getpos", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(moveMode, "manual_absolute", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void SendKmBoxBPlusAbsoluteMove(
+            KmBoxClient km,
+            int x,
+            int y,
+            int screenWidth,
+            int screenHeight,
+            bool zeroBeforeMove,
+            int zeroSettleMs,
+            bool debugRead,
+            int debugReadMs)
+        {
+            string screenCommand = "km.Screen(" + screenWidth + "," + screenHeight + ")";
+            string moveCommand = "km.moveto(" + x + "," + y + ")";
+            Console.WriteLine("KMBox B+ screen command: " + screenCommand);
+            SendKmBoxCommand(km, screenCommand, debugRead, debugReadMs);
+
+            if (zeroBeforeMove)
+            {
+                Console.WriteLine("KMBox B+ zero command: km.zero()");
+                SendKmBoxCommand(km, "km.zero()", debugRead, debugReadMs);
+                if (zeroSettleMs > 0)
+                {
+                    Console.WriteLine("KMBox B+ zero settle wait: " + zeroSettleMs + "ms.");
+                    Thread.Sleep(zeroSettleMs);
+                }
+
+                if (debugRead)
+                {
+                    SendKmBoxCommand(km, "print('pos_after_zero', km.getpos())", true, debugReadMs);
+                }
+            }
+
+            Console.WriteLine("KMBox B+ absolute move command: " + moveCommand);
+            SendKmBoxCommand(km, moveCommand, debugRead, debugReadMs);
+            if (debugRead)
+            {
+                SendKmBoxCommand(km, "print('pos_after_moveto', km.getpos())", true, debugReadMs);
+            }
+        }
+
+        private static void SendKmBoxBPlusManualAbsoluteMove(
+            KmBoxClient km,
+            int x,
+            int y,
+            int screenWidth,
+            int screenHeight,
+            bool zeroBeforeMove,
+            int zeroSettleMs,
+            bool debugRead,
+            int debugReadMs)
+        {
+            string screenCommand = "km.Screen(" + screenWidth + "," + screenHeight + ")";
+            Console.WriteLine("KMBox B+ screen command: " + screenCommand);
+            SendKmBoxCommand(km, screenCommand, debugRead, debugReadMs);
+
+            if (zeroBeforeMove)
+            {
+                Console.WriteLine("KMBox B+ zero command: km.zero()");
+                SendKmBoxCommand(km, "km.zero()", debugRead, debugReadMs);
+                if (zeroSettleMs > 0)
+                {
+                    Console.WriteLine("KMBox B+ zero settle wait: " + zeroSettleMs + "ms.");
+                    Thread.Sleep(zeroSettleMs);
+                }
+            }
+
+            if (debugRead)
+            {
+                SendKmBoxCommand(km, "print('pos_before_manual', km.getpos())", true, debugReadMs);
+            }
+
+            SendKmBoxCommand(km, "p=km.getpos()", debugRead, debugReadMs);
+            string moveCommand = "km.move(" + x + "-p[0]," + y + "-p[1])";
+            Console.WriteLine("KMBox B+ manual absolute move command: p=km.getpos(); " + moveCommand);
+            SendKmBoxCommand(km, moveCommand, debugRead, debugReadMs);
+
+            if (debugRead)
+            {
+                SendKmBoxCommand(km, "print('pos_after_manual', km.getpos())", true, debugReadMs);
+            }
+        }
+
+        private static void PrepareKmBoxBPlusRepl(KmBoxClient km, bool replInterrupt, bool debugRead, int debugReadMs)
+        {
+            if (replInterrupt)
+            {
+                Console.WriteLine("KMBox B+ REPL interrupt: Ctrl+C, Ctrl+C.");
+                km.SendControlC();
+                Thread.Sleep(80);
+                km.SendControlC();
+                Thread.Sleep(120);
+                PrintKmBoxDebugRead(km, "ctrl-c", debugRead, debugReadMs);
+            }
+
+            SendKmBoxCommand(km, "import km", debugRead, debugReadMs);
+            if (debugRead)
+            {
+                SendKmBoxCommand(km, "print('KMBOX_REPL_OK')", true, debugReadMs);
+            }
+        }
+
+        private static void ReleaseKmBoxMouseButtons(KmBoxClient km, bool debugRead, int debugReadMs)
+        {
+            try
+            {
+                SendKmBoxCommand(km, "km.left(0)", debugRead, debugReadMs);
+                SendKmBoxCommand(km, "km.right(0)", debugRead, debugReadMs);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("KMBox mouse-button release failed: " + ex.Message);
+            }
+        }
+
+        private static void SendKmBoxCommand(KmBoxClient km, string command, bool debugRead, int debugReadMs)
+        {
+            km.SendRaw(command);
+            PrintKmBoxDebugRead(km, command, debugRead, debugReadMs);
+        }
+
+        private static void PrintKmBoxDebugRead(KmBoxClient km, string label, bool debugRead, int debugReadMs)
+        {
+            if (!debugRead)
+            {
+                return;
+            }
+
+            if (debugReadMs > 0)
+            {
+                Thread.Sleep(debugReadMs);
+            }
+
+            string text = km.ReadAvailable();
+            Console.WriteLine("KMBox read after " + label + ": " + FormatKmBoxReadText(text));
+        }
+
+        private static string FormatKmBoxReadText(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return "<empty>";
+            }
+
+            return text
+                .Replace("\\", "\\\\")
+                .Replace("\r", "\\r")
+                .Replace("\n", "\\n");
+        }
+
+        private static string FormatSerialPortNames()
+        {
+            try
+            {
+                string[] ports = SerialPort.GetPortNames()
+                    .OrderBy(port => port, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                return ports.Length == 0 ? "none" : string.Join(",", ports);
+            }
+            catch (Exception ex)
+            {
+                return "unavailable:" + ex.Message;
+            }
+        }
+
         private static string[] BuildVmmArgsFromEnv()
         {
             var device = Environment.GetEnvironmentVariable("VMM_DEVICE");
@@ -419,6 +853,7 @@ namespace Tool
         private const ulong ActorLevelOffset = 0x3E;
         private const ulong ActorHpPercentOffset = 0x40;
         private const ulong ActorNameOffset = 0x42;
+        private const ulong ActorInteractionStateOffset = 0x1CC;
         private const ulong ActorTargetServerObjectIdOffset = 0x358;
         private const ulong ActorAbnormalBeginOffset = 0xF18;
         private const ulong ActorAbnormalEndOffset = 0xF20;
@@ -429,6 +864,11 @@ namespace Tool
         private const ulong ActorMentalAbnormalCountOffset = 0xF3C;
         private const ulong ActorMaxHpOffset = 0x11A0;
         private const ulong ActorCurrentHpOffset = 0x11A4;
+        private const ulong ActorLootableFlagOffset = 0x11E0;
+        private const ulong ActorLootItemsBeginOffset = 0x11E8;
+        private const ulong ActorLootItemsEndOffset = 0x11F0;
+        private const ulong ActorLootItemsCapacityOffset = 0x11F8;
+        private const ulong LootItemEntrySize = 0x14;
 
         private const uint GatherObjectType = 7;
         private const ulong GatherSourceIdOffset = 0x30;
@@ -747,6 +1187,41 @@ namespace Tool
             public bool HasAggressive;
             public int Aggressive;
             public bool IsTargetingLocalPlayer;
+        }
+
+        private struct LootCorpseListEntry
+        {
+            public ushort EntityId;
+            public uint ServerObjectId;
+            public ulong Entity;
+            public ushort EntityType;
+            public ulong Actor;
+            public uint ObjectType;
+            public uint NpcTemplateId;
+            public ushort Level;
+            public string Name;
+            public bool IsCorpse;
+            public bool IsLootable;
+            public uint LootableRaw;
+            public uint InteractionState;
+            public uint CurrentHp;
+            public uint MaxHp;
+            public byte HpPercent;
+            public bool HasPosition;
+            public ulong PositionOffset;
+            public float X;
+            public float Y;
+            public float Z;
+            public bool HasDistance;
+            public double DistanceToLocalPlayer;
+            public bool IsLockedTarget;
+            public ulong LootBegin;
+            public ulong LootEnd;
+            public ulong LootCapacity;
+            public bool HasLootVector;
+            public bool HasLootItemCount;
+            public long LootItemCount;
+            public string ResolveSource;
         }
 
         private struct GatherListEntry
@@ -1611,6 +2086,80 @@ namespace Tool
             }
 
             Console.ReadKey(true);
+        }
+
+        private static void RunLootCorpseListTest(VmmProcess process, ulong gameBase)
+        {
+            double radius = ReadDoubleFromEnv("AION_LOOT_LIST_RADIUS", 120.0);
+            int limit = ReadIntFromEnv("AION_LOOT_LIST_LIMIT", 40);
+            int samples = ReadIntFromEnv("AION_LOOT_LIST_SAMPLES", 0);
+            bool includeAlive = ReadBoolFromEnv("AION_LOOT_INCLUDE_ALIVE", false);
+            bool onlyLootable = ReadBoolFromEnv("AION_LOOT_ONLY_LOOTABLE", false);
+
+            Console.WriteLine("AION loot corpse list test from runtime GameObject/Actor offsets.");
+            Console.WriteLine("Traversing ServerObject tree -> EntitySystem tree -> GameObject, reading GameObject+0x11E0 lootable and CEntity position.");
+            Console.WriteLine(
+                "Radius=" + radius.ToString("F1") +
+                ", Limit=" + limit +
+                ", Samples=" + (samples <= 0 ? "infinite" : samples.ToString()) +
+                ", IncludeAlive=" + FormatYesNo(includeAlive) +
+                ", OnlyLootable=" + FormatYesNo(onlyLootable) +
+                ". Press any key to stop.");
+            Console.WriteLine("Set AION_TEST_MODE=monsters for combat NPC list or AION_TEST_MODE=gather for gather objects.");
+
+            int sampleIndex = 0;
+            while ((samples <= 0 || sampleIndex < samples) && !IsConsoleKeyAvailable())
+            {
+                sampleIndex++;
+                List<LootCorpseListEntry> entries;
+                int scannedServerObjects;
+                int resolvedEntities;
+                int resolvedGameObjects;
+                int corpseCandidates;
+                int lootableCorpses;
+                string error;
+
+                if (TryReadLootCorpseList(
+                    process,
+                    gameBase,
+                    radius,
+                    limit,
+                    includeAlive,
+                    onlyLootable,
+                    out entries,
+                    out scannedServerObjects,
+                    out resolvedEntities,
+                    out resolvedGameObjects,
+                    out corpseCandidates,
+                    out lootableCorpses,
+                    out error))
+                {
+                    Console.WriteLine(
+                        "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                        "Rows=" + entries.Count +
+                        " ScannedServerObjects=" + scannedServerObjects +
+                        " ResolvedEntities=" + resolvedEntities +
+                        " ResolvedGameObjects=" + resolvedGameObjects +
+                        " CorpseCandidates=" + corpseCandidates +
+                        " Lootable=" + lootableCorpses);
+
+                    for (int i = 0; i < entries.Count; i++)
+                    {
+                        Console.WriteLine(FormatLootCorpseListEntry(i + 1, entries[i]));
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                }
+
+                Thread.Sleep(1500);
+            }
+
+            if (IsConsoleKeyAvailable())
+            {
+                Console.ReadKey(true);
+            }
         }
 
         private static void RunAbnormalStatusTest(VmmProcess process, ulong gameBase)
@@ -8442,6 +8991,312 @@ namespace Tool
             return true;
         }
 
+        private static bool TryReadLootCorpseList(
+            VmmProcess process,
+            ulong gameBase,
+            double radius,
+            int limit,
+            bool includeAlive,
+            bool onlyLootable,
+            out List<LootCorpseListEntry> entries,
+            out int scannedServerObjects,
+            out int resolvedEntities,
+            out int resolvedGameObjects,
+            out int corpseCandidates,
+            out int lootableCorpses,
+            out string error)
+        {
+            entries = new List<LootCorpseListEntry>();
+            scannedServerObjects = 0;
+            resolvedEntities = 0;
+            resolvedGameObjects = 0;
+            corpseCandidates = 0;
+            lootableCorpses = 0;
+            error = null;
+
+            ulong entitySystem;
+            if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out entitySystem))
+            {
+                error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
+                return false;
+            }
+
+            ulong entityTreeHeader;
+            if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out entityTreeHeader))
+            {
+                error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
+                return false;
+            }
+
+            ushort localEntityId;
+            if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out localEntityId))
+            {
+                error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
+                return false;
+            }
+
+            ushort targetEntityId = 0;
+            TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out targetEntityId);
+
+            ulong localEntity;
+            float localX = 0;
+            float localY = 0;
+            float localZ = 0;
+            ulong localPositionOffset;
+            bool hasLocalPosition =
+                TryFindEntityById(process, entityTreeHeader, localEntityId, out localEntity) &&
+                TryReadEntityPosition(process, localEntity, out localX, out localY, out localZ, out localPositionOffset);
+
+            ulong serverTreeHeader;
+            if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out serverTreeHeader) || serverTreeHeader == 0)
+            {
+                error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
+                return false;
+            }
+
+            ulong node;
+            if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out node))
+            {
+                error = "failed to read ServerObject tree begin node";
+                return false;
+            }
+
+            for (int guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
+            {
+                if (IsNilNode(process, node, serverTreeHeader))
+                {
+                    break;
+                }
+
+                scannedServerObjects++;
+
+                uint serverObjectId;
+                ushort entityId;
+                if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out serverObjectId) &&
+                    TryReadUInt16(process, node + ServerNodeEntityIdOffset, out entityId) &&
+                    entityId != 0 &&
+                    entityId != localEntityId)
+                {
+                    ulong entity;
+                    if (TryFindEntityById(process, entityTreeHeader, entityId, out entity) && entity != 0)
+                    {
+                        resolvedEntities++;
+
+                        ushort entityType;
+                        if (TryReadUInt16(process, entity + EntityTypeOffset, out entityType) &&
+                            entityType == EntityTypeNpc)
+                        {
+                            ActorInfo gameObject;
+                            if (TryResolveActorFromEntityExperimental(process, entity, serverObjectId, out gameObject))
+                            {
+                                resolvedGameObjects++;
+
+                                LootCorpseListEntry entry;
+                                if (TryReadLootCorpseInfo(
+                                    process,
+                                    gameObject,
+                                    entityType,
+                                    entityId,
+                                    serverObjectId,
+                                    targetEntityId,
+                                    hasLocalPosition,
+                                    localX,
+                                    localY,
+                                    localZ,
+                                    out entry))
+                                {
+                                    if (entry.IsCorpse)
+                                    {
+                                        corpseCandidates++;
+                                    }
+
+                                    if (entry.IsLootable)
+                                    {
+                                        lootableCorpses++;
+                                    }
+
+                                    bool includeEntry =
+                                        (includeAlive || entry.IsCorpse) &&
+                                        (!onlyLootable || entry.IsLootable);
+
+                                    if (includeEntry &&
+                                        (radius <= 0 ||
+                                         !entry.HasDistance ||
+                                         entry.DistanceToLocalPlayer <= radius ||
+                                         entry.IsLockedTarget))
+                                    {
+                                        entries.Add(entry);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ulong next;
+                if (!TryGetNextTreeNode(process, serverTreeHeader, node, out next) || next == node)
+                {
+                    break;
+                }
+
+                node = next;
+            }
+
+            entries.Sort(delegate (LootCorpseListEntry left, LootCorpseListEntry right)
+            {
+                if (left.IsLockedTarget != right.IsLockedTarget)
+                {
+                    return left.IsLockedTarget ? -1 : 1;
+                }
+
+                if (left.IsLootable != right.IsLootable)
+                {
+                    return left.IsLootable ? -1 : 1;
+                }
+
+                if (left.IsCorpse != right.IsCorpse)
+                {
+                    return left.IsCorpse ? -1 : 1;
+                }
+
+                if (left.HasDistance != right.HasDistance)
+                {
+                    return left.HasDistance ? -1 : 1;
+                }
+
+                if (left.HasDistance && right.HasDistance)
+                {
+                    return left.DistanceToLocalPlayer.CompareTo(right.DistanceToLocalPlayer);
+                }
+
+                return left.ServerObjectId.CompareTo(right.ServerObjectId);
+            });
+
+            if (limit > 0 && entries.Count > limit)
+            {
+                entries.RemoveRange(limit, entries.Count - limit);
+            }
+
+            return true;
+        }
+
+        private static bool TryReadLootCorpseInfo(
+            VmmProcess process,
+            ActorInfo gameObject,
+            ushort entityType,
+            ushort entityId,
+            uint fallbackServerObjectId,
+            ushort targetEntityId,
+            bool hasLocalPosition,
+            float localX,
+            float localY,
+            float localZ,
+            out LootCorpseListEntry entry)
+        {
+            entry = new LootCorpseListEntry
+            {
+                EntityId = entityId,
+                ServerObjectId = gameObject.ServerObjectId != 0 ? gameObject.ServerObjectId : fallbackServerObjectId,
+                Entity = gameObject.Entity,
+                EntityType = entityType,
+                Actor = gameObject.Actor,
+                ObjectType = gameObject.ObjectType,
+                NpcTemplateId = gameObject.NpcTemplateId,
+                Level = gameObject.Level,
+                Name = gameObject.Name ?? string.Empty,
+                CurrentHp = gameObject.CurrentHp,
+                MaxHp = gameObject.MaxHp,
+                HpPercent = gameObject.HpPercent,
+                IsLockedTarget = entityId != 0 && entityId == targetEntityId,
+                ResolveSource = gameObject.ResolveSource
+            };
+
+            if (gameObject.Actor == 0 || gameObject.Entity == 0)
+            {
+                return false;
+            }
+
+            TryReadUInt32(process, gameObject.Actor + ActorInteractionStateOffset, out entry.InteractionState);
+
+            uint lootableRaw;
+            if (TryReadUInt32(process, gameObject.Actor + ActorLootableFlagOffset, out lootableRaw))
+            {
+                entry.LootableRaw = lootableRaw;
+                entry.IsLootable = lootableRaw != 0;
+            }
+
+            ulong lootBegin;
+            ulong lootEnd;
+            ulong lootCapacity;
+            if (TryReadUInt64(process, gameObject.Actor + ActorLootItemsBeginOffset, out lootBegin) &&
+                TryReadUInt64(process, gameObject.Actor + ActorLootItemsEndOffset, out lootEnd) &&
+                TryReadUInt64(process, gameObject.Actor + ActorLootItemsCapacityOffset, out lootCapacity))
+            {
+                entry.HasLootVector = true;
+                entry.LootBegin = lootBegin;
+                entry.LootEnd = lootEnd;
+                entry.LootCapacity = lootCapacity;
+
+                long lootItemCount;
+                if (TryCalculateLootItemCount(lootBegin, lootEnd, out lootItemCount))
+                {
+                    entry.HasLootItemCount = true;
+                    entry.LootItemCount = lootItemCount;
+                }
+            }
+
+            if (TryReadEntityPosition(process, gameObject.Entity, out entry.X, out entry.Y, out entry.Z, out entry.PositionOffset) &&
+                IsReasonablePosition(entry.X, entry.Y, entry.Z))
+            {
+                entry.HasPosition = true;
+            }
+
+            if (hasLocalPosition && entry.HasPosition)
+            {
+                double dx = entry.X - localX;
+                double dy = entry.Y - localY;
+                double dz = entry.Z - localZ;
+                entry.HasDistance = true;
+                entry.DistanceToLocalPlayer = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            }
+
+            bool deadByHp = entry.MaxHp > 0 && (entry.CurrentHp == 0 || entry.HpPercent == 0);
+            bool hasLootItems = entry.HasLootItemCount && entry.LootItemCount > 0;
+            entry.IsCorpse = deadByHp || entry.IsLootable || hasLootItems;
+
+            return true;
+        }
+
+        private static bool TryCalculateLootItemCount(ulong begin, ulong end, out long count)
+        {
+            count = 0;
+
+            if (begin == 0 && end == 0)
+            {
+                return true;
+            }
+
+            if (begin == 0 || end < begin)
+            {
+                return false;
+            }
+
+            ulong byteCount = end - begin;
+            if (byteCount % LootItemEntrySize != 0)
+            {
+                return false;
+            }
+
+            ulong itemCount = byteCount / LootItemEntrySize;
+            if (itemCount > 10000)
+            {
+                return false;
+            }
+
+            count = (long)itemCount;
+            return true;
+        }
+
         private static bool TryReadGatherList(
             VmmProcess process,
             ulong gameBase,
@@ -11300,6 +12155,63 @@ namespace Tool
             return string.IsNullOrWhiteSpace(value) ? "n/a" : value;
         }
 
+        private static string FormatLootCorpseListEntry(int index, LootCorpseListEntry entry)
+        {
+            return "#" + index.ToString("00") +
+                   (entry.IsLockedTarget ? " [TARGET]" : string.Empty) +
+                   " Dist=" + (entry.HasDistance ? entry.DistanceToLocalPlayer.ToString("F2") : "n/a") +
+                   " EntityId=" + entry.EntityId +
+                   " ServerId=" + entry.ServerObjectId +
+                   " CEntityType=" + entry.EntityType +
+                   " Entity=" + FormatAddress(entry.Entity) +
+                   " Actor=" + FormatAddress(entry.Actor) +
+                   " ObjType=" + entry.ObjectType +
+                   " TemplateId=" + entry.NpcTemplateId +
+                   " Level=" + entry.Level +
+                   " Name=\"" + entry.Name + "\"" +
+                   " Corpse=" + FormatYesNo(entry.IsCorpse) +
+                   " Lootable=" + FormatYesNo(entry.IsLootable) +
+                   " LootableRaw=0x" + entry.LootableRaw.ToString("X8") +
+                   " InteractionState=0x" + entry.InteractionState.ToString("X8") +
+                   " HP=" + entry.CurrentHp + "/" + entry.MaxHp +
+                   " HpPercent=" + entry.HpPercent +
+                   " LootCount=" + FormatLootItemCount(entry) +
+                   " LootVector=" + FormatLootVector(entry) +
+                   " Locked=" + FormatYesNo(entry.IsLockedTarget) +
+                   " Pos=" + FormatLootCorpsePosition(entry) +
+                   " Source=" + entry.ResolveSource;
+        }
+
+        private static string FormatLootCorpsePosition(LootCorpseListEntry entry)
+        {
+            if (!entry.HasPosition)
+            {
+                return "n/a";
+            }
+
+            return "X=" + entry.X.ToString("F2") +
+                   " Y=" + entry.Y.ToString("F2") +
+                   " Z=" + entry.Z.ToString("F2") +
+                   " Offset=0x" + entry.PositionOffset.ToString("X");
+        }
+
+        private static string FormatLootItemCount(LootCorpseListEntry entry)
+        {
+            return entry.HasLootItemCount ? entry.LootItemCount.ToString() : "n/a";
+        }
+
+        private static string FormatLootVector(LootCorpseListEntry entry)
+        {
+            if (!entry.HasLootVector)
+            {
+                return "n/a";
+            }
+
+            return FormatAddress(entry.LootBegin) +
+                   "-" + FormatAddress(entry.LootEnd) +
+                   "/" + FormatAddress(entry.LootCapacity);
+        }
+
         private static string FormatGatherListEntry(int index, GatherListEntry entry)
         {
             return "#" + index.ToString("00") +
@@ -12932,6 +13844,19 @@ namespace Tool
             double value;
             if (!string.IsNullOrWhiteSpace(text) &&
                 double.TryParse(text, out value))
+            {
+                return value;
+            }
+
+            return defaultValue;
+        }
+
+        private static int ReadSignedIntFromEnv(string name, int defaultValue)
+        {
+            string text = Environment.GetEnvironmentVariable(name);
+            int value;
+            if (!string.IsNullOrWhiteSpace(text) &&
+                int.TryParse(text, out value))
             {
                 return value;
             }
