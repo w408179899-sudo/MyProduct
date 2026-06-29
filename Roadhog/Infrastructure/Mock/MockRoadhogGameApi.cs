@@ -35,7 +35,9 @@ public sealed class MockRoadhogGameApi : IRoadhogGameApi
             100,
             new Vector3Snapshot(1307.5F, 2838.2F, 258.9F),
             5.6D,
-            DateTimeOffset.Now);
+            DateTimeOffset.Now,
+            10001,
+            true);
 
         return Task.FromResult(OperationResult<LockedTargetSnapshot>.Ok(snapshot));
     }

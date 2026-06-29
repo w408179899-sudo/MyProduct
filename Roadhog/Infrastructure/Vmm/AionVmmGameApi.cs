@@ -2057,14 +2057,21 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         }
 
         if (TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) &&
-            TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity) &&
-            TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ) &&
-            info.Position is { } targetPosition)
+            TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity))
         {
-            var dx = targetPosition.X - localX;
-            var dy = targetPosition.Y - localY;
-            var dz = targetPosition.Z - localZ;
-            info.DistanceToLocalPlayer = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            if (TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ) &&
+                info.Position is { } targetPosition)
+            {
+                var dx = targetPosition.X - localX;
+                var dy = targetPosition.Y - localY;
+                var dz = targetPosition.Z - localZ;
+                info.DistanceToLocalPlayer = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            }
+
+            if (TryResolveActorFromEntity(process, localEntity, 0, out var localActor))
+            {
+                info.LocalServerObjectId = localActor.ServerObjectId;
+            }
         }
 
         if (TryResolveActorFromEntity(process, info.Entity, info.ServerObjectId, out var actor))
@@ -2292,6 +2299,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             return LockedTargetSnapshot.Empty(DateTimeOffset.Now);
         }
 
+        var targetServerObjectId = info.Actor?.TargetServerObjectId ?? 0;
         return new LockedTargetSnapshot(
             info.TargetEntityId,
             info.Actor?.ServerObjectId ?? info.ServerObjectId,
@@ -2302,7 +2310,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             info.Actor?.MaxHp ?? 0,
             info.Position,
             info.DistanceToLocalPlayer,
-            DateTimeOffset.Now);
+            DateTimeOffset.Now,
+            targetServerObjectId,
+            info.LocalServerObjectId != 0 && targetServerObjectId == info.LocalServerObjectId);
     }
 
     private static bool TryReadWorldObjects(
@@ -3179,6 +3189,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     {
         public ushort TargetEntityId;
         public uint ServerObjectId;
+        public uint LocalServerObjectId;
         public ulong Entity;
         public ushort EntityType;
         public Vector3Snapshot? Position;

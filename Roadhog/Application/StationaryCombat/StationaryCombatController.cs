@@ -221,7 +221,14 @@ public sealed class StationaryCombatController
                 return IdleDelay;
             }
 
-            target = await SelectTargetAsync(context, state, playerPosition, home, radius).ConfigureAwait(false);
+            target = await SelectTargetAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    home,
+                    radius,
+                    combat.ContestMonster)
+                .ConfigureAwait(false);
         }
 
         if (target?.Position is null)
@@ -282,7 +289,9 @@ public sealed class StationaryCombatController
                     semiAutoState,
                     state,
                     target,
-                    lockedResult)
+                    lockedResult,
+                    home,
+                    radius)
                 .ConfigureAwait(false);
         }
 
@@ -293,7 +302,10 @@ public sealed class StationaryCombatController
                 state,
                 target,
                 lockedResult,
-                "pre_move")
+                home,
+                radius,
+                allowLockedFallback: false,
+                phase: "pre_move")
             .ConfigureAwait(false);
         if (acquiredDelay is not null)
         {
@@ -320,7 +332,7 @@ public sealed class StationaryCombatController
         }
 
         await StopMovementAsync(context, state).ConfigureAwait(false);
-        return await TickAcquireAsync(context, plan, semiAutoState, state, target).ConfigureAwait(false);
+        return await TickAcquireAsync(context, plan, semiAutoState, state, target, home, radius).ConfigureAwait(false);
     }
 
     public async Task<TimeSpan?> TickPlayerLifeGuardAsync(
@@ -1217,6 +1229,22 @@ public sealed class StationaryCombatController
                 .ConfigureAwait(false);
         }
 
+        var claimedDelay = await TryIgnoreClaimedLockedTargetAsync(
+                context,
+                semiAutoState,
+                state,
+                target)
+            .ConfigureAwait(false);
+        if (claimedDelay is not null)
+        {
+            return claimedDelay.Value;
+        }
+
+        if (target.IsTargetingLocalPlayer)
+        {
+            state.CurrentTargetIsMaintenanceDefense = true;
+        }
+
         if (IsTargetTimedOut(state, now))
         {
             return await IgnoreCurrentTargetAsync(
@@ -1254,6 +1282,18 @@ public sealed class StationaryCombatController
                     targetResult,
                     "target_outside_leash")
                 .ConfigureAwait(false);
+        }
+
+        var openingDelay = await TryWaitForLockedTargetToTargetPlayerAsync(
+                context,
+                semiAutoState,
+                state,
+                target,
+                "fight")
+            .ConfigureAwait(false);
+        if (openingDelay is not null)
+        {
+            return openingDelay.Value;
         }
 
         await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -1596,6 +1636,18 @@ public sealed class StationaryCombatController
             return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
         }
 
+        if (!AllowsClaimedTargets(context) && IsClaimedByOther(target))
+        {
+            return await IgnoreCurrentTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    target.EntityId,
+                    target.Name,
+                    "target_owned_by_other")
+                .ConfigureAwait(false);
+        }
+
         if (!IsCurrentFightTargetStillSelectable(target, home, radius, state.CurrentTargetIsMaintenanceDefense))
         {
             return await WaitForCurrentFightTargetAsync(
@@ -1627,7 +1679,7 @@ public sealed class StationaryCombatController
             ["error"] = lockedResult.Error
         }, TimeSpan.FromMilliseconds(500));
 
-        return await TickAcquireAsync(context, plan, semiAutoState, state, target).ConfigureAwait(false);
+        return await TickAcquireAsync(context, plan, semiAutoState, state, target, home, radius).ConfigureAwait(false);
     }
 
     private async Task<TimeSpan> WaitForCurrentFightTargetAsync(
@@ -1667,7 +1719,9 @@ public sealed class StationaryCombatController
         SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
-        WorldObjectSnapshot target)
+        WorldObjectSnapshot target,
+        Vector3Snapshot home,
+        double radius)
     {
         var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         if (state.IsPendingTabCandidate(target.EntityId))
@@ -1678,7 +1732,9 @@ public sealed class StationaryCombatController
                     semiAutoState,
                     state,
                     target,
-                    lockedResult)
+                    lockedResult,
+                    home,
+                    radius)
                 .ConfigureAwait(false);
         }
 
@@ -1689,7 +1745,10 @@ public sealed class StationaryCombatController
                 state,
                 target,
                 lockedResult,
-                "pre_tab")
+                home,
+                radius,
+                allowLockedFallback: false,
+                phase: "pre_tab")
             .ConfigureAwait(false);
         if (acquiredDelay is not null)
         {
@@ -1713,7 +1772,7 @@ public sealed class StationaryCombatController
                 ["error"] = lockedResult.Error
             }, TimeSpan.FromMilliseconds(500));
 
-            return await PressTabAndVerifyAsync(context, plan, semiAutoState, state, target).ConfigureAwait(false);
+            return await PressTabAndVerifyAsync(context, plan, semiAutoState, state, target, lockedResult, home, radius).ConfigureAwait(false);
         }
 
         return MoveTickDelay;
@@ -1725,7 +1784,9 @@ public sealed class StationaryCombatController
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         WorldObjectSnapshot target,
-        OperationResult<LockedTargetSnapshot> lockedResult)
+        OperationResult<LockedTargetSnapshot> lockedResult,
+        Vector3Snapshot home,
+        double radius)
     {
         var acquiredDelay = await VerifyPendingTabTargetAsync(
                 context,
@@ -1734,6 +1795,8 @@ public sealed class StationaryCombatController
                 state,
                 target,
                 lockedResult,
+                home,
+                radius,
                 delayMs: 0)
             .ConfigureAwait(false);
         if (acquiredDelay is not null)
@@ -1749,7 +1812,7 @@ public sealed class StationaryCombatController
 
         if (now - state.LastTabAt >= TabInterval)
         {
-            return await PressTabAndVerifyAsync(context, plan, semiAutoState, state, target).ConfigureAwait(false);
+            return await PressTabAndVerifyAsync(context, plan, semiAutoState, state, target, lockedResult, home, radius).ConfigureAwait(false);
         }
 
         return MoveTickDelay;
@@ -1760,7 +1823,10 @@ public sealed class StationaryCombatController
         SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
-        WorldObjectSnapshot target)
+        WorldObjectSnapshot target,
+        OperationResult<LockedTargetSnapshot> lockedBeforeResult,
+        Vector3Snapshot home,
+        double radius)
     {
         var now = DateTimeOffset.Now;
         state.LastTabAt = now;
@@ -1782,12 +1848,14 @@ public sealed class StationaryCombatController
 
         state.StartPendingTabVerification(
             target.EntityId,
-            DateTimeOffset.Now + TimeSpan.FromMilliseconds(verifyWindowMs));
+            DateTimeOffset.Now + TimeSpan.FromMilliseconds(verifyWindowMs),
+            lockedBeforeResult.Value?.TargetEntityId ?? 0);
         context.Logger.Info("stationary_combat.tab.pressed", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["candidateEntityId"] = target.EntityId,
             ["candidateName"] = target.Name,
+            ["previousLockedEntityId"] = lockedBeforeResult.Value?.TargetEntityId ?? 0,
             ["verifyWindowMs"] = verifyWindowMs
         });
 
@@ -1796,7 +1864,9 @@ public sealed class StationaryCombatController
                 plan,
                 semiAutoState,
                 state,
-                target)
+                target,
+                home,
+                radius)
             .ConfigureAwait(false);
     }
 
@@ -1805,7 +1875,9 @@ public sealed class StationaryCombatController
         SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
-        WorldObjectSnapshot target)
+        WorldObjectSnapshot target,
+        Vector3Snapshot home,
+        double radius)
     {
         var verifyDelayMs = ReadTabVerifyDelayMs();
         var pollMs = ReadTabVerifyPollMs();
@@ -1819,6 +1891,8 @@ public sealed class StationaryCombatController
                     state,
                     target,
                     lockedResult,
+                    home,
+                    radius,
                     delayMs: 0)
                 .ConfigureAwait(false);
             return acquiredDelay ?? MoveTickDelay;
@@ -1839,6 +1913,8 @@ public sealed class StationaryCombatController
                     state,
                     target,
                     lockedResult,
+                    home,
+                    radius,
                     elapsedMs)
                 .ConfigureAwait(false);
             if (acquiredDelay is not null)
@@ -1857,6 +1933,8 @@ public sealed class StationaryCombatController
         StationaryCombatState state,
         WorldObjectSnapshot target,
         OperationResult<LockedTargetSnapshot> lockedResult,
+        Vector3Snapshot home,
+        double radius,
         int delayMs)
     {
         LogTabVerify(context, state, target, lockedResult, delayMs);
@@ -1867,14 +1945,33 @@ public sealed class StationaryCombatController
                 lockedResult,
                 delayMs)
             .ConfigureAwait(false);
-        return await TryAcquireLockedTargetAsync(
+        var acquiredDelay = await TryAcquireLockedTargetAsync(
                 context,
                 plan,
                 semiAutoState,
                 state,
                 target,
                 lockedResult,
-                "after_tab")
+                home,
+                radius,
+                allowLockedFallback: false,
+                phase: "after_tab")
+            .ConfigureAwait(false);
+        if (acquiredDelay is not null)
+        {
+            return acquiredDelay.Value;
+        }
+
+        return await TryHandleUnchangedWrongLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedResult,
+                home,
+                radius,
+                delayMs)
             .ConfigureAwait(false);
     }
 
@@ -1923,6 +2020,98 @@ public sealed class StationaryCombatController
         });
     }
 
+    private async Task<TimeSpan?> TryHandleUnchangedWrongLockedTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        OperationResult<LockedTargetSnapshot> lockedResult,
+        Vector3Snapshot home,
+        double radius,
+        int delayMs)
+    {
+        if (!lockedResult.Success ||
+            lockedResult.Value is not { IsMonsterAlive: true } lockedTarget ||
+            lockedTarget.TargetEntityId == 0 ||
+            lockedTarget.TargetEntityId == target.EntityId ||
+            state.PendingTabPreviousLockedEntityId == 0 ||
+            state.PendingTabPreviousLockedEntityId != lockedTarget.TargetEntityId)
+        {
+            return null;
+        }
+
+        var lockedWorldTarget = await FindSelectableLockedWorldTargetAsync(
+                context,
+                state,
+                lockedTarget,
+                home,
+                radius)
+            .ConfigureAwait(false);
+        if (lockedWorldTarget is null)
+        {
+            return null;
+        }
+
+        if (state.HasWrongLockNudge(target.EntityId, lockedTarget.TargetEntityId))
+        {
+            return await TryAcquireLockedTargetAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    target,
+                    lockedResult,
+                    home,
+                    radius,
+                    allowLockedFallback: true,
+                    phase: "after_tab_fallback")
+                .ConfigureAwait(false);
+        }
+
+        if (!state.TryMarkPendingTabWrongLockNudged())
+        {
+            return null;
+        }
+
+        var holdMs = ReadTabWrongLockNudgeKeyHoldMs();
+        var result = await _input
+            .PressKeyAsync("W", TimeSpan.FromMilliseconds(holdMs), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            context.Logger.Warn("stationary_combat.tab.wrong_lock_nudge_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["candidateEntityId"] = target.EntityId,
+                ["candidateName"] = target.Name,
+                ["lockedEntityId"] = lockedTarget.TargetEntityId,
+                ["lockedName"] = lockedTarget.Name,
+                ["delayMs"] = delayMs,
+                ["holdMs"] = holdMs,
+                ["error"] = result.Error
+            });
+            return MoveTickDelay;
+        }
+
+        state.MarkWrongLockNudged(target.EntityId, lockedTarget.TargetEntityId);
+        state.ClearPendingTabVerification();
+        state.LastTabAt = DateTimeOffset.MinValue;
+        context.Logger.Info("stationary_combat.tab.wrong_lock_nudge_pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["candidateEntityId"] = target.EntityId,
+            ["candidateName"] = target.Name,
+            ["lockedEntityId"] = lockedTarget.TargetEntityId,
+            ["lockedName"] = lockedTarget.Name,
+            ["lockedWorldName"] = lockedWorldTarget.Name,
+            ["delayMs"] = delayMs,
+            ["holdMs"] = holdMs
+        });
+
+        return MoveTickDelay;
+    }
+
     private static void LogTabVerify(
         AccountWorkerContext context,
         StationaryCombatState state,
@@ -1944,6 +2133,10 @@ public sealed class StationaryCombatController
             ["matched"] = lockedResult.Success &&
                           lockedResult.Value is { IsMonsterAlive: true } lockedTarget &&
                           lockedTarget.TargetEntityId == target.EntityId,
+            ["previousLockedEntityId"] = state.PendingTabPreviousLockedEntityId,
+            ["wrongLockNudged"] = state.HasWrongLockNudge(
+                target.EntityId,
+                lockedResult.Value?.TargetEntityId ?? 0),
             ["pendingUntil"] = state.PendingTabVerifyUntil,
             ["error"] = lockedResult.Error
         });
@@ -1956,33 +2149,222 @@ public sealed class StationaryCombatController
         StationaryCombatState state,
         WorldObjectSnapshot target,
         OperationResult<LockedTargetSnapshot> lockedResult,
+        Vector3Snapshot home,
+        double radius,
+        bool allowLockedFallback,
         string phase)
     {
         if (!lockedResult.Success ||
-            lockedResult.Value is not { IsMonsterAlive: true } lockedTarget ||
-            lockedTarget.TargetEntityId != target.EntityId)
+            lockedResult.Value is not { IsMonsterAlive: true } lockedTarget)
         {
             return null;
         }
 
+        var acquiredTarget = target;
+        if (lockedTarget.TargetEntityId != target.EntityId)
+        {
+            if (state.Fighting)
+            {
+                return null;
+            }
+
+            if (!allowLockedFallback)
+            {
+                return null;
+            }
+
+            var switchedTarget = await TrySwitchCandidateToLockedTargetAsync(
+                    context,
+                    state,
+                    target,
+                    lockedTarget,
+                    home,
+                    radius,
+                    phase)
+                .ConfigureAwait(false);
+            if (switchedTarget is null)
+            {
+                return null;
+            }
+
+            acquiredTarget = switchedTarget;
+        }
+
         state.Fighting = true;
-        state.CurrentTargetEntityId = target.EntityId;
-        state.CurrentTargetIsMaintenanceDefense = target.IsTargetingLocalPlayer;
-        state.MarkCandidate(target.EntityId, DateTimeOffset.Now);
+        state.CurrentTargetEntityId = acquiredTarget.EntityId;
+        state.CurrentTargetIsMaintenanceDefense = acquiredTarget.IsTargetingLocalPlayer;
+        state.MarkCandidate(acquiredTarget.EntityId, DateTimeOffset.Now);
         state.ClearPendingTabVerification();
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
+        var effectiveTargetServerObjectId = lockedTarget.TargetServerObjectId != 0
+            ? lockedTarget.TargetServerObjectId
+            : acquiredTarget.TargetServerObjectId;
+        var effectiveTargetingMe = lockedTarget.IsTargetingLocalPlayer || acquiredTarget.IsTargetingLocalPlayer;
+        var effectiveLockedTarget = lockedTarget with
+        {
+            TargetServerObjectId = effectiveTargetServerObjectId,
+            IsTargetingLocalPlayer = effectiveTargetingMe
+        };
+        state.CurrentTargetIsMaintenanceDefense = effectiveTargetingMe;
         context.Logger.Info("stationary_combat.target.acquired", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
-            ["targetEntityId"] = target.EntityId,
-            ["targetName"] = target.Name,
+            ["targetEntityId"] = acquiredTarget.EntityId,
+            ["targetName"] = acquiredTarget.Name,
             ["phase"] = phase,
-            ["targetingMe"] = target.IsTargetingLocalPlayer,
-            ["targetServerObjectId"] = target.TargetServerObjectId
+            ["targetingMe"] = effectiveTargetingMe,
+            ["targetServerObjectId"] = effectiveTargetServerObjectId
         });
+        var claimedDelay = await TryIgnoreClaimedLockedTargetAsync(
+                context,
+                semiAutoState,
+                state,
+                effectiveLockedTarget)
+            .ConfigureAwait(false);
+        if (claimedDelay is not null)
+        {
+            return claimedDelay.Value;
+        }
+
+        var openingDelay = await TryWaitForLockedTargetToTargetPlayerAsync(
+                context,
+                semiAutoState,
+                state,
+                effectiveLockedTarget,
+                phase)
+            .ConfigureAwait(false);
+        if (openingDelay is not null)
+        {
+            return openingDelay.Value;
+        }
+
         return await _semiAuto
             .TickAsync(context, plan, semiAutoState, requireCooldownCalibrationForMaintenance: true)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<WorldObjectSnapshot?> TrySwitchCandidateToLockedTargetAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        WorldObjectSnapshot candidate,
+        LockedTargetSnapshot lockedTarget,
+        Vector3Snapshot home,
+        double radius,
+        string phase)
+    {
+        var lockedWorldTarget = await FindSelectableLockedWorldTargetAsync(
+                context,
+                state,
+                lockedTarget,
+                home,
+                radius)
+            .ConfigureAwait(false);
+        if (lockedWorldTarget is null)
+        {
+            LogActionThrottled(context, state, "stationary_combat.target.locked_switch_rejected", "locked_switch:" + candidate.EntityId + ":" + lockedTarget.TargetEntityId, new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["phase"] = phase,
+                ["candidateEntityId"] = candidate.EntityId,
+                ["candidateName"] = candidate.Name,
+                ["lockedEntityId"] = lockedTarget.TargetEntityId,
+                ["lockedName"] = lockedTarget.Name,
+                ["lockedAlive"] = lockedTarget.IsMonsterAlive,
+                ["lockedHp"] = lockedTarget.CurrentHp,
+                ["lockedInWorldObjects"] = false
+            }, TimeSpan.FromMilliseconds(500));
+            return null;
+        }
+
+        context.Logger.Info("stationary_combat.target.switched_to_locked", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["phase"] = phase,
+            ["candidateEntityId"] = candidate.EntityId,
+            ["candidateName"] = candidate.Name,
+            ["lockedEntityId"] = lockedTarget.TargetEntityId,
+            ["lockedName"] = lockedTarget.Name,
+            ["lockedTargetServerObjectId"] = lockedTarget.TargetServerObjectId,
+            ["lockedTargetingMe"] = lockedTarget.IsTargetingLocalPlayer,
+            ["worldTargetServerObjectId"] = lockedWorldTarget.TargetServerObjectId,
+            ["worldTargetingMe"] = lockedWorldTarget.IsTargetingLocalPlayer
+        });
+
+        return lockedWorldTarget;
+    }
+
+    private async Task<WorldObjectSnapshot?> FindSelectableLockedWorldTargetAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        LockedTargetSnapshot lockedTarget,
+        Vector3Snapshot home,
+        double radius)
+    {
+        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh: true).ConfigureAwait(false);
+        var lockedWorldTarget = objects.FirstOrDefault(target => target.EntityId == lockedTarget.TargetEntityId);
+        return IsCandidateStillSelectable(
+                lockedWorldTarget,
+                home,
+                radius,
+                allowClaimedByOther: true)
+            ? lockedWorldTarget
+            : null;
+    }
+
+    private async Task<TimeSpan?> TryIgnoreClaimedLockedTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        LockedTargetSnapshot target)
+    {
+        if (AllowsClaimedTargets(context) || !IsClaimedByOther(target))
+        {
+            return null;
+        }
+
+        return await IgnoreCurrentTargetAsync(
+                context,
+                semiAutoState,
+                state,
+                target.TargetEntityId,
+                target.Name,
+                "target_owned_by_other")
+            .ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan?> TryWaitForLockedTargetToTargetPlayerAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        LockedTargetSnapshot target,
+        string phase)
+    {
+        if (target.IsTargetingLocalPlayer)
+        {
+            semiAutoState.MarkOpeningAttackKeyAttempted(target);
+            return null;
+        }
+
+        if (AllowsClaimedTargets(context) || !IsAttackKeyLoopEnabled(context))
+        {
+            semiAutoState.MarkOpeningAttackKeyAttempted(target);
+            return null;
+        }
+
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
+        LogActionThrottled(context, state, "stationary_combat.opening_attack.wait_targeting", "target:" + target.TargetEntityId, new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = target.TargetEntityId,
+            ["targetName"] = target.Name,
+            ["phase"] = phase,
+            ["targetServerObjectId"] = target.TargetServerObjectId
+        }, TimeSpan.FromMilliseconds(500));
+
+        return await _semiAuto
+            .TickOpeningAttackKeyLoopAsync(context, semiAutoState, target)
             .ConfigureAwait(false);
     }
 
@@ -2073,7 +2455,8 @@ public sealed class StationaryCombatController
         StationaryCombatState state,
         Vector3Snapshot playerPosition,
         Vector3Snapshot home,
-        double radius)
+        double radius,
+        bool allowClaimedByOther)
     {
         var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
 
@@ -2081,15 +2464,33 @@ public sealed class StationaryCombatController
         {
             var candidate = objects.FirstOrDefault(
                 target => target.EntityId == state.CandidateEntityId);
+            if (!allowClaimedByOther && candidate is not null && IsClaimedByOther(candidate))
+            {
+                state.IgnoreTarget(candidate.EntityId);
+                LogActionThrottled(context, state, "stationary_combat.target.claimed_by_other", "candidate:" + candidate.EntityId, new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["targetEntityId"] = candidate.EntityId,
+                    ["targetName"] = candidate.Name,
+                    ["targetServerObjectId"] = candidate.TargetServerObjectId
+                }, TimeSpan.FromMilliseconds(500));
+            }
+
             if (!state.IsTargetIgnored(state.CandidateEntityId) &&
-                IsCandidateStillSelectable(candidate, home, radius))
+                IsCandidateStillSelectable(candidate, home, radius, allowClaimedByOther))
             {
                 return candidate;
             }
         }
 
+        var candidates = objects.Where(target => !state.IsTargetIgnored(target.EntityId));
+        if (!allowClaimedByOther)
+        {
+            candidates = candidates.Where(target => !IsClaimedByOther(target));
+        }
+
         return StationaryCombatTargetSelector.SelectNearest(
-            objects.Where(target => !state.IsTargetIgnored(target.EntityId)),
+            candidates,
             playerPosition,
             home,
             radius);
@@ -2145,10 +2546,12 @@ public sealed class StationaryCombatController
     private static bool IsCandidateStillSelectable(
         WorldObjectSnapshot? candidate,
         Vector3Snapshot home,
-        double radius)
+        double radius,
+        bool allowClaimedByOther)
     {
         return candidate is { Position: not null } target &&
                StationaryCombatTargetSelector.IsSelectableMonster(target) &&
+               (allowClaimedByOther || !IsClaimedByOther(target)) &&
                (target.IsTargetingLocalPlayer ||
                 StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) <= radius);
     }
@@ -2164,6 +2567,26 @@ public sealed class StationaryCombatController
                (currentTargetIsMaintenanceDefense ||
                 target.IsTargetingLocalPlayer ||
                 StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) <= radius + TargetLeashExtraDistance);
+    }
+
+    private static bool AllowsClaimedTargets(AccountWorkerContext context)
+    {
+        return context.Config.ScriptSettings?.Combat?.ContestMonster == true;
+    }
+
+    private static bool IsAttackKeyLoopEnabled(AccountWorkerContext context)
+    {
+        return context.Config.ScriptSettings?.SemiAuto?.AttackKeyLoopEnabled == true;
+    }
+
+    private static bool IsClaimedByOther(WorldObjectSnapshot target)
+    {
+        return target.TargetServerObjectId != 0 && !target.IsTargetingLocalPlayer;
+    }
+
+    private static bool IsClaimedByOther(LockedTargetSnapshot target)
+    {
+        return target.TargetServerObjectId != 0 && !target.IsTargetingLocalPlayer;
     }
 
     private async Task PathFollowStepAsync(
@@ -2349,7 +2772,8 @@ public sealed class StationaryCombatController
                 ["targetYaw"] = Math.Round(snapshot.TargetYaw, 2),
                 ["yawError"] = Math.Round(snapshot.YawError, 2),
                 ["currentPitch"] = Math.Round(snapshot.CurrentPitch, 2),
-                ["targetPitch"] = Math.Round(options.TargetPitchDegrees, 2),
+                ["worldPitch"] = Math.Round(snapshot.WorldPitch, 2),
+                ["targetPitch"] = Math.Round(snapshot.TargetPitch, 2),
                 ["pitchError"] = Math.Round(snapshot.PitchError, 2),
                 ["yawTolerance"] = Math.Round(options.YawToleranceDegrees, 2),
                 ["pitchTolerance"] = Math.Round(options.PitchToleranceDegrees, 2)
@@ -2376,7 +2800,8 @@ public sealed class StationaryCombatController
             ["targetYaw"] = Math.Round(snapshot.TargetYaw, 2),
             ["yawError"] = Math.Round(snapshot.YawError, 2),
             ["currentPitch"] = Math.Round(snapshot.CurrentPitch, 2),
-            ["targetPitch"] = Math.Round(options.TargetPitchDegrees, 2),
+            ["worldPitch"] = Math.Round(snapshot.WorldPitch, 2),
+            ["targetPitch"] = Math.Round(snapshot.TargetPitch, 2),
             ["pitchError"] = Math.Round(snapshot.PitchError, 2),
             ["yawTolerance"] = Math.Round(options.YawToleranceDegrees, 2),
             ["pitchTolerance"] = Math.Round(options.PitchToleranceDegrees, 2),
@@ -2538,7 +2963,7 @@ public sealed class StationaryCombatController
                 result.FinalYawError = snapshot.YawError;
                 result.FinalPitchError = snapshot.PitchError;
                 if (Math.Abs(snapshot.YawError) <= options.ToleranceDegrees &&
-                    Math.Abs(snapshot.PitchError) <= options.ToleranceDegrees)
+                    Math.Abs(snapshot.PitchError) <= options.PitchToleranceDegrees)
                 {
                     result.Success = true;
                     break;
@@ -2602,7 +3027,8 @@ public sealed class StationaryCombatController
                     ["targetYaw"] = Math.Round(snapshot.TargetYaw, 2),
                     ["yawError"] = Math.Round(snapshot.YawError, 2),
                     ["cameraPitch"] = Math.Round(snapshot.CurrentPitch, 2),
-                    ["targetPitch"] = Math.Round(options.TargetPitchDegrees, 2),
+                    ["worldPitch"] = Math.Round(snapshot.WorldPitch, 2),
+                    ["targetPitch"] = Math.Round(snapshot.TargetPitch, 2),
                     ["pitchError"] = Math.Round(snapshot.PitchError, 2),
                     ["rawDx"] = Math.Round(rawDx, 2),
                     ["rawDy"] = Math.Round(rawDy, 2),
@@ -2655,7 +3081,7 @@ public sealed class StationaryCombatController
                 });
 
                 if (Math.Abs(afterSnapshot.YawError) <= options.ToleranceDegrees &&
-                    Math.Abs(afterSnapshot.PitchError) <= options.ToleranceDegrees)
+                    Math.Abs(afterSnapshot.PitchError) <= options.PitchToleranceDegrees)
                 {
                     result.Success = true;
                     break;
@@ -3326,10 +3752,12 @@ public sealed class StationaryCombatController
             return null;
         }
 
-        var currentPitch = player.CameraPitchDegrees ?? options.TargetPitchDegrees;
+        var worldPitch = CalculateWorldPitchDegrees(player.Position.Value, target);
+        var targetPitch = ResolveTargetPitchDegrees(worldPitch, options);
+        var currentPitch = player.CameraPitchDegrees ?? targetPitch;
         var targetYaw = CalculateTargetYawDegrees(player.Position.Value, target);
         var yawError = NormalizeSignedDegrees(targetYaw - currentYaw.Value);
-        var pitchError = options.TargetPitchDegrees - currentPitch;
+        var pitchError = targetPitch - currentPitch;
         return new CameraTurnSnapshot(
             player.Position.Value,
             target,
@@ -3337,10 +3765,32 @@ public sealed class StationaryCombatController
             currentYaw.Value,
             currentPitch,
             targetYaw,
+            worldPitch,
+            targetPitch,
             yawError,
             pitchError,
             0,
             TimeSpan.Zero);
+    }
+
+    private static double CalculateWorldPitchDegrees(Vector3Snapshot source, Vector3Snapshot target)
+    {
+        var horizontalDistance = StationaryCombatTargetSelector.HorizontalDistance(source, target);
+        var dz = source.Z - target.Z;
+        return Math.Atan2(dz, Math.Max(0.001D, horizontalDistance)) * 180.0D / Math.PI;
+    }
+
+    private static double ResolveTargetPitchDegrees(double worldPitchDegrees, PathFollowTurnOptions options)
+    {
+        if (!options.UseWorldTargetPitch)
+        {
+            return options.TargetPitchDegrees;
+        }
+
+        return ClampDouble(
+            worldPitchDegrees + 10.0D,
+            options.MinTargetPitchDegrees,
+            options.MaxTargetPitchDegrees);
     }
 
     private static double CalculateTargetYawDegrees(Vector3Snapshot source, Vector3Snapshot target)
@@ -3668,6 +4118,13 @@ public sealed class StationaryCombatController
         var yawTolerance = ReadPathFollowYawTolerance();
         var fixedTargetPitch = ReadDoubleFromEnv("AION_CAMERA_FIXED_PITCH_DEG", 20.0D);
         var targetPitch = ClampDouble(ReadDoubleFromEnv("AION_PATH_FOLLOW_PITCH_DEG", fixedTargetPitch), -65.0D, 85.0D);
+        var minTargetPitch = ClampDouble(ReadDoubleFromEnv("AION_CAMERA_TARGET_PITCH_MIN_DEG", -65.0D), -89.0D, 89.0D);
+        var maxTargetPitch = ClampDouble(ReadDoubleFromEnv("AION_CAMERA_TARGET_PITCH_MAX_DEG", 85.0D), -89.0D, 89.0D);
+        if (minTargetPitch > maxTargetPitch)
+        {
+            (minTargetPitch, maxTargetPitch) = (maxTargetPitch, minTargetPitch);
+        }
+
         return new PathFollowTurnOptions
         {
             DurationMs = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_DURATION_MS", 0), 0, 3000),
@@ -3682,6 +4139,9 @@ public sealed class StationaryCombatController
             DisableMoveAdjustDistance = ReadPathFollowDisableMoveAdjustDistance(),
             PitchToleranceDegrees = Math.Max(0.5D, ReadDoubleFromEnv("AION_PATH_FOLLOW_PITCH_TOLERANCE_DEG", 5.0D)),
             TargetPitchDegrees = targetPitch,
+            UseWorldTargetPitch = ReadBoolFromEnv("AION_CAMERA_USE_WORLD_TARGET_PITCH", true),
+            MinTargetPitchDegrees = minTargetPitch,
+            MaxTargetPitchDegrees = maxTargetPitch,
             PixelsPerDegreeAbs = pixelsPerDegreeAbs,
             PitchPixelsPerDegreeAbs = pitchPixelsPerDegreeAbs,
             DragPrimePixels = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_DRAG_PRIME_PIXELS", 5), 0, 50),
@@ -3717,6 +4177,11 @@ public sealed class StationaryCombatController
     private static int ReadTabCorpseNudgeKeyHoldMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_STATIONARY_TAB_CORPSE_NUDGE_HOLD_MS", 25), 1, 1000);
+    }
+
+    private static int ReadTabWrongLockNudgeKeyHoldMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_STATIONARY_TAB_WRONG_LOCK_NUDGE_HOLD_MS", 1000), 1, 3000);
     }
 
     private static int ReadPathFollowTickMs()
@@ -3913,6 +4378,8 @@ public sealed class StationaryCombatController
             ["yawError"] = Math.Round(snapshot.YawError, 2),
             ["activeYawTolerance"] = Math.Round(activeYawTolerance, 2),
             ["currentPitch"] = Math.Round(snapshot.CurrentPitch, 2),
+            ["worldPitch"] = Math.Round(snapshot.WorldPitch, 2),
+            ["targetPitch"] = Math.Round(snapshot.TargetPitch, 2),
             ["pitchError"] = Math.Round(snapshot.PitchError, 2),
             ["moveAdjustDisabledByDistance"] = moveAdjustDisabledByDistance,
             ["needsTurn"] = needsTurn,
@@ -3937,6 +4404,8 @@ public sealed class StationaryCombatController
             ["targetYaw"] = Math.Round(snapshot.TargetYaw, 2),
             ["yawError"] = Math.Round(snapshot.YawError, 2),
             ["currentPitch"] = Math.Round(snapshot.CurrentPitch, 2),
+            ["worldPitch"] = Math.Round(snapshot.WorldPitch, 2),
+            ["targetPitch"] = Math.Round(snapshot.TargetPitch, 2),
             ["pitchError"] = Math.Round(snapshot.PitchError, 2),
             ["mouseDx"] = mouseDx,
             ["mouseDy"] = mouseDy,
@@ -4004,6 +4473,9 @@ public sealed class StationaryCombatController
         public double DisableMoveAdjustDistance { get; init; }
         public double PitchToleranceDegrees { get; init; }
         public double TargetPitchDegrees { get; init; }
+        public bool UseWorldTargetPitch { get; init; }
+        public double MinTargetPitchDegrees { get; init; } = -65.0D;
+        public double MaxTargetPitchDegrees { get; init; } = 85.0D;
         public double PixelsPerDegreeAbs { get; init; }
         public double PitchPixelsPerDegreeAbs { get; init; }
         public int DragPrimePixels { get; init; }
@@ -4027,6 +4499,8 @@ public sealed class StationaryCombatController
         double CurrentYaw,
         double CurrentPitch,
         double TargetYaw,
+        double WorldPitch,
+        double TargetPitch,
         double YawError,
         double PitchError,
         long ReadCount,

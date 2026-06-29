@@ -10,7 +10,9 @@ public sealed record LockedTargetSnapshot(
     uint MaxHp,
     Vector3Snapshot? Position,
     double? DistanceToLocalPlayer,
-    DateTimeOffset CapturedAt)
+    DateTimeOffset CapturedAt,
+    uint TargetServerObjectId = 0,
+    bool IsTargetingLocalPlayer = false)
 {
     public const uint MonsterObjectType = 2;
 

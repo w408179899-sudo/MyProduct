@@ -222,6 +222,22 @@ public sealed class SemiAutoCombatController
         return Ms(settings.TickIntervalMs, 40);
     }
 
+    public async Task<TimeSpan> TickOpeningAttackKeyLoopAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        LockedTargetSnapshot target)
+    {
+        var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
+        state.MarkOpeningAttackKeyAttempted(target);
+        if (settings.AttackKeyLoopEnabled &&
+            state.ShouldPressAttackKey(DateTimeOffset.Now, Ms(settings.AttackKeyLoopIntervalMs, 300)))
+        {
+            await PressAttackKeyAsync(context, state, settings).ConfigureAwait(false);
+        }
+
+        return Ms(settings.TickIntervalMs, 40);
+    }
+
     public async Task<bool> TryHandleMaintenanceAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,

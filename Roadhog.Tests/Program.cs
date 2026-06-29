@@ -10,6 +10,7 @@ using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
 using Roadhog.Infrastructure.Config;
+using Roadhog.Infrastructure.Diagnostics;
 using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Paths;
 
@@ -19,6 +20,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
+    ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
     ("input backend parser accepts compatible backend names", TestInputBackendParserAsync),
     ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
@@ -31,9 +33,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
     ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
+    ("stationary combat target pitch follows target height", TestStationaryCombatTargetPitchFollowsTargetHeightAsync),
     ("stationary combat accepts twenty degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
     ("stationary combat verifies target after each tab press", TestStationaryCombatVerifiesAfterEachTabAsync),
+    ("stationary combat nudges then accepts unchanged locked target after tab", TestStationaryCombatNudgesThenAcceptsUnchangedLockedTargetAfterTabAsync),
     ("stationary combat nudges forward when tab locks corpse", TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync),
     ("stationary combat pending tab verify blocks pre-acquire", TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync),
     ("stationary combat releases path follow movement after target is verified", TestStationaryCombatReleasesMovementAfterAcquireAsync),
@@ -41,6 +45,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat ignores target when lock times out", TestStationaryCombatIgnoresTargetWhenLockTimesOutAsync),
     ("stationary combat ignores target when kill times out", TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync),
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
+    ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
+    ("stationary combat switches away from target claimed by other", TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
     ("stationary combat loots locked dead target directly", TestStationaryCombatLootsLockedDeadTargetDirectlyAsync),
     ("stationary combat waits after kill before loot key", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
@@ -223,6 +229,47 @@ static async Task TestRuntimePlayerReadReturnsCharacterNameAsync()
 
     AssertFalse(!result.Success, "runtime player read should succeed");
     AssertEqual("测试角色", result.Value?.CharacterName ?? string.Empty, "character name");
+}
+
+static Task TestFileLoggerRotatesWhenMaxSizeIsReachedAsync()
+{
+    var directory = CreateTempDirectory("roadhog-logs-");
+    try
+    {
+        var logger = new FileRoadhogLogger(directory, maxLogFileBytes: 512);
+        var payload = new string('x', 180);
+        for (var index = 0; index < 8; index++)
+        {
+            logger.Info("test.large_log_entry", new Dictionary<string, object?>
+            {
+                ["index"] = index,
+                ["payload"] = payload
+            });
+        }
+
+        var archiveLogs = Directory.GetFiles(directory, "roadhog-*.log")
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+        AssertFalse(archiveLogs.Length < 2, "logger should create rotated archive log files");
+
+        foreach (var path in archiveLogs)
+        {
+            AssertFalse(new FileInfo(path).Length > 512, Path.GetFileName(path) + " should not exceed configured max bytes");
+        }
+
+        var latestPath = Path.Combine(directory, "latest.log");
+        AssertFalse(!File.Exists(latestPath), "latest.log should be written");
+        AssertFalse(new FileInfo(latestPath).Length > 512, "latest.log should not exceed configured max bytes");
+        AssertFalse(
+            !archiveLogs.Any(path => Path.GetFileName(path).Count(ch => ch == '-') >= 2),
+            "rotated archive log should include a timestamp suffix");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+
+    return Task.CompletedTask;
 }
 
 static Task TestInputBackendParserAsync()
@@ -427,7 +474,7 @@ static async Task TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAs
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(10, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(10, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             WorldObjects = Array.Empty<WorldObjectSnapshot>(),
             Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
         };
@@ -477,7 +524,7 @@ static async Task TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync()
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(100, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(100, 0, 0), DateTimeOffset.Now, 90, 10, 90),
         TargetEntityId = 0,
         TargetCurrentHp = 1000,
         TargetPosition = new Vector3Snapshot(105, 0, 0),
@@ -551,7 +598,7 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 0, "Fake", 0, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 0, "Fake", 0, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 0,
             TargetCurrentHp = 0,
             TargetPosition = null,
@@ -759,7 +806,7 @@ static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 20, 0),
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
             TargetEntityId = 0,
             TargetCurrentHp = 1000,
             TargetPosition = new Vector3Snapshot(5, 0, 0),
@@ -798,6 +845,71 @@ static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
     }
 }
 
+static async Task TestStationaryCombatTargetPitchFollowsTargetHeightAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousUseWorldPitch = Environment.GetEnvironmentVariable("AION_CAMERA_USE_WORLD_TARGET_PITCH");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("AION_CAMERA_USE_WORLD_TARGET_PITCH", "true");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 1000,
+            TargetPosition = new Vector3Snapshot(5, 0, 5),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(5, 0, 5), 7.07, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), new StationaryCombatState())
+            .ConfigureAwait(false);
+
+        AssertFalse(!keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)), "height-derived pitch should move mouse even when yaw is aligned");
+        AssertFalse(keyboard.Keys.Contains("Tab"), "height-derived pitch should align camera before Tab");
+        var faceEntry = logger.Entries.LastOrDefault(entry => entry.EventName == "stationary_combat.face_target");
+        AssertFalse(faceEntry is null, "face target log should exist");
+        AssertFalse(Math.Abs(Convert.ToDouble(faceEntry!.Fields["worldPitch"]) - (-45.0D)) > 0.01D, "world pitch should use camera pitch quadrant");
+        AssertFalse(Math.Abs(Convert.ToDouble(faceEntry.Fields["targetPitch"]) - (-35.0D)) > 0.01D, "target pitch should follow world pitch plus 10 degrees");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("AION_CAMERA_USE_WORLD_TARGET_PITCH", previousUseWorldPitch);
+    }
+}
+
 static async Task TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
@@ -826,7 +938,7 @@ static async Task TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsy
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 75, 20, 75),
+            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 75, 10, 75),
             TargetEntityId = 999,
             TargetCurrentHp = 1000,
             TargetPosition = new Vector3Snapshot(5, 0, 0),
@@ -892,7 +1004,7 @@ static async Task TestStationaryCombatTabsUntilTargetVerifiedAsync()
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 999,
             TargetCurrentHp = 1000,
             TargetPosition = new Vector3Snapshot(5, 0, 0),
@@ -954,7 +1066,7 @@ static async Task TestStationaryCombatVerifiesAfterEachTabAsync()
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 999,
             TargetCurrentHp = 1000,
             TargetPosition = new Vector3Snapshot(5, 0, 0),
@@ -1006,6 +1118,112 @@ static async Task TestStationaryCombatVerifiesAfterEachTabAsync()
     }
 }
 
+static async Task TestStationaryCombatNudgesThenAcceptsUnchangedLockedTargetAfterTabAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    var previousWrongLockNudgeHold = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_WRONG_LOCK_NUDGE_HOLD_MS");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_WRONG_LOCK_NUDGE_HOLD_MS", "1");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 200,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(8, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "candidate", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000),
+                new WorldObjectSnapshot(200, 200, "locked", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var keyboard = new RecordingKeyboardInput
+        {
+            AfterPress = key =>
+            {
+                if (string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase))
+                {
+                    gameApi.TargetEntityId = 200;
+                    gameApi.TargetPosition = new Vector3Snapshot(8, 0, 0);
+                }
+            }
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertSequence(new[] { "Tab", "W" }, keyboard.Keys, "first unchanged wrong lock should nudge forward");
+        AssertFalse(keyboard.Keys.Contains("D2"), "first unchanged wrong lock must not enter skill release");
+        AssertFalse(state.Fighting, "first unchanged wrong lock must not enter fight state");
+        AssertEqual((ushort)100, state.CandidateEntityId, "first unchanged wrong lock should keep original candidate");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.tab.wrong_lock_nudge_pressed" &&
+            Equals(Convert.ToUInt16(entry.Fields["candidateEntityId"]), (ushort)100) &&
+            Equals(Convert.ToUInt16(entry.Fields["lockedEntityId"]), (ushort)200)),
+            "first unchanged wrong lock should log W nudge");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.switched_to_locked"), "first unchanged wrong lock must not accept locked target");
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertEqual(2, keyboard.Keys.Count(key => string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase)), "second acquire tick should press Tab again");
+        AssertFalse(!keyboard.Keys.Contains("D2"), "second unchanged wrong lock should enter skill release through fallback");
+        AssertFalse(!state.Fighting, "second unchanged wrong lock should enter fight state");
+        AssertEqual((ushort)200, state.CurrentTargetEntityId, "current target should switch to the locked target");
+        AssertEqual((ushort)200, state.CandidateEntityId, "candidate should switch to the locked target");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.switched_to_locked" &&
+            Equals(Convert.ToUInt16(entry.Fields["candidateEntityId"]), (ushort)100) &&
+            Equals(Convert.ToUInt16(entry.Fields["lockedEntityId"]), (ushort)200) &&
+            string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab_fallback", StringComparison.Ordinal)),
+            "locked target fallback switch should be logged");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.acquired" &&
+            Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), (ushort)200) &&
+            string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab_fallback", StringComparison.Ordinal)),
+            "fallback acquired target should be the locked target");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_WRONG_LOCK_NUDGE_HOLD_MS", previousWrongLockNudgeHold);
+    }
+}
+
 static async Task TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
@@ -1030,7 +1248,7 @@ static async Task TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync()
         var keyboard = new RecordingKeyboardInput();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 200,
             TargetCurrentHp = 0,
             TargetMaxHp = 1000,
@@ -1100,7 +1318,7 @@ static async Task TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync()
         var keyboard = new RecordingKeyboardInput();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 999,
             TargetCurrentHp = 1000,
             TargetPosition = new Vector3Snapshot(5, 0, 0),
@@ -1174,7 +1392,7 @@ static async Task TestStationaryCombatReleasesMovementAfterAcquireAsync()
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 999,
             TargetCurrentHp = 1000,
             TargetPosition = new Vector3Snapshot(40, 0, 0),
@@ -1244,7 +1462,7 @@ static async Task TestStationaryCombatDoesNotPulseWWhileApproachingAsync()
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 999,
             TargetCurrentHp = 1000,
             TargetPosition = new Vector3Snapshot(40, 0, 0),
@@ -1311,7 +1529,7 @@ static async Task TestStationaryCombatIgnoresTargetWhenLockTimesOutAsync()
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 999, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 999,
             TargetCurrentHp = 1000,
             TargetPosition = new Vector3Snapshot(40, 0, 0),
@@ -1376,7 +1594,7 @@ static async Task TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync()
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
         TargetEntityId = 100,
         TargetCurrentHp = 1000,
         TargetMaxHp = 1000,
@@ -1440,7 +1658,7 @@ static async Task TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsy
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 200, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 200, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 200,
             TargetCurrentHp = 1000,
             TargetMaxHp = 1000,
@@ -1492,6 +1710,146 @@ static async Task TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsy
     }
 }
 
+static async Task TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+    settings.SemiAuto.AttackKeyLoopEnabled = true;
+    settings.SemiAuto.AttackKeyLoopIntervalMs = 1;
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 100,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = 0,
+        TargetIsTargetingLocalPlayer = false,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100
+    };
+    state.MarkCandidate(100, DateTimeOffset.Now);
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "unclaimed locked target should only press C before it targets player");
+    AssertFalse(keyboard.Keys.Contains("D2"), "unclaimed locked target must not release skills before targeting player");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.opening_attack.wait_targeting"), "opening attack wait should be logged");
+
+    gameApi.TargetServerObjectId = 1;
+    gameApi.TargetIsTargetingLocalPlayer = true;
+    await Task.Delay(2).ConfigureAwait(false);
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertEqual(1, keyboard.Keys.Count(key => key == "C"), "C should stop after the locked target targets player");
+    AssertFalse(!keyboard.Keys.Contains("D2"), "targeting player should enter skill release");
+}
+
+static async Task TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 100,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = 999,
+        TargetIsTargetingLocalPlayer = false,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, 100, "claimed", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000, 999, false),
+            new WorldObjectSnapshot(101, 101, "next", "monster", new Vector3Snapshot(12, 0, 0), 12, 1000, 1000)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100
+    };
+    state.MarkCandidate(100, DateTimeOffset.Now);
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(state.Fighting, "claimed locked target should clear current fight state");
+    AssertFalse(!state.IsTargetIgnored(100), "claimed locked target should be ignored");
+    AssertFalse(keyboard.Keys.Contains("D2"), "claimed locked target must not release skills");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.ignored" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
+        "claimed target ignore should be logged");
+
+    gameApi.TargetEntityId = 0;
+    gameApi.TargetServerObjectId = 0;
+    gameApi.TargetIsTargetingLocalPlayer = false;
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertEqual((ushort)101, state.CandidateEntityId, "next tick should switch to the next unclaimed target");
+}
+
 static async Task TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync()
 {
     var settings = CreateScriptSettings();
@@ -1510,7 +1868,7 @@ static async Task TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync()
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
         TargetEntityId = 100,
         TargetCurrentHp = 0,
         TargetMaxHp = 0,
@@ -1575,7 +1933,7 @@ static async Task TestStationaryCombatLootsLockedDeadTargetDirectlyAsync()
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 100,
             TargetCurrentHp = 0,
             TargetMaxHp = 4430,
@@ -1640,7 +1998,7 @@ static async Task TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync()
 
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(1, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(1, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 100,
             TargetCurrentHp = 0,
             TargetMaxHp = 4430,
@@ -1698,7 +2056,7 @@ static async Task TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync()
 
         var gameApi = new FakeGameApi
         {
-            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
             TargetEntityId = 100,
             TargetCurrentHp = 0,
             TargetMaxHp = 4430,
@@ -1750,7 +2108,7 @@ static async Task TestStationaryCombatFinishesFightBeforeReturningHomeAsync()
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(50, 0, 0), DateTimeOffset.Now, 0, 0, 0),
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(50, 0, 0), DateTimeOffset.Now, 0, 10, 0),
         TargetEntityId = 100,
         TargetCurrentHp = 1000,
         TargetPosition = new Vector3Snapshot(10, 0, 0),
@@ -1802,7 +2160,7 @@ static async Task TestStationaryCombatInterruptsSitWhenTargetedAsync()
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Player = new PlayerSnapshot(1, 100, "Fake", 20, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 0, 0),
+        Player = new PlayerSnapshot(1, 100, "Fake", 20, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
         TargetEntityId = 0,
         TargetCurrentHp = 0,
         TargetPosition = null,
@@ -1868,7 +2226,7 @@ static async Task TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 0, 0),
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
         TargetEntityId = 0,
         TargetCurrentHp = 0,
         TargetPosition = null,
@@ -1945,7 +2303,7 @@ static async Task TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync()
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 0, 0),
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
         Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
         {
             [1] = 0,
@@ -2032,7 +2390,7 @@ static async Task TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibra
     }).ToArray();
     var gameApi = new FakeGameApi
     {
-        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 0, 0),
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
         TargetEntityId = 100,
         TargetCurrentHp = 1000,
         TargetMaxHp = 1000,
@@ -3584,6 +3942,10 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
 
     public Vector3Snapshot? TargetPosition { get; set; }
 
+    public uint TargetServerObjectId { get; set; } = 1;
+
+    public bool TargetIsTargetingLocalPlayer { get; set; } = true;
+
     public IReadOnlyList<WorldObjectSnapshot> WorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
 
     public IReadOnlyList<LootCorpseSnapshot> LootCorpses { get; set; } = Array.Empty<LootCorpseSnapshot>();
@@ -3615,7 +3977,9 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
             TargetMaxHp,
             TargetPosition,
             null,
-            DateTimeOffset.Now)));
+            DateTimeOffset.Now,
+            TargetServerObjectId,
+            TargetIsTargetingLocalPlayer)));
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(

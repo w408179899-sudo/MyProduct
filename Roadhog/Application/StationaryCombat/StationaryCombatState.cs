@@ -32,7 +32,15 @@ public sealed class StationaryCombatState
 
     public DateTimeOffset PendingTabVerifyUntil { get; private set; } = DateTimeOffset.MinValue;
 
+    public ushort PendingTabPreviousLockedEntityId { get; private set; }
+
     public bool PendingTabCorpseNudged { get; private set; }
+
+    public bool PendingTabWrongLockNudged { get; private set; }
+
+    public ushort WrongLockNudgeCandidateEntityId { get; private set; }
+
+    public ushort WrongLockNudgeLockedEntityId { get; private set; }
 
     public DateTimeOffset LastTabAt { get; set; }
 
@@ -67,6 +75,7 @@ public sealed class StationaryCombatState
         FacedCandidateEntityId = 0;
         TargetStartedAt = DateTimeOffset.MinValue;
         ClearPendingTabVerification();
+        ClearWrongLockNudge();
     }
 
     public void EnterDeathRecovery(DateTimeOffset now)
@@ -92,6 +101,11 @@ public sealed class StationaryCombatState
         if (changed || TargetStartedAt == DateTimeOffset.MinValue)
         {
             TargetStartedAt = now;
+        }
+
+        if (changed)
+        {
+            ClearWrongLockNudge();
         }
 
         return changed;
@@ -177,18 +191,25 @@ public sealed class StationaryCombatState
                now >= PendingTabVerifyUntil;
     }
 
-    public void StartPendingTabVerification(ushort entityId, DateTimeOffset verifyUntil)
+    public void StartPendingTabVerification(
+        ushort entityId,
+        DateTimeOffset verifyUntil,
+        ushort previousLockedEntityId)
     {
         PendingTabCandidateEntityId = entityId;
         PendingTabVerifyUntil = verifyUntil;
+        PendingTabPreviousLockedEntityId = previousLockedEntityId;
         PendingTabCorpseNudged = false;
+        PendingTabWrongLockNudged = false;
     }
 
     public void ClearPendingTabVerification()
     {
         PendingTabCandidateEntityId = 0;
         PendingTabVerifyUntil = DateTimeOffset.MinValue;
+        PendingTabPreviousLockedEntityId = 0;
         PendingTabCorpseNudged = false;
+        PendingTabWrongLockNudged = false;
     }
 
     public bool TryMarkPendingTabCorpseNudged()
@@ -200,6 +221,37 @@ public sealed class StationaryCombatState
 
         PendingTabCorpseNudged = true;
         return true;
+    }
+
+    public bool TryMarkPendingTabWrongLockNudged()
+    {
+        if (PendingTabWrongLockNudged)
+        {
+            return false;
+        }
+
+        PendingTabWrongLockNudged = true;
+        return true;
+    }
+
+    public bool HasWrongLockNudge(ushort candidateEntityId, ushort lockedEntityId)
+    {
+        return candidateEntityId != 0 &&
+               lockedEntityId != 0 &&
+               WrongLockNudgeCandidateEntityId == candidateEntityId &&
+               WrongLockNudgeLockedEntityId == lockedEntityId;
+    }
+
+    public void MarkWrongLockNudged(ushort candidateEntityId, ushort lockedEntityId)
+    {
+        WrongLockNudgeCandidateEntityId = candidateEntityId;
+        WrongLockNudgeLockedEntityId = lockedEntityId;
+    }
+
+    public void ClearWrongLockNudge()
+    {
+        WrongLockNudgeCandidateEntityId = 0;
+        WrongLockNudgeLockedEntityId = 0;
     }
 }
 

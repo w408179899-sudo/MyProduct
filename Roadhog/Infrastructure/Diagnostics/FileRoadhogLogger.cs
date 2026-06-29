@@ -6,14 +6,23 @@ namespace Roadhog.Infrastructure.Diagnostics;
 
 public sealed class FileRoadhogLogger : IRoadhogLogger
 {
-    private readonly string _logDirectory;
-    private readonly object _syncRoot = new();
+    public const long DefaultMaxLogFileBytes = 1024L * 1024L;
 
-    public FileRoadhogLogger(string logDirectory)
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+    private readonly string _logDirectory;
+    private readonly long _maxLogFileBytes;
+    private readonly object _syncRoot = new();
+    private string? _currentLogPath;
+    private string? _currentDateStamp;
+    private string? _latestSourceLogPath;
+
+    public FileRoadhogLogger(string logDirectory, long maxLogFileBytes = DefaultMaxLogFileBytes)
     {
         _logDirectory = string.IsNullOrWhiteSpace(logDirectory)
             ? Path.Combine(AppContext.BaseDirectory, "logs")
             : logDirectory;
+        _maxLogFileBytes = Math.Max(1L, maxLogFileBytes);
     }
 
     public void Info(string eventName, IReadOnlyDictionary<string, object?>? fields = null)
@@ -57,8 +66,10 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
             lock (_syncRoot)
             {
                 Directory.CreateDirectory(_logDirectory);
-                File.AppendAllText(GetDailyLogPath(now), line, Encoding.UTF8);
-                File.AppendAllText(Path.Combine(_logDirectory, "latest.log"), line, Encoding.UTF8);
+                var lineBytes = Utf8NoBom.GetByteCount(line);
+                var logPath = ResolveCurrentLogPath(now, lineBytes);
+                File.AppendAllText(logPath, line, Utf8NoBom);
+                AppendLatest(logPath, line, lineBytes);
             }
         }
         catch
@@ -67,9 +78,87 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
         }
     }
 
-    private string GetDailyLogPath(DateTimeOffset timestamp)
+    private string ResolveCurrentLogPath(DateTimeOffset timestamp, int lineBytes)
     {
-        return Path.Combine(_logDirectory, "roadhog-" + timestamp.ToString("yyyyMMdd") + ".log");
+        var dateStamp = timestamp.ToString("yyyyMMdd");
+        if (_currentLogPath is not null &&
+            string.Equals(_currentDateStamp, dateStamp, StringComparison.Ordinal) &&
+            CanAppend(_currentLogPath, lineBytes))
+        {
+            return _currentLogPath;
+        }
+
+        _currentDateStamp = dateStamp;
+        _currentLogPath = SelectWritableLogPath(timestamp, dateStamp, lineBytes);
+        return _currentLogPath;
+    }
+
+    private string SelectWritableLogPath(DateTimeOffset timestamp, string dateStamp, int lineBytes)
+    {
+        var dailyPath = Path.Combine(_logDirectory, "roadhog-" + dateStamp + ".log");
+        if (CanAppend(dailyPath, lineBytes))
+        {
+            return dailyPath;
+        }
+
+        foreach (var path in EnumerateExistingSegmentPaths(dateStamp))
+        {
+            if (CanAppend(path, lineBytes))
+            {
+                return path;
+            }
+        }
+
+        return CreateTimestampedLogPath(timestamp);
+    }
+
+    private IEnumerable<string> EnumerateExistingSegmentPaths(string dateStamp)
+    {
+        var pattern = "roadhog-" + dateStamp + "-*.log";
+        return Directory.EnumerateFiles(_logDirectory, pattern)
+            .OrderByDescending(Path.GetFileName, StringComparer.Ordinal);
+    }
+
+    private string CreateTimestampedLogPath(DateTimeOffset timestamp)
+    {
+        var prefix = "roadhog-" + timestamp.ToString("yyyyMMdd-HHmmss-fff");
+        for (var index = 0; index < 1000; index++)
+        {
+            var suffix = index == 0 ? string.Empty : "-" + index.ToString("000");
+            var path = Path.Combine(_logDirectory, prefix + suffix + ".log");
+            if (!File.Exists(path))
+            {
+                return path;
+            }
+        }
+
+        return Path.Combine(_logDirectory, prefix + "-" + Guid.NewGuid().ToString("N") + ".log");
+    }
+
+    private bool CanAppend(string path, int lineBytes)
+    {
+        if (!File.Exists(path))
+        {
+            return true;
+        }
+
+        var length = new FileInfo(path).Length;
+        return length == 0 || length + lineBytes <= _maxLogFileBytes;
+    }
+
+    private void AppendLatest(string sourceLogPath, string line, int lineBytes)
+    {
+        var latestPath = Path.Combine(_logDirectory, "latest.log");
+        var resetLatest = !string.Equals(_latestSourceLogPath, sourceLogPath, StringComparison.OrdinalIgnoreCase) ||
+                          !CanAppend(latestPath, lineBytes);
+        if (resetLatest)
+        {
+            File.WriteAllText(latestPath, line, Utf8NoBom);
+            _latestSourceLogPath = sourceLogPath;
+            return;
+        }
+
+        File.AppendAllText(latestPath, line, Utf8NoBom);
     }
 
     private static IReadOnlyDictionary<string, object?> NormalizeFields(IReadOnlyDictionary<string, object?>? fields)
