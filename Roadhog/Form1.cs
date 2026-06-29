@@ -34,6 +34,7 @@ namespace Roadhog
         {
             _uiRefreshTimer.Stop();
             _uiRefreshTimer.Dispose();
+            _services.Dispose();
             base.OnFormClosed(e);
         }
 

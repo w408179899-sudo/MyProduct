@@ -30,40 +30,8 @@ public sealed class KmBoxKeyboardInputOptions
     public Encoding Encoding { get; set; } = new UTF8Encoding(false);
 }
 
-public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
+public sealed class KmBoxKeyboardInput : IKeyboardInput, IInputStateReset, IDisposable
 {
-    private static readonly IReadOnlyDictionary<string, int> SkillKeyHidCodes =
-        new Dictionary<string, int>(StringComparer.Ordinal)
-        {
-            ["C"] = 0x06,
-            ["W"] = 0x1A,
-            ["X"] = 0x1B,
-            ["D1"] = 0x1E,
-            ["D2"] = 0x1F,
-            ["D3"] = 0x20,
-            ["D4"] = 0x21,
-            ["D5"] = 0x22,
-            ["D6"] = 0x23,
-            ["D7"] = 0x24,
-            ["D8"] = 0x25,
-            ["D9"] = 0x26,
-            ["D0"] = 0x27,
-            ["OemMinus"] = 0x2D,
-            ["OemPlus"] = 0x2E,
-            ["OemComma"] = 0x36,
-            ["Tab"] = 0x2B,
-            ["NumPad1"] = 0x59,
-            ["NumPad2"] = 0x5A,
-            ["NumPad3"] = 0x5B,
-            ["NumPad4"] = 0x5C,
-            ["NumPad5"] = 0x5D,
-            ["NumPad6"] = 0x5E,
-            ["NumPad7"] = 0x5F,
-            ["NumPad8"] = 0x60,
-            ["NumPad9"] = 0x61,
-            ["NumPad0"] = 0x62
-        };
-
     private readonly object _syncRoot = new();
     private readonly SemaphoreSlim _ioSemaphore = new(1, 1);
     private readonly KmBoxKeyboardInputOptions _options;
@@ -84,7 +52,7 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
         {
             return OperationResult.Fail(
                 "Unsupported KMbox skill key: " + key +
-                ". Allowed keys: " + string.Join(", ", SkillKeyHidCodes.Keys));
+                ". Allowed keys: " + RoadhogInputKeyMap.FormatSupportedKeys());
         }
 
         var keyDownSent = false;
@@ -177,6 +145,54 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
             "km.move(" + deltaX + "," + deltaY + ")",
             "KMbox mouse move failed.",
             cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<OperationResult> ReleaseAllAsync(CancellationToken cancellationToken = default)
+    {
+        await _ioSemaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+
+            SerialPort? port;
+            lock (_syncRoot)
+            {
+                port = _serialPort is { IsOpen: true } ? _serialPort : null;
+            }
+
+            if (port is null)
+            {
+                return OperationResult.Ok();
+            }
+
+            foreach (var hidCode in RoadhogInputKeyMap.SupportedHidCodes)
+            {
+                SendCommandOnPort(port, "km.up(" + hidCode + ")");
+            }
+
+            SendCommandOnPort(port, "km.left(0)");
+            SendCommandOnPort(port, "km.right(0)");
+            SendCommandOnPort(port, "km.middle(0)");
+            SendCommandOnPort(port, "km.side1(0)");
+            SendCommandOnPort(port, "km.side2(0)");
+            return OperationResult.Ok();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            ClosePort();
+            return OperationResult.Fail(
+                "KMbox release all failed. port=" + _options.PortName +
+                " availablePorts=" + GetAvailablePortNamesText() +
+                " error=" + ex.Message);
+        }
+        finally
+        {
+            _ioSemaphore.Release();
+        }
     }
 
     public void Dispose()
@@ -276,7 +292,7 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
         {
             return OperationResult.Fail(
                 "Unsupported KMbox key: " + key +
-                ". Allowed keys: " + string.Join(", ", SkillKeyHidCodes.Keys));
+                ". Allowed keys: " + RoadhogInputKeyMap.FormatSupportedKeys());
         }
 
         return await SendRawCommandAsync(
@@ -391,9 +407,7 @@ public sealed class KmBoxKeyboardInput : IKeyboardInput, IDisposable
 
     private static bool TryResolveSkillKey(string key, out int hidCode)
     {
-        hidCode = 0;
-        return !string.IsNullOrWhiteSpace(key) &&
-               SkillKeyHidCodes.TryGetValue(key.Trim(), out hidCode);
+        return RoadhogInputKeyMap.TryResolveHidCode(key, out hidCode);
     }
 
     private static KmBoxKeyboardInputOptions CopyAndValidateOptions(KmBoxKeyboardInputOptions source)

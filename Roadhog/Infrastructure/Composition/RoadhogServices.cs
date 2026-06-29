@@ -22,7 +22,7 @@ using Roadhog.Infrastructure.Vmm;
 
 namespace Roadhog.Infrastructure.Composition;
 
-public sealed class RoadhogServices
+public sealed class RoadhogServices : IDisposable
 {
     private RoadhogServices(
         IRoadhogLogger logger,
@@ -34,7 +34,8 @@ public sealed class RoadhogServices
         AccountRuntimeManager accountRuntimeManager,
         AccountOrchestrator accountOrchestrator,
         RoadhogRuntime runtime,
-        OffsetCatalogProvider offsets)
+        OffsetCatalogProvider offsets,
+        IKeyboardInput keyboardInput)
     {
         Logger = logger;
         GameApi = gameApi;
@@ -46,7 +47,10 @@ public sealed class RoadhogServices
         AccountOrchestrator = accountOrchestrator;
         Runtime = runtime;
         Offsets = offsets;
+        KeyboardInput = keyboardInput;
     }
+
+    private bool _disposed;
 
     public IRoadhogLogger Logger { get; }
 
@@ -68,6 +72,8 @@ public sealed class RoadhogServices
 
     public OffsetCatalogProvider Offsets { get; }
 
+    public IKeyboardInput KeyboardInput { get; }
+
     public static RoadhogServices Create(RoadhogServiceOptions? options = null)
     {
         options ??= new RoadhogServiceOptions();
@@ -81,8 +87,10 @@ public sealed class RoadhogServices
             ["logDirectory"] = options.LogDirectory,
             ["accountConfigPath"] = options.AccountConfigPath,
             ["pathLibraryDirectory"] = options.PathLibraryDirectory,
-            ["keyboardInput"] = "KMbox",
+            ["inputBackend"] = options.InputBackend.ToString(),
+            ["keyboardInput"] = GetKeyboardInputName(options),
             ["keyboardPort"] = options.KeyboardInput.PortName,
+            ["keyboardEndpoint"] = options.KmBoxNetInput.EndpointText(),
             ["useMockGameApi"] = options.UseMockGameApi,
             ["useToolTestBridge"] = options.UseToolTestBridge
         });
@@ -96,7 +104,7 @@ public sealed class RoadhogServices
         var accountConfigStore = new JsonAccountConfigStore(options.AccountConfigPath);
         var sharedPathStore = new JsonSharedPathStore(options.PathLibraryDirectory);
         var accounts = new AccountRuntimeManager(logger);
-        IKeyboardInput keyboardInput = new KmBoxKeyboardInput(options.KeyboardInput);
+        var keyboardInput = CreateKeyboardInput(options);
         var semiAutoController = new SemiAutoCombatController(keyboardInput);
         var stationaryCombatController = new StationaryCombatController(keyboardInput, semiAutoController, sharedPathStore);
         var workerOptions = new AccountWorkerOptions
@@ -116,6 +124,59 @@ public sealed class RoadhogServices
         var runtime = new RoadhogRuntime(gameApi, logger, accounts, accountOrchestrator);
         var offsets = new OffsetCatalogProvider(new OffsetCatalogLoader(), logger);
 
-        return new RoadhogServices(logger, gameApi, hardwareResolver, processResolver, accountConfigStore, sharedPathStore, accounts, accountOrchestrator, runtime, offsets);
+        return new RoadhogServices(logger, gameApi, hardwareResolver, processResolver, accountConfigStore, sharedPathStore, accounts, accountOrchestrator, runtime, offsets, keyboardInput);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        try
+        {
+            if (KeyboardInput is IInputStateReset reset)
+            {
+                var result = reset.ReleaseAllAsync(CancellationToken.None).GetAwaiter().GetResult();
+                if (!result.Success)
+                {
+                    Logger.Warn("input.release_all.dispose_failed", new Dictionary<string, object?>
+                    {
+                        ["error"] = result.Error
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("input.release_all.dispose_exception", ex);
+        }
+
+        if (KeyboardInput is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
+    }
+
+    private static IKeyboardInput CreateKeyboardInput(RoadhogServiceOptions options)
+    {
+        return options.InputBackend switch
+        {
+            RoadhogInputBackend.HardwareBox => new KmBoxKeyboardInput(options.KeyboardInput),
+            RoadhogInputBackend.KmBoxNet => new KmBoxNetKeyboardInput(options.KmBoxNetInput),
+            _ => throw new ArgumentOutOfRangeException(nameof(options), options.InputBackend, "Unsupported input backend.")
+        };
+    }
+
+    private static string GetKeyboardInputName(RoadhogServiceOptions options)
+    {
+        return options.InputBackend switch
+        {
+            RoadhogInputBackend.HardwareBox => "KMBox hardware serial",
+            RoadhogInputBackend.KmBoxNet => "KMBox Net",
+            _ => options.InputBackend.ToString()
+        };
     }
 }

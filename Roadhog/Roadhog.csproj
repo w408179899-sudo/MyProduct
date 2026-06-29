@@ -15,6 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Hardware.KmBox\Hardware.KmBox.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="vmmsharp">
       <HintPath>Lib\vmmsharp.dll</HintPath>
     </Reference>

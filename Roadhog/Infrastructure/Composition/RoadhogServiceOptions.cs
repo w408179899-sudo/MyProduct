@@ -24,6 +24,11 @@ public sealed class RoadhogServiceOptions
 
     public bool PollPlayerSnapshotInWorker { get; set; }
 
+    public RoadhogInputBackend InputBackend { get; set; } =
+        RoadhogInputBackendParser.ParseOrDefault(
+            Environment.GetEnvironmentVariable("ROADHOG_INPUT_BACKEND"),
+            RoadhogInputBackend.HardwareBox);
+
     public WindowsHardwareDeviceResolverOptions HardwareResolver { get; } = new();
 
     public AionProcessResolverOptions ProcessResolver { get; } = new();
@@ -33,6 +38,8 @@ public sealed class RoadhogServiceOptions
     public AionVmmGameApiOptions AionVmm { get; } = new();
 
     public KmBoxKeyboardInputOptions KeyboardInput { get; } = new();
+
+    public KmBoxNetKeyboardInputOptions KmBoxNetInput { get; } = new();
 
     private static string ResolveRoadhogProjectDirectory()
     {

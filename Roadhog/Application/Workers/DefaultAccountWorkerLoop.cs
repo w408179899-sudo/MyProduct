@@ -92,6 +92,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         finally
         {
             semiAutoState.ResetAttackKeyPressThrottle();
+            await ReleaseActiveInputAsync(context, stationaryCombatState).ConfigureAwait(false);
         }
     }
 
@@ -114,5 +115,47 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             ["key"] = "W",
             ["error"] = result.Error
         });
+    }
+
+    private async Task ReleaseActiveInputAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state)
+    {
+        if (state.IsMovingForward)
+        {
+            var result = await _keyboard.KeyUpAsync("W", CancellationToken.None).ConfigureAwait(false);
+            state.IsMovingForward = false;
+            LogInputRelease(context, "W", "key_up", result);
+        }
+
+        if (state.IsRightMouseDown)
+        {
+            var result = await _keyboard.MouseUpAsync(RoadhogMouseButton.Right, CancellationToken.None).ConfigureAwait(false);
+            state.IsRightMouseDown = false;
+            LogInputRelease(context, "Right", "mouse_up", result);
+        }
+    }
+
+    private static void LogInputRelease(
+        AccountWorkerContext context,
+        string input,
+        string action,
+        Core.Common.OperationResult result)
+    {
+        var fields = new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["input"] = input,
+            ["action"] = action
+        };
+
+        if (result.Success)
+        {
+            context.Logger.Info("worker.input.release", fields);
+            return;
+        }
+
+        fields["error"] = result.Error;
+        context.Logger.Warn("worker.input.release_failed", fields);
     }
 }

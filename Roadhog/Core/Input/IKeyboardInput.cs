@@ -31,6 +31,12 @@ public interface IKeyboardInput
         CancellationToken cancellationToken = default);
 }
 
+public interface IInputStateReset
+{
+    Task<OperationResult> ReleaseAllAsync(
+        CancellationToken cancellationToken = default);
+}
+
 public enum RoadhogMouseButton
 {
     Left,

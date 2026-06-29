@@ -10,6 +10,7 @@ using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
 using Roadhog.Infrastructure.Config;
+using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Paths;
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -18,6 +19,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
+    ("input backend parser accepts compatible backend names", TestInputBackendParserAsync),
+    ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
+    ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
@@ -212,6 +216,70 @@ static async Task TestRuntimePlayerReadReturnsCharacterNameAsync()
 
     AssertFalse(!result.Success, "runtime player read should succeed");
     AssertEqual("测试角色", result.Value?.CharacterName ?? string.Empty, "character name");
+}
+
+static Task TestInputBackendParserAsync()
+{
+    AssertFalse(
+        !RoadhogInputBackendParser.TryParse("hardware_box", out var hardwareBox),
+        "hardware_box backend should parse");
+    AssertEqual(RoadhogInputBackend.HardwareBox, hardwareBox, "hardware_box backend");
+
+    AssertFalse(
+        !RoadhogInputBackendParser.TryParse("kmbox net", out var kmBoxNet),
+        "kmbox net backend should parse");
+    AssertEqual(RoadhogInputBackend.KmBoxNet, kmBoxNet, "kmbox net backend");
+
+    AssertFalse(
+        !RoadhogInputBackendParser.TryParse("udp", out var udp),
+        "udp backend alias should parse");
+    AssertEqual(RoadhogInputBackend.KmBoxNet, udp, "udp backend alias");
+
+    AssertFalse(
+        RoadhogInputBackendParser.TryParse("unknown_backend", out _),
+        "unknown backend should not parse");
+
+    AssertEqual(
+        RoadhogInputBackend.KmBoxNet,
+        RoadhogInputBackendParser.ParseOrDefault("unknown_backend", RoadhogInputBackend.KmBoxNet),
+        "unknown backend should use fallback");
+
+    return Task.CompletedTask;
+}
+
+static Task TestInputKeyMapAsync()
+{
+    AssertHidCode("C", 0x06);
+    AssertHidCode(" W ", 0x1A);
+    AssertHidCode("D1", 0x1E);
+    AssertHidCode("D0", 0x27);
+    AssertHidCode("OemMinus", 0x2D);
+    AssertHidCode("OemPlus", 0x2E);
+    AssertHidCode("OemComma", 0x36);
+    AssertHidCode("Tab", 0x2B);
+    AssertHidCode("NumPad0", 0x62);
+
+    AssertFalse(
+        RoadhogInputKeyMap.TryResolveHidCode("Enter", out _),
+        "unsupported key should not resolve");
+
+    return Task.CompletedTask;
+}
+
+static async Task TestKmBoxNetKeyboardInputValidationAsync()
+{
+    using var input = new KmBoxNetKeyboardInput(new KmBoxNetKeyboardInputOptions
+    {
+        IpAddress = "127.0.0.1",
+        Port = 1,
+        Mac = "00112233"
+    });
+
+    var unsupportedKey = await input.PressKeyAsync("Enter", TimeSpan.Zero).ConfigureAwait(false);
+    AssertFalse(unsupportedKey.Success, "unsupported KMBox Net key should fail before connect");
+
+    var unsupportedButton = await input.MouseDownAsync(RoadhogMouseButton.Side1).ConfigureAwait(false);
+    AssertFalse(unsupportedButton.Success, "unsupported KMBox Net mouse button should fail before connect");
 }
 
 static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
@@ -2827,6 +2895,14 @@ static void AssertEqual<T>(T expected, T actual, string label)
     {
         throw new InvalidOperationException(label + ": expected " + expected + " but got " + actual);
     }
+}
+
+static void AssertHidCode(string key, int expected)
+{
+    AssertFalse(
+        !RoadhogInputKeyMap.TryResolveHidCode(key, out var actual),
+        "key should resolve: " + key);
+    AssertEqual(expected, actual, "hid code for " + key);
 }
 
 static void AssertFalse(bool value, string label)
