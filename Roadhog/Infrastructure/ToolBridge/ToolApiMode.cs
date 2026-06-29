@@ -6,6 +6,7 @@ public enum ToolApiMode
     Skills,
     Inventory,
     Monsters,
+    Loot,
     Gather,
     Abnormal,
     Target

@@ -62,9 +62,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private const ulong ActorLevelOffset = 0x3E;
     private const ulong ActorHpPercentOffset = 0x40;
     private const ulong ActorNameOffset = 0x42;
+    private const ulong ActorInteractionStateOffset = 0x1CC;
     private const ulong ActorTargetServerObjectIdOffset = 0x358;
     private const ulong ActorMaxHpOffset = 0x11A0;
     private const ulong ActorCurrentHpOffset = 0x11A4;
+    private const ulong ActorLootableFlagOffset = 0x11E0;
 
     private const ulong SkillItemSkillIdOffset = 0x08;
     private const ulong SkillItemField0COffset = 0x0C;
@@ -156,6 +158,19 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadWorldObjectsCore(context), cancellationToken);
+    }
+
+    public Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(CancellationToken cancellationToken = default)
+    {
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadLootCorpsesAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadLootCorpsesCore(context), cancellationToken);
     }
 
     private OperationResult<LockedTargetSnapshot> ReadLockedTargetCore(GameApiReadContext context)
@@ -279,6 +294,50 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         {
             _logger.Error("vmm.world_objects.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<IReadOnlyList<LootCorpseSnapshot>> ReadLootCorpsesCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Fail("Module not found: " + moduleName);
+                }
+
+                if (!TryReadLootCorpses(process, gameBase, out var corpses, out var counters, out var readError))
+                {
+                    return OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Fail(readError);
+                }
+
+                _logger.Info("vmm.loot_corpses.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["rows"] = corpses.Count,
+                    ["scannedServerObjects"] = counters.ScannedServerObjects,
+                    ["resolvedEntities"] = counters.ResolvedEntities,
+                    ["npcLikeEntities"] = counters.NpcLikeEntities
+                });
+
+                return OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Ok(corpses);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.loot_corpses.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Fail(ex.Message);
         }
     }
 
@@ -2363,6 +2422,136 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 
         result.Sort(static (left, right) =>
         {
+            var leftDistance = left.DistanceToLocalPlayer ?? double.MaxValue;
+            var rightDistance = right.DistanceToLocalPlayer ?? double.MaxValue;
+            return leftDistance.CompareTo(rightDistance);
+        });
+
+        return true;
+    }
+
+    private static bool TryReadLootCorpses(
+        VmmProcess process,
+        ulong gameBase,
+        out IReadOnlyList<LootCorpseSnapshot> corpses,
+        out WorldObjectReadCounters counters,
+        out string error)
+    {
+        var result = new List<LootCorpseSnapshot>();
+        corpses = result;
+        counters = new WorldObjectReadCounters();
+        error = string.Empty;
+
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        {
+            error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        {
+            error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
+            return false;
+        }
+
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        {
+            error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
+            return false;
+        }
+
+        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity) ||
+            !TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ))
+        {
+            error = "failed to read local entity position";
+            return false;
+        }
+
+        if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader) || serverTreeHeader == 0)
+        {
+            error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node))
+        {
+            error = "failed to read ServerObject tree begin node";
+            return false;
+        }
+
+        for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
+        {
+            if (IsNilNode(process, node, serverTreeHeader))
+            {
+                break;
+            }
+
+            counters.ScannedServerObjects++;
+
+            if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out var serverObjectId) &&
+                TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var entityId) &&
+                entityId != 0 &&
+                entityId != localEntityId &&
+                TryFindEntityById(process, entityTreeHeader, entityId, out var entity) &&
+                entity != 0)
+            {
+                counters.ResolvedEntities++;
+
+                if (TryReadUInt16(process, entity + EntityTypeOffset, out var entityType) &&
+                    entityType == EntityTypeNpc)
+                {
+                    counters.NpcLikeEntities++;
+
+                    if (TryReadEntityPosition(process, entity, out var x, out var y, out var z) &&
+                        IsReasonablePosition(x, y, z) &&
+                        TryResolveActorFromEntity(process, entity, serverObjectId, out var actor))
+                    {
+                        TryReadUInt32(process, actor.Actor + ActorLootableFlagOffset, out var lootableRaw);
+                        TryReadUInt32(process, actor.Actor + ActorInteractionStateOffset, out var interactionState);
+
+                        var deadByHp = actor.MaxHp > 0 && (actor.CurrentHp == 0 || actor.HpPercent == 0);
+                        if (deadByHp || lootableRaw != 0)
+                        {
+                            var dx = x - localX;
+                            var dy = y - localY;
+                            var dz = z - localZ;
+                            var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                            result.Add(new LootCorpseSnapshot(
+                                entityId,
+                                actor.ServerObjectId != 0 ? actor.ServerObjectId : serverObjectId,
+                                entityType,
+                                actor.ObjectType,
+                                actor.NpcTemplateId,
+                                actor.Level,
+                                actor.Name,
+                                new Vector3Snapshot(x, y, z),
+                                distance,
+                                actor.CurrentHp,
+                                actor.MaxHp,
+                                actor.HpPercent,
+                                lootableRaw,
+                                interactionState,
+                                DateTimeOffset.Now));
+                        }
+                    }
+                }
+            }
+
+            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next) || next == node)
+            {
+                break;
+            }
+
+            node = next;
+        }
+
+        result.Sort(static (left, right) =>
+        {
+            if (left.IsLootable != right.IsLootable)
+            {
+                return left.IsLootable ? -1 : 1;
+            }
+
             var leftDistance = left.DistanceToLocalPlayer ?? double.MaxValue;
             var rightDistance = right.DistanceToLocalPlayer ?? double.MaxValue;
             return leftDistance.CompareTo(rightDistance);

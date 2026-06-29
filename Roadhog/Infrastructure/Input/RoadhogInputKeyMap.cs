@@ -6,6 +6,7 @@ public static class RoadhogInputKeyMap
         new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["C"] = 0x06,
+            ["S"] = 0x16,
             ["W"] = 0x1A,
             ["X"] = 0x1B,
             ["D1"] = 0x1E,
@@ -22,6 +23,7 @@ public static class RoadhogInputKeyMap
             ["OemPlus"] = 0x2E,
             ["OemComma"] = 0x36,
             ["Tab"] = 0x2B,
+            ["F9"] = 0x42,
             ["NumPad1"] = 0x59,
             ["NumPad2"] = 0x5A,
             ["NumPad3"] = 0x5B,
@@ -31,7 +33,8 @@ public static class RoadhogInputKeyMap
             ["NumPad7"] = 0x5F,
             ["NumPad8"] = 0x60,
             ["NumPad9"] = 0x61,
-            ["NumPad0"] = 0x62
+            ["NumPad0"] = 0x62,
+            ["NumPadDecimal"] = 0x63
         };
 
     public static IReadOnlyCollection<string> SupportedKeys => HidCodes.Keys.ToArray();

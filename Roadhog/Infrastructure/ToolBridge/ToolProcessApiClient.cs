@@ -64,6 +64,14 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
             : OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(output.Error ?? "Tool world-object mode failed.");
     }
 
+    public async Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(CancellationToken cancellationToken = default)
+    {
+        var output = await RunToolModeAsync(ToolApiMode.Loot, cancellationToken).ConfigureAwait(false);
+        return output.Success && output.Value is not null
+            ? OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Ok(ToolOutputParsers.ParseLootCorpses(output.Value.StandardOutput))
+            : OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Fail(output.Error ?? "Tool loot corpse mode failed.");
+    }
+
     public async Task<OperationResult<ToolCommandOutput>> RunToolModeAsync(ToolApiMode mode, CancellationToken cancellationToken = default)
     {
         var executable = ResolveToolExecutablePath();
@@ -167,6 +175,11 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
             startInfo.Environment["AION_MONSTER_LIST_SAMPLES"] = "1";
             startInfo.Environment["AION_MONSTER_LIST_INCLUDE_NPCS"] = "0";
         }
+        else if (mode == ToolApiMode.Loot)
+        {
+            startInfo.Environment["AION_LOOT_LIST_SAMPLES"] = "1";
+            startInfo.Environment["AION_LOOT_ONLY_LOOTABLE"] = "0";
+        }
 
         if (!string.IsNullOrWhiteSpace(_options.MemProcFsHome))
         {
@@ -212,6 +225,7 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
             ToolApiMode.Skills => "skills",
             ToolApiMode.Inventory => "inventory",
             ToolApiMode.Monsters => "monsters",
+            ToolApiMode.Loot => "loot",
             ToolApiMode.Gather => "gather",
             ToolApiMode.Abnormal => "abnormal",
             ToolApiMode.Target => "target",

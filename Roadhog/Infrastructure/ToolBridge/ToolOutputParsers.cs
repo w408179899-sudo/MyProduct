@@ -106,6 +106,42 @@ internal static partial class ToolOutputParsers
         return result;
     }
 
+    public static IReadOnlyList<LootCorpseSnapshot> ParseLootCorpses(IEnumerable<string> lines)
+    {
+        var result = new List<LootCorpseSnapshot>();
+
+        foreach (var line in lines)
+        {
+            var match = LootCorpseLineRegex().Match(line);
+            if (!match.Success)
+            {
+                continue;
+            }
+
+            result.Add(new LootCorpseSnapshot(
+                ParseUShort(match.Groups["entity"].Value),
+                ParseUInt(match.Groups["server"].Value),
+                ParseUShort(match.Groups["entityType"].Value),
+                ParseUInt(match.Groups["objectType"].Value),
+                ParseUInt(match.Groups["template"].Value),
+                ParseUShort(match.Groups["level"].Value),
+                match.Groups["name"].Value,
+                new Vector3Snapshot(
+                    ParseFloat(match.Groups["x"].Value),
+                    ParseFloat(match.Groups["y"].Value),
+                    ParseFloat(match.Groups["z"].Value)),
+                ParseDouble(match.Groups["dist"].Value),
+                ParseUInt(match.Groups["hp"].Value),
+                ParseUInt(match.Groups["maxHp"].Value),
+                byte.Parse(match.Groups["hpPercent"].Value, CultureInfo.InvariantCulture),
+                ParseHexUInt(match.Groups["lootableRaw"].Value),
+                ParseHexUInt(match.Groups["interactionState"].Value),
+                DateTimeOffset.Now));
+        }
+
+        return result;
+    }
+
     private static Vector3Snapshot? TryParsePosition(Match match)
     {
         if (!match.Groups["x"].Success || !match.Groups["y"].Success || !match.Groups["z"].Success)
@@ -159,6 +195,11 @@ internal static partial class ToolOutputParsers
         return uint.Parse(value, CultureInfo.InvariantCulture);
     }
 
+    private static uint ParseHexUInt(string value)
+    {
+        return uint.Parse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+    }
+
     private static uint ParseOptionalUInt(Group group)
     {
         return group.Success && uint.TryParse(group.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
@@ -194,4 +235,7 @@ internal static partial class ToolOutputParsers
 
     [GeneratedRegex(@"#\d+.*?Dist=(?<dist>-?\d+(?:\.\d+)?)\s+EntityId=(?<entity>\d+)\s+ServerId=(?<server>\d+)(?:\s+TargetServerId=(?<targetServer>\d+|n/a)\s+TargetingMe=(?<targetingMe>yes|no|n/a))?.*?IsMonster=(?<isMonster>yes|no|n/a).*?\sName=""(?<name>[^""]*)"".*?Pos=X=(?<x>-?\d+(?:\.\d+)?)\s+Y=(?<y>-?\d+(?:\.\d+)?)\s+Z=(?<z>-?\d+(?:\.\d+)?)", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
     private static partial Regex WorldObjectLineRegex();
+
+    [GeneratedRegex(@"#\d+.*?Dist=(?<dist>-?\d+(?:\.\d+)?)\s+EntityId=(?<entity>\d+)\s+ServerId=(?<server>\d+).*?CEntityType=(?<entityType>\d+).*?ObjType=(?<objectType>\d+)\s+TemplateId=(?<template>\d+)\s+Level=(?<level>\d+)\s+Name=""(?<name>[^""]*)""\s+Corpse=(?<corpse>yes|no)\s+Lootable=(?<lootable>yes|no)\s+LootableRaw=0x(?<lootableRaw>[0-9A-Fa-f]+)\s+InteractionState=0x(?<interactionState>[0-9A-Fa-f]+)\s+HP=(?<hp>\d+)/(?<maxHp>\d+)\s+HpPercent=(?<hpPercent>\d+).*?Pos=X=(?<x>-?\d+(?:\.\d+)?)\s+Y=(?<y>-?\d+(?:\.\d+)?)\s+Z=(?<z>-?\d+(?:\.\d+)?)", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
+    private static partial Regex LootCorpseLineRegex();
 }

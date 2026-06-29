@@ -41,6 +41,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat ignores target when kill times out", TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync),
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
+    ("stationary combat loots dead target and ignores corpse", TestStationaryCombatLootsDeadTargetAndIgnoresCorpseAsync),
+    ("stationary combat waits after kill before corpse scan", TestStationaryCombatWaitsAfterKillBeforeCorpseScanAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("stationary combat interrupts sit when targeted by monster", TestStationaryCombatInterruptsSitWhenTargetedAsync),
     ("stationary combat hp rule runs before defense target workflow", TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync),
@@ -253,6 +255,7 @@ static Task TestInputBackendParserAsync()
 static Task TestInputKeyMapAsync()
 {
     AssertHidCode("C", 0x06);
+    AssertHidCode("S", 0x16);
     AssertHidCode(" W ", 0x1A);
     AssertHidCode("D1", 0x1E);
     AssertHidCode("D0", 0x27);
@@ -260,7 +263,9 @@ static Task TestInputKeyMapAsync()
     AssertHidCode("OemPlus", 0x2E);
     AssertHidCode("OemComma", 0x36);
     AssertHidCode("Tab", 0x2B);
+    AssertHidCode("F9", 0x42);
     AssertHidCode("NumPad0", 0x62);
+    AssertHidCode("NumPadDecimal", 0x63);
 
     AssertFalse(
         RoadhogInputKeyMap.TryResolveHidCode("Enter", out _),
@@ -1467,6 +1472,144 @@ static async Task TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync()
     AssertFalse(keyboard.KeyDowns.Contains("W"), "locked target should not start W movement");
     AssertFalse(keyboard.KeyUps.Contains("W"), "locked target should not pulse W before combat");
     AssertFalse(!keyboard.Keys.Contains("D2"), "locked zero-hp monster snapshot should enter skill logic");
+}
+
+static async Task TestStationaryCombatLootsDeadTargetAndIgnoresCorpseAsync()
+{
+    var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
+    var previousWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS");
+    var previousVerify = Environment.GetEnvironmentVariable("ROADHOG_LOOT_VERIFY_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_VERIFY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var corpse = new LootCorpseSnapshot(
+            100,
+            1000,
+            3,
+            LootCorpseSnapshot.MonsterObjectType,
+            211371,
+            27,
+            "dead-target",
+            new Vector3Snapshot(1, 0, 0),
+            1,
+            0,
+            4430,
+            0,
+            1,
+            0x25,
+            DateTimeOffset.Now);
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(1, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 100,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 4430,
+            TargetPosition = corpse.Position,
+            LootCorpses = new[] { corpse },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CandidateEntityId = 100
+        };
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertSequence(new[] { "F9", "NumPadDecimal", "S" }, keyboard.Keys, "post-kill loot key sequence");
+        AssertFalse(state.LootAfterKill.Active, "loot state should finish in one zero-wait test tick");
+        AssertFalse(!state.IsLootCorpseIgnored(corpse, DateTimeOffset.Now), "picked corpse should be ignored");
+        AssertEqual((ushort)0, state.CurrentTargetEntityId, "combat target should clear after loot");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", previousWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_VERIFY_MS", previousVerify);
+    }
+}
+
+static async Task TestStationaryCombatWaitsAfterKillBeforeCorpseScanAsync()
+{
+    var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "1000");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(1, 0, 0), DateTimeOffset.Now, 90, 20, 90),
+            TargetEntityId = 100,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 4430,
+            TargetPosition = new Vector3Snapshot(1, 0, 0),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var keyboard = new RecordingKeyboardInput();
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CandidateEntityId = 100
+        };
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, new InMemoryRoadhogLogger()), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertEqual(0, gameApi.LootReadCount, "loot corpse scan should wait after kill");
+        AssertEqual(StationaryCombatLootAfterKillStep.WaitAfterKill, state.LootAfterKill.Step, "loot should be waiting after kill");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+    }
 }
 
 static async Task TestStationaryCombatFinishesFightBeforeReturningHomeAsync()
@@ -3323,6 +3466,10 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
 
     public IReadOnlyList<WorldObjectSnapshot> WorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
 
+    public IReadOnlyList<LootCorpseSnapshot> LootCorpses { get; set; } = Array.Empty<LootCorpseSnapshot>();
+
+    public int LootReadCount { get; private set; }
+
     public Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(CancellationToken cancellationToken = default)
     {
         return Task.FromResult(OperationResult<PlayerSnapshot>.Ok(Player));
@@ -3399,5 +3546,18 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
         CancellationToken cancellationToken = default)
     {
         return ReadWorldObjectsAsync(cancellationToken);
+    }
+
+    public Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(CancellationToken cancellationToken = default)
+    {
+        LootReadCount++;
+        return Task.FromResult(OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Ok(LootCorpses));
+    }
+
+    public Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return ReadLootCorpsesAsync(cancellationToken);
     }
 }
