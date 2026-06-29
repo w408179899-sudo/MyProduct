@@ -4251,7 +4251,7 @@ public sealed class StationaryCombatController
 
     private static int ReadLootAfterKillWaitMs()
     {
-        return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", 1_000), 0, 10_000);
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", 1_200), 0, 10_000);
     }
 
     private static int ReadLootAfterPickWaitMs()
