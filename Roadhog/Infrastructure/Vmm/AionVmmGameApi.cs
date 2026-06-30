@@ -18,6 +18,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private const ulong EntitySystemPointerRva = 0x904690;
     private const ulong ServerObjectTreeRva = 0xD21740;
     private const ulong LocalEntityIdRva = 0xD21798;
+    private const ulong LocalMaxHpRva = 0xD267DC;
+    private const ulong LocalCurrentHpRva = 0xD267E0;
+    private const ulong LocalMaxMpRva = 0xD267E4;
+    private const ulong LocalCurrentMpRva = 0xD267E8;
+    private const ulong LocalCurrentDpRva = 0xD267EE;
     private const ulong CameraPitchRva = 0xD1AD14;
     private const ulong CameraRollRva = 0xD1AD18;
     private const ulong CameraYawRva = 0xD1AD1C;
@@ -249,6 +254,10 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
                     ["pid"] = SafeGetProcessPid(process),
                     ["entityId"] = snapshot.EntityId,
                     ["targetEntityId"] = snapshot.TargetEntityId,
+                    ["hp"] = snapshot.CurrentHp,
+                    ["maxHp"] = snapshot.MaxHp,
+                    ["mp"] = snapshot.CurrentMp,
+                    ["maxMp"] = snapshot.MaxMp,
                     ["hasPosition"] = snapshot.Position is not null
                 });
 
@@ -2123,14 +2132,21 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             return false;
         }
 
-        uint currentHp = 0;
-        uint maxHp = 0;
+        TryReadUInt32(process, gameBase + LocalCurrentHpRva, out var currentHp);
+        TryReadUInt32(process, gameBase + LocalMaxHpRva, out var maxHp);
+        TryReadUInt32(process, gameBase + LocalCurrentMpRva, out var currentMp);
+        TryReadUInt32(process, gameBase + LocalMaxMpRva, out var maxMp);
+        TryReadUInt16(process, gameBase + LocalCurrentDpRva, out var currentDp);
         var characterName = string.Empty;
         double? actorYaw = null;
         if (TryResolveActorFromEntity(process, localEntity, 0, out var actor))
         {
-            currentHp = actor.CurrentHp;
-            maxHp = actor.MaxHp;
+            if (maxHp == 0 && actor.MaxHp > 0)
+            {
+                currentHp = actor.CurrentHp;
+                maxHp = actor.MaxHp;
+            }
+
             characterName = actor.Name;
         }
 
@@ -2153,9 +2169,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             characterName,
             currentHp,
             maxHp,
-            0,
-            0,
-            0,
+            currentMp,
+            maxMp,
+            currentDp,
             new Vector3Snapshot(x, y, z),
             DateTimeOffset.Now,
             cameraYaw,

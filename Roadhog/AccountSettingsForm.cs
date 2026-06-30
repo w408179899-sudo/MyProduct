@@ -118,7 +118,6 @@ namespace Roadhog
             settingsTabs.TabPages.Add(CreatePathTab());
             settingsTabs.TabPages.Add(CreateMaintenanceTab());
             settingsTabs.TabPages.Add(CreateSkillTab());
-            settingsTabs.TabPages.Add(CreateEmptyTab("测试"));
 
             Controls.Add(settingsTabs);
             AddButton(this, "保存配置", 418, 3, 150, 30, SaveSettingsButton_Click).BringToFront();
@@ -1485,13 +1484,6 @@ namespace Roadhog
                 }
             };
 
-            return tab;
-        }
-
-        private TabPage CreateEmptyTab(string title)
-        {
-            var tab = CreateBaseTab(title);
-            tab.Controls.Add(CreatePagePanel());
             return tab;
         }
 

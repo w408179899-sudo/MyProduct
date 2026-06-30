@@ -56,6 +56,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat interrupts sit when targeted by monster", TestStationaryCombatInterruptsSitWhenTargetedAsync),
     ("stationary combat hp rule runs before defense target workflow", TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync),
     ("stationary combat stops movement before hp maintenance", TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync),
+    ("stationary combat mp sit maintenance runs without defense target", TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
     ("skill tree maps at most configured roots across the 22 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
@@ -74,6 +75,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance selected cooling skill skips key and continues combat", TestMaintenanceSelectedCoolingSkillSkipsKeyAsync),
     ("stationary combat skips skill maintenance before cooldown calibration", TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync),
     ("maintenance sit enters with comma and exits with x", TestMaintenanceSitEnterExitAsync),
+    ("maintenance sit enters for low mp and exits on recovery", TestMaintenanceSitMpEnterExitAsync),
     ("semi auto skips sit maintenance", TestSemiAutoSkipsSitMaintenanceAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
@@ -2379,6 +2381,58 @@ static async Task TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync()
     AssertFalse(stationaryState.IsRightMouseDown, "hp maintenance should clear right mouse state");
 }
 
+static async Task TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 25;
+    settings.Maintenance.SitMpBelowPercent = 30;
+    settings.Maintenance.SitMpRecoverToPercent = 60;
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 20, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetPosition = null,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        }),
+        WorldObjects = Array.Empty<WorldObjectSnapshot>()
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var stationaryState = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, stationaryState)
+        .ConfigureAwait(false);
+
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "low mp should enter sit maintenance with comma");
+    AssertFalse(!semiAutoState.IsMaintenanceResting, "low mp sit maintenance should stay active");
+    AssertFalse(!semiAutoState.MaintenanceRestingForMp, "stationary mp sit should track mp recovery");
+    AssertFalse(semiAutoState.MaintenanceRestingForHp, "full hp should not be tracked for mp sit maintenance");
+    AssertEqual((ushort)0, stationaryState.CandidateEntityId, "target workflow should stay idle while mp sit maintenance starts");
+}
+
 static async Task TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync()
 {
     var settings = CreateScriptSettings();
@@ -3072,6 +3126,47 @@ static async Task TestMaintenanceSitEnterExitAsync()
     await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
     AssertSequence(new[] { "OemComma", "X" }, keyboard.Keys.ToArray(), "recovered hp should exit sit maintenance with x");
     AssertFalse(state.IsMaintenanceResting, "maintenance rest should clear after standing up");
+}
+
+static async Task TestMaintenanceSitMpEnterExitAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 25;
+    settings.Maintenance.SitHpRecoverToPercent = 75;
+    settings.Maintenance.SitMpBelowPercent = 30;
+    settings.Maintenance.SitMpRecoverToPercent = 60;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 20, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "low mp should enter sit maintenance with comma");
+    AssertFalse(!state.IsMaintenanceResting, "mp maintenance rest should stay active after sitting down");
+    AssertFalse(!state.MaintenanceRestingForMp, "mp maintenance rest should track mp recovery");
+    AssertFalse(state.MaintenanceRestingForHp, "full hp should not be tracked for mp maintenance rest");
+
+    gameApi.Player = gameApi.Player with { CurrentMp = 59 };
+    await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "rest should continue until mp reaches recovery threshold");
+
+    gameApi.Player = gameApi.Player with { CurrentMp = 60 };
+    await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(new[] { "OemComma", "X" }, keyboard.Keys.ToArray(), "recovered mp should exit sit maintenance with x");
+    AssertFalse(state.IsMaintenanceResting, "mp maintenance rest should clear after standing up");
 }
 
 static async Task TestSemiAutoSkipsSitMaintenanceAsync()
