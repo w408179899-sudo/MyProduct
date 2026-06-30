@@ -82,13 +82,21 @@ public sealed class SemiAutoCombatController
 
         if (state.ObserveTarget(targetResult.Value, out var killedTargetEntityId))
         {
-            context.RuntimeStates.MarkKill(context.Config.AccountName);
-            context.Logger.Info("semi_auto.target.kill_counted", new Dictionary<string, object?>
+            var counted = context.RuntimeStates.MarkKill(
+                context.Config.AccountName,
+                killedTargetEntityId,
+                targetResult.Value.ServerObjectId,
+                targetResult.Value.CapturedAt);
+            if (counted)
             {
-                ["account"] = context.Config.AccountName,
-                ["targetEntityId"] = killedTargetEntityId,
-                ["targetName"] = targetResult.Value.Name
-            });
+                context.Logger.Info("semi_auto.target.kill_counted", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["targetEntityId"] = killedTargetEntityId,
+                    ["targetServerObjectId"] = targetResult.Value.ServerObjectId,
+                    ["targetName"] = targetResult.Value.Name
+                });
+            }
         }
 
         if (!targetResult.Value.IsMonsterAlive)

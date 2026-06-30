@@ -22,4 +22,5 @@ public sealed record AccountRuntimeSnapshot(
     DateTimeOffset? LastHeartbeatAt,
     string? LastError,
     int KillCount,
+    DateTimeOffset? FirstKillAt,
     DateTimeOffset? LastKillAt);

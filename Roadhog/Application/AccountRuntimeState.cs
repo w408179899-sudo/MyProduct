@@ -2,6 +2,8 @@ namespace Roadhog.Application;
 
 public sealed class AccountRuntimeState
 {
+    private static readonly TimeSpan DuplicateEntityKillSuppressWindow = TimeSpan.FromSeconds(10);
+
     public AccountRuntimeState(string accountName, string characterName = "")
     {
         AccountName = string.IsNullOrWhiteSpace(accountName)
@@ -50,7 +52,13 @@ public sealed class AccountRuntimeState
 
     public int KillCount { get; private set; }
 
+    public DateTimeOffset? FirstKillAt { get; private set; }
+
     public DateTimeOffset? LastKillAt { get; private set; }
+
+    private ushort LastKillTargetEntityId { get; set; }
+
+    private uint LastKillTargetServerObjectId { get; set; }
 
     public bool StopRequested { get; private set; }
 
@@ -89,7 +97,10 @@ public sealed class AccountRuntimeState
         StoppedAt = null;
         LastHeartbeatAt = null;
         KillCount = 0;
+        FirstKillAt = null;
         LastKillAt = null;
+        LastKillTargetEntityId = 0;
+        LastKillTargetServerObjectId = 0;
         Touch();
     }
 
@@ -136,11 +147,42 @@ public sealed class AccountRuntimeState
         Touch();
     }
 
-    public void MarkKill()
+    public bool MarkKill(
+        ushort targetEntityId = 0,
+        uint targetServerObjectId = 0,
+        DateTimeOffset? killedAt = null)
     {
+        var now = killedAt ?? DateTimeOffset.Now;
+        if (IsDuplicateKill(targetEntityId, targetServerObjectId, now))
+        {
+            return false;
+        }
+
         KillCount++;
-        LastKillAt = DateTimeOffset.Now;
+        FirstKillAt ??= now;
+        LastKillAt = now;
+        LastKillTargetEntityId = targetEntityId;
+        LastKillTargetServerObjectId = targetServerObjectId;
         Touch();
+        return true;
+    }
+
+    private bool IsDuplicateKill(ushort targetEntityId, uint targetServerObjectId, DateTimeOffset now)
+    {
+        if (KillCount <= 0 || LastKillAt is not { } lastKillAt)
+        {
+            return false;
+        }
+
+        if (targetServerObjectId != 0 && targetServerObjectId == LastKillTargetServerObjectId)
+        {
+            return true;
+        }
+
+        return targetServerObjectId == 0 &&
+               targetEntityId != 0 &&
+               targetEntityId == LastKillTargetEntityId &&
+               now - lastKillAt <= DuplicateEntityKillSuppressWindow;
     }
 
     private void Touch()

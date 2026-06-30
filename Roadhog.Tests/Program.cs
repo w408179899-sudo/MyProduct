@@ -20,6 +20,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
+    ("runtime kill efficiency tracks kill intervals", TestRuntimeKillEfficiencyTracksKillIntervalsAsync),
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
     ("input backend parser accepts compatible backend names", TestInputBackendParserAsync),
     ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
@@ -229,6 +230,34 @@ static async Task TestRuntimePlayerReadReturnsCharacterNameAsync()
 
     AssertFalse(!result.Success, "runtime player read should succeed");
     AssertEqual("测试角色", result.Value?.CharacterName ?? string.Empty, "character name");
+}
+
+static Task TestRuntimeKillEfficiencyTracksKillIntervalsAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var runtimeStates = new AccountRuntimeManager(logger);
+    runtimeStates.GetOrCreate("account1");
+
+    var firstKillAt = new DateTimeOffset(2026, 6, 30, 8, 0, 0, TimeSpan.Zero);
+    var duplicateAt = firstKillAt.AddMilliseconds(200);
+    var secondKillAt = firstKillAt.AddSeconds(20);
+
+    AssertFalse(
+        !runtimeStates.MarkKill("account1", 100, 1000, firstKillAt),
+        "first kill should count");
+    AssertFalse(
+        runtimeStates.MarkKill("account1", 100, 1000, duplicateAt),
+        "same server object kill should be suppressed");
+    AssertFalse(
+        !runtimeStates.MarkKill("account1", 101, 1001, secondKillAt),
+        "second kill should count");
+
+    var snapshot = runtimeStates.Snapshot().First();
+    AssertEqual(2, snapshot.KillCount, "kill count");
+    AssertEqual(firstKillAt, snapshot.FirstKillAt!.Value, "first kill at");
+    AssertEqual(secondKillAt, snapshot.LastKillAt!.Value, "last kill at");
+
+    return Task.CompletedTask;
 }
 
 static Task TestFileLoggerRotatesWhenMaxSizeIsReachedAsync()
@@ -1931,6 +1960,8 @@ static async Task TestStationaryCombatLootsLockedDeadTargetDirectlyAsync()
 
         var keyboard = new RecordingKeyboardInput();
         var logger = new InMemoryRoadhogLogger();
+        var runtimeStates = new AccountRuntimeManager(logger);
+        runtimeStates.GetOrCreate("account1");
         var gameApi = new FakeGameApi
         {
             Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
@@ -1960,10 +1991,12 @@ static async Task TestStationaryCombatLootsLockedDeadTargetDirectlyAsync()
         };
 
         await controller
-            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .TickAsync(CreateContext(settings, gameApi, logger, runtimeStates), plan, new SemiAutoCombatState(), state)
             .ConfigureAwait(false);
 
         AssertSequence(new[] { "NumPadDecimal" }, keyboard.Keys, "post-kill loot key sequence");
+        AssertEqual(1, runtimeStates.Snapshot().First().KillCount, "stationary dead target should count as kill");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.kill_counted"), "stationary kill should be logged");
         AssertEqual(0, gameApi.LootReadCount, "locked dead target loot should not scan corpse list");
         AssertFalse(state.LootAfterKill.Active, "loot state should finish in one zero-wait test tick");
         AssertEqual((ushort)0, state.CurrentTargetEntityId, "combat target should clear after loot");

@@ -80,12 +80,16 @@ public sealed class AccountRuntimeManager
         }
     }
 
-    public void MarkKill(string accountName)
+    public bool MarkKill(
+        string accountName,
+        ushort targetEntityId = 0,
+        uint targetServerObjectId = 0,
+        DateTimeOffset? killedAt = null)
     {
         lock (_syncRoot)
         {
             var state = GetOrCreate(accountName);
-            state.MarkKill();
+            return state.MarkKill(targetEntityId, targetServerObjectId, killedAt);
         }
     }
 
@@ -143,6 +147,7 @@ public sealed class AccountRuntimeManager
             state.LastHeartbeatAt,
             state.LastError,
             state.KillCount,
+            state.FirstKillAt,
             state.LastKillAt);
     }
 

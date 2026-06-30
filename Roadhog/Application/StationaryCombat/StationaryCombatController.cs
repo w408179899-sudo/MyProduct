@@ -1176,6 +1176,7 @@ public sealed class StationaryCombatController
         var target = targetResult.Value;
         if (!target.IsMonsterAlive)
         {
+            MarkStationaryKillIfNeeded(context, target, "locked_target_dead");
             if (ShouldStartLootAfterKill(context, target))
             {
                 state.StartLootAfterKill(target, now);
@@ -1537,6 +1538,36 @@ public sealed class StationaryCombatController
                !target.IsAlive;
     }
 
+    private static void MarkStationaryKillIfNeeded(
+        AccountWorkerContext context,
+        LockedTargetSnapshot target,
+        string source)
+    {
+        if (!target.IsLockedMonster || target.IsAlive)
+        {
+            return;
+        }
+
+        var counted = context.RuntimeStates.MarkKill(
+            context.Config.AccountName,
+            target.TargetEntityId,
+            target.ServerObjectId,
+            target.CapturedAt);
+        if (!counted)
+        {
+            return;
+        }
+
+        context.Logger.Info("stationary_combat.target.kill_counted", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["source"] = source,
+            ["targetEntityId"] = target.TargetEntityId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetName"] = target.Name
+        });
+    }
+
     private static void FinishLootAfterKill(
         AccountWorkerContext context,
         StationaryCombatState state,
@@ -1616,6 +1647,7 @@ public sealed class StationaryCombatController
                 target.Position,
                 target.DistanceToLocalPlayer,
                 DateTimeOffset.Now);
+            MarkStationaryKillIfNeeded(context, killedSnapshot, "world_object_reacquire");
             if (ShouldStartLootAfterKill(context, killedSnapshot))
             {
                 state.StartLootAfterKill(killedSnapshot, DateTimeOffset.Now);
