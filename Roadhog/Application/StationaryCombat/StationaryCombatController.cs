@@ -2644,6 +2644,7 @@ public sealed class StationaryCombatController
     {
         var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
+        var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
 
         if (state.CandidateEntityId != 0 || state.CandidateServerObjectId != 0)
         {
@@ -2662,7 +2663,18 @@ public sealed class StationaryCombatController
                 }, TimeSpan.FromMilliseconds(500));
             }
 
-            if (candidate is not null &&
+            if (candidate is not null && IsActiveMonsterFiltered(candidate, activeMonsterNameFilters))
+            {
+                LogActionThrottled(context, state, "stationary_combat.target.filtered", "candidate:" + TargetActionKey(candidate.EntityId, candidate.ServerObjectId), new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["targetEntityId"] = candidate.EntityId,
+                    ["serverObjectId"] = candidate.ServerObjectId,
+                    ["targetServerObjectId"] = candidate.ServerObjectId,
+                    ["targetName"] = candidate.Name
+                }, TimeSpan.FromMilliseconds(500));
+            }
+            else if (candidate is not null &&
                 !state.IsTargetIgnored(candidate) &&
                 IsCandidateStillSelectable(candidate, home, radius, allowClaimedByOther))
             {
@@ -2680,7 +2692,9 @@ public sealed class StationaryCombatController
             }
         }
 
-        var candidates = objects.Where(target => !state.IsTargetIgnored(target));
+        var candidates = objects
+            .Where(target => !state.IsTargetIgnored(target))
+            .Where(target => !IsActiveMonsterFiltered(target, activeMonsterNameFilters));
         if (!allowClaimedByOther)
         {
             candidates = candidates.Where(target => !IsClaimedByOther(target));
@@ -2776,6 +2790,25 @@ public sealed class StationaryCombatController
     private static bool PrefersAggressiveMonsters(AccountWorkerContext context)
     {
         return context.Config.ScriptSettings?.Combat?.PreferAggressiveMonsters == true;
+    }
+
+    private static IReadOnlyList<string> GetActiveMonsterNameFilters(AccountWorkerContext context)
+    {
+        return context.Config.ScriptSettings?.Combat?.ActiveMonsterNameFilters?
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .ToArray() ?? Array.Empty<string>();
+    }
+
+    private static bool IsActiveMonsterFiltered(WorldObjectSnapshot target, IReadOnlyList<string> filters)
+    {
+        if (filters.Count == 0 || string.IsNullOrWhiteSpace(target.Name))
+        {
+            return false;
+        }
+
+        var targetName = target.Name.Trim();
+        return filters.Any(filter => string.Equals(targetName, filter, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool ShouldReplaceCandidateWithAggressiveTarget(

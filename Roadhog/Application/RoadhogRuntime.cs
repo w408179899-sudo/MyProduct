@@ -102,6 +102,31 @@ public sealed class RoadhogRuntime
         return result;
     }
 
+    public async Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> RefreshWorldObjectsAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ReadWorldObjectsAsync(accountName, cancellationToken).ConfigureAwait(false);
+        if (result.Success)
+        {
+            _logger.Info("world_objects.refresh.ok", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["count"] = result.Value?.Count ?? 0
+            });
+        }
+        else
+        {
+            _logger.Warn("world_objects.refresh.failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["error"] = result.Error
+            });
+        }
+
+        return result;
+    }
+
     private Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
         string? accountName,
         CancellationToken cancellationToken)
@@ -113,6 +138,19 @@ public sealed class RoadhogRuntime
         }
 
         return _gameApi.ReadSkillsAsync(cancellationToken);
+    }
+
+    private Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            return scopedApi.ReadWorldObjectsAsync(CreateReadContext(accountName), cancellationToken);
+        }
+
+        return _gameApi.ReadWorldObjectsAsync(cancellationToken);
     }
 
     private Task<OperationResult<PlayerSnapshot>> ReadPlayerSnapshotAsync(

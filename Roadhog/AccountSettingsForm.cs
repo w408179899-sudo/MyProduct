@@ -47,6 +47,9 @@ namespace Roadhog
         private RoundedCheckBox? contestMonsterCheckBox;
         private RoundedCheckBox? counterEnemyRaceCheckBox;
         private RoundedCheckBox? preferAggressiveMonsterCheckBox;
+        private RoundedComboBox? activeMonsterFilterCombo;
+        private ListBox? activeMonsterFilterListBox;
+        private Label? activeMonsterFilterStatusLabel;
         private RoundedCheckBox? openingAttackKeyCheckBox;
         private RoundedCheckBox? openingSkillEnabledCheckBox;
         private RoundedComboBox? openingSkillCombo;
@@ -124,6 +127,7 @@ namespace Roadhog
             settingsTabs.TabPages.Add(CreatePathTab());
             settingsTabs.TabPages.Add(CreateMaintenanceTab());
             settingsTabs.TabPages.Add(CreateSkillTab());
+            settingsTabs.TabPages.Add(CreateFilterTab());
 
             Controls.Add(settingsTabs);
             AddButton(this, "保存配置", 418, 3, 150, 30, SaveSettingsButton_Click).BringToFront();
@@ -221,6 +225,7 @@ namespace Roadhog
             SetChecked(contestMonsterCheckBox, settings.Combat.ContestMonster);
             SetChecked(counterEnemyRaceCheckBox, settings.Combat.CounterEnemyRace);
             SetChecked(preferAggressiveMonsterCheckBox, settings.Combat.PreferAggressiveMonsters);
+            PopulateActiveMonsterFilterList(settings.Combat.ActiveMonsterNameFilters);
 
             SetText(revivePathNameTextBox, settings.Paths.RevivePathName);
             SetText(combatPathNameTextBox, settings.Paths.CombatPathName);
@@ -318,6 +323,7 @@ namespace Roadhog
                     ContestMonster = contestMonsterCheckBox?.Checked ?? false,
                     CounterEnemyRace = counterEnemyRaceCheckBox?.Checked ?? false,
                     PreferAggressiveMonsters = preferAggressiveMonsterCheckBox?.Checked ?? false,
+                    ActiveMonsterNameFilters = CaptureActiveMonsterFilterList(),
                     HasStationaryCombatPosition = stationaryCombatPosition is not null,
                     StationaryCombatX = stationaryCombatPosition?.X ?? 0.0D,
                     StationaryCombatY = stationaryCombatPosition?.Y ?? 0.0D,
@@ -1656,6 +1662,217 @@ namespace Roadhog
             return tab;
         }
 
+        private TabPage CreateFilterTab()
+        {
+            var tab = CreateBaseTab("过滤");
+            var page = CreatePagePanel();
+            tab.Controls.Add(page);
+
+            AddLabel(page, "怪物过滤", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
+            var refreshMonstersButton = AddButton(page, "刷新当前怪物", 96, 12, 132, 30);
+            refreshMonstersButton.Click += async (_, _) =>
+                await RefreshCurrentMonstersAsync(refreshMonstersButton).ConfigureAwait(true);
+
+            AddLabel(page, "当前怪物", 4, 58, 100, 24, _textGreen, FontStyle.Bold);
+            activeMonsterFilterCombo = AddCombo(page, 4, 84, 280, 30);
+            activeMonsterFilterCombo.Name = "activeMonsterFilterCombo";
+            AddButton(page, "添加 >", 302, 84, 80, 30, (_, _) => AddSelectedActiveMonsterFilter());
+
+            activeMonsterFilterStatusLabel = AddLabel(page, "等待刷新", 4, 124, 360, 24);
+
+            AddLabel(page, "已过滤怪物", 404, 58, 120, 24, _textGreen, FontStyle.Bold);
+            activeMonsterFilterListBox = CreateFilterListBox(page, 404, 84, 260, 420);
+            AddButton(page, "移除", 684, 84, 80, 30, (_, _) => RemoveSelectedActiveMonsterFilter());
+            AddButton(page, "清空", 684, 122, 80, 30, (_, _) => ClearActiveMonsterFilterList());
+
+            return tab;
+        }
+
+        private ListBox CreateFilterListBox(Control parent, int x, int y, int width, int height)
+        {
+            var listBox = new ListBox
+            {
+                BackColor = _inputBackground,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
+                ForeColor = _textGreen,
+                IntegralHeight = false,
+                Location = new Point(x, y),
+                SelectionMode = SelectionMode.MultiExtended,
+                Size = new Size(width, height)
+            };
+
+            parent.Controls.Add(listBox);
+            return listBox;
+        }
+
+        private async Task RefreshCurrentMonstersAsync(Button button)
+        {
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "刷新中...";
+
+            try
+            {
+                var result = await _runtime.RefreshWorldObjectsAsync(_account).ConfigureAwait(true);
+                if (!result.Success || result.Value is null)
+                {
+                    SetActiveMonsterFilterStatus(result.Error ?? "读取当前怪物失败", true);
+                    return;
+                }
+
+                var count = PopulateActiveMonsterFilterCombo(result.Value);
+                SetActiveMonsterFilterStatus("已刷新 " + count.ToString(CultureInfo.InvariantCulture) + " 个怪物", false);
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+
+        private int PopulateActiveMonsterFilterCombo(IEnumerable<WorldObjectSnapshot> objects)
+        {
+            if (activeMonsterFilterCombo is null)
+            {
+                return 0;
+            }
+
+            var previousName = GetSelectedActiveMonsterFilterName();
+            var items = objects
+                .Where(IsMonsterFilterCandidate)
+                .GroupBy(target => target.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(group => new MonsterFilterComboItem(group.Key))
+                .OrderBy(item => item.Name, StringComparer.CurrentCulture)
+                .ToArray();
+
+            activeMonsterFilterCombo.Items.Clear();
+            foreach (var item in items)
+            {
+                activeMonsterFilterCombo.Items.Add(item);
+            }
+
+            if (items.Length == 0)
+            {
+                activeMonsterFilterCombo.Text = string.Empty;
+                return 0;
+            }
+
+            var selectedIndex = Array.FindIndex(
+                items,
+                item => string.Equals(item.Name, previousName, StringComparison.OrdinalIgnoreCase));
+            activeMonsterFilterCombo.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+            return items.Length;
+        }
+
+        private static bool IsMonsterFilterCandidate(WorldObjectSnapshot target)
+        {
+            return string.Equals(target.ObjectKind, "monster", StringComparison.OrdinalIgnoreCase) &&
+                   target.IsAlive &&
+                   !string.IsNullOrWhiteSpace(target.Name);
+        }
+
+        private string GetSelectedActiveMonsterFilterName()
+        {
+            if (activeMonsterFilterCombo is null || activeMonsterFilterCombo.SelectedIndex < 0)
+            {
+                return string.Empty;
+            }
+
+            return activeMonsterFilterCombo.Items[activeMonsterFilterCombo.SelectedIndex] is MonsterFilterComboItem item
+                ? item.Name
+                : activeMonsterFilterCombo.Text.Trim();
+        }
+
+        private void AddSelectedActiveMonsterFilter()
+        {
+            AddActiveMonsterFilterName(GetSelectedActiveMonsterFilterName());
+        }
+
+        private void AddActiveMonsterFilterName(string? name)
+        {
+            if (activeMonsterFilterListBox is null || string.IsNullOrWhiteSpace(name))
+            {
+                return;
+            }
+
+            var trimmed = name.Trim();
+            foreach (var existing in activeMonsterFilterListBox.Items.Cast<object>())
+            {
+                if (string.Equals(Convert.ToString(existing), trimmed, StringComparison.OrdinalIgnoreCase))
+                {
+                    activeMonsterFilterListBox.SelectedItem = existing;
+                    return;
+                }
+            }
+
+            var index = activeMonsterFilterListBox.Items.Add(trimmed);
+            activeMonsterFilterListBox.SelectedIndex = index;
+            SetActiveMonsterFilterStatus("已添加 " + trimmed, false);
+        }
+
+        private void RemoveSelectedActiveMonsterFilter()
+        {
+            if (activeMonsterFilterListBox is null || activeMonsterFilterListBox.SelectedItems.Count == 0)
+            {
+                return;
+            }
+
+            var selected = activeMonsterFilterListBox.SelectedItems.Cast<object>().ToArray();
+            foreach (var item in selected)
+            {
+                activeMonsterFilterListBox.Items.Remove(item);
+            }
+        }
+
+        private void ClearActiveMonsterFilterList()
+        {
+            activeMonsterFilterListBox?.Items.Clear();
+        }
+
+        private void PopulateActiveMonsterFilterList(IEnumerable<string>? filters)
+        {
+            if (activeMonsterFilterListBox is null)
+            {
+                return;
+            }
+
+            activeMonsterFilterListBox.Items.Clear();
+            foreach (var filter in filters?
+                         .Where(value => !string.IsNullOrWhiteSpace(value))
+                         .Select(value => value.Trim())
+                         .Distinct(StringComparer.OrdinalIgnoreCase) ?? Array.Empty<string>())
+            {
+                activeMonsterFilterListBox.Items.Add(filter);
+            }
+        }
+
+        private List<string> CaptureActiveMonsterFilterList()
+        {
+            return activeMonsterFilterListBox is null
+                ? new List<string>()
+                : activeMonsterFilterListBox.Items
+                    .Cast<object>()
+                    .Select(item => Convert.ToString(item)?.Trim() ?? string.Empty)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+        }
+
+        private void SetActiveMonsterFilterStatus(string text, bool isError)
+        {
+            if (activeMonsterFilterStatusLabel is null)
+            {
+                return;
+            }
+
+            activeMonsterFilterStatusLabel.ForeColor = isError ? Color.FromArgb(166, 40, 40) : _textGreen;
+            activeMonsterFilterStatusLabel.Text = text;
+        }
+
         private TabPage CreateBaseTab(string title)
         {
             return new TabPage
@@ -2166,6 +2383,21 @@ namespace Roadhog
             string BaseName,
             string Type,
             int? ChainTimeMs);
+
+        private sealed class MonsterFilterComboItem
+        {
+            public MonsterFilterComboItem(string name)
+            {
+                Name = name.Trim();
+            }
+
+            public string Name { get; }
+
+            public override string ToString()
+            {
+                return Name;
+            }
+        }
 
         private sealed class MaintenanceSkillComboItem
         {

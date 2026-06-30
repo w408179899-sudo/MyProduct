@@ -19,6 +19,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
+    ("runtime world object read uses account scoped context", TestRuntimeWorldObjectReadUsesAccountScopeAsync),
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
     ("runtime kill efficiency tracks kill intervals", TestRuntimeKillEfficiencyTracksKillIntervalsAsync),
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
@@ -28,6 +29,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
+    ("stationary combat skips active filtered monsters", TestStationaryCombatSkipsActiveFilteredMonstersAsync),
     ("stationary combat state uses server object id identity", TestStationaryCombatStateUsesServerObjectIdIdentityAsync),
     ("tool bridge world parser reads aggressive monster flags", TestToolBridgeWorldParserReadsAggressiveFlagsAsync),
     ("stationary combat startup recovery follows nearest revive path point", TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync),
@@ -214,6 +216,35 @@ static async Task TestRuntimePlayerReadUsesAccountScopeAsync()
     AssertEqual(712, gameApi.LastPlayerContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastPlayerContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastPlayerContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
+}
+
+static async Task TestRuntimeWorldObjectReadUsesAccountScopeAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    accounts.MarkStarting(new AccountConfig
+    {
+        AccountName = "account-scope",
+        ProcessId = 712,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga"
+    });
+
+    var gameApi = new FakeGameApi
+    {
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, 100, "normal target", "monster", new Vector3Snapshot(1, 2, 3), 4, 100, 100)
+        }
+    };
+    var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
+
+    var result = await runtime.RefreshWorldObjectsAsync("account-scope").ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "runtime world object read should succeed");
+    AssertEqual(712, gameApi.LastWorldObjectsContext?.ProcessId ?? 0, "scoped process id");
+    AssertEqual("Aion.bin", gameApi.LastWorldObjectsContext?.TargetProcessName ?? string.Empty, "scoped process name");
+    AssertEqual("fpga", gameApi.LastWorldObjectsContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
 }
 
 static async Task TestRuntimePlayerReadReturnsCharacterNameAsync()
@@ -505,6 +536,57 @@ static Task TestStationaryTargetSelectorAsync()
 
     AssertEqual((ushort)21, activeSelected?.EntityId ?? 0, "aggressive monster should outrank nearer passive monster");
     return Task.CompletedTask;
+}
+
+static async Task TestStationaryCombatSkipsActiveFilteredMonstersAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30,
+        ActiveMonsterNameFilters = new List<string> { "stealth watcher" }
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, 100, "stealth watcher", "monster", new Vector3Snapshot(4, 0, 0), 4, 1000, 1000),
+            new WorldObjectSnapshot(101, 101, "normal target", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000)
+        }
+    };
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertEqual((ushort)101, state.CandidateEntityId, "active selection should skip filtered monster name");
+
+    var defenseState = new StationaryCombatState();
+    gameApi.WorldObjects = new[]
+    {
+        new WorldObjectSnapshot(100, 100, "stealth watcher", "monster", new Vector3Snapshot(4, 0, 0), 4, 1000, 1000, 1, true)
+    };
+
+    await controller.TickAsync(context, plan, semiAutoState, defenseState).ConfigureAwait(false);
+
+    AssertEqual((ushort)100, defenseState.CandidateEntityId, "filtered monster targeting player should still be defended");
 }
 
 static Task TestStationaryCombatStateUsesServerObjectIdIdentityAsync()
@@ -4409,6 +4491,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
 
     public GameApiReadContext? LastPlayerContext { get; private set; }
 
+    public GameApiReadContext? LastWorldObjectsContext { get; private set; }
+
     public ushort TargetEntityId { get; set; } = 100;
 
     public uint TargetCurrentHp { get; set; } = 1000;
@@ -4519,6 +4603,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
+        LastWorldObjectsContext = context;
         return ReadWorldObjectsAsync(cancellationToken);
     }
 

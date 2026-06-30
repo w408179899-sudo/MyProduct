@@ -90,6 +90,8 @@ public sealed class CombatScriptSettings
 
     public bool PreferAggressiveMonsters { get; set; }
 
+    public List<string> ActiveMonsterNameFilters { get; set; } = new();
+
     public bool HasStationaryCombatPosition { get; set; }
 
     public double StationaryCombatX { get; set; }
@@ -112,6 +114,7 @@ public sealed class CombatScriptSettings
             ContestMonster = ContestMonster,
             CounterEnemyRace = CounterEnemyRace,
             PreferAggressiveMonsters = PreferAggressiveMonsters,
+            ActiveMonsterNameFilters = ActiveMonsterNameFilters?.ToList() ?? new List<string>(),
             HasStationaryCombatPosition = HasStationaryCombatPosition,
             StationaryCombatX = StationaryCombatX,
             StationaryCombatY = StationaryCombatY,
