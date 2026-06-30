@@ -23,6 +23,12 @@ public sealed class MockRoadhogGameApi : IRoadhogGameApi
         return Task.FromResult(OperationResult<PlayerSnapshot>.Ok(snapshot));
     }
 
+    public Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(OperationResult<PlayerAbnormalStatusSnapshot>.Ok(PlayerAbnormalStatusSnapshot.Empty(1)));
+    }
+
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
     {
         var snapshot = new LockedTargetSnapshot(

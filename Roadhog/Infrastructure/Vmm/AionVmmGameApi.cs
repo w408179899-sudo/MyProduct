@@ -69,9 +69,14 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private const ulong ActorNameOffset = 0x42;
     private const ulong ActorInteractionStateOffset = 0x1CC;
     private const ulong ActorTargetServerObjectIdOffset = 0x358;
+    private const ulong ActorAbnormalStatusBeginOffset = 0xF18;
+    private const ulong ActorAbnormalStatusEndOffset = 0xF20;
+    private const ulong ActorAbnormalCategory2CountOffset = 0xF38;
     private const ulong ActorMaxHpOffset = 0x11A0;
     private const ulong ActorCurrentHpOffset = 0x11A4;
     private const ulong ActorLootableFlagOffset = 0x11E0;
+    private const ulong AbnormalStatusEntrySize = 0x12;
+    private const int MaxActorAbnormalStatusEntries = 512;
 
     private const ulong SkillItemSkillIdOffset = 0x08;
     private const ulong SkillItemField0COffset = 0x0C;
@@ -111,6 +116,20 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadPlayerCore(context), cancellationToken);
+    }
+
+    public Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadPlayerAbnormalStatusesAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadPlayerAbnormalStatusesCore(context), cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
@@ -268,6 +287,51 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         {
             _logger.Error("vmm.player.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<PlayerSnapshot>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<PlayerAbnormalStatusSnapshot> ReadPlayerAbnormalStatusesCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<PlayerAbnormalStatusSnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<PlayerAbnormalStatusSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                if (!TryReadLocalPlayerAbnormalStatuses(process, gameBase, out var snapshot, out var readError))
+                {
+                    return OperationResult<PlayerAbnormalStatusSnapshot>.Fail(readError);
+                }
+
+                _logger.Info("vmm.player_abnormal.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["entityId"] = snapshot.EntityId,
+                    ["abnormalCategory2Count"] = snapshot.AbnormalCategory2Count,
+                    ["abnormalEntryCount"] = snapshot.Entries.Count,
+                    ["harmfulAbnormalCount"] = snapshot.HarmfulAbnormalCount,
+                    ["harmfulAbnormalSummary"] = snapshot.HarmfulAbnormalSummary
+                });
+
+                return OperationResult<PlayerAbnormalStatusSnapshot>.Ok(snapshot);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.player_abnormal.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<PlayerAbnormalStatusSnapshot>.Fail(ex.Message);
         }
     }
 
@@ -2177,6 +2241,117 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             cameraYaw,
             cameraPitch,
             actorYaw);
+        return true;
+    }
+
+    private static bool TryReadLocalPlayerAbnormalStatuses(
+        VmmProcess process,
+        ulong gameBase,
+        out PlayerAbnormalStatusSnapshot snapshot,
+        out string error)
+    {
+        snapshot = PlayerAbnormalStatusSnapshot.Empty();
+        error = string.Empty;
+
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        {
+            error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        {
+            error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        {
+            error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
+            return false;
+        }
+
+        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity))
+        {
+            error = "local entity id " + localEntityId + " was not found in EntitySystem tree";
+            return false;
+        }
+
+        if (!TryResolveActorFromEntity(process, localEntity, 0, out var actor))
+        {
+            error = "failed to resolve local actor for entity id " + localEntityId;
+            return false;
+        }
+
+        TryReadUInt32(process, actor.Actor + ActorAbnormalCategory2CountOffset, out var abnormalCategory2Count);
+        if (!TryReadActorAbnormalStatusEntries(process, actor.Actor, out var entries, out error))
+        {
+            return false;
+        }
+
+        snapshot = new PlayerAbnormalStatusSnapshot(
+            localEntityId,
+            DateTimeOffset.Now,
+            abnormalCategory2Count,
+            entries);
+        return true;
+    }
+
+    private static bool TryReadActorAbnormalStatusEntries(
+        VmmProcess process,
+        ulong actorAddress,
+        out IReadOnlyList<AbnormalStatusEntrySnapshot> entries,
+        out string error)
+    {
+        entries = Array.Empty<AbnormalStatusEntrySnapshot>();
+        error = string.Empty;
+
+        if (!TryReadPointer(process, actorAddress + ActorAbnormalStatusBeginOffset, out var begin) ||
+            !TryReadPointer(process, actorAddress + ActorAbnormalStatusEndOffset, out var end) ||
+            begin == 0 ||
+            end <= begin)
+        {
+            return true;
+        }
+
+        var size = end - begin;
+        if (size < AbnormalStatusEntrySize)
+        {
+            return true;
+        }
+
+        if (size > AbnormalStatusEntrySize * (ulong)MaxActorAbnormalStatusEntries)
+        {
+            error = "local actor abnormal status list is too large: " + size.ToString(CultureInfo.InvariantCulture);
+            return false;
+        }
+
+        var result = new List<AbnormalStatusEntrySnapshot>();
+        for (var entry = begin; entry <= end - AbnormalStatusEntrySize; entry += AbnormalStatusEntrySize)
+        {
+            TryReadUInt32(process, entry + 0x00, out var field00);
+            if (!TryReadUInt32(process, entry + 0x04, out var abnormalId))
+            {
+                continue;
+            }
+
+            if (!TryReadUInt32(process, entry + 0x08, out var category))
+            {
+                continue;
+            }
+
+            TryReadUInt32(process, entry + 0x0C, out var rawTimeOrSource);
+            TryReadUInt16(process, entry + 0x10, out var levelOrStack);
+            result.Add(new AbnormalStatusEntrySnapshot(
+                field00,
+                abnormalId,
+                category,
+                unchecked((int)rawTimeOrSource),
+                levelOrStack,
+                entry));
+        }
+
+        entries = result;
         return true;
     }
 

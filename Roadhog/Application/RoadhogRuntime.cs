@@ -51,6 +51,32 @@ public sealed class RoadhogRuntime
         return result;
     }
 
+    public async Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ReadPlayerAbnormalStatusSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        if (result.Success)
+        {
+            _logger.Info("player_abnormal.refresh.ok", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["harmfulAbnormalCount"] = result.Value?.HarmfulAbnormalCount ?? 0,
+                ["harmfulAbnormalSummary"] = result.Value?.HarmfulAbnormalSummary
+            });
+        }
+        else
+        {
+            _logger.Warn("player_abnormal.refresh.failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["error"] = result.Error
+            });
+        }
+
+        return result;
+    }
+
     public async Task<OperationResult<IReadOnlyList<SkillSnapshot>>> RefreshSkillsAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
@@ -100,6 +126,19 @@ public sealed class RoadhogRuntime
         }
 
         return _gameApi.ReadPlayerAsync(cancellationToken);
+    }
+
+    private Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusSnapshotAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            return scopedApi.ReadPlayerAbnormalStatusesAsync(CreateReadContext(accountName), cancellationToken);
+        }
+
+        return _gameApi.ReadPlayerAbnormalStatusesAsync(cancellationToken);
     }
 
     private GameApiReadContext CreateReadContext(string accountName)

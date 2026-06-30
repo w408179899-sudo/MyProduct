@@ -4178,12 +4178,12 @@ public sealed class StationaryCombatController
         var pixelsPerDegreeAbs = Math.Abs(ReadDoubleFromEnv("AION_FACE_TARGET_PIXELS_PER_DEG_ABS", 0.0D));
         if (pixelsPerDegreeAbs < 0.0001D)
         {
-            pixelsPerDegreeAbs = Math.Abs(ReadDoubleFromEnv("AION_FACE_TARGET_PIXELS_PER_DEG", 13.0D));
+            pixelsPerDegreeAbs = Math.Abs(ReadDoubleFromEnv("AION_FACE_TARGET_PIXELS_PER_DEG", 12.0D));
         }
 
         if (pixelsPerDegreeAbs < 0.0001D)
         {
-            pixelsPerDegreeAbs = 13.0D;
+            pixelsPerDegreeAbs = 12.0D;
         }
 
         var pitchPixelsPerDegreeAbs = Math.Abs(ReadDoubleFromEnv("AION_CAMERA_PITCH_PIXELS_PER_DEG_ABS", 0.0D));

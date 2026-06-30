@@ -102,7 +102,7 @@
             this.pageTitleLabel.Name = "pageTitleLabel";
             this.pageTitleLabel.Size = new System.Drawing.Size(129, 19);
             this.pageTitleLabel.TabIndex = 1;
-            this.pageTitleLabel.Text = "Roadhog 脚本UI";
+            this.pageTitleLabel.Text = "绿色玩家";
             // 
             // refreshDevicesButton
             // 
@@ -132,7 +132,7 @@
             this.MinimumSize = new System.Drawing.Size(760, 240);
             this.Name = "Form1";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "Roadhog";
+            this.Text = "GreenPlayer";
             this.shellPanel.ResumeLayout(false);
             this.accountListPanel.ResumeLayout(false);
             this.topBarPanel.ResumeLayout(false);

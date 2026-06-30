@@ -77,6 +77,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat skips skill maintenance before cooldown calibration", TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync),
     ("maintenance sit enters with comma and exits with x", TestMaintenanceSitEnterExitAsync),
     ("maintenance sit enters for low mp and exits on recovery", TestMaintenanceSitMpEnterExitAsync),
+    ("maintenance sit waits for harmful abnormal before comma", TestMaintenanceSitWaitsForHarmfulAbnormalAsync),
     ("semi auto skips sit maintenance", TestSemiAutoSkipsSitMaintenanceAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
@@ -3209,6 +3210,70 @@ static async Task TestMaintenanceSitMpEnterExitAsync()
     AssertFalse(state.IsMaintenanceResting, "mp maintenance rest should clear after standing up");
 }
 
+static async Task TestMaintenanceSitWaitsForHarmfulAbnormalAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 25;
+    settings.Maintenance.SitHpRecoverToPercent = 75;
+    settings.Maintenance.SitMpBelowPercent = 10;
+    settings.Maintenance.SitMpRecoverToPercent = 60;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            20,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now),
+        PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+            1,
+            DateTimeOffset.Now,
+            0,
+            new[]
+            {
+                new AbnormalStatusEntrySnapshot(0, 506, 0, 0, 1, 0),
+                new AbnormalStatusEntrySnapshot(0, 12345, 2, 0, 1, 0)
+            }),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var context = CreateContext(settings, gameApi, logger);
+
+    var waiting = await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
+    AssertFalse(!waiting, "harmful abnormal wait should count as maintenance work");
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "harmful abnormal should block sit key");
+    AssertFalse(state.IsMaintenanceResting, "harmful abnormal wait should not enter rest state");
+
+    gameApi.PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+        1,
+        DateTimeOffset.Now,
+        0,
+        new[]
+        {
+            new AbnormalStatusEntrySnapshot(0, 506, 0, 0, 1, 0),
+            new AbnormalStatusEntrySnapshot(0, 424, 0, 0, 1, 0)
+        });
+    var entered = await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
+    AssertFalse(!entered, "category zero abnormalities should allow sit maintenance");
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "sit key should press when only category zero abnormalities remain");
+    AssertFalse(!state.IsMaintenanceResting, "sit maintenance should enter rest when only category zero abnormalities remain");
+}
+
 static async Task TestSemiAutoSkipsSitMaintenanceAsync()
 {
     var settings = CreateScriptSettings();
@@ -4098,6 +4163,9 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
 
     public IReadOnlyList<SkillSnapshot> Skills { get; set; } = Array.Empty<SkillSnapshot>();
 
+    public PlayerAbnormalStatusSnapshot PlayerAbnormalStatuses { get; set; } =
+        PlayerAbnormalStatusSnapshot.Empty(1);
+
     public IReadOnlyList<uint>? LastRequestedSkillIds { get; private set; }
 
     public GameApiReadContext? LastPlayerContext { get; private set; }
@@ -4131,6 +4199,19 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
     {
         LastPlayerContext = context;
         return ReadPlayerAsync(cancellationToken);
+    }
+
+    public Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(OperationResult<PlayerAbnormalStatusSnapshot>.Ok(PlayerAbnormalStatuses));
+    }
+
+    public Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return ReadPlayerAbnormalStatusesAsync(cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)

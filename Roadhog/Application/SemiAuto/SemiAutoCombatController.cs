@@ -348,6 +348,11 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
+        if (await ShouldWaitForHarmfulAbnormalBeforeSitAsync(context, state, player, "revive_rest_enter").ConfigureAwait(false))
+        {
+            return true;
+        }
+
         if (beforeMaintenanceKeyPress is not null)
         {
             await beforeMaintenanceKeyPress().ConfigureAwait(false);
@@ -509,6 +514,11 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
+        if (await ShouldWaitForHarmfulAbnormalBeforeSitAsync(context, state, player, "rest_enter").ConfigureAwait(false))
+        {
+            return true;
+        }
+
         var result = await _keyboard
             .PressKeyAsync(RestEnterKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
             .ConfigureAwait(false);
@@ -532,6 +542,62 @@ public sealed class SemiAutoCombatController
             ["hpBelowPercent"] = maintenance.SitHpBelowPercent,
             ["mpBelowPercent"] = maintenance.SitMpBelowPercent
         });
+        return true;
+    }
+
+    private static async Task<bool> ShouldWaitForHarmfulAbnormalBeforeSitAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        PlayerSnapshot player,
+        string phase)
+    {
+        var abnormalResult = await ReadPlayerAbnormalStatusesAsync(context).ConfigureAwait(false);
+        if (!abnormalResult.Success || abnormalResult.Value is null)
+        {
+            var warningAt = DateTimeOffset.Now;
+            if (ShouldLog(state.LastMaintenanceWarningAt, warningAt))
+            {
+                state.LastMaintenanceWarningAt = warningAt;
+                context.Logger.Warn("semi_auto.maintenance.rest_wait_abnormal_read_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["phase"] = phase,
+                    ["error"] = abnormalResult.Error,
+                    ["hp"] = player.CurrentHp,
+                    ["maxHp"] = player.MaxHp,
+                    ["mp"] = player.CurrentMp,
+                    ["maxMp"] = player.MaxMp
+                });
+            }
+
+            return true;
+        }
+
+        var abnormal = abnormalResult.Value;
+        if (!abnormal.HasHarmfulAbnormalForRest)
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.Now;
+        if (ShouldLog(state.LastMaintenanceWarningAt, now))
+        {
+            state.LastMaintenanceWarningAt = now;
+            context.Logger.Info("semi_auto.maintenance.rest_wait_harmful_abnormal", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["phase"] = phase,
+                ["abnormalCategory2Count"] = abnormal.AbnormalCategory2Count,
+                ["abnormalEntryCount"] = abnormal.Entries.Count,
+                ["harmfulAbnormalCount"] = abnormal.HarmfulAbnormalCount,
+                ["harmfulAbnormalSummary"] = abnormal.HarmfulAbnormalSummary,
+                ["hp"] = player.CurrentHp,
+                ["maxHp"] = player.MaxHp,
+                ["mp"] = player.CurrentMp,
+                ["maxMp"] = player.MaxMp
+            });
+        }
+
         return true;
     }
 
@@ -1503,6 +1569,17 @@ public sealed class SemiAutoCombatController
         }
 
         return context.GameApi.ReadPlayerAsync(context.StopToken);
+    }
+
+    private static Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(
+        AccountWorkerContext context)
+    {
+        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
+        {
+            return scopedApi.ReadPlayerAbnormalStatusesAsync(CreateReadContext(context), context.StopToken);
+        }
+
+        return context.GameApi.ReadPlayerAbnormalStatusesAsync(context.StopToken);
     }
 
     private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(AccountWorkerContext context)
