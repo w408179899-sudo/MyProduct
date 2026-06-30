@@ -551,20 +551,18 @@ namespace Roadhog
 
         private static string FormatKillsPerHour(Core.Accounts.AccountRuntimeSnapshot snapshot)
         {
-            if (snapshot.KillCount < 2 ||
-                snapshot.FirstKillAt is not { } firstKillAt ||
-                snapshot.LastKillAt is not { } lastKillAt)
+            if (snapshot.KillCount <= 0)
             {
                 return "0.0";
             }
 
-            var elapsed = lastKillAt - firstKillAt;
+            var elapsed = GetRuntimeElapsed(snapshot);
             if (elapsed <= TimeSpan.Zero)
             {
                 return "0.0";
             }
 
-            return ((snapshot.KillCount - 1) / Math.Max(elapsed.TotalHours, 1.0D / 3600.0D)).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+            return (snapshot.KillCount / Math.Max(elapsed.TotalHours, 1.0D / 3600.0D)).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
         }
 
         private static string FormatRuntimeDuration(Core.Accounts.AccountRuntimeSnapshot snapshot)
