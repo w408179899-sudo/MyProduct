@@ -100,6 +100,10 @@ public sealed class CombatScriptSettings
 
     public double StationaryCombatRadius { get; set; } = 30.0D;
 
+    public double CameraYawPixelsPerDegree { get; set; } = 11.0D;
+
+    public double CameraPitchPixelsPerDegree { get; set; } = 13.0D;
+
     public CombatScriptSettings Clone()
     {
         return new CombatScriptSettings
@@ -112,7 +116,9 @@ public sealed class CombatScriptSettings
             StationaryCombatX = StationaryCombatX,
             StationaryCombatY = StationaryCombatY,
             StationaryCombatZ = StationaryCombatZ,
-            StationaryCombatRadius = StationaryCombatRadius
+            StationaryCombatRadius = StationaryCombatRadius,
+            CameraYawPixelsPerDegree = CameraYawPixelsPerDegree,
+            CameraPitchPixelsPerDegree = CameraPitchPixelsPerDegree
         };
     }
 }

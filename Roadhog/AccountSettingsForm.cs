@@ -40,6 +40,8 @@ namespace Roadhog
         private Label? stationaryCombatRadiusLabel;
         private RoundedTextBox? stationaryCombatRadiusTextBox;
         private Label? stationaryCombatRadiusUnitLabel;
+        private RoundedTextBox? cameraYawPixelsPerDegreeTextBox;
+        private RoundedTextBox? cameraPitchPixelsPerDegreeTextBox;
         private Vector3Snapshot? stationaryCombatPosition;
         private RoundedCheckBox? enableLootCheckBox;
         private RoundedCheckBox? contestMonsterCheckBox;
@@ -212,6 +214,7 @@ namespace Roadhog
             SetComboText(mainModeCombo, FormatMainMode(settings.MainMode));
             SetComboText(combatModeCombo, FormatCombatMode(settings.CombatMode));
             SetStationaryCombatPosition(settings.Combat);
+            SetCameraTurnScales(settings.Combat);
             RefreshCombatModeVisibility();
 
             SetChecked(enableLootCheckBox, settings.Combat.EnableLoot);
@@ -319,7 +322,9 @@ namespace Roadhog
                     StationaryCombatX = stationaryCombatPosition?.X ?? 0.0D,
                     StationaryCombatY = stationaryCombatPosition?.Y ?? 0.0D,
                     StationaryCombatZ = stationaryCombatPosition?.Z ?? 0.0D,
-                    StationaryCombatRadius = ReadDouble(stationaryCombatRadiusTextBox, 30.0D, 1.0D, 500.0D)
+                    StationaryCombatRadius = ReadDouble(stationaryCombatRadiusTextBox, 30.0D, 1.0D, 500.0D),
+                    CameraYawPixelsPerDegree = ReadDouble(cameraYawPixelsPerDegreeTextBox, 11.0D, 0.1D, 100.0D),
+                    CameraPitchPixelsPerDegree = ReadDouble(cameraPitchPixelsPerDegreeTextBox, 13.0D, 0.1D, 100.0D)
                 },
                 Paths = new PathScriptSettings
                 {
@@ -470,6 +475,10 @@ namespace Roadhog
             AddLabel(page, "方案", 4, 8, 80, 22);
             profileNameTextBox = AddTextBox(page, "default_profile", 4, 32, 220, 26);
             AddLabel(page, "方案名", 230, 36, 80, 22);
+            AddLabel(page, "水平", 314, 64, 38, 22);
+            cameraYawPixelsPerDegreeTextBox = AddTextBox(page, "11.0", 352, 60, 72, 28);
+            AddLabel(page, "俯仰", 438, 64, 38, 22);
+            cameraPitchPixelsPerDegreeTextBox = AddTextBox(page, "13.0", 476, 60, 72, 28);
 
             mainModeCombo = AddCombo(page, 4, 72, 220, 28, "自定义打怪", "采集", "制作", "半自动");
             mainModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
@@ -588,6 +597,18 @@ namespace Roadhog
                 : Math.Min(combat.StationaryCombatRadius, 500.0D);
             SetText(stationaryCombatRadiusTextBox, radius.ToString("F1", CultureInfo.InvariantCulture));
             RefreshStationaryCombatPositionLabel(null);
+        }
+
+        private void SetCameraTurnScales(CombatScriptSettings combat)
+        {
+            var yaw = combat.CameraYawPixelsPerDegree <= 0.0D
+                ? 11.0D
+                : Math.Clamp(combat.CameraYawPixelsPerDegree, 0.1D, 100.0D);
+            var pitch = combat.CameraPitchPixelsPerDegree <= 0.0D
+                ? 13.0D
+                : Math.Clamp(combat.CameraPitchPixelsPerDegree, 0.1D, 100.0D);
+            SetText(cameraYawPixelsPerDegreeTextBox, yaw.ToString("0.###", CultureInfo.InvariantCulture));
+            SetText(cameraPitchPixelsPerDegreeTextBox, pitch.ToString("0.###", CultureInfo.InvariantCulture));
         }
 
         private void RefreshStationaryCombatPositionLabel(string? prefix)

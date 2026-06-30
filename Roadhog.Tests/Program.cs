@@ -438,7 +438,9 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
                     StationaryCombatX = 1307.758D,
                     StationaryCombatY = 2844.230D,
                     StationaryCombatZ = 259.832D,
-                    StationaryCombatRadius = 42.5D
+                    StationaryCombatRadius = 42.5D,
+                    CameraYawPixelsPerDegree = 11.5D,
+                    CameraPitchPixelsPerDegree = 13.25D
                 }
             }
         };
@@ -455,12 +457,16 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(2844.230D, combat.StationaryCombatY, "stationary y");
         AssertEqual(259.832D, combat.StationaryCombatZ, "stationary z");
         AssertEqual(42.5D, combat.StationaryCombatRadius, "stationary radius");
+        AssertEqual(11.5D, combat.CameraYawPixelsPerDegree, "camera yaw pixels per degree");
+        AssertEqual(13.25D, combat.CameraPitchPixelsPerDegree, "camera pitch pixels per degree");
         AssertFalse(!combat.PreferAggressiveMonsters, "prefer aggressive monsters should persist");
 
         var clone = account.ScriptSettings.Combat.Clone();
         AssertFalse(!clone.HasStationaryCombatPosition, "stationary combat position flag should clone");
         AssertEqual(1307.758D, clone.StationaryCombatX, "cloned stationary x");
         AssertEqual(42.5D, clone.StationaryCombatRadius, "cloned stationary radius");
+        AssertEqual(11.5D, clone.CameraYawPixelsPerDegree, "cloned camera yaw pixels per degree");
+        AssertEqual(13.25D, clone.CameraPitchPixelsPerDegree, "cloned camera pitch pixels per degree");
         AssertFalse(!clone.PreferAggressiveMonsters, "prefer aggressive monsters should clone");
     }
     finally

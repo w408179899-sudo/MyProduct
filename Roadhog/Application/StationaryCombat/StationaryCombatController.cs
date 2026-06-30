@@ -21,6 +21,8 @@ public sealed class StationaryCombatController
     private const double TargetLeashExtraDistance = 5.0D;
     private const double PreLockFaceYawToleranceDegrees = 20.0D;
     private const double StartupRecoveryReachDistance = 3.0D;
+    private const double DefaultYawPixelsPerDegree = 11.0D;
+    private const double DefaultPitchPixelsPerDegree = 13.0D;
     private const int DefaultReviveClickX = 680;
     private const int DefaultReviveClickY = 460;
     private const int DefaultPostReviveScrollCount = 10;
@@ -2828,7 +2830,7 @@ public sealed class StationaryCombatController
             return;
         }
 
-        var options = ReadPathFollowTurnOptions();
+        var options = ReadPathFollowTurnOptions(context.Config.ScriptSettings?.Combat);
         var poller = EnsurePathFollowPoller(context, state, player, options);
         SetPathFollowPollTarget(poller, targetIndex: 0, target, reachDistance, options);
         if (!TryGetPathFollowPollSnapshot(poller, out var snapshot, out _))
@@ -2960,7 +2962,7 @@ public sealed class StationaryCombatController
             return false;
         }
 
-        var options = ReadPathFollowTurnOptions() with
+        var options = ReadPathFollowTurnOptions(context.Config.ScriptSettings?.Combat) with
         {
             ToleranceDegrees = PreLockFaceYawToleranceDegrees,
             YawToleranceDegrees = PreLockFaceYawToleranceDegrees
@@ -4318,28 +4320,34 @@ public sealed class StationaryCombatController
         return Math.Max(0.0D, ReadDoubleFromEnv("AION_PATH_FOLLOW_DISABLE_MOVE_ADJUST_DISTANCE", 15.0D));
     }
 
-    private static PathFollowTurnOptions ReadPathFollowTurnOptions()
+    private static PathFollowTurnOptions ReadPathFollowTurnOptions(CombatScriptSettings? combat)
     {
         var pixelsPerDegreeAbs = Math.Abs(ReadDoubleFromEnv("AION_FACE_TARGET_PIXELS_PER_DEG_ABS", 0.0D));
         if (pixelsPerDegreeAbs < 0.0001D)
         {
-            pixelsPerDegreeAbs = Math.Abs(ReadDoubleFromEnv("AION_FACE_TARGET_PIXELS_PER_DEG", 12.0D));
+            pixelsPerDegreeAbs = ResolveConfiguredPixelsPerDegree(
+                combat?.CameraYawPixelsPerDegree,
+                "AION_FACE_TARGET_PIXELS_PER_DEG",
+                DefaultYawPixelsPerDegree);
         }
 
         if (pixelsPerDegreeAbs < 0.0001D)
         {
-            pixelsPerDegreeAbs = 12.0D;
+            pixelsPerDegreeAbs = DefaultYawPixelsPerDegree;
         }
 
         var pitchPixelsPerDegreeAbs = Math.Abs(ReadDoubleFromEnv("AION_CAMERA_PITCH_PIXELS_PER_DEG_ABS", 0.0D));
         if (pitchPixelsPerDegreeAbs < 0.0001D)
         {
-            pitchPixelsPerDegreeAbs = Math.Abs(ReadDoubleFromEnv("AION_CAMERA_PITCH_PIXELS_PER_DEG", 13.0D));
+            pitchPixelsPerDegreeAbs = ResolveConfiguredPixelsPerDegree(
+                combat?.CameraPitchPixelsPerDegree,
+                "AION_CAMERA_PITCH_PIXELS_PER_DEG",
+                DefaultPitchPixelsPerDegree);
         }
 
         if (pitchPixelsPerDegreeAbs < 0.0001D)
         {
-            pitchPixelsPerDegreeAbs = 13.0D;
+            pitchPixelsPerDegreeAbs = DefaultPitchPixelsPerDegree;
         }
 
         var yawTolerance = ReadPathFollowYawTolerance();
@@ -4384,6 +4392,18 @@ public sealed class StationaryCombatController
             AdaptiveMinYawDeltaDegrees = Math.Max(0.0D, ReadDoubleFromEnv("AION_FACE_TARGET_ADAPTIVE_MIN_YAW_DELTA_DEG", 0.25D)),
             PitchInvertMouse = ReadBoolFromEnv("AION_CAMERA_PITCH_INVERT_MOUSE", false)
         };
+    }
+
+    private static double ResolveConfiguredPixelsPerDegree(double? configuredValue, string legacyEnvName, double fallback)
+    {
+        var configuredAbs = Math.Abs(configuredValue ?? 0.0D);
+        if (configuredAbs >= 0.0001D)
+        {
+            return configuredAbs;
+        }
+
+        var legacyEnvValue = Math.Abs(ReadDoubleFromEnv(legacyEnvName, fallback));
+        return legacyEnvValue >= 0.0001D ? legacyEnvValue : fallback;
     }
 
     private static int ReadTabVerifyDelayMs()
