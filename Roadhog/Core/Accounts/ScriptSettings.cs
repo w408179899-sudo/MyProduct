@@ -214,6 +214,8 @@ public sealed class SkillScriptSettings
 {
     public SkillConfigurationMode Mode { get; set; } = SkillConfigurationMode.Auto;
 
+    public OpeningSkillConfig OpeningSkill { get; set; } = new();
+
     public List<string> KeyOrder { get; set; } = DefaultKeyOrder();
 
     public string TriggerPrefixMode { get; set; } = "TopContiguousTriggerSkills";
@@ -227,6 +229,7 @@ public sealed class SkillScriptSettings
         return new SkillScriptSettings
         {
             Mode = Mode,
+            OpeningSkill = (OpeningSkill ?? new OpeningSkillConfig()).Clone(),
             KeyOrder = KeyOrder?.ToList() ?? DefaultKeyOrder(),
             TriggerPrefixMode = TriggerPrefixMode,
             ExecutionTree = ExecutionTree?.Select(node => node.Clone()).ToList() ?? new List<SkillConfigNode>(),
@@ -259,7 +262,31 @@ public sealed class SkillScriptSettings
             "NumPad7",
             "NumPad8",
             "NumPad9",
-            "NumPad0"
+            "NumPad0",
+            "NumPadSubtract",
+            "NumPadAdd"
+        };
+    }
+}
+
+public sealed class OpeningSkillConfig
+{
+    public bool Enabled { get; set; }
+
+    public uint SkillId { get; set; }
+
+    public string SkillName { get; set; } = string.Empty;
+
+    public string Key { get; set; } = string.Empty;
+
+    public OpeningSkillConfig Clone()
+    {
+        return new OpeningSkillConfig
+        {
+            Enabled = Enabled,
+            SkillId = SkillId,
+            SkillName = SkillName,
+            Key = Key
         };
     }
 }

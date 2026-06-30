@@ -14,6 +14,7 @@ public sealed class SemiAutoCombatState
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
     private ushort openingAttackTargetEntityId;
+    private ushort openingSkillTargetEntityId;
     private ushort observedTargetEntityId;
     private bool observedTargetWasAliveMonster;
 
@@ -63,6 +64,7 @@ public sealed class SemiAutoCombatState
             observedTargetEntityId = 0;
             observedTargetWasAliveMonster = false;
             openingAttackTargetEntityId = 0;
+            openingSkillTargetEntityId = 0;
             return false;
         }
 
@@ -77,6 +79,7 @@ public sealed class SemiAutoCombatState
         if (!target.IsMonsterAlive)
         {
             openingAttackTargetEntityId = 0;
+            openingSkillTargetEntityId = 0;
         }
 
         if (!killed)
@@ -103,6 +106,23 @@ public sealed class SemiAutoCombatState
     public void ResetOpeningAttackKey()
     {
         openingAttackTargetEntityId = 0;
+    }
+
+    public bool ShouldHandleOpeningSkill(LockedTargetSnapshot target)
+    {
+        return target.IsMonsterAlive &&
+               target.TargetEntityId != 0 &&
+               openingSkillTargetEntityId != target.TargetEntityId;
+    }
+
+    public void MarkOpeningSkillHandled(LockedTargetSnapshot target)
+    {
+        openingSkillTargetEntityId = target.TargetEntityId;
+    }
+
+    public void ResetOpeningSkill()
+    {
+        openingSkillTargetEntityId = 0;
     }
 
     public bool ShouldPressAttackKey(DateTimeOffset now, TimeSpan interval)

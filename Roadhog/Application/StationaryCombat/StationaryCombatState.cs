@@ -20,9 +20,13 @@ public sealed class StationaryCombatState
 
     public ushort CurrentTargetEntityId { get; set; }
 
+    public uint CurrentTargetServerObjectId { get; set; }
+
     public bool CurrentTargetIsMaintenanceDefense { get; set; }
 
     public ushort CandidateEntityId { get; set; }
+
+    public uint CandidateServerObjectId { get; set; }
 
     public ushort FacedCandidateEntityId { get; set; }
 
@@ -30,9 +34,13 @@ public sealed class StationaryCombatState
 
     public ushort PendingTabCandidateEntityId { get; private set; }
 
+    public uint PendingTabCandidateServerObjectId { get; private set; }
+
     public DateTimeOffset PendingTabVerifyUntil { get; private set; } = DateTimeOffset.MinValue;
 
     public ushort PendingTabPreviousLockedEntityId { get; private set; }
+
+    public uint PendingTabPreviousLockedServerObjectId { get; private set; }
 
     public bool PendingTabCorpseNudged { get; private set; }
 
@@ -40,7 +48,11 @@ public sealed class StationaryCombatState
 
     public ushort WrongLockNudgeCandidateEntityId { get; private set; }
 
+    public uint WrongLockNudgeCandidateServerObjectId { get; private set; }
+
     public ushort WrongLockNudgeLockedEntityId { get; private set; }
+
+    public uint WrongLockNudgeLockedServerObjectId { get; private set; }
 
     public DateTimeOffset LastTabAt { get; set; }
 
@@ -53,6 +65,8 @@ public sealed class StationaryCombatState
     public IReadOnlyList<WorldObjectSnapshot> CachedWorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
 
     public HashSet<ushort> IgnoredTargetEntityIds { get; } = new();
+
+    public HashSet<uint> IgnoredTargetServerObjectIds { get; } = new();
 
     public object? PathFollowPoller { get; set; }
 
@@ -70,8 +84,10 @@ public sealed class StationaryCombatState
     {
         Fighting = false;
         CurrentTargetEntityId = 0;
+        CurrentTargetServerObjectId = 0;
         CurrentTargetIsMaintenanceDefense = false;
         CandidateEntityId = 0;
+        CandidateServerObjectId = 0;
         FacedCandidateEntityId = 0;
         TargetStartedAt = DateTimeOffset.MinValue;
         ClearPendingTabVerification();
@@ -96,8 +112,19 @@ public sealed class StationaryCombatState
 
     public bool MarkCandidate(ushort entityId, DateTimeOffset now)
     {
-        var changed = CandidateEntityId != entityId;
+        return MarkCandidate(entityId, 0, now);
+    }
+
+    public bool MarkCandidate(WorldObjectSnapshot target, DateTimeOffset now)
+    {
+        return MarkCandidate(target.EntityId, target.ServerObjectId, now);
+    }
+
+    public bool MarkCandidate(ushort entityId, uint serverObjectId, DateTimeOffset now)
+    {
+        var changed = !IsSameTarget(CandidateEntityId, CandidateServerObjectId, entityId, serverObjectId);
         CandidateEntityId = entityId;
+        CandidateServerObjectId = serverObjectId;
         if (changed || TargetStartedAt == DateTimeOffset.MinValue)
         {
             TargetStartedAt = now;
@@ -109,6 +136,41 @@ public sealed class StationaryCombatState
         }
 
         return changed;
+    }
+
+    public void SetCurrentTarget(WorldObjectSnapshot target)
+    {
+        SetCurrentTarget(target.EntityId, target.ServerObjectId);
+    }
+
+    public void SetCurrentTarget(LockedTargetSnapshot target)
+    {
+        SetCurrentTarget(target.TargetEntityId, target.ServerObjectId);
+    }
+
+    public void SetCurrentTarget(ushort entityId, uint serverObjectId)
+    {
+        CurrentTargetEntityId = entityId;
+        CurrentTargetServerObjectId = serverObjectId;
+    }
+
+    public bool IsCurrentTarget(LockedTargetSnapshot target)
+    {
+        return IsSameTarget(
+            CurrentTargetEntityId,
+            CurrentTargetServerObjectId,
+            target.TargetEntityId,
+            target.ServerObjectId);
+    }
+
+    public bool IsCandidate(WorldObjectSnapshot target)
+    {
+        return IsSameTarget(CandidateEntityId, CandidateServerObjectId, target.EntityId, target.ServerObjectId);
+    }
+
+    public WorldObjectSnapshot? FindCandidate(IEnumerable<WorldObjectSnapshot> objects)
+    {
+        return objects.FirstOrDefault(IsCandidate);
     }
 
     public void StartLootAfterKill(LockedTargetSnapshot killedTarget, DateTimeOffset now)
@@ -125,14 +187,40 @@ public sealed class StationaryCombatState
 
     public bool IsTargetIgnored(ushort entityId)
     {
-        return entityId != 0 && IgnoredTargetEntityIds.Contains(entityId);
+        return IsTargetIgnored(entityId, 0);
+    }
+
+    public bool IsTargetIgnored(WorldObjectSnapshot target)
+    {
+        return IsTargetIgnored(target.EntityId, target.ServerObjectId);
+    }
+
+    public bool IsTargetIgnored(ushort entityId, uint serverObjectId)
+    {
+        return (serverObjectId != 0 && IgnoredTargetServerObjectIds.Contains(serverObjectId)) ||
+               (entityId != 0 && IgnoredTargetEntityIds.Contains(entityId));
     }
 
     public void IgnoreTarget(ushort entityId)
     {
+        IgnoreTarget(entityId, 0);
+    }
+
+    public void IgnoreTarget(WorldObjectSnapshot target)
+    {
+        IgnoreTarget(target.EntityId, target.ServerObjectId);
+    }
+
+    public void IgnoreTarget(ushort entityId, uint serverObjectId)
+    {
         if (entityId != 0)
         {
             IgnoredTargetEntityIds.Add(entityId);
+        }
+
+        if (serverObjectId != 0)
+        {
+            IgnoredTargetServerObjectIds.Add(serverObjectId);
         }
     }
 
@@ -172,17 +260,36 @@ public sealed class StationaryCombatState
 
     public void PruneIgnoredTargets(IEnumerable<WorldObjectSnapshot> objects)
     {
+        var liveServerObjectIds = objects
+            .Where(target => target.IsAlive && target.ServerObjectId != 0)
+            .Select(target => target.ServerObjectId)
+            .ToHashSet();
         var liveEntityIds = objects
             .Where(target => target.IsAlive)
             .Select(target => target.EntityId)
             .ToHashSet();
+        IgnoredTargetServerObjectIds.RemoveWhere(serverObjectId => !liveServerObjectIds.Contains(serverObjectId));
         IgnoredTargetEntityIds.RemoveWhere(entityId => !liveEntityIds.Contains(entityId));
     }
 
     public bool IsPendingTabCandidate(ushort entityId)
     {
+        return IsPendingTabCandidate(entityId, 0);
+    }
+
+    public bool IsPendingTabCandidate(WorldObjectSnapshot target)
+    {
+        return IsPendingTabCandidate(target.EntityId, target.ServerObjectId);
+    }
+
+    public bool IsPendingTabCandidate(ushort entityId, uint serverObjectId)
+    {
         return PendingTabCandidateEntityId != 0 &&
-               PendingTabCandidateEntityId == entityId;
+               IsSameTarget(
+                   PendingTabCandidateEntityId,
+                   PendingTabCandidateServerObjectId,
+                   entityId,
+                   serverObjectId);
     }
 
     public bool IsPendingTabVerifyExpired(DateTimeOffset now)
@@ -196,9 +303,34 @@ public sealed class StationaryCombatState
         DateTimeOffset verifyUntil,
         ushort previousLockedEntityId)
     {
+        StartPendingTabVerification(entityId, 0, verifyUntil, previousLockedEntityId, 0);
+    }
+
+    public void StartPendingTabVerification(
+        WorldObjectSnapshot target,
+        DateTimeOffset verifyUntil,
+        LockedTargetSnapshot? previousLockedTarget)
+    {
+        StartPendingTabVerification(
+            target.EntityId,
+            target.ServerObjectId,
+            verifyUntil,
+            previousLockedTarget?.TargetEntityId ?? 0,
+            previousLockedTarget?.ServerObjectId ?? 0);
+    }
+
+    public void StartPendingTabVerification(
+        ushort entityId,
+        uint serverObjectId,
+        DateTimeOffset verifyUntil,
+        ushort previousLockedEntityId,
+        uint previousLockedServerObjectId)
+    {
         PendingTabCandidateEntityId = entityId;
+        PendingTabCandidateServerObjectId = serverObjectId;
         PendingTabVerifyUntil = verifyUntil;
         PendingTabPreviousLockedEntityId = previousLockedEntityId;
+        PendingTabPreviousLockedServerObjectId = previousLockedServerObjectId;
         PendingTabCorpseNudged = false;
         PendingTabWrongLockNudged = false;
     }
@@ -206,8 +338,10 @@ public sealed class StationaryCombatState
     public void ClearPendingTabVerification()
     {
         PendingTabCandidateEntityId = 0;
+        PendingTabCandidateServerObjectId = 0;
         PendingTabVerifyUntil = DateTimeOffset.MinValue;
         PendingTabPreviousLockedEntityId = 0;
+        PendingTabPreviousLockedServerObjectId = 0;
         PendingTabCorpseNudged = false;
         PendingTabWrongLockNudged = false;
     }
@@ -236,22 +370,68 @@ public sealed class StationaryCombatState
 
     public bool HasWrongLockNudge(ushort candidateEntityId, ushort lockedEntityId)
     {
+        return HasWrongLockNudge(candidateEntityId, 0, lockedEntityId, 0);
+    }
+
+    public bool HasWrongLockNudge(
+        ushort candidateEntityId,
+        uint candidateServerObjectId,
+        ushort lockedEntityId,
+        uint lockedServerObjectId)
+    {
         return candidateEntityId != 0 &&
                lockedEntityId != 0 &&
-               WrongLockNudgeCandidateEntityId == candidateEntityId &&
-               WrongLockNudgeLockedEntityId == lockedEntityId;
+               IsSameTarget(
+                   WrongLockNudgeCandidateEntityId,
+                   WrongLockNudgeCandidateServerObjectId,
+                   candidateEntityId,
+                   candidateServerObjectId) &&
+               IsSameTarget(
+                   WrongLockNudgeLockedEntityId,
+                   WrongLockNudgeLockedServerObjectId,
+                   lockedEntityId,
+                   lockedServerObjectId);
     }
 
     public void MarkWrongLockNudged(ushort candidateEntityId, ushort lockedEntityId)
     {
+        MarkWrongLockNudged(candidateEntityId, 0, lockedEntityId, 0);
+    }
+
+    public void MarkWrongLockNudged(
+        ushort candidateEntityId,
+        uint candidateServerObjectId,
+        ushort lockedEntityId,
+        uint lockedServerObjectId)
+    {
         WrongLockNudgeCandidateEntityId = candidateEntityId;
+        WrongLockNudgeCandidateServerObjectId = candidateServerObjectId;
         WrongLockNudgeLockedEntityId = lockedEntityId;
+        WrongLockNudgeLockedServerObjectId = lockedServerObjectId;
     }
 
     public void ClearWrongLockNudge()
     {
         WrongLockNudgeCandidateEntityId = 0;
+        WrongLockNudgeCandidateServerObjectId = 0;
         WrongLockNudgeLockedEntityId = 0;
+        WrongLockNudgeLockedServerObjectId = 0;
+    }
+
+    public static bool IsSameTarget(
+        ushort leftEntityId,
+        uint leftServerObjectId,
+        ushort rightEntityId,
+        uint rightServerObjectId)
+    {
+        if (leftServerObjectId != 0 && rightServerObjectId != 0)
+        {
+            return leftServerObjectId == rightServerObjectId;
+        }
+
+        return leftEntityId != 0 &&
+               rightEntityId != 0 &&
+               leftEntityId == rightEntityId;
     }
 }
 

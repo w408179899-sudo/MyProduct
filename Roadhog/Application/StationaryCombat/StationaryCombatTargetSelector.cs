@@ -22,12 +22,14 @@ public static class StationaryCombatTargetSelector
             return candidates
                 .OrderByDescending(target => target.IsAggressiveToPlayer)
                 .ThenBy(target => HorizontalDistance(target.Position!.Value, playerPosition))
+                .ThenBy(target => target.ServerObjectId)
                 .ThenBy(target => target.EntityId)
                 .FirstOrDefault();
         }
 
         return candidates
             .OrderBy(target => HorizontalDistance(target.Position!.Value, playerPosition))
+            .ThenBy(target => target.ServerObjectId)
             .ThenBy(target => target.EntityId)
             .FirstOrDefault();
     }

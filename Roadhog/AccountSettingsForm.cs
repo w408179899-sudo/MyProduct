@@ -46,6 +46,9 @@ namespace Roadhog
         private RoundedCheckBox? counterEnemyRaceCheckBox;
         private RoundedCheckBox? preferAggressiveMonsterCheckBox;
         private RoundedCheckBox? openingAttackKeyCheckBox;
+        private RoundedCheckBox? openingSkillEnabledCheckBox;
+        private RoundedComboBox? openingSkillCombo;
+        private Button? openingSkillKeyButton;
         private RoundedTextBox? revivePathNameTextBox;
         private RoundedTextBox? combatPathNameTextBox;
         private RoundedTextBox? maintenancePathNameTextBox;
@@ -239,6 +242,7 @@ namespace Roadhog
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
             SetText(bagTotalSlotsTextBox, settings.Maintenance.BagTotalSlots.ToString());
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
+            ApplyOpeningSkillSettings(settings.Skills.OpeningSkill);
 
             if (settings.Skills.Mode == SkillConfigurationMode.Auto)
             {
@@ -345,6 +349,7 @@ namespace Roadhog
                     Mode = skillAutoModeRadio?.Checked == true
                         ? SkillConfigurationMode.Auto
                         : SkillConfigurationMode.ManualMapping,
+                    OpeningSkill = CaptureOpeningSkill(),
                     TriggerPrefixMode = "TopContiguousTriggerSkills",
                     ExecutionTree = selectedSkillTree is null
                         ? new List<SkillConfigNode>()
@@ -1390,6 +1395,128 @@ namespace Roadhog
                 : new MaintenanceSkillComboItem(0, text);
         }
 
+        private void ApplyOpeningSkillSettings(OpeningSkillConfig? config)
+        {
+            var openingSkill = config ?? new OpeningSkillConfig();
+            if (openingSkillEnabledCheckBox is not null)
+            {
+                openingSkillEnabledCheckBox.Checked = openingSkill.Enabled;
+            }
+
+            PopulateOpeningSkillCombo(openingSkillCombo, openingSkill.SkillId, openingSkill.SkillName);
+            SetOpeningSkillKey(openingSkill.Key);
+        }
+
+        private OpeningSkillConfig CaptureOpeningSkill()
+        {
+            var selectedSkill = GetSelectedOpeningSkill(openingSkillCombo);
+            return new OpeningSkillConfig
+            {
+                Enabled = openingSkillEnabledCheckBox?.Checked ?? false,
+                SkillId = selectedSkill.SkillId,
+                SkillName = selectedSkill.SkillName,
+                Key = openingSkillKeyButton?.Tag as string ?? string.Empty
+            };
+        }
+
+        private void SetOpeningSkillKey(string? key)
+        {
+            if (openingSkillKeyButton is null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                openingSkillKeyButton.Tag = null;
+                openingSkillKeyButton.Text = "选择按键";
+                return;
+            }
+
+            openingSkillKeyButton.Tag = key;
+            openingSkillKeyButton.Text = FormatSkillKey(key);
+        }
+
+        private void RefreshOpeningSkillCombo()
+        {
+            var selectedSkill = GetSelectedOpeningSkill(openingSkillCombo);
+            PopulateOpeningSkillCombo(openingSkillCombo, selectedSkill.SkillId, selectedSkill.SkillName);
+        }
+
+        private void PopulateOpeningSkillCombo(RoundedComboBox? combo, uint selectedSkillId, string? selectedSkillName)
+        {
+            if (combo is null)
+            {
+                return;
+            }
+
+            var normalizedSelectedName = selectedSkillName?.Trim() ?? string.Empty;
+            combo.Items.Clear();
+            combo.Items.Add(OpeningSkillComboItem.Empty);
+
+            var selectedIndex = 0;
+            var index = 1;
+            foreach (var skill in currentManualSkills
+                         .Where(skill => !ShouldHideManualSkillCandidate(skill))
+                         .Where(IsOpeningSkillCandidate)
+                         .GroupBy(skill => skill.SkillId)
+                         .Select(group => group.First())
+                         .OrderBy(FormatManualSkillName, StringComparer.CurrentCulture))
+            {
+                var name = FormatManualSkillName(skill);
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                var item = new OpeningSkillComboItem(skill.SkillId, name);
+                combo.Items.Add(item);
+                if ((selectedSkillId != 0 && skill.SkillId == selectedSkillId) ||
+                    (selectedSkillId == 0 && string.Equals(name, normalizedSelectedName, StringComparison.Ordinal)))
+                {
+                    selectedIndex = index;
+                }
+
+                index++;
+            }
+
+            if (selectedIndex == 0 && (!string.IsNullOrWhiteSpace(normalizedSelectedName) || selectedSkillId != 0))
+            {
+                combo.Items.Add(new OpeningSkillComboItem(selectedSkillId, normalizedSelectedName));
+                selectedIndex = combo.Items.Count - 1;
+            }
+
+            combo.SelectedIndex = selectedIndex;
+        }
+
+        private static OpeningSkillComboItem GetSelectedOpeningSkill(RoundedComboBox? combo)
+        {
+            if (combo is null ||
+                combo.SelectedIndex < 0 ||
+                combo.SelectedIndex >= combo.Items.Count)
+            {
+                return OpeningSkillComboItem.Empty;
+            }
+
+            if (combo.Items[combo.SelectedIndex] is OpeningSkillComboItem item)
+            {
+                return item.SkillId == 0 && string.IsNullOrWhiteSpace(item.SkillName)
+                    ? OpeningSkillComboItem.Empty
+                    : item;
+            }
+
+            var text = combo.Text.Trim();
+            return string.IsNullOrWhiteSpace(text)
+                ? OpeningSkillComboItem.Empty
+                : new OpeningSkillComboItem(0, text);
+        }
+
+        private static bool IsOpeningSkillCandidate(SkillSnapshot skill)
+        {
+            return MatchesManualSkillType(skill, "主动技能") ||
+                   MatchesManualSkillType(skill, "状态技能");
+        }
+
         private static List<MaintenanceKeyRuleConfig> CaptureMaintenanceKeyRules(FlowLayoutPanel? list)
         {
             if (list is null)
@@ -1464,6 +1591,23 @@ namespace Roadhog
             AddButton(autoPanel, "上移", 696, 140, 70, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Up));
             AddButton(autoPanel, "下移", 696, 178, 70, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Down));
             AddButton(autoPanel, "置底", 696, 216, 70, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Bottom));
+
+            openingSkillEnabledCheckBox = AddCheckBox(autoPanel, "启用起手技能", 20, 468, 118, false);
+            AddLabel(autoPanel, "起手技能", 148, 468, 70, 24, _textGreen, FontStyle.Bold);
+            openingSkillCombo = AddCombo(autoPanel, 220, 466, 260, 28);
+            openingSkillCombo.Name = "openingSkillCombo";
+            PopulateOpeningSkillCombo(openingSkillCombo, 0, string.Empty);
+            openingSkillKeyButton = AddButton(autoPanel, "选择按键", 492, 465, 104, 30);
+            openingSkillKeyButton.Name = "openingSkillKeyButton";
+            openingSkillKeyButton.Click += (_, _) =>
+            {
+                var selectedKey = ShowKeyboardPicker(openingSkillKeyButton.Tag as string);
+                if (!string.IsNullOrWhiteSpace(selectedKey))
+                {
+                    openingSkillKeyButton.Tag = selectedKey;
+                    openingSkillKeyButton.Text = FormatSkillKey(selectedKey);
+                }
+            };
 
             AddLabel(manualPanel, "手动技能Mapping", 8, 6, 130, 24, _textGreen, FontStyle.Bold);
 
@@ -2035,6 +2179,39 @@ namespace Roadhog
             }
         }
 
+        private sealed class OpeningSkillComboItem
+        {
+            public static readonly OpeningSkillComboItem Empty = new(0, string.Empty, "选择技能");
+
+            public OpeningSkillComboItem(uint skillId, string skillName)
+                : this(
+                    skillId,
+                    skillName,
+                    string.IsNullOrWhiteSpace(skillName)
+                        ? (skillId == 0 ? "选择技能" : "Skill " + skillId)
+                        : skillName.Trim() + (skillId == 0 ? string.Empty : " #" + skillId.ToString(CultureInfo.InvariantCulture)))
+            {
+            }
+
+            private OpeningSkillComboItem(uint skillId, string skillName, string displayText)
+            {
+                SkillId = skillId;
+                SkillName = skillName?.Trim() ?? string.Empty;
+                DisplayText = displayText;
+            }
+
+            public uint SkillId { get; }
+
+            public string SkillName { get; }
+
+            private string DisplayText { get; }
+
+            public override string ToString()
+            {
+                return DisplayText;
+            }
+        }
+
         private void PopulateSelectedSkillTree(TreeView tree)
         {
             tree.BeginUpdate();
@@ -2350,6 +2527,7 @@ namespace Roadhog
                 }
 
                 RefreshMaintenanceSkillCombos();
+                RefreshOpeningSkillCombo();
                 button.Text = "已刷新 " + currentManualSkills.Count;
                 await Task.Delay(700).ConfigureAwait(true);
             }
@@ -2431,7 +2609,7 @@ namespace Roadhog
             return skillType switch
             {
                 "状态技能" => new[] { "保护之盾", "主神之盔甲", "捕获" },
-                "触发技能" => new[] { "盾牌反击", "惩戒一击", "盾牌猛击" },
+                "触发技能" => new[] { "盾牌反击", "惩戒一击", "盾牌猛击", "脚踝重击" },
                 "连续技" => new[] { "会心一击", "气合", "必灭一击", "连续乱打" },
                 "DP技能" => new[] { "暗黑之惩戒" },
                 "激活技能" => new[] { "铜墙铁壁", "盾牌防御" },
@@ -2614,7 +2792,8 @@ namespace Roadhog
         {
             "盾牌反击",
             "惩戒一击",
-            "盾牌猛击"
+            "盾牌猛击",
+            "脚踝重击"
         };
 
         private static readonly string[] ChainSkillBaseNames =
@@ -3004,7 +3183,9 @@ namespace Roadhog
                     ("Num7", "NumPad7"),
                     ("Num8", "NumPad8"),
                     ("Num9", "NumPad9"),
-                    ("Num0", "NumPad0")
+                    ("Num0", "NumPad0"),
+                    ("Num-", "NumPadSubtract"),
+                    ("Num+", "NumPadAdd")
                 }
             };
 
@@ -3055,7 +3236,8 @@ namespace Roadhog
                 "Space" => 176,
                 "Ctrl" or "Alt" or "Win" or "Menu" => 54,
                 "Num1" or "Num2" or "Num3" or "Num4" or "Num5" or
-                    "Num6" or "Num7" or "Num8" or "Num9" or "Num0" => 54,
+                    "Num6" or "Num7" or "Num8" or "Num9" or "Num0" or
+                    "Num-" or "Num+" => 54,
                 _ => 42
             };
         }
@@ -3088,6 +3270,8 @@ namespace Roadhog
                 "NumPad8" => "Num8",
                 "NumPad9" => "Num9",
                 "NumPad0" => "Num0",
+                "NumPadSubtract" => "Num-",
+                "NumPadAdd" => "Num+",
                 _ => key ?? string.Empty
             };
         }

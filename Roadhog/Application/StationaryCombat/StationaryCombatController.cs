@@ -239,12 +239,11 @@ public sealed class StationaryCombatController
             return IdleDelay;
         }
 
-        var previousCandidateEntityId = state.CandidateEntityId;
-        state.MarkCandidate(target.EntityId, DateTimeOffset.Now);
+        var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
         var targetPosition = target.Position.Value;
         var targetDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(targetPosition, home);
         var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
-        if (previousCandidateEntityId != target.EntityId)
+        if (candidateChanged)
         {
             state.FacedCandidateEntityId = 0;
             state.ClearPendingTabVerification();
@@ -257,7 +256,9 @@ public sealed class StationaryCombatController
                 ["targetDistanceFromHome"] = Math.Round(targetDistanceFromHome, 2),
                 ["radius"] = Math.Round(radius, 2),
                 ["targetingMe"] = target.IsTargetingLocalPlayer,
-                ["targetServerObjectId"] = target.TargetServerObjectId,
+                ["serverObjectId"] = target.ServerObjectId,
+                ["targetServerObjectId"] = target.ServerObjectId,
+                ["targetingServerObjectId"] = target.TargetServerObjectId,
                 ["aggressiveKnown"] = target.AggressiveKnown,
                 ["aggressiveToPlayer"] = target.IsAggressiveToPlayer,
                 ["passiveToPlayer"] = target.IsPassiveToPlayer,
@@ -279,13 +280,14 @@ public sealed class StationaryCombatController
                     semiAutoState,
                     state,
                     target.EntityId,
+                    target.ServerObjectId,
                     target.Name,
                     "not_locked")
                 .ConfigureAwait(false);
         }
 
         var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (state.IsPendingTabCandidate(target.EntityId))
+        if (state.IsPendingTabCandidate(target))
         {
             return await TickPendingTabVerificationAsync(
                     context,
@@ -1159,6 +1161,7 @@ public sealed class StationaryCombatController
                         semiAutoState,
                         state,
                         state.CurrentTargetEntityId,
+                        state.CurrentTargetServerObjectId,
                         string.Empty,
                         "not_locked")
                     .ConfigureAwait(false);
@@ -1207,7 +1210,7 @@ public sealed class StationaryCombatController
             return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
         }
 
-        if (target.TargetEntityId != state.CurrentTargetEntityId)
+        if (!state.IsCurrentTarget(target))
         {
             if (IsTargetTimedOut(state, now))
             {
@@ -1216,6 +1219,7 @@ public sealed class StationaryCombatController
                         semiAutoState,
                         state,
                         state.CurrentTargetEntityId,
+                        state.CurrentTargetServerObjectId,
                         string.Empty,
                         "not_locked")
                     .ConfigureAwait(false);
@@ -1233,6 +1237,8 @@ public sealed class StationaryCombatController
                     "target_mismatch")
                 .ConfigureAwait(false);
         }
+
+        state.SetCurrentTarget(target);
 
         var claimedDelay = await TryIgnoreClaimedLockedTargetAsync(
                 context,
@@ -1257,6 +1263,7 @@ public sealed class StationaryCombatController
                     semiAutoState,
                     state,
                     target.TargetEntityId,
+                    target.ServerObjectId,
                     target.Name,
                     "not_dead")
                 .ConfigureAwait(false);
@@ -1281,6 +1288,7 @@ public sealed class StationaryCombatController
                     semiAutoState,
                     state,
                     target.TargetEntityId,
+                    target.ServerObjectId,
                     target.Name,
                     playerDistanceFromHome,
                     radius,
@@ -1291,6 +1299,7 @@ public sealed class StationaryCombatController
 
         var openingDelay = await TryWaitForLockedTargetToTargetPlayerAsync(
                 context,
+                plan,
                 semiAutoState,
                 state,
                 target,
@@ -1605,7 +1614,10 @@ public sealed class StationaryCombatController
         var targetEntityId = state.CurrentTargetEntityId != 0
             ? state.CurrentTargetEntityId
             : state.CandidateEntityId;
-        if (targetEntityId == 0)
+        var targetServerObjectId = state.CurrentTargetServerObjectId != 0
+            ? state.CurrentTargetServerObjectId
+            : state.CandidateServerObjectId;
+        if (targetEntityId == 0 && targetServerObjectId == 0)
         {
             state.ClearTarget();
             semiAutoState.ResetAttackKeyPressThrottle();
@@ -1614,8 +1626,13 @@ public sealed class StationaryCombatController
         }
 
         var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh: true).ConfigureAwait(false);
-        var target = objects.FirstOrDefault(candidate => candidate.EntityId == targetEntityId);
-        if (state.IsTargetIgnored(targetEntityId))
+        var target = objects.FirstOrDefault(candidate =>
+            StationaryCombatState.IsSameTarget(
+                targetEntityId,
+                targetServerObjectId,
+                candidate.EntityId,
+                candidate.ServerObjectId));
+        if (state.IsTargetIgnored(targetEntityId, targetServerObjectId))
         {
             state.ClearTarget();
             semiAutoState.ResetAttackKeyPressThrottle();
@@ -1630,6 +1647,7 @@ public sealed class StationaryCombatController
                     semiAutoState,
                     state,
                     targetEntityId,
+                    targetServerObjectId,
                     string.Empty,
                     playerDistanceFromHome,
                     radius,
@@ -1650,7 +1668,9 @@ public sealed class StationaryCombatController
                 target.MaxHp,
                 target.Position,
                 target.DistanceToLocalPlayer,
-                DateTimeOffset.Now);
+                DateTimeOffset.Now,
+                target.TargetServerObjectId,
+                target.IsTargetingLocalPlayer);
             MarkStationaryKillIfNeeded(context, killedSnapshot, "world_object_reacquire");
             if (ShouldStartLootAfterKill(context, killedSnapshot))
             {
@@ -1679,6 +1699,7 @@ public sealed class StationaryCombatController
                     semiAutoState,
                     state,
                     target.EntityId,
+                    target.ServerObjectId,
                     target.Name,
                     "target_owned_by_other")
                 .ConfigureAwait(false);
@@ -1691,6 +1712,7 @@ public sealed class StationaryCombatController
                     semiAutoState,
                     state,
                     targetEntityId,
+                    targetServerObjectId,
                     target.Name,
                     playerDistanceFromHome,
                     radius,
@@ -1699,16 +1721,23 @@ public sealed class StationaryCombatController
                 .ConfigureAwait(false);
         }
 
-        state.MarkCandidate(targetEntityId, DateTimeOffset.Now);
+        state.SetCurrentTarget(target);
+        state.MarkCandidate(target, DateTimeOffset.Now);
         semiAutoState.ResetAttackKeyPressThrottle();
-        LogActionThrottled(context, state, "stationary_combat.target.reacquire", reason + ":" + targetEntityId, new Dictionary<string, object?>
+        LogActionThrottled(context, state, "stationary_combat.target.reacquire", reason + ":" + TargetActionKey(target.EntityId, target.ServerObjectId), new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["reason"] = reason,
-            ["targetEntityId"] = targetEntityId,
-            ["targetName"] = target!.Name,
+            ["targetEntityId"] = target.EntityId,
+            ["serverObjectId"] = target.ServerObjectId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetingServerObjectId"] = target.TargetServerObjectId,
+            ["targetName"] = target.Name,
             ["lockedReadSuccess"] = lockedResult.Success,
             ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
+            ["lockedServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
+            ["lockedTargetServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
+            ["lockedTargetingServerObjectId"] = lockedResult.Value?.TargetServerObjectId ?? 0,
             ["lockedName"] = lockedResult.Value?.Name ?? string.Empty,
             ["lockedAlive"] = lockedResult.Value?.IsMonsterAlive ?? false,
             ["lockedHp"] = lockedResult.Value?.CurrentHp ?? 0,
@@ -1723,6 +1752,7 @@ public sealed class StationaryCombatController
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         ushort targetEntityId,
+        uint targetServerObjectId,
         string targetName,
         double playerDistanceFromHome,
         double radius,
@@ -1730,18 +1760,23 @@ public sealed class StationaryCombatController
         string reason)
     {
         state.Fighting = true;
-        state.CurrentTargetEntityId = targetEntityId;
-        state.MarkCandidate(targetEntityId, DateTimeOffset.Now);
+        state.SetCurrentTarget(targetEntityId, targetServerObjectId);
+        state.MarkCandidate(targetEntityId, targetServerObjectId, DateTimeOffset.Now);
         semiAutoState.ResetAttackKeyPressThrottle();
         await StopMovementAsync(context, state).ConfigureAwait(false);
-        LogActionThrottled(context, state, "stationary_combat.target.reacquire_wait", reason + ":" + targetEntityId, new Dictionary<string, object?>
+        LogActionThrottled(context, state, "stationary_combat.target.reacquire_wait", reason + ":" + TargetActionKey(targetEntityId, targetServerObjectId), new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["reason"] = reason,
             ["targetEntityId"] = targetEntityId,
+            ["serverObjectId"] = targetServerObjectId,
+            ["targetServerObjectId"] = targetServerObjectId,
             ["targetName"] = targetName,
             ["lockedReadSuccess"] = lockedResult.Success,
             ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
+            ["lockedServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
+            ["lockedTargetServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
+            ["lockedTargetingServerObjectId"] = lockedResult.Value?.TargetServerObjectId ?? 0,
             ["lockedName"] = lockedResult.Value?.Name ?? string.Empty,
             ["lockedAlive"] = lockedResult.Value?.IsMonsterAlive ?? false,
             ["lockedHp"] = lockedResult.Value?.CurrentHp ?? 0,
@@ -1760,7 +1795,7 @@ public sealed class StationaryCombatController
         double radius)
     {
         var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (state.IsPendingTabCandidate(target.EntityId))
+        if (state.IsPendingTabCandidate(target))
         {
             return await TickPendingTabVerificationAsync(
                     context,
@@ -1883,15 +1918,21 @@ public sealed class StationaryCombatController
         }
 
         state.StartPendingTabVerification(
-            target.EntityId,
+            target,
             DateTimeOffset.Now + TimeSpan.FromMilliseconds(verifyWindowMs),
-            lockedBeforeResult.Value?.TargetEntityId ?? 0);
+            lockedBeforeResult.Value);
         context.Logger.Info("stationary_combat.tab.pressed", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["candidateEntityId"] = target.EntityId,
+            ["candidateServerObjectId"] = target.ServerObjectId,
+            ["candidateTargetServerObjectId"] = target.ServerObjectId,
+            ["candidateTargetingServerObjectId"] = target.TargetServerObjectId,
             ["candidateName"] = target.Name,
             ["previousLockedEntityId"] = lockedBeforeResult.Value?.TargetEntityId ?? 0,
+            ["previousLockedServerObjectId"] = lockedBeforeResult.Value?.ServerObjectId ?? 0,
+            ["previousLockedTargetServerObjectId"] = lockedBeforeResult.Value?.ServerObjectId ?? 0,
+            ["previousLockedTargetingServerObjectId"] = lockedBeforeResult.Value?.TargetServerObjectId ?? 0,
             ["verifyWindowMs"] = verifyWindowMs
         });
 
@@ -2070,9 +2111,17 @@ public sealed class StationaryCombatController
         if (!lockedResult.Success ||
             lockedResult.Value is not { IsMonsterAlive: true } lockedTarget ||
             lockedTarget.TargetEntityId == 0 ||
-            lockedTarget.TargetEntityId == target.EntityId ||
+            StationaryCombatState.IsSameTarget(
+                target.EntityId,
+                target.ServerObjectId,
+                lockedTarget.TargetEntityId,
+                lockedTarget.ServerObjectId) ||
             state.PendingTabPreviousLockedEntityId == 0 ||
-            state.PendingTabPreviousLockedEntityId != lockedTarget.TargetEntityId)
+            !StationaryCombatState.IsSameTarget(
+                state.PendingTabPreviousLockedEntityId,
+                state.PendingTabPreviousLockedServerObjectId,
+                lockedTarget.TargetEntityId,
+                lockedTarget.ServerObjectId))
         {
             return null;
         }
@@ -2089,7 +2138,11 @@ public sealed class StationaryCombatController
             return null;
         }
 
-        if (state.HasWrongLockNudge(target.EntityId, lockedTarget.TargetEntityId))
+        if (state.HasWrongLockNudge(
+                target.EntityId,
+                target.ServerObjectId,
+                lockedTarget.TargetEntityId,
+                lockedTarget.ServerObjectId))
         {
             return await TryAcquireLockedTargetAsync(
                     context,
@@ -2120,8 +2173,14 @@ public sealed class StationaryCombatController
             {
                 ["account"] = context.Config.AccountName,
                 ["candidateEntityId"] = target.EntityId,
+                ["candidateServerObjectId"] = target.ServerObjectId,
+                ["candidateTargetServerObjectId"] = target.ServerObjectId,
+                ["candidateTargetingServerObjectId"] = target.TargetServerObjectId,
                 ["candidateName"] = target.Name,
                 ["lockedEntityId"] = lockedTarget.TargetEntityId,
+                ["lockedServerObjectId"] = lockedTarget.ServerObjectId,
+                ["lockedTargetServerObjectId"] = lockedTarget.ServerObjectId,
+                ["lockedTargetingServerObjectId"] = lockedTarget.TargetServerObjectId,
                 ["lockedName"] = lockedTarget.Name,
                 ["delayMs"] = delayMs,
                 ["holdMs"] = holdMs,
@@ -2130,16 +2189,29 @@ public sealed class StationaryCombatController
             return MoveTickDelay;
         }
 
-        state.MarkWrongLockNudged(target.EntityId, lockedTarget.TargetEntityId);
+        state.MarkWrongLockNudged(
+            target.EntityId,
+            target.ServerObjectId,
+            lockedTarget.TargetEntityId,
+            lockedTarget.ServerObjectId);
         state.ClearPendingTabVerification();
         state.LastTabAt = DateTimeOffset.MinValue;
         context.Logger.Info("stationary_combat.tab.wrong_lock_nudge_pressed", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["candidateEntityId"] = target.EntityId,
+            ["candidateServerObjectId"] = target.ServerObjectId,
+            ["candidateTargetServerObjectId"] = target.ServerObjectId,
+            ["candidateTargetingServerObjectId"] = target.TargetServerObjectId,
             ["candidateName"] = target.Name,
             ["lockedEntityId"] = lockedTarget.TargetEntityId,
+            ["lockedServerObjectId"] = lockedTarget.ServerObjectId,
+            ["lockedTargetServerObjectId"] = lockedTarget.ServerObjectId,
+            ["lockedTargetingServerObjectId"] = lockedTarget.TargetServerObjectId,
             ["lockedName"] = lockedTarget.Name,
+            ["lockedWorldServerObjectId"] = lockedWorldTarget.ServerObjectId,
+            ["lockedWorldTargetServerObjectId"] = lockedWorldTarget.ServerObjectId,
+            ["lockedWorldTargetingServerObjectId"] = lockedWorldTarget.TargetServerObjectId,
             ["lockedWorldName"] = lockedWorldTarget.Name,
             ["delayMs"] = delayMs,
             ["holdMs"] = holdMs
@@ -2159,20 +2231,36 @@ public sealed class StationaryCombatController
         {
             ["account"] = context.Config.AccountName,
             ["candidateEntityId"] = target.EntityId,
+            ["candidateServerObjectId"] = target.ServerObjectId,
+            ["candidateTargetServerObjectId"] = target.ServerObjectId,
+            ["candidateTargetingServerObjectId"] = target.TargetServerObjectId,
             ["candidateName"] = target.Name,
             ["delayMs"] = delayMs,
             ["lockedReadSuccess"] = lockedResult.Success,
             ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
+            ["lockedServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
+            ["lockedTargetServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
+            ["lockedTargetingServerObjectId"] = lockedResult.Value?.TargetServerObjectId ?? 0,
             ["lockedName"] = lockedResult.Value?.Name ?? string.Empty,
             ["lockedAlive"] = lockedResult.Value?.IsMonsterAlive ?? false,
             ["lockedHp"] = lockedResult.Value?.CurrentHp ?? 0,
             ["matched"] = lockedResult.Success &&
                           lockedResult.Value is { IsMonsterAlive: true } lockedTarget &&
-                          lockedTarget.TargetEntityId == target.EntityId,
+                          StationaryCombatState.IsSameTarget(
+                              target.EntityId,
+                              target.ServerObjectId,
+                              lockedTarget.TargetEntityId,
+                              lockedTarget.ServerObjectId),
             ["previousLockedEntityId"] = state.PendingTabPreviousLockedEntityId,
-            ["wrongLockNudged"] = state.HasWrongLockNudge(
-                target.EntityId,
-                lockedResult.Value?.TargetEntityId ?? 0),
+            ["previousLockedServerObjectId"] = state.PendingTabPreviousLockedServerObjectId,
+            ["previousLockedTargetServerObjectId"] = state.PendingTabPreviousLockedServerObjectId,
+            ["wrongLockNudged"] = lockedResult.Value is null
+                ? false
+                : state.HasWrongLockNudge(
+                    target.EntityId,
+                    target.ServerObjectId,
+                    lockedResult.Value.TargetEntityId,
+                    lockedResult.Value.ServerObjectId),
             ["pendingUntil"] = state.PendingTabVerifyUntil,
             ["error"] = lockedResult.Error
         });
@@ -2197,7 +2285,11 @@ public sealed class StationaryCombatController
         }
 
         var acquiredTarget = target;
-        if (lockedTarget.TargetEntityId != target.EntityId)
+        if (!StationaryCombatState.IsSameTarget(
+                target.EntityId,
+                target.ServerObjectId,
+                lockedTarget.TargetEntityId,
+                lockedTarget.ServerObjectId))
         {
             if (state.Fighting)
             {
@@ -2227,19 +2319,26 @@ public sealed class StationaryCombatController
         }
 
         state.Fighting = true;
-        state.CurrentTargetEntityId = acquiredTarget.EntityId;
+        var acquiredServerObjectId = acquiredTarget.ServerObjectId != 0
+            ? acquiredTarget.ServerObjectId
+            : lockedTarget.ServerObjectId;
+        var acquiredEntityId = lockedTarget.TargetEntityId != 0
+            ? lockedTarget.TargetEntityId
+            : acquiredTarget.EntityId;
+        state.SetCurrentTarget(acquiredEntityId, acquiredServerObjectId);
         state.CurrentTargetIsMaintenanceDefense = acquiredTarget.IsTargetingLocalPlayer;
-        state.MarkCandidate(acquiredTarget.EntityId, DateTimeOffset.Now);
+        state.MarkCandidate(acquiredTarget, DateTimeOffset.Now);
         state.ClearPendingTabVerification();
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
-        var effectiveTargetServerObjectId = lockedTarget.TargetServerObjectId != 0
+        var effectiveTargetingServerObjectId = lockedTarget.TargetServerObjectId != 0
             ? lockedTarget.TargetServerObjectId
             : acquiredTarget.TargetServerObjectId;
         var effectiveTargetingMe = lockedTarget.IsTargetingLocalPlayer || acquiredTarget.IsTargetingLocalPlayer;
         var effectiveLockedTarget = lockedTarget with
         {
-            TargetServerObjectId = effectiveTargetServerObjectId,
+            ServerObjectId = lockedTarget.ServerObjectId != 0 ? lockedTarget.ServerObjectId : acquiredServerObjectId,
+            TargetServerObjectId = effectiveTargetingServerObjectId,
             IsTargetingLocalPlayer = effectiveTargetingMe
         };
         state.CurrentTargetIsMaintenanceDefense = effectiveTargetingMe;
@@ -2250,7 +2349,13 @@ public sealed class StationaryCombatController
             ["targetName"] = acquiredTarget.Name,
             ["phase"] = phase,
             ["targetingMe"] = effectiveTargetingMe,
-            ["targetServerObjectId"] = effectiveTargetServerObjectId,
+            ["serverObjectId"] = acquiredServerObjectId,
+            ["targetServerObjectId"] = acquiredServerObjectId,
+            ["targetingServerObjectId"] = effectiveTargetingServerObjectId,
+            ["lockedEntityId"] = lockedTarget.TargetEntityId,
+            ["lockedServerObjectId"] = lockedTarget.ServerObjectId,
+            ["lockedTargetServerObjectId"] = lockedTarget.ServerObjectId,
+            ["lockedTargetingServerObjectId"] = lockedTarget.TargetServerObjectId,
             ["aggressiveKnown"] = acquiredTarget.AggressiveKnown,
             ["aggressiveToPlayer"] = acquiredTarget.IsAggressiveToPlayer,
             ["passiveToPlayer"] = acquiredTarget.IsPassiveToPlayer,
@@ -2269,6 +2374,7 @@ public sealed class StationaryCombatController
 
         var openingDelay = await TryWaitForLockedTargetToTargetPlayerAsync(
                 context,
+                plan,
                 semiAutoState,
                 state,
                 effectiveLockedTarget,
@@ -2307,8 +2413,14 @@ public sealed class StationaryCombatController
                 ["account"] = context.Config.AccountName,
                 ["phase"] = phase,
                 ["candidateEntityId"] = candidate.EntityId,
+                ["candidateServerObjectId"] = candidate.ServerObjectId,
+                ["candidateTargetServerObjectId"] = candidate.ServerObjectId,
+                ["candidateTargetingServerObjectId"] = candidate.TargetServerObjectId,
                 ["candidateName"] = candidate.Name,
                 ["lockedEntityId"] = lockedTarget.TargetEntityId,
+                ["lockedServerObjectId"] = lockedTarget.ServerObjectId,
+                ["lockedTargetServerObjectId"] = lockedTarget.ServerObjectId,
+                ["lockedTargetingServerObjectId"] = lockedTarget.TargetServerObjectId,
                 ["lockedName"] = lockedTarget.Name,
                 ["lockedAlive"] = lockedTarget.IsMonsterAlive,
                 ["lockedHp"] = lockedTarget.CurrentHp,
@@ -2322,12 +2434,19 @@ public sealed class StationaryCombatController
             ["account"] = context.Config.AccountName,
             ["phase"] = phase,
             ["candidateEntityId"] = candidate.EntityId,
+            ["candidateServerObjectId"] = candidate.ServerObjectId,
+            ["candidateTargetServerObjectId"] = candidate.ServerObjectId,
+            ["candidateTargetingServerObjectId"] = candidate.TargetServerObjectId,
             ["candidateName"] = candidate.Name,
             ["lockedEntityId"] = lockedTarget.TargetEntityId,
             ["lockedName"] = lockedTarget.Name,
-            ["lockedTargetServerObjectId"] = lockedTarget.TargetServerObjectId,
+            ["lockedServerObjectId"] = lockedTarget.ServerObjectId,
+            ["lockedTargetServerObjectId"] = lockedTarget.ServerObjectId,
+            ["lockedTargetingServerObjectId"] = lockedTarget.TargetServerObjectId,
             ["lockedTargetingMe"] = lockedTarget.IsTargetingLocalPlayer,
-            ["worldTargetServerObjectId"] = lockedWorldTarget.TargetServerObjectId,
+            ["worldServerObjectId"] = lockedWorldTarget.ServerObjectId,
+            ["worldTargetServerObjectId"] = lockedWorldTarget.ServerObjectId,
+            ["worldTargetingServerObjectId"] = lockedWorldTarget.TargetServerObjectId,
             ["worldTargetingMe"] = lockedWorldTarget.IsTargetingLocalPlayer,
             ["worldAggressiveKnown"] = lockedWorldTarget.AggressiveKnown,
             ["worldAggressiveToPlayer"] = lockedWorldTarget.IsAggressiveToPlayer,
@@ -2346,7 +2465,12 @@ public sealed class StationaryCombatController
         double radius)
     {
         var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh: true).ConfigureAwait(false);
-        var lockedWorldTarget = objects.FirstOrDefault(target => target.EntityId == lockedTarget.TargetEntityId);
+        var lockedWorldTarget = objects.FirstOrDefault(target =>
+            StationaryCombatState.IsSameTarget(
+                target.EntityId,
+                target.ServerObjectId,
+                lockedTarget.TargetEntityId,
+                lockedTarget.ServerObjectId));
         return IsCandidateStillSelectable(
                 lockedWorldTarget,
                 home,
@@ -2372,6 +2496,7 @@ public sealed class StationaryCombatController
                 semiAutoState,
                 state,
                 target.TargetEntityId,
+                target.ServerObjectId,
                 target.Name,
                 "target_owned_by_other")
             .ConfigureAwait(false);
@@ -2379,6 +2504,7 @@ public sealed class StationaryCombatController
 
     private async Task<TimeSpan?> TryWaitForLockedTargetToTargetPlayerAsync(
         AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         LockedTargetSnapshot target,
@@ -2404,11 +2530,13 @@ public sealed class StationaryCombatController
             ["targetEntityId"] = target.TargetEntityId,
             ["targetName"] = target.Name,
             ["phase"] = phase,
-            ["targetServerObjectId"] = target.TargetServerObjectId
+            ["serverObjectId"] = target.ServerObjectId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetingServerObjectId"] = target.TargetServerObjectId
         }, TimeSpan.FromMilliseconds(500));
 
         return await _semiAuto
-            .TickOpeningAttackKeyLoopAsync(context, semiAutoState, target)
+            .TickOpeningAttackKeyLoopAsync(context, plan, semiAutoState, target)
             .ConfigureAwait(false);
     }
 
@@ -2417,6 +2545,7 @@ public sealed class StationaryCombatController
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         ushort targetEntityId,
+        uint targetServerObjectId,
         string targetName,
         string reason)
     {
@@ -2424,11 +2553,13 @@ public sealed class StationaryCombatController
         var elapsedMs = state.TargetStartedAt == DateTimeOffset.MinValue
             ? 0
             : (long)Math.Max(0.0D, (now - state.TargetStartedAt).TotalMilliseconds);
-        state.IgnoreTarget(targetEntityId);
+        state.IgnoreTarget(targetEntityId, targetServerObjectId);
         context.Logger.Info("stationary_combat.target.ignored", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["targetEntityId"] = targetEntityId,
+            ["serverObjectId"] = targetServerObjectId,
+            ["targetServerObjectId"] = targetServerObjectId,
             ["targetName"] = targetName,
             ["reason"] = reason,
             ["elapsedMs"] = elapsedMs,
@@ -2445,6 +2576,13 @@ public sealed class StationaryCombatController
     {
         return state.TargetStartedAt != DateTimeOffset.MinValue &&
                now - state.TargetStartedAt >= TargetTimeout;
+    }
+
+    private static string TargetActionKey(ushort entityId, uint serverObjectId)
+    {
+        return serverObjectId != 0
+            ? "server:" + serverObjectId.ToString()
+            : "entity:" + entityId.ToString();
     }
 
     private static string GetRevivePathName(AccountWorkerContext context)
@@ -2505,23 +2643,25 @@ public sealed class StationaryCombatController
         var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
 
-        if (state.CandidateEntityId != 0)
+        if (state.CandidateEntityId != 0 || state.CandidateServerObjectId != 0)
         {
-            var candidate = objects.FirstOrDefault(
-                target => target.EntityId == state.CandidateEntityId);
+            var candidate = state.FindCandidate(objects);
             if (!allowClaimedByOther && candidate is not null && IsClaimedByOther(candidate))
             {
-                state.IgnoreTarget(candidate.EntityId);
-                LogActionThrottled(context, state, "stationary_combat.target.claimed_by_other", "candidate:" + candidate.EntityId, new Dictionary<string, object?>
+                state.IgnoreTarget(candidate);
+                LogActionThrottled(context, state, "stationary_combat.target.claimed_by_other", "candidate:" + TargetActionKey(candidate.EntityId, candidate.ServerObjectId), new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
                     ["targetEntityId"] = candidate.EntityId,
+                    ["serverObjectId"] = candidate.ServerObjectId,
+                    ["targetServerObjectId"] = candidate.ServerObjectId,
+                    ["targetingServerObjectId"] = candidate.TargetServerObjectId,
                     ["targetName"] = candidate.Name,
-                    ["targetServerObjectId"] = candidate.TargetServerObjectId
                 }, TimeSpan.FromMilliseconds(500));
             }
 
-            if (!state.IsTargetIgnored(state.CandidateEntityId) &&
+            if (candidate is not null &&
+                !state.IsTargetIgnored(candidate) &&
                 IsCandidateStillSelectable(candidate, home, radius, allowClaimedByOther))
             {
                 if (!ShouldReplaceCandidateWithAggressiveTarget(
@@ -2538,7 +2678,7 @@ public sealed class StationaryCombatController
             }
         }
 
-        var candidates = objects.Where(target => !state.IsTargetIgnored(target.EntityId));
+        var candidates = objects.Where(target => !state.IsTargetIgnored(target));
         if (!allowClaimedByOther)
         {
             candidates = candidates.Where(target => !IsClaimedByOther(target));
@@ -2560,11 +2700,12 @@ public sealed class StationaryCombatController
     {
         var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
         return objects
-            .Where(target => !state.IsTargetIgnored(target.EntityId))
+            .Where(target => !state.IsTargetIgnored(target))
             .Where(target => target.IsTargetingLocalPlayer)
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
             .Where(target => target.Position is not null)
             .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition))
+            .ThenBy(target => target.ServerObjectId)
             .ThenBy(target => target.EntityId)
             .FirstOrDefault();
     }
@@ -2651,8 +2792,12 @@ public sealed class StationaryCombatController
 
         return objects.Any(target =>
             target.IsAggressiveToPlayer &&
-            !state.IsTargetIgnored(target.EntityId) &&
-            target.EntityId != candidate.EntityId &&
+            !state.IsTargetIgnored(target) &&
+            !StationaryCombatState.IsSameTarget(
+                target.EntityId,
+                target.ServerObjectId,
+                candidate.EntityId,
+                candidate.ServerObjectId) &&
             IsCandidateStillSelectable(target, home, radius, allowClaimedByOther));
     }
 

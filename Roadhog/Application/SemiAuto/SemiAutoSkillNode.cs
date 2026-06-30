@@ -17,7 +17,9 @@ public sealed class SemiAutoSkillNode
         SkillId = skillId;
         Name = name ?? string.Empty;
         BaseName = baseName ?? string.Empty;
-        Type = type ?? string.Empty;
+        Type = IsKnockdownTriggerSkill(baseName) || IsKnockdownTriggerSkill(name)
+            ? "触发技能"
+            : type ?? string.Empty;
         ChainTimeMs = chainTimeMs;
         Key = key ?? string.Empty;
         Parent = parent;
@@ -42,7 +44,9 @@ public sealed class SemiAutoSkillNode
 
     public List<SemiAutoSkillNode> Children { get; } = new();
 
-    public bool IsTrigger => string.Equals(Type, "触发技能", StringComparison.Ordinal);
+    public bool IsTrigger => string.Equals(Type, "触发技能", StringComparison.Ordinal) ||
+                             IsKnockdownTriggerSkill(BaseName) ||
+                             IsKnockdownTriggerSkill(Name);
 
     public bool IsDp => Type.Contains("DP", StringComparison.OrdinalIgnoreCase);
 
@@ -94,5 +98,12 @@ public sealed class SemiAutoSkillNode
         return !string.IsNullOrWhiteSpace(left) &&
                !string.IsNullOrWhiteSpace(right) &&
                string.Equals(left.Trim(), right.Trim(), StringComparison.Ordinal);
+    }
+
+    private static bool IsKnockdownTriggerSkill(string? name)
+    {
+        var value = name?.Trim() ?? string.Empty;
+        return string.Equals(value, "脚踝重击", StringComparison.Ordinal) ||
+               value.StartsWith("脚踝重击 ", StringComparison.Ordinal);
     }
 }

@@ -34,6 +34,8 @@ public static class RoadhogInputKeyMap
             ["NumPad8"] = 0x60,
             ["NumPad9"] = 0x61,
             ["NumPad0"] = 0x62,
+            ["NumPadSubtract"] = 0x56,
+            ["NumPadAdd"] = 0x57,
             ["NumPadDecimal"] = 0x63
         };
 

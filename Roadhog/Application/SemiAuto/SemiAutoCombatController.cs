@@ -45,9 +45,10 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TickIntervalMs, 40);
         }
 
-        if (!plan.HasExecutableSkills)
+        if (!plan.HasCombatActions)
         {
             state.ResetOpeningAttackKey();
+            state.ResetOpeningSkill();
             state.ResetAttackKeyPressThrottle();
             if (ShouldLog(state.LastPlanWarningAt, now))
             {
@@ -64,6 +65,7 @@ public sealed class SemiAutoCombatController
         if (!targetResult.Success || targetResult.Value is null)
         {
             state.ResetOpeningAttackKey();
+            state.ResetOpeningSkill();
             state.ResetAttackKeyPressThrottle();
             if (ShouldLog(state.LastTargetWarningAt, now))
             {
@@ -102,6 +104,7 @@ public sealed class SemiAutoCombatController
         if (!targetResult.Value.IsMonsterAlive)
         {
             state.ResetOpeningAttackKey();
+            state.ResetOpeningSkill();
             state.ResetAttackKeyPressThrottle();
             if (ShouldLog(state.LastTargetStateLogAt, now))
             {
@@ -123,6 +126,11 @@ public sealed class SemiAutoCombatController
             }
 
             return Ms(settings.TargetIdleDelayMs, 200);
+        }
+
+        if (await PressOpeningSkillIfNeededAsync(context, state, settings, plan, targetResult.Value).ConfigureAwait(false))
+        {
+            return Ms(settings.TickIntervalMs, 40);
         }
 
         if (await PressOpeningAttackKeyIfNeededAsync(context, state, settings, targetResult.Value).ConfigureAwait(false))
@@ -232,10 +240,16 @@ public sealed class SemiAutoCombatController
 
     public async Task<TimeSpan> TickOpeningAttackKeyLoopAsync(
         AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
         LockedTargetSnapshot target)
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
+        if (await PressOpeningSkillIfNeededAsync(context, state, settings, plan, target).ConfigureAwait(false))
+        {
+            return Ms(settings.TickIntervalMs, 40);
+        }
+
         state.MarkOpeningAttackKeyAttempted(target);
         if (settings.AttackKeyLoopEnabled &&
             state.ShouldPressAttackKey(DateTimeOffset.Now, Ms(settings.AttackKeyLoopIntervalMs, 300)))
@@ -1095,6 +1109,91 @@ public sealed class SemiAutoCombatController
         return hasExecutableRoot;
     }
 
+    private async Task<bool> PressOpeningSkillIfNeededAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        SemiAutoSkillPlan plan,
+        LockedTargetSnapshot target)
+    {
+        var openingSkill = plan.OpeningSkill;
+        if (openingSkill is null || !state.ShouldHandleOpeningSkill(target))
+        {
+            return false;
+        }
+
+        state.MarkOpeningSkillHandled(target);
+        var skillsResult = await ReadOpeningSkillAsync(context, openingSkill).ConfigureAwait(false);
+        if (!skillsResult.Success || skillsResult.Value is null)
+        {
+            context.Logger.Warn("semi_auto.opening_skill.read_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = target.TargetEntityId,
+                ["targetServerObjectId"] = target.ServerObjectId,
+                ["targetName"] = target.Name,
+                ["skill"] = openingSkill.Name,
+                ["skillId"] = openingSkill.SkillId,
+                ["key"] = openingSkill.Key,
+                ["error"] = skillsResult.Error
+            });
+            return false;
+        }
+
+        var skill = openingSkill.ResolveSkill(skillsResult.Value);
+        if (skill is null)
+        {
+            LogOpeningSkillSkipped(context, target, openingSkill, null, "missing");
+            return false;
+        }
+
+        var readiness = SemiAutoSkillReleasePriority.GetCooldownReadiness(skill, state);
+        if (readiness != SemiAutoSkillCooldownReadiness.Ready)
+        {
+            LogOpeningSkillSkipped(
+                context,
+                target,
+                openingSkill,
+                skill,
+                SemiAutoSkillReleasePriority.FormatCooldownReason(skill, state));
+            return false;
+        }
+
+        var pressed = await PressNodeKeyAsync(context, openingSkill, settings, "opening_skill").ConfigureAwait(false);
+        if (!pressed)
+        {
+            return false;
+        }
+
+        var confirmationExpiresAt = DateTimeOffset.Now + Ms(settings.ConfirmTimeoutMs, 1500);
+        state.MarkSkillPressed(skill, confirmationExpiresAt);
+        state.SuppressUncalibratedUnknownSkill(skill, confirmationExpiresAt);
+        return true;
+    }
+
+    private static void LogOpeningSkillSkipped(
+        AccountWorkerContext context,
+        LockedTargetSnapshot target,
+        SemiAutoSkillNode node,
+        SkillSnapshot? skill,
+        string reason)
+    {
+        context.Logger.Info("semi_auto.opening_skill.skipped", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = target.TargetEntityId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetName"] = target.Name,
+            ["skill"] = node.Name,
+            ["skillId"] = node.SkillId,
+            ["matchedSkillId"] = skill?.SkillId,
+            ["cooldownDuration"] = skill?.CooldownDuration,
+            ["cooldownEndTime"] = skill?.CooldownEndTime,
+            ["key"] = node.Key,
+            ["reason"] = reason
+        });
+    }
+
     private async Task<bool> PressOpeningAttackKeyIfNeededAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
@@ -1151,15 +1250,26 @@ public sealed class SemiAutoCombatController
     {
         var configuredSkills = new List<SkillSnapshot>();
         var seenSkillIds = new HashSet<uint>();
-        foreach (var node in FlattenNodes(plan.Roots))
+
+        void AddResolvedSkill(SemiAutoSkillNode node)
         {
             var skill = node.ResolveSkill(learnedSkills);
             if (skill is null || !seenSkillIds.Add(skill.SkillId))
             {
-                continue;
+                return;
             }
 
             configuredSkills.Add(skill);
+        }
+
+        if (plan.OpeningSkill is not null)
+        {
+            AddResolvedSkill(plan.OpeningSkill);
+        }
+
+        foreach (var node in FlattenNodes(plan.Roots))
+        {
+            AddResolvedSkill(node);
         }
 
         return configuredSkills;
@@ -1590,6 +1700,21 @@ public sealed class SemiAutoCombatController
         }
 
         return context.GameApi.ReadLockedTargetAsync(context.StopToken);
+    }
+
+    private static Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadOpeningSkillAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillNode openingSkill)
+    {
+        if (context.GameApi is IRoadhogScopedGameApi scopedApi && openingSkill.SkillId != 0)
+        {
+            return scopedApi.ReadSkillsAsync(
+                CreateReadContext(context),
+                new[] { openingSkill.SkillId },
+                context.StopToken);
+        }
+
+        return ReadAllSkillsAsync(context);
     }
 
     private static Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(

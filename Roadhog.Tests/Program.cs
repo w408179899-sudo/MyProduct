@@ -28,6 +28,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
+    ("stationary combat state uses server object id identity", TestStationaryCombatStateUsesServerObjectIdIdentityAsync),
     ("tool bridge world parser reads aggressive monster flags", TestToolBridgeWorldParserReadsAggressiveFlagsAsync),
     ("stationary combat startup recovery follows nearest revive path point", TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync),
     ("stationary combat startup recovery skips revive path when home is nearest", TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync),
@@ -46,6 +47,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat does not pulse W while approaching same target", TestStationaryCombatDoesNotPulseWWhileApproachingAsync),
     ("stationary combat ignores target when lock times out", TestStationaryCombatIgnoresTargetWhenLockTimesOutAsync),
     ("stationary combat ignores target when kill times out", TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync),
+    ("stationary combat keeps fight when locked target server id matches", TestStationaryCombatKeepsFightWhenLockedServerIdMatchesAsync),
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
     ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
     ("stationary combat switches away from target claimed by other", TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync),
@@ -59,8 +61,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat stops movement before hp maintenance", TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync),
     ("stationary combat mp sit maintenance runs without defense target", TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
-    ("skill tree maps at most configured roots across the 22 supported keys", TestConfiguredRootKeyBoundaryAsync),
+    ("skill tree maps at most configured roots across the 24 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
+    ("knockdown trigger saved as status is treated as trigger", TestKnockdownTriggerSavedAsStatusIsTreatedAsTriggerAsync),
     ("combat tick requests only configured skill ids", TestCombatTickRequestsOnlyConfiguredSkillIdsAsync),
     ("observed configured cooldown advance calibrates clock", TestObservedConfiguredCooldownAdvanceCalibratesClockAsync),
     ("uncalibrated nonzero cooldown falls back to first configured root", TestUncalibratedNonzeroCooldownFallsBackToFirstRootAsync),
@@ -69,6 +72,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
     ("observed cooldown survives zero end tick read", TestObservedCooldownSurvivesZeroEndTickReadAsync),
     ("opening attack key switch presses C once", TestOpeningAttackKeySwitchPressesCOnceAsync),
+    ("opening skill presses before C once", TestOpeningSkillPressesBeforeCOnceAsync),
+    ("cooling opening skill skips to C", TestCoolingOpeningSkillSkipsToCAsync),
     ("maintenance hp rule presses configured key before skills", TestMaintenanceHpRulePressesConfiguredKeyAsync),
     ("maintenance hp rule runs without attackable target", TestMaintenanceHpRuleRunsWithoutAttackableTargetAsync),
     ("maintenance mp rule presses configured key before skills", TestMaintenanceMpRulePressesConfiguredKeyAsync),
@@ -347,6 +352,8 @@ static Task TestInputKeyMapAsync()
     AssertHidCode("Tab", 0x2B);
     AssertHidCode("F9", 0x42);
     AssertHidCode("NumPad0", 0x62);
+    AssertHidCode("NumPadSubtract", 0x56);
+    AssertHidCode("NumPadAdd", 0x57);
     AssertHidCode("NumPadDecimal", 0x63);
 
     AssertFalse(
@@ -491,6 +498,47 @@ static Task TestStationaryTargetSelectorAsync()
         preferAggressiveMonsters: true);
 
     AssertEqual((ushort)21, activeSelected?.EntityId ?? 0, "aggressive monster should outrank nearer passive monster");
+    return Task.CompletedTask;
+}
+
+static Task TestStationaryCombatStateUsesServerObjectIdIdentityAsync()
+{
+    var state = new StationaryCombatState();
+    var firstAt = new DateTimeOffset(2026, 7, 1, 12, 0, 0, TimeSpan.Zero);
+    var serverObjectId = 2246150598u;
+
+    AssertFalse(!state.MarkCandidate(65498, serverObjectId, firstAt), "first candidate should be marked as changed");
+    AssertFalse(
+        state.MarkCandidate(65519, serverObjectId, firstAt.AddSeconds(1)),
+        "same server object id should keep target identity even when entity id changes");
+    AssertEqual((ushort)65519, state.CandidateEntityId, "candidate entity id should still refresh");
+    AssertEqual(serverObjectId, state.CandidateServerObjectId, "candidate server object id");
+
+    state.SetCurrentTarget(65498, serverObjectId);
+    var locked = new LockedTargetSnapshot(
+        65519,
+        serverObjectId,
+        0,
+        LockedTargetSnapshot.MonsterObjectType,
+        "same-server",
+        1000,
+        1000,
+        new Vector3Snapshot(8, 0, 0),
+        8,
+        firstAt);
+    AssertFalse(!state.IsCurrentTarget(locked), "current target should match by server object id");
+
+    state.IgnoreTarget(65498, serverObjectId);
+    var world = new WorldObjectSnapshot(
+        65519,
+        serverObjectId,
+        "same-server",
+        "monster",
+        new Vector3Snapshot(8, 0, 0),
+        8,
+        1000,
+        1000);
+    AssertFalse(!state.IsTargetIgnored(world), "ignored target should match by server object id");
     return Task.CompletedTask;
 }
 
@@ -1708,6 +1756,75 @@ static async Task TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync()
         "kill timeout should be logged");
 }
 
+static async Task TestStationaryCombatKeepsFightWhenLockedServerIdMatchesAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+
+    var serverObjectId = 2246150598u;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 65519,
+        TargetOwnServerObjectId = serverObjectId,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = 1,
+        TargetIsTargetingLocalPlayer = true,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(65498, serverObjectId, "same-server", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000, 1, true)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 65498,
+        CurrentTargetServerObjectId = serverObjectId,
+        CandidateEntityId = 65498,
+        CandidateServerObjectId = serverObjectId
+    };
+    state.MarkCandidate(65498, serverObjectId, DateTimeOffset.Now);
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+        .ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "same server object target should keep fight state");
+    AssertEqual((ushort)65519, state.CurrentTargetEntityId, "current target entity id should refresh from locked target");
+    AssertEqual(serverObjectId, state.CurrentTargetServerObjectId, "current target server object id");
+    AssertFalse(keyboard.Keys.Contains("Tab"), "same server object target should not tab reacquire");
+    AssertFalse(!keyboard.Keys.Contains("D2"), "same server object target should continue skill release");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.reacquire"),
+        "same server object target should not log reacquire");
+}
+
 static async Task TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync()
 {
     var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
@@ -2599,6 +2716,49 @@ static async Task TestCombatTickPressesPrefixThenReadyRootAsync()
     AssertFalse(keyboard.Keys.Contains("D0"), "dp skill should not be pressed");
 }
 
+static async Task TestKnockdownTriggerSavedAsStatusIsTreatedAsTriggerAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Skills.ExecutionTree.Insert(1, Node(410, "脚踝重击 I", "状态技能"));
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var skills = Flatten(plan.Roots)
+        .Select(node =>
+        {
+            var cooldownEnd = node.SkillId == 1
+                ? ActiveCooldownEnd()
+                : 0u;
+            return new SkillSnapshot(
+                node.SkillId,
+                node.Name,
+                1,
+                1,
+                node.BaseName,
+                1,
+                false,
+                node.SkillId == 1 ? 1000u : 0u,
+                cooldownEnd);
+        })
+        .ToArray();
+    var gameApi = new FakeGameApi
+    {
+        Skills = skills
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(!plan.Roots[1].IsTrigger, "knockdown trigger should be normalized as trigger");
+    AssertSequence(
+        new[] { "D2", "D3", "D4", "D5", "D6" },
+        keyboard.Keys.ToArray(),
+        "knockdown trigger should be prefix before first active root");
+    AssertFalse(gameApi.LastRequestedSkillIds?.Contains(410u) == true, "knockdown trigger should not be read as a normal root");
+}
+
 static async Task TestCombatTickRequestsOnlyConfiguredSkillIdsAsync()
 {
     var settings = CreateScriptSettings();
@@ -2646,7 +2806,7 @@ static Task TestConfiguredRootKeyBoundaryAsync()
         TriggerPrefixMode = "TopContiguousTriggerSkills"
     };
 
-    for (var i = 1; i <= 22; i++)
+    for (var i = 1; i <= 24; i++)
     {
         settings.ExecutionTree.Add(Node((uint)i, "技能" + i, "主动技能"));
     }
@@ -2676,10 +2836,12 @@ static Task TestConfiguredRootKeyBoundaryAsync()
             "NumPad7",
             "NumPad8",
             "NumPad9",
-            "NumPad0"
+            "NumPad0",
+            "NumPadSubtract",
+            "NumPadAdd"
         },
         plan.Roots.Select(root => root.Key).ToArray(),
-        "22-key order");
+        "24-key order");
 
     var tenRootPlan = SemiAutoSkillPlan.FromSettings(CreateSkillSettings());
     AssertEqual("D0", tenRootPlan.Roots.Last().Key, "10th configured root key");
@@ -2907,6 +3069,77 @@ static async Task TestOpeningAttackKeySwitchPressesCOnceAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
     AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "fallback should not press C after opening key was attempted");
+}
+
+static async Task TestOpeningSkillPressesBeforeCOnceAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.SemiAuto.AttackKeyLoopEnabled = true;
+    var openingSkill = settings.Skills.ExecutionTree.First(node => node.SkillId == 8);
+    settings.Skills.OpeningSkill = new OpeningSkillConfig
+    {
+        Enabled = true,
+        SkillId = openingSkill.SkillId,
+        SkillName = openingSkill.Name,
+        Key = "NumPad0"
+    };
+
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [8] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "opening skill should press before opening C");
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad0", "C" }, keyboard.Keys.ToArray(), "opening C should run after opening skill was handled");
+}
+
+static async Task TestCoolingOpeningSkillSkipsToCAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.SemiAuto.AttackKeyLoopEnabled = true;
+    var openingSkill = settings.Skills.ExecutionTree.First(node => node.SkillId == 8);
+    settings.Skills.OpeningSkill = new OpeningSkillConfig
+    {
+        Enabled = true,
+        SkillId = openingSkill.SkillId,
+        SkillName = openingSkill.Name,
+        Key = "NumPad0"
+    };
+
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [8] = ActiveCooldownEnd()
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "cooling opening skill should skip directly to opening C");
+    AssertFalse(
+        logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.key.pressed" &&
+            string.Equals(entry.Fields.GetValueOrDefault("phase")?.ToString(), "opening_skill", StringComparison.Ordinal)),
+        "cooling opening skill must not press the configured key");
 }
 
 static async Task TestMaintenanceHpRulePressesConfiguredKeyAsync()
@@ -4178,6 +4411,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
 
     public Vector3Snapshot? TargetPosition { get; set; }
 
+    public uint TargetOwnServerObjectId { get; set; }
+
     public uint TargetServerObjectId { get; set; } = 1;
 
     public bool TargetIsTargetingLocalPlayer { get; set; } = true;
@@ -4218,7 +4453,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
     {
         return Task.FromResult(OperationResult<LockedTargetSnapshot>.Ok(new LockedTargetSnapshot(
             TargetEntityId,
-            TargetEntityId,
+            TargetOwnServerObjectId != 0 ? TargetOwnServerObjectId : TargetEntityId,
             0,
             LockedTargetSnapshot.MonsterObjectType,
             "训练用稻草人",

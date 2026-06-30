@@ -6,21 +6,29 @@ public sealed class SemiAutoSkillPlan
 {
     private SemiAutoSkillPlan(
         IReadOnlyList<SemiAutoSkillNode> roots,
-        IReadOnlyList<SemiAutoSkillNode> triggerPrefixRoots)
+        IReadOnlyList<SemiAutoSkillNode> triggerPrefixRoots,
+        SemiAutoSkillNode? openingSkill)
     {
         Roots = roots;
         TriggerPrefixRoots = triggerPrefixRoots;
+        OpeningSkill = openingSkill;
     }
 
     public IReadOnlyList<SemiAutoSkillNode> Roots { get; }
 
     public IReadOnlyList<SemiAutoSkillNode> TriggerPrefixRoots { get; }
 
+    public SemiAutoSkillNode? OpeningSkill { get; }
+
     public IReadOnlyList<uint> SkillReadIds { get; private init; } = Array.Empty<uint>();
 
     public bool RequiresFullSkillRead { get; private init; }
 
     public bool HasExecutableSkills => Roots.Any(root => !root.IsTrigger && !root.IsDp);
+
+    public bool HasOpeningSkill => OpeningSkill is not null;
+
+    public bool HasCombatActions => HasExecutableSkills || HasOpeningSkill;
 
     public static SemiAutoSkillPlan FromSettings(SkillScriptSettings settings)
     {
@@ -29,16 +37,18 @@ public sealed class SemiAutoSkillPlan
             : BuildManualRoots(settings);
 
         var triggerPrefix = BuildTriggerPrefixRoots(roots, settings.TriggerPrefixMode);
+        var openingSkill = BuildOpeningSkill(settings);
 
-        return new SemiAutoSkillPlan(roots, triggerPrefix)
+        return new SemiAutoSkillPlan(roots, triggerPrefix, openingSkill)
         {
-            SkillReadIds = BuildSkillReadIds(roots, out var requiresFullSkillRead),
+            SkillReadIds = BuildSkillReadIds(roots, openingSkill, out var requiresFullSkillRead),
             RequiresFullSkillRead = requiresFullSkillRead
         };
     }
 
     private static IReadOnlyList<uint> BuildSkillReadIds(
         IReadOnlyList<SemiAutoSkillNode> roots,
+        SemiAutoSkillNode? openingSkill,
         out bool requiresFullSkillRead)
     {
         requiresFullSkillRead = false;
@@ -57,6 +67,18 @@ public sealed class SemiAutoSkillPlan
             }
 
             ids.Add(node.SkillId);
+        }
+
+        if (openingSkill is not null)
+        {
+            if (openingSkill.SkillId == 0)
+            {
+                requiresFullSkillRead = true;
+            }
+            else
+            {
+                ids.Add(openingSkill.SkillId);
+            }
         }
 
         return ids.OrderBy(id => id).ToArray();
@@ -141,5 +163,31 @@ public sealed class SemiAutoSkillPlan
         }
 
         return roots;
+    }
+
+    private static SemiAutoSkillNode? BuildOpeningSkill(SkillScriptSettings settings)
+    {
+        var config = settings.OpeningSkill;
+        if (config is null ||
+            !config.Enabled ||
+            string.IsNullOrWhiteSpace(config.Key) ||
+            (config.SkillId == 0 && string.IsNullOrWhiteSpace(config.SkillName)))
+        {
+            return null;
+        }
+
+        var name = config.SkillName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = "Skill " + config.SkillId;
+        }
+
+        return new SemiAutoSkillNode(
+            config.SkillId,
+            name,
+            name,
+            "主动技能",
+            null,
+            config.Key.Trim());
     }
 }

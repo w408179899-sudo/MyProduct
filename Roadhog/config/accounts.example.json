@@ -75,7 +75,9 @@
             "NumPad7",
             "NumPad8",
             "NumPad9",
-            "NumPad0"
+            "NumPad0",
+            "NumPadSubtract",
+            "NumPadAdd"
           ],
           "triggerPrefixMode": "TopContiguousTriggerSkills",
           "executionTree": [],
