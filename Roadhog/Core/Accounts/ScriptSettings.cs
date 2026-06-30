@@ -88,6 +88,8 @@ public sealed class CombatScriptSettings
 
     public bool CounterEnemyRace { get; set; }
 
+    public bool PreferAggressiveMonsters { get; set; }
+
     public bool HasStationaryCombatPosition { get; set; }
 
     public double StationaryCombatX { get; set; }
@@ -105,6 +107,7 @@ public sealed class CombatScriptSettings
             EnableLoot = EnableLoot,
             ContestMonster = ContestMonster,
             CounterEnemyRace = CounterEnemyRace,
+            PreferAggressiveMonsters = PreferAggressiveMonsters,
             HasStationaryCombatPosition = HasStationaryCombatPosition,
             StationaryCombatX = StationaryCombatX,
             StationaryCombatY = StationaryCombatY,

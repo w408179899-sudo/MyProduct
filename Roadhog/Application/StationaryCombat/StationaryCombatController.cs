@@ -257,7 +257,11 @@ public sealed class StationaryCombatController
                 ["targetDistanceFromHome"] = Math.Round(targetDistanceFromHome, 2),
                 ["radius"] = Math.Round(radius, 2),
                 ["targetingMe"] = target.IsTargetingLocalPlayer,
-                ["targetServerObjectId"] = target.TargetServerObjectId
+                ["targetServerObjectId"] = target.TargetServerObjectId,
+                ["aggressiveKnown"] = target.AggressiveKnown,
+                ["aggressiveToPlayer"] = target.IsAggressiveToPlayer,
+                ["passiveToPlayer"] = target.IsPassiveToPlayer,
+                ["aggressiveSource"] = target.AggressiveSource
             });
         }
 
@@ -2246,7 +2250,11 @@ public sealed class StationaryCombatController
             ["targetName"] = acquiredTarget.Name,
             ["phase"] = phase,
             ["targetingMe"] = effectiveTargetingMe,
-            ["targetServerObjectId"] = effectiveTargetServerObjectId
+            ["targetServerObjectId"] = effectiveTargetServerObjectId,
+            ["aggressiveKnown"] = acquiredTarget.AggressiveKnown,
+            ["aggressiveToPlayer"] = acquiredTarget.IsAggressiveToPlayer,
+            ["passiveToPlayer"] = acquiredTarget.IsPassiveToPlayer,
+            ["aggressiveSource"] = acquiredTarget.AggressiveSource
         });
         var claimedDelay = await TryIgnoreClaimedLockedTargetAsync(
                 context,
@@ -2320,7 +2328,11 @@ public sealed class StationaryCombatController
             ["lockedTargetServerObjectId"] = lockedTarget.TargetServerObjectId,
             ["lockedTargetingMe"] = lockedTarget.IsTargetingLocalPlayer,
             ["worldTargetServerObjectId"] = lockedWorldTarget.TargetServerObjectId,
-            ["worldTargetingMe"] = lockedWorldTarget.IsTargetingLocalPlayer
+            ["worldTargetingMe"] = lockedWorldTarget.IsTargetingLocalPlayer,
+            ["worldAggressiveKnown"] = lockedWorldTarget.AggressiveKnown,
+            ["worldAggressiveToPlayer"] = lockedWorldTarget.IsAggressiveToPlayer,
+            ["worldPassiveToPlayer"] = lockedWorldTarget.IsPassiveToPlayer,
+            ["worldAggressiveSource"] = lockedWorldTarget.AggressiveSource
         });
 
         return lockedWorldTarget;
@@ -2491,6 +2503,7 @@ public sealed class StationaryCombatController
         bool allowClaimedByOther)
     {
         var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
+        var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
 
         if (state.CandidateEntityId != 0)
         {
@@ -2511,7 +2524,17 @@ public sealed class StationaryCombatController
             if (!state.IsTargetIgnored(state.CandidateEntityId) &&
                 IsCandidateStillSelectable(candidate, home, radius, allowClaimedByOther))
             {
-                return candidate;
+                if (!ShouldReplaceCandidateWithAggressiveTarget(
+                    preferAggressiveMonsters,
+                    candidate,
+                    objects,
+                    state,
+                    home,
+                    radius,
+                    allowClaimedByOther))
+                {
+                    return candidate;
+                }
             }
         }
 
@@ -2525,7 +2548,8 @@ public sealed class StationaryCombatController
             candidates,
             playerPosition,
             home,
-            radius);
+            radius,
+            preferAggressiveMonsters);
     }
 
     private async Task<WorldObjectSnapshot?> SelectMaintenanceDefenseTargetAsync(
@@ -2604,6 +2628,32 @@ public sealed class StationaryCombatController
     private static bool AllowsClaimedTargets(AccountWorkerContext context)
     {
         return context.Config.ScriptSettings?.Combat?.ContestMonster == true;
+    }
+
+    private static bool PrefersAggressiveMonsters(AccountWorkerContext context)
+    {
+        return context.Config.ScriptSettings?.Combat?.PreferAggressiveMonsters == true;
+    }
+
+    private static bool ShouldReplaceCandidateWithAggressiveTarget(
+        bool preferAggressiveMonsters,
+        WorldObjectSnapshot? candidate,
+        IEnumerable<WorldObjectSnapshot> objects,
+        StationaryCombatState state,
+        Vector3Snapshot home,
+        double radius,
+        bool allowClaimedByOther)
+    {
+        if (!preferAggressiveMonsters || candidate is null || candidate.IsAggressiveToPlayer)
+        {
+            return false;
+        }
+
+        return objects.Any(target =>
+            target.IsAggressiveToPlayer &&
+            !state.IsTargetIgnored(target.EntityId) &&
+            target.EntityId != candidate.EntityId &&
+            IsCandidateStillSelectable(target, home, radius, allowClaimedByOther));
     }
 
     private static bool IsAttackKeyLoopEnabled(AccountWorkerContext context)

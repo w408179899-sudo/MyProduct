@@ -8,13 +8,25 @@ public static class StationaryCombatTargetSelector
         IEnumerable<WorldObjectSnapshot> objects,
         Vector3Snapshot playerPosition,
         Vector3Snapshot stationaryPosition,
-        double stationaryRadius)
+        double stationaryRadius,
+        bool preferAggressiveMonsters = false)
     {
         var radius = Math.Max(0.0D, stationaryRadius);
-        return objects
+        var candidates = objects
             .Where(IsSelectableMonster)
             .Where(target => target.Position is not null)
-            .Where(target => HorizontalDistance(target.Position!.Value, stationaryPosition) <= radius)
+            .Where(target => HorizontalDistance(target.Position!.Value, stationaryPosition) <= radius);
+
+        if (preferAggressiveMonsters)
+        {
+            return candidates
+                .OrderByDescending(target => target.IsAggressiveToPlayer)
+                .ThenBy(target => HorizontalDistance(target.Position!.Value, playerPosition))
+                .ThenBy(target => target.EntityId)
+                .FirstOrDefault();
+        }
+
+        return candidates
             .OrderBy(target => HorizontalDistance(target.Position!.Value, playerPosition))
             .ThenBy(target => target.EntityId)
             .FirstOrDefault();

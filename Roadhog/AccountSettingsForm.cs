@@ -44,6 +44,7 @@ namespace Roadhog
         private RoundedCheckBox? enableLootCheckBox;
         private RoundedCheckBox? contestMonsterCheckBox;
         private RoundedCheckBox? counterEnemyRaceCheckBox;
+        private RoundedCheckBox? preferAggressiveMonsterCheckBox;
         private RoundedCheckBox? openingAttackKeyCheckBox;
         private RoundedTextBox? revivePathNameTextBox;
         private RoundedTextBox? combatPathNameTextBox;
@@ -213,6 +214,7 @@ namespace Roadhog
             SetChecked(enableLootCheckBox, settings.Combat.EnableLoot);
             SetChecked(contestMonsterCheckBox, settings.Combat.ContestMonster);
             SetChecked(counterEnemyRaceCheckBox, settings.Combat.CounterEnemyRace);
+            SetChecked(preferAggressiveMonsterCheckBox, settings.Combat.PreferAggressiveMonsters);
 
             SetText(revivePathNameTextBox, settings.Paths.RevivePathName);
             SetText(combatPathNameTextBox, settings.Paths.CombatPathName);
@@ -308,6 +310,7 @@ namespace Roadhog
                     EnableLoot = enableLootCheckBox?.Checked ?? true,
                     ContestMonster = contestMonsterCheckBox?.Checked ?? false,
                     CounterEnemyRace = counterEnemyRaceCheckBox?.Checked ?? false,
+                    PreferAggressiveMonsters = preferAggressiveMonsterCheckBox?.Checked ?? false,
                     HasStationaryCombatPosition = stationaryCombatPosition is not null,
                     StationaryCombatX = stationaryCombatPosition?.X ?? 0.0D,
                     StationaryCombatY = stationaryCombatPosition?.Y ?? 0.0D,
@@ -480,6 +483,7 @@ namespace Roadhog
             enableLootCheckBox = AddCheckBox(page, "启用拾取", 4, 142, 88, true);
             contestMonsterCheckBox = AddCheckBox(page, "抢怪", 96, 142, 64, false);
             counterEnemyRaceCheckBox = AddCheckBox(page, "反击敌对种族", 160, 142, 140, false);
+            preferAggressiveMonsterCheckBox = AddCheckBox(page, "优先攻击主动怪", 302, 142, 142, false);
 
             var combatAdvanced = CreateFoldout(page, "高级打怪设置", 176, 850, false);
             combatAdvanced.Content.Height = 58;

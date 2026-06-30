@@ -2433,7 +2433,10 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
                             actor.CurrentHp,
                             actor.MaxHp,
                             actor.TargetServerObjectId,
-                            localServerObjectId != 0 && actor.TargetServerObjectId == localServerObjectId));
+                            localServerObjectId != 0 && actor.TargetServerObjectId == localServerObjectId,
+                            npcStaticDetail.AggressiveKnown,
+                            npcStaticDetail.AggressiveToPlayer,
+                            npcStaticDetail.AggressiveSource));
                     }
                 }
             }

@@ -10,9 +10,14 @@ public sealed record WorldObjectSnapshot(
     uint CurrentHp = 0,
     uint MaxHp = 0,
     uint TargetServerObjectId = 0,
-    bool IsTargetingLocalPlayer = false)
+    bool IsTargetingLocalPlayer = false,
+    bool AggressiveKnown = false,
+    bool IsAggressiveToPlayer = false,
+    string? AggressiveSource = null)
 {
     public bool HasKnownHealth => CurrentHp > 0 || MaxHp > 0;
 
     public bool IsAlive => !HasKnownHealth || CurrentHp > 0;
+
+    public bool IsPassiveToPlayer => AggressiveKnown && !IsAggressiveToPlayer;
 }

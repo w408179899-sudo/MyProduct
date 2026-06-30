@@ -89,6 +89,7 @@ internal static partial class ToolOutputParsers
                 continue;
             }
 
+            var aggressive = ParseAggressive(line);
             result.Add(new WorldObjectSnapshot(
                 ParseUShort(match.Groups["entity"].Value),
                 ParseUInt(match.Groups["server"].Value),
@@ -100,7 +101,10 @@ internal static partial class ToolOutputParsers
                     ParseFloat(match.Groups["z"].Value)),
                 ParseDouble(match.Groups["dist"].Value),
                 TargetServerObjectId: ParseOptionalUInt(match.Groups["targetServer"]),
-                IsTargetingLocalPlayer: IsYes(match.Groups["targetingMe"])));
+                IsTargetingLocalPlayer: IsYes(match.Groups["targetingMe"]),
+                AggressiveKnown: aggressive.Known,
+                IsAggressiveToPlayer: aggressive.IsAggressiveToPlayer,
+                AggressiveSource: aggressive.Source));
         }
 
         return result;
@@ -176,6 +180,29 @@ internal static partial class ToolOutputParsers
 
         var value = match.Groups["value"].Value;
         return string.Equals(value, "n/a", StringComparison.OrdinalIgnoreCase) ? null : EmptyToNull(value);
+    }
+
+    private static (bool Known, bool IsAggressiveToPlayer, string? Source) ParseAggressive(string line)
+    {
+        var match = Regex.Match(
+            line,
+            @"\bAggressive=(?<value>yes|no|n/a)(?:\((?<source>[^)]*)\))?",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        if (!match.Success)
+        {
+            return (false, false, null);
+        }
+
+        var value = match.Groups["value"].Value;
+        if (string.Equals(value, "n/a", StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, false, null);
+        }
+
+        var source = match.Groups["source"].Success
+            ? EmptyToNull(match.Groups["source"].Value)
+            : null;
+        return (true, string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase), source);
     }
 
     private static int? TryParseNullableInt(string value)

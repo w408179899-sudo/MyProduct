@@ -28,6 +28,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
+    ("tool bridge world parser reads aggressive monster flags", TestToolBridgeWorldParserReadsAggressiveFlagsAsync),
     ("stationary combat startup recovery follows nearest revive path point", TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync),
     ("stationary combat startup recovery skips revive path when home is nearest", TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync),
     ("stationary combat death recovery clicks revive and recovers before path", TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync),
@@ -424,6 +425,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
                 Combat = new CombatScriptSettings
                 {
                     EnableLoot = true,
+                    PreferAggressiveMonsters = true,
                     HasStationaryCombatPosition = true,
                     StationaryCombatX = 1307.758D,
                     StationaryCombatY = 2844.230D,
@@ -445,11 +447,13 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(2844.230D, combat.StationaryCombatY, "stationary y");
         AssertEqual(259.832D, combat.StationaryCombatZ, "stationary z");
         AssertEqual(42.5D, combat.StationaryCombatRadius, "stationary radius");
+        AssertFalse(!combat.PreferAggressiveMonsters, "prefer aggressive monsters should persist");
 
         var clone = account.ScriptSettings.Combat.Clone();
         AssertFalse(!clone.HasStationaryCombatPosition, "stationary combat position flag should clone");
         AssertEqual(1307.758D, clone.StationaryCombatX, "cloned stationary x");
         AssertEqual(42.5D, clone.StationaryCombatRadius, "cloned stationary radius");
+        AssertFalse(!clone.PreferAggressiveMonsters, "prefer aggressive monsters should clone");
     }
     finally
     {
@@ -473,6 +477,42 @@ static Task TestStationaryTargetSelectorAsync()
     var selected = StationaryCombatTargetSelector.SelectNearest(objects, player, home, 30);
 
     AssertEqual((ushort)14, selected?.EntityId ?? 0, "nearest selectable monster");
+
+    var activeSelected = StationaryCombatTargetSelector.SelectNearest(
+        new[]
+        {
+            new WorldObjectSnapshot(20, 20, "passive-near", "monster", new Vector3Snapshot(3, 0, 0), 3, 100, 100, AggressiveKnown: true, IsAggressiveToPlayer: false),
+            new WorldObjectSnapshot(21, 21, "active-far", "monster", new Vector3Snapshot(8, 0, 0), 8, 100, 100, AggressiveKnown: true, IsAggressiveToPlayer: true)
+        },
+        player,
+        home,
+        30,
+        preferAggressiveMonsters: true);
+
+    AssertEqual((ushort)21, activeSelected?.EntityId ?? 0, "aggressive monster should outrank nearer passive monster");
+    return Task.CompletedTask;
+}
+
+static Task TestToolBridgeWorldParserReadsAggressiveFlagsAsync()
+{
+    var parserType = typeof(JsonAccountConfigStore).Assembly.GetType("Roadhog.Infrastructure.ToolBridge.ToolOutputParsers");
+    AssertFalse(parserType is null, "tool output parser type should exist");
+    var parseMethod = parserType!.GetMethod(
+        "ParseWorldObjects",
+        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+    AssertFalse(parseMethod is null, "world object parser method should exist");
+
+    var lines = new[]
+    {
+        "#01 Dist=5.00 EntityId=100 ServerId=200 TargetServerId=0 TargetingMe=no CEntityType=3 Entity=0x1 Actor=0x2 ObjType=2 TemplateId=300 StaticName=\"Passive\" NpcType=monster UiType=attack Cursor=attack Tribe=PassiveMonster IsMonster=yes Level=10 HP=100/100 HpPercent=100 Alive=yes Locked=no Aggressive=no(tribe_relation) Name=\"Passive\" Pos=X=1.00 Y=2.00 Z=3.00 Offset=0x10"
+    };
+    var objects = (IReadOnlyList<WorldObjectSnapshot>)parseMethod!.Invoke(null, new object[] { lines })!;
+
+    AssertEqual(1, objects.Count, "one parsed monster");
+    AssertFalse(!objects[0].AggressiveKnown, "aggressive flag should be known");
+    AssertFalse(objects[0].IsAggressiveToPlayer, "passive monster should not be aggressive to player");
+    AssertFalse(!objects[0].IsPassiveToPlayer, "passive monster property should be true");
+    AssertEqual("tribe_relation", objects[0].AggressiveSource ?? string.Empty, "aggressive source");
     return Task.CompletedTask;
 }
 
