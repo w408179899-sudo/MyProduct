@@ -23,8 +23,8 @@ public sealed class StationaryCombatController
     private const double StartupRecoveryReachDistance = 3.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
     private const double DefaultPitchPixelsPerDegree = 13.0D;
-    private const int DefaultReviveClickX = 550;
-    private const int DefaultReviveClickY = 400;
+    private const int DefaultReviveClickX = 470;
+    private const int DefaultReviveClickY = 300;
     private const int DefaultPostReviveScrollCount = 10;
     private const int DefaultPostReviveScrollDelta = -1;
     private const int AbsoluteMouseResetDelta = -32768;

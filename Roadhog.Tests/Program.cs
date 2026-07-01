@@ -958,7 +958,7 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
 
         AssertEqual(StationaryCombatTopLevelState.DeathRecovery, stationaryState.TopLevelState, "dead player should enter death recovery");
         AssertSequence(
-            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:550,400", "down:Left", "up:Left" },
+            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:470,300", "down:Left", "up:Left" },
             keyboard.MouseCommands.ToArray(),
             "death recovery should absolute-click revive button");
         AssertFalse(keyboard.Keys.Contains("Tab"), "death recovery must not enter target acquisition");
@@ -970,7 +970,7 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
             {
                 "move:-32768,-32768",
                 "move:-32768,-32768",
-                "move:550,400",
+                "move:470,300",
                 "down:Left",
                 "up:Left"
             },
@@ -1174,7 +1174,7 @@ static async Task TestWorkerLifeGuardRevivesBeforeSemiAutoAsync()
         await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
 
         AssertSequence(
-            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:550,400", "down:Left", "up:Left" },
+            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:470,300", "down:Left", "up:Left" },
             keyboard.MouseCommands.Take(5).ToArray(),
             "semi-auto death guard should absolute-click revive button");
         AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "semi-auto combat keys must not run while dead");
