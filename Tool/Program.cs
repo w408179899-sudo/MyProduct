@@ -112,7 +112,7 @@ namespace Tool
 
                     Console.WriteLine("Module base: " + moduleName + " = 0x" + gameBase.ToString("X"));
 
-                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "loot";
+                    var aionTestMode = Environment.GetEnvironmentVariable("AION_TEST_MODE") ?? "skills";
 
                     if (IsKmBoxClickTestMode(aionTestMode))
                     {
@@ -123,6 +123,15 @@ namespace Tool
                     if (string.Equals(aionTestMode, "player", StringComparison.OrdinalIgnoreCase))
                     {
                         RunLocalPlayerInfoTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "player_bench", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "player_benchmark", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "position_bench", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "position_benchmark", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunLocalPlayerInfoBenchmarkTest(process, gameBase);
                         return;
                     }
 
@@ -1758,6 +1767,111 @@ namespace Tool
             }
 
             Console.ReadKey(true);
+        }
+
+        private static void RunLocalPlayerInfoBenchmarkTest(VmmProcess process, ulong gameBase)
+        {
+            int warmupCount = ClampInt(ReadIntFromEnv("AION_PLAYER_BENCH_WARMUP", 10), 0, 1000);
+            int iterations = ClampInt(ReadIntFromEnv("AION_PLAYER_BENCH_COUNT", 200), 1, 100000);
+            Console.WriteLine("AION local player read benchmark.");
+            Console.WriteLine("Warmup=" + warmupCount + " Count=" + iterations +
+                              " EnvWarmup=AION_PLAYER_BENCH_WARMUP EnvCount=AION_PLAYER_BENCH_COUNT");
+
+            LocalPlayerInfo coldInfo;
+            string coldError;
+            var coldWatch = Stopwatch.StartNew();
+            bool coldOk = TryReadLocalPlayerInfo(process, gameBase, out coldInfo, out coldError);
+            coldWatch.Stop();
+            if (!coldOk || !coldInfo.HasPosition)
+            {
+                Console.WriteLine("ColdReadFailed ElapsedMs=" + TicksToMilliseconds(coldWatch.ElapsedTicks).ToString("F3") +
+                                  " Reason=" + (coldError ?? "local position unavailable"));
+                return;
+            }
+
+            for (int i = 0; i < warmupCount; i++)
+            {
+                LocalPlayerInfo warmupInfo;
+                string warmupError;
+                if (!TryReadLocalPlayerInfo(process, gameBase, out warmupInfo, out warmupError) || !warmupInfo.HasPosition)
+                {
+                    Console.WriteLine("WarmupReadFailed Index=" + i +
+                                      " Reason=" + (warmupError ?? "local position unavailable"));
+                    return;
+                }
+            }
+
+            var elapsedTicks = new long[iterations];
+            LocalPlayerInfo lastInfo = coldInfo;
+            for (int i = 0; i < iterations; i++)
+            {
+                LocalPlayerInfo info;
+                string error;
+                long start = Stopwatch.GetTimestamp();
+                bool ok = TryReadLocalPlayerInfo(process, gameBase, out info, out error);
+                long elapsed = Stopwatch.GetTimestamp() - start;
+                if (!ok || !info.HasPosition)
+                {
+                    Console.WriteLine("ReadFailed Index=" + i +
+                                      " ElapsedMs=" + TicksToMilliseconds(elapsed).ToString("F3") +
+                                      " Reason=" + (error ?? "local position unavailable"));
+                    return;
+                }
+
+                elapsedTicks[i] = elapsed;
+                lastInfo = info;
+            }
+
+            Array.Sort(elapsedTicks);
+            double minMs = TicksToMilliseconds(elapsedTicks[0]);
+            double maxMs = TicksToMilliseconds(elapsedTicks[elapsedTicks.Length - 1]);
+            double avgMs = TicksToMilliseconds(SumTicks(elapsedTicks) / elapsedTicks.Length);
+            double p50Ms = TicksToMilliseconds(GetPercentileTicks(elapsedTicks, 0.50));
+            double p95Ms = TicksToMilliseconds(GetPercentileTicks(elapsedTicks, 0.95));
+            double p99Ms = TicksToMilliseconds(GetPercentileTicks(elapsedTicks, 0.99));
+
+            Console.WriteLine("ColdReadMs=" + TicksToMilliseconds(coldWatch.ElapsedTicks).ToString("F3"));
+            Console.WriteLine("ReadBenchmarkResult" +
+                              " Count=" + iterations +
+                              " FastestMs=" + minMs.ToString("F3") +
+                              " AvgMs=" + avgMs.ToString("F3") +
+                              " P50Ms=" + p50Ms.ToString("F3") +
+                              " P95Ms=" + p95Ms.ToString("F3") +
+                              " P99Ms=" + p99Ms.ToString("F3") +
+                              " SlowestMs=" + maxMs.ToString("F3"));
+            Console.WriteLine("LastPosition=" + FormatPosition(lastInfo) +
+                              " Camera(P/R/Y)=" +
+                              lastInfo.CameraPitch.ToString("F2") + "/" +
+                              lastInfo.CameraRoll.ToString("F2") + "/" +
+                              lastInfo.CameraYaw.ToString("F2"));
+        }
+
+        private static double TicksToMilliseconds(long ticks)
+        {
+            return ticks * 1000.0 / Stopwatch.Frequency;
+        }
+
+        private static long SumTicks(long[] values)
+        {
+            long sum = 0;
+            for (int i = 0; i < values.Length; i++)
+            {
+                sum += values[i];
+            }
+
+            return sum;
+        }
+
+        private static long GetPercentileTicks(long[] sortedTicks, double percentile)
+        {
+            if (sortedTicks.Length == 0)
+            {
+                return 0;
+            }
+
+            int index = (int)Math.Ceiling(sortedTicks.Length * percentile) - 1;
+            index = Math.Max(0, Math.Min(sortedTicks.Length - 1, index));
+            return sortedTicks[index];
         }
 
         private static void RunPlayerOffsetProbeTest(VmmProcess process, ulong gameBase)

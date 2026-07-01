@@ -188,6 +188,48 @@ namespace Tool
             }
         }
 
+        public void SendControlC()
+        {
+            SendBytes(new byte[] { 0x03 });
+        }
+
+        public string ReadAvailable()
+        {
+            ThrowIfDisposed();
+            _ioSemaphore.Wait();
+            try
+            {
+                ThrowIfDisposed();
+                var port = GetOpenPortOrThrow();
+                return port.ReadExisting();
+            }
+            finally
+            {
+                _ioSemaphore.Release();
+            }
+        }
+
+        private void SendBytes(byte[] bytes)
+        {
+            if (bytes == null)
+            {
+                throw new ArgumentNullException(nameof(bytes));
+            }
+
+            ThrowIfDisposed();
+            _ioSemaphore.Wait();
+            try
+            {
+                ThrowIfDisposed();
+                var port = GetOpenPortOrThrow();
+                port.Write(bytes, 0, bytes.Length);
+            }
+            finally
+            {
+                _ioSemaphore.Release();
+            }
+        }
+
         public void Move(int dx, int dy)
         {
             MoveAsync(dx, dy, CancellationToken.None).GetAwaiter().GetResult();

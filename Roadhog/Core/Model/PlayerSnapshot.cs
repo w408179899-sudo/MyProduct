@@ -13,7 +13,9 @@ public sealed record PlayerSnapshot(
     DateTimeOffset CapturedAt,
     double? CameraYawDegrees = null,
     double? CameraPitchDegrees = null,
-    double? ActorYawDegrees = null)
+    double? ActorYawDegrees = null,
+    ushort Level = 0,
+    string CharacterClass = "")
 {
     public bool HasKnownHealth => MaxHp > 0;
 

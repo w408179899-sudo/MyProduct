@@ -161,11 +161,13 @@ public sealed class StationaryCombatController
 
         var startupRecoveryDelay = await TickStartupRecoveryAsync(
                 context,
+                plan,
                 semiAutoState,
                 state,
                 player,
                 playerPosition,
                 home,
+                radius,
                 playerDistanceFromHome)
             .ConfigureAwait(false);
         if (startupRecoveryDelay is not null)
@@ -468,6 +470,7 @@ public sealed class StationaryCombatController
                 StationaryCombatDeathRecoveryStep.FollowRevivePath => followRevivePath
                     ? await TickDeathFollowRevivePathNodeAsync(
                             context,
+                            plan,
                             semiAutoState,
                             state,
                             player,
@@ -793,6 +796,7 @@ public sealed class StationaryCombatController
 
     private async Task<StationaryCombatBehaviorStatus> TickDeathFollowRevivePathNodeAsync(
         AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         PlayerSnapshot player,
@@ -812,6 +816,30 @@ public sealed class StationaryCombatController
                 ["account"] = context.Config.AccountName,
                 ["reason"] = "player_no_position"
             }, TimeSpan.FromSeconds(1));
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        if (state.LootAfterKill.Active)
+        {
+            await TickLootAfterKillAsync(context, semiAutoState, state).ConfigureAwait(false);
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        var radius = Math.Max(1.0D, context.Config.ScriptSettings?.Combat?.StationaryCombatRadius ?? 1.0D);
+        var defenseDelay = await TryHandleRecoveryDefenseTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                player.Position.Value,
+                home,
+                radius,
+                playerDistanceFromHome,
+                "death_recovery")
+            .ConfigureAwait(false);
+        if (defenseDelay is not null)
+        {
             return StationaryCombatBehaviorStatus.Running;
         }
 
@@ -1000,21 +1028,27 @@ public sealed class StationaryCombatController
 
     private async Task<TimeSpan?> TickStartupRecoveryAsync(
         AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         PlayerSnapshot player,
         Vector3Snapshot playerPosition,
         Vector3Snapshot home,
+        double radius,
         double playerDistanceFromHome)
     {
         if (state.StartupRecoveryActive)
         {
             return await ContinueStartupRecoveryAsync(
                     context,
+                    plan,
                     semiAutoState,
                     state,
                     player,
-                    playerPosition)
+                    playerPosition,
+                    home,
+                    radius,
+                    playerDistanceFromHome)
                 .ConfigureAwait(false);
         }
 
@@ -1078,20 +1112,45 @@ public sealed class StationaryCombatController
 
         return await ContinueStartupRecoveryAsync(
                 context,
+                plan,
                 semiAutoState,
                 state,
                 player,
-                playerPosition)
+                playerPosition,
+                home,
+                radius,
+                playerDistanceFromHome)
             .ConfigureAwait(false);
     }
 
     private async Task<TimeSpan?> ContinueStartupRecoveryAsync(
         AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
         PlayerSnapshot player,
-        Vector3Snapshot playerPosition)
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double radius,
+        double playerDistanceFromHome)
     {
+        var defenseDelay = await TryHandleRecoveryDefenseTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                playerPosition,
+                home,
+                radius,
+                playerDistanceFromHome,
+                "startup_recovery")
+            .ConfigureAwait(false);
+        if (defenseDelay is not null)
+        {
+            return defenseDelay.Value;
+        }
+
         while (state.StartupRecoveryActive &&
                state.StartupRecoveryPointIndex >= 0 &&
                state.StartupRecoveryPointIndex < state.StartupRecoveryPoints.Count)
@@ -1140,6 +1199,143 @@ public sealed class StationaryCombatController
         }
 
         return null;
+    }
+
+    private async Task<TimeSpan?> TryHandleRecoveryDefenseTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double radius,
+        double playerDistanceFromHome,
+        string recoveryPhase)
+    {
+        if (state.Fighting)
+        {
+            return await TickFightAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player,
+                    home,
+                    radius,
+                    playerDistanceFromHome)
+                .ConfigureAwait(false);
+        }
+
+        var target = await SelectMaintenanceDefenseTargetAsync(
+                context,
+                state,
+                playerPosition,
+                forceRefresh: true)
+            .ConfigureAwait(false);
+        if (target?.Position is null)
+        {
+            return null;
+        }
+
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
+
+        var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
+        var targetPosition = target.Position.Value;
+        var targetDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(targetPosition, home);
+        var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
+        if (candidateChanged)
+        {
+            state.FacedCandidateEntityId = 0;
+            state.ClearPendingTabVerification();
+            context.Logger.Info("stationary_combat.recovery_defense.target_selected", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["phase"] = recoveryPhase,
+                ["targetEntityId"] = target.EntityId,
+                ["targetName"] = target.Name,
+                ["playerDistanceToTarget"] = Math.Round(playerDistanceToTarget, 2),
+                ["targetDistanceFromHome"] = Math.Round(targetDistanceFromHome, 2),
+                ["radius"] = Math.Round(radius, 2),
+                ["targetingMe"] = target.IsTargetingLocalPlayer,
+                ["serverObjectId"] = target.ServerObjectId,
+                ["targetServerObjectId"] = target.ServerObjectId,
+                ["targetingServerObjectId"] = target.TargetServerObjectId,
+                ["aggressiveKnown"] = target.AggressiveKnown,
+                ["aggressiveToPlayer"] = target.IsAggressiveToPlayer,
+                ["passiveToPlayer"] = target.IsPassiveToPlayer,
+                ["aggressiveSource"] = target.AggressiveSource
+            });
+        }
+
+        if (IsTargetTimedOut(state, DateTimeOffset.Now))
+        {
+            return await IgnoreCurrentTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    target.EntityId,
+                    target.ServerObjectId,
+                    target.Name,
+                    recoveryPhase + "_not_locked")
+                .ConfigureAwait(false);
+        }
+
+        var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        if (state.IsPendingTabCandidate(target))
+        {
+            return await TickPendingTabVerificationAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    target,
+                    lockedResult,
+                    home,
+                    radius)
+                .ConfigureAwait(false);
+        }
+
+        var acquiredDelay = await TryAcquireLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedResult,
+                home,
+                radius,
+                allowLockedFallback: false,
+                phase: recoveryPhase)
+            .ConfigureAwait(false);
+        if (acquiredDelay is not null)
+        {
+            return acquiredDelay.Value;
+        }
+
+        if (state.FacedCandidateEntityId != target.EntityId)
+        {
+            var isFacingTarget = await FaceTargetStepAsync(context, state, player, targetPosition, target).ConfigureAwait(false);
+            if (!isFacingTarget)
+            {
+                semiAutoState.ResetAttackKeyPressThrottle();
+                return MoveTickDelay;
+            }
+
+            state.FacedCandidateEntityId = target.EntityId;
+        }
+
+        if (playerDistanceToTarget > AcquireDistance)
+        {
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await PathFollowStepAsync(context, state, player, targetPosition, AcquireDistance).ConfigureAwait(false);
+            return MoveTickDelay;
+        }
+
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        return await TickAcquireAsync(context, plan, semiAutoState, state, target, home, radius).ConfigureAwait(false);
     }
 
     private async Task<TimeSpan> TickFightAsync(
@@ -3299,6 +3495,7 @@ public sealed class StationaryCombatController
                     ["moveCommands"] = EstimateCombinedChunkDragMoveCommandCount(dx, dy, options),
                     ["maxChunkPx"] = options.DragStepPixels,
                     ["primeTail"] = options.DragPrimePixels + "/" + options.DragTailPixels,
+                    ["chunkMode"] = FormatCameraDragChunkMode(options.DragChunkMode),
                     ["moveLogic"] = useFaceTargetMouseMove ? "face_target" : "fixed",
                     ["minApplied"] = minXApplied || minYApplied
                 });
@@ -4155,7 +4352,9 @@ public sealed class StationaryCombatController
 
         var tail = Math.Min(Math.Max(0, options.DragTailPixels), remaining);
         var chunkRemaining = remaining - tail;
-        var middleChunks = BuildGradientChunks(chunkRemaining, Math.Max(1, options.DragStepPixels));
+        var middleChunks = options.DragChunkMode == CameraDragChunkMode.Gradient
+            ? BuildGradientChunks(chunkRemaining, Math.Max(1, options.DragStepPixels))
+            : BuildTenStepMiddleChunks(chunkRemaining);
         for (var i = 0; i < middleChunks.Length; i++)
         {
             chunks.Add(sign * middleChunks[i]);
@@ -4167,6 +4366,25 @@ public sealed class StationaryCombatController
         }
 
         return chunks.ToArray();
+    }
+
+    private static int[] BuildTenStepMiddleChunks(int totalPixels)
+    {
+        if (totalPixels <= 0)
+        {
+            return Array.Empty<int>();
+        }
+
+        var chunkCount = Math.Min(10, totalPixels);
+        var chunks = new int[chunkCount];
+        var basePixels = totalPixels / chunkCount;
+        var remainder = totalPixels % chunkCount;
+        for (var i = 0; i < chunks.Length; i++)
+        {
+            chunks[i] = basePixels + (i < remainder ? 1 : 0);
+        }
+
+        return chunks;
     }
 
     private static int[] BuildGradientChunks(int totalPixels, int maxStep)
@@ -4412,9 +4630,10 @@ public sealed class StationaryCombatController
             MaxTargetPitchDegrees = maxTargetPitch,
             PixelsPerDegreeAbs = pixelsPerDegreeAbs,
             PitchPixelsPerDegreeAbs = pitchPixelsPerDegreeAbs,
-            DragPrimePixels = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_DRAG_PRIME_PIXELS", 5), 0, 50),
-            DragTailPixels = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_DRAG_TAIL_PIXELS", 5), 0, 50),
+            DragPrimePixels = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_DRAG_PRIME_PIXELS", 3), 0, 50),
+            DragTailPixels = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_DRAG_TAIL_PIXELS", 0), 0, 50),
             DragStepPixels = ClampInt(Math.Abs(ReadRawIntFromEnv("AION_FACE_TARGET_DRAG_STEP_PX", 20)), 1, 500),
+            DragChunkMode = ReadCameraDragChunkMode(),
             DragStepDelayMs = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_DRAG_STEP_DELAY_MS", 0), 0, 50),
             TwoPassMaxPasses = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_TWO_PASS_MAX_PASSES", 2), 1, 4),
             AngleAdjustPollWaitMs = ClampInt(ReadRawIntFromEnv("AION_PATH_FOLLOW_ANGLE_ADJUST_POLL_WAIT_MS", 20), 0, 200),
@@ -4437,6 +4656,23 @@ public sealed class StationaryCombatController
 
         var legacyEnvValue = Math.Abs(ReadDoubleFromEnv(legacyEnvName, fallback));
         return legacyEnvValue >= 0.0001D ? legacyEnvValue : fallback;
+    }
+
+    private static CameraDragChunkMode ReadCameraDragChunkMode()
+    {
+        var value = (Environment.GetEnvironmentVariable("AION_FACE_TARGET_DRAG_CHUNK_MODE") ?? "ten_step_middle")
+            .Trim()
+            .ToLowerInvariant();
+        return value switch
+        {
+            "gradient" or "legacy" => CameraDragChunkMode.Gradient,
+            _ => CameraDragChunkMode.TenStepMiddle
+        };
+    }
+
+    private static string FormatCameraDragChunkMode(CameraDragChunkMode mode)
+    {
+        return mode == CameraDragChunkMode.Gradient ? "gradient" : "ten_step_middle";
     }
 
     private static int ReadTabVerifyDelayMs()
@@ -4761,6 +4997,7 @@ public sealed class StationaryCombatController
         public int DragPrimePixels { get; init; }
         public int DragTailPixels { get; init; }
         public int DragStepPixels { get; init; }
+        public CameraDragChunkMode DragChunkMode { get; init; } = CameraDragChunkMode.TenStepMiddle;
         public int DragStepDelayMs { get; init; }
         public int TwoPassMaxPasses { get; init; }
         public int AngleAdjustPollWaitMs { get; init; }
@@ -4770,6 +5007,12 @@ public sealed class StationaryCombatController
         public int AdaptiveStableTimeoutMs { get; init; }
         public double AdaptiveMinYawDeltaDegrees { get; init; }
         public bool PitchInvertMouse { get; init; }
+    }
+
+    private enum CameraDragChunkMode
+    {
+        TenStepMiddle,
+        Gradient
     }
 
     private sealed record CameraTurnSnapshot(

@@ -156,6 +156,48 @@ public sealed class KmBoxNetDevice : IKmBoxDevice, IDisposable
             ct);
     }
 
+    public Task MoveMouseToAsync(int x, int y, CancellationToken ct = default)
+    {
+        return MoveMouseToAsync(x, y, new KmBoxAbsoluteMoveOptions(), ct);
+    }
+
+    public async Task MoveMouseToAsync(
+        int x,
+        int y,
+        KmBoxAbsoluteMoveOptions options,
+        CancellationToken ct = default)
+    {
+        options = ValidateAbsoluteMoveOptions(x, y, options);
+
+        // KMBox Net exposes relative movement only. Clamp against the top-left
+        // screen edge first, then move from that known origin to the target.
+        for (var i = 0; i < options.ResetCount; i++)
+        {
+            await MoveMouseAsync(options.ResetDeltaX, options.ResetDeltaY, ct).ConfigureAwait(false);
+            await DelayAbsoluteMoveStepAsync(options.StepDelayMs, ct).ConfigureAwait(false);
+        }
+
+        if (options.OriginX != 0 || options.OriginY != 0)
+        {
+            await MoveMouseAsync(options.OriginX, options.OriginY, ct).ConfigureAwait(false);
+            await DelayAbsoluteMoveStepAsync(options.StepDelayMs, ct).ConfigureAwait(false);
+        }
+
+        var deltaX = x - options.OriginX;
+        var deltaY = y - options.OriginY;
+        ValidateMouseDelta(deltaX, nameof(x));
+        ValidateMouseDelta(deltaY, nameof(y));
+
+        if (options.TargetMoveDurationMs > 0)
+        {
+            await MoveMouseSmoothAsync(deltaX, deltaY, options.TargetMoveDurationMs, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await MoveMouseAsync(deltaX, deltaY, ct).ConfigureAwait(false);
+        }
+    }
+
     public Task MouseDownAsync(MouseButton button, CancellationToken ct = default)
     {
         return ExecuteAsync(
@@ -668,19 +710,50 @@ public sealed class KmBoxNetDevice : IKmBoxDevice, IDisposable
         var client = _udpClient ?? throw new InvalidOperationException("KMBox is not connected.");
         var packet = KmBoxProtocol.BuildPacket(request, payload);
 
+        await DrainPendingResponsesUnlockedAsync(client, ct).ConfigureAwait(false);
+
         await WithTimeoutAsync(
             client.SendAsync(packet, packet.Length),
             _options.SendTimeoutMs,
             "KMBox UDP send timed out.",
             ct).ConfigureAwait(false);
 
-        var result = await WithTimeoutAsync(
-            client.ReceiveAsync(),
-            _options.ReceiveTimeoutMs,
-            "KMBox UDP receive timed out.",
-            ct).ConfigureAwait(false);
+        var receiveDeadline = DateTimeOffset.UtcNow.AddMilliseconds(_options.ReceiveTimeoutMs);
+        while (!ct.IsCancellationRequested)
+        {
+            var remainingMs = (int)Math.Ceiling((receiveDeadline - DateTimeOffset.UtcNow).TotalMilliseconds);
+            if (remainingMs <= 0)
+            {
+                break;
+            }
 
-        return KmBoxProtocol.ParseResponseHeader(result.Buffer);
+            var result = await WithTimeoutAsync(
+                client.ReceiveAsync(),
+                remainingMs,
+                "KMBox UDP receive timed out.",
+                ct).ConfigureAwait(false);
+
+            var response = KmBoxProtocol.ParseResponseHeader(result.Buffer);
+            if (KmBoxProtocol.IsMatchingResponse(request, response))
+            {
+                return response;
+            }
+        }
+
+        ct.ThrowIfCancellationRequested();
+        throw new TimeoutException("KMBox UDP receive timed out.");
+    }
+
+    private static async Task DrainPendingResponsesUnlockedAsync(UdpClient client, CancellationToken ct)
+    {
+        const int maxDrainCount = 2048;
+        var drained = 0;
+        while (client.Client.Available > 0 && drained < maxDrainCount)
+        {
+            ct.ThrowIfCancellationRequested();
+            await client.ReceiveAsync().ConfigureAwait(false);
+            drained++;
+        }
     }
 
     private static async Task<T> WithTimeoutAsync<T>(
@@ -780,6 +853,74 @@ public sealed class KmBoxNetDevice : IKmBoxDevice, IDisposable
     {
         _pressedKeyboardModifiers = 0;
         _pressedKeyboardButtons.Clear();
+    }
+
+    private static KmBoxAbsoluteMoveOptions ValidateAbsoluteMoveOptions(
+        int x,
+        int y,
+        KmBoxAbsoluteMoveOptions options)
+    {
+        if (options is null)
+        {
+            throw new ArgumentNullException(nameof(options));
+        }
+
+        if (x < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(x), x, "KMBox absolute target X must be greater than or equal to 0.");
+        }
+
+        if (y < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(y), y, "KMBox absolute target Y must be greater than or equal to 0.");
+        }
+
+        if (options.OriginX < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options.OriginX), options.OriginX, "KMBox absolute origin X must be greater than or equal to 0.");
+        }
+
+        if (options.OriginY < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options.OriginY), options.OriginY, "KMBox absolute origin Y must be greater than or equal to 0.");
+        }
+
+        if (options.ResetCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options.ResetCount), options.ResetCount, "KMBox absolute reset count must be greater than 0.");
+        }
+
+        if (options.StepDelayMs < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options.StepDelayMs), options.StepDelayMs, "KMBox absolute step delay must be greater than or equal to 0.");
+        }
+
+        if (options.TargetMoveDurationMs < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options.TargetMoveDurationMs), options.TargetMoveDurationMs, "KMBox absolute target move duration must be greater than or equal to 0.");
+        }
+
+        if (options.ResetDeltaX >= 0 || options.ResetDeltaY >= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "KMBox absolute reset deltas must move toward the top-left edge.");
+        }
+
+        ValidateMouseDelta(options.ResetDeltaX, nameof(options.ResetDeltaX));
+        ValidateMouseDelta(options.ResetDeltaY, nameof(options.ResetDeltaY));
+        ValidateMouseDelta(options.OriginX, nameof(options.OriginX));
+        ValidateMouseDelta(options.OriginY, nameof(options.OriginY));
+        ValidateMouseDelta(x - options.OriginX, nameof(x));
+        ValidateMouseDelta(y - options.OriginY, nameof(y));
+
+        return options;
+    }
+
+    private static async Task DelayAbsoluteMoveStepAsync(int delayMs, CancellationToken ct)
+    {
+        if (delayMs > 0)
+        {
+            await Task.Delay(delayMs, ct).ConfigureAwait(false);
+        }
     }
 
     private static int ToMouseFlag(MouseButton button)

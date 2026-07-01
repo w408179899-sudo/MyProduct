@@ -12,6 +12,10 @@ public interface IKmBoxDevice
 
     Task MoveMouseSmoothAsync(int x, int y, int durationMs, CancellationToken ct = default);
 
+    Task MoveMouseToAsync(int x, int y, CancellationToken ct = default);
+
+    Task MoveMouseToAsync(int x, int y, KmBoxAbsoluteMoveOptions options, CancellationToken ct = default);
+
     Task MouseDownAsync(MouseButton button, CancellationToken ct = default);
 
     Task MouseUpAsync(MouseButton button, CancellationToken ct = default);

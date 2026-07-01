@@ -55,17 +55,20 @@ internal static partial class ToolOutputParsers
                 continue;
             }
 
+            var characterName = ExtractQuotedValue(line, "Name") ?? string.Empty;
             latest = new PlayerSnapshot(
                 ParseUShort(match.Groups["entity"].Value),
                 ParseUShort(match.Groups["target"].Value),
-                string.Empty,
+                characterName,
                 ParseUInt(match.Groups["hp"].Value),
                 ParseUInt(match.Groups["maxHp"].Value),
                 ParseUInt(match.Groups["mp"].Value),
                 ParseUInt(match.Groups["maxMp"].Value),
                 ParseUShort(match.Groups["dp"].Value),
                 TryParsePosition(match),
-                DateTimeOffset.Now);
+                DateTimeOffset.Now,
+                Level: ExtractOptionalUShort(line, "Level"),
+                CharacterClass: ExtractQuotedValue(line, "Class") ?? ExtractTokenValue(line, "Class") ?? string.Empty);
         }
 
         return latest;
@@ -180,6 +183,14 @@ internal static partial class ToolOutputParsers
 
         var value = match.Groups["value"].Value;
         return string.Equals(value, "n/a", StringComparison.OrdinalIgnoreCase) ? null : EmptyToNull(value);
+    }
+
+    private static ushort ExtractOptionalUShort(string line, string fieldName)
+    {
+        var value = ExtractTokenValue(line, fieldName);
+        return ushort.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : (ushort)0;
     }
 
     private static (bool Known, bool IsAggressiveToPlayer, string? Source) ParseAggressive(string line)

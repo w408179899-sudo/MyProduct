@@ -2202,6 +2202,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         TryReadUInt32(process, gameBase + LocalMaxMpRva, out var maxMp);
         TryReadUInt16(process, gameBase + LocalCurrentDpRva, out var currentDp);
         var characterName = string.Empty;
+        ushort characterLevel = 0;
         double? actorYaw = null;
         if (TryResolveActorFromEntity(process, localEntity, 0, out var actor))
         {
@@ -2212,6 +2213,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             }
 
             characterName = actor.Name;
+            characterLevel = actor.Level;
         }
 
         if (TryReadSingle(process, localEntity + EntityWorldAnglesOffset + 8, out var rawActorYaw))
@@ -2240,7 +2242,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             DateTimeOffset.Now,
             cameraYaw,
             cameraPitch,
-            actorYaw);
+            actorYaw,
+            characterLevel);
         return true;
     }
 

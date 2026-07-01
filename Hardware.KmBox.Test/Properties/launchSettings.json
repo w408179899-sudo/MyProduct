@@ -1,0 +1,19 @@
+{
+  "profiles": {
+    "KMBox MoveTo 680 460": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "KMBOX_IP": "192.168.2.188",
+        "KMBOX_PORT": "4967",
+        "KMBOX_MAC": "5BF7E466",
+        "KMBOX_TEST_MODE": "origin_move_single",
+        "KMBOX_ORIGIN_MOVE_TARGET": "680,460",
+        "KMBOX_ORIGIN_MOVE_ORIGIN": "1,1",
+        "KMBOX_ORIGIN_MOVE_RESET_DELTA": "-32768",
+        "KMBOX_ORIGIN_MOVE_RESET_COUNT": "3",
+        "KMBOX_ORIGIN_MOVE_SETTLE_MS": "0",
+        "KMBOX_ORIGIN_MOVE_SMOOTH_MS": "0"
+      }
+    }
+  }
+}

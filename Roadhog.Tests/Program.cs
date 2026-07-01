@@ -23,7 +23,6 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
     ("runtime kill efficiency tracks kill intervals", TestRuntimeKillEfficiencyTracksKillIntervalsAsync),
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
-    ("input backend parser accepts compatible backend names", TestInputBackendParserAsync),
     ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
@@ -34,7 +33,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("tool bridge world parser reads aggressive monster flags", TestToolBridgeWorldParserReadsAggressiveFlagsAsync),
     ("stationary combat startup recovery follows nearest revive path point", TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync),
     ("stationary combat startup recovery skips revive path when home is nearest", TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync),
+    ("stationary combat startup recovery defends when targeted", TestStationaryCombatStartupRecoveryDefendsWhenTargetedAsync),
     ("stationary combat death recovery clicks revive and recovers before path", TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync),
+    ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
     ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
@@ -262,7 +263,9 @@ static async Task TestRuntimePlayerReadReturnsCharacterNameAsync()
             50,
             0,
             new Vector3Snapshot(1, 2, 3),
-            DateTimeOffset.Now)
+            DateTimeOffset.Now,
+            Level: 25,
+            CharacterClass: "Cleric")
     };
     var runtime = new RoadhogRuntime(gameApi, logger, new AccountRuntimeManager(logger), null!);
 
@@ -270,6 +273,8 @@ static async Task TestRuntimePlayerReadReturnsCharacterNameAsync()
 
     AssertFalse(!result.Success, "runtime player read should succeed");
     AssertEqual("测试角色", result.Value?.CharacterName ?? string.Empty, "character name");
+    AssertEqual((ushort)25, result.Value?.Level ?? 0, "character level");
+    AssertEqual("Cleric", result.Value?.CharacterClass ?? string.Empty, "character class");
 }
 
 static Task TestRuntimeKillEfficiencyTracksKillIntervalsAsync()
@@ -337,35 +342,6 @@ static Task TestFileLoggerRotatesWhenMaxSizeIsReachedAsync()
     {
         DeleteDirectoryIfExists(directory);
     }
-
-    return Task.CompletedTask;
-}
-
-static Task TestInputBackendParserAsync()
-{
-    AssertFalse(
-        !RoadhogInputBackendParser.TryParse("hardware_box", out var hardwareBox),
-        "hardware_box backend should parse");
-    AssertEqual(RoadhogInputBackend.HardwareBox, hardwareBox, "hardware_box backend");
-
-    AssertFalse(
-        !RoadhogInputBackendParser.TryParse("kmbox net", out var kmBoxNet),
-        "kmbox net backend should parse");
-    AssertEqual(RoadhogInputBackend.KmBoxNet, kmBoxNet, "kmbox net backend");
-
-    AssertFalse(
-        !RoadhogInputBackendParser.TryParse("udp", out var udp),
-        "udp backend alias should parse");
-    AssertEqual(RoadhogInputBackend.KmBoxNet, udp, "udp backend alias");
-
-    AssertFalse(
-        RoadhogInputBackendParser.TryParse("unknown_backend", out _),
-        "unknown backend should not parse");
-
-    AssertEqual(
-        RoadhogInputBackend.KmBoxNet,
-        RoadhogInputBackendParser.ParseOrDefault("unknown_backend", RoadhogInputBackend.KmBoxNet),
-        "unknown backend should use fallback");
 
     return Task.CompletedTask;
 }
@@ -766,6 +742,81 @@ static async Task TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync()
         "home-nearest recovery decision should be logged");
 }
 
+static async Task TestStationaryCombatStartupRecoveryDefendsWhenTargetedAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Paths.RevivePathName = "revive-a";
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 20,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 10
+    };
+
+    var pathStore = new InMemorySharedPathStore(
+        CreatePath("revive-a",
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(10, 0, 0),
+            new Vector3Snapshot(20, 0, 0)));
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(1, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 200,
+        TargetOwnServerObjectId = 2000,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(3, 0, 0),
+        TargetServerObjectId = 100,
+        TargetIsTargetingLocalPlayer = true,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                200,
+                2000,
+                "attacker",
+                "monster",
+                new Vector3Snapshot(3, 0, 0),
+                2,
+                1000,
+                1000,
+                TargetServerObjectId: 100,
+                IsTargetingLocalPlayer: true,
+                AggressiveKnown: true,
+                IsAggressiveToPlayer: true)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+    var state = new StationaryCombatState();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+        .ConfigureAwait(false);
+
+    AssertFalse(!state.StartupRecoveryActive, "startup recovery should remain active while defending");
+    AssertFalse(!state.Fighting, "targeting monster should interrupt startup recovery into combat");
+    AssertEqual((ushort)200, state.CandidateEntityId, "targeting monster should become startup recovery defense candidate");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "startup recovery should not continue path movement before defense");
+    AssertFalse(!keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "startup recovery defense should release combat skills");
+    AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.recovery_defense.target_selected" &&
+            string.Equals(Convert.ToString(entry.Fields["phase"]), "startup_recovery", StringComparison.Ordinal)),
+        "startup recovery defense target should be logged");
+}
+
 static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync()
 {
     var previousClickDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
@@ -864,6 +915,122 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
         AssertEqual(StationaryCombatDeathRecoveryStep.FollowRevivePath, stationaryState.DeathRecovery.Step, "recovered player should start revive path follow");
         AssertFalse(!keyboard.KeyDowns.Contains("W"), "recovered player should move along revive path");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", previousClickDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousStepDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", previousClickHold);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_RETRY_MS", previousRetry);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", previousScrollInterval);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync()
+{
+    var previousClickDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
+    var previousStepDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
+    var previousClickHold = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS");
+    var previousRetry = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_RETRY_MS");
+    var previousScrollInterval = Environment.GetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS");
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", "1");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_RETRY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Maintenance.SitMaintenanceEnabled = true;
+        settings.Maintenance.SitHpRecoverToPercent = 75;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 20,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 10
+        };
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("revive-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(10, 0, 0),
+                new Vector3Snapshot(20, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 0, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var stationaryState = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+        gameApi.Player = gameApi.Player with { CurrentHp = 75 };
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertEqual(StationaryCombatDeathRecoveryStep.FollowRevivePath, stationaryState.DeathRecovery.Step, "revived player should be following revive path");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "death recovery should start path movement before the attacker appears");
+
+        keyboard.Keys.Clear();
+        keyboard.KeyUps.Clear();
+        gameApi.TargetEntityId = 200;
+        gameApi.TargetOwnServerObjectId = 2000;
+        gameApi.TargetCurrentHp = 1000;
+        gameApi.TargetMaxHp = 1000;
+        gameApi.TargetPosition = new Vector3Snapshot(3, 0, 0);
+        gameApi.TargetServerObjectId = 100;
+        gameApi.TargetIsTargetingLocalPlayer = true;
+        gameApi.WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                200,
+                2000,
+                "attacker",
+                "monster",
+                new Vector3Snapshot(3, 0, 0),
+                3,
+                1000,
+                1000,
+                TargetServerObjectId: 100,
+                IsTargetingLocalPlayer: true,
+                AggressiveKnown: true,
+                IsAggressiveToPlayer: true)
+        };
+
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertEqual(StationaryCombatTopLevelState.DeathRecovery, stationaryState.TopLevelState, "defense should stay inside death recovery path state");
+        AssertEqual(StationaryCombatDeathRecoveryStep.FollowRevivePath, stationaryState.DeathRecovery.Step, "defense should not complete revive path");
+        AssertFalse(!stationaryState.Fighting, "targeting monster should interrupt death recovery path into combat");
+        AssertFalse(!keyboard.KeyUps.Contains("W"), "death recovery defense should stop path movement first");
+        AssertFalse(!keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "death recovery defense should release combat skills");
+        AssertFalse(!logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.recovery_defense.target_selected" &&
+                string.Equals(Convert.ToString(entry.Fields["phase"]), "death_recovery", StringComparison.Ordinal)),
+            "death recovery defense target should be logged");
     }
     finally
     {

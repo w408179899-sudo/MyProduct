@@ -4,7 +4,7 @@ namespace Roadhog
     {
         private const int HeaderRowHeight = 30;
         private const int AccountRowHeight = 34;
-        private static readonly TimeSpan PlayerNameRefreshInterval = TimeSpan.FromSeconds(15);
+        private static readonly TimeSpan PlayerInfoRefreshInterval = TimeSpan.FromSeconds(15);
 
         private readonly Color _primaryGreen = Color.FromArgb(22, 163, 74);
         private readonly Color _darkGreen = Color.FromArgb(21, 128, 61);
@@ -13,8 +13,8 @@ namespace Roadhog
         private readonly Infrastructure.Composition.RoadhogServices _services = Infrastructure.Composition.RoadhogServices.Create();
         private readonly List<AccountRowModel> _accounts = new();
         private readonly Dictionary<string, AccountRowControls> _rowControls = new(StringComparer.OrdinalIgnoreCase);
-        private readonly Dictionary<string, DateTimeOffset> _lastPlayerNameRefreshAt = new(StringComparer.OrdinalIgnoreCase);
-        private readonly HashSet<string> _playerNameRefreshInFlight = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, DateTimeOffset> _lastPlayerInfoRefreshAt = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _playerInfoRefreshInFlight = new(StringComparer.OrdinalIgnoreCase);
         private readonly System.Windows.Forms.Timer _uiRefreshTimer = new() { Interval = 1000 };
 
         private int _accountRows;
@@ -58,6 +58,7 @@ namespace Roadhog
                 _accounts.Add(new AccountRowModel(
                     $"account{index++}",
                     "",
+                    "",
                     device.BindingKey,
                     "idle",
                     "0.0",
@@ -98,8 +99,8 @@ namespace Roadhog
 
         private void AddColumns()
         {
-            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 15F));
-            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 7F));
+            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 11F));
+            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 12F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 8F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 7F));
@@ -113,6 +114,7 @@ namespace Roadhog
 
         private void AddHeader(string text, int column, int columnSpan = 1)
         {
+            text = NormalizeAccountHeaderText(text, column);
             var label = new Label
             {
                 BackColor = _headerGreen,
@@ -133,6 +135,16 @@ namespace Roadhog
             }
         }
 
+        private static string NormalizeAccountHeaderText(string text, int column)
+        {
+            return column switch
+            {
+                0 => "等级/职业",
+                1 => "角色",
+                _ => text
+            };
+        }
+
         private void AddAccountRow(AccountRowModel account)
         {
             var row = accountTable.RowCount;
@@ -140,7 +152,7 @@ namespace Roadhog
             accountTable.RowStyles.Add(new RowStyle(SizeType.Absolute, AccountRowHeight));
 
             var alt = row % 2 == 0;
-            var accountLabel = AddCell(account.Account, row, 0, alt);
+            var levelClassLabel = AddCell(account.LevelClass, row, 0, alt, ContentAlignment.MiddleCenter);
             var roleLabel = AddCell(account.Role, row, 1, alt);
             var hardwareInput = AddHardwareInput(account, row, alt);
             var statusLabel = AddCell(account.Status, row, 3, alt);
@@ -154,7 +166,7 @@ namespace Roadhog
             AddActionButton("删除", row, 10, account.Account);
 
             _rowControls[account.Account] = new AccountRowControls(
-                accountLabel,
+                levelClassLabel,
                 roleLabel,
                 hardwareInput,
                 statusLabel,
@@ -356,8 +368,8 @@ namespace Roadhog
 
             _accounts.RemoveAt(index);
             _rowControls.Remove(account);
-            _lastPlayerNameRefreshAt.Remove(account);
-            _playerNameRefreshInFlight.Remove(account);
+            _lastPlayerInfoRefreshAt.Remove(account);
+            _playerInfoRefreshInFlight.Remove(account);
             BuildAccountTable();
         }
 
@@ -454,42 +466,43 @@ namespace Roadhog
                 _accounts[index] = row;
                 UpdateAccountRowText(row, snapshot, updateHardwareKey: false);
 
-                if (ShouldRefreshPlayerName(row, snapshot))
+                if (ShouldRefreshPlayerInfo(row, snapshot))
                 {
-                    _ = RefreshPlayerNameAsync(row.Account);
+                    _ = RefreshPlayerInfoAsync(row.Account);
                 }
             }
         }
 
-        private bool ShouldRefreshPlayerName(AccountRowModel row, Core.Accounts.AccountRuntimeSnapshot snapshot)
+        private bool ShouldRefreshPlayerInfo(AccountRowModel row, Core.Accounts.AccountRuntimeSnapshot snapshot)
         {
             if (snapshot.ProcessId <= 0 || string.Equals(snapshot.Status, "idle", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
 
-            if (_playerNameRefreshInFlight.Contains(row.Account))
+            if (_playerInfoRefreshInFlight.Contains(row.Account))
             {
                 return false;
             }
 
-            if (string.IsNullOrWhiteSpace(row.Role))
+            if ((string.IsNullOrWhiteSpace(row.Role) || string.IsNullOrWhiteSpace(row.LevelClass)) &&
+                !_lastPlayerInfoRefreshAt.ContainsKey(row.Account))
             {
                 return true;
             }
 
-            return !_lastPlayerNameRefreshAt.TryGetValue(row.Account, out var refreshedAt) ||
-                   DateTimeOffset.Now - refreshedAt >= PlayerNameRefreshInterval;
+            return !_lastPlayerInfoRefreshAt.TryGetValue(row.Account, out var refreshedAt) ||
+                   DateTimeOffset.Now - refreshedAt >= PlayerInfoRefreshInterval;
         }
 
-        private async Task RefreshPlayerNameAsync(string account)
+        private async Task RefreshPlayerInfoAsync(string account)
         {
-            _playerNameRefreshInFlight.Add(account);
+            _playerInfoRefreshInFlight.Add(account);
             try
             {
-                _lastPlayerNameRefreshAt[account] = DateTimeOffset.Now;
+                _lastPlayerInfoRefreshAt[account] = DateTimeOffset.Now;
                 var result = await _services.Runtime.ReadPlayerAsync(account).ConfigureAwait(true);
-                if (!result.Success || result.Value is null || string.IsNullOrWhiteSpace(result.Value.CharacterName))
+                if (!result.Success || result.Value is null)
                 {
                     return;
                 }
@@ -500,15 +513,24 @@ namespace Roadhog
                     return;
                 }
 
-                _accounts[index] = _accounts[index] with { Role = result.Value.CharacterName };
+                var player = result.Value;
+                var row = _accounts[index];
+                var levelClass = FormatLevelClass(player);
+                _accounts[index] = row with
+                {
+                    LevelClass = string.IsNullOrWhiteSpace(levelClass) ? row.LevelClass : levelClass,
+                    Role = string.IsNullOrWhiteSpace(player.CharacterName) ? row.Role : player.CharacterName
+                };
+
                 if (_rowControls.TryGetValue(account, out var controls))
                 {
-                    SetTextIfChanged(controls.RoleLabel, result.Value.CharacterName);
+                    SetTextIfChanged(controls.LevelClassLabel, _accounts[index].LevelClass);
+                    SetTextIfChanged(controls.RoleLabel, _accounts[index].Role);
                 }
             }
             catch (Exception ex)
             {
-                _services.Logger.Warn("ui.player_name.refresh_failed", new Dictionary<string, object?>
+                _services.Logger.Warn("ui.player_info.refresh_failed", new Dictionary<string, object?>
                 {
                     ["account"] = account,
                     ["error"] = ex.Message
@@ -516,7 +538,7 @@ namespace Roadhog
             }
             finally
             {
-                _playerNameRefreshInFlight.Remove(account);
+                _playerInfoRefreshInFlight.Remove(account);
             }
         }
 
@@ -530,6 +552,7 @@ namespace Roadhog
                 return;
             }
 
+            SetTextIfChanged(controls.LevelClassLabel, row.LevelClass);
             SetTextIfChanged(controls.RoleLabel, row.Role);
             SetTextIfChanged(controls.StatusLabel, row.Status);
             SetTextIfChanged(controls.KillsPerHourLabel, row.KillsPerHour);
@@ -570,6 +593,22 @@ namespace Roadhog
             return FormatDuration(GetRuntimeElapsed(snapshot));
         }
 
+        private static string FormatLevelClass(Core.Model.PlayerSnapshot player)
+        {
+            var hasLevel = player.Level > 0;
+            var characterClass = player.CharacterClass?.Trim() ?? string.Empty;
+            if (!hasLevel && string.IsNullOrWhiteSpace(characterClass))
+            {
+                return string.Empty;
+            }
+
+            var levelText = hasLevel
+                ? player.Level.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : "-";
+            var classText = string.IsNullOrWhiteSpace(characterClass) ? "-" : characterClass;
+            return levelText + "/" + classText;
+        }
+
         private static TimeSpan GetRuntimeElapsed(Core.Accounts.AccountRuntimeSnapshot snapshot)
         {
             if (snapshot.StartedAt is not { } startedAt)
@@ -604,6 +643,7 @@ namespace Roadhog
 
         private sealed record AccountRowModel(
             string Account,
+            string LevelClass,
             string Role,
             string HardwareKey,
             string Status,
@@ -611,7 +651,7 @@ namespace Roadhog
             string Duration);
 
         private sealed record AccountRowControls(
-            Label AccountLabel,
+            Label LevelClassLabel,
             Label RoleLabel,
             RoundedTextBox HardwareInput,
             Label StatusLabel,

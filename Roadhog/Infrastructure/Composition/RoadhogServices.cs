@@ -87,9 +87,8 @@ public sealed class RoadhogServices : IDisposable
             ["logDirectory"] = options.LogDirectory,
             ["accountConfigPath"] = options.AccountConfigPath,
             ["pathLibraryDirectory"] = options.PathLibraryDirectory,
-            ["inputBackend"] = options.InputBackend.ToString(),
-            ["keyboardInput"] = GetKeyboardInputName(options),
-            ["keyboardPort"] = options.KeyboardInput.PortName,
+            ["inputBackend"] = "KmBoxNet",
+            ["keyboardInput"] = "KMBox Net",
             ["keyboardEndpoint"] = options.KmBoxNetInput.EndpointText(),
             ["useMockGameApi"] = options.UseMockGameApi,
             ["useToolTestBridge"] = options.UseToolTestBridge
@@ -162,21 +161,6 @@ public sealed class RoadhogServices : IDisposable
 
     private static IKeyboardInput CreateKeyboardInput(RoadhogServiceOptions options)
     {
-        return options.InputBackend switch
-        {
-            RoadhogInputBackend.HardwareBox => new KmBoxKeyboardInput(options.KeyboardInput),
-            RoadhogInputBackend.KmBoxNet => new KmBoxNetKeyboardInput(options.KmBoxNetInput),
-            _ => throw new ArgumentOutOfRangeException(nameof(options), options.InputBackend, "Unsupported input backend.")
-        };
-    }
-
-    private static string GetKeyboardInputName(RoadhogServiceOptions options)
-    {
-        return options.InputBackend switch
-        {
-            RoadhogInputBackend.HardwareBox => "KMBox hardware serial",
-            RoadhogInputBackend.KmBoxNet => "KMBox Net",
-            _ => options.InputBackend.ToString()
-        };
+        return new KmBoxNetKeyboardInput(options.KmBoxNetInput);
     }
 }
