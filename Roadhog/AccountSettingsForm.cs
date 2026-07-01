@@ -74,7 +74,6 @@ namespace Roadhog
         private RoundedTextBox? bagCleanupThresholdTextBox;
         private RoundedTextBox? bagTotalSlotsTextBox;
         private RadioButton? skillAutoModeRadio;
-        private RadioButton? skillManualModeRadio;
         private Panel? autoSkillPanel;
         private Panel? manualSkillPanel;
         private TreeView? availableSkillTree;
@@ -252,24 +251,12 @@ namespace Roadhog
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
             ApplyOpeningSkillSettings(settings.Skills.OpeningSkill);
 
-            if (settings.Skills.Mode == SkillConfigurationMode.Auto)
+            if (skillAutoModeRadio is not null)
             {
-                if (skillAutoModeRadio is not null)
-                {
-                    skillAutoModeRadio.Checked = true;
-                }
-
-                ShowSkillMode(false);
+                skillAutoModeRadio.Checked = true;
             }
-            else
-            {
-                if (skillManualModeRadio is not null)
-                {
-                    skillManualModeRadio.Checked = true;
-                }
 
-                ShowSkillMode(true);
-            }
+            ShowSkillMode(false);
 
             if (selectedSkillTree is not null)
             {
@@ -357,9 +344,7 @@ namespace Roadhog
                 },
                 Skills = new SkillScriptSettings
                 {
-                    Mode = skillAutoModeRadio?.Checked == true
-                        ? SkillConfigurationMode.Auto
-                        : SkillConfigurationMode.ManualMapping,
+                    Mode = SkillConfigurationMode.Auto,
                     OpeningSkill = CaptureOpeningSkill(),
                     TriggerPrefixMode = "TopContiguousTriggerSkills",
                     ExecutionTree = selectedSkillTree is null
@@ -1584,15 +1569,13 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             AddLabel(page, "技能配置", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
-            var autoMode = AddRadioButton(page, "自动技能", 92, 14, 90, false);
+            var autoMode = AddRadioButton(page, "自动技能", 92, 14, 90, true);
             skillAutoModeRadio = autoMode;
-            var manualMode = AddRadioButton(page, "手动技能Mapping", 184, 14, 142, true);
-            skillManualModeRadio = manualMode;
             openingAttackKeyCheckBox = AddCheckBox(page, "开怪按C", 548, 14, 92, true);
 
-            var autoPanel = CreateSkillModePanel(page, "autoSkillPanel", false);
+            var autoPanel = CreateSkillModePanel(page, "autoSkillPanel", true);
             autoSkillPanel = autoPanel;
-            var manualPanel = CreateSkillModePanel(page, "manualSkillPanel", true);
+            var manualPanel = CreateSkillModePanel(page, "manualSkillPanel", false);
             manualSkillPanel = manualPanel;
 
             AddLabel(autoPanel, "可用技能", 8, 6, 120, 24, _textGreen, FontStyle.Bold);
@@ -1648,14 +1631,6 @@ namespace Roadhog
                 if (autoMode.Checked)
                 {
                     ShowSkillMode(false);
-                }
-            };
-
-            manualMode.CheckedChanged += (_, _) =>
-            {
-                if (manualMode.Checked)
-                {
-                    ShowSkillMode(true);
                 }
             };
 
