@@ -59,7 +59,7 @@ namespace Roadhog
             this.shellPanel.Location = new System.Drawing.Point(0, 0);
             this.shellPanel.Name = "shellPanel";
             this.shellPanel.Padding = new System.Windows.Forms.Padding(14);
-            this.shellPanel.Size = new System.Drawing.Size(920, 400);
+            this.shellPanel.Size = new System.Drawing.Size(940, 210);
             this.shellPanel.TabIndex = 0;
             //
             // accountListPanel
@@ -73,7 +73,7 @@ namespace Roadhog
             this.accountListPanel.Name = "accountListPanel";
             this.accountListPanel.Padding = new System.Windows.Forms.Padding(0);
             this.accountListPanel.ShadowDepth = 3;
-            this.accountListPanel.Size = new System.Drawing.Size(892, 282);
+            this.accountListPanel.Size = new System.Drawing.Size(912, 92);
             this.accountListPanel.TabIndex = 1;
             //
             // accountTable
@@ -110,7 +110,7 @@ namespace Roadhog
             this.topBarPanel.Name = "topBarPanel";
             this.topBarPanel.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
             this.topBarPanel.ShadowDepth = 3;
-            this.topBarPanel.Size = new System.Drawing.Size(892, 90);
+            this.topBarPanel.Size = new System.Drawing.Size(912, 90);
             this.topBarPanel.TabIndex = 0;
             //
             // fpgaLabel
@@ -247,7 +247,7 @@ namespace Roadhog
             this.kmboxSaveButton.ShadowDepth = 2;
             this.kmboxSaveButton.Size = new System.Drawing.Size(120, 30);
             this.kmboxSaveButton.TabIndex = 9;
-            this.kmboxSaveButton.Text = "保存KMBox";
+            this.kmboxSaveButton.Text = "保存硬件配置";
             this.kmboxSaveButton.UseVisualStyleBackColor = false;
             this.kmboxSaveButton.Click += new System.EventHandler(this.SaveKmBoxButton_Click);
             //
@@ -266,10 +266,10 @@ namespace Roadhog
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 17F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.FromArgb(248, 253, 250);
-            this.ClientSize = new System.Drawing.Size(920, 400);
+            this.ClientSize = new System.Drawing.Size(940, 210);
             this.Controls.Add(this.shellPanel);
             this.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F);
-            this.MinimumSize = new System.Drawing.Size(760, 240);
+            this.MinimumSize = new System.Drawing.Size(760, 220);
             this.Name = "Form1";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "GreenPlayer";

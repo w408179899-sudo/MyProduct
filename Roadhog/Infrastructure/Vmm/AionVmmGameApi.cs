@@ -227,10 +227,17 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
                     ["account"] = context.AccountName,
                     ["pid"] = SafeGetProcessPid(process),
                     ["targetEntityId"] = snapshot.TargetEntityId,
+                    ["localServerObjectId"] = target.LocalServerObjectId,
+                    ["serverObjectId"] = snapshot.ServerObjectId,
+                    ["targetServerObjectId"] = snapshot.ServerObjectId,
+                    ["targetingServerObjectId"] = snapshot.TargetServerObjectId,
+                    ["targetingMe"] = snapshot.IsTargetingLocalPlayer,
                     ["objectType"] = snapshot.ObjectType,
                     ["hp"] = snapshot.CurrentHp,
                     ["maxHp"] = snapshot.MaxHp,
-                    ["isMonsterAlive"] = snapshot.IsMonsterAlive
+                    ["isMonsterAlive"] = snapshot.IsMonsterAlive,
+                    ["actorAddress"] = target.Actor?.Actor.ToString("X") ?? string.Empty,
+                    ["actorResolveSource"] = target.Actor?.ResolveSource ?? string.Empty
                 });
 
                 return OperationResult<LockedTargetSnapshot>.Ok(snapshot);
@@ -2506,7 +2513,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             info.DistanceToLocalPlayer,
             DateTimeOffset.Now,
             targetServerObjectId,
-            info.LocalServerObjectId != 0 && targetServerObjectId == info.LocalServerObjectId);
+            info.LocalServerObjectId != 0 && targetServerObjectId == info.LocalServerObjectId,
+            info.LocalServerObjectId);
     }
 
     private static bool TryReadWorldObjects(

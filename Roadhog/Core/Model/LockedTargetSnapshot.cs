@@ -12,7 +12,8 @@ public sealed record LockedTargetSnapshot(
     double? DistanceToLocalPlayer,
     DateTimeOffset CapturedAt,
     uint TargetServerObjectId = 0,
-    bool IsTargetingLocalPlayer = false)
+    bool IsTargetingLocalPlayer = false,
+    uint LocalServerObjectId = 0)
 {
     public const uint MonsterObjectType = 2;
 
@@ -27,6 +28,11 @@ public sealed record LockedTargetSnapshot(
     public bool IsLockedMonster => HasTarget && IsMonster;
 
     public bool IsMonsterAlive => HasTarget && IsMonster && IsAlive;
+
+    public bool TargetServerObjectIdMatchesLocal =>
+        LocalServerObjectId != 0 &&
+        TargetServerObjectId != 0 &&
+        TargetServerObjectId == LocalServerObjectId;
 
     public static LockedTargetSnapshot Empty(DateTimeOffset capturedAt)
     {

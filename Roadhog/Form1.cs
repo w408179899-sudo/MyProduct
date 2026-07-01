@@ -4,6 +4,7 @@ namespace Roadhog
     {
         private const int HeaderRowHeight = 30;
         private const int AccountRowHeight = 34;
+        private const int WindowCornerRadius = 12;
         private static readonly TimeSpan PlayerInfoRefreshInterval = TimeSpan.FromSeconds(15);
 
         private readonly Color _primaryGreen = Color.FromArgb(22, 163, 74);
@@ -41,6 +42,24 @@ namespace Roadhog
             _uiRefreshTimer.Dispose();
             _services.Dispose();
             base.OnFormClosed(e);
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            ApplyRoundedWindowRegion();
+        }
+
+        private void ApplyRoundedWindowRegion()
+        {
+            if (Width < 8 || Height < 8)
+            {
+                Region = null;
+                return;
+            }
+
+            using var path = UiChrome.RoundedRect(new RectangleF(0, 0, Width, Height), WindowCornerRadius);
+            Region = new Region(path);
         }
 
         private void ApplyApplicationIcon()
@@ -412,31 +431,135 @@ namespace Roadhog
         {
             if (!TryReadKmBoxNetInput(out var config, out var error))
             {
-                MessageBox.Show(this, error, "保存KMBox失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show(this, error, "保存硬件配置失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             kmboxSaveButton.Enabled = false;
             var oldText = kmboxSaveButton.Text;
             kmboxSaveButton.Text = "保存中...";
+            var closeAfterSave = false;
             try
             {
                 var store = new Infrastructure.Config.JsonKmBoxNetDeviceConfigStore(_services.KmBoxNetConfigPath);
                 var result = await store.SaveAsync(config).ConfigureAwait(true);
                 if (!result.Success)
                 {
-                    MessageBox.Show(this, result.Error ?? "保存KMBox配置失败。", "保存KMBox失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, result.Error ?? "保存KMBox配置失败。", "保存硬件配置失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                var fpgaResult = await SaveSelectedFpgaConfigAsync().ConfigureAwait(true);
+                if (!fpgaResult.Success)
+                {
+                    MessageBox.Show(this, fpgaResult.Error ?? "保存FPGA配置失败。", "保存硬件配置失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
                 kmboxStatusLabel.Text = "已保存，重启后生效";
-                MessageBox.Show(this, "KMBox Net配置已保存，重启程序后生效。", "保存KMBox", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                closeAfterSave = MessageBox.Show(this, "硬件配置已保存，重启程序后生效。", "保存硬件配置", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                    == DialogResult.OK;
             }
             finally
             {
                 kmboxSaveButton.Text = oldText;
                 kmboxSaveButton.Enabled = true;
             }
+
+            if (closeAfterSave && !IsDisposed)
+            {
+                Close();
+            }
+        }
+
+        private async Task<Core.Common.OperationResult> SaveSelectedFpgaConfigAsync()
+        {
+            if (_accounts.Count == 0)
+            {
+                return Core.Common.OperationResult.Fail("没有可保存的账号行。");
+            }
+
+            var row = _accounts[0];
+            var selectedItem = fpgaDeviceComboBox.SelectedItem as FpgaDeviceComboItem;
+            var hardwareKey = selectedItem is not null && !string.IsNullOrWhiteSpace(selectedItem.BindingKey)
+                ? selectedItem.BindingKey.Trim()
+                : row.HardwareKey.Trim();
+            var vmmDeviceName = selectedItem is not null && !string.IsNullOrWhiteSpace(selectedItem.VmmDeviceName)
+                ? selectedItem.VmmDeviceName.Trim()
+                : row.VmmDeviceName.Trim();
+            if (IsAutoHardwareKey(hardwareKey))
+            {
+                return Core.Common.OperationResult.Fail("请先选择FPGA设备。");
+            }
+
+            var loadResult = await _services.AccountConfigStore.LoadAllAsync().ConfigureAwait(true);
+            if (!loadResult.Success)
+            {
+                return Core.Common.OperationResult.Fail(loadResult.Error ?? "读取账号配置失败。");
+            }
+
+            var account = loadResult.Value?
+                .FirstOrDefault(item => string.Equals(item.AccountName, row.Account, StringComparison.OrdinalIgnoreCase))
+                ?.Clone() ?? new Core.Accounts.AccountConfig
+                {
+                    AccountName = row.Account,
+                    Enabled = true,
+                    ProfileName = "default_profile"
+                };
+
+            account.AccountName = row.Account;
+            account.HardwareKey = hardwareKey;
+            account.VmmDeviceName = vmmDeviceName;
+
+            var device = FindFpgaDeviceByKey(hardwareKey);
+            if (device is not null)
+            {
+                account.HardwareKey = device.BindingKey;
+                account.HardwareBindingKind = device.BindingKind;
+                account.HardwareBindingConfidence = device.BindingConfidence;
+                account.HardwareDeviceInstanceId = device.DeviceInstanceId;
+                account.HardwareLocationKey = device.LocationKey;
+                account.HardwareDisplayName = device.DisplayName;
+                account.VmmDeviceName = device.VmmDeviceName;
+
+                row = row with
+                {
+                    HardwareKey = device.BindingKey,
+                    VmmDeviceName = device.VmmDeviceName
+                };
+            }
+            else
+            {
+                row = row with
+                {
+                    HardwareKey = hardwareKey,
+                    VmmDeviceName = vmmDeviceName
+                };
+            }
+
+            var saveResult = await _services.AccountConfigStore.UpsertAsync(account).ConfigureAwait(true);
+            if (!saveResult.Success)
+            {
+                return saveResult;
+            }
+
+            _accounts[0] = row;
+            UpdateAccountRowText(row, snapshot: null, updateHardwareKey: true);
+            UpdateWindowTitle();
+            return Core.Common.OperationResult.Ok();
+        }
+
+        private Core.Hardware.HardwareDeviceFeature? FindFpgaDeviceByKey(string hardwareKey)
+        {
+            if (string.IsNullOrWhiteSpace(hardwareKey))
+            {
+                return null;
+            }
+
+            var devices = _services.HardwareResolver.ListDevices();
+            return devices.FirstOrDefault(device =>
+                string.Equals(device.BindingKey.Trim(), hardwareKey.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                device.AliasKeys.Any(alias => string.Equals(alias.Trim(), hardwareKey.Trim(), StringComparison.OrdinalIgnoreCase)));
         }
 
         private bool TryReadKmBoxNetInput(out Infrastructure.Input.KmBoxNetDeviceConfig config, out string error)

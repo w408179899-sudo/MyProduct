@@ -157,6 +157,8 @@ namespace Roadhog
 
     internal sealed class RoundedPanel : Panel
     {
+        private int cornerRadius = 12;
+
         public RoundedPanel()
         {
             SetStyle(
@@ -167,11 +169,38 @@ namespace Roadhog
                 true);
         }
 
-        public int CornerRadius { get; set; } = 12;
+        public int CornerRadius
+        {
+            get => cornerRadius;
+            set
+            {
+                cornerRadius = Math.Max(0, value);
+                ApplyRoundedRegion();
+                Invalidate();
+            }
+        }
 
         public int ShadowDepth { get; set; } = 2;
 
         public Color BorderColor { get; set; } = Color.FromArgb(187, 247, 208);
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            ApplyRoundedRegion();
+        }
+
+        private void ApplyRoundedRegion()
+        {
+            if (Width < 8 || Height < 8 || CornerRadius <= 0)
+            {
+                Region = null;
+                return;
+            }
+
+            using var path = UiChrome.RoundedRect(new RectangleF(0, 0, Width, Height), CornerRadius);
+            Region = new Region(path);
+        }
 
         protected override void OnPaint(PaintEventArgs e)
         {

@@ -226,6 +226,13 @@ namespace Tool
                         return;
                     }
 
+                    if (string.Equals(aionTestMode, "target_once", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "targetonce", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunLockedTargetMonsterInfoOnceTest(process, gameBase);
+                        return;
+                    }
+
                     if (string.Equals(aionTestMode, "target", StringComparison.OrdinalIgnoreCase))
                     {
                         RunLockedTargetMonsterInfoTest(process, gameBase);
@@ -1156,6 +1163,8 @@ namespace Tool
             public ushort TargetEntityId;
             public bool HasServerObjectId;
             public uint ServerObjectId;
+            public uint LocalServerObjectId;
+            public bool IsTargetingLocalPlayer;
             public ulong ServerObjectTreeHeader;
             public ulong EntitySystem;
             public ulong EntityTreeHeader;
@@ -3543,6 +3552,25 @@ namespace Tool
             }
 
             Console.ReadKey(true);
+        }
+
+        private static void RunLockedTargetMonsterInfoOnceTest(VmmProcess process, ulong gameBase)
+        {
+            LockedTargetMonsterInfo info;
+            string error;
+            if (!TryReadLockedTargetMonsterInfo(process, gameBase, out info, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                return;
+            }
+
+            if (info.TargetEntityId == 0)
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] No locked target.");
+                return;
+            }
+
+            Console.WriteLine(FormatLockedTargetMonsterInfo(info));
         }
 
         private static void RunPathRecorderWindow(VmmProcess process, ulong gameBase)
@@ -8898,6 +8926,15 @@ namespace Tool
                 double dz = info.Z - localZ;
                 info.HasDistance = true;
                 info.DistanceToLocalPlayer = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+
+                ActorInfo localActor;
+                if (TryResolveActorFromEntityExperimental(process, localEntity, 0, out localActor))
+                {
+                    info.LocalServerObjectId = localActor.ServerObjectId;
+                    info.IsTargetingLocalPlayer = info.HasActor &&
+                                                  info.LocalServerObjectId != 0 &&
+                                                  info.Actor.TargetServerObjectId == info.LocalServerObjectId;
+                }
             }
 
             return true;
@@ -13889,6 +13926,23 @@ namespace Tool
                    " HP=" + actor.CurrentHp + "/" + actor.MaxHp +
                    " TargetServerId=" + actor.TargetServerObjectId +
                    " Name=\"" + actor.Name + "\"";
+        }
+
+        private static string FormatLockedTargetMonsterInfo(LockedTargetMonsterInfo info)
+        {
+            return "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                   "TargetEntityId=" + info.TargetEntityId +
+                   " ServerId=" + FormatServerObjectId(info) +
+                   " LocalServerId=" + info.LocalServerObjectId +
+                   " TargetServerId=" + (info.HasActor ? info.Actor.TargetServerObjectId.ToString() : "n/a") +
+                   " TargetingMe=" + FormatYesNo(info.IsTargetingLocalPlayer) +
+                   " Entity=" + FormatAddress(info.Entity) +
+                   " EntityType=" + FormatEntityType(info) +
+                   " NpcLike=" + FormatNpcLike(info) +
+                   " Actor=" + FormatActor(info) +
+                   " Pos=" + FormatPosition(info) +
+                   " Transform=" + FormatTransform(info) +
+                   " Distance=" + FormatDistance(info);
         }
 
         private static string FormatTransform(EntityTransformSnapshot transform)

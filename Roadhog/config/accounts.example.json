@@ -93,7 +93,7 @@
           "postPressSuppressMs": 650,
           "confirmTimeoutMs": 1500,
           "confirmPollMs": 30,
-          "defaultChainTimeMs": 5000
+          "defaultChainTimeMs": 2500
         }
       }
     }

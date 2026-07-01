@@ -45,7 +45,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
     ("stationary combat target pitch follows target height", TestStationaryCombatTargetPitchFollowsTargetHeightAsync),
-    ("stationary combat accepts twenty degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsync),
+    ("stationary combat accepts twenty five degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyFiveDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
     ("stationary combat verifies target after each tab press", TestStationaryCombatVerifiesAfterEachTabAsync),
     ("stationary combat nudges then accepts unchanged locked target after tab", TestStationaryCombatNudgesThenAcceptsUnchangedLockedTargetAfterTabAsync),
@@ -958,7 +958,7 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
 
         AssertEqual(StationaryCombatTopLevelState.DeathRecovery, stationaryState.TopLevelState, "dead player should enter death recovery");
         AssertSequence(
-            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:680,460", "down:Left", "up:Left" },
+            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:550,400", "down:Left", "up:Left" },
             keyboard.MouseCommands.ToArray(),
             "death recovery should absolute-click revive button");
         AssertFalse(keyboard.Keys.Contains("Tab"), "death recovery must not enter target acquisition");
@@ -970,7 +970,7 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
             {
                 "move:-32768,-32768",
                 "move:-32768,-32768",
-                "move:680,460",
+                "move:550,400",
                 "down:Left",
                 "up:Left"
             },
@@ -1174,7 +1174,7 @@ static async Task TestWorkerLifeGuardRevivesBeforeSemiAutoAsync()
         await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
 
         AssertSequence(
-            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:680,460", "down:Left", "up:Left" },
+            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:550,400", "down:Left", "up:Left" },
             keyboard.MouseCommands.Take(5).ToArray(),
             "semi-auto death guard should absolute-click revive button");
         AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "semi-auto combat keys must not run while dead");
@@ -1368,7 +1368,7 @@ static async Task TestStationaryCombatTargetPitchFollowsTargetHeightAsync()
     }
 }
 
-static async Task TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsync()
+static async Task TestStationaryCombatAcceptsTwentyFiveDegreePreLockFaceToleranceAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
     var previousYawOffset = Environment.GetEnvironmentVariable("AION_FACE_TARGET_YAW_OFFSET_DEG");
@@ -1428,8 +1428,8 @@ static async Task TestStationaryCombatAcceptsTwentyDegreePreLockFaceToleranceAsy
         AssertFalse(!logger.Entries.Any(entry =>
             entry.EventName == "stationary_combat.face_target" &&
             string.Equals(Convert.ToString(entry.Fields["action"]), "face_aligned", StringComparison.Ordinal) &&
-            Math.Abs(Convert.ToDouble(entry.Fields["yawTolerance"]) - 20.0D) < 0.001D),
-            "face target log should show 20 degree yaw tolerance");
+            Math.Abs(Convert.ToDouble(entry.Fields["yawTolerance"]) - 25.0D) < 0.001D),
+            "face target log should show 25 degree yaw tolerance");
     }
     finally
     {
@@ -2263,6 +2263,7 @@ static async Task TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsyn
         TargetMaxHp = 1000,
         TargetPosition = new Vector3Snapshot(8, 0, 0),
         TargetServerObjectId = 0,
+        LocalServerObjectId = 1,
         TargetIsTargetingLocalPlayer = false,
         WorldObjects = new[]
         {
@@ -2298,7 +2299,7 @@ static async Task TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsyn
     AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.opening_attack.wait_targeting"), "opening attack wait should be logged");
 
     gameApi.TargetServerObjectId = 1;
-    gameApi.TargetIsTargetingLocalPlayer = true;
+    gameApi.TargetIsTargetingLocalPlayer = false;
     await Task.Delay(2).ConfigureAwait(false);
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
@@ -4306,7 +4307,7 @@ static ScriptSettings CreateScriptSettings()
             KeyGapMs = 1,
             RepeatGuardMs = 1,
             PostPressSuppressMs = 1,
-            DefaultChainTimeMs = 5000
+            DefaultChainTimeMs = 2500
         }
     };
 }
@@ -4341,7 +4342,7 @@ static SkillConfigNode Node(uint id, string name, string type, params SkillConfi
         Name = name,
         BaseName = name,
         Type = type,
-        ChainTimeMs = 5000,
+        ChainTimeMs = 2500,
         Children = children.ToList()
     };
 }
@@ -4755,6 +4756,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
 
     public uint TargetServerObjectId { get; set; } = 1;
 
+    public uint LocalServerObjectId { get; set; }
+
     public bool TargetIsTargetingLocalPlayer { get; set; } = true;
 
     public IReadOnlyList<WorldObjectSnapshot> WorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
@@ -4803,7 +4806,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
             null,
             DateTimeOffset.Now,
             TargetServerObjectId,
-            TargetIsTargetingLocalPlayer)));
+            TargetIsTargetingLocalPlayer,
+            LocalServerObjectId)));
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(

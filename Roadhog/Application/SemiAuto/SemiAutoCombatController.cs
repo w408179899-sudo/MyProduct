@@ -1322,13 +1322,11 @@ public sealed class SemiAutoCombatController
         SemiAutoSkillNode nextNode,
         SemiAutoScriptSettings settings)
     {
-        var windowMs = nextNode.ChainTimeMs ??
-                       sourceNode.ChainTimeMs ??
-                       settings.DefaultChainTimeMs;
+        var windowMs = ResolveChainWindowMs();
         state.StartPendingChainAdvance(
             sourceNode,
             nextNode,
-            DateTimeOffset.Now + Ms(windowMs, 5000),
+            DateTimeOffset.Now + Ms(windowMs, 2500),
             sourceSkill.CooldownEndTime);
         context.Logger.Info("semi_auto.chain.pending", new Dictionary<string, object?>
         {
@@ -1351,13 +1349,11 @@ public sealed class SemiAutoCombatController
         SemiAutoScriptSettings settings)
     {
         var sourceNode = chainNode.Parent ?? chainNode;
-        var windowMs = chainNode.ChainTimeMs ??
-                       sourceNode.ChainTimeMs ??
-                       settings.DefaultChainTimeMs;
+        var windowMs = ResolveChainWindowMs();
         state.StartPendingChainAdvance(
             sourceNode,
             chainNode,
-            DateTimeOffset.Now + Ms(windowMs, 5000),
+            DateTimeOffset.Now + Ms(windowMs, 2500),
             chainSkill.CooldownEndTime);
         state.MarkPendingChainNextPressed(chainSkill);
         context.Logger.Info("semi_auto.chain.pending", new Dictionary<string, object?>
@@ -1389,6 +1385,11 @@ public sealed class SemiAutoCombatController
             ["cooldownDuration"] = skill?.CooldownDuration,
             ["cooldownEndTime"] = skill?.CooldownEndTime
         });
+    }
+
+    private static int ResolveChainWindowMs()
+    {
+        return 2500;
     }
 
     private static bool HasMaintenanceWork(MaintenanceScriptSettings maintenance, bool allowSitMaintenance)

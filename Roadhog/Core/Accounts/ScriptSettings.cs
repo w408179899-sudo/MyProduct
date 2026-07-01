@@ -58,7 +58,7 @@ public sealed class SemiAutoScriptSettings
 
     public int ConfirmPollMs { get; set; } = 30;
 
-    public int DefaultChainTimeMs { get; set; } = 5000;
+    public int DefaultChainTimeMs { get; set; } = 2500;
 
     public SemiAutoScriptSettings Clone()
     {

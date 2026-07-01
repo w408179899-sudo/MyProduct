@@ -19,12 +19,12 @@ public sealed class StationaryCombatController
     private const double ReturnStopDistance = 2.0D;
     private const double AcquireDistance = 25.0D;
     private const double TargetLeashExtraDistance = 5.0D;
-    private const double PreLockFaceYawToleranceDegrees = 20.0D;
+    private const double PreLockFaceYawToleranceDegrees = 25.0D;
     private const double StartupRecoveryReachDistance = 3.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
     private const double DefaultPitchPixelsPerDegree = 13.0D;
-    private const int DefaultReviveClickX = 680;
-    private const int DefaultReviveClickY = 460;
+    private const int DefaultReviveClickX = 550;
+    private const int DefaultReviveClickY = 400;
     private const int DefaultPostReviveScrollCount = 10;
     private const int DefaultPostReviveScrollDelta = -1;
     private const int AbsoluteMouseResetDelta = -32768;
@@ -1449,7 +1449,7 @@ public sealed class StationaryCombatController
             return claimedDelay.Value;
         }
 
-        if (target.IsTargetingLocalPlayer)
+        if (IsTargetingLocalPlayerByServerObjectId(target))
         {
             state.CurrentTargetIsMaintenanceDefense = true;
         }
@@ -1936,6 +1936,10 @@ public sealed class StationaryCombatController
             ["lockedServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
             ["lockedTargetServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
             ["lockedTargetingServerObjectId"] = lockedResult.Value?.TargetServerObjectId ?? 0,
+            ["lockedLocalServerObjectId"] = lockedResult.Value?.LocalServerObjectId ?? 0,
+            ["lockedTargetingMe"] = lockedResult.Value is null
+                ? false
+                : IsTargetingLocalPlayerByServerObjectId(lockedResult.Value),
             ["lockedName"] = lockedResult.Value?.Name ?? string.Empty,
             ["lockedAlive"] = lockedResult.Value?.IsMonsterAlive ?? false,
             ["lockedHp"] = lockedResult.Value?.CurrentHp ?? 0,
@@ -2532,7 +2536,8 @@ public sealed class StationaryCombatController
         var effectiveTargetingServerObjectId = lockedTarget.TargetServerObjectId != 0
             ? lockedTarget.TargetServerObjectId
             : acquiredTarget.TargetServerObjectId;
-        var effectiveTargetingMe = lockedTarget.IsTargetingLocalPlayer || acquiredTarget.IsTargetingLocalPlayer;
+        var effectiveTargetingMe = IsTargetingLocalPlayerByServerObjectId(lockedTarget) ||
+                                   acquiredTarget.IsTargetingLocalPlayer;
         var effectiveLockedTarget = lockedTarget with
         {
             ServerObjectId = lockedTarget.ServerObjectId != 0 ? lockedTarget.ServerObjectId : acquiredServerObjectId,
@@ -2550,6 +2555,7 @@ public sealed class StationaryCombatController
             ["serverObjectId"] = acquiredServerObjectId,
             ["targetServerObjectId"] = acquiredServerObjectId,
             ["targetingServerObjectId"] = effectiveTargetingServerObjectId,
+            ["localServerObjectId"] = lockedTarget.LocalServerObjectId,
             ["lockedEntityId"] = lockedTarget.TargetEntityId,
             ["lockedServerObjectId"] = lockedTarget.ServerObjectId,
             ["lockedTargetServerObjectId"] = lockedTarget.ServerObjectId,
@@ -2641,7 +2647,7 @@ public sealed class StationaryCombatController
             ["lockedServerObjectId"] = lockedTarget.ServerObjectId,
             ["lockedTargetServerObjectId"] = lockedTarget.ServerObjectId,
             ["lockedTargetingServerObjectId"] = lockedTarget.TargetServerObjectId,
-            ["lockedTargetingMe"] = lockedTarget.IsTargetingLocalPlayer,
+            ["lockedTargetingMe"] = IsTargetingLocalPlayerByServerObjectId(lockedTarget),
             ["worldServerObjectId"] = lockedWorldTarget.ServerObjectId,
             ["worldTargetServerObjectId"] = lockedWorldTarget.ServerObjectId,
             ["worldTargetingServerObjectId"] = lockedWorldTarget.TargetServerObjectId,
@@ -2708,7 +2714,7 @@ public sealed class StationaryCombatController
         LockedTargetSnapshot target,
         string phase)
     {
-        if (target.IsTargetingLocalPlayer)
+        if (IsTargetingLocalPlayerByServerObjectId(target))
         {
             semiAutoState.MarkOpeningAttackKeyAttempted(target);
             return null;
@@ -2730,7 +2736,9 @@ public sealed class StationaryCombatController
             ["phase"] = phase,
             ["serverObjectId"] = target.ServerObjectId,
             ["targetServerObjectId"] = target.ServerObjectId,
-            ["targetingServerObjectId"] = target.TargetServerObjectId
+            ["targetingServerObjectId"] = target.TargetServerObjectId,
+            ["localServerObjectId"] = target.LocalServerObjectId,
+            ["targetingMe"] = IsTargetingLocalPlayerByServerObjectId(target)
         }, TimeSpan.FromMilliseconds(500));
 
         return await _semiAuto
@@ -3044,7 +3052,17 @@ public sealed class StationaryCombatController
 
     private static bool IsClaimedByOther(LockedTargetSnapshot target)
     {
-        return target.TargetServerObjectId != 0 && !target.IsTargetingLocalPlayer;
+        return target.TargetServerObjectId != 0 && !IsTargetingLocalPlayerByServerObjectId(target);
+    }
+
+    private static bool IsTargetingLocalPlayerByServerObjectId(LockedTargetSnapshot target)
+    {
+        if (target.LocalServerObjectId != 0)
+        {
+            return target.TargetServerObjectIdMatchesLocal;
+        }
+
+        return target.IsTargetingLocalPlayer;
     }
 
     private async Task PathFollowStepAsync(
