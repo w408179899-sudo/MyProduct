@@ -1,3 +1,4 @@
+using Roadhog;
 using Roadhog.Application;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
@@ -10,6 +11,7 @@ using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
 using Roadhog.Infrastructure.Config;
+using Roadhog.Infrastructure.Composition;
 using Roadhog.Infrastructure.Diagnostics;
 using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Paths;
@@ -24,7 +26,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime kill efficiency tracks kill intervals", TestRuntimeKillEfficiencyTracksKillIntervalsAsync),
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
     ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
+    ("window title formats character identity", TestWindowTitleFormatsCharacterIdentityAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
+    ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
+    ("services load kmbox net config before input creation", TestRoadhogServicesLoadsKmBoxNetConfigAsync),
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
@@ -384,6 +389,84 @@ static async Task TestKmBoxNetKeyboardInputValidationAsync()
 
     var unsupportedButton = await input.MouseDownAsync(RoadhogMouseButton.Side1).ConfigureAwait(false);
     AssertFalse(unsupportedButton.Success, "unsupported KMBox Net mouse button should fail before connect");
+}
+
+static Task TestWindowTitleFormatsCharacterIdentityAsync()
+{
+    var title = RoadhogWindowTitleFormatter.Build(
+        "port:Port_#0004.Hub_#000",
+        "192.168.2.188:4967/5BF7E466");
+
+    AssertEqual("GreenPlayer", title, "base title");
+    AssertEqual("GreenPlayer 路哥", RoadhogWindowTitleFormatter.Build("GreenPlayer", "port:Port_#0004.Hub_#000", "192.168.2.188:4967/5BF7E466", "路哥"), "title with character name");
+    AssertEqual("GreenPlayer", RoadhogWindowTitleFormatter.Build("", "(unconfigured)"), "unconfigured title");
+
+    return Task.CompletedTask;
+}
+
+static async Task TestKmBoxNetConfigStoreRoundTripAsync()
+{
+    var directory = CreateTempDirectory("roadhog-kmbox-net-");
+    try
+    {
+        var path = Path.Combine(directory, "kmbox-net.json");
+        var store = new JsonKmBoxNetDeviceConfigStore(path);
+        var config = new KmBoxNetDeviceConfig
+        {
+            IpAddress = "192.168.2.188",
+            Port = 4967,
+            Mac = "5BF7E466"
+        };
+
+        var save = await store.SaveAsync(config).ConfigureAwait(false);
+        AssertFalse(!save.Success, "kmbox net config save should succeed");
+
+        var load = await store.LoadAsync().ConfigureAwait(false);
+        AssertFalse(!load.Success, "kmbox net config load should succeed");
+        AssertEqual("192.168.2.188", load.Value?.IpAddress ?? string.Empty, "kmbox net ip");
+        AssertEqual(4967, load.Value?.Port ?? 0, "kmbox net port");
+        AssertEqual("5BF7E466", load.Value?.Mac ?? string.Empty, "kmbox net mac");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+}
+
+static async Task TestRoadhogServicesLoadsKmBoxNetConfigAsync()
+{
+    var directory = CreateTempDirectory("roadhog-kmbox-services-");
+    try
+    {
+        var configPath = Path.Combine(directory, "config", "kmbox-net.json");
+        var store = new JsonKmBoxNetDeviceConfigStore(configPath);
+        var save = await store.SaveAsync(new KmBoxNetDeviceConfig
+        {
+            IpAddress = "192.168.2.199",
+            Port = 5001,
+            Mac = "AABBCCDD"
+        }).ConfigureAwait(false);
+        AssertFalse(!save.Success, "service kmbox config save should succeed");
+
+        var options = new RoadhogServiceOptions
+        {
+            UseMockGameApi = true,
+            KmBoxNetConfigPath = configPath,
+            AccountConfigPath = Path.Combine(directory, "config", "accounts.json"),
+            PathLibraryDirectory = Path.Combine(directory, "config", "paths"),
+            LogDirectory = Path.Combine(directory, "logs")
+        };
+
+        using var services = RoadhogServices.Create(options);
+        AssertEqual("192.168.2.199:5001/AABBCCDD", services.KeyboardDeviceText, "service kmbox endpoint");
+        AssertEqual("192.168.2.199", services.KmBoxNetConfig.IpAddress, "service kmbox ip");
+        AssertEqual(5001, services.KmBoxNetConfig.Port, "service kmbox port");
+        AssertEqual("AABBCCDD", services.KmBoxNetConfig.Mac, "service kmbox mac");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
 }
 
 static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()

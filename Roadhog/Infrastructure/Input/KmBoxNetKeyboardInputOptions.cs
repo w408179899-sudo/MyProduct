@@ -56,6 +56,14 @@ public sealed class KmBoxNetKeyboardInputOptions
             : IpAddress.Trim() + ":" + Port;
     }
 
+    public string DeviceText()
+    {
+        var endpoint = EndpointText();
+        return string.IsNullOrWhiteSpace(Mac)
+            ? endpoint
+            : endpoint + "/" + Mac.Trim();
+    }
+
     private static int? ReadIntFromEnvironment(string name)
     {
         return int.TryParse(Environment.GetEnvironmentVariable(name), out var value)

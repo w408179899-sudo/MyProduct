@@ -35,7 +35,10 @@ public sealed class RoadhogServices : IDisposable
         AccountOrchestrator accountOrchestrator,
         RoadhogRuntime runtime,
         OffsetCatalogProvider offsets,
-        IKeyboardInput keyboardInput)
+        IKeyboardInput keyboardInput,
+        string keyboardDeviceText,
+        string kmBoxNetConfigPath,
+        KmBoxNetDeviceConfig kmBoxNetConfig)
     {
         Logger = logger;
         GameApi = gameApi;
@@ -48,6 +51,9 @@ public sealed class RoadhogServices : IDisposable
         Runtime = runtime;
         Offsets = offsets;
         KeyboardInput = keyboardInput;
+        KeyboardDeviceText = keyboardDeviceText;
+        KmBoxNetConfigPath = kmBoxNetConfigPath;
+        KmBoxNetConfig = kmBoxNetConfig;
     }
 
     private bool _disposed;
@@ -74,9 +80,22 @@ public sealed class RoadhogServices : IDisposable
 
     public IKeyboardInput KeyboardInput { get; }
 
+    public string KeyboardDeviceText { get; }
+
+    public string KmBoxNetConfigPath { get; }
+
+    public KmBoxNetDeviceConfig KmBoxNetConfig { get; }
+
     public static RoadhogServices Create(RoadhogServiceOptions? options = null)
     {
         options ??= new RoadhogServiceOptions();
+        var kmBoxConfigStore = new JsonKmBoxNetDeviceConfigStore(options.KmBoxNetConfigPath);
+        var kmBoxLoadResult = kmBoxConfigStore.Load();
+        if (kmBoxLoadResult.Success && kmBoxLoadResult.Value is { IsConfigured: true } savedKmBoxConfig)
+        {
+            savedKmBoxConfig.ApplyTo(options.KmBoxNetInput);
+        }
+        var effectiveKmBoxConfig = KmBoxNetDeviceConfig.FromOptions(options.KmBoxNetInput);
 
         var memoryLogger = new InMemoryRoadhogLogger();
         var logger = new CompositeRoadhogLogger(
@@ -87,12 +106,21 @@ public sealed class RoadhogServices : IDisposable
             ["logDirectory"] = options.LogDirectory,
             ["accountConfigPath"] = options.AccountConfigPath,
             ["pathLibraryDirectory"] = options.PathLibraryDirectory,
+            ["kmBoxNetConfigPath"] = options.KmBoxNetConfigPath,
             ["inputBackend"] = "KmBoxNet",
             ["keyboardInput"] = "KMBox Net",
             ["keyboardEndpoint"] = options.KmBoxNetInput.EndpointText(),
             ["useMockGameApi"] = options.UseMockGameApi,
             ["useToolTestBridge"] = options.UseToolTestBridge
         });
+        if (!kmBoxLoadResult.Success)
+        {
+            logger.Warn("kmbox_net.config.load_failed", new Dictionary<string, object?>
+            {
+                ["path"] = options.KmBoxNetConfigPath,
+                ["error"] = kmBoxLoadResult.Error
+            });
+        }
         IRoadhogGameApi gameApi = options.UseToolTestBridge
             ? new ToolProcessApiClient(options.ToolTestBridge, logger)
             : options.UseMockGameApi
@@ -123,7 +151,21 @@ public sealed class RoadhogServices : IDisposable
         var runtime = new RoadhogRuntime(gameApi, logger, accounts, accountOrchestrator);
         var offsets = new OffsetCatalogProvider(new OffsetCatalogLoader(), logger);
 
-        return new RoadhogServices(logger, gameApi, hardwareResolver, processResolver, accountConfigStore, sharedPathStore, accounts, accountOrchestrator, runtime, offsets, keyboardInput);
+        return new RoadhogServices(
+            logger,
+            gameApi,
+            hardwareResolver,
+            processResolver,
+            accountConfigStore,
+            sharedPathStore,
+            accounts,
+            accountOrchestrator,
+            runtime,
+            offsets,
+            keyboardInput,
+            options.KmBoxNetInput.DeviceText(),
+            options.KmBoxNetConfigPath,
+            effectiveKmBoxConfig);
     }
 
     public void Dispose()

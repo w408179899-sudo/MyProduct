@@ -17,6 +17,7 @@ namespace Roadhog
         private readonly HashSet<string> _playerInfoRefreshInFlight = new(StringComparer.OrdinalIgnoreCase);
         private readonly System.Windows.Forms.Timer _uiRefreshTimer = new() { Interval = 1000 };
 
+        private bool _suppressFpgaSelectionChanged;
         private int _accountRows;
         private int _nextAccountNumber = 1;
 
@@ -26,6 +27,10 @@ namespace Roadhog
             ApplyApplicationIcon();
             RebuildAccountsFromDevices();
             BuildAccountTable();
+            RefreshFpgaDeviceCombo();
+            LoadKmBoxNetInputs();
+            UpdateWindowTitle();
+            RefreshMissingPlayerInfoForRows();
             _uiRefreshTimer.Tick += UiRefreshTimer_Tick;
             _uiRefreshTimer.Start();
         }
@@ -51,21 +56,52 @@ namespace Roadhog
         {
             _accounts.Clear();
             var devices = _services.HardwareResolver.ListDevices();
+            var savedAccounts = LoadSavedAccountsForRows();
             var index = 1;
 
             foreach (var device in devices)
             {
+                var fallbackAccountName = $"account{index++}";
+                var savedAccount = FindSavedAccountForDevice(savedAccounts, device.BindingKey, fallbackAccountName);
                 _accounts.Add(new AccountRowModel(
-                    $"account{index++}",
+                    savedAccount?.AccountName ?? fallbackAccountName,
                     "",
-                    "",
+                    savedAccount?.CharacterName ?? "",
                     device.BindingKey,
+                    device.VmmDeviceName,
                     "idle",
                     "0.0",
                     "00:00:00"));
             }
 
             _nextAccountNumber = index;
+        }
+
+        private IReadOnlyList<Core.Accounts.AccountConfig> LoadSavedAccountsForRows()
+        {
+            var result = _services.AccountConfigStore.LoadAllAsync().GetAwaiter().GetResult();
+            if (!result.Success || result.Value is null)
+            {
+                _services.Logger.Warn("ui.account_config.load_for_rows_failed", new Dictionary<string, object?>
+                {
+                    ["error"] = result.Error
+                });
+                return Array.Empty<Core.Accounts.AccountConfig>();
+            }
+
+            return result.Value;
+        }
+
+        private static Core.Accounts.AccountConfig? FindSavedAccountForDevice(
+            IReadOnlyList<Core.Accounts.AccountConfig> savedAccounts,
+            string hardwareKey,
+            string fallbackAccountName)
+        {
+            return savedAccounts.FirstOrDefault(account =>
+                    !IsAutoHardwareKey(account.HardwareKey) &&
+                    string.Equals(account.HardwareKey.Trim(), hardwareKey.Trim(), StringComparison.OrdinalIgnoreCase))
+                ?? savedAccounts.FirstOrDefault(account =>
+                    string.Equals(account.AccountName, fallbackAccountName, StringComparison.OrdinalIgnoreCase));
         }
 
         private void BuildAccountTable()
@@ -76,7 +112,7 @@ namespace Roadhog
             accountTable.RowStyles.Clear();
             _rowControls.Clear();
             accountTable.RowCount = 1;
-            accountTable.ColumnCount = 11;
+            accountTable.ColumnCount = 10;
             _accountRows = 0;
 
             AddColumns();
@@ -87,7 +123,7 @@ namespace Roadhog
             AddHeader("状态", 3);
             AddHeader("杀怪/h", 4);
             AddHeader("时长", 5);
-            AddHeader("操作", 6, 5);
+            AddHeader("操作", 6, 4);
 
             foreach (var account in _accounts)
             {
@@ -106,9 +142,9 @@ namespace Roadhog
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 7F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 8F));
 
-            for (var i = 0; i < 5; i++)
+            for (var i = 0; i < 4; i++)
             {
-                accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 5.6F));
+                accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 7F));
             }
         }
 
@@ -163,7 +199,6 @@ namespace Roadhog
             AddActionButton("设置", row, 7, account.Account);
             AddActionButton("启动", row, 8, account.Account);
             AddActionButton("停止", row, 9, account.Account);
-            AddActionButton("删除", row, 10, account.Account);
 
             _rowControls[account.Account] = new AccountRowControls(
                 levelClassLabel,
@@ -244,11 +279,6 @@ namespace Roadhog
             {
                 button.Click += StopAccountButton_Click;
             }
-            else if (text == "删除")
-            {
-                button.Click += DeleteAccountButton_Click;
-            }
-
             accountTable.Controls.Add(button, column, row);
         }
 
@@ -261,6 +291,94 @@ namespace Roadhog
         {
             RebuildAccountsFromDevices();
             BuildAccountTable();
+            RefreshFpgaDeviceCombo();
+            UpdateWindowTitle();
+            RefreshMissingPlayerInfoForRows();
+        }
+
+        private void RefreshFpgaDeviceCombo()
+        {
+            var selectedHardwareKey = _accounts.FirstOrDefault()?.HardwareKey ?? string.Empty;
+            var devices = _services.HardwareResolver.ListDevices();
+
+            _suppressFpgaSelectionChanged = true;
+            try
+            {
+                fpgaDeviceComboBox.Items.Clear();
+                foreach (var device in devices)
+                {
+                    fpgaDeviceComboBox.Items.Add(new FpgaDeviceComboItem(
+                        device.BindingKey,
+                        device.VmmDeviceName,
+                        FormatFpgaDeviceText(device)));
+                }
+
+                if (fpgaDeviceComboBox.Items.Count == 0)
+                {
+                    fpgaDeviceComboBox.Items.Add(FpgaDeviceComboItem.Empty);
+                    fpgaDeviceComboBox.SelectedIndex = 0;
+                    return;
+                }
+
+                var selectedIndex = 0;
+                for (var i = 0; i < fpgaDeviceComboBox.Items.Count; i++)
+                {
+                    if (fpgaDeviceComboBox.Items[i] is FpgaDeviceComboItem item &&
+                        string.Equals(item.BindingKey, selectedHardwareKey, StringComparison.OrdinalIgnoreCase))
+                    {
+                        selectedIndex = i;
+                        break;
+                    }
+                }
+
+                fpgaDeviceComboBox.SelectedIndex = selectedIndex;
+            }
+            finally
+            {
+                _suppressFpgaSelectionChanged = false;
+            }
+        }
+
+        private void FpgaDeviceComboBox_SelectedIndexChanged(object? sender, EventArgs e)
+        {
+            if (_suppressFpgaSelectionChanged ||
+                fpgaDeviceComboBox.SelectedItem is not FpgaDeviceComboItem item ||
+                string.IsNullOrWhiteSpace(item.BindingKey))
+            {
+                return;
+            }
+
+            ApplySelectedFpgaDevice(item);
+        }
+
+        private void ApplySelectedFpgaDevice(FpgaDeviceComboItem item)
+        {
+            if (_accounts.Count == 0)
+            {
+                return;
+            }
+
+            var current = _accounts[0];
+            _accounts[0] = current with
+            {
+                LevelClass = string.Empty,
+                Role = string.Empty,
+                HardwareKey = item.BindingKey,
+                VmmDeviceName = item.VmmDeviceName
+            };
+
+            UpdateAccountRowText(_accounts[0], snapshot: null, updateHardwareKey: true);
+            UpdateWindowTitle();
+            _ = RefreshPlayerInfoAsync(_accounts[0].Account);
+        }
+
+        private static string FormatFpgaDeviceText(Core.Hardware.HardwareDeviceFeature device)
+        {
+            var binding = RoadhogWindowTitleFormatter.FormatHardware(device.BindingKey);
+            var display = string.IsNullOrWhiteSpace(device.DisplayName)
+                ? string.Empty
+                : " " + device.DisplayName.Trim();
+            return binding + " | " + device.VmmDeviceName + display;
         }
 
         private void AccountHardwareInput_TextChanged(object? sender, EventArgs e)
@@ -277,6 +395,70 @@ namespace Roadhog
             }
 
             _accounts[index] = _accounts[index] with { HardwareKey = input.Text.Trim() };
+            UpdateWindowTitle();
+        }
+
+        private void LoadKmBoxNetInputs()
+        {
+            var config = _services.KmBoxNetConfig;
+            kmboxIpTextBox.Text = config.IpAddress.Trim();
+            kmboxPortTextBox.Text = config.Port > 0
+                ? config.Port.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : string.Empty;
+            kmboxMacTextBox.Text = config.Mac.Trim();
+        }
+
+        private async void SaveKmBoxButton_Click(object? sender, EventArgs e)
+        {
+            if (!TryReadKmBoxNetInput(out var config, out var error))
+            {
+                MessageBox.Show(this, error, "保存KMBox失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            kmboxSaveButton.Enabled = false;
+            var oldText = kmboxSaveButton.Text;
+            kmboxSaveButton.Text = "保存中...";
+            try
+            {
+                var store = new Infrastructure.Config.JsonKmBoxNetDeviceConfigStore(_services.KmBoxNetConfigPath);
+                var result = await store.SaveAsync(config).ConfigureAwait(true);
+                if (!result.Success)
+                {
+                    MessageBox.Show(this, result.Error ?? "保存KMBox配置失败。", "保存KMBox失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                kmboxStatusLabel.Text = "已保存，重启后生效";
+                MessageBox.Show(this, "KMBox Net配置已保存，重启程序后生效。", "保存KMBox", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            finally
+            {
+                kmboxSaveButton.Text = oldText;
+                kmboxSaveButton.Enabled = true;
+            }
+        }
+
+        private bool TryReadKmBoxNetInput(out Infrastructure.Input.KmBoxNetDeviceConfig config, out string error)
+        {
+            config = new Infrastructure.Input.KmBoxNetDeviceConfig
+            {
+                IpAddress = kmboxIpTextBox.Text.Trim(),
+                Mac = kmboxMacTextBox.Text.Trim().ToUpperInvariant()
+            };
+
+            if (!int.TryParse(
+                    kmboxPortTextBox.Text.Trim(),
+                    System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var port))
+            {
+                error = "KMBox Net端口必须是数字。";
+                return false;
+            }
+
+            config.Port = port;
+            return config.Validate(out error);
         }
 
         private void AccountSettingsButton_Click(object? sender, EventArgs e)
@@ -313,6 +495,7 @@ namespace Roadhog
             if (result.Success)
             {
                 UpdateAccountRuntimeDisplay(account, updateHardwareKey: true);
+                UpdateWindowTitle();
             }
         }
 
@@ -331,46 +514,8 @@ namespace Roadhog
             if (result.Success)
             {
                 UpdateAccountRuntimeDisplay(account, updateHardwareKey: false);
+                UpdateWindowTitle();
             }
-        }
-
-        private async void DeleteAccountButton_Click(object? sender, EventArgs e)
-        {
-            if (sender is not Button { Tag: string account })
-            {
-                return;
-            }
-
-            var confirm = MessageBox.Show(
-                $"确定要删除账号 [{account}] 吗？",
-                "确认删除",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question,
-                MessageBoxDefaultButton.Button2);
-
-            if (confirm != DialogResult.Yes)
-            {
-                return;
-            }
-
-            var stopResult = await _services.AccountOrchestrator.StopAsync(account).ConfigureAwait(true);
-            if (!stopResult.Success)
-            {
-                MessageBox.Show(stopResult.Error, "删除失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            var index = _accounts.FindIndex(item => string.Equals(item.Account, account, StringComparison.OrdinalIgnoreCase));
-            if (index < 0)
-            {
-                return;
-            }
-
-            _accounts.RemoveAt(index);
-            _rowControls.Remove(account);
-            _lastPlayerInfoRefreshAt.Remove(account);
-            _playerInfoRefreshInFlight.Remove(account);
-            BuildAccountTable();
         }
 
         private async Task<StartConfigBuildResult> TryBuildStartConfigAsync(string account)
@@ -442,6 +587,7 @@ namespace Roadhog
             };
 
             UpdateAccountRowText(_accounts[index], snapshot, updateHardwareKey);
+            UpdateWindowTitle();
         }
 
         private void UiRefreshTimer_Tick(object? sender, EventArgs e)
@@ -471,6 +617,8 @@ namespace Roadhog
                     _ = RefreshPlayerInfoAsync(row.Account);
                 }
             }
+
+            UpdateWindowTitle();
         }
 
         private bool ShouldRefreshPlayerInfo(AccountRowModel row, Core.Accounts.AccountRuntimeSnapshot snapshot)
@@ -495,13 +643,29 @@ namespace Roadhog
                    DateTimeOffset.Now - refreshedAt >= PlayerInfoRefreshInterval;
         }
 
+        private void RefreshMissingPlayerInfoForRows()
+        {
+            foreach (var row in _accounts.ToArray())
+            {
+                if (string.IsNullOrWhiteSpace(row.Role) || string.IsNullOrWhiteSpace(row.LevelClass))
+                {
+                    _ = RefreshPlayerInfoAsync(row.Account);
+                }
+            }
+        }
+
         private async Task RefreshPlayerInfoAsync(string account)
         {
+            if (_playerInfoRefreshInFlight.Contains(account))
+            {
+                return;
+            }
+
             _playerInfoRefreshInFlight.Add(account);
             try
             {
                 _lastPlayerInfoRefreshAt[account] = DateTimeOffset.Now;
-                var result = await _services.Runtime.ReadPlayerAsync(account).ConfigureAwait(true);
+                var result = await ReadPlayerForRowAsync(account).ConfigureAwait(true);
                 if (!result.Success || result.Value is null)
                 {
                     return;
@@ -527,6 +691,8 @@ namespace Roadhog
                     SetTextIfChanged(controls.LevelClassLabel, _accounts[index].LevelClass);
                     SetTextIfChanged(controls.RoleLabel, _accounts[index].Role);
                 }
+
+                UpdateWindowTitle();
             }
             catch (Exception ex)
             {
@@ -540,6 +706,30 @@ namespace Roadhog
             {
                 _playerInfoRefreshInFlight.Remove(account);
             }
+        }
+
+        private Task<Core.Common.OperationResult<Core.Model.PlayerSnapshot>> ReadPlayerForRowAsync(string account)
+        {
+            var snapshot = _services.AccountOrchestrator.Snapshot()
+                .FirstOrDefault(item => string.Equals(item.AccountName, account, StringComparison.OrdinalIgnoreCase));
+            if (snapshot is not null && snapshot.ProcessId > 0)
+            {
+                return _services.Runtime.ReadPlayerAsync(account);
+            }
+
+            var row = _accounts.FirstOrDefault(item => string.Equals(item.Account, account, StringComparison.OrdinalIgnoreCase));
+            if (row is not null && _services.GameApi is Core.Api.IRoadhogScopedGameApi scopedApi)
+            {
+                return scopedApi.ReadPlayerAsync(
+                    new Core.Api.GameApiReadContext(
+                        row.Account,
+                        0,
+                        string.Empty,
+                        row.VmmDeviceName),
+                    CancellationToken.None);
+            }
+
+            return _services.Runtime.ReadPlayerAsync(account);
         }
 
         private void UpdateAccountRowText(
@@ -558,7 +748,7 @@ namespace Roadhog
             SetTextIfChanged(controls.KillsPerHourLabel, row.KillsPerHour);
             SetTextIfChanged(controls.DurationLabel, row.Duration);
 
-            if (updateHardwareKey && snapshot is not null && !string.IsNullOrWhiteSpace(row.HardwareKey))
+            if (updateHardwareKey && !string.IsNullOrWhiteSpace(row.HardwareKey))
             {
                 SetTextIfChanged(controls.HardwareInput, row.HardwareKey);
             }
@@ -570,6 +760,46 @@ namespace Roadhog
             {
                 control.Text = value;
             }
+        }
+
+        private void UpdateWindowTitle()
+        {
+            Text = RoadhogWindowTitleFormatter.Build(
+                ResolveWindowTitleHardwareKey(),
+                _services.KeyboardDeviceText,
+                ResolveWindowTitleCharacterName());
+        }
+
+        private string ResolveWindowTitleHardwareKey()
+        {
+            var activeSnapshot = _services.AccountOrchestrator.Snapshot()
+                .FirstOrDefault(snapshot =>
+                    !string.Equals(snapshot.Status, "idle", StringComparison.OrdinalIgnoreCase)
+                    && !IsAutoHardwareKey(snapshot.HardwareKey));
+            if (activeSnapshot is not null)
+            {
+                return activeSnapshot.HardwareKey;
+            }
+
+            return _accounts
+                .Select(account => account.HardwareKey)
+                .FirstOrDefault(key => !IsAutoHardwareKey(key)) ?? string.Empty;
+        }
+
+        private string ResolveWindowTitleCharacterName()
+        {
+            var activeSnapshot = _services.AccountOrchestrator.Snapshot()
+                .FirstOrDefault(snapshot =>
+                    !string.Equals(snapshot.Status, "idle", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(snapshot.CharacterName));
+            if (activeSnapshot is not null)
+            {
+                return activeSnapshot.CharacterName;
+            }
+
+            return _accounts
+                .Select(account => account.Role)
+                .FirstOrDefault(role => !string.IsNullOrWhiteSpace(role)) ?? string.Empty;
         }
 
         private static string FormatKillsPerHour(Core.Accounts.AccountRuntimeSnapshot snapshot)
@@ -646,6 +876,7 @@ namespace Roadhog
             string LevelClass,
             string Role,
             string HardwareKey,
+            string VmmDeviceName,
             string Status,
             string KillsPerHour,
             string Duration);
@@ -657,6 +888,16 @@ namespace Roadhog
             Label StatusLabel,
             Label KillsPerHourLabel,
             Label DurationLabel);
+
+        private sealed record FpgaDeviceComboItem(string BindingKey, string VmmDeviceName, string Text)
+        {
+            public static FpgaDeviceComboItem Empty { get; } = new(string.Empty, string.Empty, "未检测到FPGA设备");
+
+            public override string ToString()
+            {
+                return Text;
+            }
+        }
 
         private sealed record StartConfigBuildResult(bool Success, Core.Accounts.AccountConfig? Config, string Error)
         {

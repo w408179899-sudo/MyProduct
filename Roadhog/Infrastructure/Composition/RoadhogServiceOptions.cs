@@ -16,6 +16,8 @@ public sealed class RoadhogServiceOptions
 
     public string PathLibraryDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "paths");
 
+    public string KmBoxNetConfigPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "kmbox-net.json");
+
     public string LogDirectory { get; set; } = Path.Combine(ResolveRoadhogProjectDirectory(), "logs");
 
     public TimeSpan AccountWorkerTickInterval { get; set; } = TimeSpan.FromMilliseconds(250);

@@ -363,6 +363,12 @@ namespace Roadhog
             set => _comboBox.SelectedIndex = value;
         }
 
+        public object? SelectedItem
+        {
+            get => _comboBox.SelectedItem;
+            set => _comboBox.SelectedItem = value;
+        }
+
         [AllowNull]
         public override string Text
         {
