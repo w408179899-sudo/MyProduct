@@ -120,9 +120,9 @@ namespace Roadhog
             this.fpgaLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
             this.fpgaLabel.Location = new System.Drawing.Point(16, 17);
             this.fpgaLabel.Name = "fpgaLabel";
-            this.fpgaLabel.Size = new System.Drawing.Size(40, 17);
+            this.fpgaLabel.Size = new System.Drawing.Size(0, 17);
             this.fpgaLabel.TabIndex = 11;
-            this.fpgaLabel.Text = "FPGA";
+            this.fpgaLabel.Text = "";
             //
             // fpgaDeviceComboBox
             //
@@ -131,9 +131,9 @@ namespace Roadhog
             this.fpgaDeviceComboBox.CornerRadius = 8;
             this.fpgaDeviceComboBox.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Bold);
             this.fpgaDeviceComboBox.ForeColor = System.Drawing.Color.FromArgb(20, 83, 45);
-            this.fpgaDeviceComboBox.Location = new System.Drawing.Point(106, 10);
+            this.fpgaDeviceComboBox.Location = new System.Drawing.Point(16, 10);
             this.fpgaDeviceComboBox.Name = "fpgaDeviceComboBox";
-            this.fpgaDeviceComboBox.Size = new System.Drawing.Size(646, 32);
+            this.fpgaDeviceComboBox.Size = new System.Drawing.Size(736, 32);
             this.fpgaDeviceComboBox.TabIndex = 12;
             this.fpgaDeviceComboBox.SelectedIndexChanged += new System.EventHandler(this.FpgaDeviceComboBox_SelectedIndexChanged);
             //
@@ -161,16 +161,16 @@ namespace Roadhog
             this.kmboxTitleLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
             this.kmboxTitleLabel.Location = new System.Drawing.Point(16, 57);
             this.kmboxTitleLabel.Name = "kmboxTitleLabel";
-            this.kmboxTitleLabel.Size = new System.Drawing.Size(75, 17);
+            this.kmboxTitleLabel.Size = new System.Drawing.Size(0, 17);
             this.kmboxTitleLabel.TabIndex = 2;
-            this.kmboxTitleLabel.Text = "KMBox Net";
+            this.kmboxTitleLabel.Text = "";
             //
             // kmboxIpLabel
             //
             this.kmboxIpLabel.AutoSize = true;
             this.kmboxIpLabel.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxIpLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
-            this.kmboxIpLabel.Location = new System.Drawing.Point(106, 57);
+            this.kmboxIpLabel.Location = new System.Drawing.Point(16, 57);
             this.kmboxIpLabel.Name = "kmboxIpLabel";
             this.kmboxIpLabel.Size = new System.Drawing.Size(18, 17);
             this.kmboxIpLabel.TabIndex = 3;
@@ -183,9 +183,9 @@ namespace Roadhog
             this.kmboxIpTextBox.CornerRadius = 8;
             this.kmboxIpTextBox.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxIpTextBox.ForeColor = System.Drawing.Color.FromArgb(20, 83, 45);
-            this.kmboxIpTextBox.Location = new System.Drawing.Point(132, 50);
+            this.kmboxIpTextBox.Location = new System.Drawing.Point(42, 50);
             this.kmboxIpTextBox.Name = "kmboxIpTextBox";
-            this.kmboxIpTextBox.Size = new System.Drawing.Size(150, 30);
+            this.kmboxIpTextBox.Size = new System.Drawing.Size(190, 30);
             this.kmboxIpTextBox.TabIndex = 4;
             //
             // kmboxPortLabel
@@ -193,7 +193,7 @@ namespace Roadhog
             this.kmboxPortLabel.AutoSize = true;
             this.kmboxPortLabel.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxPortLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
-            this.kmboxPortLabel.Location = new System.Drawing.Point(304, 57);
+            this.kmboxPortLabel.Location = new System.Drawing.Point(260, 57);
             this.kmboxPortLabel.Name = "kmboxPortLabel";
             this.kmboxPortLabel.Size = new System.Drawing.Size(35, 17);
             this.kmboxPortLabel.TabIndex = 5;
@@ -206,9 +206,9 @@ namespace Roadhog
             this.kmboxPortTextBox.CornerRadius = 8;
             this.kmboxPortTextBox.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxPortTextBox.ForeColor = System.Drawing.Color.FromArgb(20, 83, 45);
-            this.kmboxPortTextBox.Location = new System.Drawing.Point(352, 50);
+            this.kmboxPortTextBox.Location = new System.Drawing.Point(308, 50);
             this.kmboxPortTextBox.Name = "kmboxPortTextBox";
-            this.kmboxPortTextBox.Size = new System.Drawing.Size(92, 30);
+            this.kmboxPortTextBox.Size = new System.Drawing.Size(110, 30);
             this.kmboxPortTextBox.TabIndex = 6;
             //
             // kmboxMacLabel
@@ -216,7 +216,7 @@ namespace Roadhog
             this.kmboxMacLabel.AutoSize = true;
             this.kmboxMacLabel.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxMacLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
-            this.kmboxMacLabel.Location = new System.Drawing.Point(482, 57);
+            this.kmboxMacLabel.Location = new System.Drawing.Point(448, 57);
             this.kmboxMacLabel.Name = "kmboxMacLabel";
             this.kmboxMacLabel.Size = new System.Drawing.Size(37, 17);
             this.kmboxMacLabel.TabIndex = 7;
@@ -229,9 +229,9 @@ namespace Roadhog
             this.kmboxMacTextBox.CornerRadius = 8;
             this.kmboxMacTextBox.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxMacTextBox.ForeColor = System.Drawing.Color.FromArgb(20, 83, 45);
-            this.kmboxMacTextBox.Location = new System.Drawing.Point(532, 50);
+            this.kmboxMacTextBox.Location = new System.Drawing.Point(498, 50);
             this.kmboxMacTextBox.Name = "kmboxMacTextBox";
-            this.kmboxMacTextBox.Size = new System.Drawing.Size(220, 30);
+            this.kmboxMacTextBox.Size = new System.Drawing.Size(254, 30);
             this.kmboxMacTextBox.TabIndex = 8;
             //
             // kmboxSaveButton
