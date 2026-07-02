@@ -64,10 +64,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private const ulong ActorObjectTypeOffset = 0x20;
     private const ulong ActorServerObjectIdOffset = 0x2C;
     private const ulong ActorNpcTemplateIdOffset = 0x30;
+    private const ulong ActorStanceFlagsOffset = 0x34;
     private const ulong ActorLevelOffset = 0x3E;
     private const ulong ActorHpPercentOffset = 0x40;
     private const ulong ActorNameOffset = 0x42;
     private const ulong ActorInteractionStateOffset = 0x1CC;
+    private const ulong ActorMotionModeOffset = 0x2D0;
     private const ulong ActorTargetServerObjectIdOffset = 0x358;
     private const ulong ActorAbnormalStatusBeginOffset = 0xF18;
     private const ulong ActorAbnormalStatusEndOffset = 0xF20;
@@ -2210,6 +2212,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         TryReadUInt16(process, gameBase + LocalCurrentDpRva, out var currentDp);
         var characterName = string.Empty;
         ushort characterLevel = 0;
+        uint stanceFlags = 0;
+        uint motionMode = 0;
         double? actorYaw = null;
         if (TryResolveActorFromEntity(process, localEntity, 0, out var actor))
         {
@@ -2221,6 +2225,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 
             characterName = actor.Name;
             characterLevel = actor.Level;
+            TryReadUInt32(process, actor.Actor + ActorStanceFlagsOffset, out stanceFlags);
+            TryReadUInt32(process, actor.Actor + ActorMotionModeOffset, out motionMode);
         }
 
         if (TryReadSingle(process, localEntity + EntityWorldAnglesOffset + 8, out var rawActorYaw))
@@ -2250,7 +2256,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             cameraYaw,
             cameraPitch,
             actorYaw,
-            characterLevel);
+            Level: characterLevel,
+            StanceFlags: stanceFlags,
+            MotionMode: motionMode);
         return true;
     }
 

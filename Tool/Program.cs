@@ -126,6 +126,15 @@ namespace Tool
                         return;
                     }
 
+                    if (string.Equals(aionTestMode, "rest", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "height", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "rest_probe", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "sit_probe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunCharacterRestProbeTest(process, gameBase);
+                        return;
+                    }
+
                     if (string.Equals(aionTestMode, "player_bench", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "player_benchmark", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "position_bench", StringComparison.OrdinalIgnoreCase) ||
@@ -866,10 +875,13 @@ namespace Tool
         private const ulong ActorObjectTypeOffset = 0x20;
         private const ulong ActorServerObjectIdOffset = 0x2C;
         private const ulong ActorNpcTemplateIdOffset = 0x30;
+        private const ulong ActorStanceFlagsOffset = 0x34;
         private const ulong ActorLevelOffset = 0x3E;
         private const ulong ActorHpPercentOffset = 0x40;
         private const ulong ActorNameOffset = 0x42;
         private const ulong ActorInteractionStateOffset = 0x1CC;
+        private const ulong ActorMotionModeOffset = 0x2D0;
+        private const ulong ActorSitOffsetCandidateOffset = 0x2D4;
         private const ulong ActorTargetServerObjectIdOffset = 0x358;
         private const ulong ActorAbnormalBeginOffset = 0xF18;
         private const ulong ActorAbnormalEndOffset = 0xF20;
@@ -1099,6 +1111,19 @@ namespace Tool
             public ulong CameraPitchRva;
             public ulong CameraRollRva;
             public ulong CameraYawRva;
+        }
+
+        private struct CharacterRestProbe
+        {
+            public LocalPlayerInfo Local;
+            public ActorInfo Actor;
+            public float WorldZ;
+            public float LocalZ;
+            public uint StanceFlags;
+            public int StanceLowNibble;
+            public uint MotionMode;
+            public float SitOffsetCandidate;
+            public bool IsResting;
         }
 
         private struct PathFollowPoint
@@ -1776,6 +1801,37 @@ namespace Tool
             }
 
             Console.ReadKey(true);
+        }
+
+        private static void RunCharacterRestProbeTest(VmmProcess process, ulong gameBase)
+        {
+            int samples = ClampInt(ReadIntFromEnv("AION_REST_PROBE_SAMPLES", ReadIntFromEnv("AION_REST_PROBE_COUNT", 5)), 1, 120);
+            int intervalMs = ClampInt(ReadIntFromEnv("AION_REST_PROBE_INTERVAL_MS", 500), 50, 10000);
+
+            Console.WriteLine("AION character rest/height probe.");
+            Console.WriteLine("Samples=" + samples + " IntervalMs=" + intervalMs +
+                              " Mode=AION_TEST_MODE=rest|height");
+
+            for (int i = 0; i < samples; i++)
+            {
+                CharacterRestProbe probe;
+                string error;
+                if (TryReadCharacterRestProbe(process, gameBase, out probe, out error))
+                {
+                    Console.WriteLine(FormatCharacterRestProbe(i + 1, probe));
+                }
+                else
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                                      "Sample=" + (i + 1) +
+                                      " Read failed: " + error);
+                }
+
+                if (i + 1 < samples)
+                {
+                    Thread.Sleep(intervalMs);
+                }
+            }
         }
 
         private static void RunLocalPlayerInfoBenchmarkTest(VmmProcess process, ulong gameBase)
@@ -8827,6 +8883,71 @@ namespace Tool
             return true;
         }
 
+        private static bool TryReadCharacterRestProbe(
+            VmmProcess process,
+            ulong gameBase,
+            out CharacterRestProbe probe,
+            out string error)
+        {
+            probe = new CharacterRestProbe();
+
+            LocalPlayerInfo local;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+            {
+                return false;
+            }
+
+            if (!local.HasPosition || local.Entity == 0)
+            {
+                error = "local player entity/position unavailable";
+                return false;
+            }
+
+            ActorInfo actor;
+            if (!TryResolveActorFromEntityExperimental(process, local.Entity, 0, out actor))
+            {
+                error = "failed to resolve local actor from entity " + FormatAddress(local.Entity);
+                return false;
+            }
+
+            float worldZ;
+            if (!TryReadSingle(process, local.Entity + EntityWorldPositionOffset + 8, out worldZ))
+            {
+                error = "failed to read CEntity+0x" + (EntityWorldPositionOffset + 8).ToString("X") +
+                        " world Z at " + FormatAddress(local.Entity + EntityWorldPositionOffset + 8);
+                return false;
+            }
+
+            float localZ = 0.0F;
+            TryReadSingle(process, local.Entity + EntityLocalPositionOffset + 8, out localZ);
+
+            uint stanceFlags = 0;
+            TryReadUInt32(process, actor.Actor + ActorStanceFlagsOffset, out stanceFlags);
+
+            uint motionMode = 0;
+            TryReadUInt32(process, actor.Actor + ActorMotionModeOffset, out motionMode);
+
+            float sitOffsetCandidate = 0.0F;
+            TryReadSingle(process, actor.Actor + ActorSitOffsetCandidateOffset, out sitOffsetCandidate);
+
+            int stanceLowNibble = unchecked((int)(stanceFlags & 0xFU));
+            bool isResting = motionMode == 4U ||
+                             stanceLowNibble == 6 ||
+                             (motionMode == 1U && stanceLowNibble == 5);
+
+            probe.Local = local;
+            probe.Actor = actor;
+            probe.WorldZ = worldZ;
+            probe.LocalZ = localZ;
+            probe.StanceFlags = stanceFlags;
+            probe.StanceLowNibble = stanceLowNibble;
+            probe.MotionMode = motionMode;
+            probe.SitOffsetCandidate = sitOffsetCandidate;
+            probe.IsResting = isResting;
+            error = null;
+            return true;
+        }
+
         private static bool TryReadLockedTargetMonsterInfo(
             VmmProcess process,
             ulong gameBase,
@@ -13883,6 +14004,27 @@ namespace Tool
             }
 
             return FormatTransform(info.Transform);
+        }
+
+        private static string FormatCharacterRestProbe(int sample, CharacterRestProbe probe)
+        {
+            return "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                   "Sample=" + sample +
+                   " Actor=" + FormatAddress(probe.Actor.Actor) +
+                   " Entity=" + FormatAddress(probe.Local.Entity) +
+                   " Name=\"" + (probe.Actor.Name ?? string.Empty) + "\"" +
+                   " ServerId=" + probe.Actor.ServerObjectId +
+                   " EntityId=" + probe.Local.EntityId +
+                   " Pos=" + FormatPosition(probe.Local) +
+                   " PositionOffset=0x" + probe.Local.PositionOffset.ToString("X") +
+                   " WorldZ(CEntity+0x4BC)=" + probe.WorldZ.ToString("F3") +
+                   " LocalZ(CEntity+0x4FC)=" + probe.LocalZ.ToString("F3") +
+                   " Stance(Actor+0x34)=0x" + probe.StanceFlags.ToString("X8") +
+                   " Low=" + probe.StanceLowNibble +
+                   " MotionMode(Actor+0x2D0)=" + probe.MotionMode +
+                   " SitOffset(Actor+0x2D4)=" + probe.SitOffsetCandidate.ToString("F3") +
+                   " Resting=" + FormatYesNo(probe.IsResting) +
+                   " Resolve=" + probe.Actor.ResolveSource;
         }
 
         private static string FormatPosition(LockedTargetMonsterInfo info)

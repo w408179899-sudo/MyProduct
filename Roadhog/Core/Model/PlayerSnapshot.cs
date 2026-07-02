@@ -15,13 +15,21 @@ public sealed record PlayerSnapshot(
     double? CameraPitchDegrees = null,
     double? ActorYawDegrees = null,
     ushort Level = 0,
-    string CharacterClass = "")
+    string CharacterClass = "",
+    uint StanceFlags = 0,
+    uint MotionMode = 0)
 {
     public bool HasKnownHealth => MaxHp > 0;
 
     public bool IsDead => HasKnownHealth && CurrentHp == 0;
 
     public bool IsAlive => HasKnownHealth && CurrentHp > 0;
+
+    public int StanceLowNibble => unchecked((int)(StanceFlags & 0xFU));
+
+    public bool HasRestState => StanceFlags != 0 || MotionMode != 0;
+
+    public bool IsResting => MotionMode == 1U && StanceLowNibble == 5;
 
     public double HpPercent => MaxHp == 0
         ? 100.0D

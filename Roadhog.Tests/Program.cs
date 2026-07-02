@@ -90,6 +90,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat skips skill maintenance before cooldown calibration", TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync),
     ("maintenance sit enters with comma and exits with x", TestMaintenanceSitEnterExitAsync),
     ("maintenance sit enters for low mp and exits on recovery", TestMaintenanceSitMpEnterExitAsync),
+    ("maintenance sit re-enters when poison interrupts rest", TestMaintenanceSitReentersWhenInterruptedAsync),
     ("maintenance sit waits for harmful abnormal before comma", TestMaintenanceSitWaitsForHarmfulAbnormalAsync),
     ("semi auto skips sit maintenance", TestSemiAutoSkipsSitMaintenanceAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
@@ -3780,6 +3781,61 @@ static async Task TestMaintenanceSitMpEnterExitAsync()
     await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
     AssertSequence(new[] { "OemComma", "X" }, keyboard.Keys.ToArray(), "recovered mp should exit sit maintenance with x");
     AssertFalse(state.IsMaintenanceResting, "mp maintenance rest should clear after standing up");
+}
+
+static async Task TestMaintenanceSitReentersWhenInterruptedAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 25;
+    settings.Maintenance.SitHpRecoverToPercent = 75;
+    settings.Maintenance.SitMpBelowPercent = 10;
+    settings.Maintenance.SitMpRecoverToPercent = 60;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            40,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            StanceFlags: 1,
+            MotionMode: 0),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    state.StartMaintenanceRest(forHp: true, forMp: false);
+    CalibrateCooldownClock(state);
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "interrupted rest should press comma again");
+    AssertFalse(!state.IsMaintenanceResting, "maintenance rest should remain active after re-enter");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.rest_reenter"), "rest re-enter should be logged");
+
+    keyboard.Keys.Clear();
+    await controller.TryHandleMaintenanceAsync(context, state, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "rest re-enter should be throttled");
+
+    var restingState = new SemiAutoCombatState();
+    restingState.StartMaintenanceRest(forHp: true, forMp: false);
+    gameApi.Player = gameApi.Player with { StanceFlags = 5, MotionMode = 1 };
+    await controller.TryHandleMaintenanceAsync(context, restingState, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "actual resting state should not press comma again");
 }
 
 static async Task TestMaintenanceSitWaitsForHarmfulAbnormalAsync()

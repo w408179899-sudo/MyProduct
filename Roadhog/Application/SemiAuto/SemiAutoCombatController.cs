@@ -381,6 +381,8 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
+        var enteredAt = DateTimeOffset.Now;
+        state.MarkMaintenanceKeyAttempted(RestEnterKey, enteredAt);
         state.StartMaintenanceRest(forHp: !hpRecovered, forMp: player.MaxMp > 0 && !mpRecovered);
         context.Logger.Info("semi_auto.maintenance.revive_rest_enter", new Dictionary<string, object?>
         {
@@ -542,6 +544,8 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
+        var enteredAt = DateTimeOffset.Now;
+        state.MarkMaintenanceKeyAttempted(RestEnterKey, enteredAt);
         state.StartMaintenanceRest(restForHp, restForMp);
         context.Logger.Info("semi_auto.maintenance.rest_enter", new Dictionary<string, object?>
         {
@@ -661,6 +665,40 @@ public sealed class SemiAutoCombatController
                           IsPercentAtOrAbove(player.CurrentMp, player.MaxMp, maintenance.SitMpRecoverToPercent);
         if (!hpRecovered || !mpRecovered)
         {
+            if (player.HasRestState && !player.IsResting)
+            {
+                var now = DateTimeOffset.Now;
+                if (!state.ShouldPressMaintenanceKey(RestEnterKey, now, MaintenanceKeyRetryInterval))
+                {
+                    return true;
+                }
+
+                var reenterResult = await _keyboard
+                    .PressKeyAsync(RestEnterKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
+                    .ConfigureAwait(false);
+                if (!reenterResult.Success)
+                {
+                    LogMaintenanceKeyFailure(context, state, RestEnterKey, "rest_reenter", reenterResult.Error);
+                    return true;
+                }
+
+                state.MarkMaintenanceKeyAttempted(RestEnterKey, DateTimeOffset.Now);
+                context.Logger.Info("semi_auto.maintenance.rest_reenter", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["key"] = RestEnterKey,
+                    ["forHp"] = state.MaintenanceRestingForHp,
+                    ["forMp"] = state.MaintenanceRestingForMp,
+                    ["hp"] = player.CurrentHp,
+                    ["maxHp"] = player.MaxHp,
+                    ["mp"] = player.CurrentMp,
+                    ["maxMp"] = player.MaxMp,
+                    ["stanceFlags"] = player.StanceFlags,
+                    ["stanceLow"] = player.StanceLowNibble,
+                    ["motionMode"] = player.MotionMode
+                });
+            }
+
             return true;
         }
 
