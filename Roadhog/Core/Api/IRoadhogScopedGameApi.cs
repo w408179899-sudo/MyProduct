@@ -13,6 +13,14 @@ public interface IRoadhogScopedGameApi : IRoadhogGameApi
         GameApiReadContext context,
         CancellationToken cancellationToken = default);
 
+    Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default);
+
+    Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default);
+
     Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(
         GameApiReadContext context,
         CancellationToken cancellationToken = default);

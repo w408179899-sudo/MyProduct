@@ -185,6 +185,15 @@ namespace Tool
                         return;
                     }
 
+                    if (string.Equals(aionTestMode, "pet", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "pet_probe", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "summon_pet", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "summon_probe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunPetSummonProbeTest(process, gameBase);
+                        return;
+                    }
+
                     if (string.Equals(aionTestMode, "abnormal", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "abnormals", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "debuff", StringComparison.OrdinalIgnoreCase) ||
@@ -1230,6 +1239,35 @@ namespace Tool
             public bool HasAggressive;
             public int Aggressive;
             public bool IsTargetingLocalPlayer;
+        }
+
+        private struct NearbyActorProbeEntry
+        {
+            public ushort EntityId;
+            public uint ServerObjectId;
+            public ulong Entity;
+            public ushort EntityType;
+            public ulong PositionOffset;
+            public float X;
+            public float Y;
+            public float Z;
+            public double DistanceToLocalPlayer;
+            public bool IsLockedTarget;
+            public bool HasActor;
+            public ActorInfo Actor;
+            public bool HasNpcStaticDetail;
+            public NpcStaticDetail NpcStaticDetail;
+            public bool IsTargetingLocalPlayer;
+            public bool HasOwnerReferenceEvidence;
+            public string PetLocalReferenceHits;
+            public string LocalPetReferenceHits;
+        }
+
+        private struct ReferenceNeedle
+        {
+            public string Label;
+            public ulong Value;
+            public int Size;
         }
 
         private struct LootCorpseListEntry
@@ -8806,6 +8844,207 @@ namespace Tool
             }
         }
 
+        private static void RunPetSummonProbeTest(VmmProcess process, ulong gameBase)
+        {
+            double radius = ReadDoubleFromEnv("AION_PET_PROBE_RADIUS", 5.0);
+            int limit = ReadIntFromEnv("AION_PET_PROBE_LIMIT", 40);
+            int samples = ReadIntFromEnv("AION_PET_PROBE_SAMPLES", 0);
+            int intervalMs = ClampInt(ReadIntFromEnv("AION_PET_PROBE_INTERVAL_MS", 1000), 100, 10000);
+            bool printAll = ReadBoolFromEnv("AION_PET_PROBE_PRINT_ALL", false);
+            bool npcOnly = ReadBoolFromEnv("AION_PET_PROBE_NPC_ONLY", false);
+            int ownerScanBytes = ClampInt((int)ReadUIntFromEnv("AION_PET_OWNER_SCAN_BYTES", 0x2000), 0, 0x10000);
+
+            string tribeXmlPath;
+            string tribeXmlError;
+            Dictionary<string, NpcTribeRelation> tribeRelations = LoadNpcTribeRelations(out tribeXmlPath, out tribeXmlError);
+            string npcXmlPath;
+            string npcXmlError;
+            Dictionary<uint, NpcStaticDetail> npcStaticDetails = LoadNpcStaticDetails(
+                tribeRelations,
+                out npcXmlPath,
+                out npcXmlError);
+
+            Console.WriteLine("AION summon pet probe from ServerObject tree + EntitySystem tree.");
+            Console.WriteLine("Start this before summoning. The baseline is captured immediately; newly visible rows within Radius are marked [NEW].");
+            Console.WriteLine(
+                "Radius=" + radius.ToString("F1") +
+                ", Limit=" + limit +
+                ", Samples=" + (samples <= 0 ? "infinite" : samples.ToString()) +
+                ", IntervalMs=" + intervalMs +
+                ", NpcOnly=" + FormatYesNo(npcOnly) +
+                ", PrintAll=" + FormatYesNo(printAll) +
+                ", OwnerScanBytes=0x" + ownerScanBytes.ToString("X") +
+                ". Press any key to stop.");
+            Console.WriteLine(FormatNpcXmlLoadStatus(npcXmlPath, npcXmlError, npcStaticDetails.Count, tribeXmlPath, tribeXmlError, tribeRelations.Count));
+
+            List<NearbyActorProbeEntry> baseline;
+            LocalPlayerInfo baselineLocal;
+            ActorInfo baselineLocalActor;
+            bool hasBaselineLocalActor;
+            int baselineScannedServerObjects;
+            int baselineResolvedEntities;
+            int baselineNpcLikeEntities;
+            int baselineResolvedActors;
+            string error;
+
+            if (!TryReadNearbyActorProbeList(
+                process,
+                gameBase,
+                radius,
+                limit,
+                npcOnly,
+                ownerScanBytes,
+                npcStaticDetails,
+                out baseline,
+                out baselineLocal,
+                out baselineLocalActor,
+                out hasBaselineLocalActor,
+                out baselineScannedServerObjects,
+                out baselineResolvedEntities,
+                out baselineNpcLikeEntities,
+                out baselineResolvedActors,
+                out error))
+            {
+                Console.WriteLine("Baseline read failed: " + error);
+                return;
+            }
+
+            var baselineKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < baseline.Count; i++)
+            {
+                baselineKeys.Add(GetPetProbeObjectKey(baseline[i]));
+            }
+
+            Console.WriteLine("Baseline Local=" + FormatPetProbeLocal(baselineLocal, baselineLocalActor, hasBaselineLocalActor));
+            Console.WriteLine(
+                "Baseline Rows=" + baseline.Count +
+                " ScannedServerObjects=" + baselineScannedServerObjects +
+                " ResolvedEntities=" + baselineResolvedEntities +
+                " NpcLike=" + baselineNpcLikeEntities +
+                " ResolvedActors=" + baselineResolvedActors);
+
+            for (int i = 0; i < baseline.Count; i++)
+            {
+                Console.WriteLine(FormatPetProbeEntry(i + 1, baseline[i], false));
+            }
+
+            Console.WriteLine("Summon the pet now. Watch for [NEW] and [SUMMON_PET].");
+
+            int sampleIndex = 0;
+            while ((samples <= 0 || sampleIndex < samples) && !IsConsoleKeyAvailable())
+            {
+                sampleIndex++;
+
+                List<NearbyActorProbeEntry> entries;
+                LocalPlayerInfo local;
+                ActorInfo localActor;
+                bool hasLocalActor;
+                int scannedServerObjects;
+                int resolvedEntities;
+                int npcLikeEntities;
+                int resolvedActors;
+
+                if (TryReadNearbyActorProbeList(
+                    process,
+                    gameBase,
+                    radius,
+                    limit,
+                    npcOnly,
+                    ownerScanBytes,
+                    npcStaticDetails,
+                    out entries,
+                    out local,
+                    out localActor,
+                    out hasLocalActor,
+                    out scannedServerObjects,
+                    out resolvedEntities,
+                    out npcLikeEntities,
+                    out resolvedActors,
+                    out error))
+                {
+                    var rowsToPrint = new List<NearbyActorProbeEntry>();
+                    int newCount = 0;
+                    int summonPetCount = 0;
+                    for (int i = 0; i < entries.Count; i++)
+                    {
+                        NearbyActorProbeEntry entry = entries[i];
+                        bool isNew = !baselineKeys.Contains(GetPetProbeObjectKey(entry));
+                        bool isSummonPet = IsSummonPetCandidate(entry);
+                        if (isNew)
+                        {
+                            newCount++;
+                        }
+
+                        if (isSummonPet)
+                        {
+                            summonPetCount++;
+                        }
+
+                        if (printAll || isNew || isSummonPet)
+                        {
+                            rowsToPrint.Add(entry);
+                        }
+                    }
+
+                    rowsToPrint.Sort(delegate (NearbyActorProbeEntry left, NearbyActorProbeEntry right)
+                    {
+                        bool leftNew = !baselineKeys.Contains(GetPetProbeObjectKey(left));
+                        bool rightNew = !baselineKeys.Contains(GetPetProbeObjectKey(right));
+                        if (leftNew != rightNew)
+                        {
+                            return leftNew ? -1 : 1;
+                        }
+
+                        bool leftSummonPet = IsSummonPetCandidate(left);
+                        bool rightSummonPet = IsSummonPetCandidate(right);
+                        if (leftSummonPet != rightSummonPet)
+                        {
+                            return leftSummonPet ? -1 : 1;
+                        }
+
+                        return left.DistanceToLocalPlayer.CompareTo(right.DistanceToLocalPlayer);
+                    });
+
+                    Console.WriteLine(
+                        "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                        "Sample=" + sampleIndex +
+                        " Rows=" + entries.Count +
+                        " New=" + newCount +
+                        " SummonPet=" + summonPetCount +
+                        " ScannedServerObjects=" + scannedServerObjects +
+                        " ResolvedEntities=" + resolvedEntities +
+                        " NpcLike=" + npcLikeEntities +
+                        " ResolvedActors=" + resolvedActors +
+                        " Local=" + FormatPetProbeLocal(local, localActor, hasLocalActor));
+
+                    if (rowsToPrint.Count == 0)
+                    {
+                        Console.WriteLine("No new/summon-pet candidates in radius. Set AION_PET_PROBE_PRINT_ALL=1 for full nearby rows.");
+                    }
+                    else
+                    {
+                        for (int i = 0; i < rowsToPrint.Count; i++)
+                        {
+                            NearbyActorProbeEntry entry = rowsToPrint[i];
+                            bool isNew = !baselineKeys.Contains(GetPetProbeObjectKey(entry));
+                            Console.WriteLine(FormatPetProbeEntry(i + 1, entry, isNew));
+                        }
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Read failed: " + error);
+                }
+
+                Thread.Sleep(intervalMs);
+            }
+
+            if (IsConsoleKeyAvailable())
+            {
+                Console.ReadKey(true);
+            }
+        }
+
         private static bool TryReadLocalPlayerInfo(
             VmmProcess process,
             ulong gameBase,
@@ -9261,6 +9500,392 @@ namespace Tool
             }
 
             return true;
+        }
+
+        private static bool TryReadNearbyActorProbeList(
+            VmmProcess process,
+            ulong gameBase,
+            double radius,
+            int limit,
+            bool npcOnly,
+            int ownerScanBytes,
+            Dictionary<uint, NpcStaticDetail> npcStaticDetails,
+            out List<NearbyActorProbeEntry> entries,
+            out LocalPlayerInfo local,
+            out ActorInfo localActor,
+            out bool hasLocalActor,
+            out int scannedServerObjects,
+            out int resolvedEntities,
+            out int npcLikeEntities,
+            out int resolvedActors,
+            out string error)
+        {
+            entries = new List<NearbyActorProbeEntry>();
+            local = new LocalPlayerInfo();
+            localActor = new ActorInfo();
+            hasLocalActor = false;
+            scannedServerObjects = 0;
+            resolvedEntities = 0;
+            npcLikeEntities = 0;
+            resolvedActors = 0;
+            error = null;
+
+            if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+            {
+                return false;
+            }
+
+            if (!local.HasPosition || local.Entity == 0)
+            {
+                error = "local player entity/position unavailable";
+                return false;
+            }
+
+            hasLocalActor = TryResolveActorFromEntityExperimental(
+                process,
+                local.Entity,
+                0,
+                out localActor);
+
+            ulong entitySystem;
+            if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out entitySystem))
+            {
+                error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
+                return false;
+            }
+
+            ulong entityTreeHeader;
+            if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out entityTreeHeader))
+            {
+                error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
+                return false;
+            }
+
+            ushort targetEntityId = local.TargetEntityId;
+
+            ulong serverTreeHeader;
+            if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out serverTreeHeader) || serverTreeHeader == 0)
+            {
+                error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
+                return false;
+            }
+
+            ulong node;
+            if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out node))
+            {
+                error = "failed to read ServerObject tree begin node";
+                return false;
+            }
+
+            for (int guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
+            {
+                if (IsNilNode(process, node, serverTreeHeader))
+                {
+                    break;
+                }
+
+                scannedServerObjects++;
+
+                uint serverObjectId;
+                ushort entityId;
+                if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out serverObjectId) &&
+                    TryReadUInt16(process, node + ServerNodeEntityIdOffset, out entityId) &&
+                    entityId != 0 &&
+                    entityId != local.EntityId)
+                {
+                    ulong entity;
+                    if (TryFindEntityById(process, entityTreeHeader, entityId, out entity) && entity != 0)
+                    {
+                        resolvedEntities++;
+
+                        ushort entityType = 0;
+                        bool hasEntityType = TryReadUInt16(process, entity + EntityTypeOffset, out entityType);
+                        if (hasEntityType && entityType == EntityTypeNpc)
+                        {
+                            npcLikeEntities++;
+                        }
+
+                        if (!npcOnly || (hasEntityType && entityType == EntityTypeNpc))
+                        {
+                            float x;
+                            float y;
+                            float z;
+                            ulong positionOffset;
+                            if (TryReadEntityPosition(process, entity, out x, out y, out z, out positionOffset) &&
+                                IsReasonablePosition(x, y, z))
+                            {
+                                double dx = x - local.X;
+                                double dy = y - local.Y;
+                                double dz = z - local.Z;
+                                double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+
+                                if (radius <= 0 || distance <= radius)
+                                {
+                                    ActorInfo actor;
+                                    bool hasActor = TryResolveActorFromEntityExperimental(
+                                        process,
+                                        entity,
+                                        serverObjectId,
+                                        out actor);
+                                    if (hasActor)
+                                    {
+                                        resolvedActors++;
+                                    }
+
+                                    NpcStaticDetail npcStaticDetail = new NpcStaticDetail();
+                                    bool hasNpcStaticDetail =
+                                        hasActor &&
+                                        npcStaticDetails != null &&
+                                        npcStaticDetails.TryGetValue(actor.NpcTemplateId, out npcStaticDetail);
+
+                                    string petLocalReferenceHits = string.Empty;
+                                    string localPetReferenceHits = string.Empty;
+                                    bool hasOwnerReferenceEvidence =
+                                        hasActor &&
+                                        TryBuildPetOwnerReferenceEvidence(
+                                            process,
+                                            actor,
+                                            serverObjectId,
+                                            local,
+                                            localActor,
+                                            hasLocalActor,
+                                            ownerScanBytes,
+                                            out petLocalReferenceHits,
+                                            out localPetReferenceHits);
+
+                                    entries.Add(new NearbyActorProbeEntry
+                                    {
+                                        EntityId = entityId,
+                                        ServerObjectId = serverObjectId,
+                                        Entity = entity,
+                                        EntityType = entityType,
+                                        PositionOffset = positionOffset,
+                                        X = x,
+                                        Y = y,
+                                        Z = z,
+                                        DistanceToLocalPlayer = distance,
+                                        IsLockedTarget = entityId == targetEntityId,
+                                        HasActor = hasActor,
+                                        Actor = actor,
+                                        HasNpcStaticDetail = hasNpcStaticDetail,
+                                        NpcStaticDetail = npcStaticDetail,
+                                        IsTargetingLocalPlayer = hasActor &&
+                                            hasLocalActor &&
+                                            localActor.ServerObjectId != 0 &&
+                                            actor.TargetServerObjectId == localActor.ServerObjectId,
+                                        HasOwnerReferenceEvidence = hasOwnerReferenceEvidence,
+                                        PetLocalReferenceHits = petLocalReferenceHits,
+                                        LocalPetReferenceHits = localPetReferenceHits
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ulong next;
+                if (!TryGetNextTreeNode(process, serverTreeHeader, node, out next) || next == node)
+                {
+                    break;
+                }
+
+                node = next;
+            }
+
+            entries.Sort(delegate (NearbyActorProbeEntry left, NearbyActorProbeEntry right)
+            {
+                bool leftSummonPet = IsSummonPetCandidate(left);
+                bool rightSummonPet = IsSummonPetCandidate(right);
+                if (leftSummonPet != rightSummonPet)
+                {
+                    return leftSummonPet ? -1 : 1;
+                }
+
+                return left.DistanceToLocalPlayer.CompareTo(right.DistanceToLocalPlayer);
+            });
+
+            if (limit > 0 && entries.Count > limit)
+            {
+                entries.RemoveRange(limit, entries.Count - limit);
+            }
+
+            return true;
+        }
+
+        private static bool TryBuildPetOwnerReferenceEvidence(
+            VmmProcess process,
+            ActorInfo petActor,
+            uint fallbackPetServerObjectId,
+            LocalPlayerInfo local,
+            ActorInfo localActor,
+            bool hasLocalActor,
+            int ownerScanBytes,
+            out string petLocalReferenceHits,
+            out string localPetReferenceHits)
+        {
+            petLocalReferenceHits = "off";
+            localPetReferenceHits = "off";
+
+            if (ownerScanBytes <= 0 || !hasLocalActor)
+            {
+                return false;
+            }
+
+            var petToLocalNeedles = new List<ReferenceNeedle>();
+            if (localActor.ServerObjectId != 0)
+            {
+                petToLocalNeedles.Add(new ReferenceNeedle
+                {
+                    Label = "LocalServerId",
+                    Value = localActor.ServerObjectId,
+                    Size = 4
+                });
+            }
+
+            if (localActor.Actor != 0)
+            {
+                petToLocalNeedles.Add(new ReferenceNeedle
+                {
+                    Label = "LocalActorPtr",
+                    Value = localActor.Actor,
+                    Size = 8
+                });
+            }
+
+            if (local.Entity != 0)
+            {
+                petToLocalNeedles.Add(new ReferenceNeedle
+                {
+                    Label = "LocalEntityPtr",
+                    Value = local.Entity,
+                    Size = 8
+                });
+            }
+
+            uint petServerObjectId = petActor.ServerObjectId != 0
+                ? petActor.ServerObjectId
+                : fallbackPetServerObjectId;
+
+            var localToPetNeedles = new List<ReferenceNeedle>();
+            if (petServerObjectId != 0)
+            {
+                localToPetNeedles.Add(new ReferenceNeedle
+                {
+                    Label = "PetServerId",
+                    Value = petServerObjectId,
+                    Size = 4
+                });
+            }
+
+            if (petActor.Actor != 0)
+            {
+                localToPetNeedles.Add(new ReferenceNeedle
+                {
+                    Label = "PetActorPtr",
+                    Value = petActor.Actor,
+                    Size = 8
+                });
+            }
+
+            if (petActor.Entity != 0)
+            {
+                localToPetNeedles.Add(new ReferenceNeedle
+                {
+                    Label = "PetEntityPtr",
+                    Value = petActor.Entity,
+                    Size = 8
+                });
+            }
+
+            petLocalReferenceHits = FormatReferenceHits(
+                process,
+                petActor.Actor,
+                ownerScanBytes,
+                petToLocalNeedles,
+                24);
+            localPetReferenceHits = FormatReferenceHits(
+                process,
+                localActor.Actor,
+                ownerScanBytes,
+                localToPetNeedles,
+                24);
+
+            return !string.Equals(petLocalReferenceHits, "none", StringComparison.OrdinalIgnoreCase) ||
+                   !string.Equals(localPetReferenceHits, "none", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string FormatReferenceHits(
+            VmmProcess process,
+            ulong baseAddress,
+            int bytesToScan,
+            List<ReferenceNeedle> needles,
+            int maxHits)
+        {
+            if (baseAddress == 0 || bytesToScan <= 0 || needles == null || needles.Count == 0)
+            {
+                return "none";
+            }
+
+            var hits = new List<string>();
+            int chunkSize = 0x200;
+            for (int chunkOffset = 0; chunkOffset < bytesToScan; chunkOffset += chunkSize)
+            {
+                int count = Math.Min(chunkSize, bytesToScan - chunkOffset);
+                byte[] bytes;
+                if (!TryReadBytes(process, baseAddress + (ulong)chunkOffset, count, out bytes) ||
+                    bytes == null ||
+                    bytes.Length == 0)
+                {
+                    continue;
+                }
+
+                for (int byteOffset = 0; byteOffset < bytes.Length && hits.Count < maxHits; byteOffset++)
+                {
+                    for (int needleIndex = 0; needleIndex < needles.Count && hits.Count < maxHits; needleIndex++)
+                    {
+                        ReferenceNeedle needle = needles[needleIndex];
+                        if (needle.Size == 4)
+                        {
+                            if (byteOffset + 4 <= bytes.Length &&
+                                BitConverter.ToUInt32(bytes, byteOffset) == unchecked((uint)needle.Value))
+                            {
+                                hits.Add(
+                                    "+0x" + (chunkOffset + byteOffset).ToString("X") +
+                                    ":" + needle.Label +
+                                    "=0x" + unchecked((uint)needle.Value).ToString("X8"));
+                            }
+                        }
+                        else if (needle.Size == 8)
+                        {
+                            if (byteOffset + 8 <= bytes.Length &&
+                                BitConverter.ToUInt64(bytes, byteOffset) == needle.Value)
+                            {
+                                hits.Add(
+                                    "+0x" + (chunkOffset + byteOffset).ToString("X") +
+                                    ":" + needle.Label +
+                                    "=" + FormatAddress(needle.Value));
+                            }
+                        }
+                    }
+                }
+
+                if (hits.Count >= maxHits)
+                {
+                    break;
+                }
+            }
+
+            if (hits.Count == 0)
+            {
+                return "none";
+            }
+
+            if (hits.Count >= maxHits)
+            {
+                hits.Add("...");
+            }
+
+            return string.Join(",", hits.ToArray());
         }
 
         private static bool TryReadLootCorpseList(
@@ -12324,6 +12949,159 @@ namespace Tool
                    " Cell=" + (item.Cell + 1) +
                    " Row=" + (item.Row + 1) +
                    " Col=" + (item.Column + 1);
+        }
+
+        private static string FormatPetProbeLocal(
+            LocalPlayerInfo local,
+            ActorInfo localActor,
+            bool hasLocalActor)
+        {
+            return "EntityId=" + local.EntityId +
+                   " ServerId=" + (hasLocalActor ? localActor.ServerObjectId.ToString() : "n/a") +
+                   " Actor=" + (hasLocalActor ? FormatAddress(localActor.Actor) : "n/a") +
+                   " Name=\"" + (hasLocalActor ? (localActor.Name ?? string.Empty) : string.Empty) + "\"" +
+                   " Pos=" + FormatPosition(local);
+        }
+
+        private static string FormatPetProbeEntry(
+            int index,
+            NearbyActorProbeEntry entry,
+            bool isNew)
+        {
+            return "#" + index.ToString("00") +
+                   (isNew ? " [NEW]" : string.Empty) +
+                   (IsSummonPetCandidate(entry) ? " [SUMMON_PET]" : string.Empty) +
+                   (entry.HasOwnerReferenceEvidence ? " [OWNER_REF]" : string.Empty) +
+                   (entry.IsLockedTarget ? " [TARGET]" : string.Empty) +
+                   " Key=" + GetPetProbeObjectKey(entry) +
+                   " Dist=" + entry.DistanceToLocalPlayer.ToString("F2") +
+                   " EntityId=" + entry.EntityId +
+                   " ServerId=" + entry.ServerObjectId +
+                   " CEntityType=" + entry.EntityType +
+                   " Entity=" + FormatAddress(entry.Entity) +
+                   " Actor=" + FormatPetProbeActor(entry) +
+                   " ObjType=" + FormatPetProbeObjectType(entry) +
+                   " TemplateId=" + FormatPetProbeTemplateId(entry) +
+                   " StaticName=\"" + FormatPetProbeStaticName(entry) + "\"" +
+                   " NpcType=" + FormatPetProbeNpcType(entry) +
+                   " Tribe=" + FormatPetProbeTribe(entry) +
+                   " Level=" + FormatPetProbeLevel(entry) +
+                   " HP=" + FormatPetProbeHp(entry) +
+                   " HpPercent=" + FormatPetProbeHpPercent(entry) +
+                   " TargetServerId=" + FormatPetProbeTargetServerId(entry) +
+                   " TargetingMe=" + FormatPetProbeTargetingLocalPlayer(entry) +
+                   " OwnerEvidence=" + FormatYesNo(entry.HasOwnerReferenceEvidence) +
+                   " PetRefsLocal=" + FormatEmptyAsNotAvailable(entry.PetLocalReferenceHits) +
+                   " LocalRefsPet=" + FormatEmptyAsNotAvailable(entry.LocalPetReferenceHits) +
+                   " Locked=" + FormatYesNo(entry.IsLockedTarget) +
+                   " Name=\"" + FormatPetProbeName(entry) + "\"" +
+                   " Pos=X=" + entry.X.ToString("F2") +
+                   " Y=" + entry.Y.ToString("F2") +
+                   " Z=" + entry.Z.ToString("F2") +
+                   " Offset=0x" + entry.PositionOffset.ToString("X");
+        }
+
+        private static string GetPetProbeObjectKey(NearbyActorProbeEntry entry)
+        {
+            if (entry.ServerObjectId != 0)
+            {
+                return "S:" + entry.ServerObjectId;
+            }
+
+            if (entry.EntityId != 0)
+            {
+                return "E:" + entry.EntityId;
+            }
+
+            return "A:" + entry.Entity.ToString("X");
+        }
+
+        private static bool IsSummonPetCandidate(NearbyActorProbeEntry entry)
+        {
+            if (!entry.HasNpcStaticDetail)
+            {
+                return false;
+            }
+
+            string npcType = NormalizeNpcXmlToken(entry.NpcStaticDetail.NpcType);
+            if (string.Equals(npcType, "summon_pet", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            string tribe = NormalizeNpcXmlToken(entry.NpcStaticDetail.Tribe);
+            return string.Equals(tribe, "pet", StringComparison.Ordinal) ||
+                   string.Equals(tribe, "pet_dark", StringComparison.Ordinal);
+        }
+
+        private static string NormalizeNpcXmlToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return value.Trim().Replace('-', '_').ToLowerInvariant();
+        }
+
+        private static string FormatPetProbeActor(NearbyActorProbeEntry entry)
+        {
+            return entry.HasActor ? FormatAddress(entry.Actor.Actor) : "n/a";
+        }
+
+        private static string FormatPetProbeObjectType(NearbyActorProbeEntry entry)
+        {
+            return entry.HasActor ? entry.Actor.ObjectType.ToString() : "n/a";
+        }
+
+        private static string FormatPetProbeTemplateId(NearbyActorProbeEntry entry)
+        {
+            return entry.HasActor ? entry.Actor.NpcTemplateId.ToString() : "n/a";
+        }
+
+        private static string FormatPetProbeStaticName(NearbyActorProbeEntry entry)
+        {
+            return entry.HasNpcStaticDetail ? (entry.NpcStaticDetail.Name ?? string.Empty) : string.Empty;
+        }
+
+        private static string FormatPetProbeNpcType(NearbyActorProbeEntry entry)
+        {
+            return entry.HasNpcStaticDetail ? FormatEmptyAsNotAvailable(entry.NpcStaticDetail.NpcType) : "n/a";
+        }
+
+        private static string FormatPetProbeTribe(NearbyActorProbeEntry entry)
+        {
+            return entry.HasNpcStaticDetail ? FormatEmptyAsNotAvailable(entry.NpcStaticDetail.Tribe) : "n/a";
+        }
+
+        private static string FormatPetProbeLevel(NearbyActorProbeEntry entry)
+        {
+            return entry.HasActor ? entry.Actor.Level.ToString() : "n/a";
+        }
+
+        private static string FormatPetProbeHp(NearbyActorProbeEntry entry)
+        {
+            return entry.HasActor ? entry.Actor.CurrentHp + "/" + entry.Actor.MaxHp : "n/a";
+        }
+
+        private static string FormatPetProbeHpPercent(NearbyActorProbeEntry entry)
+        {
+            return entry.HasActor ? entry.Actor.HpPercent.ToString() : "n/a";
+        }
+
+        private static string FormatPetProbeTargetServerId(NearbyActorProbeEntry entry)
+        {
+            return entry.HasActor ? entry.Actor.TargetServerObjectId.ToString() : "n/a";
+        }
+
+        private static string FormatPetProbeTargetingLocalPlayer(NearbyActorProbeEntry entry)
+        {
+            return entry.HasActor ? FormatYesNo(entry.IsTargetingLocalPlayer) : "n/a";
+        }
+
+        private static string FormatPetProbeName(NearbyActorProbeEntry entry)
+        {
+            return entry.HasActor ? (entry.Actor.Name ?? string.Empty) : string.Empty;
         }
 
         private static string FormatMonsterActor(MonsterListEntry entry)

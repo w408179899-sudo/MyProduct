@@ -17,7 +17,8 @@ public sealed record PlayerSnapshot(
     ushort Level = 0,
     string CharacterClass = "",
     uint StanceFlags = 0,
-    uint MotionMode = 0)
+    uint MotionMode = 0,
+    AionClassId? CharacterClassId = null)
 {
     public bool HasKnownHealth => MaxHp > 0;
 
@@ -30,6 +31,8 @@ public sealed record PlayerSnapshot(
     public bool HasRestState => StanceFlags != 0 || MotionMode != 0;
 
     public bool IsResting => MotionMode == 1U && StanceLowNibble == 5;
+
+    public bool IsSpiritmaster => CharacterClassId == AionClassId.Spiritmaster;
 
     public double HpPercent => MaxHp == 0
         ? 100.0D

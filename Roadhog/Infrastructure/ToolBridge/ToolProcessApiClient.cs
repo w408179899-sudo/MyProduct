@@ -39,6 +39,19 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
             "Tool bridge player abnormal-status snapshot is not implemented."));
     }
 
+    public Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(OperationResult<SummonedPetSnapshot>.Fail(
+            "Tool bridge summoned-pet snapshot is not implemented."));
+    }
+
+    public Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(OperationResult<SummonedPetRosterSnapshot>.Fail(
+            "Tool bridge summoned-pet roster snapshot is not implemented."));
+    }
+
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
     {
         return Task.FromResult(OperationResult<LockedTargetSnapshot>.Fail("Tool bridge locked-target snapshot is not implemented."));

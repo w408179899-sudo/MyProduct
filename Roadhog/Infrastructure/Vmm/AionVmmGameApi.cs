@@ -17,6 +17,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 {
     private const ulong EntitySystemPointerRva = 0x904690;
     private const ulong ServerObjectTreeRva = 0xD21740;
+    private const ulong PrimaryPartyListRva = 0xD1BAE8;
+    private const ulong SecondaryPartyListRva = 0xD1BB50;
     private const ulong LocalEntityIdRva = 0xD21798;
     private const ulong LocalMaxHpRva = 0xD267DC;
     private const ulong LocalCurrentHpRva = 0xD267E0;
@@ -44,6 +46,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private const ulong NodeIsNilOffset = 0x19;
     private const ulong NodeIdOffset = 0x20;
     private const ulong NodeEntityOffset = 0x28;
+    private const ulong ListNodeNextOffset = 0x00;
     private const ulong ListNodePrevOffset = 0x08;
     private const ulong ListNodeValueOffset = 0x10;
 
@@ -62,15 +65,19 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 
     private const ulong ActorEntityOffset = 0x08;
     private const ulong ActorObjectTypeOffset = 0x20;
+    private const uint ActorPlayerObjectType = 1;
     private const ulong ActorServerObjectIdOffset = 0x2C;
     private const ulong ActorNpcTemplateIdOffset = 0x30;
     private const ulong ActorStanceFlagsOffset = 0x34;
     private const ulong ActorLevelOffset = 0x3E;
     private const ulong ActorHpPercentOffset = 0x40;
     private const ulong ActorNameOffset = 0x42;
+    private const ulong ActorSummonOwnerServerObjectIdOffset = 0xFC;
     private const ulong ActorInteractionStateOffset = 0x1CC;
+    private const ulong ActorClassIdOffset = 0x228;
     private const ulong ActorMotionModeOffset = 0x2D0;
     private const ulong ActorTargetServerObjectIdOffset = 0x358;
+    private const ulong ActorCurrentSummonedPetServerObjectIdOffset = 0xFA0;
     private const ulong ActorAbnormalStatusBeginOffset = 0xF18;
     private const ulong ActorAbnormalStatusEndOffset = 0xF20;
     private const ulong ActorAbnormalCategory2CountOffset = 0xF38;
@@ -79,6 +86,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private const ulong ActorLootableFlagOffset = 0x11E0;
     private const ulong AbnormalStatusEntrySize = 0x12;
     private const int MaxActorAbnormalStatusEntries = 512;
+    private const ulong PartyMemberServerObjectIdOffset = 0x04;
 
     private const ulong SkillItemSkillIdOffset = 0x08;
     private const ulong SkillItemField0COffset = 0x0C;
@@ -132,6 +140,33 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadPlayerAbnormalStatusesCore(context), cancellationToken);
+    }
+
+    public Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetAsync(CancellationToken cancellationToken = default)
+    {
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadSummonedPetAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadSummonedPetCore(context), cancellationToken);
+    }
+
+    public Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadSummonedPetRosterAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadSummonedPetRosterCore(context), cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
@@ -282,6 +317,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
                     ["pid"] = SafeGetProcessPid(process),
                     ["entityId"] = snapshot.EntityId,
                     ["targetEntityId"] = snapshot.TargetEntityId,
+                    ["classId"] = snapshot.CharacterClassId.HasValue ? (object)(uint)snapshot.CharacterClassId.Value : null,
+                    ["class"] = snapshot.CharacterClass,
                     ["hp"] = snapshot.CurrentHp,
                     ["maxHp"] = snapshot.MaxHp,
                     ["mp"] = snapshot.CurrentMp,
@@ -341,6 +378,100 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         {
             _logger.Error("vmm.player_abnormal.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<PlayerAbnormalStatusSnapshot>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<SummonedPetSnapshot> ReadSummonedPetCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<SummonedPetSnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<SummonedPetSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                var npcCatalog = GetNpcXmlCatalog();
+                if (!TryReadSummonedPet(process, gameBase, npcCatalog.Details, out var snapshot, out var readError))
+                {
+                    return OperationResult<SummonedPetSnapshot>.Fail(readError);
+                }
+
+                _logger.Info("vmm.summoned_pet.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["isSummoned"] = snapshot.IsSummoned,
+                    ["localServerObjectId"] = snapshot.LocalServerObjectId,
+                    ["serverObjectId"] = snapshot.ServerObjectId,
+                    ["entityId"] = snapshot.EntityId,
+                    ["templateId"] = snapshot.NpcTemplateId,
+                    ["name"] = snapshot.Name
+                });
+
+                return OperationResult<SummonedPetSnapshot>.Ok(snapshot);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.summoned_pet.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<SummonedPetSnapshot>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<SummonedPetRosterSnapshot> ReadSummonedPetRosterCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<SummonedPetRosterSnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<SummonedPetRosterSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                var npcCatalog = GetNpcXmlCatalog();
+                if (!TryReadSummonedPetRoster(process, gameBase, npcCatalog.Details, out var snapshot, out var readError))
+                {
+                    return OperationResult<SummonedPetRosterSnapshot>.Fail(readError);
+                }
+
+                _logger.Info("vmm.summoned_pet_roster.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["localServerObjectId"] = snapshot.LocalServerObjectId,
+                    ["localPetSummoned"] = snapshot.LocalPlayerPet.IsSummoned,
+                    ["localPetServerObjectId"] = snapshot.LocalPlayerPet.Pet.ServerObjectId,
+                    ["partyMemberCount"] = snapshot.PartyMemberServerObjectIds.Count,
+                    ["partyPetCount"] = snapshot.PartyMemberPetCount,
+                    ["visibleSummonedPetCount"] = snapshot.VisibleSummonedPetCount
+                });
+
+                return OperationResult<SummonedPetRosterSnapshot>.Ok(snapshot);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.summoned_pet_roster.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<SummonedPetRosterSnapshot>.Fail(ex.Message);
         }
     }
 
@@ -2212,6 +2343,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         TryReadUInt16(process, gameBase + LocalCurrentDpRva, out var currentDp);
         var characterName = string.Empty;
         ushort characterLevel = 0;
+        AionClassId? characterClassId = null;
+        var characterClass = string.Empty;
         uint stanceFlags = 0;
         uint motionMode = 0;
         double? actorYaw = null;
@@ -2225,6 +2358,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 
             characterName = actor.Name;
             characterLevel = actor.Level;
+            if (TryReadActorClassId(process, actor.Actor, out var resolvedClassId))
+            {
+                characterClassId = resolvedClassId;
+                characterClass = AionClassCatalog.GetChineseName(resolvedClassId);
+            }
+
             TryReadUInt32(process, actor.Actor + ActorStanceFlagsOffset, out stanceFlags);
             TryReadUInt32(process, actor.Actor + ActorMotionModeOffset, out motionMode);
         }
@@ -2257,9 +2396,22 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             cameraPitch,
             actorYaw,
             Level: characterLevel,
+            CharacterClass: characterClass,
             StanceFlags: stanceFlags,
-            MotionMode: motionMode);
+            MotionMode: motionMode,
+            CharacterClassId: characterClassId);
         return true;
+    }
+
+    private static bool TryReadActorClassId(
+        VmmProcess process,
+        ulong actorAddress,
+        out AionClassId classId)
+    {
+        classId = default;
+        return actorAddress != 0 &&
+               TryReadUInt32(process, actorAddress + ActorClassIdOffset, out var rawClassId) &&
+               AionClassCatalog.TryFromRaw(rawClassId, out classId);
     }
 
     private static bool TryReadLocalPlayerAbnormalStatuses(
@@ -2523,6 +2675,663 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             targetServerObjectId,
             info.LocalServerObjectId != 0 && targetServerObjectId == info.LocalServerObjectId,
             info.LocalServerObjectId);
+    }
+
+    private static bool TryReadSummonedPet(
+        VmmProcess process,
+        ulong gameBase,
+        IReadOnlyDictionary<uint, NpcStaticDetail> npcStaticDetails,
+        out SummonedPetSnapshot snapshot,
+        out string error)
+    {
+        var capturedAt = DateTimeOffset.Now;
+        snapshot = SummonedPetSnapshot.NotSummoned(0, capturedAt);
+        error = string.Empty;
+
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        {
+            error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        {
+            error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
+            return false;
+        }
+
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        {
+            error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
+            return false;
+        }
+
+        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity))
+        {
+            error = "local entity id " + localEntityId + " was not found in EntitySystem tree";
+            return false;
+        }
+
+        if (!TryResolveActorFromEntity(process, localEntity, 0, out var localActor) ||
+            localActor.ServerObjectId == 0)
+        {
+            error = "failed to resolve local actor/server object id";
+            return false;
+        }
+
+        TryReadUInt32(
+            process,
+            localActor.Actor + ActorCurrentSummonedPetServerObjectIdOffset,
+            out var linkedPetServerObjectId);
+
+        if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader) || serverTreeHeader == 0)
+        {
+            error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node))
+        {
+            error = "failed to read ServerObject tree begin node";
+            return false;
+        }
+
+        var localPositionKnown = TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ);
+        for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
+        {
+            if (IsNilNode(process, node, serverTreeHeader))
+            {
+                break;
+            }
+
+            if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out var serverObjectId) &&
+                TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var entityId) &&
+                entityId != 0 &&
+                entityId != localEntityId &&
+                TryFindEntityById(process, entityTreeHeader, entityId, out var entity) &&
+                entity != 0 &&
+                TryResolveActorFromEntity(process, entity, serverObjectId, out var actor) &&
+                actor.ObjectType == SummonedPetSnapshot.ActorObjectType)
+            {
+                var actorServerObjectId = actor.ServerObjectId != 0 ? actor.ServerObjectId : serverObjectId;
+                var localLinkMatches = linkedPetServerObjectId != 0 && actorServerObjectId == linkedPetServerObjectId;
+                var ownerConfirmed =
+                    TryReadUInt32(process, actor.Actor + ActorSummonOwnerServerObjectIdOffset, out var ownerServerObjectId) &&
+                    ownerServerObjectId == localActor.ServerObjectId;
+                var hasStaticDetail = npcStaticDetails.TryGetValue(actor.NpcTemplateId, out var npcStaticDetail);
+                var isSummonPetStatic = hasStaticDetail && IsSummonPetNpcStaticDetail(npcStaticDetail);
+
+                if ((localLinkMatches || ownerConfirmed) &&
+                    (isSummonPetStatic || ownerConfirmed || localLinkMatches))
+                {
+                    Vector3Snapshot? position = null;
+                    double? distance = null;
+                    if (TryReadEntityPosition(process, entity, out var x, out var y, out var z) &&
+                        IsReasonablePosition(x, y, z))
+                    {
+                        position = new Vector3Snapshot(x, y, z);
+                        if (localPositionKnown)
+                        {
+                            var dx = x - localX;
+                            var dy = y - localY;
+                            var dz = z - localZ;
+                            distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                        }
+                    }
+
+                    snapshot = new SummonedPetSnapshot(
+                        true,
+                        entityId,
+                        actorServerObjectId,
+                        TryReadUInt16(process, entity + EntityTypeOffset, out var entityType) ? entityType : (ushort)0,
+                        actor.ObjectType,
+                        actor.NpcTemplateId,
+                        actor.Name,
+                        hasStaticDetail ? npcStaticDetail.Name : string.Empty,
+                        hasStaticDetail ? npcStaticDetail.NpcType : string.Empty,
+                        hasStaticDetail ? npcStaticDetail.Tribe : string.Empty,
+                        actor.Level,
+                        actor.CurrentHp,
+                        actor.MaxHp,
+                        actor.HpPercent,
+                        position,
+                        distance,
+                        localActor.ServerObjectId,
+                        capturedAt,
+                        linkedPetServerObjectId,
+                        ownerConfirmed,
+                        BuildSummonedPetEvidenceSource(localLinkMatches, ownerConfirmed, isSummonPetStatic));
+                    return true;
+                }
+            }
+
+            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next) || next == node)
+            {
+                break;
+            }
+
+            node = next;
+        }
+
+        snapshot = linkedPetServerObjectId == 0
+            ? SummonedPetSnapshot.NotSummoned(localActor.ServerObjectId, capturedAt)
+            : new SummonedPetSnapshot(
+                true,
+                0,
+                linkedPetServerObjectId,
+                0,
+                0,
+                0,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                0,
+                0,
+                0,
+                0,
+                null,
+                null,
+                localActor.ServerObjectId,
+                capturedAt,
+                linkedPetServerObjectId,
+                false,
+                "local-link-only");
+        return true;
+    }
+
+    private static bool TryReadSummonedPetRoster(
+        VmmProcess process,
+        ulong gameBase,
+        IReadOnlyDictionary<uint, NpcStaticDetail> npcStaticDetails,
+        out SummonedPetRosterSnapshot snapshot,
+        out string error)
+    {
+        var capturedAt = DateTimeOffset.Now;
+        snapshot = SummonedPetRosterSnapshot.Empty(0, capturedAt);
+        error = string.Empty;
+
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        {
+            error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        {
+            error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
+            return false;
+        }
+
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        {
+            error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
+            return false;
+        }
+
+        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity))
+        {
+            error = "local entity id " + localEntityId + " was not found in EntitySystem tree";
+            return false;
+        }
+
+        if (!TryResolveActorFromEntity(process, localEntity, 0, out var localActor) ||
+            localActor.ServerObjectId == 0)
+        {
+            error = "failed to resolve local actor/server object id";
+            return false;
+        }
+
+        TryReadUInt32(
+            process,
+            localActor.Actor + ActorCurrentSummonedPetServerObjectIdOffset,
+            out var linkedPetServerObjectId);
+
+        var partyMemberReadError = string.Empty;
+        if (!TryReadPartyMemberServerObjectIds(process, gameBase, out var partyMembers, out partyMemberReadError))
+        {
+            partyMembers = Array.Empty<PartyMemberInfo>();
+        }
+
+        if (!TryReadVisibleActorInfos(process, gameBase, entityTreeHeader, localEntityId, out var visibleActors, out error))
+        {
+            return false;
+        }
+
+        var owners = new Dictionary<uint, SummonedPetOwnerInfo>();
+        AionClassId? localOwnerClassId = null;
+        var localOwnerClassName = string.Empty;
+        if (TryReadActorClassId(process, localActor.Actor, out var resolvedLocalOwnerClassId))
+        {
+            localOwnerClassId = resolvedLocalOwnerClassId;
+            localOwnerClassName = AionClassCatalog.GetChineseName(resolvedLocalOwnerClassId);
+        }
+
+        owners[localActor.ServerObjectId] = new SummonedPetOwnerInfo(
+            SummonedPetOwnerKind.LocalPlayer,
+            localActor.ServerObjectId,
+            localActor.Name,
+            string.Empty,
+            localOwnerClassId,
+            localOwnerClassName);
+
+        foreach (var member in partyMembers)
+        {
+            if (member.ServerObjectId == 0 ||
+                member.ServerObjectId == localActor.ServerObjectId ||
+                owners.ContainsKey(member.ServerObjectId))
+            {
+                continue;
+            }
+
+            owners[member.ServerObjectId] = new SummonedPetOwnerInfo(
+                SummonedPetOwnerKind.PartyMember,
+                member.ServerObjectId,
+                string.Empty,
+                member.ListName);
+        }
+
+        foreach (var visibleActor in visibleActors)
+        {
+            var actorServerObjectId = visibleActor.Actor.ServerObjectId;
+            if (actorServerObjectId == 0 ||
+                visibleActor.Actor.ObjectType != ActorPlayerObjectType ||
+                !owners.TryGetValue(actorServerObjectId, out var ownerInfo))
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(ownerInfo.OwnerName) &&
+                !string.IsNullOrWhiteSpace(visibleActor.Actor.Name))
+            {
+                ownerInfo.OwnerName = visibleActor.Actor.Name;
+            }
+
+            if (!ownerInfo.OwnerClassId.HasValue &&
+                TryReadActorClassId(process, visibleActor.Actor.Actor, out var ownerClassId))
+            {
+                ownerInfo.OwnerClassId = ownerClassId;
+                ownerInfo.OwnerClassName = AionClassCatalog.GetChineseName(ownerClassId);
+            }
+        }
+
+        OwnedSummonedPetSnapshot? localPlayerPet = null;
+        var partyMemberPets = new List<OwnedSummonedPetSnapshot>();
+        foreach (var visibleActor in visibleActors)
+        {
+            if (visibleActor.EntityId == localEntityId ||
+                visibleActor.Actor.Actor == localActor.Actor ||
+                visibleActor.Actor.ObjectType != SummonedPetSnapshot.ActorObjectType)
+            {
+                continue;
+            }
+
+            if (!TryReadUInt32(
+                    process,
+                    visibleActor.Actor.Actor + ActorSummonOwnerServerObjectIdOffset,
+                    out var ownerServerObjectId) ||
+                !owners.TryGetValue(ownerServerObjectId, out var ownerInfo))
+            {
+                continue;
+            }
+
+            var actorServerObjectId = visibleActor.Actor.ServerObjectId;
+            var localLinkMatches =
+                ownerInfo.OwnerKind == SummonedPetOwnerKind.LocalPlayer &&
+                linkedPetServerObjectId != 0 &&
+                actorServerObjectId == linkedPetServerObjectId;
+            var hasStaticDetail = npcStaticDetails.TryGetValue(visibleActor.Actor.NpcTemplateId, out var npcStaticDetail);
+            var isSummonPetStatic = hasStaticDetail && IsSummonPetNpcStaticDetail(npcStaticDetail);
+
+            if (!isSummonPetStatic && !localLinkMatches && visibleActor.Actor.NpcTemplateId == 0)
+            {
+                continue;
+            }
+
+            var ownedPet = BuildOwnedSummonedPetSnapshot(
+                process,
+                visibleActor,
+                ownerInfo,
+                localActor.ServerObjectId,
+                ownerInfo.OwnerKind == SummonedPetOwnerKind.LocalPlayer ? linkedPetServerObjectId : 0,
+                localEntity,
+                capturedAt,
+                hasStaticDetail,
+                npcStaticDetail,
+                localLinkMatches,
+                true,
+                isSummonPetStatic);
+
+            if (ownerInfo.OwnerKind == SummonedPetOwnerKind.LocalPlayer)
+            {
+                if (localPlayerPet is null ||
+                    localLinkMatches ||
+                    (!localPlayerPet.Pet.OwnerConfirmed && ownedPet.Pet.OwnerConfirmed))
+                {
+                    localPlayerPet = ownedPet;
+                }
+            }
+            else
+            {
+                partyMemberPets.Add(ownedPet);
+            }
+        }
+
+        if (localPlayerPet is null)
+        {
+            localPlayerPet = linkedPetServerObjectId == 0
+                ? new OwnedSummonedPetSnapshot(
+                    SummonedPetOwnerKind.LocalPlayer,
+                    localActor.ServerObjectId,
+                    localActor.Name,
+                    string.Empty,
+                    SummonedPetSnapshot.NotSummoned(localActor.ServerObjectId, capturedAt),
+                    0,
+                    Array.Empty<AbnormalStatusEntrySnapshot>(),
+                    OwnerClassId: localOwnerClassId,
+                    OwnerClassName: localOwnerClassName)
+                : new OwnedSummonedPetSnapshot(
+                    SummonedPetOwnerKind.LocalPlayer,
+                    localActor.ServerObjectId,
+                    localActor.Name,
+                    string.Empty,
+                    new SummonedPetSnapshot(
+                        true,
+                        0,
+                        linkedPetServerObjectId,
+                        0,
+                        0,
+                        0,
+                        string.Empty,
+                        string.Empty,
+                        string.Empty,
+                        string.Empty,
+                        0,
+                        0,
+                        0,
+                        0,
+                        null,
+                        null,
+                        localActor.ServerObjectId,
+                        capturedAt,
+                        linkedPetServerObjectId,
+                        false,
+                    "local-link-only"),
+                    0,
+                    Array.Empty<AbnormalStatusEntrySnapshot>(),
+                    OwnerClassId: localOwnerClassId,
+                    OwnerClassName: localOwnerClassName);
+        }
+
+        snapshot = new SummonedPetRosterSnapshot(
+            localActor.ServerObjectId,
+            linkedPetServerObjectId,
+            capturedAt,
+            localPlayerPet,
+            partyMemberPets,
+            partyMembers
+                .Select(member => member.ServerObjectId)
+                .Where(serverObjectId => serverObjectId != 0 && serverObjectId != localActor.ServerObjectId)
+                .Distinct()
+                .ToArray(),
+            partyMemberReadError);
+        return true;
+    }
+
+    private static OwnedSummonedPetSnapshot BuildOwnedSummonedPetSnapshot(
+        VmmProcess process,
+        VisibleActorInfo visibleActor,
+        SummonedPetOwnerInfo ownerInfo,
+        uint localServerObjectId,
+        uint localLinkedPetServerObjectId,
+        ulong localEntity,
+        DateTimeOffset capturedAt,
+        bool hasStaticDetail,
+        NpcStaticDetail npcStaticDetail,
+        bool localLinkMatches,
+        bool ownerConfirmed,
+        bool isSummonPetStatic)
+    {
+        Vector3Snapshot? position = null;
+        double? distance = null;
+        if (TryReadEntityPosition(process, visibleActor.Entity, out var x, out var y, out var z) &&
+            IsReasonablePosition(x, y, z))
+        {
+            position = new Vector3Snapshot(x, y, z);
+            if (TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ))
+            {
+                var dx = x - localX;
+                var dy = y - localY;
+                var dz = z - localZ;
+                distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            }
+        }
+
+        TryReadUInt32(
+            process,
+            visibleActor.Actor.Actor + ActorAbnormalCategory2CountOffset,
+            out var abnormalCategory2Count);
+
+        var abnormalStatusReadError = string.Empty;
+        if (!TryReadActorAbnormalStatusEntries(
+                process,
+                visibleActor.Actor.Actor,
+                out var abnormalStatuses,
+                out abnormalStatusReadError))
+        {
+            abnormalStatuses = Array.Empty<AbnormalStatusEntrySnapshot>();
+        }
+
+        var pet = new SummonedPetSnapshot(
+            true,
+            visibleActor.EntityId,
+            visibleActor.Actor.ServerObjectId,
+            visibleActor.EntityType,
+            visibleActor.Actor.ObjectType,
+            visibleActor.Actor.NpcTemplateId,
+            visibleActor.Actor.Name,
+            hasStaticDetail ? npcStaticDetail.Name : string.Empty,
+            hasStaticDetail ? npcStaticDetail.NpcType : string.Empty,
+            hasStaticDetail ? npcStaticDetail.Tribe : string.Empty,
+            visibleActor.Actor.Level,
+            visibleActor.Actor.CurrentHp,
+            visibleActor.Actor.MaxHp,
+            visibleActor.Actor.HpPercent,
+            position,
+            distance,
+            localServerObjectId,
+            capturedAt,
+            localLinkedPetServerObjectId,
+            ownerConfirmed,
+            BuildSummonedPetEvidenceSource(localLinkMatches, ownerConfirmed, isSummonPetStatic));
+
+        return new OwnedSummonedPetSnapshot(
+            ownerInfo.OwnerKind,
+            ownerInfo.ServerObjectId,
+            ownerInfo.OwnerName,
+            ownerInfo.PartyListName,
+            pet,
+            abnormalCategory2Count,
+            abnormalStatuses,
+            abnormalStatusReadError,
+            ownerInfo.OwnerClassId,
+            ownerInfo.OwnerClassName);
+    }
+
+    private static bool TryReadVisibleActorInfos(
+        VmmProcess process,
+        ulong gameBase,
+        ulong entityTreeHeader,
+        ushort localEntityId,
+        out List<VisibleActorInfo> actors,
+        out string error)
+    {
+        actors = new List<VisibleActorInfo>();
+        error = string.Empty;
+
+        if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader) || serverTreeHeader == 0)
+        {
+            error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node))
+        {
+            error = "failed to read ServerObject tree begin node";
+            return false;
+        }
+
+        for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
+        {
+            if (IsNilNode(process, node, serverTreeHeader))
+            {
+                break;
+            }
+
+            if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out var serverObjectId) &&
+                TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var entityId) &&
+                entityId != 0 &&
+                TryFindEntityById(process, entityTreeHeader, entityId, out var entity) &&
+                entity != 0 &&
+                TryResolveActorFromEntity(process, entity, serverObjectId, out var actor) &&
+                (actor.ObjectType == ActorPlayerObjectType ||
+                 actor.ObjectType == SummonedPetSnapshot.ActorObjectType))
+            {
+                actors.Add(new VisibleActorInfo(
+                    entityId,
+                    TryReadUInt16(process, entity + EntityTypeOffset, out var entityType) ? entityType : (ushort)0,
+                    entity,
+                    actor));
+            }
+
+            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next) || next == node)
+            {
+                break;
+            }
+
+            node = next;
+        }
+
+        return true;
+    }
+
+    private static bool TryReadPartyMemberServerObjectIds(
+        VmmProcess process,
+        ulong gameBase,
+        out IReadOnlyList<PartyMemberInfo> members,
+        out string error)
+    {
+        var result = new List<PartyMemberInfo>();
+        var seen = new HashSet<uint>();
+        var errors = new List<string>();
+
+        if (!ReadPartyMemberServerObjectIdList(process, gameBase + PrimaryPartyListRva, "primary", result, seen, out var primaryError))
+        {
+            errors.Add(primaryError);
+        }
+
+        if (!ReadPartyMemberServerObjectIdList(process, gameBase + SecondaryPartyListRva, "secondary", result, seen, out var secondaryError))
+        {
+            errors.Add(secondaryError);
+        }
+
+        members = result;
+        error = errors.Count == 0 ? string.Empty : string.Join("; ", errors);
+        return result.Count > 0 || errors.Count < 2;
+    }
+
+    private static bool ReadPartyMemberServerObjectIdList(
+        VmmProcess process,
+        ulong listGlobalAddress,
+        string listName,
+        List<PartyMemberInfo> members,
+        HashSet<uint> seenServerObjectIds,
+        out string error)
+    {
+        error = string.Empty;
+
+        if (!TryReadPointer(process, listGlobalAddress, out var head) || head == 0)
+        {
+            error = "failed to read " + listName + " party list head at 0x" + listGlobalAddress.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, head + ListNodeNextOffset, out var node))
+        {
+            error = "failed to read " + listName + " party list first node";
+            return false;
+        }
+
+        var visited = new HashSet<ulong>();
+        for (var guard = 0; node != 0 && node != head && guard < 256; guard++)
+        {
+            if (!visited.Add(node))
+            {
+                break;
+            }
+
+            if (TryReadPointer(process, node + ListNodeValueOffset, out var member) &&
+                member != 0 &&
+                TryReadUInt32(process, member + PartyMemberServerObjectIdOffset, out var serverObjectId) &&
+                serverObjectId != 0 &&
+                seenServerObjectIds.Add(serverObjectId))
+            {
+                members.Add(new PartyMemberInfo(listName, member, serverObjectId));
+            }
+
+            if (!TryReadPointer(process, node + ListNodeNextOffset, out var next) || next == node)
+            {
+                break;
+            }
+
+            node = next;
+        }
+
+        return true;
+    }
+
+    private static bool IsSummonPetNpcStaticDetail(NpcStaticDetail detail)
+    {
+        var npcType = NormalizeNpcXmlToken(detail.NpcType);
+        if (string.Equals(npcType, "summon_pet", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var tribe = NormalizeNpcXmlToken(detail.Tribe);
+        return string.Equals(tribe, "pet", StringComparison.Ordinal) ||
+               string.Equals(tribe, "pet_dark", StringComparison.Ordinal);
+    }
+
+    private static string NormalizeNpcXmlToken(string value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : value.Trim().Replace('-', '_').ToLowerInvariant();
+    }
+
+    private static string BuildSummonedPetEvidenceSource(
+        bool localLinkMatches,
+        bool ownerConfirmed,
+        bool staticSummonPet)
+    {
+        var evidence = new List<string>();
+        if (localLinkMatches)
+        {
+            evidence.Add("local-link");
+        }
+
+        if (ownerConfirmed)
+        {
+            evidence.Add("owner");
+        }
+
+        if (staticSummonPet)
+        {
+            evidence.Add("static-summon-pet");
+        }
+
+        return string.Join("+", evidence);
     }
 
     private static bool TryReadWorldObjects(
@@ -3424,6 +4233,48 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         public uint CurrentHp;
         public string Name = string.Empty;
         public string ResolveSource = string.Empty;
+    }
+
+    private sealed record VisibleActorInfo(
+        ushort EntityId,
+        ushort EntityType,
+        ulong Entity,
+        ActorInfo Actor);
+
+    private sealed record PartyMemberInfo(
+        string ListName,
+        ulong MemberAddress,
+        uint ServerObjectId);
+
+    private sealed class SummonedPetOwnerInfo
+    {
+        public SummonedPetOwnerInfo(
+            SummonedPetOwnerKind ownerKind,
+            uint serverObjectId,
+            string ownerName,
+            string partyListName,
+            AionClassId? ownerClassId = null,
+            string ownerClassName = "")
+        {
+            OwnerKind = ownerKind;
+            ServerObjectId = serverObjectId;
+            OwnerName = ownerName;
+            PartyListName = partyListName;
+            OwnerClassId = ownerClassId;
+            OwnerClassName = ownerClassName;
+        }
+
+        public SummonedPetOwnerKind OwnerKind { get; }
+
+        public uint ServerObjectId { get; }
+
+        public string OwnerName { get; set; }
+
+        public string PartyListName { get; }
+
+        public AionClassId? OwnerClassId { get; set; }
+
+        public string OwnerClassName { get; set; }
     }
 
     private sealed record VmmConnection(string DeviceName, string Remote, MemProcVmm Vmm)

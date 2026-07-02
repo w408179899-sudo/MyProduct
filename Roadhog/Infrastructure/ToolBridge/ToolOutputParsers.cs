@@ -68,7 +68,8 @@ internal static partial class ToolOutputParsers
                 TryParsePosition(match),
                 DateTimeOffset.Now,
                 Level: ExtractOptionalUShort(line, "Level"),
-                CharacterClass: ExtractQuotedValue(line, "Class") ?? ExtractTokenValue(line, "Class") ?? string.Empty);
+                CharacterClass: ExtractQuotedValue(line, "Class") ?? ExtractTokenValue(line, "Class") ?? string.Empty,
+                CharacterClassId: ExtractOptionalClassId(line, "ClassId"));
         }
 
         return latest;
@@ -191,6 +192,18 @@ internal static partial class ToolOutputParsers
         return ushort.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : (ushort)0;
+    }
+
+    private static AionClassId? ExtractOptionalClassId(string line, string fieldName)
+    {
+        var value = ExtractTokenValue(line, fieldName);
+        if (!uint.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ||
+            !AionClassCatalog.TryFromRaw(parsed, out var classId))
+        {
+            return null;
+        }
+
+        return classId;
     }
 
     private static (bool Known, bool IsAggressiveToPlayer, string? Source) ParseAggressive(string line)

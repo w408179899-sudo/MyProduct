@@ -77,6 +77,61 @@ public sealed class RoadhogRuntime
         return result;
     }
 
+    public async Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ReadSummonedPetSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        if (result.Success)
+        {
+            _logger.Info("summoned_pet.refresh.ok", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["isSummoned"] = result.Value?.IsSummoned ?? false,
+                ["serverObjectId"] = result.Value?.ServerObjectId ?? 0,
+                ["templateId"] = result.Value?.NpcTemplateId ?? 0,
+                ["name"] = result.Value?.Name
+            });
+        }
+        else
+        {
+            _logger.Warn("summoned_pet.refresh.failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["error"] = result.Error
+            });
+        }
+
+        return result;
+    }
+
+    public async Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ReadSummonedPetRosterSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        if (result.Success)
+        {
+            _logger.Info("summoned_pet_roster.refresh.ok", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["localPetSummoned"] = result.Value?.LocalPlayerPet.IsSummoned ?? false,
+                ["partyPetCount"] = result.Value?.PartyMemberPetCount ?? 0,
+                ["visibleSummonedPetCount"] = result.Value?.VisibleSummonedPetCount ?? 0
+            });
+        }
+        else
+        {
+            _logger.Warn("summoned_pet_roster.refresh.failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["error"] = result.Error
+            });
+        }
+
+        return result;
+    }
+
     public async Task<OperationResult<IReadOnlyList<SkillSnapshot>>> RefreshSkillsAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
@@ -177,6 +232,32 @@ public sealed class RoadhogRuntime
         }
 
         return _gameApi.ReadPlayerAbnormalStatusesAsync(cancellationToken);
+    }
+
+    private Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetSnapshotAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            return scopedApi.ReadSummonedPetAsync(CreateReadContext(accountName), cancellationToken);
+        }
+
+        return _gameApi.ReadSummonedPetAsync(cancellationToken);
+    }
+
+    private Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterSnapshotAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            return scopedApi.ReadSummonedPetRosterAsync(CreateReadContext(accountName), cancellationToken);
+        }
+
+        return _gameApi.ReadSummonedPetRosterAsync(cancellationToken);
     }
 
     private GameApiReadContext CreateReadContext(string accountName)
