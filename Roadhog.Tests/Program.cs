@@ -24,6 +24,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime world object read uses account scoped context", TestRuntimeWorldObjectReadUsesAccountScopeAsync),
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
+    ("runtime locked target abnormal read uses account scoped context", TestRuntimeLockedTargetAbnormalReadUsesAccountScopeAsync),
     ("aion class catalog maps old twelve classes", TestAionClassCatalogAsync),
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
     ("runtime kill efficiency tracks kill intervals", TestRuntimeKillEfficiencyTracksKillIntervalsAsync),
@@ -84,7 +85,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("observed cooldown survives zero end tick read", TestObservedCooldownSurvivesZeroEndTickReadAsync),
     ("opening attack key switch presses C once", TestOpeningAttackKeySwitchPressesCOnceAsync),
     ("opening skill presses before C once", TestOpeningSkillPressesBeforeCOnceAsync),
+    ("opening skill uses server object id identity", TestOpeningSkillUsesServerObjectIdIdentityAsync),
+    ("stale opening skill cooldown is ready before calibration", TestStaleOpeningSkillCooldownIsReadyBeforeCalibrationAsync),
     ("cooling opening skill skips to C", TestCoolingOpeningSkillSkipsToCAsync),
+    ("cooling opening skill is not retried on same target", TestCoolingOpeningSkillIsNotRetriedOnSameTargetAsync),
     ("maintenance hp rule presses configured key before skills", TestMaintenanceHpRulePressesConfiguredKeyAsync),
     ("maintenance hp rule runs without attackable target", TestMaintenanceHpRuleRunsWithoutAttackableTargetAsync),
     ("maintenance mp rule presses configured key before skills", TestMaintenanceMpRulePressesConfiguredKeyAsync),
@@ -97,6 +101,22 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance sit waits for harmful abnormal before comma", TestMaintenanceSitWaitsForHarmfulAbnormalAsync),
     ("semi auto skips sit maintenance", TestSemiAutoSkipsSitMaintenanceAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
+    ("manual skill mapping plan uses explicit order and keys", TestManualSkillMappingPlanAsync),
+    ("system skill plan uses system execution tree only", TestSystemSkillPlanAsync),
+    ("spiritmaster auto switch uses dedicated plan branch", TestSpiritmasterAutoSwitchPlanAsync),
+    ("spiritmaster plan reads dedicated skill ids", TestSpiritmasterPlanReadsDedicatedSkillIdsAsync),
+    ("spiritmaster selector skips active dot", TestSpiritmasterSelectorSkipsActiveDotAsync),
+    ("spiritmaster selector trusts target abnormal snapshot over dot window", TestSpiritmasterSelectorTrustsTargetSnapshotOverDotWindowAsync),
+    ("spiritmaster selector skips command without pet", TestSpiritmasterSelectorSkipsCommandWithoutPetAsync),
+    ("spiritmaster tick summons missing pet", TestSpiritmasterTickSummonsMissingPetAsync),
+    ("spiritmaster tick prioritizes lowest pet hp rule", TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync),
+    ("spiritmaster tick gates pet buff by dp", TestSpiritmasterTickGatesPetBuffByDpAsync),
+    ("spiritmaster pet buff suppresses repeated unknown cooldown", TestSpiritmasterPetBuffSuppressesRepeatedUnknownCooldownAsync),
+    ("spiritmaster dot learning prefers skill id", TestSpiritmasterDotLearningPrefersSkillIdAsync),
+    ("spiritmaster dot hit blocks repeat on next tick", TestSpiritmasterDotHitBlocksRepeatOnNextTickAsync),
+    ("spiritmaster opening attack key presses twice before opening skill", TestSpiritmasterOpeningAttackKeyPressesTwiceBeforeOpeningSkillAsync),
+    ("spiritmaster waits for pressed skill cooldown before next root", TestSpiritmasterWaitsForPressedSkillCooldownBeforeNextRootAsync),
+    ("spiritmaster combat runs global mp maintenance before skills", TestSpiritmasterCombatRunsGlobalMpMaintenanceBeforeSkillsAsync),
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
     ("chain presses next stage without waiting for source cooldown", TestChainPressesNextStageWithoutSourceCooldownAsync),
     ("chain presses configured child without cooldown filter", TestChainPressesConfiguredChildWithoutCooldownFilterAsync),
@@ -397,6 +417,52 @@ static async Task TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync()
     AssertEqual(712, gameApi.LastSummonedPetRosterContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastSummonedPetRosterContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastSummonedPetRosterContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
+}
+
+static async Task TestRuntimeLockedTargetAbnormalReadUsesAccountScopeAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    accounts.MarkStarting(new AccountConfig
+    {
+        AccountName = "account-scope",
+        ProcessId = 712,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga"
+    });
+
+    var capturedAt = DateTimeOffset.Now;
+    var target = new LockedTargetSnapshot(
+        100,
+        2160282797,
+        3,
+        LockedTargetSnapshot.MonsterObjectType,
+        "训练用稻草人",
+        1000,
+        1000,
+        new Vector3Snapshot(1, 2, 3),
+        8.5D,
+        capturedAt,
+        1711370025,
+        true,
+        1711370025);
+    var gameApi = new FakeGameApi
+    {
+        LockedTargetAbnormalStatuses = new LockedTargetAbnormalStatusSnapshot(
+            target,
+            1,
+            new[] { new AbnormalStatusEntrySnapshot(0, 113582, 2, 0, 1, 0x1234) },
+            capturedAt)
+    };
+    var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
+
+    var result = await runtime.ReadLockedTargetAbnormalStatusesAsync("account-scope").ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "runtime locked target abnormal read should succeed");
+    AssertFalse(result.Value is null || !result.Value.HasAbnormalId(113582), "target abnormal id should be present");
+    AssertEqual(712, gameApi.LastLockedTargetAbnormalContext?.ProcessId ?? 0, "scoped process id");
+    AssertEqual("Aion.bin", gameApi.LastLockedTargetAbnormalContext?.TargetProcessName ?? string.Empty, "scoped process name");
+    AssertEqual("fpga", gameApi.LastLockedTargetAbnormalContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
 }
 
 static async Task TestRuntimePlayerReadReturnsCharacterNameAsync()
@@ -3361,6 +3427,684 @@ static Task TestConfiguredRootKeyBoundaryAsync()
     return Task.CompletedTask;
 }
 
+static Task TestManualSkillMappingPlanAsync()
+{
+    var settings = new SkillScriptSettings
+    {
+        Mode = SkillConfigurationMode.ManualMapping,
+        ExecutionTree = new List<SkillConfigNode>
+        {
+            Node(99, "自动技能不应执行 I", "主动技能")
+        },
+        ManualMappings = new List<ManualSkillMappingConfig>
+        {
+            new()
+            {
+                SkillType = "状态技能",
+                SkillName = "保护之盾 I",
+                Key = "NumPadSubtract"
+            },
+            new()
+            {
+                SkillType = "主动技能",
+                SkillName = "弱化之猛击 II",
+                Key = "D3"
+            },
+            new()
+            {
+                SkillType = "主动技能",
+                SkillName = string.Empty,
+                Key = "D4"
+            }
+        }
+    };
+
+    var plan = SemiAutoSkillPlan.FromSettings(settings);
+
+    AssertSequence(
+        new[] { "保护之盾 I", "弱化之猛击 II" },
+        plan.Roots.Select(root => root.Name).ToArray(),
+        "manual mapping root names");
+    AssertSequence(
+        new[] { "NumPadSubtract", "D3" },
+        plan.Roots.Select(root => root.Key).ToArray(),
+        "manual mapping keys");
+    AssertSequence(
+        new[] { "状态技能", "主动技能" },
+        plan.Roots.Select(root => root.Type).ToArray(),
+        "manual mapping categories");
+    AssertFalse(plan.Roots.Any(root => root.Name.Contains("自动技能", StringComparison.Ordinal)), "manual mode must ignore auto execution tree");
+
+    return Task.CompletedTask;
+}
+
+static Task TestSystemSkillPlanAsync()
+{
+    var settings = new SkillScriptSettings
+    {
+        Mode = SkillConfigurationMode.SystemClassification,
+        ExecutionTree = new List<SkillConfigNode>
+        {
+            Node(99, "自动技能不应执行 I", "主动技能")
+        },
+        ManualMappings = new List<ManualSkillMappingConfig>
+        {
+            new()
+            {
+                SkillType = "主动技能",
+                SkillName = "手动技能不应执行 I",
+                Key = "D8"
+            }
+        },
+        SystemExecutionTree = new List<SkillConfigNode>
+        {
+            Node(1389, "重力束缚 V", "持续伤害"),
+            Node(778, "毒箭 I", "持续伤害")
+        }
+    };
+
+    var plan = SemiAutoSkillPlan.FromSettings(settings);
+
+    AssertSequence(
+        new[] { "重力束缚 V", "毒箭 I" },
+        plan.Roots.Select(root => root.Name).ToArray(),
+        "system root names");
+    AssertSequence(
+        new[] { "D1", "D2" },
+        plan.Roots.Select(root => root.Key).ToArray(),
+        "system root keys");
+    AssertSequence(
+        new[] { "持续伤害", "持续伤害" },
+        plan.Roots.Select(root => root.Type).ToArray(),
+        "system root categories");
+    AssertFalse(plan.Roots.Any(root => root.Name.Contains("自动技能", StringComparison.Ordinal)), "system mode must ignore auto execution tree");
+    AssertFalse(plan.Roots.Any(root => root.Name.Contains("手动技能", StringComparison.Ordinal)), "system mode must ignore manual mappings");
+
+    return Task.CompletedTask;
+}
+
+static Task TestSpiritmasterAutoSwitchPlanAsync()
+{
+    var settings = new SkillScriptSettings
+    {
+        Mode = SkillConfigurationMode.Auto,
+        SpiritmasterAutoSkillLogicEnabled = true,
+        ExecutionTree = new List<SkillConfigNode>
+        {
+            Node(1674, "命令:愤怒之气势 I", "主动技能"),
+            Node(1389, "重力束缚 V", "持续伤害")
+        },
+        ManualMappings = new List<ManualSkillMappingConfig>
+        {
+            new()
+            {
+                SkillType = "主动技能",
+                SkillName = "手动技能不应执行 I",
+                Key = "D8"
+            }
+        },
+        SystemExecutionTree = new List<SkillConfigNode>
+        {
+            Node(778, "系统技能不应执行 I", "持续伤害")
+        }
+    };
+
+    var plan = SemiAutoSkillPlan.FromSettings(settings);
+
+    AssertFalse(!plan.UsesSpiritmasterAutoLogic, "auto mode should use spiritmaster branch when switch is enabled");
+    AssertSequence(
+        new[] { "命令:愤怒之气势 I", "重力束缚 V" },
+        plan.Roots.Select(root => root.Name).ToArray(),
+        "spiritmaster auto root names");
+    AssertSequence(
+        new[] { "D1", "D2" },
+        plan.Roots.Select(root => root.Key).ToArray(),
+        "spiritmaster auto root keys");
+    AssertFalse(plan.Roots.Any(root => root.Name.Contains("手动技能", StringComparison.Ordinal)), "spiritmaster auto mode must ignore manual mappings");
+    AssertFalse(plan.Roots.Any(root => root.Name.Contains("系统技能", StringComparison.Ordinal)), "spiritmaster auto mode must ignore system execution tree");
+    AssertFalse(!settings.Clone().SpiritmasterAutoSkillLogicEnabled, "skill settings clone should preserve spiritmaster switch");
+
+    settings.Mode = SkillConfigurationMode.ManualMapping;
+    var manualPlan = SemiAutoSkillPlan.FromSettings(settings);
+    AssertFalse(manualPlan.UsesSpiritmasterAutoLogic, "manual mode must ignore spiritmaster auto switch");
+
+    settings.Mode = SkillConfigurationMode.SystemClassification;
+    var systemPlan = SemiAutoSkillPlan.FromSettings(settings);
+    AssertFalse(systemPlan.UsesSpiritmasterAutoLogic, "system mode must ignore spiritmaster auto switch");
+
+    return Task.CompletedTask;
+}
+
+static Task TestSpiritmasterPlanReadsDedicatedSkillIdsAsync()
+{
+    var settings = new SkillScriptSettings
+    {
+        Mode = SkillConfigurationMode.Auto,
+        SpiritmasterAutoSkillLogicEnabled = true,
+        ExecutionTree = new List<SkillConfigNode>
+        {
+            Node(1389, "Erosion V", "active")
+        },
+        Spiritmaster = new SpiritmasterSkillSettings
+        {
+            DotSkills = new List<SpiritmasterSkillRefConfig>
+            {
+                new() { SkillId = 1389, SkillName = "Erosion V" }
+            },
+            SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
+            {
+                new() { Key = "NumPad6" },
+                new() { Key = "NumPad8" }
+            },
+            PetHpMaintenanceRules = new List<SpiritmasterPetHpRuleConfig>
+            {
+                new() { SkillId = 1678, SkillName = "Pet Heal", Key = "NumPad4" }
+            },
+            PetBuffRules = new List<SpiritmasterPetBuffRuleConfig>
+            {
+                new() { SkillId = 1787, SkillName = "Pet Armor", Key = "NumPad9" }
+            }
+        }
+    };
+
+    var plan = SemiAutoSkillPlan.FromSettings(settings);
+
+    AssertSequence(
+        new uint[] { 1389, 1678, 1787 },
+        plan.SkillReadIds,
+        "spiritmaster skill read ids");
+    AssertFalse(plan.SkillReadIds.Contains(0u), "summon keys without skill ids should not add zero");
+    return Task.CompletedTask;
+}
+
+static Task TestSpiritmasterSelectorSkipsActiveDotAsync()
+{
+    var settings = new SkillScriptSettings
+    {
+        Mode = SkillConfigurationMode.Auto,
+        SpiritmasterAutoSkillLogicEnabled = true,
+        ExecutionTree = new List<SkillConfigNode>
+        {
+            Node(1389, "Erosion V", "active"),
+            Node(1600, "Next Skill", "active")
+        },
+        Spiritmaster = new SpiritmasterSkillSettings
+        {
+            DotSkills = new List<SpiritmasterSkillRefConfig>
+            {
+                new() { SkillId = 1389, SkillName = "Erosion V" }
+            }
+        }
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var skills = new[]
+    {
+        new SkillSnapshot(1389, "Erosion V", 1, 1, "Erosion", 5, false, 1_000, 0, XmlEffectRemainMs: 15_000),
+        new SkillSnapshot(1600, "Next Skill", 1, 1, "Next Skill", 1, false, 1_000, 0)
+    };
+    var targetAbnormal = new LockedTargetAbnormalStatusSnapshot(
+        new LockedTargetSnapshot(100, 5000, 0, LockedTargetSnapshot.MonsterObjectType, "target", 100, 100, null, null, DateTimeOffset.Now),
+        1,
+        new[] { Abnormal(1389, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory) },
+        DateTimeOffset.Now);
+    var context = new SpiritmasterCombatContext(
+        CreateSpiritmasterPlayer(),
+        CreateLocalPetRoster(isSummoned: true),
+        targetAbnormal);
+
+    var decision = SpiritmasterAutoSkillReleasePriority.SelectNext(
+        plan,
+        state,
+        skills,
+        new SemiAutoScriptSettings(),
+        settings.Spiritmaster,
+        context,
+        DateTimeOffset.Now);
+
+    AssertEqual(SemiAutoSkillReleaseDecisionKind.PressRoot, decision.Kind, "dot skip decision kind");
+    AssertEqual(1600u, decision.Skill?.SkillId ?? 0, "active dot should yield to next skill");
+    return Task.CompletedTask;
+}
+
+static Task TestSpiritmasterSelectorTrustsTargetSnapshotOverDotWindowAsync()
+{
+    var settings = new SkillScriptSettings
+    {
+        Mode = SkillConfigurationMode.Auto,
+        SpiritmasterAutoSkillLogicEnabled = true,
+        ExecutionTree = new List<SkillConfigNode>
+        {
+            Node(1389, "Erosion V", "active"),
+            Node(1600, "Next Skill", "active")
+        },
+        Spiritmaster = new SpiritmasterSkillSettings
+        {
+            DotSkills = new List<SpiritmasterSkillRefConfig>
+            {
+                new() { SkillId = 1389, SkillName = "Erosion V" }
+            }
+        }
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var skills = new[]
+    {
+        new SkillSnapshot(1389, "Erosion V", 1, 1, "Erosion", 5, false, 1_000, 0, XmlEffectRemainMs: 15_000),
+        new SkillSnapshot(1600, "Next Skill", 1, 1, "Next Skill", 1, false, 1_000, 0)
+    };
+    var targetWithDot = CreateLockedTargetAbnormalSnapshot(
+        Abnormal(1389, PlayerAbnormalStatusSnapshot.BuffCategory));
+    var contextWithDot = new SpiritmasterCombatContext(
+        CreateSpiritmasterPlayer(),
+        CreateLocalPetRoster(isSummoned: true),
+        targetWithDot);
+
+    var firstDecision = SpiritmasterAutoSkillReleasePriority.SelectNext(
+        plan,
+        state,
+        skills,
+        new SemiAutoScriptSettings(),
+        settings.Spiritmaster,
+        contextWithDot,
+        DateTimeOffset.Now);
+    AssertEqual(1600u, firstDecision.Skill?.SkillId ?? 0, "active dot should initially skip erosion");
+
+    var contextWithoutDot = new SpiritmasterCombatContext(
+        CreateSpiritmasterPlayer(),
+        CreateLocalPetRoster(isSummoned: true),
+        CreateLockedTargetAbnormalSnapshot());
+    var secondDecision = SpiritmasterAutoSkillReleasePriority.SelectNext(
+        plan,
+        state,
+        skills,
+        new SemiAutoScriptSettings(),
+        settings.Spiritmaster,
+        contextWithoutDot,
+        DateTimeOffset.Now.AddSeconds(1));
+
+    AssertEqual(SemiAutoSkillReleaseDecisionKind.PressRoot, secondDecision.Kind, "missing target dot should allow erosion");
+    AssertEqual(1389u, secondDecision.Skill?.SkillId ?? 0, "target snapshot without 1389 must override local dot window");
+    return Task.CompletedTask;
+}
+
+static Task TestSpiritmasterSelectorSkipsCommandWithoutPetAsync()
+{
+    var settings = new SkillScriptSettings
+    {
+        Mode = SkillConfigurationMode.Auto,
+        SpiritmasterAutoSkillLogicEnabled = true,
+        ExecutionTree = new List<SkillConfigNode>
+        {
+            Node(1674, "\u547d\u4ee4:\u6124\u6012\u4e4b\u6c14\u52bf I", "active"),
+            Node(1600, "Next Skill", "active")
+        }
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var skills = new[]
+    {
+        new SkillSnapshot(1674, "\u547d\u4ee4:\u6124\u6012\u4e4b\u6c14\u52bf I", 1, 1, "\u547d\u4ee4:\u6124\u6012\u4e4b\u6c14\u52bf", 1, false, 1_000, 0),
+        new SkillSnapshot(1600, "Next Skill", 1, 1, "Next Skill", 1, false, 1_000, 0)
+    };
+    var context = new SpiritmasterCombatContext(
+        CreateSpiritmasterPlayer(),
+        SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now),
+        LockedTargetAbnormalStatusSnapshot.Empty(DateTimeOffset.Now));
+
+    var decision = SpiritmasterAutoSkillReleasePriority.SelectNext(
+        plan,
+        state,
+        skills,
+        new SemiAutoScriptSettings(),
+        settings.Spiritmaster,
+        context,
+        DateTimeOffset.Now);
+
+    AssertEqual(1600u, decision.Skill?.SkillId ?? 0, "command skill should require pet and skip to next");
+    return Task.CompletedTask;
+}
+
+static async Task TestSpiritmasterTickSummonsMissingPetAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
+    {
+        new() { Key = "NumPad6" },
+        new() { Key = "NumPad8" }
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now),
+        Skills = CreateSpiritmasterSkillSnapshots()
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+
+    var startedAt = DateTimeOffset.Now;
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
+    var elapsed = DateTimeOffset.Now - startedAt;
+
+    AssertSequence(new[] { "NumPad6", "NumPad8" }, keyboard.Keys.ToArray(), "summon key sequence");
+    AssertFalse(elapsed < TimeSpan.FromMilliseconds(1900), "summon speed and summon pet keys should be separated by about two seconds");
+}
+
+static async Task TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.Skills.Spiritmaster.PetHpMaintenanceRules = new List<SpiritmasterPetHpRuleConfig>
+    {
+        new() { BelowPercent = 68, SkillId = 1678, SkillName = "Pet Heal", Key = "NumPad4" },
+        new() { BelowPercent = 15, SkillId = 1785, SkillName = "Emergency Pet Heal", Key = "NumPad3" }
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, hpPercent: 10),
+        Skills = CreateSpiritmasterSkillSnapshots(
+            new SkillSnapshot(1678, "Pet Heal", 1, 1, "Pet Heal", 1, false, 1_000, 0),
+            new SkillSnapshot(1785, "Emergency Pet Heal", 1, 1, "Emergency Pet Heal", 1, false, 1_000, 0))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "lowest pet hp threshold should run first");
+}
+
+static async Task TestSpiritmasterTickGatesPetBuffByDpAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.Skills.Spiritmaster.PetBuffRules = new List<SpiritmasterPetBuffRuleConfig>
+    {
+        new() { SkillId = 1787, SkillName = "Pet DP Buff", Key = "NumPad9" }
+    };
+    settings.Skills.ExecutionTree[0] = Node(1600, "Normal Skill", "active");
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(currentDp: 1000),
+        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
+        Skills = CreateSpiritmasterSkillSnapshots(
+            new SkillSnapshot(1600, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, ActiveCooldownEnd()),
+            new SkillSnapshot(1787, "Pet DP Buff", 1, 1, "Pet DP Buff", 1, false, 60_000, 0, XmlCostDp: "2000"))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "insufficient dp should skip pet buff");
+
+    keyboard.Keys.Clear();
+    gameApi.Player = CreateSpiritmasterPlayer(currentDp: 2000);
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad9" }, keyboard.Keys.ToArray(), "sufficient dp should press pet buff key");
+}
+
+static async Task TestSpiritmasterPetBuffSuppressesRepeatedUnknownCooldownAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.SemiAuto.ConfirmTimeoutMs = 1000;
+    settings.Skills.Spiritmaster.PetBuffRules = new List<SpiritmasterPetBuffRuleConfig>
+    {
+        new() { SkillId = 1662, SkillName = "Pet Buff", Key = "NumPad0" }
+    };
+    settings.Skills.ExecutionTree[0] = Node(1600, "Normal Skill", "active");
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
+        Skills = CreateSpiritmasterSkillSnapshots(
+            new SkillSnapshot(1600, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, 0),
+            new SkillSnapshot(1662, "Pet Buff", 1, 1, "Pet Buff", 1, false, 30_000, StaleCooldownEnd()))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "first pet buff attempt should press configured key");
+
+    keyboard.Keys.Clear();
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertFalse(keyboard.Keys.Contains("NumPad0"), "same pet buff should not repeat while uncalibrated cooldown is suppressed");
+}
+
+static async Task TestSpiritmasterDotHitBlocksRepeatOnNextTickAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.Skills.ExecutionTree = new List<SkillConfigNode>
+    {
+        Node(1389, "Erosion V", "active"),
+        Node(1600, "Next Skill", "active")
+    };
+    settings.Skills.Spiritmaster.DotSkills = new List<SpiritmasterSkillRefConfig>
+    {
+        new() { SkillId = 1389, SkillName = "Erosion V" }
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
+        Skills = CreateSpiritmasterSkillSnapshots(
+            new SkillSnapshot(1389, "Erosion V", 1, 1, "Erosion", 5, false, 1_000, 0, XmlEffectRemainMs: 15_000),
+            new SkillSnapshot(1600, "Next Skill", 1, 1, "Next Skill", 1, false, 1_000, 0))
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (key == "D1")
+        {
+            gameApi.LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot(
+                Abnormal(1389, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory));
+            gameApi.Skills = CreateSpiritmasterSkillSnapshots(
+                new SkillSnapshot(1389, "Erosion V", 1, 1, "Erosion", 5, false, 1_000, ActiveCooldownEnd(), XmlEffectRemainMs: 15_000),
+                new SkillSnapshot(1600, "Next Skill", 1, 1, "Next Skill", 1, false, 1_000, 0));
+        }
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "first dot should be pressed before abnormal exists");
+
+    keyboard.Keys.Clear();
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "D2" }, keyboard.Keys.ToArray(), "active dot should be skipped on next tick");
+}
+
+static async Task TestSpiritmasterOpeningAttackKeyPressesTwiceBeforeOpeningSkillAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.Skills.Spiritmaster.OpeningAttackKey = "NumPad5";
+    settings.Skills.OpeningSkill = new OpeningSkillConfig
+    {
+        Enabled = true,
+        SkillId = 1701,
+        SkillName = "Opening Skill",
+        Key = "NumPad0"
+    };
+    settings.Skills.ExecutionTree = new List<SkillConfigNode>
+    {
+        Node(1702, "Normal Skill", "active")
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
+        Skills = CreateSpiritmasterSkillSnapshots(
+            new SkillSnapshot(1701, "Opening Skill", 1, 1, "Opening Skill", 1, false, 1_000, 0),
+            new SkillSnapshot(1702, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, ActiveCooldownEnd()))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad5", "NumPad5" }, keyboard.Keys.ToArray(), "spiritmaster opening attack key should press twice first");
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertSequence(
+        new[] { "NumPad5", "NumPad5", "NumPad0" },
+        keyboard.Keys.ToArray(),
+        "opening skill should run after spiritmaster opening attack key");
+
+    keyboard.Keys.Clear();
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertFalse(keyboard.Keys.Contains("NumPad5"), "same target must not repeat spiritmaster opening attack key");
+}
+
+static Task TestSpiritmasterDotLearningPrefersSkillIdAsync()
+{
+    var state = new SemiAutoCombatState();
+    var now = DateTimeOffset.Now;
+    state.BeginSpiritmasterDotObservation(
+        1389,
+        1000,
+        new[] { Abnormal(4000, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory) },
+        now.AddSeconds(3));
+
+    var completed = state.TryCompleteSpiritmasterDotObservation(
+        1000,
+        new[]
+        {
+            Abnormal(113582, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory),
+            Abnormal(1389, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory)
+        },
+        now,
+        out var skillId,
+        out var abnormalId);
+
+    AssertFalse(!completed, "dot observation should complete");
+    AssertEqual(1389u, skillId, "learned skill id");
+    AssertEqual(1389u, abnormalId, "skill id should win over XML effect id candidate");
+    AssertFalse(
+        !state.TryGetSpiritmasterDotAbnormalId(1389, out var remembered) || remembered != 1389,
+        "remembered dot abnormal id");
+
+    return Task.CompletedTask;
+}
+
+static async Task TestSpiritmasterWaitsForPressedSkillCooldownBeforeNextRootAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.SemiAuto.ConfirmTimeoutMs = 1000;
+    settings.Skills.ExecutionTree = new List<SkillConfigNode>
+    {
+        Node(1701, "First Skill", "active"),
+        Node(1702, "Second Skill", "active")
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
+        Skills = CreateSpiritmasterSkillSnapshots(
+            new SkillSnapshot(1701, "First Skill", 1, 1, "First Skill", 1, false, 1_000, 0),
+            new SkillSnapshot(1702, "Second Skill", 1, 1, "Second Skill", 1, false, 1_000, 0))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "first root should press first");
+
+    keyboard.Keys.Clear();
+    await Task.Delay(60).ConfigureAwait(false);
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "first root should retry until its cooldown advances");
+
+    keyboard.Keys.Clear();
+    gameApi.Skills = CreateSpiritmasterSkillSnapshots(
+        new SkillSnapshot(1701, "First Skill", 1, 1, "First Skill", 1, false, 1_000, ActiveCooldownEnd()),
+        new SkillSnapshot(1702, "Second Skill", 1, 1, "Second Skill", 1, false, 1_000, 0));
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "D2" }, keyboard.Keys.ToArray(), "next root should run after first root cooldown confirms");
+}
+
+static async Task TestSpiritmasterCombatRunsGlobalMpMaintenanceBeforeSkillsAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 95,
+        Key = "NumPadAdd",
+        SkillId = 1370,
+        SkillName = "Mana Maintenance"
+    });
+    settings.Skills.ExecutionTree = new List<SkillConfigNode>
+    {
+        Node(1701, "First Skill", "active")
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            100,
+            "Spirit",
+            100,
+            100,
+            90,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            CharacterClass: AionClassCatalog.GetChineseName(AionClassId.Spiritmaster),
+            CharacterClassId: AionClassId.Spiritmaster),
+        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
+        Skills = CreateSpiritmasterSkillSnapshots(
+            new SkillSnapshot(1701, "First Skill", 1, 1, "First Skill", 1, false, 1_000, 0),
+            new SkillSnapshot(1370, "Mana Maintenance", 1, 1, "Mana Maintenance", 1, false, 1_000, 0))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    keyboard.AfterPress = key =>
+    {
+        if (key == "NumPadAdd")
+        {
+            gameApi.Skills = CreateSpiritmasterSkillSnapshots(
+                new SkillSnapshot(1701, "First Skill", 1, 1, "First Skill", 1, false, 1_000, 0),
+                new SkillSnapshot(1370, "Mana Maintenance", 1, 1, "Mana Maintenance", 1, false, 1_000, ActiveCooldownEnd()));
+        }
+    };
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPadAdd" }, keyboard.Keys.ToArray(), "spiritmaster combat should run global mp maintenance before ordinary skills");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.key_pressed"),
+        "global maintenance should log key press in spiritmaster combat");
+}
+
 static Task TestObservedConfiguredCooldownAdvanceCalibratesClockAsync()
 {
     var state = new SemiAutoCombatState();
@@ -3616,6 +4360,76 @@ static async Task TestOpeningSkillPressesBeforeCOnceAsync()
     AssertSequence(new[] { "NumPad0", "C" }, keyboard.Keys.ToArray(), "opening C should run after opening skill was handled");
 }
 
+static async Task TestOpeningSkillUsesServerObjectIdIdentityAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.SemiAuto.AttackKeyLoopEnabled = false;
+    settings.Skills.OpeningSkill = new OpeningSkillConfig
+    {
+        Enabled = true,
+        SkillId = 999,
+        SkillName = "Opening Skill",
+        Key = "NumPad0"
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = 5000,
+        Skills = new[]
+        {
+            new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, 1_000, 0)
+        }
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "opening skill should press on first server object");
+
+    keyboard.Keys.Clear();
+    gameApi.TargetEntityId = 101;
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "same server object should not repeat opening skill");
+
+    gameApi.TargetOwnServerObjectId = 6000;
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "new server object should allow opening skill again");
+}
+
+static async Task TestStaleOpeningSkillCooldownIsReadyBeforeCalibrationAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.SemiAuto.AttackKeyLoopEnabled = false;
+    settings.Skills.OpeningSkill = new OpeningSkillConfig
+    {
+        Enabled = true,
+        SkillId = 999,
+        SkillName = "Opening Skill",
+        Key = "NumPad0"
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = 5000,
+        Skills = new[]
+        {
+            new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, 120_000, StaleCooldownEnd())
+        }
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "stale uncalibrated opening cooldown should be treated as ready");
+}
+
 static async Task TestCoolingOpeningSkillSkipsToCAsync()
 {
     var settings = CreateScriptSettings();
@@ -3651,6 +4465,49 @@ static async Task TestCoolingOpeningSkillSkipsToCAsync()
             entry.EventName == "semi_auto.key.pressed" &&
             string.Equals(entry.Fields.GetValueOrDefault("phase")?.ToString(), "opening_skill", StringComparison.Ordinal)),
         "cooling opening skill must not press the configured key");
+}
+
+static async Task TestCoolingOpeningSkillIsNotRetriedOnSameTargetAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.SemiAuto.AttackKeyLoopEnabled = false;
+    settings.Skills.OpeningSkill = new OpeningSkillConfig
+    {
+        Enabled = true,
+        SkillId = 999,
+        SkillName = "Opening Skill",
+        Key = "NumPad0"
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = 5000,
+        Skills = new[]
+        {
+            new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, 1_000, CooldownEndIn(400))
+        }
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "cooling opening skill should not press");
+
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, 1_000, 0)
+    };
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "same target should not retry opening skill after cooldown becomes ready");
+
+    await Task.Delay(450).ConfigureAwait(false);
+    gameApi.TargetOwnServerObjectId = 6000;
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "next target should check cooldown and press when ready");
 }
 
 static async Task TestMaintenanceHpRulePressesConfiguredKeyAsync()
@@ -4517,6 +5374,135 @@ static async Task TestCombatTickCountsKillAsync()
     AssertEqual(1, runtimeStates.Snapshot().First().KillCount, "same dead target must not count repeatedly");
 }
 
+static ScriptSettings CreateSpiritmasterScriptSettings()
+{
+    var settings = CreateScriptSettings();
+    settings.Skills = new SkillScriptSettings
+    {
+        Mode = SkillConfigurationMode.Auto,
+        SpiritmasterAutoSkillLogicEnabled = true,
+        TriggerPrefixMode = "TopContiguousTriggerSkills",
+        ExecutionTree = new List<SkillConfigNode>
+        {
+            Node(1600, "Normal Skill", "active")
+        },
+        Spiritmaster = new SpiritmasterSkillSettings()
+    };
+    return settings;
+}
+
+static PlayerSnapshot CreateSpiritmasterPlayer(ushort currentDp = 0)
+{
+    return new PlayerSnapshot(
+        1,
+        100,
+        "Spirit",
+        100,
+        100,
+        100,
+        100,
+        currentDp,
+        new Vector3Snapshot(0, 0, 0),
+        DateTimeOffset.Now,
+        CharacterClass: AionClassCatalog.GetChineseName(AionClassId.Spiritmaster),
+        CharacterClassId: AionClassId.Spiritmaster);
+}
+
+static SummonedPetRosterSnapshot CreateLocalPetRoster(
+    bool isSummoned,
+    byte hpPercent = 100,
+    IReadOnlyList<AbnormalStatusEntrySnapshot>? abnormalStatuses = null)
+{
+    var now = DateTimeOffset.Now;
+    const uint localServerObjectId = 1000;
+    const uint petServerObjectId = 2000;
+    var pet = isSummoned
+        ? new SummonedPetSnapshot(
+            true,
+            2,
+            petServerObjectId,
+            0,
+            SummonedPetSnapshot.ActorObjectType,
+            0,
+            "Pet",
+            "Pet",
+            "pet",
+            "pet",
+            50,
+            hpPercent,
+            100,
+            hpPercent,
+            new Vector3Snapshot(1, 0, 0),
+            1,
+            localServerObjectId,
+            now,
+            petServerObjectId,
+            true,
+            "test")
+        : SummonedPetSnapshot.NotSummoned(localServerObjectId, now);
+
+    return new SummonedPetRosterSnapshot(
+        localServerObjectId,
+        isSummoned ? petServerObjectId : 0,
+        now,
+        new OwnedSummonedPetSnapshot(
+            SummonedPetOwnerKind.LocalPlayer,
+            localServerObjectId,
+            "Spirit",
+            "Spirit",
+            pet,
+            0,
+            abnormalStatuses ?? Array.Empty<AbnormalStatusEntrySnapshot>(),
+            OwnerClassId: AionClassId.Spiritmaster,
+            OwnerClassName: AionClassCatalog.GetChineseName(AionClassId.Spiritmaster)),
+        Array.Empty<OwnedSummonedPetSnapshot>(),
+        Array.Empty<uint>());
+}
+
+static LockedTargetAbnormalStatusSnapshot CreateLockedTargetAbnormalSnapshot(
+    params AbnormalStatusEntrySnapshot[] entries)
+{
+    return new LockedTargetAbnormalStatusSnapshot(
+        new LockedTargetSnapshot(
+            100,
+            100,
+            0,
+            LockedTargetSnapshot.MonsterObjectType,
+            "target",
+            100,
+            100,
+            null,
+            null,
+            DateTimeOffset.Now,
+            1000,
+            true,
+            1000),
+        (uint)entries.Count(entry => entry.Category == PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory),
+        entries,
+        DateTimeOffset.Now);
+}
+
+static AbnormalStatusEntrySnapshot Abnormal(uint abnormalId, uint category)
+{
+    return new AbnormalStatusEntrySnapshot(0, abnormalId, category, 0, 0, 0);
+}
+
+static IReadOnlyList<SkillSnapshot> CreateSpiritmasterSkillSnapshots(params SkillSnapshot[] extraSkills)
+{
+    var result = new List<SkillSnapshot>
+    {
+        new(1600, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, 0)
+    };
+
+    foreach (var skill in extraSkills)
+    {
+        result.RemoveAll(item => item.SkillId == skill.SkillId);
+        result.Add(skill);
+    }
+
+    return result;
+}
+
 static ScriptSettings CreateScriptSettings()
 {
     return new ScriptSettings
@@ -4525,7 +5511,7 @@ static ScriptSettings CreateScriptSettings()
         Skills = CreateSkillSettings(),
         SemiAuto = new SemiAutoScriptSettings
         {
-            TickIntervalMs = 50,
+            TickIntervalMs = 30,
             ChainTickIntervalMs = 30,
             TargetIdleDelayMs = 50,
             KeyHoldMs = 1,
@@ -4979,6 +5965,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
 
     public GameApiReadContext? LastSummonedPetRosterContext { get; private set; }
 
+    public GameApiReadContext? LastLockedTargetAbnormalContext { get; private set; }
+
     public GameApiReadContext? LastWorldObjectsContext { get; private set; }
 
     public ushort TargetEntityId { get; set; } = 100;
@@ -4996,6 +5984,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
     public uint LocalServerObjectId { get; set; }
 
     public bool TargetIsTargetingLocalPlayer { get; set; } = true;
+
+    public LockedTargetAbnormalStatusSnapshot? LockedTargetAbnormalStatuses { get; set; }
 
     public IReadOnlyList<WorldObjectSnapshot> WorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
 
@@ -5079,6 +6069,39 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
         CancellationToken cancellationToken = default)
     {
         return ReadLockedTargetAsync(cancellationToken);
+    }
+
+    public Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var snapshot = LockedTargetAbnormalStatuses ?? new LockedTargetAbnormalStatusSnapshot(
+            new LockedTargetSnapshot(
+                TargetEntityId,
+                TargetOwnServerObjectId != 0 ? TargetOwnServerObjectId : TargetEntityId,
+                0,
+                LockedTargetSnapshot.MonsterObjectType,
+                "训练用稻草人",
+                TargetCurrentHp,
+                TargetMaxHp,
+                TargetPosition,
+                null,
+                DateTimeOffset.Now,
+                TargetServerObjectId,
+                TargetIsTargetingLocalPlayer,
+                LocalServerObjectId),
+            0,
+            Array.Empty<AbnormalStatusEntrySnapshot>(),
+            DateTimeOffset.Now);
+
+        return Task.FromResult(OperationResult<LockedTargetAbnormalStatusSnapshot>.Ok(snapshot));
+    }
+
+    public Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        LastLockedTargetAbnormalContext = context;
+        return ReadLockedTargetAbnormalStatusesAsync(cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(CancellationToken cancellationToken = default)

@@ -51,6 +51,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             ["skillReadIdCount"] = semiAutoPlan.SkillReadIds.Count,
             ["requiresFullSkillRead"] = semiAutoPlan.RequiresFullSkillRead,
             ["hasExecutableSkills"] = semiAutoPlan.HasExecutableSkills,
+            ["spiritmasterAutoLogic"] = semiAutoPlan.UsesSpiritmasterAutoLogic,
             ["topLevelSkills"] = string.Join(" > ", semiAutoPlan.Roots.Select(root => root.Name + "[" + root.Type + "]@" + root.Key)),
             ["chainRoots"] = string.Join(" > ", semiAutoPlan.Roots.Where(root => root.Children.Count > 0).Select(root => root.Name + "@" + root.Key))
         });

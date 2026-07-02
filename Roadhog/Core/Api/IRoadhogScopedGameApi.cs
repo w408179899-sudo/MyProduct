@@ -25,6 +25,10 @@ public interface IRoadhogScopedGameApi : IRoadhogGameApi
         GameApiReadContext context,
         CancellationToken cancellationToken = default);
 
+    Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default);
+
     Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
         GameApiReadContext context,
         CancellationToken cancellationToken = default);

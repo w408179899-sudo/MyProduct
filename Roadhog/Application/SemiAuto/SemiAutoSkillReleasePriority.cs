@@ -53,7 +53,6 @@ public static class SemiAutoSkillReleasePriority
             return SemiAutoSkillReleaseDecision.None;
         }
 
-        SemiAutoSkillReleaseDecision? firstUnknownRoot = null;
         foreach (var root in plan.Roots)
         {
             if (root.IsTrigger || root.IsDp)
@@ -67,22 +66,21 @@ public static class SemiAutoSkillReleasePriority
                 continue;
             }
 
-            var readiness = GetCooldownReadiness(skill, state);
-            if (readiness == SemiAutoSkillCooldownReadiness.Ready)
+            if (state.IsUncalibratedUnknownSuppressed(skill, now))
             {
-                return SemiAutoSkillReleaseDecision.PressRoot(root, skill);
+                continue;
             }
 
-            if (readiness == SemiAutoSkillCooldownReadiness.Unknown)
+            var readiness = GetActionCooldownReadiness(skill, state);
+            if (readiness == SemiAutoSkillCooldownReadiness.CoolingDown)
             {
-                if (!state.IsUncalibratedUnknownSuppressed(skill, now))
-                {
-                    firstUnknownRoot ??= SemiAutoSkillReleaseDecision.PressRoot(root, skill);
-                }
+                continue;
             }
+
+            return SemiAutoSkillReleaseDecision.PressRoot(root, skill);
         }
 
-        return firstUnknownRoot ?? SemiAutoSkillReleaseDecision.None;
+        return SemiAutoSkillReleaseDecision.None;
     }
 
     public static string BuildNoReadyReasons(
@@ -116,18 +114,23 @@ public static class SemiAutoSkillReleasePriority
             }
             else
             {
-                var readiness = GetCooldownReadiness(skill, state);
+                if (state.IsUncalibratedUnknownSuppressed(skill, DateTimeOffset.Now))
+                {
+                    reason = "unverified_suppressed_cooldown_end=" + skill.CooldownEndTime +
+                             "/duration=" + skill.CooldownDuration;
+                    reasons.Add(root.Name + "[" + root.Type + "]@" + root.Key + ":" + reason);
+                    continue;
+                }
+
+                var readiness = GetActionCooldownReadiness(skill, state);
                 if (readiness == SemiAutoSkillCooldownReadiness.CoolingDown)
                 {
                     reason = FormatCooldownReason(skill, state);
                 }
                 else if (readiness == SemiAutoSkillCooldownReadiness.Unknown)
                 {
-                    reason = state.IsUncalibratedUnknownSuppressed(skill, DateTimeOffset.Now)
-                        ? "unverified_suppressed_cooldown_end=" + skill.CooldownEndTime +
-                          "/duration=" + skill.CooldownDuration
-                        : "ready_unverified_cooldown_end=" + skill.CooldownEndTime +
-                          "/duration=" + skill.CooldownDuration;
+                    reason = "ready_unverified_cooldown_end=" + skill.CooldownEndTime +
+                             "/duration=" + skill.CooldownDuration;
                 }
             }
 
@@ -139,7 +142,31 @@ public static class SemiAutoSkillReleasePriority
 
     public static bool IsSkillReady(SkillSnapshot skill, SemiAutoCombatState state)
     {
-        return GetCooldownReadiness(skill, state) != SemiAutoSkillCooldownReadiness.CoolingDown;
+        return GetActionCooldownReadiness(skill, state) != SemiAutoSkillCooldownReadiness.CoolingDown;
+    }
+
+    public static SemiAutoSkillCooldownReadiness GetActionCooldownReadiness(
+        SkillSnapshot skill,
+        SemiAutoCombatState state)
+    {
+        var readiness = GetCooldownReadiness(skill, state);
+        if (readiness != SemiAutoSkillCooldownReadiness.Unknown ||
+            state.HasCooldownTickCalibration ||
+            skill.CooldownEndTime == 0)
+        {
+            return readiness;
+        }
+
+        var rawRemainingMs = unchecked((int)(skill.CooldownEndTime - CurrentOsTick()));
+        if (rawRemainingMs <= CooldownReadyToleranceMs)
+        {
+            return SemiAutoSkillCooldownReadiness.Ready;
+        }
+
+        var maxExpectedRemainingMs = (long)skill.CooldownDuration + 60_000L;
+        return skill.CooldownDuration > 0 && rawRemainingMs <= maxExpectedRemainingMs
+            ? SemiAutoSkillCooldownReadiness.CoolingDown
+            : SemiAutoSkillCooldownReadiness.Unknown;
     }
 
     public static SemiAutoSkillCooldownReadiness GetCooldownReadiness(

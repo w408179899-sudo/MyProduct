@@ -77,6 +77,34 @@ public sealed class RoadhogRuntime
         return result;
     }
 
+    public async Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ReadLockedTargetAbnormalStatusSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        if (result.Success)
+        {
+            _logger.Info("locked_target_abnormal.refresh.ok", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["hasTarget"] = result.Value?.HasTarget ?? false,
+                ["targetEntityId"] = result.Value?.Target.TargetEntityId ?? 0,
+                ["abnormalStatusCount"] = result.Value?.AbnormalStatusCount ?? 0,
+                ["physicalDebuffCount"] = result.Value?.PhysicalDebuffCount ?? 0
+            });
+        }
+        else
+        {
+            _logger.Warn("locked_target_abnormal.refresh.failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["error"] = result.Error
+            });
+        }
+
+        return result;
+    }
+
     public async Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
@@ -232,6 +260,19 @@ public sealed class RoadhogRuntime
         }
 
         return _gameApi.ReadPlayerAbnormalStatusesAsync(cancellationToken);
+    }
+
+    private Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusSnapshotAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            return scopedApi.ReadLockedTargetAbnormalStatusesAsync(CreateReadContext(accountName), cancellationToken);
+        }
+
+        return _gameApi.ReadLockedTargetAbnormalStatusesAsync(cancellationToken);
     }
 
     private Task<OperationResult<SummonedPetSnapshot>> ReadSummonedPetSnapshotAsync(

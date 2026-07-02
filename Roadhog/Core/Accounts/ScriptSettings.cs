@@ -36,7 +36,7 @@ public sealed class ScriptSettings
 
 public sealed class SemiAutoScriptSettings
 {
-    public int TickIntervalMs { get; set; } = 40;
+    public int TickIntervalMs { get; set; } = 30;
 
     public int ChainTickIntervalMs { get; set; } = 40;
 
@@ -225,6 +225,10 @@ public sealed class SkillScriptSettings
 
     public OpeningSkillConfig OpeningSkill { get; set; } = new();
 
+    public bool SpiritmasterAutoSkillLogicEnabled { get; set; }
+
+    public SpiritmasterSkillSettings Spiritmaster { get; set; } = new();
+
     public List<string> KeyOrder { get; set; } = DefaultKeyOrder();
 
     public string TriggerPrefixMode { get; set; } = "TopContiguousTriggerSkills";
@@ -233,16 +237,21 @@ public sealed class SkillScriptSettings
 
     public List<ManualSkillMappingConfig> ManualMappings { get; set; } = new();
 
+    public List<SkillConfigNode> SystemExecutionTree { get; set; } = new();
+
     public SkillScriptSettings Clone()
     {
         return new SkillScriptSettings
         {
             Mode = Mode,
             OpeningSkill = (OpeningSkill ?? new OpeningSkillConfig()).Clone(),
+            SpiritmasterAutoSkillLogicEnabled = SpiritmasterAutoSkillLogicEnabled,
+            Spiritmaster = (Spiritmaster ?? new SpiritmasterSkillSettings()).Clone(),
             KeyOrder = KeyOrder?.ToList() ?? DefaultKeyOrder(),
             TriggerPrefixMode = TriggerPrefixMode,
             ExecutionTree = ExecutionTree?.Select(node => node.Clone()).ToList() ?? new List<SkillConfigNode>(),
-            ManualMappings = ManualMappings?.Select(mapping => mapping.Clone()).ToList() ?? new List<ManualSkillMappingConfig>()
+            ManualMappings = ManualMappings?.Select(mapping => mapping.Clone()).ToList() ?? new List<ManualSkillMappingConfig>(),
+            SystemExecutionTree = SystemExecutionTree?.Select(node => node.Clone()).ToList() ?? new List<SkillConfigNode>()
         };
     }
 
@@ -278,6 +287,113 @@ public sealed class SkillScriptSettings
     }
 }
 
+public sealed class SpiritmasterSkillSettings
+{
+    public List<SpiritmasterSkillRefConfig> DotSkills { get; set; } = new();
+
+    public List<SpiritmasterSkillKeyRuleConfig> SummonSkills { get; set; } = new();
+
+    public int SummonKeyIntervalMs { get; set; } = 2000;
+
+    public string OpeningAttackKey { get; set; } = string.Empty;
+
+    public List<SpiritmasterPetHpRuleConfig> PetHpMaintenanceRules { get; set; } = new();
+
+    public List<SpiritmasterPetBuffRuleConfig> PetBuffRules { get; set; } = new();
+
+    public SpiritmasterSkillSettings Clone()
+    {
+        return new SpiritmasterSkillSettings
+        {
+            DotSkills = DotSkills?.Select(rule => rule.Clone()).ToList() ?? new List<SpiritmasterSkillRefConfig>(),
+            SummonSkills = SummonSkills?.Select(rule => rule.Clone()).ToList() ?? new List<SpiritmasterSkillKeyRuleConfig>(),
+            SummonKeyIntervalMs = SummonKeyIntervalMs <= 0 ? 2000 : SummonKeyIntervalMs,
+            OpeningAttackKey = OpeningAttackKey ?? string.Empty,
+            PetHpMaintenanceRules = PetHpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<SpiritmasterPetHpRuleConfig>(),
+            PetBuffRules = PetBuffRules?.Select(rule => rule.Clone()).ToList() ?? new List<SpiritmasterPetBuffRuleConfig>()
+        };
+    }
+}
+
+public sealed class SpiritmasterSkillRefConfig
+{
+    public uint SkillId { get; set; }
+
+    public string SkillName { get; set; } = string.Empty;
+
+    public SpiritmasterSkillRefConfig Clone()
+    {
+        return new SpiritmasterSkillRefConfig
+        {
+            SkillId = SkillId,
+            SkillName = SkillName
+        };
+    }
+}
+
+public sealed class SpiritmasterSkillKeyRuleConfig
+{
+    public uint SkillId { get; set; }
+
+    public string SkillName { get; set; } = string.Empty;
+
+    public string Key { get; set; } = string.Empty;
+
+    public SpiritmasterSkillKeyRuleConfig Clone()
+    {
+        return new SpiritmasterSkillKeyRuleConfig
+        {
+            SkillId = SkillId,
+            SkillName = SkillName,
+            Key = Key
+        };
+    }
+}
+
+public sealed class SpiritmasterPetHpRuleConfig
+{
+    public int BelowPercent { get; set; } = 68;
+
+    public uint SkillId { get; set; }
+
+    public string SkillName { get; set; } = string.Empty;
+
+    public string Key { get; set; } = string.Empty;
+
+    public SpiritmasterPetHpRuleConfig Clone()
+    {
+        return new SpiritmasterPetHpRuleConfig
+        {
+            BelowPercent = BelowPercent,
+            SkillId = SkillId,
+            SkillName = SkillName,
+            Key = Key
+        };
+    }
+}
+
+public sealed class SpiritmasterPetBuffRuleConfig
+{
+    public uint AbnormalStatusId { get; set; }
+
+    public uint SkillId { get; set; }
+
+    public string SkillName { get; set; } = string.Empty;
+
+    public string Key { get; set; } = string.Empty;
+
+    public SpiritmasterPetBuffRuleConfig Clone()
+    {
+        return new SpiritmasterPetBuffRuleConfig
+        {
+            AbnormalStatusId = AbnormalStatusId,
+            SkillId = SkillId,
+            SkillName = SkillName,
+            Key = Key
+        };
+    }
+}
+
 public sealed class OpeningSkillConfig
 {
     public bool Enabled { get; set; }
@@ -303,7 +419,8 @@ public sealed class OpeningSkillConfig
 public enum SkillConfigurationMode
 {
     Auto,
-    ManualMapping
+    ManualMapping,
+    SystemClassification
 }
 
 public sealed class SkillConfigNode

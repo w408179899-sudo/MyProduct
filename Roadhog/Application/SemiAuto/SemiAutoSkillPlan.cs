@@ -7,11 +7,13 @@ public sealed class SemiAutoSkillPlan
     private SemiAutoSkillPlan(
         IReadOnlyList<SemiAutoSkillNode> roots,
         IReadOnlyList<SemiAutoSkillNode> triggerPrefixRoots,
-        SemiAutoSkillNode? openingSkill)
+        SemiAutoSkillNode? openingSkill,
+        bool usesSpiritmasterAutoLogic)
     {
         Roots = roots;
         TriggerPrefixRoots = triggerPrefixRoots;
         OpeningSkill = openingSkill;
+        UsesSpiritmasterAutoLogic = usesSpiritmasterAutoLogic;
     }
 
     public IReadOnlyList<SemiAutoSkillNode> Roots { get; }
@@ -19,6 +21,8 @@ public sealed class SemiAutoSkillPlan
     public IReadOnlyList<SemiAutoSkillNode> TriggerPrefixRoots { get; }
 
     public SemiAutoSkillNode? OpeningSkill { get; }
+
+    public bool UsesSpiritmasterAutoLogic { get; }
 
     public IReadOnlyList<uint> SkillReadIds { get; private init; } = Array.Empty<uint>();
 
@@ -32,16 +36,30 @@ public sealed class SemiAutoSkillPlan
 
     public static SemiAutoSkillPlan FromSettings(SkillScriptSettings settings)
     {
-        var roots = settings.Mode == SkillConfigurationMode.Auto
-            ? BuildAutoRoots(settings)
-            : BuildManualRoots(settings);
+        var usesSpiritmasterAutoLogic =
+            settings.Mode == SkillConfigurationMode.Auto &&
+            settings.SpiritmasterAutoSkillLogicEnabled;
+
+        var roots = settings.Mode switch
+        {
+            SkillConfigurationMode.ManualMapping => BuildManualRoots(settings),
+            SkillConfigurationMode.SystemClassification => BuildSystemRoots(settings),
+            _ => usesSpiritmasterAutoLogic
+                ? BuildSpiritmasterAutoRoots(settings)
+                : BuildAutoRoots(settings)
+        };
 
         var triggerPrefix = BuildTriggerPrefixRoots(roots, settings.TriggerPrefixMode);
         var openingSkill = BuildOpeningSkill(settings);
 
-        return new SemiAutoSkillPlan(roots, triggerPrefix, openingSkill)
+        return new SemiAutoSkillPlan(roots, triggerPrefix, openingSkill, usesSpiritmasterAutoLogic)
         {
-            SkillReadIds = BuildSkillReadIds(roots, openingSkill, out var requiresFullSkillRead),
+            SkillReadIds = BuildSkillReadIds(
+                roots,
+                openingSkill,
+                settings,
+                usesSpiritmasterAutoLogic,
+                out var requiresFullSkillRead),
             RequiresFullSkillRead = requiresFullSkillRead
         };
     }
@@ -49,9 +67,11 @@ public sealed class SemiAutoSkillPlan
     private static IReadOnlyList<uint> BuildSkillReadIds(
         IReadOnlyList<SemiAutoSkillNode> roots,
         SemiAutoSkillNode? openingSkill,
+        SkillScriptSettings settings,
+        bool usesSpiritmasterAutoLogic,
         out bool requiresFullSkillRead)
     {
-        requiresFullSkillRead = false;
+        var needsFullSkillRead = false;
         var ids = new HashSet<uint>();
         foreach (var node in FlattenNodes(roots))
         {
@@ -62,7 +82,7 @@ public sealed class SemiAutoSkillPlan
 
             if (node.SkillId == 0)
             {
-                requiresFullSkillRead = true;
+                needsFullSkillRead = true;
                 continue;
             }
 
@@ -73,7 +93,7 @@ public sealed class SemiAutoSkillPlan
         {
             if (openingSkill.SkillId == 0)
             {
-                requiresFullSkillRead = true;
+                needsFullSkillRead = true;
             }
             else
             {
@@ -81,6 +101,46 @@ public sealed class SemiAutoSkillPlan
             }
         }
 
+        if (usesSpiritmasterAutoLogic)
+        {
+            foreach (var item in settings.Spiritmaster.DotSkills)
+            {
+                if (item.SkillId != 0)
+                {
+                    ids.Add(item.SkillId);
+                }
+                else if (!string.IsNullOrWhiteSpace(item.SkillName))
+                {
+                    needsFullSkillRead = true;
+                }
+            }
+
+            foreach (var item in settings.Spiritmaster.PetHpMaintenanceRules)
+            {
+                if (item.SkillId != 0)
+                {
+                    ids.Add(item.SkillId);
+                }
+                else if (!string.IsNullOrWhiteSpace(item.SkillName))
+                {
+                    needsFullSkillRead = true;
+                }
+            }
+
+            foreach (var item in settings.Spiritmaster.PetBuffRules)
+            {
+                if (item.SkillId != 0)
+                {
+                    ids.Add(item.SkillId);
+                }
+                else if (!string.IsNullOrWhiteSpace(item.SkillName))
+                {
+                    needsFullSkillRead = true;
+                }
+            }
+        }
+
+        requiresFullSkillRead = needsFullSkillRead;
         return ids.OrderBy(id => id).ToArray();
     }
 
@@ -98,15 +158,32 @@ public sealed class SemiAutoSkillPlan
 
     private static IReadOnlyList<SemiAutoSkillNode> BuildAutoRoots(SkillScriptSettings settings)
     {
-        var keyOrder = settings.KeyOrder.Count == 0
+        return BuildConfiguredRoots(settings.ExecutionTree, settings.KeyOrder);
+    }
+
+    private static IReadOnlyList<SemiAutoSkillNode> BuildSpiritmasterAutoRoots(SkillScriptSettings settings)
+    {
+        return BuildConfiguredRoots(settings.ExecutionTree, settings.KeyOrder);
+    }
+
+    private static IReadOnlyList<SemiAutoSkillNode> BuildSystemRoots(SkillScriptSettings settings)
+    {
+        return BuildConfiguredRoots(settings.SystemExecutionTree, settings.KeyOrder);
+    }
+
+    private static IReadOnlyList<SemiAutoSkillNode> BuildConfiguredRoots(
+        IReadOnlyList<SkillConfigNode> executionTree,
+        IReadOnlyList<string> configuredKeyOrder)
+    {
+        var keyOrder = configuredKeyOrder.Count == 0
             ? SkillScriptSettings.DefaultKeyOrder()
-            : settings.KeyOrder;
-        var count = Math.Min(settings.ExecutionTree.Count, keyOrder.Count);
+            : configuredKeyOrder;
+        var count = Math.Min(executionTree.Count, keyOrder.Count);
         var roots = new List<SemiAutoSkillNode>(count);
 
         for (var i = 0; i < count; i++)
         {
-            roots.Add(SemiAutoSkillNode.FromConfigTree(settings.ExecutionTree[i], keyOrder[i]));
+            roots.Add(SemiAutoSkillNode.FromConfigTree(executionTree[i], keyOrder[i]));
         }
 
         return roots;

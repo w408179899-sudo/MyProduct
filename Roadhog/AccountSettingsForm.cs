@@ -31,6 +31,7 @@ namespace Roadhog
         private readonly Color _textGreen = Color.FromArgb(20, 83, 45);
 
         private TabControl settingsTabs = null!;
+        private Form? spiritmasterSettingsDialog;
         private RoundedTextBox? profileNameTextBox;
         private RoundedComboBox? mainModeCombo;
         private Label? combatModeLabel;
@@ -51,6 +52,8 @@ namespace Roadhog
         private ListBox? activeMonsterFilterListBox;
         private Label? activeMonsterFilterStatusLabel;
         private RoundedCheckBox? openingAttackKeyCheckBox;
+        private RoundedCheckBox? spiritmasterAutoSkillCheckBox;
+        private Button? spiritmasterSettingsButton;
         private RoundedCheckBox? openingSkillEnabledCheckBox;
         private RoundedComboBox? openingSkillCombo;
         private Button? openingSkillKeyButton;
@@ -74,13 +77,25 @@ namespace Roadhog
         private RoundedTextBox? bagCleanupThresholdTextBox;
         private RoundedTextBox? bagTotalSlotsTextBox;
         private RadioButton? skillAutoModeRadio;
+        private RadioButton? skillManualModeRadio;
+        private RadioButton? skillSystemModeRadio;
         private Panel? autoSkillPanel;
         private Panel? manualSkillPanel;
+        private Panel? systemSkillPanel;
         private TreeView? availableSkillTree;
         private TreeView? selectedSkillTree;
+        private TreeView? systemSkillTree;
+        private TreeView? systemSelectedSkillTree;
         private FlowLayoutPanel? manualSkillMappingList;
+        private FlowLayoutPanel? spiritmasterDotRuleList;
+        private FlowLayoutPanel? spiritmasterSummonRuleList;
+        private Button? spiritmasterOpeningAttackKeyButton;
+        private FlowLayoutPanel? spiritmasterPetHpRuleList;
+        private FlowLayoutPanel? spiritmasterPetBuffRuleList;
         private Control? draggingManualSkillRow;
         private IReadOnlyList<SkillSnapshot> currentManualSkills = Array.Empty<SkillSnapshot>();
+        private readonly List<FlowLayoutPanel> spiritmasterRuleLists = new();
+        private SpiritmasterSkillSettings currentSpiritmasterSettings = new();
         private int manualSkillDropLineY = -1;
 
         public AccountSettingsForm(string account, RoadhogRuntime runtime, IAccountConfigStore configStore, ISharedPathStore pathStore)
@@ -249,18 +264,38 @@ namespace Roadhog
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
             SetText(bagTotalSlotsTextBox, settings.Maintenance.BagTotalSlots.ToString());
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
+            SetChecked(spiritmasterAutoSkillCheckBox, settings.Skills.SpiritmasterAutoSkillLogicEnabled);
             ApplyOpeningSkillSettings(settings.Skills.OpeningSkill);
+            currentSpiritmasterSettings = (settings.Skills.Spiritmaster ?? new SpiritmasterSkillSettings()).Clone();
+            PopulateSpiritmasterRuleLists(currentSpiritmasterSettings);
 
+            var manualSkillMode = settings.Skills.Mode == SkillConfigurationMode.ManualMapping;
+            var systemSkillMode = settings.Skills.Mode == SkillConfigurationMode.SystemClassification;
             if (skillAutoModeRadio is not null)
             {
-                skillAutoModeRadio.Checked = true;
+                skillAutoModeRadio.Checked = !manualSkillMode && !systemSkillMode;
             }
 
-            ShowSkillMode(false);
+            if (skillManualModeRadio is not null)
+            {
+                skillManualModeRadio.Checked = manualSkillMode;
+            }
+
+            if (skillSystemModeRadio is not null)
+            {
+                skillSystemModeRadio.Checked = systemSkillMode;
+            }
+
+            ShowSkillMode(settings.Skills.Mode);
 
             if (selectedSkillTree is not null)
             {
                 PopulateSelectedSkillTreeFromConfig(selectedSkillTree, settings.Skills.ExecutionTree);
+            }
+
+            if (systemSelectedSkillTree is not null)
+            {
+                PopulateSelectedSkillTreeFromConfig(systemSelectedSkillTree, settings.Skills.SystemExecutionTree);
             }
 
             if (manualSkillMappingList is not null)
@@ -344,17 +379,34 @@ namespace Roadhog
                 },
                 Skills = new SkillScriptSettings
                 {
-                    Mode = SkillConfigurationMode.Auto,
+                    Mode = CaptureSkillConfigurationMode(),
                     OpeningSkill = CaptureOpeningSkill(),
+                    SpiritmasterAutoSkillLogicEnabled = spiritmasterAutoSkillCheckBox?.Checked ?? false,
+                    Spiritmaster = CaptureSpiritmasterSettings(),
                     TriggerPrefixMode = "TopContiguousTriggerSkills",
                     ExecutionTree = selectedSkillTree is null
                         ? new List<SkillConfigNode>()
                         : CaptureSkillTree(selectedSkillTree.Nodes),
-                    ManualMappings = CaptureManualSkillMappings()
+                    ManualMappings = CaptureManualSkillMappings(),
+                    SystemExecutionTree = systemSelectedSkillTree is null
+                        ? new List<SkillConfigNode>()
+                        : CaptureSkillTree(systemSelectedSkillTree.Nodes)
                 }
             };
 
             return settings;
+        }
+
+        private SkillConfigurationMode CaptureSkillConfigurationMode()
+        {
+            if (skillSystemModeRadio?.Checked == true)
+            {
+                return SkillConfigurationMode.SystemClassification;
+            }
+
+            return skillManualModeRadio?.Checked == true
+                ? SkillConfigurationMode.ManualMapping
+                : SkillConfigurationMode.Auto;
         }
 
         private static void ApplyScriptSettingsToLegacyFields(AccountConfig account, ScriptSettings settings)
@@ -1149,7 +1201,7 @@ namespace Roadhog
             AddButton(page, "新增血量维护", 68, 116, 120, 30, (_, _) => AddMaintenanceKeyRuleRow(hpMaintenanceRuleList, hpMaintenanceEmptyLabel));
             var refreshMaintenanceSkillsButton = AddButton(page, "刷新技能", 196, 116, 90, 30);
             refreshMaintenanceSkillsButton.Click += async (_, _) =>
-                await RefreshCurrentSkillsAsync(refreshMaintenanceSkillsButton, refreshAutoTree: false, availableTree: null).ConfigureAwait(true);
+                await RefreshCurrentSkillsAsync(refreshMaintenanceSkillsButton, availableTree: null, systemTree: null).ConfigureAwait(true);
             hpMaintenanceRuleList = CreateMaintenanceRuleList(page, 4, 154, 830, 82);
             hpMaintenanceEmptyLabel = AddLabel(page, "暂无血量维护", 4, 154, 140, 24);
             hpMaintenanceEmptyLabel.BringToFront();
@@ -1571,31 +1623,45 @@ namespace Roadhog
             AddLabel(page, "技能配置", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
             var autoMode = AddRadioButton(page, "自动技能", 92, 14, 90, true);
             skillAutoModeRadio = autoMode;
+            var manualMode = AddRadioButton(page, "手动设置", 190, 14, 96, false);
+            skillManualModeRadio = manualMode;
+            var systemMode = AddRadioButton(page, "系统设置", 292, 14, 96, false);
+            skillSystemModeRadio = systemMode;
             openingAttackKeyCheckBox = AddCheckBox(page, "开怪按C", 548, 14, 92, true);
+            spiritmasterAutoSkillCheckBox = AddCheckBox(page, "精灵专用", 648, 14, 110, false);
+            spiritmasterAutoSkillCheckBox.Click += (_, _) => RefreshSpiritmasterAutoSkillCheckBoxState();
+            spiritmasterSettingsButton = AddButton(page, "精灵设置", 740, 10, 96, 30, (_, _) => ShowSpiritmasterSettingsDialog());
+            spiritmasterSettingsButton.Visible = false;
 
             var autoPanel = CreateSkillModePanel(page, "autoSkillPanel", true);
             autoSkillPanel = autoPanel;
             var manualPanel = CreateSkillModePanel(page, "manualSkillPanel", false);
             manualSkillPanel = manualPanel;
+            var systemPanel = CreateSkillModePanel(page, "systemSkillPanel", false);
+            systemSkillPanel = systemPanel;
 
             AddLabel(autoPanel, "可用技能", 8, 6, 120, 24, _textGreen, FontStyle.Bold);
             AddLabel(autoPanel, "技能执行顺序", 378, 6, 140, 24, _textGreen, FontStyle.Bold);
 
-            var availableTree = CreateSkillTree(autoPanel, "availableSkillTree", 8, 34, 260, 410);
+            var availableTree = CreateSkillTree(autoPanel, "availableSkillTree", 8, 34, 260, 260);
             availableSkillTree = availableTree;
-            var selectedTree = CreateSkillTree(autoPanel, "selectedSkillTree", 378, 34, 300, 410);
+            var selectedTree = CreateSkillTree(autoPanel, "selectedSkillTree", 378, 34, 300, 260);
             selectedSkillTree = selectedTree;
             PopulateAvailableSkillTree(availableTree);
             PopulateSelectedSkillTree(selectedTree);
 
             var refreshSkillsButton = AddButton(page, "刷新当前技能", 390, 10, 150, 30);
             refreshSkillsButton.Click += async (_, _) =>
-                await RefreshCurrentSkillsAsync(refreshSkillsButton, autoMode.Checked, availableTree).ConfigureAwait(true);
+                await RefreshCurrentSkillsAsync(refreshSkillsButton, availableTree, systemSkillTree).ConfigureAwait(true);
 
             AddButton(autoPanel, "添加 >", 288, 102, 70, 30, (_, _) => AddSkillSelection(availableTree, selectedTree));
             AddButton(autoPanel, "< 移除", 288, 140, 70, 30, (_, _) => RemoveSelectedSkill(selectedTree));
             AddButton(autoPanel, "全部 >>", 288, 178, 70, 30, (_, _) => AddAllAvailableSkills(availableTree, selectedTree));
             AddButton(autoPanel, "清空", 288, 216, 70, 30, (_, _) => selectedTree.Nodes.Clear());
+
+            var refreshSelectedSkillsButton = AddButton(autoPanel, "刷新当前已选技能", 696, 62, 132, 30);
+            refreshSelectedSkillsButton.Click += async (_, _) =>
+                await RefreshSelectedSkillTreeAsync(refreshSelectedSkillsButton, selectedTree).ConfigureAwait(true);
 
             AddButton(autoPanel, "置顶", 696, 102, 70, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Top));
             AddButton(autoPanel, "上移", 696, 140, 70, 30, (_, _) => MoveSelectedSkill(selectedTree, SkillMove.Up));
@@ -1619,22 +1685,110 @@ namespace Roadhog
                 }
             };
 
-            AddLabel(manualPanel, "手动技能Mapping", 8, 6, 130, 24, _textGreen, FontStyle.Bold);
+            AddLabel(manualPanel, "手动分类 / 手动Mapping", 8, 6, 160, 24, _textGreen, FontStyle.Bold);
 
             var mappingRows = CreateManualSkillMappingList(manualPanel);
 
-            AddButton(manualPanel, "新增技能Mapping", 136, 0, 132, 30, (_, _) => AddManualSkillMapping(mappingRows));
-            AddButton(manualPanel, "清空", 276, 0, 62, 30, (_, _) => mappingRows.Controls.Clear());
+            AddButton(manualPanel, "新增Mapping", 176, 0, 116, 30, (_, _) => AddManualSkillMapping(mappingRows));
+            AddButton(manualPanel, "清空", 300, 0, 62, 30, (_, _) => mappingRows.Controls.Clear());
+
+            AddLabel(systemPanel, "系统分类", 8, 6, 120, 24, _textGreen, FontStyle.Bold);
+            AddLabel(systemPanel, "系统执行顺序", 378, 6, 140, 24, _textGreen, FontStyle.Bold);
+
+            var systemTree = CreateSkillTree(systemPanel, "systemSkillTree", 8, 34, 260, 260);
+            systemSkillTree = systemTree;
+            PopulateSystemSkillTree(systemTree);
+            var systemSelectedTree = CreateSkillTree(systemPanel, "systemSelectedSkillTree", 378, 34, 300, 260);
+            systemSelectedSkillTree = systemSelectedTree;
+            PopulateSelectedSkillTree(systemSelectedTree);
+
+            AddButton(systemPanel, "添加 >", 288, 102, 70, 30, (_, _) => AddSystemSkillSelection(systemTree, systemSelectedTree));
+            AddButton(systemPanel, "< 移除", 288, 140, 70, 30, (_, _) => RemoveSelectedSkill(systemSelectedTree));
+            AddButton(systemPanel, "全部 >>", 288, 178, 70, 30, (_, _) => AddAllSystemSkills(systemTree, systemSelectedTree));
+            AddButton(systemPanel, "清空", 288, 216, 70, 30, (_, _) => systemSelectedTree.Nodes.Clear());
+
+            AddButton(systemPanel, "置顶", 696, 102, 70, 30, (_, _) => MoveSelectedSkill(systemSelectedTree, SkillMove.Top));
+            AddButton(systemPanel, "上移", 696, 140, 70, 30, (_, _) => MoveSelectedSkill(systemSelectedTree, SkillMove.Up));
+            AddButton(systemPanel, "下移", 696, 178, 70, 30, (_, _) => MoveSelectedSkill(systemSelectedTree, SkillMove.Down));
+            AddButton(systemPanel, "置底", 696, 216, 70, 30, (_, _) => MoveSelectedSkill(systemSelectedTree, SkillMove.Bottom));
 
             autoMode.CheckedChanged += (_, _) =>
             {
                 if (autoMode.Checked)
                 {
-                    ShowSkillMode(false);
+                    ShowSkillMode(SkillConfigurationMode.Auto);
+                    if (availableTree is not null && currentManualSkills.Count > 0)
+                    {
+                        PopulateAvailableSkillTreeFromSkills(availableTree, currentManualSkills);
+                    }
                 }
             };
 
+            manualMode.CheckedChanged += (_, _) =>
+            {
+                if (manualMode.Checked)
+                {
+                    ShowSkillMode(SkillConfigurationMode.ManualMapping);
+                }
+            };
+
+            systemMode.CheckedChanged += (_, _) =>
+            {
+                if (systemMode.Checked)
+                {
+                    ShowSkillMode(SkillConfigurationMode.SystemClassification);
+                    if (systemTree is not null && currentManualSkills.Count > 0)
+                    {
+                        PopulateSystemSkillTreeFromSkills(systemTree, currentManualSkills);
+                    }
+                }
+            };
+
+            RefreshSpiritmasterAutoSkillCheckBoxState();
             return tab;
+        }
+
+        private Form CreateSpiritmasterSettingsDialog()
+        {
+            var dialog = new Form
+            {
+                AutoScaleDimensions = new SizeF(7F, 17F),
+                AutoScaleMode = AutoScaleMode.Font,
+                BackColor = Color.FromArgb(248, 253, 250),
+                ClientSize = new Size(860, 620),
+                Font = new Font("Microsoft YaHei UI", 9F),
+                MinimumSize = new Size(720, 420),
+                Name = "SpiritmasterSettingsForm",
+                ShowIcon = false,
+                StartPosition = FormStartPosition.CenterParent,
+                Text = "精灵设置 - " + _account
+            };
+
+            var page = CreatePagePanel();
+            page.AutoScroll = true;
+            page.AutoScrollMinSize = new Size(0, 590);
+            dialog.Controls.Add(page);
+            spiritmasterRuleLists.Clear();
+            spiritmasterDotRuleList = null;
+            spiritmasterSummonRuleList = null;
+            spiritmasterOpeningAttackKeyButton = null;
+            spiritmasterPetHpRuleList = null;
+            spiritmasterPetBuffRuleList = null;
+
+            AddLabel(page, "精灵专用设置", 4, 16, 130, 24, _textGreen, FontStyle.Bold);
+            AddButton(page, "保存配置", 620, 10, 110, 30, SaveSettingsButton_Click);
+            AddButton(page, "关闭", 740, 10, 96, 30, (_, _) => dialog.Close());
+
+            spiritmasterDotRuleList = CreateSpiritmasterRuleSection(page, "DOT技能设置", "新增DOT", 54, 96, 100, 92, list => AddSpiritmasterDotRuleRow(list));
+
+            spiritmasterSummonRuleList = CreateSpiritmasterFixedRuleSection(page, "召唤宝宝技能设置", 158, 135, 100);
+
+            spiritmasterPetHpRuleList = CreateSpiritmasterRuleSection(page, "精灵宝宝血量维护技能设置", "新增宝宝维护", 292, 190, 196, 116, list => AddSpiritmasterPetHpRuleRow(list));
+
+            spiritmasterPetBuffRuleList = CreateSpiritmasterRuleSection(page, "宝宝Buff技能设置", "新增宝宝Buff", 396, 135, 142, 116, list => AddSpiritmasterPetBuffRuleRow(list));
+            PopulateSpiritmasterRuleLists(currentSpiritmasterSettings);
+
+            return dialog;
         }
 
         private TabPage CreateFilterTab()
@@ -2037,16 +2191,561 @@ namespace Roadhog
             return panel;
         }
 
-        private void ShowSkillMode(bool manual)
+        private FlowLayoutPanel CreateSpiritmasterRuleSection(
+            Control parent,
+            string title,
+            string addButtonText,
+            int y,
+            int titleWidth,
+            int addButtonX,
+            int addButtonWidth,
+            Action<FlowLayoutPanel> addRow)
+        {
+            AddLabel(parent, title, 4, y + 4, titleWidth, 24, _textGreen, FontStyle.Bold);
+            var list = CreateMaintenanceRuleList(parent, 4, y + 38, 830, 66);
+            spiritmasterRuleLists.Add(list);
+            AddButton(parent, addButtonText, addButtonX, y, addButtonWidth, 30, (_, _) => addRow(list));
+            return list;
+        }
+
+        private FlowLayoutPanel CreateSpiritmasterFixedRuleSection(
+            Control parent,
+            string title,
+            int y,
+            int titleWidth,
+            int listHeight = 66)
+        {
+            AddLabel(parent, title, 4, y + 4, titleWidth, 24, _textGreen, FontStyle.Bold);
+            var list = CreateMaintenanceRuleList(parent, 4, y + 38, 830, listHeight);
+            spiritmasterRuleLists.Add(list);
+            return list;
+        }
+
+        private void PopulateSpiritmasterRuleLists(SpiritmasterSkillSettings? settings)
+        {
+            var spiritmaster = settings ?? new SpiritmasterSkillSettings();
+
+            if (spiritmasterDotRuleList is not null)
+            {
+                spiritmasterDotRuleList.Controls.Clear();
+                foreach (var rule in spiritmaster.DotSkills ?? new List<SpiritmasterSkillRefConfig>())
+                {
+                    AddSpiritmasterDotRuleRow(spiritmasterDotRuleList, rule.SkillId, rule.SkillName);
+                }
+
+                if (!spiritmasterDotRuleList.Controls.OfType<Panel>().Any())
+                {
+                    AddSpiritmasterDotRuleRow(spiritmasterDotRuleList);
+                }
+            }
+
+            if (spiritmasterSummonRuleList is not null)
+            {
+                spiritmasterSummonRuleList.Controls.Clear();
+                var summonRules = (spiritmaster.SummonSkills ?? new List<SpiritmasterSkillKeyRuleConfig>())
+                    .Take(2)
+                    .ToArray();
+                AddSpiritmasterSummonButtonRow(
+                    spiritmasterSummonRuleList,
+                    1,
+                    summonRules.Length > 0 ? summonRules[0].Key : string.Empty);
+                AddSpiritmasterSummonButtonRow(
+                    spiritmasterSummonRuleList,
+                    2,
+                    summonRules.Length > 1 ? summonRules[1].Key : string.Empty);
+                AddSpiritmasterOpeningAttackKeyRow(spiritmasterSummonRuleList, spiritmaster.OpeningAttackKey);
+            }
+
+            if (spiritmasterPetHpRuleList is not null)
+            {
+                spiritmasterPetHpRuleList.Controls.Clear();
+                foreach (var rule in spiritmaster.PetHpMaintenanceRules ?? new List<SpiritmasterPetHpRuleConfig>())
+                {
+                    AddSpiritmasterPetHpRuleRow(spiritmasterPetHpRuleList, rule.BelowPercent, rule.SkillId, rule.SkillName, rule.Key);
+                }
+
+                if (!spiritmasterPetHpRuleList.Controls.OfType<Panel>().Any())
+                {
+                    AddSpiritmasterPetHpRuleRow(spiritmasterPetHpRuleList);
+                }
+            }
+
+            if (spiritmasterPetBuffRuleList is not null)
+            {
+                spiritmasterPetBuffRuleList.Controls.Clear();
+                foreach (var rule in spiritmaster.PetBuffRules ?? new List<SpiritmasterPetBuffRuleConfig>())
+                {
+                    AddSpiritmasterPetBuffRuleRow(spiritmasterPetBuffRuleList, rule.SkillId, rule.SkillName, rule.Key);
+                }
+
+                if (!spiritmasterPetBuffRuleList.Controls.OfType<Panel>().Any())
+                {
+                    AddSpiritmasterPetBuffRuleRow(spiritmasterPetBuffRuleList);
+                }
+            }
+        }
+
+        private SpiritmasterSkillSettings CaptureSpiritmasterSettings()
+        {
+            if (spiritmasterDotRuleList is null &&
+                spiritmasterSummonRuleList is null &&
+                spiritmasterPetHpRuleList is null &&
+                spiritmasterPetBuffRuleList is null)
+            {
+                return currentSpiritmasterSettings.Clone();
+            }
+
+            currentSpiritmasterSettings = new SpiritmasterSkillSettings
+            {
+                DotSkills = CaptureSpiritmasterSkillRefs(spiritmasterDotRuleList),
+                SummonSkills = CaptureSpiritmasterSkillKeyRules(spiritmasterSummonRuleList),
+                SummonKeyIntervalMs = 2000,
+                OpeningAttackKey = CaptureSpiritmasterKey(spiritmasterOpeningAttackKeyButton),
+                PetHpMaintenanceRules = CaptureSpiritmasterPetHpRules(spiritmasterPetHpRuleList),
+                PetBuffRules = CaptureSpiritmasterPetBuffRules(spiritmasterPetBuffRuleList)
+            };
+
+            return currentSpiritmasterSettings.Clone();
+        }
+
+        private static List<SpiritmasterSkillRefConfig> CaptureSpiritmasterSkillRefs(FlowLayoutPanel? list)
+        {
+            var rules = new List<SpiritmasterSkillRefConfig>();
+            foreach (var row in EnumerateSpiritmasterRows(list))
+            {
+                var selectedSkill = GetSelectedMaintenanceSkill(FindSpiritmasterSkillCombo(row));
+                if (!HasSpiritmasterSkillSelection(selectedSkill))
+                {
+                    continue;
+                }
+
+                rules.Add(new SpiritmasterSkillRefConfig
+                {
+                    SkillId = selectedSkill.SkillId,
+                    SkillName = selectedSkill.SkillName
+                });
+            }
+
+            return rules;
+        }
+
+        private static List<SpiritmasterSkillKeyRuleConfig> CaptureSpiritmasterSkillKeyRules(FlowLayoutPanel? list)
+        {
+            var rules = new List<SpiritmasterSkillKeyRuleConfig>();
+            foreach (var row in EnumerateSpiritmasterRows(list))
+            {
+                var selectedSkill = GetSelectedMaintenanceSkill(FindSpiritmasterSkillCombo(row));
+                var key = FindSpiritmasterKeyButton(row)?.Tag as string ?? string.Empty;
+                if (!HasSpiritmasterSkillSelection(selectedSkill) && string.IsNullOrWhiteSpace(key))
+                {
+                    continue;
+                }
+
+                rules.Add(new SpiritmasterSkillKeyRuleConfig
+                {
+                    SkillId = selectedSkill.SkillId,
+                    SkillName = selectedSkill.SkillName,
+                    Key = key
+                });
+            }
+
+            return rules;
+        }
+
+        private static List<SpiritmasterPetHpRuleConfig> CaptureSpiritmasterPetHpRules(FlowLayoutPanel? list)
+        {
+            var rules = new List<SpiritmasterPetHpRuleConfig>();
+            foreach (var row in EnumerateSpiritmasterRows(list))
+            {
+                var selectedSkill = GetSelectedMaintenanceSkill(FindSpiritmasterSkillCombo(row));
+                var key = FindSpiritmasterKeyButton(row)?.Tag as string ?? string.Empty;
+                if (!HasSpiritmasterSkillSelection(selectedSkill) && string.IsNullOrWhiteSpace(key))
+                {
+                    continue;
+                }
+
+                rules.Add(new SpiritmasterPetHpRuleConfig
+                {
+                    BelowPercent = ReadRowPercent(row, "spiritmasterPetHpBelowTextBox", 68),
+                    SkillId = selectedSkill.SkillId,
+                    SkillName = selectedSkill.SkillName,
+                    Key = key
+                });
+            }
+
+            return rules;
+        }
+
+        private static List<SpiritmasterPetBuffRuleConfig> CaptureSpiritmasterPetBuffRules(FlowLayoutPanel? list)
+        {
+            var rules = new List<SpiritmasterPetBuffRuleConfig>();
+            foreach (var row in EnumerateSpiritmasterRows(list))
+            {
+                var selectedSkill = GetSelectedMaintenanceSkill(FindSpiritmasterSkillCombo(row));
+                var key = FindSpiritmasterKeyButton(row)?.Tag as string ?? string.Empty;
+                if (!HasSpiritmasterSkillSelection(selectedSkill) &&
+                    string.IsNullOrWhiteSpace(key))
+                {
+                    continue;
+                }
+
+                rules.Add(new SpiritmasterPetBuffRuleConfig
+                {
+                    SkillId = selectedSkill.SkillId,
+                    SkillName = selectedSkill.SkillName,
+                    Key = key
+                });
+            }
+
+            return rules;
+        }
+
+        private static IEnumerable<Panel> EnumerateSpiritmasterRows(FlowLayoutPanel? list)
+        {
+            return list?.Controls.OfType<Panel>() ?? Enumerable.Empty<Panel>();
+        }
+
+        private static RoundedComboBox? FindSpiritmasterSkillCombo(Panel row)
+        {
+            return row.Controls
+                .OfType<RoundedComboBox>()
+                .FirstOrDefault(combo => string.Equals(combo.Name, "spiritmasterRuleSkillCombo", StringComparison.Ordinal));
+        }
+
+        private static Button? FindSpiritmasterKeyButton(Panel row)
+        {
+            return row.Controls
+                .OfType<Button>()
+                .FirstOrDefault(button => string.Equals(button.Name, "spiritmasterRuleKeyButton", StringComparison.Ordinal));
+        }
+
+        private static bool HasSpiritmasterSkillSelection(MaintenanceSkillComboItem selectedSkill)
+        {
+            return selectedSkill.SkillId != 0 || !string.IsNullOrWhiteSpace(selectedSkill.SkillName);
+        }
+
+        private static int ReadRowPercent(Panel row, string textBoxName, int fallback)
+        {
+            return Math.Clamp(ReadRowInt(row, textBoxName, fallback), 0, 100);
+        }
+
+        private static uint ReadRowUInt(Panel row, string textBoxName, uint fallback)
+        {
+            var text = row.Controls
+                .OfType<RoundedTextBox>()
+                .FirstOrDefault(textBox => string.Equals(textBox.Name, textBoxName, StringComparison.Ordinal))
+                ?.Text;
+            return uint.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+                ? value
+                : fallback;
+        }
+
+        private static int ReadRowInt(Panel row, string textBoxName, int fallback)
+        {
+            var text = row.Controls
+                .OfType<RoundedTextBox>()
+                .FirstOrDefault(textBox => string.Equals(textBox.Name, textBoxName, StringComparison.Ordinal))
+                ?.Text;
+            return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+                ? value
+                : fallback;
+        }
+
+        private Panel CreateSpiritmasterRuleRow(int width = 760)
+        {
+            return new Panel
+            {
+                BackColor = _pageBackground,
+                BorderStyle = BorderStyle.None,
+                Margin = new Padding(0, 0, 0, 2),
+                Size = new Size(width, 31)
+            };
+        }
+
+        private RoundedComboBox AddSpiritmasterSkillCombo(
+            Control parent,
+            int x,
+            int y,
+            int width,
+            uint skillId = 0,
+            string skillName = "")
+        {
+            var combo = AddCombo(parent, x, y, width, 28);
+            combo.Name = "spiritmasterRuleSkillCombo";
+            PopulateMaintenanceSkillCombo(combo, skillId, skillName);
+            return combo;
+        }
+
+        private Button AddSpiritmasterKeyButton(Control parent, int x, int y, string key = "")
+        {
+            var keyButton = AddButton(parent, "选择按键", x, y, 104, 30);
+            keyButton.Name = "spiritmasterRuleKeyButton";
+            SetSpiritmasterKeyButton(keyButton, key);
+
+            keyButton.Click += (_, _) =>
+            {
+                var selectedKey = ShowKeyboardPicker(keyButton.Tag as string);
+                if (!string.IsNullOrWhiteSpace(selectedKey))
+                {
+                    SetSpiritmasterKeyButton(keyButton, selectedKey);
+                }
+            };
+
+            return keyButton;
+        }
+
+        private static string CaptureSpiritmasterKey(Button? keyButton)
+        {
+            return keyButton?.Tag as string ?? string.Empty;
+        }
+
+        private static void SetSpiritmasterKeyButton(Button? keyButton, string? key)
+        {
+            if (keyButton is null)
+            {
+                return;
+            }
+
+            var normalizedKey = key?.Trim() ?? string.Empty;
+            keyButton.Tag = normalizedKey;
+            keyButton.Text = string.IsNullOrWhiteSpace(normalizedKey)
+                ? "选择按键"
+                : FormatSkillKey(normalizedKey);
+        }
+
+        private void AddSpiritmasterDeleteButton(FlowLayoutPanel list, Panel row, int x)
+        {
+            AddButton(row, "删除", x, 0, 58, 30, (_, _) =>
+            {
+                list.Controls.Remove(row);
+                row.Dispose();
+            });
+        }
+
+        private void AddSpiritmasterDotRuleRow(FlowLayoutPanel list, uint skillId = 0, string skillName = "")
+        {
+            var row = CreateSpiritmasterRuleRow(650);
+            AddLabel(row, "技能", 0, 3, 34, 24);
+            var skillCombo = AddSpiritmasterSkillCombo(row, 38, 1, 240, skillId, skillName);
+            var statusLabel = AddLabel(row, "状态: 自动识别", 288, 3, 120, 24);
+            statusLabel.Name = "spiritmasterDotStatusLabel";
+            var durationLabel = AddLabel(row, "持续: XML自动", 416, 3, 116, 24);
+            durationLabel.Name = "spiritmasterDotDurationLabel";
+            skillCombo.SelectedIndexChanged += (_, _) => UpdateSpiritmasterDotRuleInfo(skillCombo, statusLabel, durationLabel);
+            UpdateSpiritmasterDotRuleInfo(skillCombo, statusLabel, durationLabel);
+            AddSpiritmasterDeleteButton(list, row, 544);
+            list.Controls.Add(row);
+        }
+
+        private void UpdateSpiritmasterDotRuleInfo(
+            RoundedComboBox skillCombo,
+            Label statusLabel,
+            Label durationLabel)
+        {
+            statusLabel.Text = "状态: 自动识别";
+
+            var selectedSkill = GetSelectedMaintenanceSkill(skillCombo);
+            var skill = FindCurrentSkill(selectedSkill.SkillId, selectedSkill.SkillName);
+            durationLabel.Text = "持续: " + FormatSpiritmasterDotDuration(skill, selectedSkill);
+        }
+
+        private SkillSnapshot? FindCurrentSkill(uint skillId, string? skillName)
+        {
+            if (skillId != 0)
+            {
+                var byId = currentManualSkills.FirstOrDefault(skill => skill.SkillId == skillId);
+                if (byId is not null)
+                {
+                    return byId;
+                }
+            }
+
+            var normalizedName = skillName?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(normalizedName))
+            {
+                return null;
+            }
+
+            return currentManualSkills.FirstOrDefault(skill =>
+                string.Equals(FormatManualSkillName(skill), normalizedName, StringComparison.Ordinal) ||
+                string.Equals(skill.Name, normalizedName, StringComparison.Ordinal) ||
+                string.Equals(skill.DisplayBaseName, normalizedName, StringComparison.Ordinal));
+        }
+
+        private static string FormatSpiritmasterDotDuration(
+            SkillSnapshot? skill,
+            MaintenanceSkillComboItem selectedSkill)
+        {
+            if (selectedSkill.SkillId == 0 && string.IsNullOrWhiteSpace(selectedSkill.SkillName))
+            {
+                return "XML自动";
+            }
+
+            if (skill?.XmlEffectRemainMs is int remainMs && remainMs > 0)
+            {
+                return "XML " + FormatMillisecondsAsSeconds(remainMs);
+            }
+
+            return "XML未知";
+        }
+
+        private static string FormatMillisecondsAsSeconds(int milliseconds)
+        {
+            return milliseconds % 1000 == 0
+                ? (milliseconds / 1000).ToString(CultureInfo.InvariantCulture) + "秒"
+                : (milliseconds / 1000d).ToString("0.#", CultureInfo.InvariantCulture) + "秒";
+        }
+
+        private void AddSpiritmasterSummonButtonRow(
+            FlowLayoutPanel list,
+            int index,
+            string key = "")
+        {
+            var row = CreateSpiritmasterRuleRow(260);
+            AddLabel(row, GetSpiritmasterSummonButtonLabel(index), 0, 3, 96, 24);
+            AddSpiritmasterKeyButton(row, 106, 0, key);
+            list.Controls.Add(row);
+        }
+
+        private void AddSpiritmasterOpeningAttackKeyRow(
+            FlowLayoutPanel list,
+            string key = "")
+        {
+            var row = CreateSpiritmasterRuleRow(260);
+            AddLabel(row, "开怪按键", 0, 3, 96, 24);
+            spiritmasterOpeningAttackKeyButton = AddSpiritmasterKeyButton(row, 106, 0, key);
+            list.Controls.Add(row);
+        }
+
+        private static string GetSpiritmasterSummonButtonLabel(int index)
+        {
+            return index == 1 ? "提速按键" : "召唤按键";
+        }
+
+        private void AddSpiritmasterPetHpRuleRow(
+            FlowLayoutPanel list,
+            int belowPercent = 68,
+            uint skillId = 0,
+            string skillName = "",
+            string key = "")
+        {
+            var row = CreateSpiritmasterRuleRow(535);
+            AddLabel(row, "低于", 0, 3, 34, 24);
+            var thresholdTextBox = AddTextBox(
+                row,
+                Math.Clamp(belowPercent, 0, 100).ToString(CultureInfo.InvariantCulture),
+                36,
+                1,
+                54,
+                28);
+            thresholdTextBox.Name = "spiritmasterPetHpBelowTextBox";
+            AddLabel(row, "% 按", 94, 3, 42, 24);
+            AddSpiritmasterSkillCombo(row, 138, 1, 210, skillId, skillName);
+            AddSpiritmasterKeyButton(row, 356, 0, key);
+            AddSpiritmasterDeleteButton(list, row, 468);
+            list.Controls.Add(row);
+        }
+
+        private void AddSpiritmasterPetBuffRuleRow(
+            FlowLayoutPanel list,
+            uint skillId = 0,
+            string skillName = "",
+            string key = "")
+        {
+            var row = CreateSpiritmasterRuleRow(650);
+            AddLabel(row, "缺少Buff", 0, 3, 60, 24);
+            AddLabel(row, "状态: 自动识别", 66, 3, 118, 24);
+            AddLabel(row, "按", 190, 3, 24, 24);
+            AddSpiritmasterSkillCombo(row, 214, 1, 210, skillId, skillName);
+            AddSpiritmasterKeyButton(row, 432, 0, key);
+            AddSpiritmasterDeleteButton(list, row, 544);
+            list.Controls.Add(row);
+        }
+
+        private void ShowSkillMode(SkillConfigurationMode mode)
         {
             if (autoSkillPanel is not null)
             {
-                autoSkillPanel.Visible = !manual;
+                autoSkillPanel.Visible = mode == SkillConfigurationMode.Auto;
             }
 
             if (manualSkillPanel is not null)
             {
-                manualSkillPanel.Visible = manual;
+                manualSkillPanel.Visible = mode == SkillConfigurationMode.ManualMapping;
+            }
+
+            if (systemSkillPanel is not null)
+            {
+                systemSkillPanel.Visible = mode == SkillConfigurationMode.SystemClassification;
+            }
+
+            RefreshSpiritmasterAutoSkillCheckBoxState();
+        }
+
+        private void ShowSpiritmasterSettingsDialog()
+        {
+            if (spiritmasterAutoSkillCheckBox?.Checked != true)
+            {
+                return;
+            }
+
+            if (spiritmasterSettingsDialog is { IsDisposed: false })
+            {
+                spiritmasterSettingsDialog.Activate();
+                return;
+            }
+
+            var dialog = CreateSpiritmasterSettingsDialog();
+            spiritmasterSettingsDialog = dialog;
+            dialog.FormClosed += (_, _) =>
+            {
+                if (ReferenceEquals(spiritmasterSettingsDialog, dialog))
+                {
+                    spiritmasterSettingsDialog = null;
+                    spiritmasterRuleLists.Clear();
+                    spiritmasterDotRuleList = null;
+                    spiritmasterSummonRuleList = null;
+                    spiritmasterOpeningAttackKeyButton = null;
+                    spiritmasterPetHpRuleList = null;
+                    spiritmasterPetBuffRuleList = null;
+                }
+            };
+
+            dialog.Show(this);
+        }
+
+        private void CloseSpiritmasterSettingsDialog()
+        {
+            if (spiritmasterSettingsDialog is null ||
+                spiritmasterSettingsDialog.IsDisposed)
+            {
+                return;
+            }
+
+            spiritmasterSettingsDialog.Close();
+        }
+
+        private void RefreshSpiritmasterAutoSkillCheckBoxState()
+        {
+            if (spiritmasterAutoSkillCheckBox is null)
+            {
+                return;
+            }
+
+            var enabled = skillAutoModeRadio?.Checked == true;
+            spiritmasterAutoSkillCheckBox.Enabled = enabled;
+            spiritmasterAutoSkillCheckBox.ForeColor = enabled ? _textGreen : Color.FromArgb(107, 114, 128);
+            spiritmasterAutoSkillCheckBox.Cursor = enabled ? Cursors.Hand : Cursors.Default;
+
+            var showSettingsButton = enabled && spiritmasterAutoSkillCheckBox.Checked;
+            if (spiritmasterSettingsButton is not null)
+            {
+                spiritmasterSettingsButton.Visible = showSettingsButton;
+            }
+
+            if (!showSettingsButton)
+            {
+                CloseSpiritmasterSettingsDialog();
             }
         }
 
@@ -2160,6 +2859,13 @@ namespace Roadhog
             tree.EndUpdate();
         }
 
+        private void PopulateSystemSkillTree(TreeView tree)
+        {
+            tree.BeginUpdate();
+            tree.Nodes.Clear();
+            tree.EndUpdate();
+        }
+
         private void PopulateAvailableSkillTreeFromSkills(TreeView tree, IReadOnlyList<SkillSnapshot> skills)
         {
             tree.BeginUpdate();
@@ -2200,6 +2906,203 @@ namespace Roadhog
             {
                 tree.EndUpdate();
             }
+        }
+
+        private void PopulateSystemSkillTreeFromSkills(TreeView tree, IReadOnlyList<SkillSnapshot> skills)
+        {
+            tree.BeginUpdate();
+            try
+            {
+                tree.Nodes.Clear();
+                var visibleSkills = skills
+                    .Where(skill => !ShouldHideManualSkillCandidate(skill))
+                    .ToArray();
+
+                AddSystemSkillDimension(tree, "施放类型", visibleSkills, skill => FormatSystemValue(skill.XmlActivation));
+                AddSystemSkillDimension(tree, "XML分类", visibleSkills, skill => FormatSystemValue(skill.XmlSkillCategory));
+                AddSystemSkillDimension(tree, "攻击属性", visibleSkills, skill => FormatSystemValue(skill.XmlSkillType));
+                AddSystemSkillDimension(tree, "用途", visibleSkills, skill => FormatSystemValue(skill.XmlSubType));
+                AddSystemSkillDimension(tree, "目标槽位", visibleSkills, skill => FormatSystemValue(skill.XmlTargetSlot));
+                AddSystemSkillDimension(tree, "可驱散", visibleSkills, skill => FormatSystemValue(skill.XmlDispelCategory));
+                AddSystemSkillDimension(tree, "首目标", visibleSkills, skill => FormatSystemValue(skill.XmlFirstTarget));
+                AddSystemSkillDimension(tree, "目标关系", visibleSkills, skill => FormatSystemValue(skill.XmlTargetRelationRestriction));
+                AddSystemSkillDimension(tree, "目标范围", visibleSkills, skill => FormatSystemValue(skill.XmlTargetRange));
+                AddSystemSkillDimension(tree, "效果机制", visibleSkills, GetSystemEffectCategory);
+
+                tree.ExpandAll();
+            }
+            finally
+            {
+                tree.EndUpdate();
+            }
+        }
+
+        private static void AddSystemSkillDimension(
+            TreeView tree,
+            string dimensionName,
+            IReadOnlyList<SkillSnapshot> skills,
+            Func<SkillSnapshot, string> selector)
+        {
+            var dimensionNode = tree.Nodes.Add(dimensionName, dimensionName);
+            foreach (var group in skills
+                         .GroupBy(selector, StringComparer.Ordinal)
+                         .OrderBy(group => group.Key, StringComparer.CurrentCulture))
+            {
+                var groupNode = dimensionNode.Nodes.Add(group.Key, group.Key);
+                AddSystemSkillLeaves(groupNode, group);
+            }
+
+            if (dimensionNode.Nodes.Count == 0)
+            {
+                tree.Nodes.Remove(dimensionNode);
+            }
+        }
+
+        private static void AddSystemSkillLeaves(TreeNode parentNode, IEnumerable<SkillSnapshot> skills)
+        {
+            foreach (var skill in skills
+                         .GroupBy(GetSkillKey, StringComparer.Ordinal)
+                         .Select(group => group.First())
+                         .OrderBy(FormatManualSkillName, StringComparer.CurrentCulture))
+            {
+                var name = FormatManualSkillName(skill);
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                var nodeText = name + " #" + skill.SkillId;
+                var node = parentNode.Nodes.Add(nodeText, nodeText);
+                node.Tag = CreateSystemSkillTreeNodeData(skill);
+            }
+        }
+
+        private static SkillTreeNodeData CreateSystemSkillTreeNodeData(SkillSnapshot skill)
+        {
+            return new SkillTreeNodeData(
+                skill.SkillId,
+                FormatManualSkillName(skill),
+                GetSkillBaseName(skill),
+                GetSystemExecutionCategory(skill),
+                ParseNullableInt(skill.XmlChainTime));
+        }
+
+        private static string FormatSystemValue(string? value)
+        {
+            return HasUsefulSkillValue(value) ? value!.Trim() : "未标记";
+        }
+
+        private static string GetSystemEffectCategory(SkillSnapshot skill)
+        {
+            if (IsSystemDamageOverTimeSkill(skill))
+            {
+                return "持续伤害";
+            }
+
+            if (HasSystemEffect(skill, "Heal") || HasSystemEffect(skill, "Heal_Instant"))
+            {
+                return "治疗";
+            }
+
+            if (HasSystemEffect(skill, "StatUp") || HasSystemEffect(skill, "Shield") || HasSystemEffect(skill, "Reflector"))
+            {
+                return "增益";
+            }
+
+            if (HasSystemEffect(skill, "StatDown") || HasSystemEffect(skill, "Slow") || HasSystemEffect(skill, "Snare") ||
+                HasSystemEffect(skill, "Root") || HasSystemEffect(skill, "Stun") || HasSystemEffect(skill, "Sleep") ||
+                HasSystemEffect(skill, "Silence") || HasSystemEffect(skill, "Fear") || HasSystemEffect(skill, "Blind") ||
+                HasSystemEffect(skill, "Paralyze"))
+            {
+                return "控制/减益";
+            }
+
+            if (HasSystemEffect(skill, "SkillATK_Instant") || HasSystemEffect(skill, "SpellATK_Instant") ||
+                HasSystemEffect(skill, "SkillATK") || HasSystemEffect(skill, "SpellATK"))
+            {
+                return "直接伤害";
+            }
+
+            if (HasSystemEffect(skill, "Summon") || HasSystemEffect(skill, "SummonTrap"))
+            {
+                return "召唤/陷阱";
+            }
+
+            return "其他";
+        }
+
+        private static string GetSystemExecutionCategory(SkillSnapshot skill)
+        {
+            if (IsNamedSkill(GetSkillBaseName(skill), DpSkillBaseNames) ||
+                HasSkillTag(skill, "dp") ||
+                HasUsefulSkillValue(skill.XmlCostDp))
+            {
+                return "DP技能";
+            }
+
+            if (IsNamedSkill(GetSkillBaseName(skill), TriggerSkillBaseNames) ||
+                HasSkillTag(skill, "counter") ||
+                HasUsefulSkillValue(skill.XmlCounterSkill))
+            {
+                return "触发技能";
+            }
+
+            if (IsSystemDamageOverTimeSkill(skill))
+            {
+                return "持续伤害";
+            }
+
+            if (HasSystemEffect(skill, "Heal") || HasSystemEffect(skill, "Heal_Instant"))
+            {
+                return "治疗技能";
+            }
+
+            if (string.Equals(skill.XmlTargetSlot, "buff", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(skill.XmlSubType, "Buff", StringComparison.OrdinalIgnoreCase))
+            {
+                return "增益技能";
+            }
+
+            if (string.Equals(skill.XmlTargetSlot, "Debuff", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(skill.XmlSubType, "Debuff", StringComparison.OrdinalIgnoreCase))
+            {
+                return "减益技能";
+            }
+
+            if (HasUsefulSkillValue(skill.XmlPrechainCategory) || HasUsefulSkillValue(skill.XmlChainTime))
+            {
+                return "连续技";
+            }
+
+            if (string.Equals(skill.XmlActivation, "Toggle", StringComparison.OrdinalIgnoreCase))
+            {
+                return "激活技能";
+            }
+
+            return "主动技能";
+        }
+
+        private static bool IsSystemDamageOverTimeSkill(SkillSnapshot skill)
+        {
+            return (string.Equals(skill.XmlTargetSlot, "Debuff", StringComparison.OrdinalIgnoreCase) ||
+                    (skill.XmlDispelCategory?.StartsWith("Debuff", StringComparison.OrdinalIgnoreCase) ?? false)) &&
+                   (skill.XmlEffectRemainMs.GetValueOrDefault() > 0 || skill.XmlEffectCheckTimeMs.GetValueOrDefault() > 0) &&
+                   (HasSystemEffect(skill, "Poison") ||
+                    HasSystemEffect(skill, "Bleed") ||
+                    HasSystemEffect(skill, "SpellATK") ||
+                    HasSystemEffect(skill, "SkillATK"));
+        }
+
+        private static bool HasSystemEffect(SkillSnapshot skill, string effect)
+        {
+            if (string.IsNullOrWhiteSpace(skill.XmlEffects))
+            {
+                return false;
+            }
+
+            return skill.XmlEffects
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Any(value => string.Equals(value, effect, StringComparison.OrdinalIgnoreCase));
         }
 
         private void PopulateChainSkillTree(TreeNode categoryNode, IReadOnlyList<SkillSnapshot> visibleSkills)
@@ -2572,6 +3475,94 @@ namespace Roadhog
             }
         }
 
+        private static void AddSystemSkillSelection(TreeView source, TreeView target)
+        {
+            if (source.SelectedNode is null)
+            {
+                return;
+            }
+
+            AddSystemSkillNode(target, source.SelectedNode);
+        }
+
+        private static void AddAllSystemSkills(TreeView source, TreeView target)
+        {
+            foreach (TreeNode node in source.Nodes)
+            {
+                AddSystemSkillNode(target, node);
+            }
+        }
+
+        private static void AddSystemSkillNode(TreeView target, TreeNode sourceNode)
+        {
+            TreeNode? selectedNode = null;
+            foreach (var leaf in EnumerateSkillLeafNodes(sourceNode))
+            {
+                selectedNode = AddSystemSkillLeafIfMissing(target.Nodes, leaf);
+            }
+
+            target.ExpandAll();
+            if (selectedNode is not null)
+            {
+                target.SelectedNode = selectedNode;
+            }
+        }
+
+        private static IEnumerable<TreeNode> EnumerateSkillLeafNodes(TreeNode node)
+        {
+            if (node.Tag is SkillTreeNodeData)
+            {
+                yield return node;
+            }
+
+            foreach (TreeNode child in node.Nodes)
+            {
+                foreach (var leaf in EnumerateSkillLeafNodes(child))
+                {
+                    yield return leaf;
+                }
+            }
+        }
+
+        private static TreeNode AddSystemSkillLeafIfMissing(TreeNodeCollection targetNodes, TreeNode sourceNode)
+        {
+            var sourceData = sourceNode.Tag as SkillTreeNodeData;
+            var targetNode = FindDirectSystemSkillNode(targetNodes, sourceData, sourceNode.Text);
+            if (targetNode is null)
+            {
+                var text = sourceData?.Name ?? sourceNode.Text;
+                targetNode = targetNodes.Add(text, text);
+                targetNode.Tag = sourceNode.Tag;
+            }
+
+            return targetNode;
+        }
+
+        private static TreeNode? FindDirectSystemSkillNode(
+            TreeNodeCollection nodes,
+            SkillTreeNodeData? sourceData,
+            string fallbackText)
+        {
+            foreach (TreeNode node in nodes)
+            {
+                var data = node.Tag as SkillTreeNodeData;
+                if (sourceData is not null &&
+                    data is not null &&
+                    sourceData.SkillId != 0 &&
+                    data.SkillId == sourceData.SkillId)
+                {
+                    return node;
+                }
+
+                if (string.Equals(node.Text, sourceData?.Name ?? fallbackText, StringComparison.Ordinal))
+                {
+                    return node;
+                }
+            }
+
+            return null;
+        }
+
         private static void AddAvailableSkillNode(TreeView target, TreeNode sourceNode)
         {
             TreeNode? selectedNode = null;
@@ -2649,7 +3640,7 @@ namespace Roadhog
                 BorderStyle = BorderStyle.None,
                 Cursor = Cursors.SizeAll,
                 Margin = new Padding(0, 0, 0, 7),
-                Size = new Size(506, 31),
+                Size = new Size(610, 31),
                 Tag = skillName
             };
 
@@ -2660,19 +3651,19 @@ namespace Roadhog
                 Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Regular),
                 ForeColor = _textGreen,
                 Location = new Point(0, 3),
-                Size = new Size(32, 24),
-                Text = "技能",
+                Size = new Size(34, 24),
+                Text = "分类",
                 TextAlign = ContentAlignment.MiddleLeft
             });
 
-            var typeCombo = AddCombo(row, 34, 1, 118, 28, ManualSkillCategories);
+            var typeCombo = AddCombo(row, 40, 1, 118, 28, ManualSkillCategories);
             typeCombo.Name = "manualSkillTypeCombo";
             if (!string.IsNullOrWhiteSpace(skillType) && typeCombo.Items.Contains(skillType))
             {
                 typeCombo.Text = skillType;
             }
 
-            var skillCombo = AddCombo(row, 158, 1, 132, 28);
+            var skillCombo = AddCombo(row, 166, 1, 220, 28);
             skillCombo.Name = "manualSkillNameCombo";
             PopulateManualSkillNameCombo(skillCombo, typeCombo.Text);
             if (!string.IsNullOrWhiteSpace(skillName))
@@ -2688,13 +3679,13 @@ namespace Roadhog
                 BackColor = Color.Transparent,
                 Font = new Font("Microsoft YaHei UI", 9F),
                 ForeColor = _textGreen,
-                Location = new Point(296, 3),
-                Size = new Size(24, 24),
-                Text = "按",
+                Location = new Point(394, 3),
+                Size = new Size(34, 24),
+                Text = "按键",
                 TextAlign = ContentAlignment.MiddleCenter
             });
 
-            var keyButton = AddButton(row, "选择按键", 324, 0, 104, 30);
+            var keyButton = AddButton(row, "选择按键", 434, 0, 104, 30);
             keyButton.Name = "manualSkillKeyButton";
             if (!string.IsNullOrWhiteSpace(key))
             {
@@ -2702,7 +3693,7 @@ namespace Roadhog
                 keyButton.Text = FormatSkillKey(key);
             }
 
-            AddButton(row, "删除", 436, 0, 58, 30);
+            AddButton(row, "删除", 546, 0, 58, 30);
 
             keyButton.Click += (_, _) =>
             {
@@ -2724,7 +3715,7 @@ namespace Roadhog
             list.Controls.Add(row);
         }
 
-        private async Task RefreshCurrentSkillsAsync(Button button, bool refreshAutoTree, TreeView? availableTree)
+        private async Task RefreshCurrentSkillsAsync(Button button, TreeView? availableTree, TreeView? systemTree)
         {
             var originalText = button.Text;
             button.Enabled = false;
@@ -2745,16 +3736,19 @@ namespace Roadhog
                 }
 
                 currentManualSkills = result.Value;
-                if (refreshAutoTree && availableTree is not null)
+                if (availableTree is not null && skillAutoModeRadio?.Checked == true)
                 {
                     PopulateAvailableSkillTreeFromSkills(availableTree, currentManualSkills);
                 }
-                else
+
+                if (systemTree is not null && skillSystemModeRadio?.Checked == true)
                 {
-                    RefreshManualSkillMappingCombos();
+                    PopulateSystemSkillTreeFromSkills(systemTree, currentManualSkills);
                 }
 
+                RefreshManualSkillMappingCombos();
                 RefreshMaintenanceSkillCombos();
+                RefreshSpiritmasterSkillCombos();
                 RefreshOpeningSkillCombo();
                 button.Text = "已刷新 " + currentManualSkills.Count;
                 await Task.Delay(700).ConfigureAwait(true);
@@ -2767,6 +3761,155 @@ namespace Roadhog
                     button.Enabled = true;
                 }
             }
+        }
+
+        private async Task RefreshSelectedSkillTreeAsync(Button button, TreeView selectedTree)
+        {
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "刷新中...";
+
+            try
+            {
+                var result = await _runtime.RefreshSkillsAsync(_account).ConfigureAwait(true);
+                if (!result.Success || result.Value is null)
+                {
+                    MessageBox.Show(
+                        this,
+                        result.Error ?? "刷新当前已选技能失败。",
+                        "刷新当前已选技能",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                currentManualSkills = result.Value;
+                var updatedCount = RefreshSelectedSkillTreeToHighestCurrentSkills(selectedTree, currentManualSkills);
+                RefreshManualSkillMappingCombos();
+                RefreshMaintenanceSkillCombos();
+                RefreshSpiritmasterSkillCombos();
+                RefreshOpeningSkillCombo();
+
+                button.Text = "已刷新 " + updatedCount;
+                await Task.Delay(700).ConfigureAwait(true);
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+
+        private static int RefreshSelectedSkillTreeToHighestCurrentSkills(
+            TreeView selectedTree,
+            IReadOnlyList<SkillSnapshot> currentSkills)
+        {
+            var candidates = currentSkills
+                .Where(skill => !ShouldHideManualSkillCandidate(skill))
+                .GroupBy(skill => NormalizeSkillBaseName(GetSkillBaseName(skill)), StringComparer.Ordinal)
+                .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.OrderByDescending(GetSkillRank).First(),
+                    StringComparer.Ordinal);
+
+            var updatedCount = 0;
+            selectedTree.BeginUpdate();
+            try
+            {
+                foreach (TreeNode node in selectedTree.Nodes)
+                {
+                    updatedCount += RefreshSelectedSkillNodeToHighestCurrentSkill(node, candidates);
+                }
+
+                selectedTree.ExpandAll();
+            }
+            finally
+            {
+                selectedTree.EndUpdate();
+            }
+
+            return updatedCount;
+        }
+
+        private static int RefreshSelectedSkillNodeToHighestCurrentSkill(
+            TreeNode node,
+            IReadOnlyDictionary<string, SkillSnapshot> candidates)
+        {
+            var updatedCount = 0;
+            var data = node.Tag as SkillTreeNodeData;
+            var key = NormalizeSkillBaseName(
+                !string.IsNullOrWhiteSpace(data?.BaseName)
+                    ? data.BaseName
+                    : data?.Name ?? node.Text);
+
+            if (!string.IsNullOrWhiteSpace(key) &&
+                candidates.TryGetValue(key, out var currentSkill))
+            {
+                var currentData = CreateSkillTreeNodeData(currentSkill);
+                if (data is null ||
+                    data.SkillId != currentData.SkillId ||
+                    !string.Equals(data.Name, currentData.Name, StringComparison.Ordinal) ||
+                    !string.Equals(node.Text, currentData.Name, StringComparison.Ordinal))
+                {
+                    node.Text = currentData.Name;
+                    node.Name = currentData.Name;
+                    node.Tag = currentData;
+                    updatedCount++;
+                }
+            }
+
+            foreach (TreeNode child in node.Nodes)
+            {
+                updatedCount += RefreshSelectedSkillNodeToHighestCurrentSkill(child, candidates);
+            }
+
+            return updatedCount;
+        }
+
+        private static (int DisplayTier, int ItemLevel, int HighestLevel, uint SkillId) GetSkillRank(SkillSnapshot skill)
+        {
+            return (
+                skill.DisplayTier.GetValueOrDefault(),
+                skill.ItemLevel,
+                skill.HighestLevel,
+                skill.SkillId);
+        }
+
+        private static string NormalizeSkillBaseName(string? value)
+        {
+            var text = value?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return string.Empty;
+            }
+
+            var hashIndex = text.LastIndexOf('#');
+            if (hashIndex >= 0)
+            {
+                text = text[..hashIndex].TrimEnd();
+            }
+
+            var parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length > 1 && LooksLikeSkillTier(parts[^1]))
+            {
+                text = string.Join(' ', parts.Take(parts.Length - 1));
+            }
+
+            return text.Trim();
+        }
+
+        private static bool LooksLikeSkillTier(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            return value.All(ch => ch is 'I' or 'V' or 'X');
         }
 
         private void RefreshManualSkillMappingCombos()
@@ -2788,6 +3931,33 @@ namespace Roadhog
                 if (typeCombo is not null && skillCombo is not null)
                 {
                     PopulateManualSkillNameCombo(skillCombo, typeCombo.Text);
+                }
+            }
+        }
+
+        private void RefreshSpiritmasterSkillCombos()
+        {
+            foreach (var list in spiritmasterRuleLists.Where(list => !list.IsDisposed))
+            {
+                foreach (var row in list.Controls.OfType<Panel>())
+                {
+                    foreach (var skillCombo in row.Controls
+                                 .OfType<RoundedComboBox>()
+                                 .Where(combo => string.Equals(combo.Name, "spiritmasterRuleSkillCombo", StringComparison.Ordinal)))
+                    {
+                        var selectedSkill = GetSelectedMaintenanceSkill(skillCombo);
+                        PopulateMaintenanceSkillCombo(skillCombo, selectedSkill.SkillId, selectedSkill.SkillName);
+                        var dotStatusLabel = row.Controls
+                            .OfType<Label>()
+                            .FirstOrDefault(label => string.Equals(label.Name, "spiritmasterDotStatusLabel", StringComparison.Ordinal));
+                        var dotDurationLabel = row.Controls
+                            .OfType<Label>()
+                            .FirstOrDefault(label => string.Equals(label.Name, "spiritmasterDotDurationLabel", StringComparison.Ordinal));
+                        if (dotStatusLabel is not null && dotDurationLabel is not null)
+                        {
+                            UpdateSpiritmasterDotRuleInfo(skillCombo, dotStatusLabel, dotDurationLabel);
+                        }
+                    }
                 }
             }
         }
@@ -2816,7 +3986,6 @@ namespace Roadhog
             {
                 var names = currentManualSkills
                     .Where(skill => !ShouldHideManualSkillCandidate(skill))
-                    .Where(skill => MatchesManualSkillType(skill, skillType))
                     .Select(FormatManualSkillName)
                     .Where(name => !string.IsNullOrWhiteSpace(name))
                     .Distinct(StringComparer.Ordinal)

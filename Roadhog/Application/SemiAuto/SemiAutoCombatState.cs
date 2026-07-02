@@ -9,14 +9,24 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<uint, uint> knownCooldownEndTimes = new();
     private readonly Dictionary<uint, DateTimeOffset> uncalibratedUnknownSuppressUntil = new();
     private readonly Dictionary<string, DateTimeOffset> maintenanceKeyPressedAt = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<uint, uint> spiritmasterDotAbnormalIds = new();
+    private readonly Dictionary<uint, uint> spiritmasterPetBuffAbnormalIds = new();
     private DateTimeOffset lastAttackKeyPressedAt = DateTimeOffset.MinValue;
+    private DateTimeOffset lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
-    private ushort openingAttackTargetEntityId;
-    private ushort openingSkillTargetEntityId;
+    private DateTimeOffset lastPressedCooldownRetryAt = DateTimeOffset.MinValue;
+    private string lastPressedCooldownRetryKey = string.Empty;
+    private string lastPressedCooldownRetrySkillName = string.Empty;
+    private string lastPressedCooldownRetrySkillType = string.Empty;
+    private string lastPressedCooldownRetryPhase = string.Empty;
+    private uint openingAttackTargetIdentity;
+    private uint spiritmasterOpeningAttackTargetIdentity;
+    private uint openingSkillTargetIdentity;
     private ushort observedTargetEntityId;
     private bool observedTargetWasAliveMonster;
+    private SpiritmasterAbnormalObservation? pendingSpiritmasterDotObservation;
 
     public SemiAutoSkillNode? PendingChainSourceNode { get; private set; }
 
@@ -63,8 +73,9 @@ public sealed class SemiAutoCombatState
         {
             observedTargetEntityId = 0;
             observedTargetWasAliveMonster = false;
-            openingAttackTargetEntityId = 0;
-            openingSkillTargetEntityId = 0;
+            openingAttackTargetIdentity = 0;
+            spiritmasterOpeningAttackTargetIdentity = 0;
+            openingSkillTargetIdentity = 0;
             return false;
         }
 
@@ -78,8 +89,9 @@ public sealed class SemiAutoCombatState
         observedTargetWasAliveMonster = target.IsMonsterAlive;
         if (!target.IsMonsterAlive)
         {
-            openingAttackTargetEntityId = 0;
-            openingSkillTargetEntityId = 0;
+            openingAttackTargetIdentity = 0;
+            spiritmasterOpeningAttackTargetIdentity = 0;
+            openingSkillTargetIdentity = 0;
         }
 
         if (!killed)
@@ -93,36 +105,56 @@ public sealed class SemiAutoCombatState
 
     public bool ShouldPressOpeningAttackKey(LockedTargetSnapshot target)
     {
+        var targetIdentity = ResolveOpeningTargetIdentity(target);
         return target.IsMonsterAlive &&
-               target.TargetEntityId != 0 &&
-               openingAttackTargetEntityId != target.TargetEntityId;
+               targetIdentity != 0 &&
+               openingAttackTargetIdentity != targetIdentity;
     }
 
     public void MarkOpeningAttackKeyAttempted(LockedTargetSnapshot target)
     {
-        openingAttackTargetEntityId = target.TargetEntityId;
+        openingAttackTargetIdentity = ResolveOpeningTargetIdentity(target);
     }
 
     public void ResetOpeningAttackKey()
     {
-        openingAttackTargetEntityId = 0;
+        openingAttackTargetIdentity = 0;
+    }
+
+    public bool ShouldPressSpiritmasterOpeningAttackKey(LockedTargetSnapshot target)
+    {
+        var targetIdentity = ResolveOpeningTargetIdentity(target);
+        return target.IsMonsterAlive &&
+               targetIdentity != 0 &&
+               spiritmasterOpeningAttackTargetIdentity != targetIdentity;
+    }
+
+    public void MarkSpiritmasterOpeningAttackKeyAttempted(LockedTargetSnapshot target)
+    {
+        spiritmasterOpeningAttackTargetIdentity = ResolveOpeningTargetIdentity(target);
+    }
+
+    public void ResetSpiritmasterOpeningAttackKey()
+    {
+        spiritmasterOpeningAttackTargetIdentity = 0;
     }
 
     public bool ShouldHandleOpeningSkill(LockedTargetSnapshot target)
     {
+        var targetIdentity = ResolveOpeningTargetIdentity(target);
         return target.IsMonsterAlive &&
-               target.TargetEntityId != 0 &&
-               openingSkillTargetEntityId != target.TargetEntityId;
+               targetIdentity != 0 &&
+               openingSkillTargetIdentity != targetIdentity;
     }
 
     public void MarkOpeningSkillHandled(LockedTargetSnapshot target)
     {
-        openingSkillTargetEntityId = target.TargetEntityId;
+        openingSkillTargetIdentity = ResolveOpeningTargetIdentity(target);
     }
 
     public void ResetOpeningSkill()
     {
-        openingSkillTargetEntityId = 0;
+        openingSkillTargetIdentity = 0;
     }
 
     public bool ShouldPressAttackKey(DateTimeOffset now, TimeSpan interval)
@@ -157,6 +189,104 @@ public sealed class SemiAutoCombatState
         if (!string.IsNullOrWhiteSpace(key))
         {
             maintenanceKeyPressedAt[key.Trim()] = now;
+        }
+    }
+
+    public bool ShouldAttemptSpiritmasterSummon(DateTimeOffset now, TimeSpan interval)
+    {
+        return lastSpiritmasterSummonAttemptAt == DateTimeOffset.MinValue ||
+               now - lastSpiritmasterSummonAttemptAt >= interval;
+    }
+
+    public void MarkSpiritmasterSummonAttempted(DateTimeOffset now)
+    {
+        lastSpiritmasterSummonAttemptAt = now;
+    }
+
+    public bool TryGetSpiritmasterDotAbnormalId(uint skillId, out uint abnormalId)
+    {
+        return spiritmasterDotAbnormalIds.TryGetValue(skillId, out abnormalId) && abnormalId != 0;
+    }
+
+    public void RememberSpiritmasterDotAbnormalId(uint skillId, uint abnormalId)
+    {
+        if (skillId != 0 && abnormalId != 0)
+        {
+            spiritmasterDotAbnormalIds[skillId] = abnormalId;
+        }
+    }
+
+    public void BeginSpiritmasterDotObservation(
+        uint skillId,
+        uint targetServerObjectId,
+        IEnumerable<AbnormalStatusEntrySnapshot> beforeEntries,
+        DateTimeOffset expiresAt)
+    {
+        if (skillId == 0 || targetServerObjectId == 0)
+        {
+            pendingSpiritmasterDotObservation = null;
+            return;
+        }
+
+        pendingSpiritmasterDotObservation = new SpiritmasterAbnormalObservation(
+            skillId,
+            targetServerObjectId,
+            beforeEntries.Select(entry => entry.AbnormalId).Where(id => id != 0).ToHashSet(),
+            expiresAt);
+    }
+
+    public bool TryCompleteSpiritmasterDotObservation(
+        uint targetServerObjectId,
+        IEnumerable<AbnormalStatusEntrySnapshot> afterEntries,
+        DateTimeOffset now,
+        out uint skillId,
+        out uint abnormalId)
+    {
+        skillId = 0;
+        abnormalId = 0;
+        var observation = pendingSpiritmasterDotObservation;
+        if (observation is null ||
+            observation.TargetServerObjectId != targetServerObjectId ||
+            now > observation.ExpiresAt)
+        {
+            pendingSpiritmasterDotObservation = null;
+            return false;
+        }
+
+        var learned = afterEntries.Any(entry => entry.AbnormalId == observation.SkillId)
+            ? observation.SkillId
+            : 0;
+        if (learned == 0)
+        {
+            learned = afterEntries
+                .Where(entry => entry.AbnormalId != 0 && !observation.BeforeAbnormalIds.Contains(entry.AbnormalId))
+                .OrderByDescending(entry => entry.IsPhysicalDebuffCategory)
+                .Select(entry => entry.AbnormalId)
+                .FirstOrDefault();
+        }
+
+        if (learned == 0)
+        {
+            return false;
+        }
+
+        pendingSpiritmasterDotObservation = null;
+        skillId = observation.SkillId;
+        abnormalId = learned;
+        RememberSpiritmasterDotAbnormalId(observation.SkillId, learned);
+        return true;
+    }
+
+    public bool TryGetSpiritmasterPetBuffAbnormalId(uint skillId, out uint abnormalId)
+    {
+        return spiritmasterPetBuffAbnormalIds.TryGetValue(skillId, out abnormalId) && abnormalId != 0;
+    }
+
+    public void RememberSpiritmasterPetBuffAbnormalId(uint skillId, uint abnormalId)
+    {
+        if (skillId != 0 && abnormalId != 0)
+        {
+            spiritmasterPetBuffAbnormalIds[skillId] = abnormalId;
         }
     }
 
@@ -238,7 +368,12 @@ public sealed class SemiAutoCombatState
 
     public void MarkSkillPressed(
         SkillSnapshot skill,
-        DateTimeOffset cooldownConfirmationExpiresAt)
+        DateTimeOffset cooldownConfirmationExpiresAt,
+        string? retryKey = null,
+        string? retrySkillName = null,
+        string? retrySkillType = null,
+        string? retryPhase = null,
+        DateTimeOffset? pressedAt = null)
     {
         if (skill.CooldownDuration == 0)
         {
@@ -249,6 +384,11 @@ public sealed class SemiAutoCombatState
         lastPressedSkillId = skill.SkillId;
         lastPressedCooldownEndTime = skill.CooldownEndTime;
         lastPressedCooldownExpiresAt = cooldownConfirmationExpiresAt;
+        lastPressedCooldownRetryAt = pressedAt ?? DateTimeOffset.Now;
+        lastPressedCooldownRetryKey = retryKey?.Trim() ?? string.Empty;
+        lastPressedCooldownRetrySkillName = retrySkillName ?? skill.Name;
+        lastPressedCooldownRetrySkillType = retrySkillType ?? string.Empty;
+        lastPressedCooldownRetryPhase = retryPhase ?? "skill";
     }
 
     public uint GetEffectiveCooldownEndTime(
@@ -308,6 +448,67 @@ public sealed class SemiAutoCombatState
         }
 
         uncalibratedUnknownSuppressUntil[skill.SkillId] = suppressedUntil;
+    }
+
+    public bool IsAwaitingPressedSkillCooldownConfirmation(
+        IReadOnlyList<SkillSnapshot> skills,
+        DateTimeOffset now,
+        out SkillSnapshot? pendingSkill,
+        out DateTimeOffset expiresAt)
+    {
+        pendingSkill = null;
+        expiresAt = lastPressedCooldownExpiresAt;
+        if (lastPressedSkillId is not uint skillId)
+        {
+            return false;
+        }
+
+        if (now > lastPressedCooldownExpiresAt)
+        {
+            ClearLastPressedSkill();
+            return false;
+        }
+
+        pendingSkill = skills.FirstOrDefault(skill => skill.SkillId == skillId);
+        if (pendingSkill is null)
+        {
+            return true;
+        }
+
+        if (pendingSkill.CooldownDuration == 0 ||
+            DidCooldownEndAdvance(lastPressedCooldownEndTime, pendingSkill.CooldownEndTime))
+        {
+            ClearLastPressedSkill();
+            return false;
+        }
+
+        return true;
+    }
+
+    public bool TryGetPressedSkillCooldownRetry(
+        DateTimeOffset now,
+        TimeSpan retryInterval,
+        out SemiAutoPendingSkillCooldownRetry retry)
+    {
+        retry = default;
+        if (lastPressedSkillId is null ||
+            string.IsNullOrWhiteSpace(lastPressedCooldownRetryKey) ||
+            now - lastPressedCooldownRetryAt < retryInterval)
+        {
+            return false;
+        }
+
+        retry = new SemiAutoPendingSkillCooldownRetry(
+            lastPressedCooldownRetryKey,
+            lastPressedCooldownRetrySkillName,
+            lastPressedCooldownRetrySkillType,
+            lastPressedCooldownRetryPhase);
+        return true;
+    }
+
+    public void MarkPressedSkillCooldownRetried(DateTimeOffset now)
+    {
+        lastPressedCooldownRetryAt = now;
     }
 
     public bool TryUpdateCooldownTickCalibration(
@@ -384,6 +585,11 @@ public sealed class SemiAutoCombatState
         lastPressedSkillId = null;
         lastPressedCooldownEndTime = 0;
         lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
+        lastPressedCooldownRetryAt = DateTimeOffset.MinValue;
+        lastPressedCooldownRetryKey = string.Empty;
+        lastPressedCooldownRetrySkillName = string.Empty;
+        lastPressedCooldownRetrySkillType = string.Empty;
+        lastPressedCooldownRetryPhase = string.Empty;
     }
 
     private void ClearExpiredUncalibratedUnknownSuppressions(DateTimeOffset now)
@@ -436,6 +642,19 @@ public sealed class SemiAutoCombatState
                currentEndTime != previousEndTime &&
                unchecked((int)(currentEndTime - previousEndTime)) > 0;
     }
+
+    private static uint ResolveOpeningTargetIdentity(LockedTargetSnapshot target)
+    {
+        return target.ServerObjectId != 0
+            ? target.ServerObjectId
+            : target.TargetEntityId;
+    }
+
+    private sealed record SpiritmasterAbnormalObservation(
+        uint SkillId,
+        uint TargetServerObjectId,
+        HashSet<uint> BeforeAbnormalIds,
+        DateTimeOffset ExpiresAt);
 }
 
 public readonly record struct SemiAutoCooldownTickCalibration(
@@ -446,3 +665,9 @@ public readonly record struct SemiAutoCooldownTickCalibration(
     uint CooldownEndTime,
     uint CooldownStartTick,
     int OffsetMs);
+
+public readonly record struct SemiAutoPendingSkillCooldownRetry(
+    string Key,
+    string SkillName,
+    string SkillType,
+    string Phase);

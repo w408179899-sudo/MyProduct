@@ -182,6 +182,20 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         return Task.Run(() => ReadLockedTargetCore(context), cancellationToken);
     }
 
+    public Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadLockedTargetAbnormalStatusesAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadLockedTargetAbnormalStatusesCore(context), cancellationToken);
+    }
+
     public Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(CancellationToken cancellationToken = default)
     {
         var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
@@ -285,6 +299,114 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             _logger.Error("vmm.locked_target.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<LockedTargetSnapshot>.Fail(ex.Message);
         }
+    }
+
+    private OperationResult<LockedTargetAbnormalStatusSnapshot> ReadLockedTargetAbnormalStatusesCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<LockedTargetAbnormalStatusSnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<LockedTargetAbnormalStatusSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                if (!TryReadLockedTarget(process, gameBase, out var target, out var readError))
+                {
+                    return OperationResult<LockedTargetAbnormalStatusSnapshot>.Fail(readError);
+                }
+
+                var capturedAt = DateTimeOffset.Now;
+                var targetSnapshot = ToLockedTargetSnapshot(target, capturedAt);
+                if (target.TargetEntityId == 0)
+                {
+                    var empty = new LockedTargetAbnormalStatusSnapshot(
+                        targetSnapshot,
+                        0,
+                        Array.Empty<AbnormalStatusEntrySnapshot>(),
+                        capturedAt);
+                    _logger.Info("vmm.locked_target_abnormal.read", new Dictionary<string, object?>
+                    {
+                        ["account"] = context.AccountName,
+                        ["pid"] = SafeGetProcessPid(process),
+                        ["hasTarget"] = false,
+                        ["targetEntityId"] = 0,
+                        ["abnormalCount"] = 0,
+                        ["physicalDebuffCount"] = 0,
+                        ["abnormalIds"] = string.Empty,
+                        ["physicalDebuffIds"] = string.Empty
+                    });
+                    return OperationResult<LockedTargetAbnormalStatusSnapshot>.Ok(empty);
+                }
+
+                if (target.Actor is null || target.Actor.Actor == 0)
+                {
+                    return OperationResult<LockedTargetAbnormalStatusSnapshot>.Fail("locked target actor is not resolved");
+                }
+
+                TryReadUInt32(
+                    process,
+                    target.Actor.Actor + ActorAbnormalCategory2CountOffset,
+                    out var abnormalCategory2Count);
+
+                if (!TryReadActorAbnormalStatusEntries(process, target.Actor.Actor, out var entries, out readError))
+                {
+                    return OperationResult<LockedTargetAbnormalStatusSnapshot>.Fail(readError);
+                }
+
+                var snapshot = new LockedTargetAbnormalStatusSnapshot(
+                    targetSnapshot,
+                    abnormalCategory2Count,
+                    entries,
+                    capturedAt);
+
+                _logger.Info("vmm.locked_target_abnormal.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["hasTarget"] = snapshot.HasTarget,
+                    ["targetEntityId"] = snapshot.Target.TargetEntityId,
+                    ["serverObjectId"] = snapshot.Target.ServerObjectId,
+                    ["objectType"] = snapshot.Target.ObjectType,
+                    ["isMonsterAlive"] = snapshot.Target.IsMonsterAlive,
+                    ["abnormalCategory2Count"] = snapshot.AbnormalCategory2Count,
+                    ["abnormalCount"] = snapshot.AbnormalStatusCount,
+                    ["physicalDebuffCount"] = snapshot.PhysicalDebuffCount,
+                    ["abnormalIds"] = FormatAbnormalIds(snapshot.Entries),
+                    ["physicalDebuffIds"] = FormatAbnormalIds(snapshot.Entries.Where(entry => entry.IsPhysicalDebuffCategory)),
+                    ["actorAddress"] = target.Actor.Actor.ToString("X"),
+                    ["actorResolveSource"] = target.Actor.ResolveSource
+                });
+
+                return OperationResult<LockedTargetAbnormalStatusSnapshot>.Ok(snapshot);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.locked_target_abnormal.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<LockedTargetAbnormalStatusSnapshot>.Fail(ex.Message);
+        }
+    }
+
+    private static string FormatAbnormalIds(IEnumerable<AbnormalStatusEntrySnapshot> entries)
+    {
+        var ids = entries
+            .Where(entry => entry.AbnormalId != 0)
+            .Select(entry => entry.AbnormalId.ToString(CultureInfo.InvariantCulture))
+            .Distinct(StringComparer.Ordinal)
+            .Take(32)
+            .ToArray();
+
+        return ids.Length == 0 ? string.Empty : string.Join(",", ids);
     }
 
     private OperationResult<PlayerSnapshot> ReadPlayerCore(GameApiReadContext context)
@@ -1453,8 +1575,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 
         detail.Id = id;
         detail.XmlName = GetSkillXmlValue(element, "name", "skill_name", "skillname");
+        detail.SkillCategory = GetSkillXmlValue(element, "skill_category", "skillcategory");
+        detail.SkillType = GetSkillXmlValue(element, "type");
+        detail.SubType = GetSkillXmlValue(element, "sub_type", "subtype");
         detail.ActivationAttribute = GetSkillXmlValue(element, "activation_attribute", "activationattribute");
         detail.TargetSlot = GetSkillXmlValue(element, "target_slot", "targetslot");
+        detail.DispelCategory = GetSkillXmlValue(element, "dispel_category", "dispelcategory");
+        detail.FirstTarget = GetSkillXmlValue(element, "first_target", "firsttarget");
+        detail.TargetRelationRestriction = GetSkillXmlValue(element, "target_relation_restriction", "targetrelationrestriction");
+        detail.TargetRange = GetSkillXmlValue(element, "target_range", "targetrange");
         detail.ChainCategoryName = GetSkillXmlValue(element, "chain_category_name", "chaincategoryname");
         detail.PrechainCategoryName = GetSkillXmlValue(element, "prechain_category_name", "prechaincategoryname");
         detail.ChainTime = GetSkillXmlValue(element, "chain_time", "chaintime");
@@ -1463,6 +1592,26 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         detail.CounterSkill = GetSkillXmlValue(element, "counter_skill", "counterskill");
         detail.CostDp = GetSkillXmlValue(element, "cost_dp", "costdp");
         detail.UltraSkill = GetSkillXmlValue(element, "ultra_skill", "ultraskill");
+        detail.Effect1Type = GetSkillXmlValue(element, "effect1_type", "effect_1_type", "effect1type");
+        detail.Effect2Type = GetSkillXmlValue(element, "effect2_type", "effect_2_type", "effect2type");
+        detail.Effect3Type = GetSkillXmlValue(element, "effect3_type", "effect_3_type", "effect3type");
+        detail.Effect4Type = GetSkillXmlValue(element, "effect4_type", "effect_4_type", "effect4type");
+        detail.EffectRemainMs = GetMaxSkillXmlIntValue(
+            element,
+            "effect1_remain1",
+            "effect1_remain2",
+            "effect2_remain1",
+            "effect2_remain2",
+            "effect3_remain1",
+            "effect3_remain2",
+            "effect4_remain1",
+            "effect4_remain2");
+        detail.EffectCheckTimeMs = GetMaxSkillXmlIntValue(
+            element,
+            "effect1_checktime",
+            "effect2_checktime",
+            "effect3_checktime",
+            "effect4_checktime");
         return true;
     }
 
@@ -1494,6 +1643,24 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private static string GetSkillXmlValue(XElement element, params string[] names)
     {
         return TryGetSkillXmlValue(element, out var value, names) ? value : string.Empty;
+    }
+
+    private static int? GetMaxSkillXmlIntValue(XElement element, params string[] names)
+    {
+        int? max = null;
+        foreach (var name in names)
+        {
+            if (!TryGetSkillXmlValue(element, out var value, name) ||
+                !int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ||
+                parsed <= 0)
+            {
+                continue;
+            }
+
+            max = max is null ? parsed : Math.Max(max.Value, parsed);
+        }
+
+        return max;
     }
 
     private static bool TryGetSkillXmlValue(XElement element, out string value, params string[] names)
@@ -1822,6 +1989,16 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         var chainTime = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.ChainTime) : null;
         var counterSkill = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.CounterSkill) : null;
         var costDp = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.CostDp) : null;
+        var skillCategory = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.SkillCategory) : null;
+        var skillType = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.SkillType) : null;
+        var subType = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.SubType) : null;
+        var dispelCategory = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.DispelCategory) : null;
+        var firstTarget = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.FirstTarget) : null;
+        var targetRelation = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.TargetRelationRestriction) : null;
+        var targetRange = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.TargetRange) : null;
+        var effects = skill.HasXmlStaticDetail ? FormatSkillXmlEffects(skill.XmlStaticDetail) : null;
+        var effectRemainMs = skill.HasXmlStaticDetail ? skill.XmlStaticDetail.EffectRemainMs : null;
+        var effectCheckTimeMs = skill.HasXmlStaticDetail ? skill.XmlStaticDetail.EffectCheckTimeMs : null;
 
         return new SkillSnapshot(
             skill.SkillId,
@@ -1840,7 +2017,33 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             prechainCategory,
             chainTime,
             counterSkill,
-            costDp);
+            costDp,
+            skillCategory,
+            skillType,
+            subType,
+            dispelCategory,
+            firstTarget,
+            targetRelation,
+            targetRange,
+            effects,
+            effectRemainMs,
+            effectCheckTimeMs);
+    }
+
+    private static string? FormatSkillXmlEffects(SkillXmlStaticDetail detail)
+    {
+        var values = new[]
+            {
+                detail.Effect1Type,
+                detail.Effect2Type,
+                detail.Effect3Type,
+                detail.Effect4Type
+            }
+            .Where(HasUsefulSkillXmlValue)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return values.Length == 0 ? null : string.Join(",", values);
     }
 
     private static string? FormatSkillXmlTags(SkillXmlStaticDetail detail)
@@ -2655,9 +2858,14 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 
     private static LockedTargetSnapshot ToLockedTargetSnapshot(LockedTargetInfo info)
     {
+        return ToLockedTargetSnapshot(info, DateTimeOffset.Now);
+    }
+
+    private static LockedTargetSnapshot ToLockedTargetSnapshot(LockedTargetInfo info, DateTimeOffset capturedAt)
+    {
         if (info.TargetEntityId == 0)
         {
-            return LockedTargetSnapshot.Empty(DateTimeOffset.Now);
+            return LockedTargetSnapshot.Empty(capturedAt);
         }
 
         var targetServerObjectId = info.Actor?.TargetServerObjectId ?? 0;
@@ -2671,7 +2879,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
             info.Actor?.MaxHp ?? 0,
             info.Position,
             info.DistanceToLocalPlayer,
-            DateTimeOffset.Now,
+            capturedAt,
             targetServerObjectId,
             info.LocalServerObjectId != 0 && targetServerObjectId == info.LocalServerObjectId,
             info.LocalServerObjectId);
@@ -4355,8 +4563,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     {
         public uint Id;
         public string XmlName;
+        public string SkillCategory;
+        public string SkillType;
+        public string SubType;
         public string ActivationAttribute;
         public string TargetSlot;
+        public string DispelCategory;
+        public string FirstTarget;
+        public string TargetRelationRestriction;
+        public string TargetRange;
         public string ChainCategoryName;
         public string PrechainCategoryName;
         public string ChainTime;
@@ -4365,6 +4580,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         public string CounterSkill;
         public string CostDp;
         public string UltraSkill;
+        public string Effect1Type;
+        public string Effect2Type;
+        public string Effect3Type;
+        public string Effect4Type;
+        public int? EffectRemainMs;
+        public int? EffectCheckTimeMs;
     }
 
     private static readonly string[] IgnoredUtilitySkillNames =

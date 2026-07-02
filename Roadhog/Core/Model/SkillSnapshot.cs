@@ -17,4 +17,14 @@ public sealed record SkillSnapshot(
     string? XmlPrechainCategory = null,
     string? XmlChainTime = null,
     string? XmlCounterSkill = null,
-    string? XmlCostDp = null);
+    string? XmlCostDp = null,
+    string? XmlSkillCategory = null,
+    string? XmlSkillType = null,
+    string? XmlSubType = null,
+    string? XmlDispelCategory = null,
+    string? XmlFirstTarget = null,
+    string? XmlTargetRelationRestriction = null,
+    string? XmlTargetRange = null,
+    string? XmlEffects = null,
+    int? XmlEffectRemainMs = null,
+    int? XmlEffectCheckTimeMs = null);

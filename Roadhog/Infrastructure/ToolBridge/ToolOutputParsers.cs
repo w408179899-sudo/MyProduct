@@ -35,7 +35,17 @@ internal static partial class ToolOutputParsers
                 ExtractQuotedValue(line, "XmlPrechainCategory"),
                 ExtractQuotedValue(line, "XmlChainTime"),
                 ExtractQuotedValue(line, "XmlCounterSkill"),
-                ExtractTokenValue(line, "XmlCostDp"));
+                ExtractTokenValue(line, "XmlCostDp"),
+                ExtractQuotedValue(line, "XmlSkillCategory"),
+                ExtractQuotedValue(line, "XmlType"),
+                ExtractQuotedValue(line, "XmlSubType"),
+                ExtractQuotedValue(line, "XmlDispelCategory"),
+                ExtractQuotedValue(line, "XmlFirstTarget"),
+                ExtractQuotedValue(line, "XmlTargetRelation"),
+                ExtractQuotedValue(line, "XmlTargetRange"),
+                ExtractListValue(line, "XmlEffects"),
+                ExtractOptionalInt(line, "XmlEffectRemainMs"),
+                ExtractOptionalInt(line, "XmlEffectCheckTimeMs"));
 
             result.Add(skill);
         }
@@ -186,12 +196,34 @@ internal static partial class ToolOutputParsers
         return string.Equals(value, "n/a", StringComparison.OrdinalIgnoreCase) ? null : EmptyToNull(value);
     }
 
+    private static string? ExtractListValue(string line, string fieldName)
+    {
+        var match = Regex.Match(line, fieldName + @"=\[(?<value>[^\]]*)\]", RegexOptions.CultureInvariant);
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var value = match.Groups["value"].Value
+            .Replace("n/a", string.Empty, StringComparison.OrdinalIgnoreCase)
+            .Trim(',', ' ');
+        return EmptyToNull(value);
+    }
+
     private static ushort ExtractOptionalUShort(string line, string fieldName)
     {
         var value = ExtractTokenValue(line, fieldName);
         return ushort.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : (ushort)0;
+    }
+
+    private static int? ExtractOptionalInt(string line, string fieldName)
+    {
+        var value = ExtractTokenValue(line, fieldName);
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
     }
 
     private static AionClassId? ExtractOptionalClassId(string line, string fieldName)

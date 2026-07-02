@@ -203,6 +203,15 @@ namespace Tool
                         return;
                     }
 
+                    if (string.Equals(aionTestMode, "dot_probe", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "dot", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "dot_status", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "target_abnormal", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunDotStatusProbeTest(process, gameBase);
+                        return;
+                    }
+
                     if (string.Equals(aionTestMode, "inventory", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "items", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "bag", StringComparison.OrdinalIgnoreCase))
@@ -1341,6 +1350,29 @@ namespace Tool
             public ushort LevelOrStack;
         }
 
+        private sealed class DotStatusTracking
+        {
+            public string Key;
+            public uint AbnormalId;
+            public uint DispelCategory;
+            public bool PresentAtBaseline;
+            public bool AddedAfterBaseline;
+            public bool Removed;
+            public bool CurrentPresent;
+            public int ApplyCount;
+            public int RemoveCount;
+            public int CurrentStartMs;
+            public int TotalObservedMs;
+            public int FirstSeenMs;
+            public int LastSeenMs;
+            public int RemovedAtMs;
+            public int FirstSample;
+            public int LastSample;
+            public int ChangeCount;
+            public AbnormalStatusEntry FirstEntry;
+            public AbnormalStatusEntry LastEntry;
+        }
+
         private struct ActorAbnormalStatusSnapshot
         {
             public ulong Actor;
@@ -2451,6 +2483,465 @@ namespace Tool
             }
 
             Console.ReadKey(true);
+        }
+
+        private static void RunDotStatusProbeTest(VmmProcess process, ulong gameBase)
+        {
+            int durationMs = ClampInt(ReadIntFromEnv("AION_DOT_PROBE_DURATION_MS", 30000), 1000, 120000);
+            int intervalMs = ClampInt(ReadIntFromEnv("AION_DOT_PROBE_INTERVAL_MS", 100), 50, 5000);
+            uint expectedAbnormalId = ReadUIntFromEnv("AION_DOT_EXPECTED_ABNORMAL_ID", 0);
+            bool printBaselineEntries = ReadBoolFromEnv("AION_DOT_PRINT_BASELINE", true);
+            bool printCurrentEntriesOnEvent = ReadBoolFromEnv("AION_DOT_PRINT_EVENT_ENTRIES", false);
+            bool printTimeTicks = ReadBoolFromEnv("AION_DOT_PRINT_TIME_TICKS", false);
+
+            Console.WriteLine("AION DoT abnormal-status probe for the current locked target.");
+            Console.WriteLine("This is read-only. It reads the locked target Actor+0xF18..0xF20 full abnormal list.");
+            Console.WriteLine("DurationMs=" + durationMs +
+                              " IntervalMs=" + intervalMs +
+                              " ExpectedAbnormalId=" + (expectedAbnormalId == 0 ? "none" : expectedAbnormalId.ToString()) +
+                              " PrintBaseline=" + FormatYesNo(printBaselineEntries) +
+                              " PrintTimeTicks=" + FormatYesNo(printTimeTicks) + ".");
+
+            LockedTargetMonsterInfo target;
+            ActorAbnormalStatusSnapshot baseline;
+            string error;
+            if (!TryReadLockedTargetAbnormalStatus(process, gameBase, out target, out baseline, out error))
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Baseline read failed: " + error);
+                return;
+            }
+
+            if (target.TargetEntityId == 0)
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] No locked target. Lock a monster first, then rerun AION_TEST_MODE=dot_probe.");
+                return;
+            }
+
+            Console.WriteLine(FormatDotProbeTarget("BaselineTarget", target));
+            Console.WriteLine(FormatActorAbnormalSnapshot("Baseline ", baseline));
+            if (printBaselineEntries)
+            {
+                PrintDotProbeEntries("  Baseline", baseline.Entries, expectedAbnormalId);
+            }
+
+            var previous = BuildAbnormalEntryMap(baseline.Entries);
+            var baselineKeys = new HashSet<string>(previous.Keys, StringComparer.Ordinal);
+            var tracking = new Dictionary<string, DotStatusTracking>(StringComparer.Ordinal);
+            foreach (var pair in previous)
+            {
+                tracking[pair.Key] = CreateDotStatusTracking(pair.Key, pair.Value, true, 0, 0);
+            }
+
+            Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Baseline captured. Release the DoT skill now.");
+
+            var stopwatch = Stopwatch.StartNew();
+            int sample = 0;
+            bool targetChanged = false;
+            uint baselineTargetServerObjectId = target.HasServerObjectId ? target.ServerObjectId : 0;
+            ushort baselineTargetEntityId = target.TargetEntityId;
+
+            while (stopwatch.ElapsedMilliseconds <= durationMs)
+            {
+                Thread.Sleep(intervalMs);
+                sample++;
+                int elapsedMs = unchecked((int)Math.Min(int.MaxValue, stopwatch.ElapsedMilliseconds));
+
+                LockedTargetMonsterInfo currentTarget;
+                ActorAbnormalStatusSnapshot currentSnapshot;
+                if (!TryReadLockedTargetAbnormalStatus(process, gameBase, out currentTarget, out currentSnapshot, out error))
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Sample=" + sample + " Read failed: " + error);
+                    continue;
+                }
+
+                if (currentTarget.TargetEntityId == 0 ||
+                    currentTarget.TargetEntityId != baselineTargetEntityId ||
+                    (baselineTargetServerObjectId != 0 &&
+                     currentTarget.HasServerObjectId &&
+                     currentTarget.ServerObjectId != baselineTargetServerObjectId))
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                                      "TargetChanged Sample=" + sample +
+                                      " ElapsedMs=" + elapsedMs +
+                                      " OldEntityId=" + baselineTargetEntityId +
+                                      " NewEntityId=" + currentTarget.TargetEntityId +
+                                      " OldServerId=" + baselineTargetServerObjectId +
+                                      " NewServerId=" + (currentTarget.HasServerObjectId ? currentTarget.ServerObjectId.ToString() : "n/a"));
+                    targetChanged = true;
+                    break;
+                }
+
+                var current = BuildAbnormalEntryMap(currentSnapshot.Entries);
+                foreach (var pair in current)
+                {
+                    DotStatusTracking state;
+                    if (!tracking.TryGetValue(pair.Key, out state))
+                    {
+                        state = CreateDotStatusTracking(pair.Key, pair.Value, false, elapsedMs, sample);
+                        state.AddedAfterBaseline = true;
+                        tracking[pair.Key] = state;
+                        Console.WriteLine(FormatDotProbeEvent("ADDED", sample, elapsedMs, pair.Value, expectedAbnormalId, currentTarget));
+                        continue;
+                    }
+
+                    if (!previous.ContainsKey(pair.Key) && !state.CurrentPresent)
+                    {
+                        state.CurrentPresent = true;
+                        state.CurrentStartMs = elapsedMs;
+                        state.ApplyCount++;
+                        state.Removed = false;
+                        state.RemovedAtMs = 0;
+                        Console.WriteLine(FormatDotProbeEvent("REAPPEARED", sample, elapsedMs, pair.Value, expectedAbnormalId, currentTarget));
+                    }
+
+                    AbnormalStatusEntry oldEntry;
+                    if (previous.TryGetValue(pair.Key, out oldEntry) &&
+                        HasAbnormalEntryRuntimeChange(oldEntry, pair.Value))
+                    {
+                        state.ChangeCount++;
+                        if (printTimeTicks ||
+                            oldEntry.LevelOrStack != pair.Value.LevelOrStack ||
+                            oldEntry.Field00 != pair.Value.Field00)
+                        {
+                            Console.WriteLine(FormatDotProbeChangeEvent(sample, elapsedMs, oldEntry, pair.Value, expectedAbnormalId, currentTarget));
+                        }
+                    }
+
+                    state.LastSeenMs = elapsedMs;
+                    state.LastSample = sample;
+                    state.LastEntry = pair.Value;
+                    state.CurrentPresent = true;
+                    state.Removed = false;
+                    state.RemovedAtMs = 0;
+                }
+
+                foreach (var pair in previous)
+                {
+                    if (current.ContainsKey(pair.Key))
+                    {
+                        continue;
+                    }
+
+                    DotStatusTracking state;
+                    if (tracking.TryGetValue(pair.Key, out state) && !state.Removed)
+                    {
+                        state.Removed = true;
+                        state.RemovedAtMs = elapsedMs;
+                        Console.WriteLine(FormatDotProbeEvent("REMOVED", sample, elapsedMs, pair.Value, expectedAbnormalId, currentTarget));
+                        state.CurrentPresent = false;
+                        state.RemoveCount++;
+                        state.TotalObservedMs += Math.Max(0, elapsedMs - state.CurrentStartMs);
+                    }
+                }
+
+                if (printCurrentEntriesOnEvent && HasAbnormalMapDifference(previous, current))
+                {
+                    PrintDotProbeEntries("  Current", currentSnapshot.Entries, expectedAbnormalId);
+                }
+
+                previous = current;
+            }
+
+            Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Dot probe finished. TargetChanged=" + FormatYesNo(targetChanged) + ".");
+            PrintDotProbeSummary(tracking, baselineKeys, expectedAbnormalId, durationMs);
+        }
+
+        private static bool TryReadLockedTargetAbnormalStatus(
+            VmmProcess process,
+            ulong gameBase,
+            out LockedTargetMonsterInfo target,
+            out ActorAbnormalStatusSnapshot snapshot,
+            out string error)
+        {
+            snapshot = new ActorAbnormalStatusSnapshot();
+            if (!TryReadLockedTargetMonsterInfo(process, gameBase, out target, out error))
+            {
+                return false;
+            }
+
+            if (target.TargetEntityId == 0)
+            {
+                return true;
+            }
+
+            if (!target.HasActor || target.Actor.Actor == 0)
+            {
+                error = "locked target actor is not resolved";
+                return false;
+            }
+
+            if (!TryReadActorAbnormalStatus(
+                    process,
+                    target.Actor.Actor,
+                    target.Entity,
+                    target.HasServerObjectId ? target.ServerObjectId : target.Actor.ServerObjectId,
+                    target.Actor.Name,
+                    out snapshot))
+            {
+                error = "failed to read locked target abnormal status fields";
+                return false;
+            }
+
+            snapshot.EntityId = target.TargetEntityId;
+            snapshot.HasDistance = target.HasDistance;
+            snapshot.DistanceToLocalPlayer = target.DistanceToLocalPlayer;
+            snapshot.ResolveSource = target.Actor.ResolveSource;
+            return true;
+        }
+
+        private static Dictionary<string, AbnormalStatusEntry> BuildAbnormalEntryMap(List<AbnormalStatusEntry> entries)
+        {
+            var map = new Dictionary<string, AbnormalStatusEntry>(StringComparer.Ordinal);
+            if (entries == null)
+            {
+                return map;
+            }
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                AbnormalStatusEntry entry = entries[i];
+                string key = GetDotStatusKey(entry);
+                if (!map.ContainsKey(key))
+                {
+                    map.Add(key, entry);
+                }
+            }
+
+            return map;
+        }
+
+        private static string GetDotStatusKey(AbnormalStatusEntry entry)
+        {
+            return entry.AbnormalId.ToString() + ":" + entry.DispelCategory.ToString();
+        }
+
+        private static DotStatusTracking CreateDotStatusTracking(
+            string key,
+            AbnormalStatusEntry entry,
+            bool presentAtBaseline,
+            int firstSeenMs,
+            int sample)
+        {
+            return new DotStatusTracking
+            {
+                Key = key,
+                AbnormalId = entry.AbnormalId,
+                DispelCategory = entry.DispelCategory,
+                PresentAtBaseline = presentAtBaseline,
+                FirstSeenMs = firstSeenMs,
+                LastSeenMs = firstSeenMs,
+                RemovedAtMs = 0,
+                FirstSample = sample,
+                LastSample = sample,
+                CurrentPresent = true,
+                CurrentStartMs = firstSeenMs,
+                ApplyCount = presentAtBaseline ? 0 : 1,
+                RemoveCount = 0,
+                TotalObservedMs = 0,
+                FirstEntry = entry,
+                LastEntry = entry
+            };
+        }
+
+        private static bool HasAbnormalEntryRuntimeChange(AbnormalStatusEntry left, AbnormalStatusEntry right)
+        {
+            return left.Field00 != right.Field00 ||
+                   left.TimeOrSource != right.TimeOrSource ||
+                   left.LevelOrStack != right.LevelOrStack ||
+                   left.DispelCategory != right.DispelCategory;
+        }
+
+        private static bool HasAbnormalMapDifference(
+            Dictionary<string, AbnormalStatusEntry> previous,
+            Dictionary<string, AbnormalStatusEntry> current)
+        {
+            if (previous.Count != current.Count)
+            {
+                return true;
+            }
+
+            foreach (var pair in previous)
+            {
+                AbnormalStatusEntry currentEntry;
+                if (!current.TryGetValue(pair.Key, out currentEntry) ||
+                    HasAbnormalEntryRuntimeChange(pair.Value, currentEntry))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string FormatDotProbeTarget(string label, LockedTargetMonsterInfo target)
+        {
+            return "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                   label +
+                   " EntityId=" + target.TargetEntityId +
+                   " ServerId=" + FormatServerObjectId(target) +
+                   " Actor=" + (target.HasActor ? FormatAddress(target.Actor.Actor) : "n/a") +
+                   " ObjType=" + (target.HasActor ? target.Actor.ObjectType.ToString() : "n/a") +
+                   " TemplateId=" + (target.HasActor ? target.Actor.NpcTemplateId.ToString() : "n/a") +
+                   " Name=\"" + (target.HasActor ? target.Actor.Name : string.Empty) + "\"" +
+                   " HP=" + (target.HasActor ? target.Actor.CurrentHp + "/" + target.Actor.MaxHp : "n/a") +
+                   " HpPercent=" + (target.HasActor ? target.Actor.HpPercent.ToString() : "n/a") +
+                   " Pos=" + FormatPosition(target) +
+                   " Distance=" + FormatDistance(target);
+        }
+
+        private static void PrintDotProbeEntries(string label, List<AbnormalStatusEntry> entries, uint expectedAbnormalId)
+        {
+            if (entries == null || entries.Count == 0)
+            {
+                Console.WriteLine(label + " AbnormalEntries=[]");
+                return;
+            }
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                Console.WriteLine(label + " " + FormatDotProbeEntry(i + 1, entries[i], expectedAbnormalId));
+            }
+        }
+
+        private static string FormatDotProbeEntry(int index, AbnormalStatusEntry entry, uint expectedAbnormalId)
+        {
+            return "#" + index.ToString("00") +
+                   FormatExpectedAbnormalTag(entry, expectedAbnormalId) +
+                   " Key=" + GetDotStatusKey(entry) +
+                   " Id=" + entry.AbnormalId +
+                   " Category=" + entry.DispelCategory +
+                   " CategoryName=" + FormatAbnormalCategory(entry.DispelCategory) +
+                   " TimeOrSource=" + unchecked((int)entry.TimeOrSource).ToString() +
+                   "/0x" + entry.TimeOrSource.ToString("X8") +
+                   " LevelOrStack=" + entry.LevelOrStack +
+                   " Field00=0x" + entry.Field00.ToString("X8") +
+                   " Addr=" + FormatAddress(entry.Address);
+        }
+
+        private static string FormatExpectedAbnormalTag(AbnormalStatusEntry entry, uint expectedAbnormalId)
+        {
+            return expectedAbnormalId != 0 && entry.AbnormalId == expectedAbnormalId
+                ? " [EXPECTED]"
+                : string.Empty;
+        }
+
+        private static string FormatDotProbeEvent(
+            string eventName,
+            int sample,
+            int elapsedMs,
+            AbnormalStatusEntry entry,
+            uint expectedAbnormalId,
+            LockedTargetMonsterInfo target)
+        {
+            return "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                   "DotStatus" + eventName +
+                   " Sample=" + sample +
+                   " ElapsedMs=" + elapsedMs +
+                   " TargetEntityId=" + target.TargetEntityId +
+                   " TargetServerId=" + FormatServerObjectId(target) +
+                   " " + FormatDotProbeEntry(1, entry, expectedAbnormalId);
+        }
+
+        private static string FormatDotProbeChangeEvent(
+            int sample,
+            int elapsedMs,
+            AbnormalStatusEntry oldEntry,
+            AbnormalStatusEntry newEntry,
+            uint expectedAbnormalId,
+            LockedTargetMonsterInfo target)
+        {
+            return "[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                   "DotStatusUPDATED" +
+                   " Sample=" + sample +
+                   " ElapsedMs=" + elapsedMs +
+                   " TargetEntityId=" + target.TargetEntityId +
+                   " TargetServerId=" + FormatServerObjectId(target) +
+                   FormatExpectedAbnormalTag(newEntry, expectedAbnormalId) +
+                   " Key=" + GetDotStatusKey(newEntry) +
+                   " Id=" + newEntry.AbnormalId +
+                   " Category=" + newEntry.DispelCategory +
+                   " TimeOrSource=" + unchecked((int)oldEntry.TimeOrSource).ToString() +
+                   "/0x" + oldEntry.TimeOrSource.ToString("X8") +
+                   "->" + unchecked((int)newEntry.TimeOrSource).ToString() +
+                   "/0x" + newEntry.TimeOrSource.ToString("X8") +
+                   " LevelOrStack=" + oldEntry.LevelOrStack + "->" + newEntry.LevelOrStack +
+                   " Field00=0x" + oldEntry.Field00.ToString("X8") +
+                   "->0x" + newEntry.Field00.ToString("X8") +
+                   " Addr=" + FormatAddress(newEntry.Address);
+        }
+
+        private static void PrintDotProbeSummary(
+            Dictionary<string, DotStatusTracking> tracking,
+            HashSet<string> baselineKeys,
+            uint expectedAbnormalId,
+            int durationMs)
+        {
+            Console.WriteLine("DotProbeSummary DurationMs=" + durationMs +
+                              " StatusCount=" + (tracking == null ? 0 : tracking.Count) +
+                              " ExpectedAbnormalId=" + (expectedAbnormalId == 0 ? "none" : expectedAbnormalId.ToString()));
+
+            if (tracking == null || tracking.Count == 0)
+            {
+                Console.WriteLine("DotProbeSummaryStatuses=[]");
+                return;
+            }
+
+            var values = tracking.Values
+                .OrderByDescending(item => item.AddedAfterBaseline)
+                .ThenBy(item => item.AbnormalId)
+                .ThenBy(item => item.DispelCategory)
+                .ToList();
+
+            bool sawExpected = expectedAbnormalId == 0;
+            for (int i = 0; i < values.Count; i++)
+            {
+                DotStatusTracking state = values[i];
+                if (expectedAbnormalId != 0 && state.AbnormalId == expectedAbnormalId)
+                {
+                    sawExpected = true;
+                }
+
+                int observedMs = state.TotalObservedMs;
+                if (state.CurrentPresent)
+                {
+                    observedMs += Math.Max(0, state.LastSeenMs - state.CurrentStartMs);
+                }
+
+                int timeDelta = unchecked((int)state.LastEntry.TimeOrSource) - unchecked((int)state.FirstEntry.TimeOrSource);
+
+                Console.WriteLine(
+                    "DotProbeStatus#" + (i + 1).ToString("00") +
+                    (expectedAbnormalId != 0 && state.AbnormalId == expectedAbnormalId ? " [EXPECTED]" : string.Empty) +
+                    " Key=" + state.Key +
+                    " Id=" + state.AbnormalId +
+                    " Category=" + state.DispelCategory +
+                    " CategoryName=" + FormatAbnormalCategory(state.DispelCategory) +
+                    " PresentAtBaseline=" + FormatYesNo(state.PresentAtBaseline) +
+                    " AddedAfterBaseline=" + FormatYesNo(state.AddedAfterBaseline) +
+                    " CurrentPresent=" + FormatYesNo(state.CurrentPresent) +
+                    " ApplyCount=" + state.ApplyCount +
+                    " RemoveCount=" + state.RemoveCount +
+                    " Removed=" + FormatYesNo(state.Removed) +
+                    " FirstSeenMs=" + state.FirstSeenMs +
+                    " LastSeenMs=" + state.LastSeenMs +
+                    " RemovedAtMs=" + (state.Removed ? state.RemovedAtMs.ToString() : "n/a") +
+                    " ObservedMs=" + observedMs +
+                    " ChangeCount=" + state.ChangeCount +
+                    " FirstTimeOrSource=" + unchecked((int)state.FirstEntry.TimeOrSource).ToString() +
+                    "/0x" + state.FirstEntry.TimeOrSource.ToString("X8") +
+                    " LastTimeOrSource=" + unchecked((int)state.LastEntry.TimeOrSource).ToString() +
+                    "/0x" + state.LastEntry.TimeOrSource.ToString("X8") +
+                    " TimeDelta=" + timeDelta +
+                    " FirstLevelOrStack=" + state.FirstEntry.LevelOrStack +
+                    " LastLevelOrStack=" + state.LastEntry.LevelOrStack +
+                    " BaselineKey=" + FormatYesNo(baselineKeys != null && baselineKeys.Contains(state.Key)));
+            }
+
+            if (!sawExpected)
+            {
+                Console.WriteLine("DotProbeExpectedMissing Id=" + expectedAbnormalId +
+                                  " Reason=expected abnormal id was not seen during this sample window");
+            }
         }
 
         private static void RunInventoryListTest(VmmProcess process, ulong gameBase)

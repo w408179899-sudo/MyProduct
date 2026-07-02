@@ -57,6 +57,13 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
         return Task.FromResult(OperationResult<LockedTargetSnapshot>.Fail("Tool bridge locked-target snapshot is not implemented."));
     }
 
+    public Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(OperationResult<LockedTargetAbnormalStatusSnapshot>.Fail(
+            "Tool bridge locked-target abnormal-status snapshot is not implemented."));
+    }
+
     public async Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(CancellationToken cancellationToken = default)
     {
         var output = await RunToolModeAsync(ToolApiMode.Skills, cancellationToken).ConfigureAwait(false);
