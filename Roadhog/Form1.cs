@@ -20,7 +20,6 @@ namespace Roadhog
 
         private bool _suppressFpgaSelectionChanged;
         private int _accountRows;
-        private int _nextAccountNumber = 1;
 
         public Form1()
         {
@@ -74,26 +73,33 @@ namespace Roadhog
         private void RebuildAccountsFromDevices()
         {
             _accounts.Clear();
-            var devices = _services.HardwareResolver.ListDevices();
-            var savedAccounts = LoadSavedAccountsForRows();
-            var index = 1;
-
-            foreach (var device in devices)
+            var account = SelectClientAccount(LoadSavedAccountsForRows());
+            if (account is null || IsAutoHardwareKey(account.HardwareKey))
             {
-                var fallbackAccountName = $"account{index++}";
-                var savedAccount = FindSavedAccountForDevice(savedAccounts, device.BindingKey, fallbackAccountName);
-                _accounts.Add(new AccountRowModel(
-                    savedAccount?.AccountName ?? fallbackAccountName,
-                    "",
-                    savedAccount?.CharacterName ?? "",
-                    device.BindingKey,
-                    device.VmmDeviceName,
-                    "idle",
-                    "0.0",
-                    "00:00:00"));
+                return;
             }
 
-            _nextAccountNumber = index;
+            var devices = ListAvailableFpgaDevices();
+            var device = FindFpgaDeviceByKey(account.HardwareKey, devices);
+            if (device is null)
+            {
+                _services.Logger.Warn("ui.saved_fpga_device_not_online", new Dictionary<string, object?>
+                {
+                    ["account"] = account.AccountName,
+                    ["hardwareKey"] = account.HardwareKey
+                });
+                return;
+            }
+
+            _accounts.Add(new AccountRowModel(
+                account.AccountName,
+                "",
+                account.CharacterName ?? "",
+                device.BindingKey,
+                device.VmmDeviceName,
+                "idle",
+                "0.0",
+                "00:00:00"));
         }
 
         private IReadOnlyList<Core.Accounts.AccountConfig> LoadSavedAccountsForRows()
@@ -111,16 +117,11 @@ namespace Roadhog
             return result.Value;
         }
 
-        private static Core.Accounts.AccountConfig? FindSavedAccountForDevice(
-            IReadOnlyList<Core.Accounts.AccountConfig> savedAccounts,
-            string hardwareKey,
-            string fallbackAccountName)
+        private static Core.Accounts.AccountConfig? SelectClientAccount(
+            IReadOnlyList<Core.Accounts.AccountConfig> savedAccounts)
         {
-            return savedAccounts.FirstOrDefault(account =>
-                    !IsAutoHardwareKey(account.HardwareKey) &&
-                    string.Equals(account.HardwareKey.Trim(), hardwareKey.Trim(), StringComparison.OrdinalIgnoreCase))
-                ?? savedAccounts.FirstOrDefault(account =>
-                    string.Equals(account.AccountName, fallbackAccountName, StringComparison.OrdinalIgnoreCase));
+            return savedAccounts.FirstOrDefault(account => !IsAutoHardwareKey(account.HardwareKey))
+                ?? savedAccounts.FirstOrDefault();
         }
 
         private void BuildAccountTable()
@@ -317,8 +318,8 @@ namespace Roadhog
 
         private void RefreshFpgaDeviceCombo()
         {
-            var selectedHardwareKey = _accounts.FirstOrDefault()?.HardwareKey ?? string.Empty;
-            var devices = _services.HardwareResolver.ListDevices();
+            var selectedHardwareKey = ResolvePreferredFpgaSelectionKey();
+            var devices = ListAvailableFpgaDevices();
 
             _suppressFpgaSelectionChanged = true;
             try
@@ -340,10 +341,9 @@ namespace Roadhog
                 }
 
                 var selectedIndex = 0;
-                for (var i = 0; i < fpgaDeviceComboBox.Items.Count; i++)
+                for (var i = 0; i < devices.Count; i++)
                 {
-                    if (fpgaDeviceComboBox.Items[i] is FpgaDeviceComboItem item &&
-                        string.Equals(item.BindingKey, selectedHardwareKey, StringComparison.OrdinalIgnoreCase))
+                    if (DeviceMatchesHardwareKey(devices[i], selectedHardwareKey))
                     {
                         selectedIndex = i;
                         break;
@@ -372,23 +372,44 @@ namespace Roadhog
 
         private void ApplySelectedFpgaDevice(FpgaDeviceComboItem item)
         {
-            if (_accounts.Count == 0)
+            // Selection is only a pending config choice. The account row is built from saved config
+            // after restart, so unsaved FPGA changes do not make a new account row appear.
+            UpdateWindowTitle();
+        }
+
+        private string ResolvePreferredFpgaSelectionKey()
+        {
+            var accountRowKey = _accounts
+                .Select(account => account.HardwareKey)
+                .FirstOrDefault(key => !IsAutoHardwareKey(key));
+            if (!string.IsNullOrWhiteSpace(accountRowKey))
             {
-                return;
+                return accountRowKey;
             }
 
-            var current = _accounts[0];
-            _accounts[0] = current with
-            {
-                LevelClass = string.Empty,
-                Role = string.Empty,
-                HardwareKey = item.BindingKey,
-                VmmDeviceName = item.VmmDeviceName
-            };
+            var savedAccount = SelectClientAccount(LoadSavedAccountsForRows());
+            return savedAccount is not null && !IsAutoHardwareKey(savedAccount.HardwareKey)
+                ? savedAccount.HardwareKey
+                : string.Empty;
+        }
 
-            UpdateAccountRowText(_accounts[0], snapshot: null, updateHardwareKey: true);
-            UpdateWindowTitle();
-            _ = RefreshPlayerInfoAsync(_accounts[0].Account);
+        private IReadOnlyList<Core.Hardware.HardwareDeviceFeature> ListAvailableFpgaDevices()
+        {
+            var devices = _services.HardwareResolver.ListDevices();
+            var uniqueDevices = new List<Core.Hardware.HardwareDeviceFeature>();
+            var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var device in devices)
+            {
+                var key = device.BindingKey.Trim();
+                if (string.IsNullOrWhiteSpace(key) || !seenKeys.Add(key))
+                {
+                    continue;
+                }
+
+                uniqueDevices.Add(device);
+            }
+
+            return uniqueDevices;
         }
 
         private static string FormatFpgaDeviceText(Core.Hardware.HardwareDeviceFeature device)
@@ -473,6 +494,75 @@ namespace Roadhog
         }
 
         private async Task<Core.Common.OperationResult> SaveSelectedFpgaConfigAsync()
+        {
+            var selectedItem = fpgaDeviceComboBox.SelectedItem as FpgaDeviceComboItem;
+            var hardwareKey = selectedItem?.BindingKey.Trim() ?? string.Empty;
+            var vmmDeviceName = selectedItem?.VmmDeviceName.Trim() ?? string.Empty;
+            if (IsAutoHardwareKey(hardwareKey))
+            {
+                return Core.Common.OperationResult.Fail("\u8bf7\u5148\u9009\u62e9FPGA\u8bbe\u5907\u3002");
+            }
+
+            var loadResult = await _services.AccountConfigStore.LoadAllAsync().ConfigureAwait(true);
+            if (!loadResult.Success)
+            {
+                return Core.Common.OperationResult.Fail(loadResult.Error ?? "\u8bfb\u53d6\u8d26\u53f7\u914d\u7f6e\u5931\u8d25\u3002");
+            }
+
+            var savedAccounts = loadResult.Value ?? Array.Empty<Core.Accounts.AccountConfig>();
+            var account = SelectClientAccount(savedAccounts)?.Clone() ?? new Core.Accounts.AccountConfig
+            {
+                AccountName = "account1",
+                Enabled = true,
+                ProfileName = "default_profile"
+            };
+
+            if (string.IsNullOrWhiteSpace(account.AccountName))
+            {
+                account.AccountName = "account1";
+            }
+
+            var device = FindFpgaDeviceByKey(hardwareKey);
+            if (device is not null)
+            {
+                account.HardwareKey = device.BindingKey;
+                account.HardwareBindingKind = device.BindingKind;
+                account.HardwareBindingConfidence = device.BindingConfidence;
+                account.HardwareDeviceInstanceId = device.DeviceInstanceId;
+                account.HardwareLocationKey = device.LocationKey;
+                account.HardwareDisplayName = device.DisplayName;
+                account.VmmDeviceName = device.VmmDeviceName;
+            }
+            else
+            {
+                account.HardwareKey = hardwareKey;
+                account.VmmDeviceName = vmmDeviceName;
+            }
+
+            var saveResult = await _services.AccountConfigStore.UpsertAsync(account).ConfigureAwait(true);
+            if (!saveResult.Success)
+            {
+                return saveResult;
+            }
+
+            var index = _accounts.FindIndex(row =>
+                string.Equals(row.Account, account.AccountName, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
+            {
+                var row = _accounts[index] with
+                {
+                    HardwareKey = account.HardwareKey,
+                    VmmDeviceName = account.VmmDeviceName
+                };
+                _accounts[index] = row;
+                UpdateAccountRowText(row, snapshot: null, updateHardwareKey: true);
+            }
+
+            UpdateWindowTitle();
+            return Core.Common.OperationResult.Ok();
+        }
+
+        private async Task<Core.Common.OperationResult> SaveFirstVisibleAccountFpgaConfigAsync()
         {
             if (_accounts.Count == 0)
             {
@@ -560,6 +650,30 @@ namespace Roadhog
             return devices.FirstOrDefault(device =>
                 string.Equals(device.BindingKey.Trim(), hardwareKey.Trim(), StringComparison.OrdinalIgnoreCase) ||
                 device.AliasKeys.Any(alias => string.Equals(alias.Trim(), hardwareKey.Trim(), StringComparison.OrdinalIgnoreCase)));
+        }
+
+        private static Core.Hardware.HardwareDeviceFeature? FindFpgaDeviceByKey(
+            string hardwareKey,
+            IReadOnlyList<Core.Hardware.HardwareDeviceFeature> devices)
+        {
+            if (string.IsNullOrWhiteSpace(hardwareKey))
+            {
+                return null;
+            }
+
+            return devices.FirstOrDefault(device => DeviceMatchesHardwareKey(device, hardwareKey));
+        }
+
+        private static bool DeviceMatchesHardwareKey(Core.Hardware.HardwareDeviceFeature device, string hardwareKey)
+        {
+            if (string.IsNullOrWhiteSpace(hardwareKey))
+            {
+                return false;
+            }
+
+            var expected = hardwareKey.Trim();
+            return string.Equals(device.BindingKey.Trim(), expected, StringComparison.OrdinalIgnoreCase) ||
+                device.AliasKeys.Any(alias => string.Equals(alias.Trim(), expected, StringComparison.OrdinalIgnoreCase));
         }
 
         private bool TryReadKmBoxNetInput(out Infrastructure.Input.KmBoxNetDeviceConfig config, out string error)
