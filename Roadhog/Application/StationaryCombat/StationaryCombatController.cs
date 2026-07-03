@@ -1437,6 +1437,10 @@ public sealed class StationaryCombatController
         }
 
         state.SetCurrentTarget(target);
+        if (IsTargetingLocalPlayerByServerObjectId(target))
+        {
+            state.CurrentTargetIsMaintenanceDefense = true;
+        }
 
         var claimedDelay = await TryIgnoreClaimedLockedTargetAsync(
                 context,
@@ -1447,11 +1451,6 @@ public sealed class StationaryCombatController
         if (claimedDelay is not null)
         {
             return claimedDelay.Value;
-        }
-
-        if (IsTargetingLocalPlayerByServerObjectId(target))
-        {
-            state.CurrentTargetIsMaintenanceDefense = true;
         }
 
         if (IsTargetTimedOut(state, now))
@@ -1890,7 +1889,14 @@ public sealed class StationaryCombatController
             return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
         }
 
-        if (!AllowsClaimedTargets(context) && IsClaimedByOther(target))
+        if (target.IsTargetingLocalPlayer)
+        {
+            state.CurrentTargetIsMaintenanceDefense = true;
+        }
+
+        if (!state.CurrentTargetIsMaintenanceDefense &&
+            !AllowsClaimedTargets(context) &&
+            IsClaimedByOther(target))
         {
             return await IgnoreCurrentTargetAsync(
                     context,
@@ -2690,7 +2696,9 @@ public sealed class StationaryCombatController
         StationaryCombatState state,
         LockedTargetSnapshot target)
     {
-        if (AllowsClaimedTargets(context) || !IsClaimedByOther(target))
+        if (state.CurrentTargetIsMaintenanceDefense ||
+            AllowsClaimedTargets(context) ||
+            !IsClaimedByOther(target))
         {
             return null;
         }
@@ -2714,7 +2722,8 @@ public sealed class StationaryCombatController
         LockedTargetSnapshot target,
         string phase)
     {
-        if (IsTargetingLocalPlayerByServerObjectId(target))
+        if (state.CurrentTargetIsMaintenanceDefense ||
+            IsTargetingLocalPlayerByServerObjectId(target))
         {
             semiAutoState.MarkOpeningAttackKeyAttempted(target);
             return null;
