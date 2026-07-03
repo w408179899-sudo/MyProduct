@@ -9,9 +9,23 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
     public const long DefaultMaxLogFileBytes = 1024L * 1024L;
 
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    private static readonly TimeSpan NoisyInfoSampleInterval = TimeSpan.FromSeconds(5);
+    private static readonly HashSet<string> NoisyInfoEvents = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "vmm.locked_target.read",
+        "vmm.locked_target_abnormal.read",
+        "vmm.loot_corpses.read",
+        "vmm.player.read",
+        "vmm.player_abnormal.read",
+        "vmm.skills.read",
+        "vmm.summoned_pet.read",
+        "vmm.summoned_pet_roster.read",
+        "semi_auto.key.pressed"
+    };
 
     private readonly string _logDirectory;
     private readonly long _maxLogFileBytes;
+    private readonly Dictionary<string, DateTimeOffset> _lastNoisyInfoWrites = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _syncRoot = new();
     private string? _currentLogPath;
     private string? _currentDateStamp;
@@ -55,16 +69,22 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
         try
         {
             var now = DateTimeOffset.Now;
-            var entry = new RoadhogLogFileEntry(
-                now,
-                level,
-                eventName,
-                NormalizeFields(fields),
-                error);
-            var line = JsonSerializer.Serialize(entry) + Environment.NewLine;
+            var normalizedFields = NormalizeFields(fields);
 
             lock (_syncRoot)
             {
+                if (ShouldSkipNoisyInfo(level, eventName, normalizedFields, now))
+                {
+                    return;
+                }
+
+                var entry = new RoadhogLogFileEntry(
+                    now,
+                    level,
+                    eventName,
+                    normalizedFields,
+                    error);
+                var line = JsonSerializer.Serialize(entry) + Environment.NewLine;
                 Directory.CreateDirectory(_logDirectory);
                 var lineBytes = Utf8NoBom.GetByteCount(line);
                 var logPath = ResolveCurrentLogPath(now, lineBytes);
@@ -76,6 +96,42 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
         {
             // Logging must never break the worker loop.
         }
+    }
+
+    private bool ShouldSkipNoisyInfo(
+        string level,
+        string eventName,
+        IReadOnlyDictionary<string, object?> fields,
+        DateTimeOffset now)
+    {
+        if (!string.Equals(level, "info", StringComparison.OrdinalIgnoreCase) ||
+            !NoisyInfoEvents.Contains(eventName))
+        {
+            return false;
+        }
+
+        var key = BuildNoisyInfoSampleKey(eventName, fields);
+        if (_lastNoisyInfoWrites.TryGetValue(key, out var lastWrite) &&
+            now - lastWrite < NoisyInfoSampleInterval)
+        {
+            return true;
+        }
+
+        _lastNoisyInfoWrites[key] = now;
+        return false;
+    }
+
+    private static string BuildNoisyInfoSampleKey(string eventName, IReadOnlyDictionary<string, object?> fields)
+    {
+        var key = eventName + "|" + ReadFieldText(fields, "account");
+        if (string.Equals(eventName, "semi_auto.key.pressed", StringComparison.OrdinalIgnoreCase))
+        {
+            key += "|" + ReadFieldText(fields, "phase") +
+                   "|" + ReadFieldText(fields, "skill") +
+                   "|" + ReadFieldText(fields, "key");
+        }
+
+        return key;
     }
 
     private string ResolveCurrentLogPath(DateTimeOffset timestamp, int lineBytes)
@@ -190,6 +246,13 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
             TimeSpan timeSpan => timeSpan.ToString(),
             _ => value.ToString()
         };
+    }
+
+    private static string ReadFieldText(IReadOnlyDictionary<string, object?> fields, string name)
+    {
+        return fields.TryGetValue(name, out var value) && value is not null
+            ? Convert.ToString(value)?.Trim() ?? string.Empty
+            : string.Empty;
     }
 
     private sealed record RoadhogLogFileEntry(

@@ -15,6 +15,9 @@ namespace Roadhog.Infrastructure.Vmm;
 
 public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 {
+    private static readonly TimeSpan VmmReconnectDelay = TimeSpan.FromSeconds(5);
+    private const int PlayerReadFailuresBeforeReconnect = 3;
+
     private const ulong EntitySystemPointerRva = 0x904690;
     private const ulong ServerObjectTreeRva = 0xD21740;
     private const ulong PrimaryPartyListRva = 0xD1BAE8;
@@ -103,6 +106,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private readonly AionVmmGameApiOptions _options;
     private readonly IRoadhogLogger _logger;
     private readonly Dictionary<string, VmmConnection> _connections = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTimeOffset> _connectionRetryNotBefore = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _playerReadFailureCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _connectionSync = new();
     private readonly object _xmlSync = new();
     private SkillXmlCatalog? _xmlCatalog;
@@ -413,48 +418,92 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     {
         try
         {
-            var connection = GetOrCreateConnection(context.VmmDeviceName);
-            lock (connection.SyncRoot)
+            var first = ReadPlayerCoreOnce(context);
+            if (first.Success)
             {
-                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
-                {
-                    return OperationResult<PlayerSnapshot>.Fail(processError);
-                }
-
-                var moduleName = ResolveModuleName();
-                var gameBase = process.GetModuleBase(moduleName);
-                if (gameBase == 0)
-                {
-                    return OperationResult<PlayerSnapshot>.Fail("Module not found: " + moduleName);
-                }
-
-                if (!TryReadLocalPlayer(process, gameBase, out var snapshot, out var readError))
-                {
-                    return OperationResult<PlayerSnapshot>.Fail(readError);
-                }
-
-                _logger.Info("vmm.player.read", new Dictionary<string, object?>
-                {
-                    ["account"] = context.AccountName,
-                    ["pid"] = SafeGetProcessPid(process),
-                    ["entityId"] = snapshot.EntityId,
-                    ["targetEntityId"] = snapshot.TargetEntityId,
-                    ["classId"] = snapshot.CharacterClassId.HasValue ? (object)(uint)snapshot.CharacterClassId.Value : null,
-                    ["class"] = snapshot.CharacterClass,
-                    ["hp"] = snapshot.CurrentHp,
-                    ["maxHp"] = snapshot.MaxHp,
-                    ["mp"] = snapshot.CurrentMp,
-                    ["maxMp"] = snapshot.MaxMp,
-                    ["hasPosition"] = snapshot.Position is not null
-                });
-
-                return OperationResult<PlayerSnapshot>.Ok(snapshot);
+                ClearPlayerReadFailure(context);
+                return first;
             }
+
+            if (!ShouldReconnectAfterPlayerReadFailure(first.Error))
+            {
+                return first;
+            }
+
+            var failureCount = RecordPlayerReadFailure(context);
+            if (failureCount < PlayerReadFailuresBeforeReconnect)
+            {
+                return first;
+            }
+
+            ClearPlayerReadFailure(context);
+            ResetConnection(context.VmmDeviceName, context.AccountName, "player_read_failed", first.Error);
+            return first;
+        }
+        catch (VmmException ex)
+        {
+            DelayConnectionRetry(context.VmmDeviceName, VmmReconnectDelay);
+            _logger.Warn("vmm.connection.init_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.AccountName,
+                ["device"] = ResolveVmmDeviceName(context.VmmDeviceName),
+                ["remote"] = ResolveVmmRemote(),
+                ["error"] = ex.Message,
+                ["retryAfterMs"] = (int)VmmReconnectDelay.TotalMilliseconds
+            });
+
+            return OperationResult<PlayerSnapshot>.Fail(ex.Message);
         }
         catch (Exception ex)
         {
             _logger.Error("vmm.player.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<PlayerSnapshot>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<PlayerSnapshot> ReadPlayerCoreOnce(GameApiReadContext context)
+    {
+        if (TryGetConnectionRetryDelay(context.VmmDeviceName, out var retryAfterMs))
+        {
+            return OperationResult<PlayerSnapshot>.Fail("VMM reconnect cooling down for " + retryAfterMs + "ms");
+        }
+
+        var connection = GetOrCreateConnection(context.VmmDeviceName);
+        lock (connection.SyncRoot)
+        {
+            if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+            {
+                return OperationResult<PlayerSnapshot>.Fail(processError);
+            }
+
+            var moduleName = ResolveModuleName();
+            var gameBase = process.GetModuleBase(moduleName);
+            if (gameBase == 0)
+            {
+                return OperationResult<PlayerSnapshot>.Fail("Module not found: " + moduleName);
+            }
+
+            if (!TryReadLocalPlayer(process, gameBase, out var snapshot, out var readError))
+            {
+                return OperationResult<PlayerSnapshot>.Fail(readError);
+            }
+
+            _logger.Info("vmm.player.read", new Dictionary<string, object?>
+            {
+                ["account"] = context.AccountName,
+                ["pid"] = SafeGetProcessPid(process),
+                ["entityId"] = snapshot.EntityId,
+                ["targetEntityId"] = snapshot.TargetEntityId,
+                ["classId"] = snapshot.CharacterClassId.HasValue ? (object)(uint)snapshot.CharacterClassId.Value : null,
+                ["class"] = snapshot.CharacterClass,
+                ["hp"] = snapshot.CurrentHp,
+                ["maxHp"] = snapshot.MaxHp,
+                ["mp"] = snapshot.CurrentMp,
+                ["maxMp"] = snapshot.MaxMp,
+                ["hasPosition"] = snapshot.Position is not null
+            });
+
+            return OperationResult<PlayerSnapshot>.Ok(snapshot);
         }
     }
 
@@ -743,7 +792,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     {
         var deviceName = ResolveVmmDeviceName(contextVmmDeviceName);
         var remote = ResolveVmmRemote();
-        var key = deviceName + "|" + remote;
+        var key = BuildConnectionKey(deviceName, remote);
 
         lock (_connectionSync)
         {
@@ -759,6 +808,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 
             var created = new VmmConnection(deviceName, remote, new MemProcVmm(args));
             _connections[key] = created;
+            _connectionRetryNotBefore.Remove(key);
             _logger.Info("vmm.connection.created", new Dictionary<string, object?>
             {
                 ["device"] = deviceName,
@@ -767,6 +817,121 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
 
             return created;
         }
+    }
+
+    private void ResetConnection(string? contextVmmDeviceName, string accountName, string reason, string? error)
+    {
+        var deviceName = ResolveVmmDeviceName(contextVmmDeviceName);
+        var remote = ResolveVmmRemote();
+        var key = BuildConnectionKey(deviceName, remote);
+        VmmConnection? removed = null;
+
+        lock (_connectionSync)
+        {
+            if (_connections.TryGetValue(key, out removed))
+            {
+                _connections.Remove(key);
+            }
+
+            _connectionRetryNotBefore[key] = DateTimeOffset.Now + VmmReconnectDelay;
+        }
+
+        if (removed?.Vmm is IDisposable disposable)
+        {
+            try
+            {
+                disposable.Dispose();
+            }
+            catch
+            {
+                // Reconnect best-effort; disposing an already unhealthy VMM handle must not hide the original read failure.
+            }
+        }
+
+        _logger.Warn("vmm.connection.reset", new Dictionary<string, object?>
+        {
+            ["account"] = accountName,
+            ["device"] = deviceName,
+            ["remote"] = remote,
+            ["reason"] = reason,
+            ["error"] = error ?? string.Empty,
+            ["hadConnection"] = removed is not null,
+            ["retryAfterMs"] = (int)VmmReconnectDelay.TotalMilliseconds
+        });
+    }
+
+    private static string BuildConnectionKey(string deviceName, string remote)
+    {
+        return deviceName + "|" + remote;
+    }
+
+    private string BuildConnectionKey(string? contextVmmDeviceName)
+    {
+        return BuildConnectionKey(ResolveVmmDeviceName(contextVmmDeviceName), ResolveVmmRemote());
+    }
+
+    private string BuildPlayerReadFailureKey(GameApiReadContext context)
+    {
+        return BuildConnectionKey(context.VmmDeviceName) + "|" + context.AccountName;
+    }
+
+    private int RecordPlayerReadFailure(GameApiReadContext context)
+    {
+        var key = BuildPlayerReadFailureKey(context);
+        lock (_connectionSync)
+        {
+            _playerReadFailureCounts.TryGetValue(key, out var count);
+            count++;
+            _playerReadFailureCounts[key] = count;
+            return count;
+        }
+    }
+
+    private void ClearPlayerReadFailure(GameApiReadContext context)
+    {
+        var key = BuildPlayerReadFailureKey(context);
+        lock (_connectionSync)
+        {
+            _playerReadFailureCounts.Remove(key);
+        }
+    }
+
+    private void DelayConnectionRetry(string? contextVmmDeviceName, TimeSpan delay)
+    {
+        var key = BuildConnectionKey(contextVmmDeviceName);
+        lock (_connectionSync)
+        {
+            _connectionRetryNotBefore[key] = DateTimeOffset.Now + delay;
+        }
+    }
+
+    private bool TryGetConnectionRetryDelay(string? contextVmmDeviceName, out int retryAfterMs)
+    {
+        retryAfterMs = 0;
+        var key = BuildConnectionKey(contextVmmDeviceName);
+        lock (_connectionSync)
+        {
+            if (!_connectionRetryNotBefore.TryGetValue(key, out var notBefore))
+            {
+                return false;
+            }
+
+            var remaining = notBefore - DateTimeOffset.Now;
+            if (remaining <= TimeSpan.Zero)
+            {
+                _connectionRetryNotBefore.Remove(key);
+                return false;
+            }
+
+            retryAfterMs = Math.Max(1, (int)Math.Ceiling(remaining.TotalMilliseconds));
+            return true;
+        }
+    }
+
+    private static bool ShouldReconnectAfterPlayerReadFailure(string? error)
+    {
+        return !string.IsNullOrWhiteSpace(error) &&
+               error.IndexOf("failed to read local entity id", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private void LoadNativeLibrariesOnce()

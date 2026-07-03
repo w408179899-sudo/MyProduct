@@ -59,9 +59,10 @@ public sealed class AccountOrchestrator
             return OperationResult.Fail(hardwareResult.Error ?? "Failed to bind hardware device.");
         }
 
-        ApplyHardwareBinding(startConfig, hardwareResult.Value);
+        var hardwareBinding = PreferConfiguredVmmDeviceName(startConfig, hardwareResult.Value);
+        ApplyHardwareBinding(startConfig, hardwareBinding);
 
-        var reserveResult = ReserveHardware(startConfig.AccountName, hardwareResult.Value);
+        var reserveResult = ReserveHardware(startConfig.AccountName, hardwareBinding);
         if (!reserveResult.Success)
         {
             return reserveResult;
@@ -263,6 +264,13 @@ public sealed class AccountOrchestrator
         config.VmmDeviceName = binding.VmmDeviceName;
     }
 
+    private static HardwareBinding PreferConfiguredVmmDeviceName(AccountConfig config, HardwareBinding binding)
+    {
+        return IsDefaultVmmDeviceName(binding.VmmDeviceName) && !IsDefaultVmmDeviceName(config.VmmDeviceName)
+            ? binding with { VmmDeviceName = config.VmmDeviceName.Trim() }
+            : binding;
+    }
+
     private bool IsWorkerRunning(string accountName)
     {
         return _workers.TryGetValue(accountName, out var worker) && worker.IsRunning;
@@ -293,5 +301,11 @@ public sealed class AccountOrchestrator
             || string.Equals(hardwareKey.Trim(), "0", StringComparison.OrdinalIgnoreCase)
             || string.Equals(hardwareKey.Trim(), "auto", StringComparison.OrdinalIgnoreCase)
             || string.Equals(hardwareKey.Trim(), "automatic", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsDefaultVmmDeviceName(string vmmDeviceName)
+    {
+        return string.IsNullOrWhiteSpace(vmmDeviceName)
+            || string.Equals(vmmDeviceName.Trim(), "fpga", StringComparison.OrdinalIgnoreCase);
     }
 }

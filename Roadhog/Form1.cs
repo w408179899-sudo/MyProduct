@@ -796,6 +796,11 @@ namespace Roadhog
             }
 
             config.HardwareKey = hardwareKey;
+            if (row is not null && !string.IsNullOrWhiteSpace(row.VmmDeviceName))
+            {
+                config.VmmDeviceName = row.VmmDeviceName.Trim();
+            }
+
             return StartConfigBuildResult.Ok(config);
         }
 

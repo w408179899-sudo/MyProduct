@@ -11,6 +11,7 @@ using Roadhog.Core.Hardware;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
+using Roadhog.Core.Processes;
 using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Composition;
 using Roadhog.Infrastructure.Diagnostics;
@@ -24,6 +25,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
     ("runtime skill read uses saved account scope when idle", TestRuntimeSkillReadUsesSavedAccountScopeWhenIdleAsync),
     ("runtime skill read maps saved hardware key to indexed fpga device", TestRuntimeSkillReadMapsSavedHardwareKeyToIndexedFpgaDeviceAsync),
+    ("account start preserves configured indexed fpga device", TestAccountStartPreservesConfiguredIndexedFpgaDeviceAsync),
     ("runtime world object read uses account scoped context", TestRuntimeWorldObjectReadUsesAccountScopeAsync),
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
@@ -32,6 +34,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
     ("runtime kill efficiency tracks kill intervals", TestRuntimeKillEfficiencyTracksKillIntervalsAsync),
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
+    ("file logger samples noisy vmm reads", TestFileLoggerSamplesNoisyVmmReadsAsync),
     ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
     ("window title formats character identity", TestWindowTitleFormatsCharacterIdentityAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
@@ -321,6 +324,48 @@ static async Task TestRuntimeSkillReadMapsSavedHardwareKeyToIndexedFpgaDeviceAsy
 
     AssertFalse(!result.Success, "runtime skill read should succeed from mapped hardware scope");
     AssertEqual("fpga://devindex=1", gameApi.LastSkillsContext?.VmmDeviceName ?? string.Empty, "mapped scoped vmm device");
+}
+
+static async Task TestAccountStartPreservesConfiguredIndexedFpgaDeviceAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    var hardwareResolver = new InMemoryHardwareDeviceResolver(new HardwareDeviceFeature(
+        "port:Port_#0004.Hub_#0002",
+        "usb-port",
+        "medium",
+        "USB\\VID_0403&PID_601F\\0000",
+        "USB\\VID_0403&PID_601F\\0000",
+        "{container}",
+        "USB\\VID_0403&PID_601F",
+        "port:Port_#0004.Hub_#0002",
+        "fpga FTDI FT601 USB 3.0 Bridge Device",
+        "FTDI",
+        "fpga",
+        new[] { "port:Port_#0004.Hub_#0002" }));
+    var orchestrator = new AccountOrchestrator(
+        new FakeGameApi(),
+        logger,
+        accounts,
+        hardwareResolver,
+        new InMemoryTargetProcessResolver(),
+        new CapturingAccountWorkerLoop(),
+        new AccountWorkerOptions());
+
+    var result = orchestrator.Start(new AccountConfig
+    {
+        AccountName = "account-scope",
+        HardwareKey = "port:Port_#0004.Hub_#0002",
+        VmmDeviceName = "fpga://devindex=1",
+        Enabled = true
+    });
+
+    await Task.Delay(50).ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "account start should succeed");
+    var bound = logger.Entries.LastOrDefault(entry => entry.EventName == "account.hardware.bound");
+    AssertFalse(bound is null, "account hardware binding should be logged");
+    AssertEqual("fpga://devindex=1", Convert.ToString(bound!.Fields["vmmDevice"]) ?? string.Empty, "bound vmm device should preserve indexed config");
 }
 
 static async Task TestRuntimeWorldObjectReadUsesAccountScopeAsync()
@@ -655,6 +700,61 @@ static Task TestFileLoggerRotatesWhenMaxSizeIsReachedAsync()
         AssertFalse(
             !archiveLogs.Any(path => Path.GetFileName(path).Count(ch => ch == '-') >= 2),
             "rotated archive log should include a timestamp suffix");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+
+    return Task.CompletedTask;
+}
+
+static Task TestFileLoggerSamplesNoisyVmmReadsAsync()
+{
+    var directory = CreateTempDirectory("roadhog-logs-");
+    try
+    {
+        var logger = new FileRoadhogLogger(directory);
+        for (var index = 0; index < 5; index++)
+        {
+            logger.Info("vmm.player.read", new Dictionary<string, object?>
+            {
+                ["account"] = "account1",
+                ["hp"] = 100 - index
+            });
+        }
+
+        for (var index = 0; index < 3; index++)
+        {
+            logger.Info("semi_auto.key.pressed", new Dictionary<string, object?>
+            {
+                ["account"] = "account1",
+                ["key"] = "D1",
+                ["phase"] = "skill",
+                ["skill"] = "skill1"
+            });
+        }
+
+        logger.Info("semi_auto.key.pressed", new Dictionary<string, object?>
+        {
+            ["account"] = "account1",
+            ["key"] = "D2",
+            ["phase"] = "skill",
+            ["skill"] = "skill2"
+        });
+        logger.Warn("vmm.player.read", new Dictionary<string, object?>
+        {
+            ["account"] = "account1",
+            ["error"] = "read failed"
+        });
+
+        var latestPath = Path.Combine(directory, "latest.log");
+        var text = File.ReadAllText(latestPath);
+
+        AssertEqual(1, CountOccurrences(text, "\"EventName\":\"vmm.player.read\",\"Fields\":{\"account\":\"account1\",\"hp\""), "noisy vmm player reads should be sampled");
+        AssertEqual(1, CountOccurrences(text, "\"EventName\":\"semi_auto.key.pressed\",\"Fields\":{\"account\":\"account1\",\"key\":\"D1\",\"phase\":\"skill\",\"skill\":\"skill1\""), "repeated key press reads should be sampled");
+        AssertFalse(!text.Contains("\"EventName\":\"semi_auto.key.pressed\",\"Fields\":{\"account\":\"account1\",\"key\":\"D2\",\"phase\":\"skill\",\"skill\":\"skill2\"", StringComparison.Ordinal), "different key press should use a separate sample key");
+        AssertFalse(!text.Contains("\"Level\":\"warn\",\"EventName\":\"vmm.player.read\"", StringComparison.Ordinal), "warn event should bypass noisy sampling");
     }
     finally
     {
@@ -6141,6 +6241,23 @@ static void AssertSequence<T>(IReadOnlyList<T> expected, IReadOnlyList<T> actual
     }
 }
 
+static int CountOccurrences(string text, string pattern)
+{
+    var count = 0;
+    var startIndex = 0;
+    while (true)
+    {
+        var index = text.IndexOf(pattern, startIndex, StringComparison.Ordinal);
+        if (index < 0)
+        {
+            return count;
+        }
+
+        count++;
+        startIndex = index + pattern.Length;
+    }
+}
+
 static void AssertEqual<T>(T expected, T actual, string label)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual))
@@ -6294,12 +6411,72 @@ sealed class InMemoryHardwareDeviceResolver : IHardwareDeviceResolver
 
     public OperationResult<HardwareBinding> BindByKey(string accountName, string hardwareKey)
     {
-        return OperationResult<HardwareBinding>.Fail("not used");
+        var device = _devices.FirstOrDefault(item =>
+            string.Equals(item.BindingKey.Trim(), hardwareKey.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            item.AliasKeys.Any(alias => string.Equals(alias.Trim(), hardwareKey.Trim(), StringComparison.OrdinalIgnoreCase)));
+        return device is null
+            ? OperationResult<HardwareBinding>.Fail("Hardware device not found: " + hardwareKey)
+            : OperationResult<HardwareBinding>.Ok(CreateBinding(accountName, device));
     }
 
     public OperationResult<HardwareBinding> TryAutoBind(string accountName)
     {
-        return OperationResult<HardwareBinding>.Fail("not used");
+        return _devices.Count == 0
+            ? OperationResult<HardwareBinding>.Fail("Hardware device not found.")
+            : OperationResult<HardwareBinding>.Ok(CreateBinding(accountName, _devices[0]));
+    }
+
+    private static HardwareBinding CreateBinding(string accountName, HardwareDeviceFeature device)
+    {
+        return new HardwareBinding(
+            accountName,
+            device.BindingKey,
+            device.BindingKind,
+            device.BindingConfidence,
+            device.DeviceInstanceId,
+            device.ParentInstanceId,
+            device.ContainerId,
+            device.HardwareId,
+            device.LocationKey,
+            device.DisplayName,
+            device.Manufacturer,
+            device.VmmDeviceName,
+            device.AliasKeys,
+            DateTimeOffset.Now);
+    }
+}
+
+sealed class InMemoryTargetProcessResolver : ITargetProcessResolver
+{
+    public string ResolveTargetProcessName(string? overrideProcessName = null)
+    {
+        return string.IsNullOrWhiteSpace(overrideProcessName) ? "Aion.bin" : overrideProcessName.Trim();
+    }
+
+    public IReadOnlyList<TargetProcessInfo> ListTargets(string? overrideProcessName = null)
+    {
+        return Array.Empty<TargetProcessInfo>();
+    }
+
+    public OperationResult<ProcessBinding> BindByPid(string accountName, int processId, string? overrideProcessName = null)
+    {
+        return OperationResult<ProcessBinding>.Fail("not used");
+    }
+
+    public OperationResult<ProcessBinding> TryAutoBind(string accountName, string? overrideProcessName = null)
+    {
+        return OperationResult<ProcessBinding>.Fail("not used");
+    }
+}
+
+sealed class CapturingAccountWorkerLoop : IAccountWorkerLoop
+{
+    public AccountWorkerContext? LastContext { get; private set; }
+
+    public Task RunAsync(AccountWorkerContext context)
+    {
+        LastContext = context;
+        return Task.CompletedTask;
     }
 }
 
