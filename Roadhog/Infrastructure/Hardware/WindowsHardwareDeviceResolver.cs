@@ -24,12 +24,14 @@ public sealed class WindowsHardwareDeviceResolver : IHardwareDeviceResolver
         }
 
         var rootDevicePrefix = BuildRootDevicePrefix();
-        return usbRoot.GetSubKeyNames()
+        var devices = usbRoot.GetSubKeyNames()
             .Where(key => key.StartsWith(rootDevicePrefix, StringComparison.OrdinalIgnoreCase)
                 && !key.Contains("&MI_", StringComparison.OrdinalIgnoreCase))
             .SelectMany(deviceKey => ReadDeviceInstances(usbRoot, deviceKey))
             .OrderBy(device => device.BindingKey, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+
+        return ApplyIndexedVmmDeviceNames(devices);
     }
 
     public OperationResult<HardwareBinding> BindByKey(string accountName, string hardwareKey)
@@ -229,6 +231,40 @@ public sealed class WindowsHardwareDeviceResolver : IHardwareDeviceResolver
         }
 
         return _options.DefaultVmmDeviceName;
+    }
+
+    private IReadOnlyList<HardwareDeviceFeature> ApplyIndexedVmmDeviceNames(IReadOnlyList<HardwareDeviceFeature> devices)
+    {
+        if (devices.Count <= 1)
+        {
+            return devices;
+        }
+
+        return devices
+            .Select((device, index) => HasExplicitVmmDeviceMapping(device.AliasKeys)
+                ? device
+                : device with { VmmDeviceName = BuildIndexedVmmDeviceName(device.VmmDeviceName, index) })
+            .ToArray();
+    }
+
+    private bool HasExplicitVmmDeviceMapping(IReadOnlyList<string> aliasKeys)
+    {
+        return aliasKeys.Any(key =>
+            _options.VmmDeviceByHardwareKey.TryGetValue(key, out var mappedDevice) &&
+            !string.IsNullOrWhiteSpace(mappedDevice));
+    }
+
+    private static string BuildIndexedVmmDeviceName(string baseDeviceName, int index)
+    {
+        var value = string.IsNullOrWhiteSpace(baseDeviceName) ? "fpga" : baseDeviceName.Trim();
+        if (value.Contains("devindex=", StringComparison.OrdinalIgnoreCase) ||
+            value.Contains("deviceindex=", StringComparison.OrdinalIgnoreCase))
+        {
+            return value;
+        }
+
+        var separator = value.Contains("://", StringComparison.Ordinal) ? "," : "://";
+        return value + separator + "devindex=" + index.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static IReadOnlyList<string> BuildAliasKeys(

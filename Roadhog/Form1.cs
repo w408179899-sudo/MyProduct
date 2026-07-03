@@ -19,6 +19,7 @@ namespace Roadhog
         private readonly System.Windows.Forms.Timer _uiRefreshTimer = new() { Interval = 1000 };
 
         private bool _suppressFpgaSelectionChanged;
+        private bool _suppressHardwareInputChanged;
         private int _accountRows;
 
         public Form1()
@@ -261,8 +262,9 @@ namespace Roadhog
                 Font = new Font("Consolas", 9F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(20, 83, 45),
                 Margin = new Padding(3),
+                ReadOnly = true,
                 Tag = account.Account,
-                Text = account.HardwareKey
+                Text = FormatHardwareDisplay(account.HardwareKey)
             };
 
             input.TextChanged += AccountHardwareInput_TextChanged;
@@ -414,15 +416,16 @@ namespace Roadhog
 
         private static string FormatFpgaDeviceText(Core.Hardware.HardwareDeviceFeature device)
         {
-            var binding = RoadhogWindowTitleFormatter.FormatHardware(device.BindingKey);
-            var display = string.IsNullOrWhiteSpace(device.DisplayName)
-                ? string.Empty
-                : " " + device.DisplayName.Trim();
-            return binding + " | " + device.VmmDeviceName + display;
+            return FormatHardwareDisplay(device.BindingKey);
         }
 
         private void AccountHardwareInput_TextChanged(object? sender, EventArgs e)
         {
+            if (_suppressHardwareInputChanged)
+            {
+                return;
+            }
+
             if (sender is not Control { Tag: string account } input)
             {
                 return;
@@ -987,7 +990,20 @@ namespace Roadhog
 
             if (updateHardwareKey && !string.IsNullOrWhiteSpace(row.HardwareKey))
             {
-                SetTextIfChanged(controls.HardwareInput, row.HardwareKey);
+                SetHardwareTextIfChanged(controls.HardwareInput, row.HardwareKey);
+            }
+        }
+
+        private void SetHardwareTextIfChanged(Control control, string hardwareKey)
+        {
+            _suppressHardwareInputChanged = true;
+            try
+            {
+                SetTextIfChanged(control, FormatHardwareDisplay(hardwareKey));
+            }
+            finally
+            {
+                _suppressHardwareInputChanged = false;
             }
         }
 
@@ -1098,6 +1114,11 @@ namespace Roadhog
                    value.Minutes.ToString("00", System.Globalization.CultureInfo.InvariantCulture) +
                    ":" +
                    value.Seconds.ToString("00", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private static string FormatHardwareDisplay(string hardwareKey)
+        {
+            return RoadhogWindowTitleFormatter.FormatHardware(hardwareKey);
         }
 
         private static bool IsAutoHardwareKey(string hardwareKey)

@@ -1,6 +1,8 @@
 using Roadhog.Core.Api;
+using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
+using Roadhog.Core.Hardware;
 using Roadhog.Core.Model;
 
 namespace Roadhog.Application;
@@ -9,15 +11,21 @@ public sealed class RoadhogRuntime
 {
     private readonly IRoadhogGameApi _gameApi;
     private readonly IRoadhogLogger _logger;
+    private readonly IAccountConfigStore? _accountConfigStore;
+    private readonly IHardwareDeviceResolver? _hardwareResolver;
 
     public RoadhogRuntime(
         IRoadhogGameApi gameApi,
         IRoadhogLogger logger,
         AccountRuntimeManager accounts,
-        AccountOrchestrator orchestrator)
+        AccountOrchestrator orchestrator,
+        IAccountConfigStore? accountConfigStore = null,
+        IHardwareDeviceResolver? hardwareResolver = null)
     {
         _gameApi = gameApi;
         _logger = logger;
+        _accountConfigStore = accountConfigStore;
+        _hardwareResolver = hardwareResolver;
         Accounts = accounts;
         Orchestrator = orchestrator;
     }
@@ -306,12 +314,78 @@ public sealed class RoadhogRuntime
         var account = Accounts.Snapshot()
             .FirstOrDefault(item => string.Equals(item.AccountName, accountName, StringComparison.OrdinalIgnoreCase));
 
-        return account is null
-            ? new GameApiReadContext(accountName, 0, string.Empty, string.Empty)
-            : new GameApiReadContext(
+        if (account is not null)
+        {
+            return new GameApiReadContext(
                 account.AccountName,
                 account.ProcessId,
                 account.TargetProcessName,
                 account.VmmDeviceName);
+        }
+
+        var config = LoadSavedAccountConfig(accountName);
+        return config is null
+            ? new GameApiReadContext(accountName, 0, string.Empty, string.Empty)
+            : new GameApiReadContext(
+                config.AccountName,
+                config.ProcessId,
+                config.TargetProcessName,
+                config.VmmDeviceName);
+    }
+
+    private AccountConfig? LoadSavedAccountConfig(string accountName)
+    {
+        if (_accountConfigStore is null)
+        {
+            return null;
+        }
+
+        var result = _accountConfigStore.LoadAllAsync().GetAwaiter().GetResult();
+        if (!result.Success || result.Value is null)
+        {
+            _logger.Warn("account_config.read_context.load_failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["error"] = result.Error
+            });
+            return null;
+        }
+
+        var config = result.Value
+            .FirstOrDefault(item => string.Equals(item.AccountName, accountName, StringComparison.OrdinalIgnoreCase))
+            ?.Clone();
+        if (config is not null)
+        {
+            config.VmmDeviceName = ResolveCurrentVmmDeviceName(config);
+        }
+
+        return config;
+    }
+
+    private string ResolveCurrentVmmDeviceName(AccountConfig config)
+    {
+        if (_hardwareResolver is null ||
+            string.IsNullOrWhiteSpace(config.HardwareKey) ||
+            !IsDefaultVmmDeviceName(config.VmmDeviceName))
+        {
+            return config.VmmDeviceName;
+        }
+
+        var device = _hardwareResolver.ListDevices()
+            .FirstOrDefault(item => DeviceMatchesHardwareKey(item, config.HardwareKey));
+        return device?.VmmDeviceName ?? config.VmmDeviceName;
+    }
+
+    private static bool IsDefaultVmmDeviceName(string vmmDeviceName)
+    {
+        return string.IsNullOrWhiteSpace(vmmDeviceName) ||
+            string.Equals(vmmDeviceName.Trim(), "fpga", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool DeviceMatchesHardwareKey(HardwareDeviceFeature device, string hardwareKey)
+    {
+        var expected = hardwareKey.Trim();
+        return string.Equals(device.BindingKey.Trim(), expected, StringComparison.OrdinalIgnoreCase) ||
+            device.AliasKeys.Any(alias => string.Equals(alias.Trim(), expected, StringComparison.OrdinalIgnoreCase));
     }
 }

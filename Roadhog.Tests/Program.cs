@@ -7,6 +7,7 @@ using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
+using Roadhog.Core.Hardware;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
@@ -21,6 +22,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
+    ("runtime skill read uses saved account scope when idle", TestRuntimeSkillReadUsesSavedAccountScopeWhenIdleAsync),
+    ("runtime skill read maps saved hardware key to indexed fpga device", TestRuntimeSkillReadMapsSavedHardwareKeyToIndexedFpgaDeviceAsync),
     ("runtime world object read uses account scoped context", TestRuntimeWorldObjectReadUsesAccountScopeAsync),
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
@@ -250,6 +253,74 @@ static async Task TestRuntimePlayerReadUsesAccountScopeAsync()
     AssertEqual(712, gameApi.LastPlayerContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastPlayerContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastPlayerContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
+}
+
+static async Task TestRuntimeSkillReadUsesSavedAccountScopeWhenIdleAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(101, "Saved Scope Skill", 1, 1, "Saved Scope Skill", 1, false, 0, 0)
+        }
+    };
+    var configStore = new InMemoryAccountConfigStore(new AccountConfig
+    {
+        AccountName = "account-scope",
+        ProcessId = 812,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga://devindex=1"
+    });
+    var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!, configStore);
+
+    var result = await runtime.RefreshSkillsAsync("account-scope").ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "runtime skill read should succeed from saved account scope");
+    AssertEqual(812, gameApi.LastSkillsContext?.ProcessId ?? 0, "saved scoped process id");
+    AssertEqual("Aion.bin", gameApi.LastSkillsContext?.TargetProcessName ?? string.Empty, "saved scoped process name");
+    AssertEqual("fpga://devindex=1", gameApi.LastSkillsContext?.VmmDeviceName ?? string.Empty, "saved scoped vmm device");
+}
+
+static async Task TestRuntimeSkillReadMapsSavedHardwareKeyToIndexedFpgaDeviceAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    var gameApi = new FakeGameApi
+    {
+        Skills = new[]
+        {
+            new SkillSnapshot(102, "Mapped Scope Skill", 1, 1, "Mapped Scope Skill", 1, false, 0, 0)
+        }
+    };
+    var configStore = new InMemoryAccountConfigStore(new AccountConfig
+    {
+        AccountName = "account-scope",
+        HardwareKey = "port:Port_#0004.Hub_#0002",
+        ProcessId = 813,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga"
+    });
+    var hardwareResolver = new InMemoryHardwareDeviceResolver(new HardwareDeviceFeature(
+        "port:Port_#0004.Hub_#0002",
+        "usb-port",
+        "medium",
+        "USB\\VID_0403&PID_601F\\0000",
+        "USB\\VID_0403&PID_601F\\0000",
+        "{container}",
+        "USB\\VID_0403&PID_601F",
+        "port:Port_#0004.Hub_#0002",
+        "fpga FTDI FT601 USB 3.0 Bridge Device",
+        "FTDI",
+        "fpga://devindex=1",
+        new[] { "port:Port_#0004.Hub_#0002" }));
+    var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!, configStore, hardwareResolver);
+
+    var result = await runtime.RefreshSkillsAsync("account-scope").ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "runtime skill read should succeed from mapped hardware scope");
+    AssertEqual("fpga://devindex=1", gameApi.LastSkillsContext?.VmmDeviceName ?? string.Empty, "mapped scoped vmm device");
 }
 
 static async Task TestRuntimeWorldObjectReadUsesAccountScopeAsync()
@@ -6207,6 +6278,31 @@ sealed class InMemoryAccountConfigStore : IAccountConfigStore
     }
 }
 
+sealed class InMemoryHardwareDeviceResolver : IHardwareDeviceResolver
+{
+    private readonly IReadOnlyList<HardwareDeviceFeature> _devices;
+
+    public InMemoryHardwareDeviceResolver(params HardwareDeviceFeature[] devices)
+    {
+        _devices = devices;
+    }
+
+    public IReadOnlyList<HardwareDeviceFeature> ListDevices()
+    {
+        return _devices;
+    }
+
+    public OperationResult<HardwareBinding> BindByKey(string accountName, string hardwareKey)
+    {
+        return OperationResult<HardwareBinding>.Fail("not used");
+    }
+
+    public OperationResult<HardwareBinding> TryAutoBind(string accountName)
+    {
+        return OperationResult<HardwareBinding>.Fail("not used");
+    }
+}
+
 sealed class InMemorySharedPathStore : ISharedPathStore
 {
     private readonly Dictionary<string, SharedPathDocument> _paths;
@@ -6279,6 +6375,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
     public IReadOnlyList<uint>? LastRequestedSkillIds { get; private set; }
 
     public GameApiReadContext? LastPlayerContext { get; private set; }
+
+    public GameApiReadContext? LastSkillsContext { get; private set; }
 
     public GameApiReadContext? LastSummonedPetContext { get; private set; }
 
@@ -6433,6 +6531,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
+        LastSkillsContext = context;
         return ReadSkillsAsync(cancellationToken);
     }
 
@@ -6441,6 +6540,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
         IReadOnlyCollection<uint> skillIds,
         CancellationToken cancellationToken = default)
     {
+        LastSkillsContext = context;
         LastRequestedSkillIds = skillIds.ToArray();
         var requested = LastRequestedSkillIds.ToHashSet();
         IReadOnlyList<SkillSnapshot> skills = Skills
