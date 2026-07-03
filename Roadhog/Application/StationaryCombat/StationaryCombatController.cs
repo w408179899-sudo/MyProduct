@@ -25,6 +25,8 @@ public sealed class StationaryCombatController
     private const double DefaultPitchPixelsPerDegree = 13.0D;
     private const int DefaultReviveClickX = 470;
     private const int DefaultReviveClickY = 300;
+    private const int DefaultReviveFallbackClickX = 550;
+    private const int DefaultReviveFallbackClickY = 380;
     private const int DefaultPostReviveScrollCount = 10;
     private const int DefaultPostReviveScrollDelta = -1;
     private const int AbsoluteMouseResetDelta = -32768;
@@ -620,8 +622,8 @@ public sealed class StationaryCombatController
             return StationaryCombatBehaviorStatus.Running;
         }
 
-        var x = ReadDeathReviveClickX();
-        var y = ReadDeathReviveClickY();
+        var x = ReadDeathReviveFallbackClickX();
+        var y = ReadDeathReviveFallbackClickY();
         var result = await ClickAbsoluteScreenPointAsync(context, x, y).ConfigureAwait(false);
         if (!result.Success)
         {
@@ -630,6 +632,7 @@ public sealed class StationaryCombatController
                 ["account"] = context.Config.AccountName,
                 ["x"] = x,
                 ["y"] = y,
+                ["fallback"] = true,
                 ["clickCount"] = state.DeathRecovery.ReviveClickCount,
                 ["retryWaitMs"] = (long)retryDelay.TotalMilliseconds,
                 ["error"] = result.Error
@@ -643,6 +646,7 @@ public sealed class StationaryCombatController
             ["account"] = context.Config.AccountName,
             ["x"] = x,
             ["y"] = y,
+            ["fallback"] = true,
             ["clickCount"] = state.DeathRecovery.ReviveClickCount,
             ["retryWaitMs"] = (long)retryDelay.TotalMilliseconds
         });
@@ -4750,6 +4754,16 @@ public sealed class StationaryCombatController
     private static int ReadDeathReviveClickY()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_CLICK_Y", DefaultReviveClickY), 0, 32767);
+    }
+
+    private static int ReadDeathReviveFallbackClickX()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_FALLBACK_CLICK_X", DefaultReviveFallbackClickX), 0, 32767);
+    }
+
+    private static int ReadDeathReviveFallbackClickY()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_FALLBACK_CLICK_Y", DefaultReviveFallbackClickY), 0, 32767);
     }
 
     private static int ReadDeathReviveClickHoldMs()

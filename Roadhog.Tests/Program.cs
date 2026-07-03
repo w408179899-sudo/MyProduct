@@ -1396,12 +1396,12 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
             {
                 "move:-32768,-32768",
                 "move:-32768,-32768",
-                "move:470,300",
+                "move:550,380",
                 "down:Left",
                 "up:Left"
             },
             keyboard.MouseCommands.Skip(5).Take(5).ToArray(),
-            "death recovery should retry revive click when player is still dead after retry delay");
+            "death recovery should retry fallback revive click when player is still dead after retry delay");
         AssertEqual(2, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record retry revive click count");
 
         gameApi.Player = gameApi.Player with { CurrentHp = 10 };
