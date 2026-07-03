@@ -71,6 +71,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
     ("stationary combat switches away from target claimed by other", TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync),
     ("stationary combat keeps previously engaged target while it self targets", TestStationaryCombatKeepsPreviouslyEngagedTargetWhileSelfTargetingAsync),
+    ("stationary combat keeps spiritmaster pet targeted fight", TestStationaryCombatKeepsSpiritmasterPetTargetedFightAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
     ("stationary combat loots locked dead target directly", TestStationaryCombatLootsLockedDeadTargetDirectlyAsync),
     ("stationary combat waits after kill before loot key", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
@@ -2878,6 +2879,76 @@ static async Task TestStationaryCombatKeepsPreviouslyEngagedTargetWhileSelfTarge
         entry.EventName == "stationary_combat.target.ignored" &&
         string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
         "previously engaged target should not log claimed-target ignore");
+}
+
+static async Task TestStationaryCombatKeepsSpiritmasterPetTargetedFightAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+    settings.SemiAuto.AttackKeyLoopEnabled = true;
+    settings.SemiAuto.AttackKeyLoopIntervalMs = 1;
+
+    const uint targetServerObjectId = 100;
+    const uint petServerObjectId = 2000;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = targetServerObjectId,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = petServerObjectId,
+        LocalServerObjectId = 1000,
+        TargetIsTargetingLocalPlayer = false,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, targetServerObjectId, "pet-targeting", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000, petServerObjectId, false),
+            new WorldObjectSnapshot(101, 101, "next", "monster", new Vector3Snapshot(12, 0, 0), 12, 1000, 1000)
+        },
+        Skills = CreateSpiritmasterSkillSnapshots()
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = targetServerObjectId,
+        CandidateEntityId = 100,
+        CandidateServerObjectId = targetServerObjectId
+    };
+    state.MarkCandidate(100, targetServerObjectId, DateTimeOffset.Now);
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "target that locked local spiritmaster pet should remain the current fight target");
+    AssertFalse(!state.CurrentTargetIsMaintenanceDefense, "pet-targeted monster should be marked as local-side defense");
+    AssertEqual((ushort)100, state.CurrentTargetEntityId, "current fight target should stay on pet-targeted monster");
+    AssertEqual(targetServerObjectId, state.CurrentTargetServerObjectId, "current fight target server id should stay on pet-targeted monster");
+    AssertFalse(state.IsTargetIgnored(100, targetServerObjectId), "pet-targeted monster should not be ignored as claimed");
+    AssertFalse(keyboard.Keys.Contains("C"), "pet-targeted monster should not wait for player body targeting via C loop");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "pet-targeted monster should continue skill release");
+    AssertFalse(logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.ignored" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
+        "pet-targeted monster should not log claimed-target ignore");
 }
 
 static async Task TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync()

@@ -88,6 +88,7 @@ public sealed class StationaryCombatController
         var player = playerResult.Value;
         var playerPosition = player.Position.Value;
         var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home);
+        await RefreshLocalCombatSideAsync(context, plan, state, player).ConfigureAwait(false);
 
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
         {
@@ -272,7 +273,7 @@ public sealed class StationaryCombatController
             });
         }
 
-        if (!target.IsTargetingLocalPlayer && targetDistanceFromHome > radius)
+        if (!IsTargetingLocalSide(target, state) && targetDistanceFromHome > radius)
         {
             await StopMovementAsync(context, state).ConfigureAwait(false);
             state.ClearTarget();
@@ -1441,7 +1442,7 @@ public sealed class StationaryCombatController
         }
 
         state.SetCurrentTarget(target);
-        if (IsTargetingLocalPlayerByServerObjectId(target))
+        if (IsTargetingLocalSide(target, state))
         {
             state.CurrentTargetIsMaintenanceDefense = true;
         }
@@ -1893,14 +1894,14 @@ public sealed class StationaryCombatController
             return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
         }
 
-        if (target.IsTargetingLocalPlayer)
+        if (IsTargetingLocalSide(target, state))
         {
             state.CurrentTargetIsMaintenanceDefense = true;
         }
 
         if (!state.CurrentTargetIsMaintenanceDefense &&
             !AllowsClaimedTargets(context) &&
-            IsClaimedByOther(target))
+            IsClaimedByOther(target, state))
         {
             return await IgnoreCurrentTargetAsync(
                     context,
@@ -1913,7 +1914,7 @@ public sealed class StationaryCombatController
                 .ConfigureAwait(false);
         }
 
-        if (!IsCurrentFightTargetStillSelectable(target, home, radius, state.CurrentTargetIsMaintenanceDefense))
+        if (!IsCurrentFightTargetStillSelectable(target, home, radius, state.CurrentTargetIsMaintenanceDefense, state))
         {
             return await WaitForCurrentFightTargetAsync(
                     context,
@@ -2538,7 +2539,7 @@ public sealed class StationaryCombatController
             ? lockedTarget.TargetEntityId
             : acquiredTarget.EntityId;
         state.SetCurrentTarget(acquiredEntityId, acquiredServerObjectId);
-        state.CurrentTargetIsMaintenanceDefense = acquiredTarget.IsTargetingLocalPlayer;
+        state.CurrentTargetIsMaintenanceDefense = IsTargetingLocalSide(acquiredTarget, state);
         state.MarkCandidate(acquiredTarget, DateTimeOffset.Now);
         state.ClearPendingTabVerification();
         await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -2546,8 +2547,8 @@ public sealed class StationaryCombatController
         var effectiveTargetingServerObjectId = lockedTarget.TargetServerObjectId != 0
             ? lockedTarget.TargetServerObjectId
             : acquiredTarget.TargetServerObjectId;
-        var effectiveTargetingMe = IsTargetingLocalPlayerByServerObjectId(lockedTarget) ||
-                                   acquiredTarget.IsTargetingLocalPlayer;
+        var effectiveTargetingMe = IsTargetingLocalSide(lockedTarget, state) ||
+                                   IsTargetingLocalSide(acquiredTarget, state);
         var effectiveLockedTarget = lockedTarget with
         {
             ServerObjectId = lockedTarget.ServerObjectId != 0 ? lockedTarget.ServerObjectId : acquiredServerObjectId,
@@ -2689,7 +2690,8 @@ public sealed class StationaryCombatController
                 lockedWorldTarget,
                 home,
                 radius,
-                allowClaimedByOther: true)
+                allowClaimedByOther: true,
+                state: state)
             ? lockedWorldTarget
             : null;
     }
@@ -2702,7 +2704,7 @@ public sealed class StationaryCombatController
     {
         if (state.CurrentTargetIsMaintenanceDefense ||
             AllowsClaimedTargets(context) ||
-            !IsClaimedByOther(target))
+            !IsClaimedByOther(target, state))
         {
             return null;
         }
@@ -2727,7 +2729,7 @@ public sealed class StationaryCombatController
         string phase)
     {
         if (state.CurrentTargetIsMaintenanceDefense ||
-            IsTargetingLocalPlayerByServerObjectId(target))
+            IsTargetingLocalSide(target, state))
         {
             semiAutoState.MarkOpeningAttackKeyAttempted(target);
             return null;
@@ -2751,7 +2753,7 @@ public sealed class StationaryCombatController
             ["targetServerObjectId"] = target.ServerObjectId,
             ["targetingServerObjectId"] = target.TargetServerObjectId,
             ["localServerObjectId"] = target.LocalServerObjectId,
-            ["targetingMe"] = IsTargetingLocalPlayerByServerObjectId(target)
+            ["targetingMe"] = IsTargetingLocalSide(target, state)
         }, TimeSpan.FromMilliseconds(500));
 
         return await _semiAuto
@@ -2866,7 +2868,7 @@ public sealed class StationaryCombatController
         if (state.CandidateEntityId != 0 || state.CandidateServerObjectId != 0)
         {
             var candidate = state.FindCandidate(objects);
-            if (!allowClaimedByOther && candidate is not null && IsClaimedByOther(candidate))
+            if (!allowClaimedByOther && candidate is not null && IsClaimedByOther(candidate, state))
             {
                 state.IgnoreTarget(candidate);
                 LogActionThrottled(context, state, "stationary_combat.target.claimed_by_other", "candidate:" + TargetActionKey(candidate.EntityId, candidate.ServerObjectId), new Dictionary<string, object?>
@@ -2893,7 +2895,7 @@ public sealed class StationaryCombatController
             }
             else if (candidate is not null &&
                 !state.IsTargetIgnored(candidate) &&
-                IsCandidateStillSelectable(candidate, home, radius, allowClaimedByOther))
+                IsCandidateStillSelectable(candidate, home, radius, allowClaimedByOther, state))
             {
                 if (!ShouldReplaceCandidateWithAggressiveTarget(
                     preferAggressiveMonsters,
@@ -2914,7 +2916,7 @@ public sealed class StationaryCombatController
             .Where(target => !IsActiveMonsterFiltered(target, activeMonsterNameFilters));
         if (!allowClaimedByOther)
         {
-            candidates = candidates.Where(target => !IsClaimedByOther(target));
+            candidates = candidates.Where(target => !IsClaimedByOther(target, state));
         }
 
         return StationaryCombatTargetSelector.SelectNearest(
@@ -2934,7 +2936,7 @@ public sealed class StationaryCombatController
         var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
         return objects
             .Where(target => !state.IsTargetIgnored(target))
-            .Where(target => target.IsTargetingLocalPlayer)
+            .Where(target => IsTargetingLocalSide(target, state))
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
             .Where(target => target.Position is not null)
             .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition))
@@ -2977,12 +2979,13 @@ public sealed class StationaryCombatController
         WorldObjectSnapshot? candidate,
         Vector3Snapshot home,
         double radius,
-        bool allowClaimedByOther)
+        bool allowClaimedByOther,
+        StationaryCombatState state)
     {
         return candidate is { Position: not null } target &&
                StationaryCombatTargetSelector.IsSelectableMonster(target) &&
-               (allowClaimedByOther || !IsClaimedByOther(target)) &&
-               (target.IsTargetingLocalPlayer ||
+               (allowClaimedByOther || !IsClaimedByOther(target, state)) &&
+               (IsTargetingLocalSide(target, state) ||
                 StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) <= radius);
     }
 
@@ -2990,12 +2993,13 @@ public sealed class StationaryCombatController
         WorldObjectSnapshot? candidate,
         Vector3Snapshot home,
         double radius,
-        bool currentTargetIsMaintenanceDefense)
+        bool currentTargetIsMaintenanceDefense,
+        StationaryCombatState state)
     {
         return candidate is { Position: not null } target &&
                StationaryCombatTargetSelector.IsSelectableMonster(target) &&
                (currentTargetIsMaintenanceDefense ||
-                target.IsTargetingLocalPlayer ||
+                IsTargetingLocalSide(target, state) ||
                 StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) <= radius + TargetLeashExtraDistance);
     }
 
@@ -3050,7 +3054,7 @@ public sealed class StationaryCombatController
                 target.ServerObjectId,
                 candidate.EntityId,
                 candidate.ServerObjectId) &&
-            IsCandidateStillSelectable(target, home, radius, allowClaimedByOther));
+            IsCandidateStillSelectable(target, home, radius, allowClaimedByOther, state));
     }
 
     private static bool IsAttackKeyLoopEnabled(AccountWorkerContext context)
@@ -3058,14 +3062,39 @@ public sealed class StationaryCombatController
         return context.Config.ScriptSettings?.SemiAuto?.AttackKeyLoopEnabled == true;
     }
 
-    private static bool IsClaimedByOther(WorldObjectSnapshot target)
+    private static bool IsClaimedByOther(WorldObjectSnapshot target, StationaryCombatState state)
     {
-        return target.TargetServerObjectId != 0 && !target.IsTargetingLocalPlayer;
+        return target.TargetServerObjectId != 0 && !IsTargetingLocalSide(target, state);
     }
 
-    private static bool IsClaimedByOther(LockedTargetSnapshot target)
+    private static bool IsClaimedByOther(LockedTargetSnapshot target, StationaryCombatState state)
     {
-        return target.TargetServerObjectId != 0 && !IsTargetingLocalPlayerByServerObjectId(target);
+        return target.TargetServerObjectId != 0 && !IsTargetingLocalSide(target, state);
+    }
+
+    private static bool IsTargetingLocalSide(WorldObjectSnapshot target, StationaryCombatState state)
+    {
+        if (target.IsTargetingLocalPlayer)
+        {
+            return true;
+        }
+
+        return IsLocalSideServerObjectId(target.TargetServerObjectId, state);
+    }
+
+    private static bool IsTargetingLocalSide(LockedTargetSnapshot target, StationaryCombatState state)
+    {
+        return IsTargetingLocalPlayerByServerObjectId(target) ||
+               IsLocalSideServerObjectId(target.TargetServerObjectId, state);
+    }
+
+    private static bool IsLocalSideServerObjectId(uint serverObjectId, StationaryCombatState state)
+    {
+        return serverObjectId != 0 &&
+               ((state.LocalCombatSideServerObjectId != 0 &&
+                 serverObjectId == state.LocalCombatSideServerObjectId) ||
+                (state.LocalCombatSidePetServerObjectId != 0 &&
+                 serverObjectId == state.LocalCombatSidePetServerObjectId));
     }
 
     private static bool IsTargetingLocalPlayerByServerObjectId(LockedTargetSnapshot target)
@@ -3803,6 +3832,42 @@ public sealed class StationaryCombatController
         return context.GameApi is IRoadhogScopedGameApi scopedApi
             ? scopedApi.ReadPlayerAsync(CreateReadContext(context), context.StopToken)
             : context.GameApi.ReadPlayerAsync(context.StopToken);
+    }
+
+    private static async Task RefreshLocalCombatSideAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        StationaryCombatState state,
+        PlayerSnapshot player)
+    {
+        state.LocalCombatSideServerObjectId = 0;
+        state.LocalCombatSidePetServerObjectId = 0;
+
+        if (!plan.UsesSpiritmasterAutoLogic ||
+            player.CharacterClassId is { } classId && classId != AionClassId.Spiritmaster)
+        {
+            return;
+        }
+
+        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        if (!rosterResult.Success || rosterResult.Value is null)
+        {
+            return;
+        }
+
+        var roster = rosterResult.Value;
+        state.LocalCombatSideServerObjectId = roster.LocalServerObjectId;
+        var pet = roster.LocalPlayerPet.Pet;
+        state.LocalCombatSidePetServerObjectId = pet.IsSummoned
+            ? pet.ServerObjectId
+            : 0;
+    }
+
+    private static Task<OperationResult<SummonedPetRosterSnapshot>> ReadSummonedPetRosterAsync(AccountWorkerContext context)
+    {
+        return context.GameApi is IRoadhogScopedGameApi scopedApi
+            ? scopedApi.ReadSummonedPetRosterAsync(CreateReadContext(context), context.StopToken)
+            : context.GameApi.ReadSummonedPetRosterAsync(context.StopToken);
     }
 
     private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(AccountWorkerContext context)

@@ -24,6 +24,10 @@ public sealed class StationaryCombatState
 
     public bool CurrentTargetIsMaintenanceDefense { get; set; }
 
+    public uint LocalCombatSideServerObjectId { get; set; }
+
+    public uint LocalCombatSidePetServerObjectId { get; set; }
+
     public ushort CandidateEntityId { get; set; }
 
     public uint CandidateServerObjectId { get; set; }
