@@ -2875,7 +2875,6 @@ namespace Roadhog
                 var visibleSkills = skills
                     .Where(skill => !ShouldHideManualSkillCandidate(skill))
                     .ToArray();
-                var chainRootSkillKeys = GetChainRootSkillKeys(visibleSkills);
 
                 foreach (var category in ManualSkillCategories)
                 {
@@ -2889,9 +2888,7 @@ namespace Roadhog
                     {
                         AddSkillLeaves(
                             categoryNode,
-                            visibleSkills
-                                .Where(skill => !chainRootSkillKeys.Contains(GetSkillKey(skill)))
-                                .Where(skill => MatchesManualSkillType(skill, category)));
+                            visibleSkills.Where(skill => MatchesManualSkillType(skill, category)));
                     }
 
                     if (categoryNode.Nodes.Count == 0)
@@ -3784,13 +3781,13 @@ namespace Roadhog
                 }
 
                 currentManualSkills = result.Value;
-                var updatedCount = RefreshSelectedSkillTreeToHighestCurrentSkills(selectedTree, currentManualSkills);
+                var refreshResult = RefreshSelectedSkillTreeToHighestCurrentSkills(selectedTree, currentManualSkills);
                 RefreshManualSkillMappingCombos();
                 RefreshMaintenanceSkillCombos();
                 RefreshSpiritmasterSkillCombos();
                 RefreshOpeningSkillCombo();
 
-                button.Text = "已刷新 " + updatedCount;
+                button.Text = "已刷新 " + refreshResult.UpdatedCount + " 删除 " + refreshResult.DeletedCount;
                 await Task.Delay(700).ConfigureAwait(true);
             }
             finally
@@ -3803,7 +3800,7 @@ namespace Roadhog
             }
         }
 
-        private static int RefreshSelectedSkillTreeToHighestCurrentSkills(
+        private static (int UpdatedCount, int DeletedCount) RefreshSelectedSkillTreeToHighestCurrentSkills(
             TreeView selectedTree,
             IReadOnlyList<SkillSnapshot> currentSkills)
         {
@@ -3817,12 +3814,15 @@ namespace Roadhog
                     StringComparer.Ordinal);
 
             var updatedCount = 0;
+            var deletedCount = 0;
             selectedTree.BeginUpdate();
             try
             {
-                foreach (TreeNode node in selectedTree.Nodes)
+                for (var i = selectedTree.Nodes.Count - 1; i >= 0; i--)
                 {
-                    updatedCount += RefreshSelectedSkillNodeToHighestCurrentSkill(node, candidates);
+                    var nodeResult = RefreshSelectedSkillNodeToHighestCurrentSkill(selectedTree.Nodes[i], candidates);
+                    updatedCount += nodeResult.UpdatedCount;
+                    deletedCount += nodeResult.DeletedCount;
                 }
 
                 selectedTree.ExpandAll();
@@ -3832,42 +3832,60 @@ namespace Roadhog
                 selectedTree.EndUpdate();
             }
 
-            return updatedCount;
+            return (updatedCount, deletedCount);
         }
 
-        private static int RefreshSelectedSkillNodeToHighestCurrentSkill(
+        private static (int UpdatedCount, int DeletedCount) RefreshSelectedSkillNodeToHighestCurrentSkill(
             TreeNode node,
             IReadOnlyDictionary<string, SkillSnapshot> candidates)
         {
             var updatedCount = 0;
+            var deletedCount = 0;
             var data = node.Tag as SkillTreeNodeData;
             var key = NormalizeSkillBaseName(
                 !string.IsNullOrWhiteSpace(data?.BaseName)
                     ? data.BaseName
                     : data?.Name ?? node.Text);
 
-            if (!string.IsNullOrWhiteSpace(key) &&
-                candidates.TryGetValue(key, out var currentSkill))
+            if (string.IsNullOrWhiteSpace(key) ||
+                !candidates.TryGetValue(key, out var currentSkill))
             {
-                var currentData = CreateSkillTreeNodeData(currentSkill);
-                if (data is null ||
-                    data.SkillId != currentData.SkillId ||
-                    !string.Equals(data.Name, currentData.Name, StringComparison.Ordinal) ||
-                    !string.Equals(node.Text, currentData.Name, StringComparison.Ordinal))
-                {
-                    node.Text = currentData.Name;
-                    node.Name = currentData.Name;
-                    node.Tag = currentData;
-                    updatedCount++;
-                }
+                var removedCount = CountSkillTreeNodes(node);
+                node.Remove();
+                return (0, removedCount);
             }
 
+            var currentData = CreateSkillTreeNodeData(currentSkill);
+            if (data is null ||
+                data.SkillId != currentData.SkillId ||
+                !string.Equals(data.Name, currentData.Name, StringComparison.Ordinal) ||
+                !string.Equals(node.Text, currentData.Name, StringComparison.Ordinal))
+            {
+                node.Text = currentData.Name;
+                node.Name = currentData.Name;
+                node.Tag = currentData;
+                updatedCount++;
+            }
+
+            for (var i = node.Nodes.Count - 1; i >= 0; i--)
+            {
+                var childResult = RefreshSelectedSkillNodeToHighestCurrentSkill(node.Nodes[i], candidates);
+                updatedCount += childResult.UpdatedCount;
+                deletedCount += childResult.DeletedCount;
+            }
+
+            return (updatedCount, deletedCount);
+        }
+
+        private static int CountSkillTreeNodes(TreeNode node)
+        {
+            var count = 1;
             foreach (TreeNode child in node.Nodes)
             {
-                updatedCount += RefreshSelectedSkillNodeToHighestCurrentSkill(child, candidates);
+                count += CountSkillTreeNodes(child);
             }
 
-            return updatedCount;
+            return count;
         }
 
         private static (int DisplayTier, int ItemLevel, int HighestLevel, uint SkillId) GetSkillRank(SkillSnapshot skill)

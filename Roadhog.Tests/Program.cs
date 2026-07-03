@@ -40,6 +40,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat skips active filtered monsters", TestStationaryCombatSkipsActiveFilteredMonstersAsync),
     ("stationary combat state uses server object id identity", TestStationaryCombatStateUsesServerObjectIdIdentityAsync),
     ("tool bridge world parser reads aggressive monster flags", TestToolBridgeWorldParserReadsAggressiveFlagsAsync),
+    ("vmm skill options group learned ranks by default", TestVmmSkillOptionsGroupLearnedRanksByDefaultAsync),
     ("stationary combat startup recovery follows nearest revive path point", TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync),
     ("stationary combat startup recovery skips revive path when home is nearest", TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync),
     ("stationary combat startup recovery defends when targeted", TestStationaryCombatStartupRecoveryDefendsWhenTargetedAsync),
@@ -73,6 +74,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat stops movement before hp maintenance", TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync),
     ("stationary combat mp sit maintenance runs without defense target", TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
+    ("available skill tree keeps chain roots in normal category", TestAvailableSkillTreeKeepsChainRootsInNormalCategoryAsync),
+    ("selected skill refresh removes unavailable current skills", TestSelectedSkillRefreshRemovesUnavailableCurrentSkillsAsync),
     ("skill tree maps at most configured roots across the 24 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
     ("knockdown trigger saved as status is treated as trigger", TestKnockdownTriggerSavedAsStatusIsTreatedAsTriggerAsync),
@@ -947,6 +950,19 @@ static Task TestToolBridgeWorldParserReadsAggressiveFlagsAsync()
     AssertFalse(objects[0].IsAggressiveToPlayer, "passive monster should not be aggressive to player");
     AssertFalse(!objects[0].IsPassiveToPlayer, "passive monster property should be true");
     AssertEqual("tribe_relation", objects[0].AggressiveSource ?? string.Empty, "aggressive source");
+    return Task.CompletedTask;
+}
+
+static Task TestVmmSkillOptionsGroupLearnedRanksByDefaultAsync()
+{
+    var optionsType = typeof(JsonAccountConfigStore).Assembly.GetType("Roadhog.Infrastructure.Vmm.AionVmmGameApiOptions");
+    AssertFalse(optionsType is null, "vmm options type should exist");
+    var options = Activator.CreateInstance(optionsType!);
+    var groupByDisplayName = (bool)optionsType!.GetProperty("GroupByDisplayName")!.GetValue(options)!;
+    var filterUtilitySkills = (bool)optionsType.GetProperty("FilterUtilitySkills")!.GetValue(options)!;
+
+    AssertFalse(!groupByDisplayName, "skill refresh should collapse learned ranks by default");
+    AssertFalse(!filterUtilitySkills, "skill refresh should still filter utility skills by default");
     return Task.CompletedTask;
 }
 
@@ -3260,6 +3276,133 @@ static Task TestSkillTreeKeyMappingAsync()
     return Task.CompletedTask;
 }
 
+static Task TestAvailableSkillTreeKeepsChainRootsInNormalCategoryAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            using var form = CreateAccountSettingsFormForTests();
+            using var tree = new System.Windows.Forms.TreeView();
+            var rootSkill = new SkillSnapshot(
+                1001,
+                "Counter Root III",
+                3,
+                3,
+                "Counter Root",
+                3,
+                false,
+                1000,
+                0,
+                XmlActivation: "Active",
+                XmlChainCategory: "test_counter_chain",
+                XmlCounterSkill: "Block");
+            var chainSkill = new SkillSnapshot(
+                1002,
+                "Chain Child I",
+                1,
+                1,
+                "Chain Child",
+                1,
+                false,
+                1000,
+                0,
+                XmlActivation: "Active",
+                XmlPrechainCategory: "test_counter_chain",
+                XmlChainTime: "5000");
+
+            InvokePopulateAvailableSkillTree(form, tree, new[] { rootSkill, chainSkill });
+
+            var rootCategory = GetManualSkillCategoryForTest(rootSkill);
+            var chainCategory = GetManualSkillCategoryForTest(chainSkill);
+            AssertFalse(string.Equals(rootCategory, chainCategory, StringComparison.Ordinal), "root and child should belong to different manual categories");
+
+            var rootCategoryNode = FindDirectTreeNode(tree.Nodes, rootCategory);
+            AssertFalse(rootCategoryNode is null, "available tree should keep chain root in its normal category");
+            AssertFalse(
+                !ContainsDirectTreeNode(rootCategoryNode!.Nodes, rootSkill.Name),
+                "normal category should contain the chain root skill");
+
+            var chainCategoryNode = FindDirectTreeNode(tree.Nodes, chainCategory);
+            AssertFalse(chainCategoryNode is null, "available tree should still expose chain category");
+            var chainRootNode = FindDirectTreeNode(chainCategoryNode!.Nodes, rootSkill.Name);
+            AssertFalse(chainRootNode is null, "chain category should contain the chain root entry");
+            AssertFalse(
+                !ContainsDirectTreeNode(chainRootNode!.Nodes, chainSkill.Name),
+                "chain root entry should contain the chain child");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+
+    if (failure is not null)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    return Task.CompletedTask;
+}
+
+static Task TestSelectedSkillRefreshRemovesUnavailableCurrentSkillsAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            using var tree = new System.Windows.Forms.TreeView();
+            tree.Nodes.Add("Old Skill V", "Old Skill V");
+            tree.Nodes.Add("Missing Skill V", "Missing Skill V");
+            var root = tree.Nodes.Add("Chain Root V", "Chain Root V");
+            root.Nodes.Add("Known Child V", "Known Child V");
+            root.Nodes.Add("Missing Child V", "Missing Child V");
+
+            var currentSkills = new[]
+            {
+                new SkillSnapshot(2001, "Old Skill II", 2, 2, "Old Skill", 2, false, 1000, 0),
+                new SkillSnapshot(2002, "Chain Root II", 2, 2, "Chain Root", 2, false, 1000, 0),
+                new SkillSnapshot(2003, "Known Child I", 1, 1, "Known Child", 1, false, 1000, 0)
+            };
+
+            var result = InvokeRefreshSelectedSkillTreeToHighestCurrentSkills(tree, currentSkills);
+
+            AssertEqual(3, result.UpdatedCount, "current skills should replace selected skills with current highest ranks");
+            AssertEqual(2, result.DeletedCount, "unavailable selected skills should be removed");
+            AssertEqual(2, tree.Nodes.Count, "missing root skill should be removed");
+            AssertFalse(FindDirectTreeNode(tree.Nodes, "Missing Skill V") is not null, "missing root should not remain");
+            AssertFalse(FindDirectTreeNode(tree.Nodes, "Old Skill II") is null, "known root should be downgraded to current highest");
+
+            var refreshedRoot = FindDirectTreeNode(tree.Nodes, "Chain Root II");
+            AssertFalse(refreshedRoot is null, "chain root should be downgraded to current highest");
+            AssertEqual(1, refreshedRoot!.Nodes.Count, "missing chain child should be removed");
+            AssertFalse(FindDirectTreeNode(refreshedRoot.Nodes, "Known Child I") is null, "known chain child should be downgraded to current highest");
+            AssertFalse(FindDirectTreeNode(refreshedRoot.Nodes, "Missing Child V") is not null, "missing chain child should not remain");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+
+    if (failure is not null)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    return Task.CompletedTask;
+}
+
 static async Task TestCombatTickPressesPrefixThenReadyRootAsync()
 {
     var settings = CreateScriptSettings();
@@ -5560,6 +5703,70 @@ static SkillConfigNode Node(uint id, string name, string type, params SkillConfi
     };
 }
 
+static AccountSettingsForm CreateAccountSettingsFormForTests()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    var runtime = new RoadhogRuntime(new FakeGameApi(), logger, accounts, null!);
+    var configStore = new InMemoryAccountConfigStore(new AccountConfig
+    {
+        AccountName = "account1",
+        ScriptSettings = CreateScriptSettings()
+    });
+    return new AccountSettingsForm("account1", runtime, configStore, new InMemorySharedPathStore());
+}
+
+static void InvokePopulateAvailableSkillTree(
+    AccountSettingsForm form,
+    System.Windows.Forms.TreeView tree,
+    IReadOnlyList<SkillSnapshot> skills)
+{
+    var method = typeof(AccountSettingsForm).GetMethod(
+        "PopulateAvailableSkillTreeFromSkills",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(method is null, "available skill tree population method should exist");
+    method!.Invoke(form, new object[] { tree, skills });
+}
+
+static (int UpdatedCount, int DeletedCount) InvokeRefreshSelectedSkillTreeToHighestCurrentSkills(
+    System.Windows.Forms.TreeView tree,
+    IReadOnlyList<SkillSnapshot> skills)
+{
+    var method = typeof(AccountSettingsForm).GetMethod(
+        "RefreshSelectedSkillTreeToHighestCurrentSkills",
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(method is null, "selected skill tree refresh method should exist");
+    var result = ((int UpdatedCount, int DeletedCount))method!.Invoke(null, new object[] { tree, skills })!;
+    return result;
+}
+
+static string GetManualSkillCategoryForTest(SkillSnapshot skill)
+{
+    var method = typeof(AccountSettingsForm).GetMethod(
+        "GetManualSkillCategory",
+        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(method is null, "manual skill category method should exist");
+    return (string)method!.Invoke(null, new object[] { skill })!;
+}
+
+static System.Windows.Forms.TreeNode? FindDirectTreeNode(System.Windows.Forms.TreeNodeCollection nodes, string text)
+{
+    foreach (System.Windows.Forms.TreeNode node in nodes)
+    {
+        if (string.Equals(node.Text, text, StringComparison.Ordinal))
+        {
+            return node;
+        }
+    }
+
+    return null;
+}
+
+static bool ContainsDirectTreeNode(System.Windows.Forms.TreeNodeCollection nodes, string text)
+{
+    return FindDirectTreeNode(nodes, text) is not null;
+}
+
 static IReadOnlyList<SkillSnapshot> CreateSkillSnapshots(IReadOnlyDictionary<string, uint> cooldowns)
 {
     var plan = SemiAutoSkillPlan.FromSettings(CreateSkillSettings());
@@ -5884,6 +6091,41 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         CancellationToken cancellationToken = default)
     {
         MouseCommands.Add("wheel:" + wheelDelta);
+        return Task.FromResult(OperationResult.Ok());
+    }
+}
+
+sealed class InMemoryAccountConfigStore : IAccountConfigStore
+{
+    private readonly Dictionary<string, AccountConfig> _accounts;
+
+    public InMemoryAccountConfigStore(params AccountConfig[] accounts)
+    {
+        _accounts = accounts.ToDictionary(account => account.AccountName, account => account.Clone(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    public Task<OperationResult<IReadOnlyList<AccountConfig>>> LoadAllAsync(CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<AccountConfig> accounts = _accounts.Values
+            .Select(account => account.Clone())
+            .ToArray();
+        return Task.FromResult(OperationResult<IReadOnlyList<AccountConfig>>.Ok(accounts));
+    }
+
+    public Task<OperationResult> SaveAllAsync(IReadOnlyList<AccountConfig> accounts, CancellationToken cancellationToken = default)
+    {
+        _accounts.Clear();
+        foreach (var account in accounts)
+        {
+            _accounts[account.AccountName] = account.Clone();
+        }
+
+        return Task.FromResult(OperationResult.Ok());
+    }
+
+    public Task<OperationResult> UpsertAsync(AccountConfig account, CancellationToken cancellationToken = default)
+    {
+        _accounts[account.AccountName] = account.Clone();
         return Task.FromResult(OperationResult.Ok());
     }
 }
