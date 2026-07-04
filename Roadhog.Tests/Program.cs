@@ -106,6 +106,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("cooling opening skill skips to C", TestCoolingOpeningSkillSkipsToCAsync),
     ("cooling opening skill is not retried on same target", TestCoolingOpeningSkillIsNotRetriedOnSameTargetAsync),
     ("maintenance hp rule presses configured key before skills", TestMaintenanceHpRulePressesConfiguredKeyAsync),
+    ("maintenance hp rule exits rest before configured key", TestMaintenanceHpRuleExitsRestBeforeConfiguredKeyAsync),
     ("maintenance hp rule runs without attackable target", TestMaintenanceHpRuleRunsWithoutAttackableTargetAsync),
     ("maintenance mp rule presses configured key before skills", TestMaintenanceMpRulePressesConfiguredKeyAsync),
     ("maintenance selected skill confirms by skill id", TestMaintenanceSelectedSkillConfirmsBySkillIdAsync),
@@ -5322,6 +5323,71 @@ static async Task TestMaintenanceHpRulePressesConfiguredKeyAsync()
 
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
     AssertEqual(1, keyboard.Keys.Count(key => key == "D8"), "maintenance key should not repeat while the mapped skill is cooling");
+}
+
+static async Task TestMaintenanceHpRuleExitsRestBeforeConfiguredKeyAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "D8",
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            40,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            StanceFlags: 5,
+            MotionMode: 1),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "X", StringComparison.Ordinal))
+        {
+            gameApi.Player = gameApi.Player with { StanceFlags = 0, MotionMode = 0 };
+        }
+
+        if (string.Equals(key, "D8", StringComparison.Ordinal))
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [8] = ActiveCooldownEnd(),
+                [5] = 0,
+                [6] = 0
+            });
+        }
+    };
+
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "X", "D8" }, keyboard.Keys.ToArray(), "resting player should stand before hp maintenance key");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.rest_exit_before_key"),
+        "maintenance rest exit should be logged before key press");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.key_pressed"), "maintenance key press should still be logged");
 }
 
 static async Task TestMaintenanceHpRuleRunsWithoutAttackableTargetAsync()

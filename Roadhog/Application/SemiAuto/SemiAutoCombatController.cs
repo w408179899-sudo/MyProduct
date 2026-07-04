@@ -14,6 +14,7 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan MaintenanceConfirmWindow = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan MaintenanceConfirmPollInterval = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan MaintenanceKeyRetryInterval = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan MaintenanceRestExitBeforeKeyDelay = TimeSpan.FromMilliseconds(150);
     private static readonly TimeSpan SpiritmasterCooldownConfirmRetryInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan SpiritmasterSummonKeyInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan SpiritmasterSummonAttemptInterval = TimeSpan.FromSeconds(6);
@@ -518,6 +519,7 @@ public sealed class SemiAutoCombatController
                 "hp",
                 player.CurrentHp,
                 player.MaxHp,
+                player,
                 beforeMaintenanceKeyPress,
                 plan,
                 requireCooldownCalibrationForMaintenance)
@@ -534,6 +536,7 @@ public sealed class SemiAutoCombatController
                 "mp",
                 player.CurrentMp,
                 player.MaxMp,
+                player,
                 beforeMaintenanceKeyPress,
                 plan,
                 requireCooldownCalibrationForMaintenance)
@@ -687,6 +690,7 @@ public sealed class SemiAutoCombatController
                 "hp",
                 player.CurrentHp,
                 player.MaxHp,
+                player,
                 beforeMaintenanceKeyPress,
                 plan,
                 requireCooldownCalibrationForMaintenance)
@@ -703,6 +707,7 @@ public sealed class SemiAutoCombatController
                 "mp",
                 player.CurrentMp,
                 player.MaxMp,
+                player,
                 beforeMaintenanceKeyPress,
                 plan,
                 requireCooldownCalibrationForMaintenance)
@@ -925,6 +930,7 @@ public sealed class SemiAutoCombatController
         string resource,
         uint current,
         uint max,
+        PlayerSnapshot player,
         Func<Task>? beforeMaintenanceKeyPress = null,
         SemiAutoSkillPlan? plan = null,
         bool requireCooldownCalibrationForMaintenance = false)
@@ -1000,6 +1006,7 @@ public sealed class SemiAutoCombatController
                     max,
                     percent,
                     threshold,
+                    player,
                     beforeMaintenanceKeyPress,
                     maintenanceSkill)
                 .ConfigureAwait(false);
@@ -1018,12 +1025,25 @@ public sealed class SemiAutoCombatController
         uint max,
         double percent,
         int threshold,
+        PlayerSnapshot player,
         Func<Task>? beforeMaintenanceKeyPress,
         SkillSnapshot? maintenanceSkill)
     {
         if (beforeMaintenanceKeyPress is not null)
         {
             await beforeMaintenanceKeyPress().ConfigureAwait(false);
+        }
+
+        if (!await EnsureStandingBeforeMaintenanceKeyAsync(
+                    context,
+                    state,
+                    settings,
+                    player,
+                    resource,
+                    rule.Key)
+                .ConfigureAwait(false))
+        {
+            return false;
         }
 
         var baselineResult = await ReadAllSkillsAsync(context).ConfigureAwait(false);
@@ -1119,6 +1139,48 @@ public sealed class SemiAutoCombatController
             ["confirmedSkillName"] = confirmedSkill.Name,
             ["confirmedCooldownEndTime"] = confirmedSkill.CooldownEndTime
         });
+        return true;
+    }
+
+    private async Task<bool> EnsureStandingBeforeMaintenanceKeyAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        PlayerSnapshot player,
+        string resource,
+        string maintenanceKey)
+    {
+        if (!player.IsResting)
+        {
+            return true;
+        }
+
+        var result = await _keyboard
+            .PressKeyAsync(RestExitKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            LogMaintenanceKeyFailure(context, state, RestExitKey, "rest_exit_before_key", result.Error);
+            return false;
+        }
+
+        state.ClearMaintenanceRest();
+        context.Logger.Info("semi_auto.maintenance.rest_exit_before_key", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = RestExitKey,
+            ["resource"] = resource,
+            ["maintenanceKey"] = maintenanceKey,
+            ["hp"] = player.CurrentHp,
+            ["maxHp"] = player.MaxHp,
+            ["mp"] = player.CurrentMp,
+            ["maxMp"] = player.MaxMp,
+            ["stanceFlags"] = player.StanceFlags,
+            ["stanceLow"] = player.StanceLowNibble,
+            ["motionMode"] = player.MotionMode
+        });
+
+        await Task.Delay(MaintenanceRestExitBeforeKeyDelay, context.StopToken).ConfigureAwait(false);
         return true;
     }
 
