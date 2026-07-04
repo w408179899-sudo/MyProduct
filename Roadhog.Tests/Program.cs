@@ -39,6 +39,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("window title formats character identity", TestWindowTitleFormatsCharacterIdentityAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
+    ("service options use client root environment", TestRoadhogServiceOptionsUseClientRootEnvironmentAsync),
     ("services load kmbox net config before input creation", TestRoadhogServicesLoadsKmBoxNetConfigAsync),
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
@@ -48,12 +49,16 @@ var tests = new (string Name, Func<Task> Run)[]
     ("tool bridge world parser reads aggressive monster flags", TestToolBridgeWorldParserReadsAggressiveFlagsAsync),
     ("vmm skill options group learned ranks by default", TestVmmSkillOptionsGroupLearnedRanksByDefaultAsync),
     ("stationary combat startup recovery follows nearest revive path point", TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync),
+    ("stationary combat startup recovery path jumps when stuck", TestStationaryCombatStartupRecoveryPathJumpsWhenStuckAsync),
     ("stationary combat startup recovery skips revive path when home is nearest", TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync),
     ("stationary combat startup recovery defends when targeted", TestStationaryCombatStartupRecoveryDefendsWhenTargetedAsync),
     ("stationary combat death recovery clicks revive and recovers before path", TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync),
     ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
+    ("stationary combat death recovery path jumps when stuck", TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync),
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
     ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
+    ("worker ensures spiritmaster pet before normal work", TestWorkerEnsuresSpiritmasterPetBeforeNormalWorkAsync),
+    ("worker waits for spiritmaster pet summon verification", TestWorkerWaitsForSpiritmasterPetSummonVerificationAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
     ("stationary combat target pitch follows target height", TestStationaryCombatTargetPitchFollowsTargetHeightAsync),
     ("stationary combat accepts twenty five degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyFiveDegreePreLockFaceToleranceAsync),
@@ -770,6 +775,7 @@ static Task TestInputKeyMapAsync()
     AssertHidCode("C", 0x06);
     AssertHidCode("S", 0x16);
     AssertHidCode(" W ", 0x1A);
+    AssertHidCode("Space", 0x2C);
     AssertHidCode("D1", 0x1E);
     AssertHidCode("D0", 0x27);
     AssertHidCode("OemMinus", 0x2D);
@@ -845,6 +851,45 @@ static async Task TestKmBoxNetConfigStoreRoundTripAsync()
     {
         DeleteDirectoryIfExists(directory);
     }
+}
+
+static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
+{
+    var directory = CreateTempDirectory("roadhog-client-root-");
+    var previousClientRoot = Environment.GetEnvironmentVariable(RoadhogServiceOptions.ClientRootEnvironmentVariable);
+    var previousConfigRoot = Environment.GetEnvironmentVariable(RoadhogServiceOptions.ConfigRootEnvironmentVariable);
+    var previousAccountConfig = Environment.GetEnvironmentVariable(RoadhogServiceOptions.AccountConfigPathEnvironmentVariable);
+    var previousPathLibrary = Environment.GetEnvironmentVariable(RoadhogServiceOptions.PathLibraryDirectoryEnvironmentVariable);
+    var previousKmBoxConfig = Environment.GetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable);
+    var previousLogDirectory = Environment.GetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable);
+    try
+    {
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.ClientRootEnvironmentVariable, directory);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.ConfigRootEnvironmentVariable, null);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.AccountConfigPathEnvironmentVariable, null);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.PathLibraryDirectoryEnvironmentVariable, null);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable, null);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable, null);
+
+        var options = RoadhogServiceOptions.FromEnvironment();
+
+        AssertEqual(Path.Combine(directory, "config", "accounts.json"), options.AccountConfigPath, "client root account config path");
+        AssertEqual(Path.Combine(directory, "config", "paths"), options.PathLibraryDirectory, "client root path library");
+        AssertEqual(Path.Combine(directory, "config", "kmbox-net.json"), options.KmBoxNetConfigPath, "client root kmbox config path");
+        AssertEqual(Path.Combine(directory, "logs"), options.LogDirectory, "client root log directory");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.ClientRootEnvironmentVariable, previousClientRoot);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.ConfigRootEnvironmentVariable, previousConfigRoot);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.AccountConfigPathEnvironmentVariable, previousAccountConfig);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.PathLibraryDirectoryEnvironmentVariable, previousPathLibrary);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable, previousKmBoxConfig);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable, previousLogDirectory);
+        DeleteDirectoryIfExists(directory);
+    }
+
+    return Task.CompletedTask;
 }
 
 static async Task TestRoadhogServicesLoadsKmBoxNetConfigAsync()
@@ -1190,6 +1235,79 @@ static async Task TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAs
     }
     finally
     {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatStartupRecoveryPathJumpsWhenStuckAsync()
+{
+    var previousStuckMs = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_MS");
+    var previousStuckDistance = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE");
+    var previousJumpHold = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS");
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_MS", "20");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE", "0.5");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS", "1");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 100,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 20
+        };
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("revive-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(10, 0, 0),
+                new Vector3Snapshot(100, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var stationaryState = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertFalse(!stationaryState.StartupRecoveryActive, "startup recovery should stay active");
+        AssertEqual(1, stationaryState.StartupRecoveryPointIndex, "startup recovery should track the first distant point");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "first startup stuck-tracking tick should hold W");
+        AssertFalse(keyboard.Keys.Contains("Space"), "first startup stuck-tracking tick should not jump before threshold");
+
+        await Task.Delay(30).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertFalse(!stationaryState.IsMovingForward, "startup stuck jump should keep W held");
+        AssertFalse(!keyboard.Keys.Contains("Space"), "stuck startup recovery should press Space");
+        AssertFalse(keyboard.KeyUps.Contains("W"), "startup stuck jump must not release W");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.startup_recovery.path_stuck_jump"),
+            "startup stuck jump should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_MS", previousStuckMs);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE", previousStuckDistance);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS", previousJumpHold);
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
     }
 }
@@ -1553,6 +1671,85 @@ static async Task TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync(
     }
 }
 
+static async Task TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync()
+{
+    var previousStuckMs = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_MS");
+    var previousStuckDistance = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE");
+    var previousJumpHold = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS");
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_MS", "20");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE", "0.5");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS", "1");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 20,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 10
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 75, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var stationaryState = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
+        for (var i = 0; i < 6; i++)
+        {
+            stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
+        }
+
+        stationaryState.DeathRecovery.RevivePathName = "revive-a";
+        stationaryState.DeathRecovery.RevivePathPoints = new[]
+        {
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(10, 0, 0)
+        };
+        stationaryState.DeathRecovery.RevivePathPointIndex = 1;
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertEqual(StationaryCombatDeathRecoveryStep.FollowRevivePath, stationaryState.DeathRecovery.Step, "death recovery should stay on revive path");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "first stuck-tracking tick should hold W");
+        AssertFalse(keyboard.Keys.Contains("Space"), "first stuck-tracking tick should not jump before threshold");
+
+        await Task.Delay(30).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertFalse(!stationaryState.IsMovingForward, "stuck jump should keep W held");
+        AssertFalse(!keyboard.Keys.Contains("Space"), "stuck revive path should press Space");
+        AssertFalse(keyboard.KeyUps.Contains("W"), "stuck jump must not release W");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.death_recovery.path_stuck_jump"),
+            "stuck jump should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_MS", previousStuckMs);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE", previousStuckDistance);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS", previousJumpHold);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
 static async Task TestWorkerLifeGuardRevivesBeforeSemiAutoAsync()
 {
     var previousClickDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
@@ -1667,6 +1864,114 @@ static async Task TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAs
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousStepDelay);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", previousClickHold);
     }
+}
+
+static async Task TestWorkerEnsuresSpiritmasterPetBeforeNormalWorkAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat.HasStationaryCombatPosition = false;
+    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
+    {
+        new() { Key = "NumPad6" }
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetPosition = null,
+        Skills = CreateSpiritmasterSkillSnapshots()
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var stationary = new StationaryCombatController(keyboard, semiAuto);
+    var worker = new DefaultAccountWorkerLoop(keyboard, semiAuto, stationary);
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+    var context = CreateContext(
+        settings,
+        gameApi,
+        logger,
+        options: new AccountWorkerOptions { TickInterval = TimeSpan.FromMilliseconds(40) },
+        stopToken: cts.Token);
+
+    var runTask = worker.RunAsync(context);
+    await WaitUntilAsync(
+            () => keyboard.Keys.Contains("NumPad6"),
+            "spiritmaster pet ensure summon key")
+        .ConfigureAwait(false);
+    cts.Cancel();
+    await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "worker should summon missing spiritmaster pet outside combat");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "stationary_combat.position.missing"),
+        "spiritmaster pet ensure should run before ordinary stationary validation");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.spiritmaster.key_pressed" &&
+            Convert.ToString(entry.Fields["phase"]) == "summon_speed"),
+        "spiritmaster pet ensure should log summon key press");
+}
+
+static async Task TestWorkerWaitsForSpiritmasterPetSummonVerificationAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat.HasStationaryCombatPosition = false;
+    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
+    {
+        new() { Key = "NumPad6" }
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetPosition = null,
+        Skills = CreateSpiritmasterSkillSnapshots()
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var stationary = new StationaryCombatController(keyboard, semiAuto);
+    var worker = new DefaultAccountWorkerLoop(keyboard, semiAuto, stationary);
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+    var context = CreateContext(
+        settings,
+        gameApi,
+        logger,
+        options: new AccountWorkerOptions { TickInterval = TimeSpan.FromMilliseconds(40) },
+        stopToken: cts.Token);
+
+    var runTask = worker.RunAsync(context);
+    await WaitUntilAsync(
+            () => keyboard.Keys.Contains("NumPad6"),
+            "spiritmaster summon key")
+        .ConfigureAwait(false);
+    await Task.Delay(250).ConfigureAwait(false);
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "stationary_combat.position.missing"),
+        "worker should not continue ordinary work before summon is verified");
+
+    gameApi.SummonedPetRoster = CreateLocalPetRoster(isSummoned: true);
+    await WaitUntilAsync(
+            () => logger.Entries.Any(entry => entry.EventName == "stationary_combat.position.missing"),
+            "ordinary work after spiritmaster summon verification")
+        .ConfigureAwait(false);
+    cts.Cancel();
+    await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
+
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "semi_auto.spiritmaster.summon_verified"),
+        "summon verification should be logged");
 }
 
 static async Task TestStationaryCombatFacesTargetBeforeTabAsync()

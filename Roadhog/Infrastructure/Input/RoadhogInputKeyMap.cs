@@ -9,6 +9,7 @@ public static class RoadhogInputKeyMap
             ["S"] = 0x16,
             ["W"] = 0x1A,
             ["X"] = 0x1B,
+            ["Space"] = 0x2C,
             ["D1"] = 0x1E,
             ["D2"] = 0x1F,
             ["D3"] = 0x20,

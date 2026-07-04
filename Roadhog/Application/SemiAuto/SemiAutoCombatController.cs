@@ -16,6 +16,8 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan MaintenanceKeyRetryInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan SpiritmasterCooldownConfirmRetryInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan SpiritmasterSummonKeyInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan SpiritmasterSummonAttemptInterval = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan SpiritmasterSummonVerifyWindow = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SpiritmasterOpeningAttackKeyInterval = TimeSpan.FromMilliseconds(50);
     private static readonly string AttackKey = "C";
     private static readonly string RestEnterKey = "OemComma";
@@ -317,6 +319,116 @@ public sealed class SemiAutoCombatController
 
         await PressAttackKeyIfDueAsync(context, state, settings).ConfigureAwait(false);
         return Ms(settings.TickIntervalMs, 40);
+    }
+
+    public async Task<bool> EnsureSpiritmasterPetAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState state,
+        Func<Task>? beforeSummonKeyPress = null)
+    {
+        if (!plan.UsesSpiritmasterAutoLogic)
+        {
+            return false;
+        }
+
+        var skillSettings = context.Config.ScriptSettings?.Skills ?? new SkillScriptSettings();
+        var spiritSettings = skillSettings.Spiritmaster ?? new SpiritmasterSkillSettings();
+        if (!spiritSettings.SummonSkills.Any(rule => !string.IsNullOrWhiteSpace(rule.Key)))
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.Now;
+        var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (!playerResult.Success || playerResult.Value is null || playerResult.Value.IsDead)
+        {
+            state.ClearSpiritmasterSummonVerification();
+            return false;
+        }
+
+        var player = playerResult.Value;
+        if (player.CharacterClassId is { } classId && classId != AionClassId.Spiritmaster)
+        {
+            state.ClearSpiritmasterSummonVerification();
+            return false;
+        }
+
+        var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
+        if (!rosterResult.Success || rosterResult.Value is null)
+        {
+            if (state.HasPendingSpiritmasterSummonVerification)
+            {
+                if (ShouldLog(state.LastSpiritmasterSummonVerifyLogAt, now))
+                {
+                    state.LastSpiritmasterSummonVerifyLogAt = now;
+                    context.Logger.Warn("semi_auto.spiritmaster.summon_verify_roster_failed", new Dictionary<string, object?>
+                    {
+                        ["account"] = context.Config.AccountName,
+                        ["error"] = rosterResult.Error
+                    });
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        var pet = rosterResult.Value.LocalPlayerPet.Pet;
+        if (pet.IsSummoned && pet.IsAlive)
+        {
+            if (state.HasPendingSpiritmasterSummonVerification)
+            {
+                context.Logger.Info("semi_auto.spiritmaster.summon_verified", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["petServerObjectId"] = pet.ServerObjectId,
+                    ["petEntityId"] = pet.EntityId,
+                    ["petName"] = pet.Name,
+                    ["petHpPercent"] = pet.HpPercent
+                });
+            }
+
+            state.ClearSpiritmasterSummonVerification();
+            return false;
+        }
+
+        if (state.IsAwaitingSpiritmasterSummonVerification(now))
+        {
+            if (ShouldLog(state.LastSpiritmasterSummonVerifyLogAt, now))
+            {
+                state.LastSpiritmasterSummonVerifyLogAt = now;
+                context.Logger.Info("semi_auto.spiritmaster.summon_waiting", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName
+                });
+            }
+
+            return true;
+        }
+
+        if (state.IsSpiritmasterSummonVerificationExpired(now))
+        {
+            context.Logger.Warn("semi_auto.spiritmaster.summon_verify_timeout", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName
+            });
+            state.ClearSpiritmasterSummonVerification();
+        }
+
+        if (!state.ShouldAttemptSpiritmasterSummon(now, SpiritmasterSummonAttemptInterval))
+        {
+            return true;
+        }
+
+        if (beforeSummonKeyPress is not null)
+        {
+            await beforeSummonKeyPress().ConfigureAwait(false);
+        }
+
+        var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
+        return await TryPressSpiritmasterSummonAsync(context, state, settings, spiritSettings).ConfigureAwait(false);
     }
 
     public async Task<TimeSpan> TickOpeningAttackKeyLoopAsync(
@@ -1199,7 +1311,7 @@ public sealed class SemiAutoCombatController
         }
 
         var now = DateTimeOffset.Now;
-        if (!state.ShouldAttemptSpiritmasterSummon(now, TimeSpan.FromSeconds(6)))
+        if (!state.ShouldAttemptSpiritmasterSummon(now, SpiritmasterSummonAttemptInterval))
         {
             return true;
         }
@@ -1207,6 +1319,7 @@ public sealed class SemiAutoCombatController
         state.MarkSpiritmasterSummonAttempted(now);
         if (!await PressSpiritmasterRawKeyAsync(context, settings, keys[0], "summon_speed").ConfigureAwait(false))
         {
+            state.BeginSpiritmasterSummonVerification(DateTimeOffset.Now, SpiritmasterSummonVerifyWindow);
             return true;
         }
 
@@ -1216,6 +1329,7 @@ public sealed class SemiAutoCombatController
             await PressSpiritmasterRawKeyAsync(context, settings, keys[1], "summon_pet").ConfigureAwait(false);
         }
 
+        state.BeginSpiritmasterSummonVerification(DateTimeOffset.Now, SpiritmasterSummonVerifyWindow);
         return true;
     }
 

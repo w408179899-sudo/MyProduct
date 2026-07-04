@@ -11,7 +11,8 @@ namespace Roadhog
         private readonly Color _darkGreen = Color.FromArgb(21, 128, 61);
         private readonly Color _headerGreen = Color.FromArgb(34, 139, 84);
         private readonly Color _softGreen = Color.FromArgb(240, 253, 244);
-        private readonly Infrastructure.Composition.RoadhogServices _services = Infrastructure.Composition.RoadhogServices.Create();
+        private readonly Infrastructure.Composition.RoadhogServices _services =
+            Infrastructure.Composition.RoadhogServices.Create(Infrastructure.Composition.RoadhogServiceOptions.FromEnvironment());
         private readonly List<AccountRowModel> _accounts = new();
         private readonly Dictionary<string, AccountRowControls> _rowControls = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, DateTimeOffset> _lastPlayerInfoRefreshAt = new(StringComparer.OrdinalIgnoreCase);

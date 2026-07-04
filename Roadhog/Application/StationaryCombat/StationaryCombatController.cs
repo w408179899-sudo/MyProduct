@@ -874,6 +874,13 @@ public sealed class StationaryCombatController
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
                 await PathFollowStepAsync(context, state, player, point, StartupRecoveryReachDistance).ConfigureAwait(false);
+                await TryJumpDeathRevivePathIfStuckAsync(
+                        context,
+                        state,
+                        player.Position.Value,
+                        state.DeathRecovery.RevivePathPointIndex,
+                        distance)
+                    .ConfigureAwait(false);
                 LogActionThrottled(context, state, "stationary_combat.death_recovery.path_follow", "move:" + state.DeathRecovery.RevivePathPointIndex, new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
@@ -896,11 +903,90 @@ public sealed class StationaryCombatController
                 ["distance"] = Math.Round(distance, 2)
             });
             state.DeathRecovery.RevivePathPointIndex++;
+            state.DeathRecovery.ResetRevivePathStuckTracking();
         }
 
         await StopMovementAsync(context, state).ConfigureAwait(false);
         StopPathFollowPoller(state);
         return StationaryCombatBehaviorStatus.Success;
+    }
+
+    private async Task TryJumpDeathRevivePathIfStuckAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        int pointIndex,
+        double distanceToPoint)
+    {
+        var now = DateTimeOffset.Now;
+        var deathRecovery = state.DeathRecovery;
+        var minProgressDistance = ReadDeathRevivePathStuckDistance();
+        if (deathRecovery.RevivePathStuckPointIndex != pointIndex ||
+            deathRecovery.RevivePathLastProgressPosition is null ||
+            deathRecovery.RevivePathLastProgressAt == DateTimeOffset.MinValue)
+        {
+            deathRecovery.MarkRevivePathProgress(pointIndex, playerPosition, now);
+            return;
+        }
+
+        var moved = StationaryCombatTargetSelector.HorizontalDistance(
+            deathRecovery.RevivePathLastProgressPosition.Value,
+            playerPosition);
+        if (moved >= minProgressDistance)
+        {
+            deathRecovery.MarkRevivePathProgress(pointIndex, playerPosition, now);
+            return;
+        }
+
+        var stuckMs = ReadDeathRevivePathStuckMs();
+        var stuckFor = now - deathRecovery.RevivePathLastProgressAt;
+        if (stuckFor.TotalMilliseconds < stuckMs)
+        {
+            return;
+        }
+
+        if (deathRecovery.LastRevivePathJumpAt != DateTimeOffset.MinValue &&
+            (now - deathRecovery.LastRevivePathJumpAt).TotalMilliseconds < stuckMs)
+        {
+            return;
+        }
+
+        await EnsureMoveForwardAsync(context, state).ConfigureAwait(false);
+        var jumpHold = TimeSpan.FromMilliseconds(ReadDeathRevivePathJumpHoldMs());
+        var result = await _input.PressKeyAsync("Space", jumpHold, context.StopToken).ConfigureAwait(false);
+        deathRecovery.MarkRevivePathJump(now);
+        if (!result.Success)
+        {
+            context.Logger.Warn("stationary_combat.death_recovery.path_stuck_jump_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = deathRecovery.RevivePathName,
+                ["pointIndex"] = pointIndex,
+                ["pointNumber"] = pointIndex + 1,
+                ["distance"] = Math.Round(distanceToPoint, 2),
+                ["moved"] = Math.Round(moved, 2),
+                ["stuckMs"] = (long)Math.Max(0.0D, stuckFor.TotalMilliseconds),
+                ["thresholdMs"] = stuckMs,
+                ["progressDistance"] = Math.Round(minProgressDistance, 2),
+                ["error"] = result.Error
+            });
+            return;
+        }
+
+        context.Logger.Info("stationary_combat.death_recovery.path_stuck_jump", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["pathName"] = deathRecovery.RevivePathName,
+            ["pointIndex"] = pointIndex,
+            ["pointNumber"] = pointIndex + 1,
+            ["distance"] = Math.Round(distanceToPoint, 2),
+            ["moved"] = Math.Round(moved, 2),
+            ["stuckMs"] = (long)Math.Max(0.0D, stuckFor.TotalMilliseconds),
+            ["thresholdMs"] = stuckMs,
+            ["progressDistance"] = Math.Round(minProgressDistance, 2),
+            ["jumpCount"] = deathRecovery.RevivePathJumpCount,
+            ["movingForward"] = state.IsMovingForward
+        });
     }
 
     private async Task<bool> TryStartDeathRevivePathAsync(
@@ -957,6 +1043,7 @@ public sealed class StationaryCombatController
         state.DeathRecovery.RevivePathName = revivePathName;
         state.DeathRecovery.RevivePathPoints = revivePoints;
         state.DeathRecovery.RevivePathPointIndex = nearestPointIndex;
+        state.DeathRecovery.ResetRevivePathStuckTracking();
         state.ReturningHome = false;
         state.ClearTarget();
         context.Logger.Info("stationary_combat.death_recovery.path_selected", new Dictionary<string, object?>
@@ -1166,6 +1253,13 @@ public sealed class StationaryCombatController
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
                 await PathFollowStepAsync(context, state, player, point, StartupRecoveryReachDistance).ConfigureAwait(false);
+                await TryJumpStartupRecoveryIfStuckAsync(
+                        context,
+                        state,
+                        playerPosition,
+                        state.StartupRecoveryPointIndex,
+                        distance)
+                    .ConfigureAwait(false);
                 LogActionThrottled(context, state, "stationary_combat.startup_recovery", "move:" + state.StartupRecoveryPointIndex, new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
@@ -1204,6 +1298,83 @@ public sealed class StationaryCombatController
         }
 
         return null;
+    }
+
+    private async Task TryJumpStartupRecoveryIfStuckAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        int pointIndex,
+        double distanceToPoint)
+    {
+        var now = DateTimeOffset.Now;
+        var minProgressDistance = ReadDeathRevivePathStuckDistance();
+        if (state.StartupRecoveryStuckPointIndex != pointIndex ||
+            state.StartupRecoveryLastProgressPosition is null ||
+            state.StartupRecoveryLastProgressAt == DateTimeOffset.MinValue)
+        {
+            state.MarkStartupRecoveryProgress(pointIndex, playerPosition, now);
+            return;
+        }
+
+        var moved = StationaryCombatTargetSelector.HorizontalDistance(
+            state.StartupRecoveryLastProgressPosition.Value,
+            playerPosition);
+        if (moved >= minProgressDistance)
+        {
+            state.MarkStartupRecoveryProgress(pointIndex, playerPosition, now);
+            return;
+        }
+
+        var stuckMs = ReadDeathRevivePathStuckMs();
+        var stuckFor = now - state.StartupRecoveryLastProgressAt;
+        if (stuckFor.TotalMilliseconds < stuckMs)
+        {
+            return;
+        }
+
+        if (state.LastStartupRecoveryJumpAt != DateTimeOffset.MinValue &&
+            (now - state.LastStartupRecoveryJumpAt).TotalMilliseconds < stuckMs)
+        {
+            return;
+        }
+
+        await EnsureMoveForwardAsync(context, state).ConfigureAwait(false);
+        var jumpHold = TimeSpan.FromMilliseconds(ReadDeathRevivePathJumpHoldMs());
+        var result = await _input.PressKeyAsync("Space", jumpHold, context.StopToken).ConfigureAwait(false);
+        state.MarkStartupRecoveryJump(now);
+        if (!result.Success)
+        {
+            context.Logger.Warn("stationary_combat.startup_recovery.path_stuck_jump_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = state.StartupRecoveryPathName,
+                ["pointIndex"] = pointIndex,
+                ["pointNumber"] = pointIndex + 1,
+                ["distance"] = Math.Round(distanceToPoint, 2),
+                ["moved"] = Math.Round(moved, 2),
+                ["stuckMs"] = (long)Math.Max(0.0D, stuckFor.TotalMilliseconds),
+                ["thresholdMs"] = stuckMs,
+                ["progressDistance"] = Math.Round(minProgressDistance, 2),
+                ["error"] = result.Error
+            });
+            return;
+        }
+
+        context.Logger.Info("stationary_combat.startup_recovery.path_stuck_jump", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["pathName"] = state.StartupRecoveryPathName,
+            ["pointIndex"] = pointIndex,
+            ["pointNumber"] = pointIndex + 1,
+            ["distance"] = Math.Round(distanceToPoint, 2),
+            ["moved"] = Math.Round(moved, 2),
+            ["stuckMs"] = (long)Math.Max(0.0D, stuckFor.TotalMilliseconds),
+            ["thresholdMs"] = stuckMs,
+            ["progressDistance"] = Math.Round(minProgressDistance, 2),
+            ["jumpCount"] = state.StartupRecoveryJumpCount,
+            ["movingForward"] = state.IsMovingForward
+        });
     }
 
     private async Task<TimeSpan?> TryHandleRecoveryDefenseTargetAsync(
@@ -4804,6 +4975,21 @@ public sealed class StationaryCombatController
     private static int ReadDeathRecoveryTickMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_RECOVERY_TICK_MS", 200), 40, 2000);
+    }
+
+    private static int ReadDeathRevivePathStuckMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_PATH_STUCK_MS", 2_500), 1, 30_000);
+    }
+
+    private static double ReadDeathRevivePathStuckDistance()
+    {
+        return ClampDouble(ReadDoubleFromEnv("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE", 0.5D), 0.05D, 5.0D);
+    }
+
+    private static int ReadDeathRevivePathJumpHoldMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS", 50), 1, 1000);
     }
 
     private static int ReadDeathReviveClickDelayMs()

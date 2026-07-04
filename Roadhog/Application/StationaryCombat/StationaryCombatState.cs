@@ -84,6 +84,16 @@ public sealed class StationaryCombatState
 
     public IReadOnlyList<Vector3Snapshot> StartupRecoveryPoints { get; private set; } = Array.Empty<Vector3Snapshot>();
 
+    public int StartupRecoveryStuckPointIndex { get; private set; } = -1;
+
+    public Vector3Snapshot? StartupRecoveryLastProgressPosition { get; private set; }
+
+    public DateTimeOffset StartupRecoveryLastProgressAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastStartupRecoveryJumpAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public int StartupRecoveryJumpCount { get; private set; }
+
     public void ClearTarget()
     {
         Fighting = false;
@@ -243,6 +253,7 @@ public sealed class StationaryCombatState
         StartupRecoveryPathName = pathName;
         StartupRecoveryPoints = points;
         StartupRecoveryPointIndex = Math.Max(0, pointIndex);
+        ResetStartupRecoveryStuckTracking();
     }
 
     public void AdvanceStartupRecoveryPoint()
@@ -250,7 +261,30 @@ public sealed class StationaryCombatState
         if (StartupRecoveryActive)
         {
             StartupRecoveryPointIndex++;
+            ResetStartupRecoveryStuckTracking();
         }
+    }
+
+    public void MarkStartupRecoveryProgress(int pointIndex, Vector3Snapshot position, DateTimeOffset now)
+    {
+        StartupRecoveryStuckPointIndex = pointIndex;
+        StartupRecoveryLastProgressPosition = position;
+        StartupRecoveryLastProgressAt = now;
+    }
+
+    public void MarkStartupRecoveryJump(DateTimeOffset now)
+    {
+        LastStartupRecoveryJumpAt = now;
+        StartupRecoveryJumpCount++;
+    }
+
+    public void ResetStartupRecoveryStuckTracking()
+    {
+        StartupRecoveryStuckPointIndex = -1;
+        StartupRecoveryLastProgressPosition = null;
+        StartupRecoveryLastProgressAt = DateTimeOffset.MinValue;
+        LastStartupRecoveryJumpAt = DateTimeOffset.MinValue;
+        StartupRecoveryJumpCount = 0;
     }
 
     public void ClearStartupRecovery()
@@ -260,6 +294,7 @@ public sealed class StationaryCombatState
         StartupRecoveryPathName = string.Empty;
         StartupRecoveryPointIndex = -1;
         StartupRecoveryPoints = Array.Empty<Vector3Snapshot>();
+        ResetStartupRecoveryStuckTracking();
     }
 
     public void PruneIgnoredTargets(IEnumerable<WorldObjectSnapshot> objects)
@@ -467,6 +502,16 @@ public sealed class StationaryCombatDeathRecoveryState
 
     public IReadOnlyList<Vector3Snapshot> RevivePathPoints { get; set; } = Array.Empty<Vector3Snapshot>();
 
+    public int RevivePathStuckPointIndex { get; private set; } = -1;
+
+    public Vector3Snapshot? RevivePathLastProgressPosition { get; private set; }
+
+    public DateTimeOffset RevivePathLastProgressAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastRevivePathJumpAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public int RevivePathJumpCount { get; private set; }
+
     public void Start(DateTimeOffset now)
     {
         Step = StationaryCombatDeathRecoveryStep.StopInput;
@@ -479,6 +524,7 @@ public sealed class StationaryCombatDeathRecoveryState
         RevivePathName = string.Empty;
         RevivePathPointIndex = -1;
         RevivePathPoints = Array.Empty<Vector3Snapshot>();
+        ResetRevivePathStuckTracking();
     }
 
     public void MarkReviveClicked(DateTimeOffset now)
@@ -504,6 +550,28 @@ public sealed class StationaryCombatDeathRecoveryState
         StepStartedAt = now;
     }
 
+    public void MarkRevivePathProgress(int pointIndex, Vector3Snapshot position, DateTimeOffset now)
+    {
+        RevivePathStuckPointIndex = pointIndex;
+        RevivePathLastProgressPosition = position;
+        RevivePathLastProgressAt = now;
+    }
+
+    public void MarkRevivePathJump(DateTimeOffset now)
+    {
+        LastRevivePathJumpAt = now;
+        RevivePathJumpCount++;
+    }
+
+    public void ResetRevivePathStuckTracking()
+    {
+        RevivePathStuckPointIndex = -1;
+        RevivePathLastProgressPosition = null;
+        RevivePathLastProgressAt = DateTimeOffset.MinValue;
+        LastRevivePathJumpAt = DateTimeOffset.MinValue;
+        RevivePathJumpCount = 0;
+    }
+
     public void Reset()
     {
         Step = StationaryCombatDeathRecoveryStep.StopInput;
@@ -516,6 +584,7 @@ public sealed class StationaryCombatDeathRecoveryState
         RevivePathName = string.Empty;
         RevivePathPointIndex = -1;
         RevivePathPoints = Array.Empty<Vector3Snapshot>();
+        ResetRevivePathStuckTracking();
     }
 }
 

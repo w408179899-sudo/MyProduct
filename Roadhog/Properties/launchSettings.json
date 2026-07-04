@@ -3,6 +3,7 @@
     "Roadhog": {
       "commandName": "Project",
       "environmentVariables": {
+        "ROADHOG_CLIENT_ROOT": "C:\\Users\\GoldGiven\\Desktop\\script\\Kira",
         "KMBOX_NET_IP": "192.168.2.188",
         "KMBOX_NET_PORT": "4967",
         "KMBOX_NET_MAC": "5BF7E466",

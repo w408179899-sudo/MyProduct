@@ -8,6 +8,13 @@ namespace Roadhog.Infrastructure.Composition;
 
 public sealed class RoadhogServiceOptions
 {
+    public const string ClientRootEnvironmentVariable = "ROADHOG_CLIENT_ROOT";
+    public const string ConfigRootEnvironmentVariable = "ROADHOG_CONFIG_ROOT";
+    public const string AccountConfigPathEnvironmentVariable = "ROADHOG_ACCOUNT_CONFIG_PATH";
+    public const string PathLibraryDirectoryEnvironmentVariable = "ROADHOG_PATH_LIBRARY_DIRECTORY";
+    public const string KmBoxNetConfigPathEnvironmentVariable = "ROADHOG_KMBOX_NET_CONFIG_PATH";
+    public const string LogDirectoryEnvironmentVariable = "ROADHOG_LOG_DIRECTORY";
+
     public bool UseToolTestBridge { get; set; }
 
     public bool UseMockGameApi { get; set; }
@@ -35,6 +42,38 @@ public sealed class RoadhogServiceOptions
     public AionVmmGameApiOptions AionVmm { get; } = new();
 
     public KmBoxNetKeyboardInputOptions KmBoxNetInput { get; } = new();
+
+    public static RoadhogServiceOptions FromEnvironment()
+    {
+        var options = new RoadhogServiceOptions();
+        options.ApplyEnvironmentOverrides();
+        return options;
+    }
+
+    public void ApplyEnvironmentOverrides()
+    {
+        var clientRoot = ReadPathFromEnvironment(ClientRootEnvironmentVariable);
+        if (clientRoot is not null)
+        {
+            AccountConfigPath = Path.Combine(clientRoot, "config", "accounts.json");
+            PathLibraryDirectory = Path.Combine(clientRoot, "config", "paths");
+            KmBoxNetConfigPath = Path.Combine(clientRoot, "config", "kmbox-net.json");
+            LogDirectory = Path.Combine(clientRoot, "logs");
+        }
+
+        var configRoot = ReadPathFromEnvironment(ConfigRootEnvironmentVariable);
+        if (configRoot is not null)
+        {
+            AccountConfigPath = Path.Combine(configRoot, "accounts.json");
+            PathLibraryDirectory = Path.Combine(configRoot, "paths");
+            KmBoxNetConfigPath = Path.Combine(configRoot, "kmbox-net.json");
+        }
+
+        AccountConfigPath = ReadPathFromEnvironment(AccountConfigPathEnvironmentVariable) ?? AccountConfigPath;
+        PathLibraryDirectory = ReadPathFromEnvironment(PathLibraryDirectoryEnvironmentVariable) ?? PathLibraryDirectory;
+        KmBoxNetConfigPath = ReadPathFromEnvironment(KmBoxNetConfigPathEnvironmentVariable) ?? KmBoxNetConfigPath;
+        LogDirectory = ReadPathFromEnvironment(LogDirectoryEnvironmentVariable) ?? LogDirectory;
+    }
 
     private static string ResolveRoadhogProjectDirectory()
     {
@@ -67,5 +106,16 @@ public sealed class RoadhogServiceOptions
         }
 
         return AppContext.BaseDirectory;
+    }
+
+    private static string? ReadPathFromEnvironment(string variableName)
+    {
+        var value = Environment.GetEnvironmentVariable(variableName);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return Path.GetFullPath(Environment.ExpandEnvironmentVariables(value.Trim()));
     }
 }

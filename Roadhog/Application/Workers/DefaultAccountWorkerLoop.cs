@@ -81,6 +81,16 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 {
                     delay = lifeGuardDelay.Value;
                 }
+                else if (await _semiAuto
+                             .EnsureSpiritmasterPetAsync(
+                                 context,
+                                 semiAutoPlan,
+                                 semiAutoState,
+                                 beforeSummonKeyPress: () => ReleaseActiveInputAsync(context, stationaryCombatState))
+                             .ConfigureAwait(false))
+                {
+                    delay = context.Options.TickInterval;
+                }
                 else if (context.Config.MainMode == AccountMainMode.SemiAuto)
                 {
                     delay = await _semiAuto.TickAsync(context, semiAutoPlan, semiAutoState).ConfigureAwait(false);

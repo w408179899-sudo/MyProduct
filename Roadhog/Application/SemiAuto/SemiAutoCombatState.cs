@@ -13,6 +13,7 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<uint, uint> spiritmasterPetBuffAbnormalIds = new();
     private DateTimeOffset lastAttackKeyPressedAt = DateTimeOffset.MinValue;
     private DateTimeOffset lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
+    private DateTimeOffset spiritmasterSummonVerifyUntil = DateTimeOffset.MinValue;
     private uint? lastPressedSkillId;
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
@@ -59,6 +60,11 @@ public sealed class SemiAutoCombatState
     public DateTimeOffset LastAttackKeyWarningAt { get; set; } = DateTimeOffset.MinValue;
 
     public DateTimeOffset LastMaintenanceWarningAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastSpiritmasterSummonVerifyLogAt { get; set; } = DateTimeOffset.MinValue;
+
+    public bool HasPendingSpiritmasterSummonVerification =>
+        spiritmasterSummonVerifyUntil != DateTimeOffset.MinValue;
 
     public bool IsMaintenanceResting { get; private set; }
 
@@ -201,6 +207,28 @@ public sealed class SemiAutoCombatState
     public void MarkSpiritmasterSummonAttempted(DateTimeOffset now)
     {
         lastSpiritmasterSummonAttemptAt = now;
+    }
+
+    public bool IsAwaitingSpiritmasterSummonVerification(DateTimeOffset now)
+    {
+        return HasPendingSpiritmasterSummonVerification && now < spiritmasterSummonVerifyUntil;
+    }
+
+    public bool IsSpiritmasterSummonVerificationExpired(DateTimeOffset now)
+    {
+        return HasPendingSpiritmasterSummonVerification && now >= spiritmasterSummonVerifyUntil;
+    }
+
+    public void BeginSpiritmasterSummonVerification(DateTimeOffset now, TimeSpan verifyWindow)
+    {
+        spiritmasterSummonVerifyUntil = now + verifyWindow;
+        LastSpiritmasterSummonVerifyLogAt = DateTimeOffset.MinValue;
+    }
+
+    public void ClearSpiritmasterSummonVerification()
+    {
+        spiritmasterSummonVerifyUntil = DateTimeOffset.MinValue;
+        LastSpiritmasterSummonVerifyLogAt = DateTimeOffset.MinValue;
     }
 
     public bool TryGetSpiritmasterDotAbnormalId(uint skillId, out uint abnormalId)
