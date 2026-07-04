@@ -36,6 +36,18 @@ public sealed class StationaryCombatState
 
     public DateTimeOffset TargetStartedAt { get; private set; } = DateTimeOffset.MinValue;
 
+    public ushort CombatApproachStuckEntityId { get; private set; }
+
+    public uint CombatApproachStuckServerObjectId { get; private set; }
+
+    public Vector3Snapshot? CombatApproachLastProgressPosition { get; private set; }
+
+    public DateTimeOffset CombatApproachLastProgressAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastCombatApproachJumpAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public int CombatApproachJumpCount { get; private set; }
+
     public ushort PendingTabCandidateEntityId { get; private set; }
 
     public uint PendingTabCandidateServerObjectId { get; private set; }
@@ -104,6 +116,7 @@ public sealed class StationaryCombatState
         CandidateServerObjectId = 0;
         FacedCandidateEntityId = 0;
         TargetStartedAt = DateTimeOffset.MinValue;
+        ResetCombatApproachStuckTracking();
         ClearPendingTabVerification();
         ClearWrongLockNudge();
     }
@@ -146,10 +159,40 @@ public sealed class StationaryCombatState
 
         if (changed)
         {
+            ResetCombatApproachStuckTracking();
             ClearWrongLockNudge();
         }
 
         return changed;
+    }
+
+    public bool IsCombatApproachStuckTrackingTarget(ushort entityId, uint serverObjectId)
+    {
+        return IsSameTarget(CombatApproachStuckEntityId, CombatApproachStuckServerObjectId, entityId, serverObjectId);
+    }
+
+    public void MarkCombatApproachProgress(ushort entityId, uint serverObjectId, Vector3Snapshot position, DateTimeOffset now)
+    {
+        CombatApproachStuckEntityId = entityId;
+        CombatApproachStuckServerObjectId = serverObjectId;
+        CombatApproachLastProgressPosition = position;
+        CombatApproachLastProgressAt = now;
+    }
+
+    public void MarkCombatApproachJump(DateTimeOffset now)
+    {
+        LastCombatApproachJumpAt = now;
+        CombatApproachJumpCount++;
+    }
+
+    public void ResetCombatApproachStuckTracking()
+    {
+        CombatApproachStuckEntityId = 0;
+        CombatApproachStuckServerObjectId = 0;
+        CombatApproachLastProgressPosition = null;
+        CombatApproachLastProgressAt = DateTimeOffset.MinValue;
+        LastCombatApproachJumpAt = DateTimeOffset.MinValue;
+        CombatApproachJumpCount = 0;
     }
 
     public void SetCurrentTarget(WorldObjectSnapshot target)

@@ -341,6 +341,14 @@ public sealed class StationaryCombatController
         {
             semiAutoState.ResetAttackKeyPressThrottle();
             await PathFollowStepAsync(context, state, player, targetPosition, AcquireDistance).ConfigureAwait(false);
+            await TryJumpCombatApproachIfStuckAsync(
+                    context,
+                    state,
+                    target,
+                    playerPosition,
+                    playerDistanceToTarget,
+                    "pre_move")
+                .ConfigureAwait(false);
             return MoveTickDelay;
         }
 
@@ -1507,6 +1515,14 @@ public sealed class StationaryCombatController
         {
             semiAutoState.ResetAttackKeyPressThrottle();
             await PathFollowStepAsync(context, state, player, targetPosition, AcquireDistance).ConfigureAwait(false);
+            await TryJumpCombatApproachIfStuckAsync(
+                    context,
+                    state,
+                    target,
+                    playerPosition,
+                    playerDistanceToTarget,
+                    recoveryPhase)
+                .ConfigureAwait(false);
             return MoveTickDelay;
         }
 
@@ -3410,6 +3426,107 @@ public sealed class StationaryCombatController
         }, TimeSpan.FromMilliseconds(500));
     }
 
+    private async Task TryJumpCombatApproachIfStuckAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        Vector3Snapshot playerPosition,
+        double distanceToTarget,
+        string phase)
+    {
+        if (!state.IsMovingForward)
+        {
+            state.ResetCombatApproachStuckTracking();
+            return;
+        }
+
+        var now = DateTimeOffset.Now;
+        var minProgressDistance = ReadCombatApproachStuckDistance();
+        if (!state.IsCombatApproachStuckTrackingTarget(target.EntityId, target.ServerObjectId) ||
+            state.CombatApproachLastProgressPosition is null ||
+            state.CombatApproachLastProgressAt == DateTimeOffset.MinValue)
+        {
+            state.MarkCombatApproachProgress(target.EntityId, target.ServerObjectId, playerPosition, now);
+            return;
+        }
+
+        var moved = StationaryCombatTargetSelector.HorizontalDistance(
+            state.CombatApproachLastProgressPosition.Value,
+            playerPosition);
+        if (moved >= minProgressDistance)
+        {
+            state.MarkCombatApproachProgress(target.EntityId, target.ServerObjectId, playerPosition, now);
+            return;
+        }
+
+        var stuckMs = ReadCombatApproachStuckMs();
+        var stuckFor = now - state.CombatApproachLastProgressAt;
+        if (stuckFor.TotalMilliseconds < stuckMs)
+        {
+            return;
+        }
+
+        if (state.LastCombatApproachJumpAt != DateTimeOffset.MinValue &&
+            (now - state.LastCombatApproachJumpAt).TotalMilliseconds < stuckMs)
+        {
+            return;
+        }
+
+        await EnsureMoveForwardAsync(context, state).ConfigureAwait(false);
+
+        var jumpHold = TimeSpan.FromMilliseconds(ReadCombatApproachJumpHoldMs());
+        var jumpInterval = TimeSpan.FromMilliseconds(ReadCombatApproachJumpIntervalMs());
+        var jumpPressCount = ReadCombatApproachJumpPressCount();
+        state.MarkCombatApproachJump(now);
+        for (var pressIndex = 0; pressIndex < jumpPressCount; pressIndex++)
+        {
+            var result = await _input.PressKeyAsync("Space", jumpHold, context.StopToken).ConfigureAwait(false);
+            if (!result.Success)
+            {
+                context.Logger.Warn("stationary_combat.combat_approach.stuck_jump_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["phase"] = phase,
+                    ["targetEntityId"] = target.EntityId,
+                    ["targetServerObjectId"] = target.ServerObjectId,
+                    ["targetName"] = target.Name,
+                    ["distance"] = Math.Round(distanceToTarget, 2),
+                    ["moved"] = Math.Round(moved, 2),
+                    ["stuckMs"] = (long)Math.Max(0.0D, stuckFor.TotalMilliseconds),
+                    ["thresholdMs"] = stuckMs,
+                    ["progressDistance"] = Math.Round(minProgressDistance, 2),
+                    ["pressIndex"] = pressIndex + 1,
+                    ["pressCount"] = jumpPressCount,
+                    ["error"] = result.Error
+                });
+                return;
+            }
+
+            if (pressIndex + 1 < jumpPressCount)
+            {
+                await Task.Delay(jumpInterval, context.StopToken).ConfigureAwait(false);
+            }
+        }
+
+        context.Logger.Info("stationary_combat.combat_approach.stuck_jump", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["phase"] = phase,
+            ["targetEntityId"] = target.EntityId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetName"] = target.Name,
+            ["distance"] = Math.Round(distanceToTarget, 2),
+            ["moved"] = Math.Round(moved, 2),
+            ["stuckMs"] = (long)Math.Max(0.0D, stuckFor.TotalMilliseconds),
+            ["thresholdMs"] = stuckMs,
+            ["progressDistance"] = Math.Round(minProgressDistance, 2),
+            ["pressCount"] = jumpPressCount,
+            ["intervalMs"] = (long)jumpInterval.TotalMilliseconds,
+            ["jumpCount"] = state.CombatApproachJumpCount,
+            ["movingForward"] = state.IsMovingForward
+        });
+    }
+
     private async Task<bool> FaceTargetStepAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
@@ -3571,6 +3688,7 @@ public sealed class StationaryCombatController
         await _input.KeyUpAsync("W", context.StopToken).ConfigureAwait(false);
         state.IsMovingForward = false;
         SetPathFollowMoving(state, false);
+        state.ResetCombatApproachStuckTracking();
         context.Logger.Info("stationary_combat.input.w_up", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -3587,6 +3705,7 @@ public sealed class StationaryCombatController
             await _input.KeyUpAsync("W", context.StopToken).ConfigureAwait(false);
             state.IsMovingForward = false;
             SetPathFollowMoving(state, false);
+            state.ResetCombatApproachStuckTracking();
             context.Logger.Info("stationary_combat.input.w_up", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -4990,6 +5109,31 @@ public sealed class StationaryCombatController
     private static int ReadDeathRevivePathJumpHoldMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS", 50), 1, 1000);
+    }
+
+    private static int ReadCombatApproachStuckMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_COMBAT_APPROACH_STUCK_MS", 2_500), 1, 30_000);
+    }
+
+    private static double ReadCombatApproachStuckDistance()
+    {
+        return ClampDouble(ReadDoubleFromEnv("ROADHOG_COMBAT_APPROACH_STUCK_DISTANCE", 0.5D), 0.05D, 5.0D);
+    }
+
+    private static int ReadCombatApproachJumpHoldMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_COMBAT_APPROACH_JUMP_HOLD_MS", 50), 1, 1000);
+    }
+
+    private static int ReadCombatApproachJumpPressCount()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_COMBAT_APPROACH_JUMP_COUNT", 3), 1, 10);
+    }
+
+    private static int ReadCombatApproachJumpIntervalMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_COMBAT_APPROACH_JUMP_INTERVAL_MS", 60), 0, 1000);
     }
 
     private static int ReadDeathReviveClickDelayMs()
