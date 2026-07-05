@@ -12,20 +12,24 @@ using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
 using Roadhog.Core.Processes;
+using Roadhog.Core.Profiles;
 using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Composition;
 using Roadhog.Infrastructure.Diagnostics;
 using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Paths;
+using Roadhog.Infrastructure.Profiles;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
+    ("script profile store saves loads and deletes profile files", TestScriptProfileStoreRoundTripAsync),
     ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
     ("runtime skill read uses saved account scope when idle", TestRuntimeSkillReadUsesSavedAccountScopeWhenIdleAsync),
     ("runtime skill read maps saved hardware key to indexed fpga device", TestRuntimeSkillReadMapsSavedHardwareKeyToIndexedFpgaDeviceAsync),
     ("account start preserves configured indexed fpga device", TestAccountStartPreservesConfiguredIndexedFpgaDeviceAsync),
+    ("account start lets configured vmm override hardware indexed device", TestAccountStartConfiguredVmmOverridesHardwareIndexedDeviceAsync),
     ("runtime world object read uses account scoped context", TestRuntimeWorldObjectReadUsesAccountScopeAsync),
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
@@ -230,6 +234,49 @@ static async Task TestSharedPathStoreRoundTripAsync()
     }
 }
 
+static async Task TestScriptProfileStoreRoundTripAsync()
+{
+    var directory = CreateTempDirectory("roadhog-profiles-");
+    try
+    {
+        var store = new JsonScriptProfileStore(directory);
+        var name = "test/profile";
+        var settings = CreateScriptSettings();
+        settings.ProfileName = name;
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat.HasStationaryCombatPosition = true;
+        settings.Combat.StationaryCombatX = 12.5D;
+
+        var save = await store.SaveAsync(new ScriptProfileDocument
+        {
+            Name = name,
+            Settings = settings
+        }).ConfigureAwait(false);
+        AssertFalse(!save.Success, "profile save should succeed");
+
+        var summaries = await store.LoadSummariesAsync().ConfigureAwait(false);
+        AssertFalse(!summaries.Success, "profile summaries should load");
+        AssertEqual(1, summaries.Value?.Count ?? 0, "profile summary count");
+        AssertEqual(name, summaries.Value![0].Name, "profile summary name");
+
+        var loaded = await store.LoadAsync(name).ConfigureAwait(false);
+        AssertFalse(!loaded.Success, "saved profile should load");
+        AssertEqual(name, loaded.Value?.Settings.ProfileName ?? string.Empty, "loaded profile name");
+        AssertEqual(AccountMainMode.CustomCombat, loaded.Value?.Settings.MainMode ?? AccountMainMode.SemiAuto, "loaded main mode");
+        AssertEqual(12.5D, loaded.Value?.Settings.Combat.StationaryCombatX ?? 0.0D, "loaded combat x");
+
+        var delete = await store.DeleteAsync(name).ConfigureAwait(false);
+        AssertFalse(!delete.Success, "profile delete should succeed");
+        summaries = await store.LoadSummariesAsync().ConfigureAwait(false);
+        AssertEqual(0, summaries.Value?.Count ?? -1, "profile summary count after delete");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+}
+
 static async Task TestRuntimePlayerReadUsesAccountScopeAsync()
 {
     var logger = new InMemoryRoadhogLogger();
@@ -374,6 +421,48 @@ static async Task TestAccountStartPreservesConfiguredIndexedFpgaDeviceAsync()
     var bound = logger.Entries.LastOrDefault(entry => entry.EventName == "account.hardware.bound");
     AssertFalse(bound is null, "account hardware binding should be logged");
     AssertEqual("fpga://devindex=1", Convert.ToString(bound!.Fields["vmmDevice"]) ?? string.Empty, "bound vmm device should preserve indexed config");
+}
+
+static async Task TestAccountStartConfiguredVmmOverridesHardwareIndexedDeviceAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    var hardwareResolver = new InMemoryHardwareDeviceResolver(new HardwareDeviceFeature(
+        "port:Port_#0005.Hub_#0004",
+        "usb-port",
+        "medium",
+        "USB\\VID_0403&PID_601F\\0001",
+        "USB\\VID_0403&PID_601F\\0001",
+        "{container}",
+        "USB\\VID_0403&PID_601F",
+        "port:Port_#0005.Hub_#0004",
+        "fpga FTDI FT601 USB 3.0 Bridge Device",
+        "FTDI",
+        "fpga://devindex=1",
+        new[] { "port:Port_#0005.Hub_#0004" }));
+    var orchestrator = new AccountOrchestrator(
+        new FakeGameApi(),
+        logger,
+        accounts,
+        hardwareResolver,
+        new InMemoryTargetProcessResolver(),
+        new CapturingAccountWorkerLoop(),
+        new AccountWorkerOptions());
+
+    var result = orchestrator.Start(new AccountConfig
+    {
+        AccountName = "account-scope",
+        HardwareKey = "port:Port_#0005.Hub_#0004",
+        VmmDeviceName = "fpga://devindex=0",
+        Enabled = true
+    });
+
+    await Task.Delay(50).ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "account start should succeed");
+    var bound = logger.Entries.LastOrDefault(entry => entry.EventName == "account.hardware.bound");
+    AssertFalse(bound is null, "account hardware binding should be logged");
+    AssertEqual("fpga://devindex=0", Convert.ToString(bound!.Fields["vmmDevice"]) ?? string.Empty, "configured vmm should override hardware mapped vmm");
 }
 
 static async Task TestRuntimeWorldObjectReadUsesAccountScopeAsync()
@@ -862,6 +951,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
     var previousConfigRoot = Environment.GetEnvironmentVariable(RoadhogServiceOptions.ConfigRootEnvironmentVariable);
     var previousAccountConfig = Environment.GetEnvironmentVariable(RoadhogServiceOptions.AccountConfigPathEnvironmentVariable);
     var previousPathLibrary = Environment.GetEnvironmentVariable(RoadhogServiceOptions.PathLibraryDirectoryEnvironmentVariable);
+    var previousProfileLibrary = Environment.GetEnvironmentVariable(RoadhogServiceOptions.ProfileLibraryDirectoryEnvironmentVariable);
     var previousKmBoxConfig = Environment.GetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable);
     var previousLogDirectory = Environment.GetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable);
     try
@@ -870,6 +960,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.ConfigRootEnvironmentVariable, null);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.AccountConfigPathEnvironmentVariable, null);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.PathLibraryDirectoryEnvironmentVariable, null);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.ProfileLibraryDirectoryEnvironmentVariable, null);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable, null);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable, null);
 
@@ -877,6 +968,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
 
         AssertEqual(Path.Combine(directory, "config", "accounts.json"), options.AccountConfigPath, "client root account config path");
         AssertEqual(Path.Combine(directory, "config", "paths"), options.PathLibraryDirectory, "client root path library");
+        AssertEqual(Path.Combine(directory, "config", "profiles"), options.ProfileLibraryDirectory, "client root profile library");
         AssertEqual(Path.Combine(directory, "config", "kmbox-net.json"), options.KmBoxNetConfigPath, "client root kmbox config path");
         AssertEqual(Path.Combine(directory, "logs"), options.LogDirectory, "client root log directory");
     }
@@ -886,6 +978,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.ConfigRootEnvironmentVariable, previousConfigRoot);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.AccountConfigPathEnvironmentVariable, previousAccountConfig);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.PathLibraryDirectoryEnvironmentVariable, previousPathLibrary);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.ProfileLibraryDirectoryEnvironmentVariable, previousProfileLibrary);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable, previousKmBoxConfig);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable, previousLogDirectory);
         DeleteDirectoryIfExists(directory);
@@ -6489,7 +6582,12 @@ static AccountSettingsForm CreateAccountSettingsFormForTests()
         AccountName = "account1",
         ScriptSettings = CreateScriptSettings()
     });
-    return new AccountSettingsForm("account1", runtime, configStore, new InMemorySharedPathStore());
+    return new AccountSettingsForm(
+        "account1",
+        runtime,
+        configStore,
+        new InMemorySharedPathStore(),
+        new InMemoryScriptProfileStore());
 }
 
 static void InvokePopulateAvailableSkillTree(
@@ -7048,6 +7146,50 @@ sealed class InMemorySharedPathStore : ISharedPathStore
         CancellationToken cancellationToken = default)
     {
         _paths.Remove(name);
+        return Task.FromResult(OperationResult.Ok());
+    }
+}
+
+sealed class InMemoryScriptProfileStore : IScriptProfileStore
+{
+    private readonly Dictionary<string, ScriptProfileDocument> _profiles;
+
+    public InMemoryScriptProfileStore(params ScriptProfileDocument[] profiles)
+    {
+        _profiles = profiles.ToDictionary(profile => profile.Name, profile => profile.Clone(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    public Task<OperationResult<IReadOnlyList<ScriptProfileSummary>>> LoadSummariesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<ScriptProfileSummary> summaries = _profiles.Values
+            .Select(profile => new ScriptProfileSummary(profile.Name, profile.UpdatedAt))
+            .ToArray();
+        return Task.FromResult(OperationResult<IReadOnlyList<ScriptProfileSummary>>.Ok(summaries));
+    }
+
+    public Task<OperationResult<ScriptProfileDocument>> LoadAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(_profiles.TryGetValue(name, out var profile)
+            ? OperationResult<ScriptProfileDocument>.Ok(profile.Clone())
+            : OperationResult<ScriptProfileDocument>.Fail("Profile file was not found: " + name));
+    }
+
+    public Task<OperationResult> SaveAsync(
+        ScriptProfileDocument profile,
+        CancellationToken cancellationToken = default)
+    {
+        _profiles[profile.Name] = profile.Clone();
+        return Task.FromResult(OperationResult.Ok());
+    }
+
+    public Task<OperationResult> DeleteAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        _profiles.Remove(name);
         return Task.FromResult(OperationResult.Ok());
     }
 }

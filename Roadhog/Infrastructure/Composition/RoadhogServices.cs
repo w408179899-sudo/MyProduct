@@ -15,8 +15,10 @@ using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Mock;
 using Roadhog.Infrastructure.Offsets;
 using Roadhog.Core.Paths;
+using Roadhog.Core.Profiles;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Processes;
+using Roadhog.Infrastructure.Profiles;
 using Roadhog.Infrastructure.ToolBridge;
 using Roadhog.Infrastructure.Vmm;
 
@@ -31,6 +33,7 @@ public sealed class RoadhogServices : IDisposable
         ITargetProcessResolver processResolver,
         IAccountConfigStore accountConfigStore,
         ISharedPathStore sharedPathStore,
+        IScriptProfileStore scriptProfileStore,
         AccountRuntimeManager accountRuntimeManager,
         AccountOrchestrator accountOrchestrator,
         RoadhogRuntime runtime,
@@ -46,6 +49,7 @@ public sealed class RoadhogServices : IDisposable
         ProcessResolver = processResolver;
         AccountConfigStore = accountConfigStore;
         SharedPathStore = sharedPathStore;
+        ScriptProfileStore = scriptProfileStore;
         AccountRuntimeManager = accountRuntimeManager;
         AccountOrchestrator = accountOrchestrator;
         Runtime = runtime;
@@ -69,6 +73,8 @@ public sealed class RoadhogServices : IDisposable
     public IAccountConfigStore AccountConfigStore { get; }
 
     public ISharedPathStore SharedPathStore { get; }
+
+    public IScriptProfileStore ScriptProfileStore { get; }
 
     public AccountRuntimeManager AccountRuntimeManager { get; }
 
@@ -106,6 +112,7 @@ public sealed class RoadhogServices : IDisposable
             ["logDirectory"] = options.LogDirectory,
             ["accountConfigPath"] = options.AccountConfigPath,
             ["pathLibraryDirectory"] = options.PathLibraryDirectory,
+            ["profileLibraryDirectory"] = options.ProfileLibraryDirectory,
             ["kmBoxNetConfigPath"] = options.KmBoxNetConfigPath,
             ["inputBackend"] = "KmBoxNet",
             ["keyboardInput"] = "KMBox Net",
@@ -130,6 +137,7 @@ public sealed class RoadhogServices : IDisposable
         var processResolver = new AionProcessResolver(options.ProcessResolver);
         var accountConfigStore = new JsonAccountConfigStore(options.AccountConfigPath);
         var sharedPathStore = new JsonSharedPathStore(options.PathLibraryDirectory);
+        var scriptProfileStore = new JsonScriptProfileStore(options.ProfileLibraryDirectory);
         var accounts = new AccountRuntimeManager(logger);
         var keyboardInput = CreateKeyboardInput(options);
         var semiAutoController = new SemiAutoCombatController(keyboardInput);
@@ -158,6 +166,7 @@ public sealed class RoadhogServices : IDisposable
             processResolver,
             accountConfigStore,
             sharedPathStore,
+            scriptProfileStore,
             accounts,
             accountOrchestrator,
             runtime,

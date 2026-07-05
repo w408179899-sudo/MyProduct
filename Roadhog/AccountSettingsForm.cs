@@ -4,6 +4,7 @@ using Roadhog.Application;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
+using Roadhog.Core.Profiles;
 
 namespace Roadhog
 {
@@ -15,12 +16,15 @@ namespace Roadhog
         private readonly RoadhogRuntime _runtime;
         private readonly IAccountConfigStore _configStore;
         private readonly ISharedPathStore _pathStore;
+        private readonly IScriptProfileStore _profileStore;
         private readonly Dictionary<SharedPathKind, PathEditorControls> pathEditors = new();
         private readonly Dictionary<SharedPathKind, Label> pathOverviewLabels = new();
         private readonly System.Windows.Forms.Timer pathRecordTimer = new() { Interval = 250 };
         private IReadOnlyList<SharedPathSummary> currentPathSummaries = Array.Empty<SharedPathSummary>();
+        private IReadOnlyList<ScriptProfileSummary> currentProfileSummaries = Array.Empty<ScriptProfileSummary>();
         private SharedPathKind? recordingPathKind;
         private bool loadingPathCombos;
+        private bool loadingProfileCombo;
         private bool pathRecordReadInFlight;
         private readonly Color _primaryGreen = Color.FromArgb(22, 163, 74);
         private readonly Color _darkGreen = Color.FromArgb(21, 128, 61);
@@ -32,7 +36,10 @@ namespace Roadhog
 
         private TabControl settingsTabs = null!;
         private Form? spiritmasterSettingsDialog;
+        private Label? currentProfileLabel;
+        private Label? profileStatusLabel;
         private RoundedTextBox? profileNameTextBox;
+        private RoundedComboBox? savedProfileCombo;
         private RoundedComboBox? mainModeCombo;
         private Label? combatModeLabel;
         private RoundedComboBox? combatModeCombo;
@@ -98,12 +105,18 @@ namespace Roadhog
         private SpiritmasterSkillSettings currentSpiritmasterSettings = new();
         private int manualSkillDropLineY = -1;
 
-        public AccountSettingsForm(string account, RoadhogRuntime runtime, IAccountConfigStore configStore, ISharedPathStore pathStore)
+        public AccountSettingsForm(
+            string account,
+            RoadhogRuntime runtime,
+            IAccountConfigStore configStore,
+            ISharedPathStore pathStore,
+            IScriptProfileStore profileStore)
         {
             _account = account;
             _runtime = runtime;
             _configStore = configStore;
             _pathStore = pathStore;
+            _profileStore = profileStore;
             pathRecordTimer.Tick += PathRecordTimer_Tick;
             InitializeSettingsForm();
         }
@@ -151,6 +164,7 @@ namespace Roadhog
         private void LoadSavedSettings()
         {
             var account = LoadAccountConfigOrDefault();
+            RefreshProfileLibrary();
             ApplyScriptSettings(BuildEffectiveScriptSettings(account));
         }
 
@@ -205,8 +219,23 @@ namespace Roadhog
                 ?.Clone() ?? new AccountConfig { AccountName = _account };
         }
 
-        private static ScriptSettings BuildEffectiveScriptSettings(AccountConfig account)
+        private ScriptSettings BuildEffectiveScriptSettings(AccountConfig account)
         {
+            var profileName = account.ScriptSettings?.ProfileName;
+            if (string.IsNullOrWhiteSpace(profileName))
+            {
+                profileName = account.ProfileName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(profileName))
+            {
+                var profileResult = _profileStore.LoadAsync(profileName).GetAwaiter().GetResult();
+                if (profileResult.Success && profileResult.Value is not null)
+                {
+                    return profileResult.Value.Settings.Clone();
+                }
+            }
+
             if (account.ScriptSettings is not null)
             {
                 return account.ScriptSettings.Clone();
@@ -229,6 +258,8 @@ namespace Roadhog
         private void ApplyScriptSettings(ScriptSettings settings)
         {
             SetText(profileNameTextBox, settings.ProfileName);
+            UpdateCurrentProfileDisplay(settings.ProfileName);
+            SelectProfileComboItem(settings.ProfileName, loadProfile: false);
             SetComboText(mainModeCombo, FormatMainMode(settings.MainMode));
             SetComboText(combatModeCombo, FormatCombatMode(settings.CombatMode));
             SetStationaryCombatPosition(settings.Combat);
@@ -323,13 +354,37 @@ namespace Roadhog
                 ? "TopContiguousTriggerSkills"
                 : previousSettings.Skills.TriggerPrefixMode;
 
+            var profileName = string.IsNullOrWhiteSpace(capturedSettings.ProfileName)
+                ? "default_profile"
+                : capturedSettings.ProfileName.Trim();
+            capturedSettings.ProfileName = profileName;
+            var profileResult = _profileStore.SaveAsync(new ScriptProfileDocument
+            {
+                Name = profileName,
+                Settings = capturedSettings.Clone()
+            }).GetAwaiter().GetResult();
+            if (!profileResult.Success)
+            {
+                error = profileResult.Error ?? "保存方案失败。";
+                return false;
+            }
+
             account.AccountName = _account;
             account.ScriptSettings = capturedSettings;
             ApplyScriptSettingsToLegacyFields(account, account.ScriptSettings);
 
             var result = _configStore.UpsertAsync(account).GetAwaiter().GetResult();
             error = result.Error ?? "保存账号配置失败。";
-            return result.Success;
+            if (!result.Success)
+            {
+                return false;
+            }
+
+            RefreshProfileLibrary();
+            SelectProfileComboItem(profileName, loadProfile: false);
+            UpdateCurrentProfileDisplay(profileName);
+            SetProfileStatus("已保存方案: " + profileName, false);
+            return true;
         }
 
         private ScriptSettings CaptureScriptSettings()
@@ -516,7 +571,13 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             AddLabel(page, "方案", 4, 8, 80, 22);
+            currentProfileLabel = AddLabel(page, "当前方案: default_profile", 84, 8, 220, 22, _textGreen, FontStyle.Bold);
+            AddLabel(page, "已保存方案", 306, 8, 100, 22);
+            profileStatusLabel = AddLabel(page, string.Empty, 648, 36, 190, 22);
             profileNameTextBox = AddTextBox(page, "default_profile", 4, 32, 220, 26);
+            savedProfileCombo = AddCombo(page, 306, 32, 254, 28);
+            savedProfileCombo.SelectedIndexChanged += (_, _) => LoadSelectedProfile();
+            AddButton(page, "删除", 568, 31, 72, 30, (_, _) => DeleteSavedProfile());
             AddLabel(page, "方案名", 230, 36, 80, 22);
             AddLabel(page, "水平", 314, 64, 38, 22);
             cameraYawPixelsPerDegreeTextBox = AddTextBox(page, "11.0", 352, 60, 72, 28);
@@ -586,6 +647,186 @@ namespace Roadhog
             {
                 stationaryCombatRadiusUnitLabel.Visible = stationaryVisible;
             }
+        }
+
+        private void RefreshProfileLibrary()
+        {
+            var result = _profileStore.LoadSummariesAsync().GetAwaiter().GetResult();
+            if (!result.Success || result.Value is null)
+            {
+                currentProfileSummaries = Array.Empty<ScriptProfileSummary>();
+                SetProfileStatus(result.Error ?? "读取方案失败。", true);
+                return;
+            }
+
+            currentProfileSummaries = result.Value;
+            RefreshSavedProfileCombo();
+        }
+
+        private void RefreshSavedProfileCombo()
+        {
+            if (savedProfileCombo is null)
+            {
+                return;
+            }
+
+            var selectedName = GetSelectedProfileName();
+            if (string.IsNullOrWhiteSpace(selectedName))
+            {
+                selectedName = profileNameTextBox?.Text;
+            }
+
+            loadingProfileCombo = true;
+            try
+            {
+                savedProfileCombo.Items.Clear();
+                foreach (var summary in currentProfileSummaries)
+                {
+                    savedProfileCombo.Items.Add(new ProfileComboItem(summary));
+                }
+
+                SelectProfileComboItem(selectedName, loadProfile: false);
+            }
+            finally
+            {
+                loadingProfileCombo = false;
+            }
+        }
+
+        private bool SelectProfileComboItem(string? profileName, bool loadProfile)
+        {
+            if (savedProfileCombo is null || string.IsNullOrWhiteSpace(profileName))
+            {
+                return false;
+            }
+
+            for (var i = 0; i < savedProfileCombo.Items.Count; i++)
+            {
+                if (savedProfileCombo.Items[i] is ProfileComboItem item &&
+                    string.Equals(item.Name, profileName.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    var wasLoading = loadingProfileCombo;
+                    loadingProfileCombo = true;
+                    try
+                    {
+                        savedProfileCombo.SelectedIndex = i;
+                    }
+                    finally
+                    {
+                        loadingProfileCombo = wasLoading;
+                    }
+
+                    if (loadProfile)
+                    {
+                        LoadProfileByName(item.Name);
+                    }
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void LoadSelectedProfile()
+        {
+            if (loadingProfileCombo)
+            {
+                return;
+            }
+
+            var name = GetSelectedProfileName();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                LoadProfileByName(name);
+            }
+        }
+
+        private void LoadProfileByName(string name)
+        {
+            var result = _profileStore.LoadAsync(name).GetAwaiter().GetResult();
+            if (!result.Success || result.Value is null)
+            {
+                SetProfileStatus(result.Error ?? "读取方案失败。", true);
+                return;
+            }
+
+            ApplyScriptSettings(result.Value.Settings);
+            SetProfileStatus("已加载方案: " + result.Value.Name, false);
+        }
+
+        private async void DeleteSavedProfile()
+        {
+            var name = GetSelectedProfileName();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = profileNameTextBox?.Text;
+            }
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                SetProfileStatus("未选择方案。", true);
+                return;
+            }
+
+            var confirm = MessageBox.Show(
+                this,
+                "删除已保存方案: " + name + "?",
+                "删除方案",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+            if (confirm != DialogResult.Yes)
+            {
+                return;
+            }
+
+            var result = await _profileStore.DeleteAsync(name).ConfigureAwait(true);
+            if (!result.Success)
+            {
+                SetProfileStatus(result.Error ?? "删除方案失败。", true);
+                return;
+            }
+
+            RefreshProfileLibrary();
+            SetProfileStatus("已删除方案: " + name, false);
+        }
+
+        private string GetSelectedProfileName()
+        {
+            if (savedProfileCombo is null)
+            {
+                return string.Empty;
+            }
+
+            var selectedIndex = savedProfileCombo.SelectedIndex;
+            if (selectedIndex >= 0 &&
+                selectedIndex < savedProfileCombo.Items.Count &&
+                savedProfileCombo.Items[selectedIndex] is ProfileComboItem item)
+            {
+                return item.Name;
+            }
+
+            return savedProfileCombo.Text;
+        }
+
+        private void UpdateCurrentProfileDisplay(string? profileName)
+        {
+            var name = string.IsNullOrWhiteSpace(profileName) ? "default_profile" : profileName.Trim();
+            if (currentProfileLabel is not null)
+            {
+                currentProfileLabel.Text = "当前方案: " + name;
+            }
+        }
+
+        private void SetProfileStatus(string text, bool isError)
+        {
+            if (profileStatusLabel is null)
+            {
+                return;
+            }
+
+            profileStatusLabel.Text = text;
+            profileStatusLabel.ForeColor = isError ? Color.FromArgb(166, 40, 40) : _textGreen;
         }
 
         private async void SetStationaryCombatPositionButton_Click(object? sender, EventArgs e)
@@ -4784,6 +5025,23 @@ namespace Roadhog
                        "点 / " +
                        _summary.TotalDistance.ToString("F1", CultureInfo.InvariantCulture) +
                        "m）";
+            }
+        }
+
+        private sealed class ProfileComboItem
+        {
+            private readonly ScriptProfileSummary _summary;
+
+            public ProfileComboItem(ScriptProfileSummary summary)
+            {
+                _summary = summary;
+            }
+
+            public string Name => _summary.Name;
+
+            public override string ToString()
+            {
+                return _summary.Name;
             }
         }
 

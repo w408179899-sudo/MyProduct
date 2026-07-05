@@ -35,6 +35,9 @@ namespace Roadhog
             this.topBarPanel = new Roadhog.RoundedPanel();
             this.fpgaLabel = new System.Windows.Forms.Label();
             this.fpgaDeviceComboBox = new Roadhog.RoundedComboBox();
+            this.vmmDeviceLabel = new System.Windows.Forms.Label();
+            this.vmmDeviceComboBox = new Roadhog.RoundedComboBox();
+            this.vmmReadTestButton = new Roadhog.RoundedButton();
             this.refreshDevicesButton = new Roadhog.RoundedButton();
             this.kmboxTitleLabel = new System.Windows.Forms.Label();
             this.kmboxIpLabel = new System.Windows.Forms.Label();
@@ -59,7 +62,7 @@ namespace Roadhog
             this.shellPanel.Location = new System.Drawing.Point(0, 0);
             this.shellPanel.Name = "shellPanel";
             this.shellPanel.Padding = new System.Windows.Forms.Padding(14);
-            this.shellPanel.Size = new System.Drawing.Size(940, 210);
+            this.shellPanel.Size = new System.Drawing.Size(940, 250);
             this.shellPanel.TabIndex = 0;
             //
             // accountListPanel
@@ -69,11 +72,11 @@ namespace Roadhog
             this.accountListPanel.CornerRadius = 12;
             this.accountListPanel.Controls.Add(this.accountTable);
             this.accountListPanel.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.accountListPanel.Location = new System.Drawing.Point(14, 104);
+            this.accountListPanel.Location = new System.Drawing.Point(14, 138);
             this.accountListPanel.Name = "accountListPanel";
             this.accountListPanel.Padding = new System.Windows.Forms.Padding(0);
             this.accountListPanel.ShadowDepth = 3;
-            this.accountListPanel.Size = new System.Drawing.Size(912, 92);
+            this.accountListPanel.Size = new System.Drawing.Size(912, 98);
             this.accountListPanel.TabIndex = 1;
             //
             // accountTable
@@ -102,6 +105,9 @@ namespace Roadhog
             this.topBarPanel.Controls.Add(this.kmboxIpTextBox);
             this.topBarPanel.Controls.Add(this.kmboxIpLabel);
             this.topBarPanel.Controls.Add(this.kmboxTitleLabel);
+            this.topBarPanel.Controls.Add(this.vmmReadTestButton);
+            this.topBarPanel.Controls.Add(this.vmmDeviceComboBox);
+            this.topBarPanel.Controls.Add(this.vmmDeviceLabel);
             this.topBarPanel.Controls.Add(this.fpgaDeviceComboBox);
             this.topBarPanel.Controls.Add(this.fpgaLabel);
             this.topBarPanel.Controls.Add(this.refreshDevicesButton);
@@ -110,7 +116,7 @@ namespace Roadhog
             this.topBarPanel.Name = "topBarPanel";
             this.topBarPanel.Padding = new System.Windows.Forms.Padding(12, 8, 12, 8);
             this.topBarPanel.ShadowDepth = 3;
-            this.topBarPanel.Size = new System.Drawing.Size(912, 90);
+            this.topBarPanel.Size = new System.Drawing.Size(912, 124);
             this.topBarPanel.TabIndex = 0;
             //
             // fpgaLabel
@@ -120,9 +126,9 @@ namespace Roadhog
             this.fpgaLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
             this.fpgaLabel.Location = new System.Drawing.Point(16, 17);
             this.fpgaLabel.Name = "fpgaLabel";
-            this.fpgaLabel.Size = new System.Drawing.Size(0, 17);
+            this.fpgaLabel.Size = new System.Drawing.Size(75, 17);
             this.fpgaLabel.TabIndex = 11;
-            this.fpgaLabel.Text = "";
+            this.fpgaLabel.Text = "\u6309\u952eUSB\u53e3";
             //
             // fpgaDeviceComboBox
             //
@@ -131,11 +137,50 @@ namespace Roadhog
             this.fpgaDeviceComboBox.CornerRadius = 8;
             this.fpgaDeviceComboBox.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Bold);
             this.fpgaDeviceComboBox.ForeColor = System.Drawing.Color.FromArgb(20, 83, 45);
-            this.fpgaDeviceComboBox.Location = new System.Drawing.Point(16, 10);
+            this.fpgaDeviceComboBox.Location = new System.Drawing.Point(98, 10);
             this.fpgaDeviceComboBox.Name = "fpgaDeviceComboBox";
-            this.fpgaDeviceComboBox.Size = new System.Drawing.Size(736, 32);
+            this.fpgaDeviceComboBox.Size = new System.Drawing.Size(654, 32);
             this.fpgaDeviceComboBox.TabIndex = 12;
             this.fpgaDeviceComboBox.SelectedIndexChanged += new System.EventHandler(this.FpgaDeviceComboBox_SelectedIndexChanged);
+            //
+            // vmmDeviceLabel
+            //
+            this.vmmDeviceLabel.AutoSize = true;
+            this.vmmDeviceLabel.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Bold);
+            this.vmmDeviceLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
+            this.vmmDeviceLabel.Location = new System.Drawing.Point(16, 55);
+            this.vmmDeviceLabel.Name = "vmmDeviceLabel";
+            this.vmmDeviceLabel.Size = new System.Drawing.Size(72, 17);
+            this.vmmDeviceLabel.TabIndex = 13;
+            this.vmmDeviceLabel.Text = "\u8bfb\u89d2\u8272VMM";
+            //
+            // vmmDeviceComboBox
+            //
+            this.vmmDeviceComboBox.BackColor = System.Drawing.Color.FromArgb(229, 245, 235);
+            this.vmmDeviceComboBox.BorderColor = System.Drawing.Color.FromArgb(134, 239, 172);
+            this.vmmDeviceComboBox.CornerRadius = 8;
+            this.vmmDeviceComboBox.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Bold);
+            this.vmmDeviceComboBox.ForeColor = System.Drawing.Color.FromArgb(20, 83, 45);
+            this.vmmDeviceComboBox.Location = new System.Drawing.Point(98, 48);
+            this.vmmDeviceComboBox.Name = "vmmDeviceComboBox";
+            this.vmmDeviceComboBox.Size = new System.Drawing.Size(260, 30);
+            this.vmmDeviceComboBox.TabIndex = 14;
+            //
+            // vmmReadTestButton
+            //
+            this.vmmReadTestButton.BackColor = System.Drawing.Color.FromArgb(22, 163, 74);
+            this.vmmReadTestButton.BorderColor = System.Drawing.Color.FromArgb(21, 128, 61);
+            this.vmmReadTestButton.CornerRadius = 9;
+            this.vmmReadTestButton.Font = new System.Drawing.Font("Microsoft YaHei UI", 8.5F, System.Drawing.FontStyle.Bold);
+            this.vmmReadTestButton.ForeColor = System.Drawing.Color.White;
+            this.vmmReadTestButton.Location = new System.Drawing.Point(368, 48);
+            this.vmmReadTestButton.Name = "vmmReadTestButton";
+            this.vmmReadTestButton.ShadowDepth = 2;
+            this.vmmReadTestButton.Size = new System.Drawing.Size(110, 30);
+            this.vmmReadTestButton.TabIndex = 15;
+            this.vmmReadTestButton.Text = "\u6d4b\u8bd5\u8bfb\u89d2\u8272";
+            this.vmmReadTestButton.UseVisualStyleBackColor = false;
+            this.vmmReadTestButton.Click += new System.EventHandler(this.TestVmmReadButton_Click);
             //
             // refreshDevicesButton
             //
@@ -170,7 +215,7 @@ namespace Roadhog
             this.kmboxIpLabel.AutoSize = true;
             this.kmboxIpLabel.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxIpLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
-            this.kmboxIpLabel.Location = new System.Drawing.Point(16, 57);
+            this.kmboxIpLabel.Location = new System.Drawing.Point(16, 93);
             this.kmboxIpLabel.Name = "kmboxIpLabel";
             this.kmboxIpLabel.Size = new System.Drawing.Size(18, 17);
             this.kmboxIpLabel.TabIndex = 3;
@@ -183,7 +228,7 @@ namespace Roadhog
             this.kmboxIpTextBox.CornerRadius = 8;
             this.kmboxIpTextBox.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxIpTextBox.ForeColor = System.Drawing.Color.FromArgb(20, 83, 45);
-            this.kmboxIpTextBox.Location = new System.Drawing.Point(42, 50);
+            this.kmboxIpTextBox.Location = new System.Drawing.Point(42, 86);
             this.kmboxIpTextBox.Name = "kmboxIpTextBox";
             this.kmboxIpTextBox.Size = new System.Drawing.Size(190, 30);
             this.kmboxIpTextBox.TabIndex = 4;
@@ -193,7 +238,7 @@ namespace Roadhog
             this.kmboxPortLabel.AutoSize = true;
             this.kmboxPortLabel.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxPortLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
-            this.kmboxPortLabel.Location = new System.Drawing.Point(260, 57);
+            this.kmboxPortLabel.Location = new System.Drawing.Point(260, 93);
             this.kmboxPortLabel.Name = "kmboxPortLabel";
             this.kmboxPortLabel.Size = new System.Drawing.Size(35, 17);
             this.kmboxPortLabel.TabIndex = 5;
@@ -206,7 +251,7 @@ namespace Roadhog
             this.kmboxPortTextBox.CornerRadius = 8;
             this.kmboxPortTextBox.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxPortTextBox.ForeColor = System.Drawing.Color.FromArgb(20, 83, 45);
-            this.kmboxPortTextBox.Location = new System.Drawing.Point(308, 50);
+            this.kmboxPortTextBox.Location = new System.Drawing.Point(308, 86);
             this.kmboxPortTextBox.Name = "kmboxPortTextBox";
             this.kmboxPortTextBox.Size = new System.Drawing.Size(110, 30);
             this.kmboxPortTextBox.TabIndex = 6;
@@ -216,7 +261,7 @@ namespace Roadhog
             this.kmboxMacLabel.AutoSize = true;
             this.kmboxMacLabel.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxMacLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
-            this.kmboxMacLabel.Location = new System.Drawing.Point(448, 57);
+            this.kmboxMacLabel.Location = new System.Drawing.Point(448, 93);
             this.kmboxMacLabel.Name = "kmboxMacLabel";
             this.kmboxMacLabel.Size = new System.Drawing.Size(37, 17);
             this.kmboxMacLabel.TabIndex = 7;
@@ -229,7 +274,7 @@ namespace Roadhog
             this.kmboxMacTextBox.CornerRadius = 8;
             this.kmboxMacTextBox.Font = new System.Drawing.Font("Consolas", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxMacTextBox.ForeColor = System.Drawing.Color.FromArgb(20, 83, 45);
-            this.kmboxMacTextBox.Location = new System.Drawing.Point(498, 50);
+            this.kmboxMacTextBox.Location = new System.Drawing.Point(498, 86);
             this.kmboxMacTextBox.Name = "kmboxMacTextBox";
             this.kmboxMacTextBox.Size = new System.Drawing.Size(254, 30);
             this.kmboxMacTextBox.TabIndex = 8;
@@ -242,7 +287,7 @@ namespace Roadhog
             this.kmboxSaveButton.CornerRadius = 9;
             this.kmboxSaveButton.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F, System.Drawing.FontStyle.Bold);
             this.kmboxSaveButton.ForeColor = System.Drawing.Color.White;
-            this.kmboxSaveButton.Location = new System.Drawing.Point(760, 50);
+            this.kmboxSaveButton.Location = new System.Drawing.Point(760, 86);
             this.kmboxSaveButton.Name = "kmboxSaveButton";
             this.kmboxSaveButton.ShadowDepth = 2;
             this.kmboxSaveButton.Size = new System.Drawing.Size(120, 30);
@@ -253,23 +298,24 @@ namespace Roadhog
             //
             // kmboxStatusLabel
             //
-            this.kmboxStatusLabel.AutoSize = true;
+            this.kmboxStatusLabel.AutoSize = false;
             this.kmboxStatusLabel.Font = new System.Drawing.Font("Microsoft YaHei UI", 8.5F, System.Drawing.FontStyle.Bold);
             this.kmboxStatusLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
-            this.kmboxStatusLabel.Location = new System.Drawing.Point(554, 58);
+            this.kmboxStatusLabel.Location = new System.Drawing.Point(488, 55);
             this.kmboxStatusLabel.Name = "kmboxStatusLabel";
-            this.kmboxStatusLabel.Size = new System.Drawing.Size(0, 17);
+            this.kmboxStatusLabel.Size = new System.Drawing.Size(264, 17);
             this.kmboxStatusLabel.TabIndex = 10;
+            this.kmboxStatusLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             //
             // Form1
             //
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 17F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.Color.FromArgb(248, 253, 250);
-            this.ClientSize = new System.Drawing.Size(940, 210);
+            this.ClientSize = new System.Drawing.Size(940, 250);
             this.Controls.Add(this.shellPanel);
             this.Font = new System.Drawing.Font("Microsoft YaHei UI", 9F);
-            this.MinimumSize = new System.Drawing.Size(760, 220);
+            this.MinimumSize = new System.Drawing.Size(760, 260);
             this.Name = "Form1";
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
             this.Text = "GreenPlayer";
@@ -288,6 +334,9 @@ namespace Roadhog
         private Roadhog.RoundedPanel topBarPanel;
         private System.Windows.Forms.Label fpgaLabel;
         private Roadhog.RoundedComboBox fpgaDeviceComboBox;
+        private System.Windows.Forms.Label vmmDeviceLabel;
+        private Roadhog.RoundedComboBox vmmDeviceComboBox;
+        private Roadhog.RoundedButton vmmReadTestButton;
         private Roadhog.RoundedButton refreshDevicesButton;
         private System.Windows.Forms.Label kmboxTitleLabel;
         private System.Windows.Forms.Label kmboxIpLabel;

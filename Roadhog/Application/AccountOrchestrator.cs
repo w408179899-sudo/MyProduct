@@ -266,7 +266,7 @@ public sealed class AccountOrchestrator
 
     private static HardwareBinding PreferConfiguredVmmDeviceName(AccountConfig config, HardwareBinding binding)
     {
-        return IsDefaultVmmDeviceName(binding.VmmDeviceName) && !IsDefaultVmmDeviceName(config.VmmDeviceName)
+        return !IsDefaultVmmDeviceName(config.VmmDeviceName)
             ? binding with { VmmDeviceName = config.VmmDeviceName.Trim() }
             : binding;
     }

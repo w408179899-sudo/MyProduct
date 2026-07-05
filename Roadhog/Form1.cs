@@ -30,6 +30,7 @@ namespace Roadhog
             RebuildAccountsFromDevices();
             BuildAccountTable();
             RefreshFpgaDeviceCombo();
+            RefreshVmmDeviceCombo();
             LoadKmBoxNetInputs();
             UpdateWindowTitle();
             RefreshMissingPlayerInfoForRows();
@@ -98,7 +99,7 @@ namespace Roadhog
                 "",
                 account.CharacterName ?? "",
                 device.BindingKey,
-                device.VmmDeviceName,
+                ResolveSavedOrDeviceVmmDeviceName(account.VmmDeviceName, device.VmmDeviceName),
                 "idle",
                 "0.0",
                 "00:00:00"));
@@ -315,6 +316,7 @@ namespace Roadhog
             RebuildAccountsFromDevices();
             BuildAccountTable();
             RefreshFpgaDeviceCombo();
+            RefreshVmmDeviceCombo();
             UpdateWindowTitle();
             RefreshMissingPlayerInfoForRows();
         }
@@ -420,6 +422,150 @@ namespace Roadhog
             return FormatHardwareDisplay(device.BindingKey);
         }
 
+        private void RefreshVmmDeviceCombo()
+        {
+            var selectedVmmDeviceName = ResolvePreferredVmmDeviceName();
+            var devices = ListAvailableFpgaDevices();
+            var items = BuildVmmDeviceItems(devices, selectedVmmDeviceName);
+
+            vmmDeviceComboBox.Items.Clear();
+            foreach (var item in items)
+            {
+                vmmDeviceComboBox.Items.Add(item);
+            }
+
+            if (vmmDeviceComboBox.Items.Count == 0)
+            {
+                vmmDeviceComboBox.Items.Add(new VmmDeviceComboItem("fpga", "fpga"));
+            }
+
+            var selectedIndex = 0;
+            for (var i = 0; i < vmmDeviceComboBox.Items.Count; i++)
+            {
+                if (vmmDeviceComboBox.Items[i] is VmmDeviceComboItem item &&
+                    string.Equals(item.Value, selectedVmmDeviceName, StringComparison.OrdinalIgnoreCase))
+                {
+                    selectedIndex = i;
+                    break;
+                }
+            }
+
+            vmmDeviceComboBox.SelectedIndex = selectedIndex;
+        }
+
+        private string ResolvePreferredVmmDeviceName()
+        {
+            var accountRowVmmDeviceName = _accounts
+                .Select(account => account.VmmDeviceName)
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+            if (!string.IsNullOrWhiteSpace(accountRowVmmDeviceName))
+            {
+                return accountRowVmmDeviceName.Trim();
+            }
+
+            var savedAccount = SelectClientAccount(LoadSavedAccountsForRows());
+            if (!string.IsNullOrWhiteSpace(savedAccount?.VmmDeviceName))
+            {
+                return savedAccount.VmmDeviceName.Trim();
+            }
+
+            return "fpga";
+        }
+
+        private static IReadOnlyList<VmmDeviceComboItem> BuildVmmDeviceItems(
+            IReadOnlyList<Core.Hardware.HardwareDeviceFeature> devices,
+            string selectedVmmDeviceName)
+        {
+            var items = new List<VmmDeviceComboItem>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            AddVmmDeviceItem(items, seen, selectedVmmDeviceName);
+            AddVmmDeviceItem(items, seen, "fpga");
+            foreach (var device in devices)
+            {
+                AddVmmDeviceItem(items, seen, device.VmmDeviceName);
+            }
+
+            var indexedCount = devices.Count;
+            var selectedIndex = ExtractVmmDeviceIndex(selectedVmmDeviceName);
+            if (selectedIndex >= 0)
+            {
+                indexedCount = Math.Max(indexedCount, selectedIndex + 1);
+            }
+
+            for (var i = 0; i < indexedCount; i++)
+            {
+                AddVmmDeviceItem(
+                    items,
+                    seen,
+                    "fpga://devindex=" + i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            return items;
+        }
+
+        private static void AddVmmDeviceItem(
+            List<VmmDeviceComboItem> items,
+            HashSet<string> seen,
+            string? vmmDeviceName)
+        {
+            var value = NormalizeVmmDeviceName(vmmDeviceName);
+            if (!seen.Add(value))
+            {
+                return;
+            }
+
+            items.Add(new VmmDeviceComboItem(value, value));
+        }
+
+        private static int ExtractVmmDeviceIndex(string? vmmDeviceName)
+        {
+            if (string.IsNullOrWhiteSpace(vmmDeviceName))
+            {
+                return -1;
+            }
+
+            const string marker = "devindex=";
+            var markerIndex = vmmDeviceName.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (markerIndex < 0)
+            {
+                return -1;
+            }
+
+            var start = markerIndex + marker.Length;
+            var end = start;
+            while (end < vmmDeviceName.Length && char.IsDigit(vmmDeviceName[end]))
+            {
+                end++;
+            }
+
+            return end > start &&
+                int.TryParse(vmmDeviceName[start..end], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var index)
+                ? index
+                : -1;
+        }
+
+        private string GetSelectedVmmDeviceName()
+        {
+            return vmmDeviceComboBox.SelectedItem is VmmDeviceComboItem item
+                ? item.Value
+                : NormalizeVmmDeviceName(vmmDeviceComboBox.Text);
+        }
+
+        private static string NormalizeVmmDeviceName(string? vmmDeviceName)
+        {
+            return string.IsNullOrWhiteSpace(vmmDeviceName)
+                ? "fpga"
+                : vmmDeviceName.Trim();
+        }
+
+        private static string ResolveSavedOrDeviceVmmDeviceName(string? savedVmmDeviceName, string? deviceVmmDeviceName)
+        {
+            return IsDefaultVmmDeviceName(savedVmmDeviceName)
+                ? NormalizeVmmDeviceName(deviceVmmDeviceName)
+                : savedVmmDeviceName!.Trim();
+        }
+
         private void AccountHardwareInput_TextChanged(object? sender, EventArgs e)
         {
             if (_suppressHardwareInputChanged)
@@ -501,7 +647,7 @@ namespace Roadhog
         {
             var selectedItem = fpgaDeviceComboBox.SelectedItem as FpgaDeviceComboItem;
             var hardwareKey = selectedItem?.BindingKey.Trim() ?? string.Empty;
-            var vmmDeviceName = selectedItem?.VmmDeviceName.Trim() ?? string.Empty;
+            var vmmDeviceName = GetSelectedVmmDeviceName();
             if (IsAutoHardwareKey(hardwareKey))
             {
                 return Core.Common.OperationResult.Fail("\u8bf7\u5148\u9009\u62e9FPGA\u8bbe\u5907\u3002");
@@ -535,13 +681,13 @@ namespace Roadhog
                 account.HardwareDeviceInstanceId = device.DeviceInstanceId;
                 account.HardwareLocationKey = device.LocationKey;
                 account.HardwareDisplayName = device.DisplayName;
-                account.VmmDeviceName = device.VmmDeviceName;
             }
             else
             {
                 account.HardwareKey = hardwareKey;
-                account.VmmDeviceName = vmmDeviceName;
             }
+
+            account.VmmDeviceName = vmmDeviceName;
 
             var saveResult = await _services.AccountConfigStore.UpsertAsync(account).ConfigureAwait(true);
             if (!saveResult.Success)
@@ -578,9 +724,7 @@ namespace Roadhog
             var hardwareKey = selectedItem is not null && !string.IsNullOrWhiteSpace(selectedItem.BindingKey)
                 ? selectedItem.BindingKey.Trim()
                 : row.HardwareKey.Trim();
-            var vmmDeviceName = selectedItem is not null && !string.IsNullOrWhiteSpace(selectedItem.VmmDeviceName)
-                ? selectedItem.VmmDeviceName.Trim()
-                : row.VmmDeviceName.Trim();
+            var vmmDeviceName = GetSelectedVmmDeviceName();
             if (IsAutoHardwareKey(hardwareKey))
             {
                 return Core.Common.OperationResult.Fail("请先选择FPGA设备。");
@@ -614,12 +758,12 @@ namespace Roadhog
                 account.HardwareDeviceInstanceId = device.DeviceInstanceId;
                 account.HardwareLocationKey = device.LocationKey;
                 account.HardwareDisplayName = device.DisplayName;
-                account.VmmDeviceName = device.VmmDeviceName;
+                account.VmmDeviceName = vmmDeviceName;
 
                 row = row with
                 {
                     HardwareKey = device.BindingKey,
-                    VmmDeviceName = device.VmmDeviceName
+                    VmmDeviceName = vmmDeviceName
                 };
             }
             else
@@ -641,6 +785,67 @@ namespace Roadhog
             UpdateAccountRowText(row, snapshot: null, updateHardwareKey: true);
             UpdateWindowTitle();
             return Core.Common.OperationResult.Ok();
+        }
+
+        private async void TestVmmReadButton_Click(object? sender, EventArgs e)
+        {
+            if (sender is not Button button)
+            {
+                return;
+            }
+
+            var vmmDeviceName = GetSelectedVmmDeviceName();
+            button.Enabled = false;
+            var oldText = button.Text;
+            button.Text = "\u8bfb\u53d6\u4e2d...";
+            kmboxStatusLabel.ForeColor = Color.FromArgb(22, 101, 52);
+            kmboxStatusLabel.Text = "VMM " + vmmDeviceName + " \u8bfb\u53d6\u4e2d";
+            try
+            {
+                var accountName = _accounts.FirstOrDefault()?.Account
+                    ?? SelectClientAccount(LoadSavedAccountsForRows())?.AccountName
+                    ?? "account1";
+                var result = await ReadPlayerForVmmDeviceAsync(accountName, vmmDeviceName).ConfigureAwait(true);
+                if (!result.Success || result.Value is null)
+                {
+                    kmboxStatusLabel.ForeColor = Color.FromArgb(166, 40, 40);
+                    kmboxStatusLabel.Text = "VMM\u8bfb\u53d6\u5931\u8d25: " + (result.Error ?? vmmDeviceName);
+                    return;
+                }
+
+                var player = result.Value;
+                var levelClass = FormatLevelClass(player);
+                var characterText = string.IsNullOrWhiteSpace(player.CharacterName)
+                    ? "entity=" + player.EntityId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : player.CharacterName.Trim();
+                kmboxStatusLabel.ForeColor = Color.FromArgb(22, 101, 52);
+                kmboxStatusLabel.Text = string.IsNullOrWhiteSpace(levelClass)
+                    ? "VMM OK " + characterText
+                    : levelClass + " " + characterText;
+            }
+            finally
+            {
+                button.Text = oldText;
+                button.Enabled = true;
+            }
+        }
+
+        private Task<Core.Common.OperationResult<Core.Model.PlayerSnapshot>> ReadPlayerForVmmDeviceAsync(
+            string accountName,
+            string vmmDeviceName)
+        {
+            if (_services.GameApi is Core.Api.IRoadhogScopedGameApi scopedApi)
+            {
+                return scopedApi.ReadPlayerAsync(
+                    new Core.Api.GameApiReadContext(
+                        accountName,
+                        0,
+                        string.Empty,
+                        NormalizeVmmDeviceName(vmmDeviceName)),
+                    CancellationToken.None);
+            }
+
+            return _services.GameApi.ReadPlayerAsync(CancellationToken.None);
         }
 
         private Core.Hardware.HardwareDeviceFeature? FindFpgaDeviceByKey(string hardwareKey)
@@ -709,7 +914,12 @@ namespace Roadhog
                 return;
             }
 
-            using var settingsForm = new AccountSettingsForm(account, _services.Runtime, _services.AccountConfigStore, _services.SharedPathStore);
+            using var settingsForm = new AccountSettingsForm(
+                account,
+                _services.Runtime,
+                _services.AccountConfigStore,
+                _services.SharedPathStore,
+                _services.ScriptProfileStore);
             settingsForm.ShowDialog(this);
         }
 
@@ -778,6 +988,7 @@ namespace Roadhog
 
             config.AccountName = account;
             config.Enabled = true;
+            await ApplySelectedProfileAsync(config).ConfigureAwait(true);
             if (config.ScriptSettings is not null)
             {
                 config.ProfileName = config.ScriptSettings.ProfileName;
@@ -805,6 +1016,40 @@ namespace Roadhog
             return StartConfigBuildResult.Ok(config);
         }
 
+        private async Task ApplySelectedProfileAsync(Core.Accounts.AccountConfig config)
+        {
+            var profileName = config.ScriptSettings?.ProfileName;
+            if (string.IsNullOrWhiteSpace(profileName))
+            {
+                profileName = config.ProfileName;
+            }
+
+            if (string.IsNullOrWhiteSpace(profileName))
+            {
+                return;
+            }
+
+            var profileResult = await _services.ScriptProfileStore.LoadAsync(profileName).ConfigureAwait(true);
+            if (!profileResult.Success || profileResult.Value is null)
+            {
+                _services.Logger.Warn("account.profile.load_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = config.AccountName,
+                    ["profileName"] = profileName,
+                    ["error"] = profileResult.Error
+                });
+                return;
+            }
+
+            config.ScriptSettings = profileResult.Value.Settings.Clone();
+            config.ProfileName = config.ScriptSettings.ProfileName;
+            config.MainMode = config.ScriptSettings.MainMode;
+            config.CombatMode = config.ScriptSettings.CombatMode;
+            config.RevivePathName = config.ScriptSettings.Paths.RevivePathName;
+            config.CombatPathName = config.ScriptSettings.Paths.CombatPathName;
+            config.MaintenancePathName = config.ScriptSettings.Paths.MaintenancePathName;
+        }
+
         private void UpdateAccountRuntimeDisplay(string account, bool updateHardwareKey)
         {
             var snapshot = _services.AccountOrchestrator.Snapshot()
@@ -826,6 +1071,9 @@ namespace Roadhog
                 HardwareKey = updateHardwareKey && !string.IsNullOrWhiteSpace(snapshot.HardwareKey)
                     ? snapshot.HardwareKey
                     : accountRow.HardwareKey,
+                VmmDeviceName = updateHardwareKey && !string.IsNullOrWhiteSpace(snapshot.VmmDeviceName)
+                    ? snapshot.VmmDeviceName
+                    : accountRow.VmmDeviceName,
                 Role = string.IsNullOrWhiteSpace(snapshot.CharacterName) ? accountRow.Role : snapshot.CharacterName,
                 Status = snapshot.Status,
                 KillsPerHour = FormatKillsPerHour(snapshot),
@@ -1135,6 +1383,12 @@ namespace Roadhog
                 || string.Equals(hardwareKey.Trim(), "automatic", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsDefaultVmmDeviceName(string? vmmDeviceName)
+        {
+            return string.IsNullOrWhiteSpace(vmmDeviceName)
+                || string.Equals(vmmDeviceName.Trim(), "fpga", StringComparison.OrdinalIgnoreCase);
+        }
+
         private sealed record AccountRowModel(
             string Account,
             string LevelClass,
@@ -1157,6 +1411,14 @@ namespace Roadhog
         {
             public static FpgaDeviceComboItem Empty { get; } = new(string.Empty, string.Empty, "未检测到FPGA设备");
 
+            public override string ToString()
+            {
+                return Text;
+            }
+        }
+
+        private sealed record VmmDeviceComboItem(string Value, string Text)
+        {
             public override string ToString()
             {
                 return Text;

@@ -12,6 +12,7 @@ public sealed class RoadhogServiceOptions
     public const string ConfigRootEnvironmentVariable = "ROADHOG_CONFIG_ROOT";
     public const string AccountConfigPathEnvironmentVariable = "ROADHOG_ACCOUNT_CONFIG_PATH";
     public const string PathLibraryDirectoryEnvironmentVariable = "ROADHOG_PATH_LIBRARY_DIRECTORY";
+    public const string ProfileLibraryDirectoryEnvironmentVariable = "ROADHOG_PROFILE_LIBRARY_DIRECTORY";
     public const string KmBoxNetConfigPathEnvironmentVariable = "ROADHOG_KMBOX_NET_CONFIG_PATH";
     public const string LogDirectoryEnvironmentVariable = "ROADHOG_LOG_DIRECTORY";
 
@@ -22,6 +23,8 @@ public sealed class RoadhogServiceOptions
     public string AccountConfigPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "accounts.json");
 
     public string PathLibraryDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "paths");
+
+    public string ProfileLibraryDirectory { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "profiles");
 
     public string KmBoxNetConfigPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "kmbox-net.json");
 
@@ -57,6 +60,7 @@ public sealed class RoadhogServiceOptions
         {
             AccountConfigPath = Path.Combine(clientRoot, "config", "accounts.json");
             PathLibraryDirectory = Path.Combine(clientRoot, "config", "paths");
+            ProfileLibraryDirectory = Path.Combine(clientRoot, "config", "profiles");
             KmBoxNetConfigPath = Path.Combine(clientRoot, "config", "kmbox-net.json");
             LogDirectory = Path.Combine(clientRoot, "logs");
         }
@@ -66,11 +70,13 @@ public sealed class RoadhogServiceOptions
         {
             AccountConfigPath = Path.Combine(configRoot, "accounts.json");
             PathLibraryDirectory = Path.Combine(configRoot, "paths");
+            ProfileLibraryDirectory = Path.Combine(configRoot, "profiles");
             KmBoxNetConfigPath = Path.Combine(configRoot, "kmbox-net.json");
         }
 
         AccountConfigPath = ReadPathFromEnvironment(AccountConfigPathEnvironmentVariable) ?? AccountConfigPath;
         PathLibraryDirectory = ReadPathFromEnvironment(PathLibraryDirectoryEnvironmentVariable) ?? PathLibraryDirectory;
+        ProfileLibraryDirectory = ReadPathFromEnvironment(ProfileLibraryDirectoryEnvironmentVariable) ?? ProfileLibraryDirectory;
         KmBoxNetConfigPath = ReadPathFromEnvironment(KmBoxNetConfigPathEnvironmentVariable) ?? KmBoxNetConfigPath;
         LogDirectory = ReadPathFromEnvironment(LogDirectoryEnvironmentVariable) ?? LogDirectory;
     }
