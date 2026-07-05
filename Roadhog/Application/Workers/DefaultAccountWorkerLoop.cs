@@ -66,9 +66,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 var isStationaryCombat =
                     context.Config.MainMode == AccountMainMode.CustomCombat &&
                     context.Config.CombatMode == AccountCombatMode.Stationary;
-                var followRevivePath =
-                    isStationaryCombat &&
-                    (context.Config.ScriptSettings?.Combat?.HasStationaryCombatPosition == true);
+                var followRevivePath = isStationaryCombat;
                 var lifeGuardDelay = await _stationaryCombat
                     .TickPlayerLifeGuardAsync(
                         context,

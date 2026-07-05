@@ -48,6 +48,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
+    ("stationary combat derives home from revive path endpoint", TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync),
     ("stationary combat skips active filtered monsters", TestStationaryCombatSkipsActiveFilteredMonstersAsync),
     ("stationary combat state uses server object id identity", TestStationaryCombatStateUsesServerObjectIdIdentityAsync),
     ("tool bridge world parser reads aggressive monster flags", TestToolBridgeWorldParserReadsAggressiveFlagsAsync),
@@ -1151,6 +1152,58 @@ static Task TestStationaryTargetSelectorAsync()
     return Task.CompletedTask;
 }
 
+static async Task TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Paths.RevivePathName = "revive-home";
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 12
+    };
+
+    var pathStore = new InMemorySharedPathStore(
+        CreatePath("revive-home",
+            new Vector3Snapshot(10, 0, 0),
+            new Vector3Snapshot(100, 0, 0)));
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(100, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 0,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(105, 0, 0),
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, 100, "legacy-home-target", "monster", new Vector3Snapshot(5, 0, 0), 95, 1000, 1000),
+            new WorldObjectSnapshot(200, 200, "revive-home-target", "monster", new Vector3Snapshot(105, 0, 0), 5, 1000, 1000)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+    var state = new StationaryCombatState();
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), state)
+        .ConfigureAwait(false);
+
+    AssertEqual((ushort)200, state.CandidateEntityId, "revive path endpoint should override legacy stationary position");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.position.missing"), "revive path endpoint should satisfy stationary home");
+}
+
 static async Task TestStationaryCombatSkipsActiveFilteredMonstersAsync()
 {
     var settings = CreateScriptSettings();
@@ -1426,7 +1479,8 @@ static async Task TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync()
         CreatePath("revive-a",
             new Vector3Snapshot(0, 0, 0),
             new Vector3Snapshot(10, 0, 0),
-            new Vector3Snapshot(50, 0, 0)));
+            new Vector3Snapshot(50, 0, 0),
+            new Vector3Snapshot(100, 0, 0)));
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi

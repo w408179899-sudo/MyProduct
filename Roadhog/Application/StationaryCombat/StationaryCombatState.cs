@@ -86,6 +86,12 @@ public sealed class StationaryCombatState
 
     public object? PathFollowPoller { get; set; }
 
+    public string StationaryHomePathName { get; private set; } = string.Empty;
+
+    public int StationaryHomePathPointCount { get; private set; }
+
+    public Vector3Snapshot? StationaryHomeFromRevivePath { get; private set; }
+
     public bool StartupRecoveryChecked { get; private set; }
 
     public bool StartupRecoveryActive { get; private set; }
@@ -284,6 +290,34 @@ public sealed class StationaryCombatState
     public void MarkStartupRecoveryChecked()
     {
         StartupRecoveryChecked = true;
+    }
+
+    public bool TryGetStationaryHomeFromRevivePath(
+        string pathName,
+        out Vector3Snapshot home,
+        out int pointCount)
+    {
+        if (StationaryHomeFromRevivePath is { } cachedHome &&
+            string.Equals(StationaryHomePathName, pathName, StringComparison.OrdinalIgnoreCase))
+        {
+            home = cachedHome;
+            pointCount = StationaryHomePathPointCount;
+            return true;
+        }
+
+        home = default;
+        pointCount = 0;
+        return false;
+    }
+
+    public void SetStationaryHomeFromRevivePath(
+        string pathName,
+        Vector3Snapshot home,
+        int pointCount)
+    {
+        StationaryHomePathName = pathName;
+        StationaryHomeFromRevivePath = home;
+        StationaryHomePathPointCount = Math.Max(0, pointCount);
     }
 
     public void StartStartupRecovery(

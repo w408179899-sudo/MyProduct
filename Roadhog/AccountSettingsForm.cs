@@ -43,14 +43,11 @@ namespace Roadhog
         private RoundedComboBox? mainModeCombo;
         private Label? combatModeLabel;
         private RoundedComboBox? combatModeCombo;
-        private Button? stationaryCombatPositionButton;
-        private Label? stationaryCombatPositionLabel;
         private Label? stationaryCombatRadiusLabel;
         private RoundedTextBox? stationaryCombatRadiusTextBox;
         private Label? stationaryCombatRadiusUnitLabel;
         private RoundedTextBox? cameraYawPixelsPerDegreeTextBox;
         private RoundedTextBox? cameraPitchPixelsPerDegreeTextBox;
-        private Vector3Snapshot? stationaryCombatPosition;
         private RoundedCheckBox? enableLootCheckBox;
         private RoundedCheckBox? contestMonsterCheckBox;
         private RoundedCheckBox? counterEnemyRaceCheckBox;
@@ -262,7 +259,7 @@ namespace Roadhog
             SelectProfileComboItem(settings.ProfileName, loadProfile: false);
             SetComboText(mainModeCombo, FormatMainMode(settings.MainMode));
             SetComboText(combatModeCombo, FormatCombatMode(settings.CombatMode));
-            SetStationaryCombatPosition(settings.Combat);
+            SetStationaryCombatRadius(settings.Combat);
             SetCameraTurnScales(settings.Combat);
             RefreshCombatModeVisibility();
 
@@ -401,10 +398,10 @@ namespace Roadhog
                     CounterEnemyRace = counterEnemyRaceCheckBox?.Checked ?? false,
                     PreferAggressiveMonsters = preferAggressiveMonsterCheckBox?.Checked ?? false,
                     ActiveMonsterNameFilters = CaptureActiveMonsterFilterList(),
-                    HasStationaryCombatPosition = stationaryCombatPosition is not null,
-                    StationaryCombatX = stationaryCombatPosition?.X ?? 0.0D,
-                    StationaryCombatY = stationaryCombatPosition?.Y ?? 0.0D,
-                    StationaryCombatZ = stationaryCombatPosition?.Z ?? 0.0D,
+                    HasStationaryCombatPosition = false,
+                    StationaryCombatX = 0.0D,
+                    StationaryCombatY = 0.0D,
+                    StationaryCombatZ = 0.0D,
                     StationaryCombatRadius = ReadDouble(stationaryCombatRadiusTextBox, 30.0D, 1.0D, 500.0D),
                     CameraYawPixelsPerDegree = ReadDouble(cameraYawPixelsPerDegreeTextBox, 11.0D, 0.1D, 100.0D),
                     CameraPitchPixelsPerDegree = ReadDouble(cameraPitchPixelsPerDegreeTextBox, 13.0D, 0.1D, 100.0D)
@@ -591,11 +588,9 @@ namespace Roadhog
             combatModeCombo = AddCombo(page, 4, 104, 220, 28, "原地打怪", "路径打怪");
             combatModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
             combatModeLabel = AddLabel(page, "打怪模式", 230, 108, 80, 22);
-            stationaryCombatPositionButton = AddButton(page, "设置当前坐标", 306, 104, 128, 30, SetStationaryCombatPositionButton_Click);
-            stationaryCombatPositionLabel = AddLabel(page, "未设置打怪坐标", 444, 108, 178, 22);
-            stationaryCombatRadiusLabel = AddLabel(page, "半径", 632, 108, 38, 22);
-            stationaryCombatRadiusTextBox = AddTextBox(page, "30.0", 672, 104, 70, 28);
-            stationaryCombatRadiusUnitLabel = AddLabel(page, "m", 748, 108, 20, 22);
+            stationaryCombatRadiusLabel = AddLabel(page, "半径", 306, 108, 38, 22);
+            stationaryCombatRadiusTextBox = AddTextBox(page, "30.0", 346, 104, 70, 28);
+            stationaryCombatRadiusUnitLabel = AddLabel(page, "m", 422, 108, 20, 22);
             RefreshCombatModeVisibility();
 
             enableLootCheckBox = AddCheckBox(page, "启用拾取", 4, 142, 88, true);
@@ -621,16 +616,6 @@ namespace Roadhog
             if (combatModeLabel is not null)
             {
                 combatModeLabel.Visible = visible;
-            }
-
-            if (stationaryCombatPositionButton is not null)
-            {
-                stationaryCombatPositionButton.Visible = stationaryVisible;
-            }
-
-            if (stationaryCombatPositionLabel is not null)
-            {
-                stationaryCombatPositionLabel.Visible = stationaryVisible;
             }
 
             if (stationaryCombatRadiusLabel is not null)
@@ -829,58 +814,12 @@ namespace Roadhog
             profileStatusLabel.ForeColor = isError ? Color.FromArgb(166, 40, 40) : _textGreen;
         }
 
-        private async void SetStationaryCombatPositionButton_Click(object? sender, EventArgs e)
+        private void SetStationaryCombatRadius(CombatScriptSettings combat)
         {
-            if (sender is not Button button)
-            {
-                return;
-            }
-
-            var originalText = button.Text;
-            button.Enabled = false;
-            button.Text = "读取坐标...";
-
-            try
-            {
-                var result = await _runtime.ReadPlayerAsync(_account).ConfigureAwait(true);
-                if (!result.Success || result.Value is null)
-                {
-                    SetStationaryCombatPositionStatus(result.Error ?? "读取玩家坐标失败", true);
-                    return;
-                }
-
-                if (result.Value.Position is not { } position)
-                {
-                    SetStationaryCombatPositionStatus("玩家坐标为空", true);
-                    return;
-                }
-
-                stationaryCombatPosition = position;
-                RefreshStationaryCombatPositionLabel("已设置，保存配置后生效");
-            }
-            finally
-            {
-                if (!button.IsDisposed)
-                {
-                    button.Text = originalText;
-                    button.Enabled = true;
-                }
-            }
-        }
-
-        private void SetStationaryCombatPosition(CombatScriptSettings combat)
-        {
-            stationaryCombatPosition = combat.HasStationaryCombatPosition
-                ? new Vector3Snapshot(
-                    (float)combat.StationaryCombatX,
-                    (float)combat.StationaryCombatY,
-                    (float)combat.StationaryCombatZ)
-                : null;
             var radius = combat.StationaryCombatRadius <= 0.0D
                 ? 30.0D
                 : Math.Min(combat.StationaryCombatRadius, 500.0D);
             SetText(stationaryCombatRadiusTextBox, radius.ToString("F1", CultureInfo.InvariantCulture));
-            RefreshStationaryCombatPositionLabel(null);
         }
 
         private void SetCameraTurnScales(CombatScriptSettings combat)
@@ -893,33 +832,6 @@ namespace Roadhog
                 : Math.Clamp(combat.CameraPitchPixelsPerDegree, 0.1D, 100.0D);
             SetText(cameraYawPixelsPerDegreeTextBox, yaw.ToString("0.###", CultureInfo.InvariantCulture));
             SetText(cameraPitchPixelsPerDegreeTextBox, pitch.ToString("0.###", CultureInfo.InvariantCulture));
-        }
-
-        private void RefreshStationaryCombatPositionLabel(string? prefix)
-        {
-            if (stationaryCombatPositionLabel is null)
-            {
-                return;
-            }
-
-            var text = stationaryCombatPosition is { } position
-                ? FormatVector(position)
-                : "未设置打怪坐标";
-            stationaryCombatPositionLabel.ForeColor = _textGreen;
-            stationaryCombatPositionLabel.Text = string.IsNullOrWhiteSpace(prefix)
-                ? text
-                : prefix + "  " + text;
-        }
-
-        private void SetStationaryCombatPositionStatus(string text, bool isError)
-        {
-            if (stationaryCombatPositionLabel is null)
-            {
-                return;
-            }
-
-            stationaryCombatPositionLabel.ForeColor = isError ? Color.FromArgb(166, 40, 40) : _textGreen;
-            stationaryCombatPositionLabel.Text = text;
         }
 
         private TabPage CreatePathTab()

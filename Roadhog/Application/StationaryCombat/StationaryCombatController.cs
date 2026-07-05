@@ -53,22 +53,23 @@ public sealed class StationaryCombatController
         StationaryCombatState state)
     {
         var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
-        if (!combat.HasStationaryCombatPosition)
+        var homeResult = await TryResolveStationaryHomeAsync(context, state).ConfigureAwait(false);
+        if (!homeResult.Success || homeResult.Value is null)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             StopPathFollowPoller(state);
             LogThrottled(context, state, "stationary_combat.position.missing", new Dictionary<string, object?>
             {
-                ["account"] = context.Config.AccountName
+                ["account"] = context.Config.AccountName,
+                ["revivePathName"] = GetRevivePathName(context),
+                ["reason"] = homeResult.Error
             });
             return IdleDelay;
         }
 
-        var home = new Vector3Snapshot(
-            (float)combat.StationaryCombatX,
-            (float)combat.StationaryCombatY,
-            (float)combat.StationaryCombatZ);
+        var homeResolution = homeResult.Value;
+        var home = homeResolution.Position;
         var radius = Math.Max(1.0D, combat.StationaryCombatRadius);
 
         var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
@@ -403,11 +404,31 @@ public sealed class StationaryCombatController
             return null;
         }
 
-        var hasStationaryHome = TryGetStationaryHome(context, out var home);
-        var shouldFollowRevivePath = followRevivePath && hasStationaryHome;
-        var playerDistanceFromHome = player.Position is not null && hasStationaryHome
-            ? StationaryCombatTargetSelector.HorizontalDistance(player.Position.Value, home)
-            : 0.0D;
+        var home = default(Vector3Snapshot);
+        var shouldFollowRevivePath = false;
+        var playerDistanceFromHome = 0.0D;
+        if (followRevivePath)
+        {
+            var homeResult = await TryResolveStationaryHomeAsync(context, state).ConfigureAwait(false);
+            if (homeResult.Success && homeResult.Value is not null)
+            {
+                home = homeResult.Value.Position;
+                shouldFollowRevivePath = true;
+                playerDistanceFromHome = player.Position is not null
+                    ? StationaryCombatTargetSelector.HorizontalDistance(player.Position.Value, home)
+                    : 0.0D;
+            }
+            else
+            {
+                LogThrottled(context, state, "player_life.guard.home_missing", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["revivePathName"] = GetRevivePathName(context),
+                    ["reason"] = homeResult.Error
+                });
+            }
+        }
+
         return await TickDeathRecoveryAsync(
                 context,
                 plan,
@@ -1032,6 +1053,7 @@ public sealed class StationaryCombatController
         var revivePoints = points
             .Select(point => point.ToVector3())
             .ToArray();
+        state.SetStationaryHomeFromRevivePath(revivePathName, revivePoints[^1], revivePoints.Length);
         var nearestPointIndex = FindNearestPathPointIndex(playerPosition, revivePoints, playerDistanceFromHome);
         if (nearestPointIndex < 0)
         {
@@ -1180,6 +1202,7 @@ public sealed class StationaryCombatController
         var revivePoints = points
             .Select(point => point.ToVector3())
             .ToArray();
+        state.SetStationaryHomeFromRevivePath(revivePathName, revivePoints[^1], revivePoints.Length);
         var nearestPointIndex = FindNearestPathPointIndex(playerPosition, revivePoints, playerDistanceFromHome);
         if (nearestPointIndex < 0)
         {
@@ -3004,7 +3027,54 @@ public sealed class StationaryCombatController
         return context.Config.RevivePathName?.Trim() ?? string.Empty;
     }
 
-    private static bool TryGetStationaryHome(AccountWorkerContext context, out Vector3Snapshot home)
+    private async Task<OperationResult<StationaryHomeResolution>> TryResolveStationaryHomeAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state)
+    {
+        var revivePathName = GetRevivePathName(context);
+        if (_pathStore is not null && !string.IsNullOrWhiteSpace(revivePathName))
+        {
+            if (state.TryGetStationaryHomeFromRevivePath(
+                    revivePathName,
+                    out var cachedHome,
+                    out var cachedPointCount))
+            {
+                return OperationResult<StationaryHomeResolution>.Ok(
+                    new StationaryHomeResolution(cachedHome, "revive_path", revivePathName, cachedPointCount));
+            }
+
+            var pathResult = await _pathStore.LoadAsync(revivePathName, context.StopToken).ConfigureAwait(false);
+            if (pathResult.Success && pathResult.Value?.Points is { Count: > 0 } points)
+            {
+                var home = points[^1].ToVector3();
+                state.SetStationaryHomeFromRevivePath(revivePathName, home, points.Count);
+                return OperationResult<StationaryHomeResolution>.Ok(
+                    new StationaryHomeResolution(home, "revive_path", revivePathName, points.Count));
+            }
+
+            if (TryGetLegacyStationaryHome(context, out var legacyHome))
+            {
+                return OperationResult<StationaryHomeResolution>.Ok(
+                    new StationaryHomeResolution(legacyHome, "legacy_config", revivePathName, 0));
+            }
+
+            var reason = pathResult.Success
+                ? "revive_path_empty"
+                : pathResult.Error ?? "revive_path_load_failed";
+            return OperationResult<StationaryHomeResolution>.Fail(reason);
+        }
+
+        if (TryGetLegacyStationaryHome(context, out var homeFromLegacyConfig))
+        {
+            return OperationResult<StationaryHomeResolution>.Ok(
+                new StationaryHomeResolution(homeFromLegacyConfig, "legacy_config", revivePathName, 0));
+        }
+
+        return OperationResult<StationaryHomeResolution>.Fail(
+            _pathStore is null ? "path_store_missing" : "revive_path_name_missing");
+    }
+
+    private static bool TryGetLegacyStationaryHome(AccountWorkerContext context, out Vector3Snapshot home)
     {
         var combat = context.Config.ScriptSettings?.Combat;
         if (combat?.HasStationaryCombatPosition == true)
@@ -5410,6 +5480,12 @@ public sealed class StationaryCombatController
         public int ArrivedTargetIndex { get; set; }
         public CameraTurnSnapshot? ArrivedSnapshot { get; set; }
     }
+
+    private sealed record StationaryHomeResolution(
+        Vector3Snapshot Position,
+        string Source,
+        string PathName,
+        int PathPointCount);
 
     private sealed record PathFollowTurnOptions
     {
