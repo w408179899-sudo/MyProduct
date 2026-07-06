@@ -64,6 +64,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery path clears nearby aggressive monsters", TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync),
     ("stationary combat death recovery path jumps when stuck", TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync),
     ("path combat worker follows configured combat path", TestPathCombatWorkerFollowsConfiguredCombatPathAsync),
+    ("path combat follows revive path before distant combat path", TestPathCombatFollowsRevivePathBeforeDistantCombatPathAsync),
+    ("path combat starts combat path after access path completes", TestPathCombatStartsCombatPathAfterAccessPathCompletesAsync),
     ("path combat uses configured radius before clearing monsters", TestPathCombatUsesConfiguredRadiusBeforeClearingMonstersAsync),
     ("path combat resumes path after kill", TestPathCombatResumesPathAfterKillAsync),
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
@@ -2329,6 +2331,129 @@ static async Task TestPathCombatWorkerFollowsConfiguredCombatPathAsync()
     finally
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestPathCombatFollowsRevivePathBeforeDistantCombatPathAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousAccessDistance = Environment.GetEnvironmentVariable("ROADHOG_PATH_COMBAT_ACCESS_PATH_DISTANCE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_PATH_COMBAT_ACCESS_PATH_DISTANCE", "120");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Paths.CombatPathName = "combat-a";
+        settings.Combat.StationaryCombatRadius = 8;
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("revive-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(100, 0, 0),
+                new Vector3Snapshot(200, 0, 0)),
+            CreatePath("combat-a",
+                new Vector3Snapshot(205, 0, 0),
+                new Vector3Snapshot(215, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var state = new StationaryCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller
+            .TickPathAsync(context, SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!state.StartupRecoveryActive, "distant path combat should start access path recovery");
+        AssertEqual("revive-a", state.StartupRecoveryPathName, "path combat access path should use revive path");
+        AssertEqual(1, state.StartupRecoveryPointIndex, "access path should advance from reached first point to next point");
+        AssertFalse(state.PathCombat.Active, "combat path should not start until access path completes");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.path_combat.access_path_needed"),
+            "path combat should log access path handoff");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.startup_recovery.selected"),
+            "path combat access path should reuse startup recovery");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.path_combat.path_selected"),
+            "combat path should not be selected before access path finishes");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_PATH_COMBAT_ACCESS_PATH_DISTANCE", previousAccessDistance);
+    }
+}
+
+static async Task TestPathCombatStartsCombatPathAfterAccessPathCompletesAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousAccessDistance = Environment.GetEnvironmentVariable("ROADHOG_PATH_COMBAT_ACCESS_PATH_DISTANCE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_PATH_COMBAT_ACCESS_PATH_DISTANCE", "120");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Paths.CombatPathName = "combat-a";
+        settings.Combat.StationaryCombatRadius = 8;
+
+        var revivePoints = new[]
+        {
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(100, 0, 0),
+            new Vector3Snapshot(200, 0, 0)
+        };
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("revive-a", revivePoints),
+            CreatePath("combat-a",
+                new Vector3Snapshot(205, 0, 0),
+                new Vector3Snapshot(215, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(200, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var state = new StationaryCombatState();
+        state.StartStartupRecovery("revive-a", revivePoints, 2);
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller
+            .TickPathAsync(context, SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(state.StartupRecoveryActive, "completed access path should be cleared");
+        AssertFalse(!state.PathCombat.Active, "combat path should start after access path completes");
+        AssertEqual(0, state.PathCombat.PointIndex, "combat path should start from nearest combat point after access");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.startup_recovery.complete"),
+            "access path completion should be logged");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.path_combat.path_selected"),
+            "combat path should be selected after access path completes");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_PATH_COMBAT_ACCESS_PATH_DISTANCE", previousAccessDistance);
     }
 }
 

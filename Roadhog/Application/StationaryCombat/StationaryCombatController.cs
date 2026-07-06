@@ -477,6 +477,20 @@ public sealed class StationaryCombatController
                 .ConfigureAwait(false);
         }
 
+        var accessPathDelay = await TickPathCombatAccessPathAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                playerPosition,
+                radius)
+            .ConfigureAwait(false);
+        if (accessPathDelay is not null)
+        {
+            return accessPathDelay.Value;
+        }
+
         if (!state.PathCombat.Active &&
             !await TryStartPathCombatAsync(context, state, playerPosition).ConfigureAwait(false))
         {
@@ -1497,6 +1511,142 @@ public sealed class StationaryCombatController
         return null;
     }
 
+    private async Task<TimeSpan?> TickPathCombatAccessPathAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot playerPosition,
+        double radius)
+    {
+        if (state.PathCombat.Active)
+        {
+            return null;
+        }
+
+        var combatPathName = GetCombatPathName(context);
+        var paths = context.Config.ScriptSettings?.Paths;
+        if (state.PathCombat.Completed &&
+            (paths?.LoopPath ?? true) == false &&
+            string.Equals(state.PathCombat.CompletedPathName, combatPathName, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (state.StartupRecoveryActive)
+        {
+            return await ContinuePathCombatAccessPathAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player,
+                    playerPosition,
+                    radius)
+                .ConfigureAwait(false);
+        }
+
+        if (state.StartupRecoveryChecked)
+        {
+            return null;
+        }
+
+        var startProbe = await TryProbePathCombatStartAsync(context, playerPosition).ConfigureAwait(false);
+        if (startProbe is null)
+        {
+            return null;
+        }
+
+        var accessPathDistance = ReadPathCombatAccessPathDistance();
+        if (startProbe.Distance <= accessPathDistance)
+        {
+            state.MarkStartupRecoveryChecked();
+            return null;
+        }
+
+        var homeResult = await TryResolveStationaryHomeAsync(context, state).ConfigureAwait(false);
+        if (!homeResult.Success || homeResult.Value is null)
+        {
+            state.MarkStartupRecoveryChecked();
+            LogThrottled(context, state, "stationary_combat.path_combat.access_path_unavailable", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["combatPathName"] = startProbe.PathName,
+                ["combatPathDistance"] = Math.Round(startProbe.Distance, 2),
+                ["accessPathDistance"] = Math.Round(accessPathDistance, 2),
+                ["revivePathName"] = GetRevivePathName(context),
+                ["reason"] = homeResult.Error
+            });
+            return null;
+        }
+
+        var home = homeResult.Value.Position;
+        var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home);
+        context.Logger.Info("stationary_combat.path_combat.access_path_needed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["combatPathName"] = startProbe.PathName,
+            ["combatStartPointIndex"] = startProbe.PointIndex,
+            ["combatStartPointNumber"] = startProbe.PointIndex + 1,
+            ["combatPathPointCount"] = startProbe.PointCount,
+            ["combatPathDistance"] = Math.Round(startProbe.Distance, 2),
+            ["accessPathDistance"] = Math.Round(accessPathDistance, 2),
+            ["revivePathName"] = GetRevivePathName(context),
+            ["homeDistance"] = Math.Round(playerDistanceFromHome, 2)
+        });
+
+        return await TickStartupRecoveryAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                playerPosition,
+                home,
+                radius,
+                playerDistanceFromHome)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan?> ContinuePathCombatAccessPathAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot playerPosition,
+        double radius)
+    {
+        var homeResult = await TryResolveStationaryHomeAsync(context, state).ConfigureAwait(false);
+        if (!homeResult.Success || homeResult.Value is null)
+        {
+            state.ClearStartupRecovery();
+            LogThrottled(context, state, "stationary_combat.path_combat.access_path_unavailable", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["combatPathName"] = GetCombatPathName(context),
+                ["revivePathName"] = GetRevivePathName(context),
+                ["reason"] = homeResult.Error
+            });
+            return null;
+        }
+
+        var home = homeResult.Value.Position;
+        var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home);
+        return await ContinueStartupRecoveryAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                playerPosition,
+                home,
+                radius,
+                playerDistanceFromHome)
+            .ConfigureAwait(false);
+    }
+
     private async Task<TimeSpan?> TryHandlePathCombatTargetAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
@@ -1743,6 +1893,41 @@ public sealed class StationaryCombatController
             ["pathPointDistance"] = Math.Round(nearestDistance, 2)
         });
         return true;
+    }
+
+    private async Task<PathCombatStartProbe?> TryProbePathCombatStartAsync(
+        AccountWorkerContext context,
+        Vector3Snapshot playerPosition)
+    {
+        var combatPathName = GetCombatPathName(context);
+        if (_pathStore is null || string.IsNullOrWhiteSpace(combatPathName))
+        {
+            return null;
+        }
+
+        var pathResult = await _pathStore.LoadAsync(combatPathName, context.StopToken).ConfigureAwait(false);
+        if (!pathResult.Success || pathResult.Value?.Points is not { Count: >= 2 } points)
+        {
+            return null;
+        }
+
+        var combatPoints = points
+            .Select(point => point.ToVector3())
+            .ToArray();
+        var nearestPointIndex = FindNearestPathPointIndex(playerPosition, combatPoints, double.MaxValue);
+        if (nearestPointIndex < 0)
+        {
+            return null;
+        }
+
+        var nearestDistance = StationaryCombatTargetSelector.HorizontalDistance(
+            playerPosition,
+            combatPoints[nearestPointIndex]);
+        return new PathCombatStartProbe(
+            combatPathName,
+            nearestPointIndex,
+            combatPoints.Length,
+            nearestDistance);
     }
 
     private async Task<TimeSpan> ContinuePathCombatAsync(
@@ -5955,6 +6140,11 @@ public sealed class StationaryCombatController
         return ClampInt(ReadRawIntFromEnv("ROADHOG_COMBAT_APPROACH_JUMP_INTERVAL_MS", 60), 0, 1000);
     }
 
+    private static double ReadPathCombatAccessPathDistance()
+    {
+        return ClampDouble(ReadDoubleFromEnv("ROADHOG_PATH_COMBAT_ACCESS_PATH_DISTANCE", 120.0D), 0.0D, 10_000.0D);
+    }
+
     private static int ReadDeathReviveClickDelayMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", 10_000), 0, 60_000);
@@ -6260,6 +6450,12 @@ public sealed class StationaryCombatController
         string Source,
         string PathName,
         int PathPointCount);
+
+    private sealed record PathCombatStartProbe(
+        string PathName,
+        int PointIndex,
+        int PointCount,
+        double Distance);
 
     private sealed record PathFollowTurnOptions
     {
