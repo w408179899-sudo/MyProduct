@@ -362,6 +362,153 @@ public sealed class StationaryCombatController
         return await TickAcquireAsync(context, plan, semiAutoState, state, target, home, radius).ConfigureAwait(false);
     }
 
+    public async Task<TimeSpan> TickPathAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state)
+    {
+        var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
+        var radius = Math.Max(1.0D, combat.StationaryCombatRadius);
+
+        var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+        if (!playerResult.Success || playerResult.Value is null)
+        {
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+            LogThrottled(context, state, "stationary_combat.path_combat.player.failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["error"] = playerResult.Error
+            });
+            return IdleDelay;
+        }
+
+        var player = playerResult.Value;
+        if (player.Position is null)
+        {
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+            LogThrottled(context, state, "stationary_combat.path_combat.position.missing", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["combatPathName"] = GetCombatPathName(context),
+                ["reason"] = "player_position_missing"
+            });
+            return IdleDelay;
+        }
+
+        var playerPosition = player.Position.Value;
+        await RefreshLocalCombatSideAsync(context, plan, state, player).ConfigureAwait(false);
+
+        if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
+        {
+            state.EnterDeathRecovery(DateTimeOffset.Now);
+            semiAutoState.ResetAttackKeyPressThrottle();
+            context.Logger.Warn("stationary_combat.path_combat.death.detected", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["hp"] = player.CurrentHp,
+                ["maxHp"] = player.MaxHp,
+                ["x"] = Math.Round(playerPosition.X, 2),
+                ["y"] = Math.Round(playerPosition.Y, 2),
+                ["z"] = Math.Round(playerPosition.Z, 2)
+            });
+        }
+
+        if (state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery)
+        {
+            return await TickPlayerLifeGuardAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    followRevivePath: true)
+                .ConfigureAwait(false) ?? IdleDelay;
+        }
+
+        if (state.LootAfterKill.Active)
+        {
+            return await TickLootAfterKillAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player)
+                .ConfigureAwait(false);
+        }
+
+        if (await _semiAuto
+                .TryHandleMaintenanceAsync(
+                    context,
+                    semiAutoState,
+                    player,
+                    allowSitMaintenance: false,
+                    clearSitWhenDisallowed: false,
+                    beforeMaintenanceKeyPress: async () =>
+                    {
+                        semiAutoState.ResetAttackKeyPressThrottle();
+                        await StopMovementAsync(context, state).ConfigureAwait(false);
+                        StopPathFollowPoller(state);
+                    },
+                    plan: plan,
+                    requireCooldownCalibrationForMaintenance: true)
+                .ConfigureAwait(false))
+        {
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            return IdleDelay;
+        }
+
+        if (state.Fighting)
+        {
+            var anchor = state.PathCombat.CurrentTargetAnchor ?? playerPosition;
+            var playerDistanceFromAnchor = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, anchor);
+            return await TickFightAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player,
+                    anchor,
+                    radius,
+                    playerDistanceFromAnchor)
+                .ConfigureAwait(false);
+        }
+
+        if (!state.PathCombat.Active &&
+            !await TryStartPathCombatAsync(context, state, playerPosition).ConfigureAwait(false))
+        {
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+            return IdleDelay;
+        }
+
+        var targetDelay = await TryHandlePathCombatTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                playerPosition,
+                radius,
+                combat.ContestMonster)
+            .ConfigureAwait(false);
+        if (targetDelay is not null)
+        {
+            return targetDelay.Value;
+        }
+
+        return await ContinuePathCombatAsync(
+                context,
+                semiAutoState,
+                state,
+                player,
+                playerPosition)
+            .ConfigureAwait(false);
+    }
+
     public async Task<TimeSpan?> TickPlayerLifeGuardAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
@@ -1350,6 +1497,406 @@ public sealed class StationaryCombatController
         return null;
     }
 
+    private async Task<TimeSpan?> TryHandlePathCombatTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot playerPosition,
+        double radius,
+        bool allowClaimedByOther)
+    {
+        var target = await SelectMaintenanceDefenseTargetAsync(
+                context,
+                state,
+                playerPosition,
+                forceRefresh: semiAutoState.IsMaintenanceResting)
+            .ConfigureAwait(false);
+        if (target is not null)
+        {
+            if (semiAutoState.IsMaintenanceResting)
+            {
+                await _semiAuto
+                    .CancelMaintenanceRestAsync(context, semiAutoState, "path_combat_targeting_monster_detected")
+                    .ConfigureAwait(false);
+            }
+        }
+        else
+        {
+            if (await _semiAuto
+                    .TryHandleMaintenanceAsync(
+                        context,
+                        semiAutoState,
+                        player,
+                        plan: plan,
+                        requireCooldownCalibrationForMaintenance: true)
+                    .ConfigureAwait(false))
+            {
+                await StopMovementAsync(context, state).ConfigureAwait(false);
+                return IdleDelay;
+            }
+
+            target = await SelectTargetAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    playerPosition,
+                    radius,
+                    allowClaimedByOther,
+                    forceRefresh: true)
+                .ConfigureAwait(false);
+        }
+
+        if (target?.Position is null)
+        {
+            semiAutoState.ResetAttackKeyPressThrottle();
+            return null;
+        }
+
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
+
+        var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
+        state.PathCombat.MarkCurrentTargetAnchor(playerPosition);
+        state.CurrentTargetIsRevivePathClear = false;
+        state.CurrentTargetBypassesHomeLeash = false;
+        var targetPosition = target.Position.Value;
+        var targetDistanceFromAnchor = StationaryCombatTargetSelector.HorizontalDistance(targetPosition, playerPosition);
+        var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
+        if (candidateChanged)
+        {
+            state.FacedCandidateEntityId = 0;
+            state.ClearPendingTabVerification();
+            context.Logger.Info("stationary_combat.path_combat.target_selected", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = state.PathCombat.PathName,
+                ["pointIndex"] = state.PathCombat.PointIndex,
+                ["targetEntityId"] = target.EntityId,
+                ["targetName"] = target.Name,
+                ["playerDistanceToTarget"] = Math.Round(playerDistanceToTarget, 2),
+                ["targetDistanceFromAnchor"] = Math.Round(targetDistanceFromAnchor, 2),
+                ["radius"] = Math.Round(radius, 2),
+                ["targetingMe"] = target.IsTargetingLocalPlayer,
+                ["serverObjectId"] = target.ServerObjectId,
+                ["targetServerObjectId"] = target.ServerObjectId,
+                ["targetingServerObjectId"] = target.TargetServerObjectId,
+                ["aggressiveKnown"] = target.AggressiveKnown,
+                ["aggressiveToPlayer"] = target.IsAggressiveToPlayer,
+                ["passiveToPlayer"] = target.IsPassiveToPlayer,
+                ["aggressiveSource"] = target.AggressiveSource
+            });
+        }
+
+        if (!IsTargetingLocalSide(target, state) && targetDistanceFromAnchor > radius)
+        {
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            state.ClearTarget();
+            return IdleDelay;
+        }
+
+        if (IsTargetTimedOut(state, DateTimeOffset.Now))
+        {
+            return await IgnoreCurrentTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    target.EntityId,
+                    target.ServerObjectId,
+                    target.Name,
+                    "path_combat_not_locked")
+                .ConfigureAwait(false);
+        }
+
+        var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        if (state.IsPendingTabCandidate(target))
+        {
+            return await TickPendingTabVerificationAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    target,
+                    lockedResult,
+                    playerPosition,
+                    radius)
+                .ConfigureAwait(false);
+        }
+
+        var acquiredDelay = await TryAcquireLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedResult,
+                playerPosition,
+                radius,
+                allowLockedFallback: false,
+                phase: "path_combat")
+            .ConfigureAwait(false);
+        if (acquiredDelay is not null)
+        {
+            return acquiredDelay.Value;
+        }
+
+        if (state.FacedCandidateEntityId != target.EntityId)
+        {
+            var isFacingTarget = await FaceTargetStepAsync(context, state, player, targetPosition, target).ConfigureAwait(false);
+            if (!isFacingTarget)
+            {
+                semiAutoState.ResetAttackKeyPressThrottle();
+                return MoveTickDelay;
+            }
+
+            state.FacedCandidateEntityId = target.EntityId;
+        }
+
+        if (playerDistanceToTarget > AcquireDistance)
+        {
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await PathFollowStepAsync(context, state, player, targetPosition, AcquireDistance).ConfigureAwait(false);
+            await TryJumpCombatApproachIfStuckAsync(
+                    context,
+                    state,
+                    target,
+                    playerPosition,
+                    playerDistanceToTarget,
+                    "path_combat")
+                .ConfigureAwait(false);
+            return MoveTickDelay;
+        }
+
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        return await TickAcquireAsync(context, plan, semiAutoState, state, target, playerPosition, radius).ConfigureAwait(false);
+    }
+
+    private async Task<bool> TryStartPathCombatAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition)
+    {
+        var combatPathName = GetCombatPathName(context);
+        var paths = context.Config.ScriptSettings?.Paths;
+        if (state.PathCombat.Completed &&
+            (paths?.LoopPath ?? true) == false &&
+            string.Equals(state.PathCombat.CompletedPathName, combatPathName, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (_pathStore is null || string.IsNullOrWhiteSpace(combatPathName))
+        {
+            LogThrottled(context, state, "stationary_combat.path_combat.path_unavailable", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = combatPathName,
+                ["reason"] = _pathStore is null ? "path_store_missing" : "path_name_missing"
+            });
+            return false;
+        }
+
+        var pathResult = await _pathStore.LoadAsync(combatPathName, context.StopToken).ConfigureAwait(false);
+        if (!pathResult.Success || pathResult.Value?.Points is not { Count: >= 2 } points)
+        {
+            LogThrottled(context, state, "stationary_combat.path_combat.path_unavailable", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = combatPathName,
+                ["error"] = pathResult.Error,
+                ["pointCount"] = pathResult.Value?.PointCount ?? 0
+            });
+            return false;
+        }
+
+        var combatPoints = points
+            .Select(point => point.ToVector3())
+            .ToArray();
+        var nearestPointIndex = FindNearestPathPointIndex(playerPosition, combatPoints, double.MaxValue);
+        if (nearestPointIndex < 0)
+        {
+            LogThrottled(context, state, "stationary_combat.path_combat.path_unavailable", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = combatPathName,
+                ["reason"] = "nearest_point_missing",
+                ["pathPointCount"] = combatPoints.Length
+            });
+            return false;
+        }
+
+        var nearestDistance = StationaryCombatTargetSelector.HorizontalDistance(
+            playerPosition,
+            combatPoints[nearestPointIndex]);
+        state.PathCombat.Start(combatPathName, combatPoints, nearestPointIndex);
+        state.ReturningHome = false;
+        state.ClearTarget();
+        context.Logger.Info("stationary_combat.path_combat.path_selected", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["pathName"] = combatPathName,
+            ["startPointIndex"] = nearestPointIndex,
+            ["startPointNumber"] = nearestPointIndex + 1,
+            ["pathPointCount"] = combatPoints.Length,
+            ["pathPointDistance"] = Math.Round(nearestDistance, 2)
+        });
+        return true;
+    }
+
+    private async Task<TimeSpan> ContinuePathCombatAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot playerPosition)
+    {
+        var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
+        var advancedPointCount = 0;
+        var maxPointAdvances = Math.Max(1, state.PathCombat.Points.Count);
+        while (state.PathCombat.Active &&
+               state.PathCombat.PointIndex >= 0 &&
+               state.PathCombat.PointIndex < state.PathCombat.Points.Count)
+        {
+            var point = state.PathCombat.Points[state.PathCombat.PointIndex];
+            var distance = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, point);
+            if (distance > StartupRecoveryReachDistance)
+            {
+                semiAutoState.ResetAttackKeyPressThrottle();
+                await PathFollowStepAsync(context, state, player, point, StartupRecoveryReachDistance).ConfigureAwait(false);
+                await TryJumpPathCombatIfStuckAsync(
+                        context,
+                        state,
+                        playerPosition,
+                        state.PathCombat.PointIndex,
+                        distance)
+                    .ConfigureAwait(false);
+                LogActionThrottled(context, state, "stationary_combat.path_combat.path_follow", "move:" + state.PathCombat.PointIndex, new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["action"] = "move",
+                    ["pathName"] = state.PathCombat.PathName,
+                    ["pointIndex"] = state.PathCombat.PointIndex,
+                    ["pointNumber"] = state.PathCombat.PointIndex + 1,
+                    ["pointCount"] = state.PathCombat.Points.Count,
+                    ["distance"] = Math.Round(distance, 2)
+                }, TimeSpan.FromMilliseconds(500));
+                return MoveTickDelay;
+            }
+
+            context.Logger.Info("stationary_combat.path_combat.point_reached", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = state.PathCombat.PathName,
+                ["pointIndex"] = state.PathCombat.PointIndex,
+                ["pointNumber"] = state.PathCombat.PointIndex + 1,
+                ["pointCount"] = state.PathCombat.Points.Count,
+                ["distance"] = Math.Round(distance, 2)
+            });
+            state.PathCombat.AdvancePoint(paths.LoopPath, paths.ReverseAtEnd);
+            advancedPointCount++;
+            if (advancedPointCount >= maxPointAdvances)
+            {
+                return IdleDelay;
+            }
+        }
+
+        if (!state.PathCombat.Active)
+        {
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+            if (state.PathCombat.Completed)
+            {
+                context.Logger.Info("stationary_combat.path_combat.path_complete", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["pathName"] = state.PathCombat.CompletedPathName
+                });
+            }
+        }
+
+        return IdleDelay;
+    }
+
+    private async Task TryJumpPathCombatIfStuckAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        int pointIndex,
+        double distanceToPoint)
+    {
+        var now = DateTimeOffset.Now;
+        var pathCombat = state.PathCombat;
+        var minProgressDistance = ReadDeathRevivePathStuckDistance();
+        if (pathCombat.PathStuckPointIndex != pointIndex ||
+            pathCombat.PathLastProgressPosition is null ||
+            pathCombat.PathLastProgressAt == DateTimeOffset.MinValue)
+        {
+            pathCombat.MarkPathProgress(pointIndex, playerPosition, now);
+            return;
+        }
+
+        var moved = StationaryCombatTargetSelector.HorizontalDistance(
+            pathCombat.PathLastProgressPosition.Value,
+            playerPosition);
+        if (moved >= minProgressDistance)
+        {
+            pathCombat.MarkPathProgress(pointIndex, playerPosition, now);
+            return;
+        }
+
+        var stuckMs = ReadDeathRevivePathStuckMs();
+        var stuckFor = now - pathCombat.PathLastProgressAt;
+        if (stuckFor.TotalMilliseconds < stuckMs)
+        {
+            return;
+        }
+
+        if (pathCombat.LastPathJumpAt != DateTimeOffset.MinValue &&
+            (now - pathCombat.LastPathJumpAt).TotalMilliseconds < stuckMs)
+        {
+            return;
+        }
+
+        await EnsureMoveForwardAsync(context, state).ConfigureAwait(false);
+        var jumpHold = TimeSpan.FromMilliseconds(ReadDeathRevivePathJumpHoldMs());
+        var result = await _input.PressKeyAsync("Space", jumpHold, context.StopToken).ConfigureAwait(false);
+        pathCombat.MarkPathJump(now);
+        if (!result.Success)
+        {
+            context.Logger.Warn("stationary_combat.path_combat.path_stuck_jump_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = pathCombat.PathName,
+                ["pointIndex"] = pointIndex,
+                ["pointNumber"] = pointIndex + 1,
+                ["distance"] = Math.Round(distanceToPoint, 2),
+                ["moved"] = Math.Round(moved, 2),
+                ["stuckMs"] = (long)Math.Max(0.0D, stuckFor.TotalMilliseconds),
+                ["thresholdMs"] = stuckMs,
+                ["progressDistance"] = Math.Round(minProgressDistance, 2),
+                ["error"] = result.Error
+            });
+            return;
+        }
+
+        context.Logger.Info("stationary_combat.path_combat.path_stuck_jump", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["pathName"] = pathCombat.PathName,
+            ["pointIndex"] = pointIndex,
+            ["pointNumber"] = pointIndex + 1,
+            ["distance"] = Math.Round(distanceToPoint, 2),
+            ["moved"] = Math.Round(moved, 2),
+            ["stuckMs"] = (long)Math.Max(0.0D, stuckFor.TotalMilliseconds),
+            ["thresholdMs"] = stuckMs,
+            ["progressDistance"] = Math.Round(minProgressDistance, 2),
+            ["jumpCount"] = pathCombat.PathJumpCount,
+            ["movingForward"] = state.IsMovingForward
+        });
+    }
+
     private async Task TryJumpStartupRecoveryIfStuckAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
@@ -1482,6 +2029,7 @@ public sealed class StationaryCombatController
 
         var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
         state.CurrentTargetIsRevivePathClear = isRevivePathClearTarget;
+        state.CurrentTargetBypassesHomeLeash = isRevivePathClearTarget;
         var targetPosition = target.Position.Value;
         var targetDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(targetPosition, home);
         var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
@@ -1718,6 +2266,7 @@ public sealed class StationaryCombatController
 
         if (!state.CurrentTargetIsMaintenanceDefense &&
             !state.CurrentTargetIsRevivePathClear &&
+            !state.CurrentTargetBypassesHomeLeash &&
             target.Position is not null &&
             StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) > radius + TargetLeashExtraDistance)
         {
@@ -3173,6 +3722,17 @@ public sealed class StationaryCombatController
         return context.Config.RevivePathName?.Trim() ?? string.Empty;
     }
 
+    private static string GetCombatPathName(AccountWorkerContext context)
+    {
+        var pathName = context.Config.ScriptSettings?.Paths?.CombatPathName;
+        if (!string.IsNullOrWhiteSpace(pathName))
+        {
+            return pathName.Trim();
+        }
+
+        return context.Config.CombatPathName?.Trim() ?? string.Empty;
+    }
+
     private async Task<OperationResult<StationaryHomeResolution>> TryResolveStationaryHomeAsync(
         AccountWorkerContext context,
         StationaryCombatState state)
@@ -3262,9 +3822,10 @@ public sealed class StationaryCombatController
         Vector3Snapshot playerPosition,
         Vector3Snapshot home,
         double radius,
-        bool allowClaimedByOther)
+        bool allowClaimedByOther,
+        bool forceRefresh = false)
     {
-        var objects = await RefreshWorldObjectsAsync(context, state).ConfigureAwait(false);
+        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
         var preferAggressiveMonsters = PrefersAggressiveMonsters(context);
         var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
 
@@ -3427,6 +3988,7 @@ public sealed class StationaryCombatController
                StationaryCombatTargetSelector.IsSelectableMonster(target) &&
                (currentTargetIsMaintenanceDefense ||
                 state.CurrentTargetIsRevivePathClear ||
+                state.CurrentTargetBypassesHomeLeash ||
                 IsTargetingLocalSide(target, state) ||
                 StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) <= radius + TargetLeashExtraDistance);
     }

@@ -10,6 +10,8 @@ public sealed class StationaryCombatState
 
     public StationaryCombatLootAfterKillState LootAfterKill { get; } = new();
 
+    public StationaryCombatPathCombatState PathCombat { get; } = new();
+
     public bool ReturningHome { get; set; }
 
     public bool Fighting { get; set; }
@@ -25,6 +27,8 @@ public sealed class StationaryCombatState
     public bool CurrentTargetIsMaintenanceDefense { get; set; }
 
     public bool CurrentTargetIsRevivePathClear { get; set; }
+
+    public bool CurrentTargetBypassesHomeLeash { get; set; }
 
     public uint LocalCombatSideServerObjectId { get; set; }
 
@@ -121,10 +125,12 @@ public sealed class StationaryCombatState
         CurrentTargetServerObjectId = 0;
         CurrentTargetIsMaintenanceDefense = false;
         CurrentTargetIsRevivePathClear = false;
+        CurrentTargetBypassesHomeLeash = false;
         CandidateEntityId = 0;
         CandidateServerObjectId = 0;
         FacedCandidateEntityId = 0;
         TargetStartedAt = DateTimeOffset.MinValue;
+        PathCombat.ClearCurrentTargetAnchor();
         ResetCombatApproachStuckTracking();
         ClearPendingTabVerification();
         ClearWrongLockNudge();
@@ -135,6 +141,7 @@ public sealed class StationaryCombatState
         TopLevelState = StationaryCombatTopLevelState.DeathRecovery;
         ReturningHome = false;
         LootAfterKill.Reset();
+        PathCombat.Reset();
         ClearStartupRecovery();
         ClearTarget();
         DeathRecovery.Start(now);
@@ -678,6 +685,140 @@ public enum StationaryCombatDeathRecoveryStep
     PostReviveMaintenance,
     FollowRevivePath,
     Complete
+}
+
+public sealed class StationaryCombatPathCombatState
+{
+    public bool Active { get; private set; }
+
+    public bool Completed { get; private set; }
+
+    public string CompletedPathName { get; private set; } = string.Empty;
+
+    public string PathName { get; private set; } = string.Empty;
+
+    public int PointIndex { get; private set; } = -1;
+
+    public int Direction { get; private set; } = 1;
+
+    public IReadOnlyList<Vector3Snapshot> Points { get; private set; } = Array.Empty<Vector3Snapshot>();
+
+    public Vector3Snapshot? CurrentTargetAnchor { get; private set; }
+
+    public int PathStuckPointIndex { get; private set; } = -1;
+
+    public Vector3Snapshot? PathLastProgressPosition { get; private set; }
+
+    public DateTimeOffset PathLastProgressAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastPathJumpAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public int PathJumpCount { get; private set; }
+
+    public void Start(string pathName, IReadOnlyList<Vector3Snapshot> points, int pointIndex)
+    {
+        Active = true;
+        Completed = false;
+        CompletedPathName = string.Empty;
+        PathName = pathName;
+        Points = points;
+        PointIndex = Math.Clamp(pointIndex, 0, Math.Max(0, points.Count - 1));
+        Direction = 1;
+        CurrentTargetAnchor = null;
+        ResetPathStuckTracking();
+    }
+
+    public void AdvancePoint(bool loopPath, bool reverseAtEnd)
+    {
+        if (!Active || Points.Count == 0)
+        {
+            Reset();
+            return;
+        }
+
+        var nextIndex = PointIndex + Direction;
+        if (nextIndex >= 0 && nextIndex < Points.Count)
+        {
+            PointIndex = nextIndex;
+            ResetPathStuckTracking();
+            return;
+        }
+
+        if (loopPath && reverseAtEnd && Points.Count > 1)
+        {
+            Direction = -Direction;
+            PointIndex = Math.Clamp(PointIndex + Direction, 0, Points.Count - 1);
+            ResetPathStuckTracking();
+            return;
+        }
+
+        if (loopPath)
+        {
+            PointIndex = Direction >= 0 ? 0 : Points.Count - 1;
+            ResetPathStuckTracking();
+            return;
+        }
+
+        Complete();
+    }
+
+    public void MarkCurrentTargetAnchor(Vector3Snapshot position)
+    {
+        CurrentTargetAnchor = position;
+    }
+
+    public void ClearCurrentTargetAnchor()
+    {
+        CurrentTargetAnchor = null;
+    }
+
+    public void MarkPathProgress(int pointIndex, Vector3Snapshot position, DateTimeOffset now)
+    {
+        PathStuckPointIndex = pointIndex;
+        PathLastProgressPosition = position;
+        PathLastProgressAt = now;
+    }
+
+    public void MarkPathJump(DateTimeOffset now)
+    {
+        LastPathJumpAt = now;
+        PathJumpCount++;
+    }
+
+    public void ResetPathStuckTracking()
+    {
+        PathStuckPointIndex = -1;
+        PathLastProgressPosition = null;
+        PathLastProgressAt = DateTimeOffset.MinValue;
+        LastPathJumpAt = DateTimeOffset.MinValue;
+        PathJumpCount = 0;
+    }
+
+    public void Reset()
+    {
+        Active = false;
+        Completed = false;
+        CompletedPathName = string.Empty;
+        PathName = string.Empty;
+        PointIndex = -1;
+        Direction = 1;
+        Points = Array.Empty<Vector3Snapshot>();
+        CurrentTargetAnchor = null;
+        ResetPathStuckTracking();
+    }
+
+    private void Complete()
+    {
+        Completed = true;
+        CompletedPathName = PathName;
+        Active = false;
+        PathName = string.Empty;
+        PointIndex = -1;
+        Direction = 1;
+        Points = Array.Empty<Vector3Snapshot>();
+        CurrentTargetAnchor = null;
+        ResetPathStuckTracking();
+    }
 }
 
 public sealed class StationaryCombatLootAfterKillState

@@ -63,10 +63,15 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 context.RuntimeStates.MarkHeartbeat(context.Config.AccountName);
 
                 var delay = context.Options.TickInterval;
+                var mainMode = scriptSettings.MainMode;
+                var combatMode = scriptSettings.CombatMode;
                 var isStationaryCombat =
-                    context.Config.MainMode == AccountMainMode.CustomCombat &&
-                    context.Config.CombatMode == AccountCombatMode.Stationary;
-                var followRevivePath = isStationaryCombat;
+                    mainMode == AccountMainMode.CustomCombat &&
+                    combatMode == AccountCombatMode.Stationary;
+                var isPathCombat =
+                    mainMode == AccountMainMode.CustomCombat &&
+                    combatMode == AccountCombatMode.Path;
+                var followRevivePath = isStationaryCombat || isPathCombat;
                 var lifeGuardDelay = await _stationaryCombat
                     .TickPlayerLifeGuardAsync(
                         context,
@@ -89,7 +94,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 {
                     delay = context.Options.TickInterval;
                 }
-                else if (context.Config.MainMode == AccountMainMode.SemiAuto)
+                else if (mainMode == AccountMainMode.SemiAuto)
                 {
                     delay = await _semiAuto.TickAsync(context, semiAutoPlan, semiAutoState).ConfigureAwait(false);
                 }
@@ -97,6 +102,12 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 {
                     delay = await _stationaryCombat
                         .TickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)
+                        .ConfigureAwait(false);
+                }
+                else if (isPathCombat)
+                {
+                    delay = await _stationaryCombat
+                        .TickPathAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)
                         .ConfigureAwait(false);
                 }
                 else if (context.Options.PollPlayerSnapshot)

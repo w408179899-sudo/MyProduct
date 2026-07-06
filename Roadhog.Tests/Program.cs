@@ -63,6 +63,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
     ("stationary combat death recovery path clears nearby aggressive monsters", TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync),
     ("stationary combat death recovery path jumps when stuck", TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync),
+    ("path combat worker follows configured combat path", TestPathCombatWorkerFollowsConfiguredCombatPathAsync),
+    ("path combat uses configured radius before clearing monsters", TestPathCombatUsesConfiguredRadiusBeforeClearingMonstersAsync),
+    ("path combat resumes path after kill", TestPathCombatResumesPathAfterKillAsync),
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
     ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
     ("worker ensures spiritmaster pet before normal work", TestWorkerEnsuresSpiritmasterPetBeforeNormalWorkAsync),
@@ -2268,6 +2271,238 @@ static async Task TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync()
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_MS", previousStuckMs);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE", previousStuckDistance);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS", previousJumpHold);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestPathCombatWorkerFollowsConfiguredCombatPathAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.CombatPathName = "combat-a";
+        settings.Combat.StationaryCombatRadius = 8;
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("combat-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(10, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var stationary = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var worker = new DefaultAccountWorkerLoop(keyboard, semiAuto, stationary);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var context = CreateContext(
+            settings,
+            gameApi,
+            logger,
+            options: new AccountWorkerOptions { TickInterval = TimeSpan.FromMilliseconds(40) },
+            stopToken: cts.Token);
+
+        var runTask = worker.RunAsync(context);
+        await WaitUntilAsync(
+                () => keyboard.KeyDowns.Contains("W"),
+                "path combat worker path movement")
+            .ConfigureAwait(false);
+        cts.Cancel();
+        await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
+
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.path_combat.path_selected"),
+            "path worker should load the configured combat path");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.position.missing"),
+            "path worker must not enter stationary home validation");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestPathCombatUsesConfiguredRadiusBeforeClearingMonstersAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.CombatPathName = "combat-a";
+        settings.SemiAuto.AttackKeyLoopEnabled = true;
+        settings.SemiAuto.AttackKeyLoopIntervalMs = 1;
+        settings.Combat.EnableLoot = false;
+        settings.Combat.StationaryCombatRadius = 3;
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("combat-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(10, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 220,
+            TargetOwnServerObjectId = 2200,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(4, 0, 0),
+            TargetServerObjectId = 0,
+            TargetIsTargetingLocalPlayer = false,
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(
+                    220,
+                    2200,
+                    "path-passive-inside-five",
+                    "monster",
+                    new Vector3Snapshot(4, 0, 0),
+                    4,
+                    1000,
+                    1000,
+                    AggressiveKnown: true,
+                    IsAggressiveToPlayer: false)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var state = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickPathAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(state.Fighting, "monster outside configured radius should not be selected");
+        AssertFalse(!state.PathCombat.Active, "path combat should stay active while no target is in radius");
+        AssertEqual(1, state.PathCombat.PointIndex, "path combat should advance from nearest point to next waypoint");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "path combat should keep walking when target is outside radius");
+
+        settings.Combat.StationaryCombatRadius = 5;
+        keyboard.Keys.Clear();
+        keyboard.KeyUps.Clear();
+
+        await controller.TickPathAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.Fighting, "monster inside configured radius should interrupt path into combat");
+        AssertEqual((ushort)220, state.CandidateEntityId, "path combat should select the monster inside UI radius");
+        AssertFalse(state.CurrentTargetIsRevivePathClear, "path combat target should not be marked as revive path clear");
+        AssertFalse(!keyboard.KeyUps.Contains("W"), "path combat should stop path movement before fighting");
+        AssertFalse(!keyboard.Keys.Contains("C"), "path combat should press opening attack key while waiting for target aggro");
+        AssertFalse(!logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.path_combat.target_selected" &&
+                Convert.ToString(entry.Fields["targetName"]) == "path-passive-inside-five"),
+            "path combat target selection should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestPathCombatResumesPathAfterKillAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.CombatPathName = "combat-a";
+        settings.SemiAuto.AttackKeyLoopEnabled = true;
+        settings.SemiAuto.AttackKeyLoopIntervalMs = 1;
+        settings.Combat.EnableLoot = false;
+        settings.Combat.StationaryCombatRadius = 8;
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("combat-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(10, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 230,
+            TargetOwnServerObjectId = 2300,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(4, 0, 0),
+            TargetServerObjectId = 0,
+            TargetIsTargetingLocalPlayer = false,
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(
+                    230,
+                    2300,
+                    "path-target",
+                    "monster",
+                    new Vector3Snapshot(4, 0, 0),
+                    4,
+                    1000,
+                    1000,
+                    AggressiveKnown: true,
+                    IsAggressiveToPlayer: true)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var state = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickPathAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.Fighting, "path combat should enter fighting before kill");
+        AssertEqual(0, state.PathCombat.PointIndex, "path combat should keep nearest path cursor while fighting");
+
+        gameApi.TargetCurrentHp = 0;
+        gameApi.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+        keyboard.KeyDowns.Clear();
+        keyboard.Keys.Clear();
+
+        await controller.TickPathAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(state.Fighting, "dead target should clear current fight");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.kill_counted"),
+            "path combat kill should reuse existing kill counting");
+
+        await controller.TickPathAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.PathCombat.Active, "path combat should remain active after kill");
+        AssertEqual(1, state.PathCombat.PointIndex, "path combat should resume from previous waypoint");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "path combat should continue walking after kill");
+    }
+    finally
+    {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
     }
 }
