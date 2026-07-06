@@ -1481,7 +1481,9 @@ public sealed class SemiAutoCombatController
                 continue;
             }
 
-            if (ShouldSkipSpiritmasterSpecialSkillForCooldown(skill, state, DateTimeOffset.Now))
+            var now = DateTimeOffset.Now;
+            if (!state.ShouldPressSpiritmasterPetHpSkill(skill.SkillId, now) ||
+                ShouldSkipSpiritmasterSpecialSkillForCooldown(skill, state, now))
             {
                 continue;
             }
@@ -1492,6 +1494,8 @@ public sealed class SemiAutoCombatController
             }
 
             MarkSpiritmasterSkillPressed(state, settings, skill);
+            var cooldown = ResolveSpiritmasterPetHpCooldown(rule);
+            state.MarkSpiritmasterPetHpSkillPressed(skill.SkillId, DateTimeOffset.Now, cooldown);
             context.Logger.Info("semi_auto.spiritmaster.pet_hp_key_pressed", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -1499,7 +1503,8 @@ public sealed class SemiAutoCombatController
                 ["skillId"] = skill.SkillId,
                 ["skillName"] = skill.Name,
                 ["petHpPercent"] = pet.HpPercent,
-                ["belowPercent"] = rule.BelowPercent
+                ["belowPercent"] = rule.BelowPercent,
+                ["cooldownMs"] = (int)cooldown.TotalMilliseconds
             });
             return true;
         }
@@ -1719,6 +1724,18 @@ public sealed class SemiAutoCombatController
 
         var readiness = GetMaintenanceCooldownReadiness(skill, state);
         return readiness == SemiAutoSkillCooldownReadiness.CoolingDown;
+    }
+
+    private static TimeSpan ResolveSpiritmasterPetHpCooldown(SpiritmasterPetHpRuleConfig rule)
+    {
+        var configuredCooldownMs = rule.CooldownMs <= 0
+            ? SpiritmasterPetHpRuleConfig.DefaultCooldownMs
+            : rule.CooldownMs;
+        var cooldownMs = Math.Clamp(
+            configuredCooldownMs,
+            SpiritmasterPetHpRuleConfig.MinCooldownMs,
+            SpiritmasterPetHpRuleConfig.MaxCooldownMs);
+        return TimeSpan.FromMilliseconds(cooldownMs);
     }
 
     private static bool ShouldLearnSpiritmasterDotAfterPress(

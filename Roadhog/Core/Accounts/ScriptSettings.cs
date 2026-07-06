@@ -362,6 +362,12 @@ public sealed class SpiritmasterSkillKeyRuleConfig
 
 public sealed class SpiritmasterPetHpRuleConfig
 {
+    public const int DefaultCooldownMs = 10_300;
+
+    public const int MinCooldownMs = 1;
+
+    public const int MaxCooldownMs = 600_000;
+
     public int BelowPercent { get; set; } = 68;
 
     public uint SkillId { get; set; }
@@ -370,6 +376,8 @@ public sealed class SpiritmasterPetHpRuleConfig
 
     public string Key { get; set; } = string.Empty;
 
+    public int CooldownMs { get; set; } = DefaultCooldownMs;
+
     public SpiritmasterPetHpRuleConfig Clone()
     {
         return new SpiritmasterPetHpRuleConfig
@@ -377,7 +385,8 @@ public sealed class SpiritmasterPetHpRuleConfig
             BelowPercent = BelowPercent,
             SkillId = SkillId,
             SkillName = SkillName,
-            Key = Key
+            Key = Key,
+            CooldownMs = CooldownMs
         };
     }
 }

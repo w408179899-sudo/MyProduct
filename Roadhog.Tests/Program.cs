@@ -138,6 +138,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("spiritmaster selector skips command without pet", TestSpiritmasterSelectorSkipsCommandWithoutPetAsync),
     ("spiritmaster tick summons missing pet", TestSpiritmasterTickSummonsMissingPetAsync),
     ("spiritmaster tick prioritizes lowest pet hp rule", TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync),
+    ("spiritmaster pet hp local cooldown yields to normal skills", TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync),
     ("spiritmaster tick gates pet buff by dp", TestSpiritmasterTickGatesPetBuffByDpAsync),
     ("spiritmaster pet buff suppresses repeated unknown cooldown", TestSpiritmasterPetBuffSuppressesRepeatedUnknownCooldownAsync),
     ("spiritmaster dot learning prefers skill id", TestSpiritmasterDotLearningPrefersSkillIdAsync),
@@ -4997,6 +4998,44 @@ static async Task TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
 
     AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "lowest pet hp threshold should run first");
+}
+
+static async Task TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.Skills.Spiritmaster.PetHpMaintenanceRules = new List<SpiritmasterPetHpRuleConfig>
+    {
+        new()
+        {
+            BelowPercent = 68,
+            SkillId = 1678,
+            SkillName = "Pet Heal",
+            Key = "NumPad4",
+            CooldownMs = 10_300
+        }
+    };
+    settings.Skills.ExecutionTree[0] = Node(1600, "Normal Skill", "active");
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = CreateLocalPetRoster(isSummoned: true, hpPercent: 10),
+        Skills = CreateSpiritmasterSkillSnapshots(
+            new SkillSnapshot(1600, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, 0),
+            new SkillSnapshot(1678, "Pet Heal", 1, 1, "Pet Heal", 1, false, 0, 0))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad4" }, keyboard.Keys.ToArray(), "first low pet hp tick should press pet heal");
+
+    keyboard.Keys.Clear();
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "local pet heal cooldown should let normal skill run");
 }
 
 static async Task TestSpiritmasterTickGatesPetBuffByDpAsync()

@@ -11,6 +11,7 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<string, DateTimeOffset> maintenanceKeyPressedAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, uint> spiritmasterDotAbnormalIds = new();
     private readonly Dictionary<uint, uint> spiritmasterPetBuffAbnormalIds = new();
+    private readonly Dictionary<uint, DateTimeOffset> spiritmasterPetHpCooldownUntil = new();
     private DateTimeOffset lastAttackKeyPressedAt = DateTimeOffset.MinValue;
     private DateTimeOffset lastSpiritmasterSummonAttemptAt = DateTimeOffset.MinValue;
     private DateTimeOffset spiritmasterSummonVerifyUntil = DateTimeOffset.MinValue;
@@ -316,6 +317,33 @@ public sealed class SemiAutoCombatState
         {
             spiritmasterPetBuffAbnormalIds[skillId] = abnormalId;
         }
+    }
+
+    public bool ShouldPressSpiritmasterPetHpSkill(uint skillId, DateTimeOffset now)
+    {
+        if (skillId == 0 ||
+            !spiritmasterPetHpCooldownUntil.TryGetValue(skillId, out var blockedUntil))
+        {
+            return true;
+        }
+
+        if (now < blockedUntil)
+        {
+            return false;
+        }
+
+        spiritmasterPetHpCooldownUntil.Remove(skillId);
+        return true;
+    }
+
+    public void MarkSpiritmasterPetHpSkillPressed(uint skillId, DateTimeOffset now, TimeSpan cooldown)
+    {
+        if (skillId == 0 || cooldown <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        spiritmasterPetHpCooldownUntil[skillId] = now + cooldown;
     }
 
     public void StartMaintenanceRest(bool forHp, bool forMp)

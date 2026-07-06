@@ -2461,7 +2461,7 @@ namespace Roadhog
                 spiritmasterPetHpRuleList.Controls.Clear();
                 foreach (var rule in spiritmaster.PetHpMaintenanceRules ?? new List<SpiritmasterPetHpRuleConfig>())
                 {
-                    AddSpiritmasterPetHpRuleRow(spiritmasterPetHpRuleList, rule.BelowPercent, rule.SkillId, rule.SkillName, rule.Key);
+                    AddSpiritmasterPetHpRuleRow(spiritmasterPetHpRuleList, rule.BelowPercent, rule.SkillId, rule.SkillName, rule.Key, rule.CooldownMs);
                 }
 
                 if (!spiritmasterPetHpRuleList.Controls.OfType<Panel>().Any())
@@ -2569,7 +2569,11 @@ namespace Roadhog
                     BelowPercent = ReadRowPercent(row, "spiritmasterPetHpBelowTextBox", 68),
                     SkillId = selectedSkill.SkillId,
                     SkillName = selectedSkill.SkillName,
-                    Key = key
+                    Key = key,
+                    CooldownMs = Math.Clamp(
+                        ReadRowInt(row, "spiritmasterPetHpCooldownTextBox", SpiritmasterPetHpRuleConfig.DefaultCooldownMs),
+                        SpiritmasterPetHpRuleConfig.MinCooldownMs,
+                        SpiritmasterPetHpRuleConfig.MaxCooldownMs)
                 });
             }
 
@@ -2827,9 +2831,10 @@ namespace Roadhog
             int belowPercent = 68,
             uint skillId = 0,
             string skillName = "",
-            string key = "")
+            string key = "",
+            int cooldownMs = SpiritmasterPetHpRuleConfig.DefaultCooldownMs)
         {
-            var row = CreateSpiritmasterRuleRow(535);
+            var row = CreateSpiritmasterRuleRow(680);
             AddLabel(row, "低于", 0, 3, 34, 24);
             var thresholdTextBox = AddTextBox(
                 row,
@@ -2842,7 +2847,20 @@ namespace Roadhog
             AddLabel(row, "% 按", 94, 3, 42, 24);
             AddSpiritmasterSkillCombo(row, 138, 1, 210, skillId, skillName);
             AddSpiritmasterKeyButton(row, 356, 0, key);
-            AddSpiritmasterDeleteButton(list, row, 468);
+            AddLabel(row, "CD", 468, 3, 22, 24);
+            var cooldownTextBox = AddTextBox(
+                row,
+                Math.Clamp(
+                    cooldownMs <= 0 ? SpiritmasterPetHpRuleConfig.DefaultCooldownMs : cooldownMs,
+                    SpiritmasterPetHpRuleConfig.MinCooldownMs,
+                    SpiritmasterPetHpRuleConfig.MaxCooldownMs).ToString(CultureInfo.InvariantCulture),
+                494,
+                1,
+                70,
+                28);
+            cooldownTextBox.Name = "spiritmasterPetHpCooldownTextBox";
+            AddLabel(row, "ms", 568, 3, 22, 24);
+            AddSpiritmasterDeleteButton(list, row, 608);
             list.Controls.Add(row);
         }
 
