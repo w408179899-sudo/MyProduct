@@ -83,6 +83,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
     ("stationary combat switches away from target claimed by other", TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync),
     ("stationary combat keeps previously engaged target while it self targets", TestStationaryCombatKeepsPreviouslyEngagedTargetWhileSelfTargetingAsync),
+    ("stationary combat keeps current target that previously targeted player", TestStationaryCombatKeepsCurrentTargetThatPreviouslyTargetedPlayerAsync),
     ("stationary combat keeps spiritmaster pet targeted fight", TestStationaryCombatKeepsSpiritmasterPetTargetedFightAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
     ("stationary combat loots locked dead target directly", TestStationaryCombatLootsLockedDeadTargetDirectlyAsync),
@@ -3505,6 +3506,94 @@ static async Task TestStationaryCombatKeepsPreviouslyEngagedTargetWhileSelfTarge
         entry.EventName == "stationary_combat.target.ignored" &&
         string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
         "previously engaged target should not log claimed-target ignore");
+}
+
+static async Task TestStationaryCombatKeepsCurrentTargetThatPreviouslyTargetedPlayerAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+
+    const uint localServerObjectId = 1;
+    const uint targetServerObjectId = 100;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 999,
+        TargetOwnServerObjectId = 999,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = 0,
+        LocalServerObjectId = localServerObjectId,
+        TargetIsTargetingLocalPlayer = false,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, targetServerObjectId, "previous-local-target", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000, localServerObjectId, false),
+            new WorldObjectSnapshot(101, 101, "next", "monster", new Vector3Snapshot(12, 0, 0), 12, 1000, 1000)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = targetServerObjectId,
+        CandidateEntityId = 100,
+        CandidateServerObjectId = targetServerObjectId,
+        LocalCombatSideServerObjectId = localServerObjectId
+    };
+    state.MarkCandidate(100, targetServerObjectId, DateTimeOffset.Now);
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "current target that targeted player should remain in fight");
+    AssertFalse(!state.CurrentTargetIsMaintenanceDefense, "world targeting local player should set local-side fight marker");
+    AssertEqual((ushort)100, state.CurrentTargetEntityId, "current fight target should stay after targeting player");
+    AssertEqual(targetServerObjectId, state.CurrentTargetServerObjectId, "current fight target server id should stay after targeting player");
+    AssertFalse(state.IsTargetIgnored(100, targetServerObjectId), "current local-side target should not be ignored as claimed");
+
+    gameApi.WorldObjects = new[]
+    {
+        new WorldObjectSnapshot(100, targetServerObjectId, "previous-local-target", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000, 999, false),
+        new WorldObjectSnapshot(101, 101, "next", "monster", new Vector3Snapshot(12, 0, 0), 12, 1000, 1000)
+    };
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "current target that previously targeted player should remain in fight after retargeting away");
+    AssertFalse(!state.CurrentTargetIsMaintenanceDefense, "previous local-side fight marker should remain after retargeting away");
+    AssertEqual((ushort)100, state.CurrentTargetEntityId, "current fight target should stay");
+    AssertEqual(targetServerObjectId, state.CurrentTargetServerObjectId, "current fight target server id should stay");
+    AssertFalse(state.IsTargetIgnored(100, targetServerObjectId), "current previously local-side target should not be ignored as claimed");
+    AssertFalse(logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.ignored" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
+        "local-side target should not log claimed-target ignore");
 }
 
 static async Task TestStationaryCombatKeepsSpiritmasterPetTargetedFightAsync()

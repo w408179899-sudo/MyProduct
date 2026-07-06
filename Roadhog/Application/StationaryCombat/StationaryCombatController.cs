@@ -3471,8 +3471,17 @@ public sealed class StationaryCombatController
 
     private static bool IsTargetingLocalSide(LockedTargetSnapshot target, StationaryCombatState state)
     {
+        RememberLocalCombatSide(target, state);
         return IsTargetingLocalPlayerByServerObjectId(target) ||
                IsLocalSideServerObjectId(target.TargetServerObjectId, state);
+    }
+
+    private static void RememberLocalCombatSide(LockedTargetSnapshot target, StationaryCombatState state)
+    {
+        if (target.LocalServerObjectId != 0)
+        {
+            state.LocalCombatSideServerObjectId = target.LocalServerObjectId;
+        }
     }
 
     private static bool IsLocalSideServerObjectId(uint serverObjectId, StationaryCombatState state)
@@ -4330,14 +4339,15 @@ public sealed class StationaryCombatController
         StationaryCombatState state,
         PlayerSnapshot player)
     {
-        state.LocalCombatSideServerObjectId = 0;
-        state.LocalCombatSidePetServerObjectId = 0;
-
         if (!plan.UsesSpiritmasterAutoLogic ||
             player.CharacterClassId is { } classId && classId != AionClassId.Spiritmaster)
         {
+            state.LocalCombatSidePetServerObjectId = 0;
             return;
         }
+
+        state.LocalCombatSideServerObjectId = 0;
+        state.LocalCombatSidePetServerObjectId = 0;
 
         var rosterResult = await ReadSummonedPetRosterAsync(context).ConfigureAwait(false);
         if (!rosterResult.Success || rosterResult.Value is null)
