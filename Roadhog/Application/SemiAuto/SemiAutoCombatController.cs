@@ -217,7 +217,7 @@ public sealed class SemiAutoCombatController
         if (state.TryUpdateCooldownTickCalibration(
                 cooldownObservedSkills,
                 osTick,
-                DateTimeOffset.Now,
+                now,
                 out var calibration))
         {
             context.Logger.Info("semi_auto.cooldown.calibrated", new Dictionary<string, object?>
@@ -230,6 +230,31 @@ public sealed class SemiAutoCombatController
                 ["startTick"] = calibration.CooldownStartTick,
                 ["osTick"] = calibration.OsTick,
                 ["offsetMs"] = calibration.OffsetMs
+            });
+        }
+
+        var cooldownInvalidationSkills = ResolveCooldownInvalidationSkills(plan, configuredSkills);
+        if (state.TryInvalidateImplausibleCooldownTickCalibration(
+                cooldownInvalidationSkills,
+                osTick,
+                now,
+                SemiAutoSkillReleasePriority.CooldownReadyToleranceMs,
+                out var invalidation))
+        {
+            context.Logger.Warn("semi_auto.cooldown.calibration_invalidated", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["skill"] = invalidation.SkillName,
+                ["skillId"] = invalidation.SkillId,
+                ["durationMs"] = invalidation.CooldownDuration,
+                ["endTick"] = invalidation.CooldownEndTime,
+                ["effectiveEndTick"] = invalidation.EffectiveCooldownEndTime,
+                ["osTick"] = invalidation.OsTick,
+                ["estimatedGameTick"] = invalidation.EstimatedGameTick,
+                ["oldOffsetMs"] = invalidation.OldOffsetMs,
+                ["remainingMs"] = invalidation.RemainingMs,
+                ["suspiciousSkillCount"] = invalidation.SuspiciousSkillCount,
+                ["reason"] = invalidation.Reason
             });
         }
 
@@ -2509,6 +2534,29 @@ public sealed class SemiAutoCombatController
         }
 
         return configuredSkills;
+    }
+
+    private static IReadOnlyList<SkillSnapshot> ResolveCooldownInvalidationSkills(
+        SemiAutoSkillPlan plan,
+        IReadOnlyList<SkillSnapshot> configuredSkills)
+    {
+        var skills = new List<SkillSnapshot>();
+        var seenSkillIds = new HashSet<uint>();
+        foreach (var root in plan.Roots)
+        {
+            if (root.IsTrigger || root.IsDp)
+            {
+                continue;
+            }
+
+            var skill = root.ResolveSkill(configuredSkills);
+            if (skill is not null && seenSkillIds.Add(skill.SkillId))
+            {
+                skills.Add(skill);
+            }
+        }
+
+        return skills;
     }
 
     private static IEnumerable<SemiAutoSkillNode> FlattenNodes(IEnumerable<SemiAutoSkillNode> roots)

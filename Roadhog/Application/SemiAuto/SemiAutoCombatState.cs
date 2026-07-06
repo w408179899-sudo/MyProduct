@@ -4,6 +4,11 @@ namespace Roadhog.Application.SemiAuto;
 
 public sealed class SemiAutoCombatState
 {
+    private const uint ShortCooldownCalibrationCheckDurationMs = 15_000;
+    private const int ShortCooldownImpossibleExtraRemainingMs = 60_000;
+    private const int CooldownImpossibleExtraRemainingMs = 10_000;
+    private static readonly TimeSpan CooldownCalibrationInvalidationThrottle = TimeSpan.FromSeconds(3);
+
     private int? cooldownTickOffsetMs;
     private readonly Dictionary<uint, uint> observedCooldownEndTimes = new();
     private readonly Dictionary<uint, uint> knownCooldownEndTimes = new();
@@ -20,6 +25,7 @@ public sealed class SemiAutoCombatState
     private uint lastPressedCooldownEndTime;
     private DateTimeOffset lastPressedCooldownExpiresAt = DateTimeOffset.MinValue;
     private DateTimeOffset lastPressedCooldownRetryAt = DateTimeOffset.MinValue;
+    private DateTimeOffset lastCooldownCalibrationInvalidatedAt = DateTimeOffset.MinValue;
     private string lastPressedCooldownRetryKey = string.Empty;
     private string lastPressedCooldownRetrySkillName = string.Empty;
     private string lastPressedCooldownRetrySkillType = string.Empty;
@@ -651,6 +657,93 @@ public sealed class SemiAutoCombatState
         return true;
     }
 
+    public bool TryInvalidateImplausibleCooldownTickCalibration(
+        IReadOnlyList<SkillSnapshot> skills,
+        uint osTick,
+        DateTimeOffset now,
+        int readyToleranceMs,
+        out SemiAutoCooldownCalibrationInvalidation invalidation)
+    {
+        invalidation = default;
+        if (cooldownTickOffsetMs is not int oldOffsetMs ||
+            skills.Count == 0 ||
+            lastCooldownCalibrationInvalidatedAt != DateTimeOffset.MinValue &&
+            now - lastCooldownCalibrationInvalidatedAt < CooldownCalibrationInvalidationThrottle)
+        {
+            return false;
+        }
+
+        if (lastPressedSkillId is not null && now <= lastPressedCooldownExpiresAt)
+        {
+            return false;
+        }
+
+        var gameTick = EstimateGameTick(osTick);
+        var suspiciousSkillCount = 0;
+        SemiAutoCooldownCalibrationInvalidation? strongestInvalidation = null;
+
+        foreach (var skill in skills)
+        {
+            if (skill.CooldownDuration == 0)
+            {
+                return false;
+            }
+
+            var effectiveEndTime = GetEffectiveCooldownEndTime(skill, gameTick, readyToleranceMs);
+            if (effectiveEndTime == 0)
+            {
+                return false;
+            }
+
+            var remainingMs = unchecked((int)(effectiveEndTime - gameTick));
+            if (remainingMs <= readyToleranceMs)
+            {
+                return false;
+            }
+
+            var extraRemainingMs = (long)remainingMs - skill.CooldownDuration;
+            var shortCooldownImpossible =
+                skill.CooldownDuration <= ShortCooldownCalibrationCheckDurationMs &&
+                extraRemainingMs > ShortCooldownImpossibleExtraRemainingMs;
+            var generallyImplausible = extraRemainingMs > CooldownImpossibleExtraRemainingMs;
+            if (!shortCooldownImpossible && !generallyImplausible)
+            {
+                continue;
+            }
+
+            suspiciousSkillCount++;
+            if (strongestInvalidation is null || shortCooldownImpossible)
+            {
+                strongestInvalidation = new SemiAutoCooldownCalibrationInvalidation(
+                    oldOffsetMs,
+                    osTick,
+                    gameTick,
+                    shortCooldownImpossible ? "short_cooldown_impossible" : "cooldown_implausible",
+                    suspiciousSkillCount,
+                    skill.SkillId,
+                    skill.Name,
+                    skill.CooldownDuration,
+                    skill.CooldownEndTime,
+                    effectiveEndTime,
+                    remainingMs);
+            }
+        }
+
+        if (strongestInvalidation is not { } candidate ||
+            candidate.Reason != "short_cooldown_impossible" && suspiciousSkillCount < 2)
+        {
+            return false;
+        }
+
+        cooldownTickOffsetMs = null;
+        observedCooldownEndTimes.Clear();
+        knownCooldownEndTimes.Clear();
+        uncalibratedUnknownSuppressUntil.Clear();
+        lastCooldownCalibrationInvalidatedAt = now;
+        invalidation = candidate with { SuspiciousSkillCount = suspiciousSkillCount };
+        return true;
+    }
+
     public uint EstimateGameTick(uint osTick)
     {
         return unchecked(osTick + (uint)(cooldownTickOffsetMs ?? 0));
@@ -741,6 +834,19 @@ public readonly record struct SemiAutoCooldownTickCalibration(
     uint CooldownEndTime,
     uint CooldownStartTick,
     int OffsetMs);
+
+public readonly record struct SemiAutoCooldownCalibrationInvalidation(
+    int OldOffsetMs,
+    uint OsTick,
+    uint EstimatedGameTick,
+    string Reason,
+    int SuspiciousSkillCount,
+    uint SkillId,
+    string SkillName,
+    uint CooldownDuration,
+    uint CooldownEndTime,
+    uint EffectiveCooldownEndTime,
+    int RemainingMs);
 
 public readonly record struct SemiAutoPendingSkillCooldownRetry(
     string Key,

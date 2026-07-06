@@ -111,6 +111,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("calibrated nonzero cooldown skips cooling roots", TestCalibratedNonzeroCooldownSkipsCoolingRootsAsync),
     ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
     ("observed cooldown survives zero end tick read", TestObservedCooldownSurvivesZeroEndTickReadAsync),
+    ("stale cooldown calibration invalidates impossible combat cooldowns", TestStaleCooldownCalibrationInvalidatesImpossibleCombatCooldownsAsync),
+    ("valid cooldown calibration keeps plausible combat cooldowns cooling", TestValidCooldownCalibrationKeepsPlausibleCombatCooldownsCoolingAsync),
+    ("invalidated cooldown calibration rebuilds after pressed skill advances", TestInvalidatedCooldownCalibrationRebuildsAfterPressedSkillAdvancesAsync),
     ("opening attack key switch presses C once", TestOpeningAttackKeySwitchPressesCOnceAsync),
     ("opening skill presses before C once", TestOpeningSkillPressesBeforeCOnceAsync),
     ("opening skill uses server object id identity", TestOpeningSkillUsesServerObjectIdIdentityAsync),
@@ -5999,6 +6002,94 @@ static async Task TestObservedCooldownSurvivesZeroEndTickReadAsync()
     AssertFalse(keyboard.Keys.Contains("D1"), "known future cooldown should block a zero end-tick read");
 }
 
+static async Task TestStaleCooldownCalibrationInvalidatesImpossibleCombatCooldownsAsync()
+{
+    var settings = CreateScriptSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Skills = CreateSkillSnapshotsById(CreateCombatRootCooldowns(CooldownEndIn(130_000)))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(state.HasCooldownTickCalibration, "impossible cooldowns should clear cooldown calibration");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.cooldown.calibration_invalidated" &&
+            string.Equals(
+                entry.Fields.GetValueOrDefault("reason")?.ToString(),
+                "short_cooldown_impossible",
+                StringComparison.Ordinal)),
+        "impossible cooldowns should log calibration invalidation");
+    AssertSequence(
+        WithPreSkillAttackKey("D2", "D3", "D4", "D1"),
+        keyboard.Keys.ToArray(),
+        "invalidated cooldown calibration should fall back to first root");
+}
+
+static async Task TestValidCooldownCalibrationKeepsPlausibleCombatCooldownsCoolingAsync()
+{
+    var settings = CreateScriptSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Skills = CreateSkillSnapshotsById(CreateCombatRootCooldowns(CooldownEndIn(500)))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(!state.HasCooldownTickCalibration, "plausible cooldowns should keep cooldown calibration");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "semi_auto.cooldown.calibration_invalidated"),
+        "plausible cooldowns should not log calibration invalidation");
+}
+
+static async Task TestInvalidatedCooldownCalibrationRebuildsAfterPressedSkillAdvancesAsync()
+{
+    var settings = CreateScriptSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var firstEndTick = CooldownEndIn(130_000);
+    var gameApi = new FakeGameApi
+    {
+        Skills = CreateSkillSnapshotsById(CreateCombatRootCooldowns(firstEndTick))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertFalse(state.HasCooldownTickCalibration, "first tick should clear stale cooldown calibration");
+    AssertFalse(!keyboard.Keys.Contains("D1"), "first tick should press D1 after invalidating calibration");
+
+    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>(CreateCombatRootCooldowns(firstEndTick))
+    {
+        [1] = unchecked(firstEndTick + 1_000u)
+    });
+    keyboard.Keys.Clear();
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(!state.HasCooldownTickCalibration, "advanced pressed skill cooldown should rebuild calibration");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.cooldown.calibrated" &&
+            Convert.ToUInt32(entry.Fields.GetValueOrDefault("skillId")) == 1u),
+        "advanced pressed skill cooldown should log recalibration");
+}
+
 static async Task TestOpeningAttackKeySwitchPressesCOnceAsync()
 {
     var settings = CreateScriptSettings();
@@ -7698,6 +7789,19 @@ static IReadOnlyList<SkillSnapshot> CreateSkillSnapshotsById(IReadOnlyDictionary
                 configured);
         })
         .ToArray();
+}
+
+static IReadOnlyDictionary<uint, uint> CreateCombatRootCooldowns(uint cooldownEnd)
+{
+    return new Dictionary<uint, uint>
+    {
+        [1] = cooldownEnd,
+        [5] = cooldownEnd,
+        [6] = cooldownEnd,
+        [7] = cooldownEnd,
+        [8] = cooldownEnd,
+        [9] = cooldownEnd
+    };
 }
 
 static uint NormalizeCooldownEnd(uint cooldownEnd)
