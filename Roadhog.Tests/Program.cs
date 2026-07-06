@@ -58,6 +58,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat startup recovery skips revive path when home is nearest", TestStationaryCombatStartupRecoverySkipsWhenHomeNearestAsync),
     ("stationary combat startup recovery defends when targeted", TestStationaryCombatStartupRecoveryDefendsWhenTargetedAsync),
     ("stationary combat death recovery clicks revive and recovers before path", TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBeforePathAsync),
+    ("stationary combat death recovery summons spiritmaster pet before revive path", TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeRevivePathAsync),
     ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
     ("stationary combat death recovery path jumps when stuck", TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync),
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
@@ -1702,6 +1703,72 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", previousScrollInterval);
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
     }
+}
+
+static async Task TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeRevivePathAsync()
+{
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Paths.RevivePathName = "revive-a";
+    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
+    {
+        new() { Key = "NumPad6" }
+    };
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 20,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 10
+    };
+
+    var pathStore = new InMemorySharedPathStore(
+        CreatePath("revive-a",
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(10, 0, 0),
+            new Vector3Snapshot(20, 0, 0)));
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = SummonedPetRosterSnapshot.Empty(1000, DateTimeOffset.Now),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetPosition = null,
+        WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+        Skills = CreateSpiritmasterSkillSnapshots()
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+    var stationaryState = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var context = CreateContext(settings, gameApi, logger);
+
+    stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
+    for (var step = 0; step < 6; step++)
+    {
+        stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
+    }
+
+    AssertEqual(StationaryCombatDeathRecoveryStep.FollowRevivePath, stationaryState.DeathRecovery.Step, "test should start at revive path");
+
+    await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), "revive path should summon missing spiritmaster pet first");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "revive path must wait for spiritmaster pet verification before moving");
+
+    gameApi.SummonedPetRoster = CreateLocalPetRoster(isSummoned: true);
+    keyboard.Keys.Clear();
+    await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+    AssertFalse(!keyboard.KeyDowns.Contains("W"), "revive path should move after spiritmaster pet summon is verified");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "semi_auto.spiritmaster.summon_verified"),
+        "revive path should log spiritmaster pet summon verification");
 }
 
 static async Task TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync()

@@ -853,6 +853,22 @@ public sealed class StationaryCombatController
             return StationaryCombatBehaviorStatus.Running;
         }
 
+        if (await _semiAuto
+                .EnsureSpiritmasterPetAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    beforeSummonKeyPress: async () =>
+                    {
+                        semiAutoState.ResetAttackKeyPressThrottle();
+                        await StopMovementAsync(context, state).ConfigureAwait(false);
+                        StopPathFollowPoller(state);
+                    })
+                .ConfigureAwait(false))
+        {
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
         if (state.LootAfterKill.Active)
         {
             await TickLootAfterKillAsync(context, semiAutoState, state).ConfigureAwait(false);
