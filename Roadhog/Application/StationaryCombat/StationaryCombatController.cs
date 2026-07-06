@@ -1969,6 +1969,16 @@ public sealed class StationaryCombatController
         StationaryCombatState state,
         PlayerSnapshot player)
     {
+        if (await TryPostponePostCombatMaintenanceForDefenseTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    player)
+                .ConfigureAwait(false))
+        {
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
         var handled = await _semiAuto
             .TryHandleMaintenanceAsync(
                 context,
@@ -2000,6 +2010,57 @@ public sealed class StationaryCombatController
         }
 
         return StationaryCombatBehaviorStatus.Success;
+    }
+
+    private async Task<bool> TryPostponePostCombatMaintenanceForDefenseTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player)
+    {
+        if (player.Position is not { } playerPosition)
+        {
+            return false;
+        }
+
+        var target = await SelectMaintenanceDefenseTargetAsync(
+                context,
+                state,
+                playerPosition,
+                forceRefresh: true)
+            .ConfigureAwait(false);
+        if (target?.Position is null)
+        {
+            return false;
+        }
+
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
+
+        FinishLootAfterKill(
+            context,
+            state,
+            "defense_target_before_post_combat_maintenance",
+            success: true);
+        state.Fighting = true;
+        state.SetCurrentTarget(target);
+        state.CurrentTargetIsMaintenanceDefense = true;
+        state.MarkCandidate(target, DateTimeOffset.Now);
+        state.FacedCandidateEntityId = 0;
+        state.ClearPendingTabVerification();
+
+        context.Logger.Info("stationary_combat.loot.post_combat_maintenance_postponed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = target.EntityId,
+            ["serverObjectId"] = target.ServerObjectId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetName"] = target.Name,
+            ["targetingServerObjectId"] = target.TargetServerObjectId,
+            ["targetingMe"] = IsTargetingLocalSide(target, state)
+        });
+        return true;
     }
 
     private static bool IsSameLootTarget(

@@ -89,6 +89,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat waits after kill before loot key", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
     ("stationary combat waits near corpse after loot key", TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync),
     ("stationary combat runs after-combat maintenance after loot", TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync),
+    ("stationary combat postpones after-combat maintenance while pet is targeted", TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsTargetedAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("stationary combat interrupts sit when targeted by monster", TestStationaryCombatInterruptsSitWhenTargetedAsync),
     ("stationary combat hp rule runs before defense target workflow", TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync),
@@ -3902,6 +3903,116 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync()
         AssertSequence(new[] { "NumPadDecimal", "D8" }, keyboard.Keys, "after-combat maintenance should run after loot key");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.post_combat_maintenance"), "post-combat maintenance should be logged");
         AssertFalse(state.LootAfterKill.Active, "loot state should finish after post-combat maintenance");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", previousWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
+    }
+}
+
+static async Task TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsTargetedAsync()
+{
+    var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
+    var previousWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS");
+    var previousPressCount = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT");
+    var previousPressInterval = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", null);
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", "0");
+    try
+    {
+        const ushort defenseEntityId = 200;
+        const uint defenseServerObjectId = 2200;
+        const uint petServerObjectId = 2000;
+        var settings = CreateSpiritmasterScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+        settings.Maintenance.SitMaintenanceEnabled = false;
+        settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+        {
+            BelowPercent = 50,
+            Key = "D8",
+            RunTiming = MaintenanceRuleRunTiming.AfterCombat
+        });
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(
+                1,
+                100,
+                "Spirit",
+                40,
+                100,
+                100,
+                100,
+                0,
+                new Vector3Snapshot(0, 0, 0),
+                DateTimeOffset.Now,
+                CharacterClass: AionClassCatalog.GetChineseName(AionClassId.Spiritmaster),
+                CharacterClassId: AionClassId.Spiritmaster),
+            SummonedPetRoster = CreateLocalPetRoster(isSummoned: true),
+            TargetEntityId = 100,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 4430,
+            TargetPosition = new Vector3Snapshot(2.5f, 0, 0),
+            Skills = CreateSpiritmasterSkillSnapshots(),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(
+                    defenseEntityId,
+                    defenseServerObjectId,
+                    "pet-targeting",
+                    "monster",
+                    new Vector3Snapshot(8, 0, 0),
+                    8,
+                    1000,
+                    1000,
+                    petServerObjectId,
+                    false)
+            }
+        };
+
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var semiAutoState = new SemiAutoCombatState();
+        CalibrateCooldownClock(semiAutoState);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CandidateEntityId = 100
+        };
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, state)
+            .ConfigureAwait(false);
+
+        AssertFalse(keyboard.Keys.Contains("D8"), "after-combat maintenance should wait while another monster targets the pet");
+        AssertSequence(new[] { "NumPadDecimal" }, keyboard.Keys, "loot should still be pressed for the killed monster");
+        AssertFalse(state.LootAfterKill.Active, "loot state should finish before switching to defense target");
+        AssertFalse(!state.Fighting, "defense target should become the next fight");
+        AssertFalse(!state.CurrentTargetIsMaintenanceDefense, "pet-targeting monster should be marked as local-side defense");
+        AssertEqual(defenseEntityId, state.CurrentTargetEntityId, "defense target entity");
+        AssertEqual(defenseServerObjectId, state.CurrentTargetServerObjectId, "defense target server object");
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.post_combat_maintenance_postponed"),
+            "post-combat maintenance should log postponement");
     }
     finally
     {
