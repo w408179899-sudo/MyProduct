@@ -88,6 +88,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat loots locked dead target directly", TestStationaryCombatLootsLockedDeadTargetDirectlyAsync),
     ("stationary combat waits after kill before loot key", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
     ("stationary combat waits near corpse after loot key", TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync),
+    ("stationary combat runs after-combat maintenance after loot", TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("stationary combat interrupts sit when targeted by monster", TestStationaryCombatInterruptsSitWhenTargetedAsync),
     ("stationary combat hp rule runs before defense target workflow", TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync),
@@ -115,6 +116,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance hp rule presses configured key before skills", TestMaintenanceHpRulePressesConfiguredKeyAsync),
     ("maintenance hp rule exits rest before configured key", TestMaintenanceHpRuleExitsRestBeforeConfiguredKeyAsync),
     ("maintenance hp rule runs without attackable target", TestMaintenanceHpRuleRunsWithoutAttackableTargetAsync),
+    ("maintenance in-combat rule skips without attackable target", TestMaintenanceInCombatRuleSkipsWithoutAttackableTargetAsync),
+    ("maintenance in-combat rule runs before skills", TestMaintenanceInCombatRuleRunsBeforeSkillsAsync),
     ("maintenance mp rule presses configured key before skills", TestMaintenanceMpRulePressesConfiguredKeyAsync),
     ("maintenance selected skill confirms by skill id", TestMaintenanceSelectedSkillConfirmsBySkillIdAsync),
     ("maintenance selected cooling skill skips key and continues combat", TestMaintenanceSelectedCoolingSkillSkipsKeyAsync),
@@ -1653,7 +1656,7 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
 
         AssertEqual(StationaryCombatTopLevelState.DeathRecovery, stationaryState.TopLevelState, "dead player should enter death recovery");
         AssertSequence(
-            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:470,300", "down:Left", "up:Left" },
+            new[] { "move:-2000,-2000", "move:-2000,-2000", "move:470,300", "down:Left", "up:Left" },
             keyboard.MouseCommands.ToArray(),
             "death recovery should absolute-click revive button");
         AssertFalse(keyboard.Keys.Contains("Tab"), "death recovery must not enter target acquisition");
@@ -1663,9 +1666,9 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         AssertSequence(
             new[]
             {
-                "move:-32768,-32768",
-                "move:-32768,-32768",
-                "move:550,380",
+                "move:-2000,-2000",
+                "move:-2000,-2000",
+                "move:550,375",
                 "down:Left",
                 "up:Left"
             },
@@ -1673,11 +1676,25 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
             "death recovery should retry fallback revive click when player is still dead after retry delay");
         AssertEqual(2, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record retry revive click count");
 
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+        AssertSequence(
+            new[]
+            {
+                "move:-2000,-2000",
+                "move:-2000,-2000",
+                "move:690,468",
+                "down:Left",
+                "up:Left"
+            },
+            keyboard.MouseCommands.Skip(10).Take(5).ToArray(),
+            "death recovery should retry third revive click when player is still dead after second retry");
+        AssertEqual(3, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record third revive click count");
+
         gameApi.Player = gameApi.Player with { CurrentHp = 10 };
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
         AssertSequence(
             Enumerable.Repeat("wheel:-1", 10).ToArray(),
-            keyboard.MouseCommands.Skip(10).Take(10).ToArray(),
+            keyboard.MouseCommands.Skip(15).Take(10).ToArray(),
             "revived player should scroll wheel down ten times before maintenance");
         AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "revived low hp should sit for recovery");
         AssertFalse(!semiAutoState.IsMaintenanceResting, "revive recovery should track resting state");
@@ -2014,7 +2031,7 @@ static async Task TestWorkerLifeGuardRevivesBeforeSemiAutoAsync()
         await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
 
         AssertSequence(
-            new[] { "move:-32768,-32768", "move:-32768,-32768", "move:470,300", "down:Left", "up:Left" },
+            new[] { "move:-2000,-2000", "move:-2000,-2000", "move:470,300", "down:Left", "up:Left" },
             keyboard.MouseCommands.Take(5).ToArray(),
             "semi-auto death guard should absolute-click revive button");
         AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "semi-auto combat keys must not run while dead");
@@ -3798,6 +3815,98 @@ static async Task TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync()
         Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
         Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
         Environment.SetEnvironmentVariable("ROADHOG_LOOT_APPROACH_TIMEOUT_MS", previousApproachTimeout);
+    }
+}
+
+static async Task TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync()
+{
+    var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
+    var previousWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS");
+    var previousPressCount = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT");
+    var previousPressInterval = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", null);
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+        settings.Maintenance.SitMaintenanceEnabled = false;
+        settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+        {
+            BelowPercent = 50,
+            Key = "D8",
+            RunTiming = MaintenanceRuleRunTiming.AfterCombat
+        });
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 100,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 4430,
+            TargetPosition = new Vector3Snapshot(2.5f, 0, 0),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [8] = 0
+            })
+        };
+        keyboard.AfterPress = key =>
+        {
+            if (string.Equals(key, "D8", StringComparison.Ordinal))
+            {
+                gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+                {
+                    [1] = 0,
+                    [5] = 0,
+                    [6] = 0,
+                    [8] = ActiveCooldownEnd()
+                });
+            }
+        };
+
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var semiAutoState = new SemiAutoCombatState();
+        CalibrateCooldownClock(semiAutoState);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CandidateEntityId = 100
+        };
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, state)
+            .ConfigureAwait(false);
+
+        AssertSequence(new[] { "NumPadDecimal", "D8" }, keyboard.Keys, "after-combat maintenance should run after loot key");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.post_combat_maintenance"), "post-combat maintenance should be logged");
+        AssertFalse(state.LootAfterKill.Active, "loot state should finish after post-combat maintenance");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", previousWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
     }
 }
 
@@ -5736,6 +5845,93 @@ static async Task TestMaintenanceHpRuleRunsWithoutAttackableTargetAsync()
 
     AssertSequence(new[] { "D8" }, keyboard.Keys.ToArray(), "low hp maintenance key should run before target validation");
     AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.key_pressed"), "maintenance key press should be logged without target");
+}
+
+static async Task TestMaintenanceInCombatRuleSkipsWithoutAttackableTargetAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "D8",
+        RunTiming = MaintenanceRuleRunTiming.InCombat
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [8] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("D8"), "in-combat maintenance must not run without an attackable target");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.key_pressed"), "skipped in-combat maintenance should not log a key press");
+}
+
+static async Task TestMaintenanceInCombatRuleRunsBeforeSkillsAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "D8",
+        RunTiming = MaintenanceRuleRunTiming.InCombat
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        TargetEntityId = 100,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(1, 0, 0),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [8] = 0
+        })
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "D8", StringComparison.Ordinal))
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [8] = ActiveCooldownEnd()
+            });
+        }
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "D8" }, keyboard.Keys.ToArray(), "in-combat maintenance key should run before ordinary skills");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.key_pressed"), "in-combat maintenance should log key press");
 }
 
 static async Task TestMaintenanceMpRulePressesConfiguredKeyAsync()

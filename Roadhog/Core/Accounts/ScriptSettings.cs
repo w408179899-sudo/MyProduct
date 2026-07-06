@@ -207,6 +207,8 @@ public sealed class MaintenanceKeyRuleConfig
 
     public string SkillName { get; set; } = string.Empty;
 
+    public MaintenanceRuleRunTiming RunTiming { get; set; } = MaintenanceRuleRunTiming.Always;
+
     public MaintenanceKeyRuleConfig Clone()
     {
         return new MaintenanceKeyRuleConfig
@@ -214,9 +216,17 @@ public sealed class MaintenanceKeyRuleConfig
             BelowPercent = BelowPercent,
             Key = Key,
             SkillId = SkillId,
-            SkillName = SkillName
+            SkillName = SkillName,
+            RunTiming = RunTiming
         };
     }
+}
+
+public enum MaintenanceRuleRunTiming
+{
+    Always,
+    InCombat,
+    AfterCombat
 }
 
 public sealed class SkillScriptSettings

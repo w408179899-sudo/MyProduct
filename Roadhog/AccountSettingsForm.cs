@@ -1420,7 +1420,8 @@ namespace Roadhog
                     rule.BelowPercent,
                     rule.Key,
                     rule.SkillId,
-                    rule.SkillName);
+                    rule.SkillName,
+                    rule.RunTiming);
             }
 
             RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
@@ -1432,7 +1433,8 @@ namespace Roadhog
             int belowPercent = 50,
             string key = "",
             uint skillId = 0,
-            string skillName = "")
+            string skillName = "",
+            MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always)
         {
             if (list is null)
             {
@@ -1444,7 +1446,7 @@ namespace Roadhog
                 BackColor = _pageBackground,
                 BorderStyle = BorderStyle.None,
                 Margin = new Padding(0, 0, 0, 7),
-                Size = new Size(535, 31)
+                Size = new Size(630, 31)
             };
 
             row.Controls.Add(new Label
@@ -1484,7 +1486,11 @@ namespace Roadhog
             skillCombo.Name = "maintenanceRuleSkillCombo";
             PopulateMaintenanceSkillCombo(skillCombo, skillId, skillName);
 
-            var keyButton = AddButton(row, "选择按键", 356, 0, 104, 30);
+            var timingCombo = AddCombo(row, 356, 1, 90, 28);
+            timingCombo.Name = "maintenanceRuleTimingCombo";
+            PopulateMaintenanceTimingCombo(timingCombo, runTiming);
+
+            var keyButton = AddButton(row, "选择按键", 454, 0, 104, 30);
             keyButton.Name = "maintenanceRuleKeyButton";
             if (!string.IsNullOrWhiteSpace(key))
             {
@@ -1492,7 +1498,7 @@ namespace Roadhog
                 keyButton.Text = FormatSkillKey(key);
             }
 
-            var deleteButton = AddButton(row, "删除", 468, 0, 58, 30);
+            var deleteButton = AddButton(row, "删除", 566, 0, 58, 30);
             deleteButton.Click += (_, _) =>
             {
                 list.Controls.Remove(row);
@@ -1610,6 +1616,43 @@ namespace Roadhog
             return string.IsNullOrWhiteSpace(text)
                 ? MaintenanceSkillComboItem.Empty
                 : new MaintenanceSkillComboItem(0, text);
+        }
+
+        private static void PopulateMaintenanceTimingCombo(RoundedComboBox combo, MaintenanceRuleRunTiming selectedTiming)
+        {
+            combo.Items.Clear();
+            var items = new[]
+            {
+                new MaintenanceTimingComboItem(MaintenanceRuleRunTiming.Always, "全时"),
+                new MaintenanceTimingComboItem(MaintenanceRuleRunTiming.InCombat, "战斗中"),
+                new MaintenanceTimingComboItem(MaintenanceRuleRunTiming.AfterCombat, "战斗后")
+            };
+
+            var selectedIndex = 0;
+            for (var i = 0; i < items.Length; i++)
+            {
+                combo.Items.Add(items[i]);
+                if (items[i].RunTiming == selectedTiming)
+                {
+                    selectedIndex = i;
+                }
+            }
+
+            combo.SelectedIndex = selectedIndex;
+        }
+
+        private static MaintenanceRuleRunTiming GetSelectedMaintenanceRunTiming(RoundedComboBox? combo)
+        {
+            if (combo is null ||
+                combo.SelectedIndex < 0 ||
+                combo.SelectedIndex >= combo.Items.Count)
+            {
+                return MaintenanceRuleRunTiming.Always;
+            }
+
+            return combo.Items[combo.SelectedIndex] is MaintenanceTimingComboItem item
+                ? item.RunTiming
+                : MaintenanceRuleRunTiming.Always;
         }
 
         private void ApplyOpeningSkillSettings(OpeningSkillConfig? config)
@@ -1754,6 +1797,9 @@ namespace Roadhog
                     var skillCombo = row.Controls
                         .OfType<RoundedComboBox>()
                         .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleSkillCombo", StringComparison.Ordinal));
+                    var timingCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleTimingCombo", StringComparison.Ordinal));
                     var selectedSkill = GetSelectedMaintenanceSkill(skillCombo);
 
                     return new MaintenanceKeyRuleConfig
@@ -1761,7 +1807,8 @@ namespace Roadhog
                         BelowPercent = ReadPercent(belowTextBox, 50),
                         Key = keyButton?.Tag as string ?? string.Empty,
                         SkillId = selectedSkill.SkillId,
-                        SkillName = selectedSkill.SkillName
+                        SkillName = selectedSkill.SkillName,
+                        RunTiming = GetSelectedMaintenanceRunTiming(timingCombo)
                     };
                 })
                 .ToList();
@@ -3451,6 +3498,24 @@ namespace Roadhog
             public uint SkillId { get; }
 
             public string SkillName { get; }
+
+            private string DisplayText { get; }
+
+            public override string ToString()
+            {
+                return DisplayText;
+            }
+        }
+
+        private sealed class MaintenanceTimingComboItem
+        {
+            public MaintenanceTimingComboItem(MaintenanceRuleRunTiming runTiming, string displayText)
+            {
+                RunTiming = runTiming;
+                DisplayText = displayText;
+            }
+
+            public MaintenanceRuleRunTiming RunTiming { get; }
 
             private string DisplayText { get; }
 

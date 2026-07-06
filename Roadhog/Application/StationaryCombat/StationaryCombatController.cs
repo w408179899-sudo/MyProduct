@@ -26,10 +26,12 @@ public sealed class StationaryCombatController
     private const int DefaultReviveClickX = 470;
     private const int DefaultReviveClickY = 300;
     private const int DefaultReviveFallbackClickX = 550;
-    private const int DefaultReviveFallbackClickY = 380;
+    private const int DefaultReviveFallbackClickY = 375;
+    private const int DefaultReviveThirdClickX = 690;
+    private const int DefaultReviveThirdClickY = 468;
     private const int DefaultPostReviveScrollCount = 10;
     private const int DefaultPostReviveScrollDelta = -1;
-    private const int AbsoluteMouseResetDelta = -32768;
+    private const int AbsoluteMouseResetDelta = -2000;
     private const ushort NpcEntityType = 3;
 
     private readonly IKeyboardInput _input;
@@ -124,8 +126,10 @@ public sealed class StationaryCombatController
         {
             return await TickLootAfterKillAsync(
                     context,
+                    plan,
                     semiAutoState,
-                    state)
+                    state,
+                    player)
                 .ConfigureAwait(false);
         }
 
@@ -590,8 +594,7 @@ public sealed class StationaryCombatController
             return StationaryCombatBehaviorStatus.Success;
         }
 
-        var x = ReadDeathReviveClickX();
-        var y = ReadDeathReviveClickY();
+        var (x, y) = ReadDeathReviveClickPoint(state.DeathRecovery.ReviveClickCount);
         var result = await ClickAbsoluteScreenPointAsync(context, x, y).ConfigureAwait(false);
         if (!result.Success)
         {
@@ -652,8 +655,7 @@ public sealed class StationaryCombatController
             return StationaryCombatBehaviorStatus.Running;
         }
 
-        var x = ReadDeathReviveFallbackClickX();
-        var y = ReadDeathReviveFallbackClickY();
+        var (x, y) = ReadDeathReviveClickPoint(state.DeathRecovery.ReviveClickCount);
         var result = await ClickAbsoluteScreenPointAsync(context, x, y).ConfigureAwait(false);
         if (!result.Success)
         {
@@ -871,7 +873,7 @@ public sealed class StationaryCombatController
 
         if (state.LootAfterKill.Active)
         {
-            await TickLootAfterKillAsync(context, semiAutoState, state).ConfigureAwait(false);
+            await TickLootAfterKillAsync(context, plan, semiAutoState, state, player).ConfigureAwait(false);
             return StationaryCombatBehaviorStatus.Running;
         }
 
@@ -1628,8 +1630,10 @@ public sealed class StationaryCombatController
                 });
                 return await TickLootAfterKillAsync(
                         context,
+                        plan,
                         semiAutoState,
-                        state)
+                        state,
+                        player)
                     .ConfigureAwait(false);
             }
 
@@ -1746,8 +1750,10 @@ public sealed class StationaryCombatController
 
     private async Task<TimeSpan> TickLootAfterKillAsync(
         AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
-        StationaryCombatState state)
+        StationaryCombatState state,
+        PlayerSnapshot player)
     {
         while (!context.StopToken.IsCancellationRequested)
         {
@@ -1774,6 +1780,13 @@ public sealed class StationaryCombatController
                         state)
                     .ConfigureAwait(false),
                 StationaryCombatLootAfterKillStep.WaitAfterNear => TickLootWaitAfterNearNode(state),
+                StationaryCombatLootAfterKillStep.PostCombatMaintenance => await TickLootPostCombatMaintenanceNodeAsync(
+                        context,
+                        plan,
+                        semiAutoState,
+                        state,
+                        player)
+                    .ConfigureAwait(false),
                 _ => StationaryCombatBehaviorStatus.Success
             };
 
@@ -1947,6 +1960,46 @@ public sealed class StationaryCombatController
         return DateTimeOffset.Now - state.LootAfterKill.StepStartedAt >= TimeSpan.FromMilliseconds(ReadLootAfterPickWaitMs())
             ? StationaryCombatBehaviorStatus.Success
             : StationaryCombatBehaviorStatus.Running;
+    }
+
+    private async Task<StationaryCombatBehaviorStatus> TickLootPostCombatMaintenanceNodeAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player)
+    {
+        var handled = await _semiAuto
+            .TryHandleMaintenanceAsync(
+                context,
+                semiAutoState,
+                player,
+                allowSitMaintenance: false,
+                clearSitWhenDisallowed: false,
+                beforeMaintenanceKeyPress: async () =>
+                {
+                    semiAutoState.ResetAttackKeyPressThrottle();
+                    await StopMovementAsync(context, state).ConfigureAwait(false);
+                    StopPathFollowPoller(state);
+                },
+                plan: plan,
+                requireCooldownCalibrationForMaintenance: true,
+                runTiming: MaintenanceRuleRunTiming.AfterCombat,
+                includeAlwaysRules: true)
+            .ConfigureAwait(false);
+
+        if (handled)
+        {
+            context.Logger.Info("stationary_combat.loot.post_combat_maintenance", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
+                ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
+                ["targetName"] = state.LootAfterKill.KilledTargetName
+            });
+        }
+
+        return StationaryCombatBehaviorStatus.Success;
     }
 
     private static bool IsSameLootTarget(
@@ -5245,6 +5298,31 @@ public sealed class StationaryCombatController
     private static int ReadDeathReviveFallbackClickY()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_FALLBACK_CLICK_Y", DefaultReviveFallbackClickY), 0, 32767);
+    }
+
+    private static int ReadDeathReviveThirdClickX()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_THIRD_CLICK_X", DefaultReviveThirdClickX), 0, 32767);
+    }
+
+    private static int ReadDeathReviveThirdClickY()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_THIRD_CLICK_Y", DefaultReviveThirdClickY), 0, 32767);
+    }
+
+    private static (int X, int Y) ReadDeathReviveClickPoint(int reviveClickCount)
+    {
+        if (reviveClickCount <= 0)
+        {
+            return (ReadDeathReviveClickX(), ReadDeathReviveClickY());
+        }
+
+        if (reviveClickCount == 1)
+        {
+            return (ReadDeathReviveFallbackClickX(), ReadDeathReviveFallbackClickY());
+        }
+
+        return (ReadDeathReviveThirdClickX(), ReadDeathReviveThirdClickY());
     }
 
     private static int ReadDeathReviveClickHoldMs()

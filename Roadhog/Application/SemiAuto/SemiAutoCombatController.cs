@@ -259,13 +259,14 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TickIntervalMs, 40);
         }
 
-        if (useSpiritmasterLogic &&
-            await TryHandleMaintenanceAsync(
+        if (await TryHandleMaintenanceAsync(
                     context,
                     state,
                     allowSitMaintenance: false,
                     plan: plan,
-                    requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance)
+                    requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
+                    runTiming: MaintenanceRuleRunTiming.InCombat,
+                    includeAlwaysRules: plan.UsesSpiritmasterAutoLogic)
                 .ConfigureAwait(false))
         {
             return Ms(settings.TickIntervalMs, 40);
@@ -462,7 +463,9 @@ public sealed class SemiAutoCombatController
         bool clearSitWhenDisallowed = true,
         Func<Task>? beforeMaintenanceKeyPress = null,
         SemiAutoSkillPlan? plan = null,
-        bool requireCooldownCalibrationForMaintenance = false)
+        bool requireCooldownCalibrationForMaintenance = false,
+        MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
+        bool includeAlwaysRules = true)
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var maintenance = context.Config.ScriptSettings?.Maintenance;
@@ -471,13 +474,15 @@ public sealed class SemiAutoCombatController
                        context,
                        state,
                        settings,
-                       maintenance,
-                       player,
-                       allowSitMaintenance,
+                        maintenance,
+                        player,
+                        allowSitMaintenance,
                         clearSitWhenDisallowed,
                         beforeMaintenanceKeyPress,
                         plan,
-                        requireCooldownCalibrationForMaintenance)
+                        requireCooldownCalibrationForMaintenance,
+                        runTiming,
+                        includeAlwaysRules)
                     .ConfigureAwait(false);
     }
 
@@ -604,11 +609,14 @@ public sealed class SemiAutoCombatController
         bool allowSitMaintenance,
         bool clearSitWhenDisallowed = true,
         SemiAutoSkillPlan? plan = null,
-        bool requireCooldownCalibrationForMaintenance = false)
+        bool requireCooldownCalibrationForMaintenance = false,
+        MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
+        bool includeAlwaysRules = true)
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var maintenance = context.Config.ScriptSettings?.Maintenance;
-        if (maintenance is null || !HasMaintenanceWork(maintenance, allowSitMaintenance))
+        if (maintenance is null ||
+            !HasMaintenanceWork(maintenance, allowSitMaintenance, runTiming, includeAlwaysRules))
         {
             if (clearSitWhenDisallowed)
             {
@@ -644,7 +652,9 @@ public sealed class SemiAutoCombatController
                 allowSitMaintenance,
                 clearSitWhenDisallowed,
                 plan: plan,
-                requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance)
+                requireCooldownCalibrationForMaintenance: requireCooldownCalibrationForMaintenance,
+                runTiming: runTiming,
+                includeAlwaysRules: includeAlwaysRules)
             .ConfigureAwait(false);
     }
 
@@ -658,9 +668,11 @@ public sealed class SemiAutoCombatController
         bool clearSitWhenDisallowed,
         Func<Task>? beforeMaintenanceKeyPress = null,
         SemiAutoSkillPlan? plan = null,
-        bool requireCooldownCalibrationForMaintenance = false)
+        bool requireCooldownCalibrationForMaintenance = false,
+        MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
+        bool includeAlwaysRules = true)
     {
-        if (!HasMaintenanceWork(maintenance, allowSitMaintenance))
+        if (!HasMaintenanceWork(maintenance, allowSitMaintenance, runTiming, includeAlwaysRules))
         {
             if (clearSitWhenDisallowed)
             {
@@ -693,7 +705,9 @@ public sealed class SemiAutoCombatController
                 player,
                 beforeMaintenanceKeyPress,
                 plan,
-                requireCooldownCalibrationForMaintenance)
+                requireCooldownCalibrationForMaintenance,
+                runTiming,
+                includeAlwaysRules)
             .ConfigureAwait(false))
         {
             return true;
@@ -710,7 +724,9 @@ public sealed class SemiAutoCombatController
                 player,
                 beforeMaintenanceKeyPress,
                 plan,
-                requireCooldownCalibrationForMaintenance)
+                requireCooldownCalibrationForMaintenance,
+                runTiming,
+                includeAlwaysRules)
             .ConfigureAwait(false))
         {
             return true;
@@ -933,7 +949,9 @@ public sealed class SemiAutoCombatController
         PlayerSnapshot player,
         Func<Task>? beforeMaintenanceKeyPress = null,
         SemiAutoSkillPlan? plan = null,
-        bool requireCooldownCalibrationForMaintenance = false)
+        bool requireCooldownCalibrationForMaintenance = false,
+        MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
+        bool includeAlwaysRules = true)
     {
         if (max == 0)
         {
@@ -943,7 +961,8 @@ public sealed class SemiAutoCombatController
         var percent = Percent(current, max);
         OperationResult<IReadOnlyList<SkillSnapshot>>? skillsResult = null;
         foreach (var rule in (rules ?? Array.Empty<MaintenanceKeyRuleConfig>())
-                     .Where(rule => !string.IsNullOrWhiteSpace(rule.Key))
+                     .Where(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
+                                    IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules))
                      .OrderBy(rule => Math.Clamp(rule.BelowPercent, 0, 100)))
         {
             var threshold = Math.Clamp(rule.BelowPercent, 0, 100);
@@ -2295,16 +2314,33 @@ public sealed class SemiAutoCombatController
         return 2500;
     }
 
-    private static bool HasMaintenanceWork(MaintenanceScriptSettings maintenance, bool allowSitMaintenance)
+    private static bool HasMaintenanceWork(
+        MaintenanceScriptSettings maintenance,
+        bool allowSitMaintenance,
+        MaintenanceRuleRunTiming runTiming,
+        bool includeAlwaysRules)
     {
         return (allowSitMaintenance && maintenance.SitMaintenanceEnabled) ||
-               HasMaintenanceRules(maintenance.HpMaintenanceRules) ||
-               HasMaintenanceRules(maintenance.MpMaintenanceRules);
+               HasMaintenanceRules(maintenance.HpMaintenanceRules, runTiming, includeAlwaysRules) ||
+               HasMaintenanceRules(maintenance.MpMaintenanceRules, runTiming, includeAlwaysRules);
     }
 
-    private static bool HasMaintenanceRules(IEnumerable<MaintenanceKeyRuleConfig>? rules)
+    private static bool HasMaintenanceRules(
+        IEnumerable<MaintenanceKeyRuleConfig>? rules,
+        MaintenanceRuleRunTiming runTiming,
+        bool includeAlwaysRules)
     {
-        return rules?.Any(rule => !string.IsNullOrWhiteSpace(rule.Key)) == true;
+        return rules?.Any(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
+                                  IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules)) == true;
+    }
+
+    private static bool IsMaintenanceRuleAllowed(
+        MaintenanceKeyRuleConfig rule,
+        MaintenanceRuleRunTiming runTiming,
+        bool includeAlwaysRules)
+    {
+        return rule.RunTiming == runTiming ||
+               (includeAlwaysRules && rule.RunTiming == MaintenanceRuleRunTiming.Always);
     }
 
     private static Dictionary<uint, uint> SnapshotCooldownEndTimes(IEnumerable<SkillSnapshot> skills)

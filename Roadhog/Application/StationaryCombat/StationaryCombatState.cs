@@ -723,7 +723,8 @@ public sealed class StationaryCombatLootAfterKillState
             StationaryCombatLootAfterKillStep.WaitAfterKill => StationaryCombatLootAfterKillStep.PressLootKey,
             StationaryCombatLootAfterKillStep.PressLootKey => StationaryCombatLootAfterKillStep.WaitNearCorpse,
             StationaryCombatLootAfterKillStep.WaitNearCorpse => StationaryCombatLootAfterKillStep.WaitAfterNear,
-            StationaryCombatLootAfterKillStep.WaitAfterNear => StationaryCombatLootAfterKillStep.Complete,
+            StationaryCombatLootAfterKillStep.WaitAfterNear => StationaryCombatLootAfterKillStep.PostCombatMaintenance,
+            StationaryCombatLootAfterKillStep.PostCombatMaintenance => StationaryCombatLootAfterKillStep.Complete,
             _ => StationaryCombatLootAfterKillStep.Complete
         };
         StepStartedAt = now;
@@ -750,6 +751,7 @@ public enum StationaryCombatLootAfterKillStep
     PressLootKey,
     WaitNearCorpse,
     WaitAfterNear,
+    PostCombatMaintenance,
     Complete
 }
 
