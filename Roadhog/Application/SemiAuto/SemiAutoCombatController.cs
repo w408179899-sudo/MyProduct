@@ -985,8 +985,8 @@ public sealed class SemiAutoCombatController
                 skillsResult ??= await ReadAllSkillsAsync(context).ConfigureAwait(false);
                 if (skillsResult.Success && skillsResult.Value is not null)
                 {
-                    TryUpdateMaintenanceCooldownCalibration(context, state, skillsResult.Value);
                     maintenanceSkill = ResolveMaintenanceRuleSkill(rule, plan, skillsResult.Value);
+                    TryUpdateMaintenanceCooldownCalibration(context, state, maintenanceSkill);
                     if (maintenanceSkill is not null &&
                         GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
                     {
@@ -1069,9 +1069,12 @@ public sealed class SemiAutoCombatController
         var baselineCooldowns = baselineResult.Success && baselineResult.Value is not null
             ? SnapshotCooldownEndTimes(baselineResult.Value)
             : null;
+        var baselineMaintenanceSkill = baselineResult.Success && baselineResult.Value is not null && maintenanceSkill is not null
+            ? ResolveMatchingSkillSnapshot(baselineResult.Value, maintenanceSkill)
+            : null;
         if (baselineResult.Success && baselineResult.Value is not null)
         {
-            TryUpdateMaintenanceCooldownCalibration(context, state, baselineResult.Value);
+            TryUpdateMaintenanceCooldownCalibration(context, state, baselineMaintenanceSkill);
         }
 
         var startedAt = DateTimeOffset.Now;
@@ -1097,9 +1100,9 @@ public sealed class SemiAutoCombatController
                 if (skillsResult.Success &&
                     skillsResult.Value is not null)
                 {
-                    TryUpdateMaintenanceCooldownCalibration(context, state, skillsResult.Value);
                     if (TryFindAdvancedCooldown(baselineCooldowns, skillsResult.Value, maintenanceSkill, out confirmedSkill))
                     {
+                        TryUpdateMaintenanceCooldownCalibration(context, state, confirmedSkill);
                         break;
                     }
                 }
@@ -2038,10 +2041,10 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        state.MarkOpeningSkillHandled(target);
         var skillsResult = await ReadOpeningSkillAsync(context, openingSkill).ConfigureAwait(false);
         if (!skillsResult.Success || skillsResult.Value is null)
         {
+            state.MarkOpeningSkillHandled(target);
             context.Logger.Warn("semi_auto.opening_skill.read_failed", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -2059,6 +2062,7 @@ public sealed class SemiAutoCombatController
         var skill = openingSkill.ResolveSkill(skillsResult.Value);
         if (skill is null)
         {
+            state.MarkOpeningSkillHandled(target);
             LogOpeningSkillSkipped(context, target, openingSkill, null, "missing");
             return false;
         }
@@ -2081,6 +2085,7 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
+        state.MarkOpeningSkillHandled(target);
         var confirmationExpiresAt = DateTimeOffset.Now + ResolveCooldownConfirmationWindow(settings, plan.UsesSpiritmasterAutoLogic);
         state.MarkSkillPressed(
             skill,
@@ -2415,6 +2420,19 @@ public sealed class SemiAutoCombatController
     private static void TryUpdateMaintenanceCooldownCalibration(
         AccountWorkerContext context,
         SemiAutoCombatState state,
+        SkillSnapshot? skill)
+    {
+        if (skill is null)
+        {
+            return;
+        }
+
+        TryUpdateMaintenanceCooldownCalibration(context, state, new[] { skill });
+    }
+
+    private static void TryUpdateMaintenanceCooldownCalibration(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
         IReadOnlyList<SkillSnapshot> skills)
     {
         var osTick = CurrentOsTick();
@@ -2439,6 +2457,13 @@ public sealed class SemiAutoCombatController
             ["offsetMs"] = calibration.OffsetMs,
             ["source"] = "maintenance"
         });
+    }
+
+    private static SkillSnapshot? ResolveMatchingSkillSnapshot(
+        IEnumerable<SkillSnapshot> skills,
+        SkillSnapshot match)
+    {
+        return skills.FirstOrDefault(skill => MatchesMaintenanceSkill(skill, match.SkillId, match.Name));
     }
 
     private static bool TryFindAdvancedCooldown(

@@ -112,7 +112,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("opening skill uses server object id identity", TestOpeningSkillUsesServerObjectIdIdentityAsync),
     ("stale opening skill cooldown is ready before calibration", TestStaleOpeningSkillCooldownIsReadyBeforeCalibrationAsync),
     ("cooling opening skill skips to C", TestCoolingOpeningSkillSkipsToCAsync),
-    ("cooling opening skill is not retried on same target", TestCoolingOpeningSkillIsNotRetriedOnSameTargetAsync),
+    ("cooling opening skill retries on same target after cooldown", TestCoolingOpeningSkillRetriesOnSameTargetAfterCooldownAsync),
     ("maintenance hp rule presses configured key before skills", TestMaintenanceHpRulePressesConfiguredKeyAsync),
     ("maintenance hp rule exits rest before configured key", TestMaintenanceHpRuleExitsRestBeforeConfiguredKeyAsync),
     ("maintenance hp rule runs without attackable target", TestMaintenanceHpRuleRunsWithoutAttackableTargetAsync),
@@ -121,6 +121,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance mp rule presses configured key before skills", TestMaintenanceMpRulePressesConfiguredKeyAsync),
     ("maintenance selected skill confirms by skill id", TestMaintenanceSelectedSkillConfirmsBySkillIdAsync),
     ("maintenance selected cooling skill skips key and continues combat", TestMaintenanceSelectedCoolingSkillSkipsKeyAsync),
+    ("maintenance cooldown calibration ignores unrelated skill advance", TestMaintenanceCooldownCalibrationIgnoresUnrelatedSkillAdvanceAsync),
     ("stationary combat skips skill maintenance before cooldown calibration", TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync),
     ("maintenance sit enters with comma and exits with x", TestMaintenanceSitEnterExitAsync),
     ("maintenance sit enters for low mp and exits on recovery", TestMaintenanceSitMpEnterExitAsync),
@@ -5644,7 +5645,7 @@ static async Task TestCoolingOpeningSkillSkipsToCAsync()
         "cooling opening skill must not press the configured key");
 }
 
-static async Task TestCoolingOpeningSkillIsNotRetriedOnSameTargetAsync()
+static async Task TestCoolingOpeningSkillRetriesOnSameTargetAfterCooldownAsync()
 {
     var settings = CreateScriptSettings();
     settings.SemiAuto.AttackKeyLoopEnabled = false;
@@ -5674,17 +5675,17 @@ static async Task TestCoolingOpeningSkillIsNotRetriedOnSameTargetAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
     AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "cooling opening skill should not press");
 
+    await Task.Delay(450).ConfigureAwait(false);
     gameApi.Skills = new[]
     {
         new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, 1_000, 0)
     };
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "same target should not retry opening skill after cooldown becomes ready");
+    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "same target should retry opening skill after cooldown becomes ready");
 
-    await Task.Delay(450).ConfigureAwait(false);
     gameApi.TargetOwnServerObjectId = 6000;
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "next target should check cooldown and press when ready");
+    AssertSequence(new[] { "NumPad0", "NumPad0" }, keyboard.Keys.ToArray(), "next target should still press opening skill when ready");
 }
 
 static async Task TestMaintenanceHpRulePressesConfiguredKeyAsync()
@@ -6058,6 +6059,56 @@ static async Task TestMaintenanceSelectedCoolingSkillSkipsKeyAsync()
 
     AssertFalse(keyboard.Keys.Contains("NumPad0"), "cooling selected maintenance skill should not press maintenance key");
     AssertFalse(keyboard.Keys.Count == 0, "combat should continue when selected maintenance skill is cooling");
+}
+
+static async Task TestMaintenanceCooldownCalibrationIgnoresUnrelatedSkillAdvanceAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "NumPad0",
+        SkillId = 1,
+        SkillName = "娣囨繃濮㈡稊瀣禈 I",
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var unrelatedBefore = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [5] = CooldownEndIn(5_000)
+    }).First(skill => skill.SkillId == 5);
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = CooldownEndIn(30_000),
+            [5] = unchecked(unrelatedBefore.CooldownEndTime + 20_000u),
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var originalOffset = state.CooldownTickOffsetMs;
+    var observedOnly = state.TryUpdateCooldownTickCalibration(
+        new[] { unrelatedBefore },
+        unchecked((uint)Environment.TickCount64),
+        DateTimeOffset.Now,
+        out _);
+    AssertFalse(observedOnly, "first unrelated cooldown observation should not calibrate");
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "cooling maintenance skill should not press key");
+    AssertEqual(originalOffset, state.CooldownTickOffsetMs, "unrelated maintenance skill advance should not recalibrate cooldown offset");
+    AssertFalse(
+        logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.cooldown.calibrated" &&
+            Convert.ToUInt32(entry.Fields.GetValueOrDefault("skillId")) == 5u),
+        "maintenance cooldown calibration should ignore unrelated skill advance");
 }
 
 static async Task TestMaintenanceSitEnterExitAsync()
