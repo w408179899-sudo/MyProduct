@@ -74,8 +74,10 @@ namespace Roadhog
         private RoundedTextBox? sitHpRecoverToTextBox;
         private FlowLayoutPanel? hpMaintenanceRuleList;
         private FlowLayoutPanel? mpMaintenanceRuleList;
+        private FlowLayoutPanel? statusMaintenanceRuleList;
         private Label? hpMaintenanceEmptyLabel;
         private Label? mpMaintenanceEmptyLabel;
+        private Label? statusMaintenanceEmptyLabel;
         private RoundedCheckBox? autoEquipCheckBox;
         private RoundedCheckBox? autoDecomposeCheckBox;
         private RoundedTextBox? bagCleanupThresholdTextBox;
@@ -287,6 +289,7 @@ namespace Roadhog
             SetText(sitHpRecoverToTextBox, settings.Maintenance.SitHpRecoverToPercent.ToString());
             PopulateMaintenanceKeyRules(hpMaintenanceRuleList, hpMaintenanceEmptyLabel, settings.Maintenance.HpMaintenanceRules);
             PopulateMaintenanceKeyRules(mpMaintenanceRuleList, mpMaintenanceEmptyLabel, settings.Maintenance.MpMaintenanceRules);
+            PopulateStatusMaintenanceRules(statusMaintenanceRuleList, statusMaintenanceEmptyLabel, settings.Maintenance.StatusMaintenanceRules);
             SetChecked(autoEquipCheckBox, settings.Maintenance.AutoEquip);
             SetChecked(autoDecomposeCheckBox, settings.Maintenance.AutoDecompose);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
@@ -424,6 +427,7 @@ namespace Roadhog
                     SitHpRecoverToPercent = ReadPercent(sitHpRecoverToTextBox, 75),
                     HpMaintenanceRules = CaptureMaintenanceKeyRules(hpMaintenanceRuleList),
                     MpMaintenanceRules = CaptureMaintenanceKeyRules(mpMaintenanceRuleList),
+                    StatusMaintenanceRules = CaptureStatusMaintenanceRules(statusMaintenanceRuleList),
                     AutoEquip = autoEquipCheckBox?.Checked ?? true,
                     AutoDecompose = autoDecomposeCheckBox?.Checked ?? true,
                     BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 85),
@@ -1365,19 +1369,25 @@ namespace Roadhog
             mpMaintenanceEmptyLabel = AddLabel(page, "暂无蓝量维护", 4, 280, 140, 24);
             mpMaintenanceEmptyLabel.BringToFront();
 
+            AddLabel(page, "状态维护", 4, 372, 66, 24, _textGreen, FontStyle.Bold);
+            AddButton(page, "新增状态维护", 68, 368, 120, 30, (_, _) => AddStatusMaintenanceRuleRow(statusMaintenanceRuleList, statusMaintenanceEmptyLabel));
+            statusMaintenanceRuleList = CreateMaintenanceRuleList(page, 4, 406, 830, 66);
+            statusMaintenanceEmptyLabel = AddLabel(page, "暂无状态维护", 4, 406, 140, 24);
+            statusMaintenanceEmptyLabel.BringToFront();
+
             var separator = new Panel
             {
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = _softGreen,
-                Location = new Point(0, 374),
+                Location = new Point(0, 484),
                 Size = new Size(850, 1)
             };
             page.Controls.Add(separator);
 
-            autoEquipCheckBox = AddCheckBox(page, "自动穿装备", 4, 382, 106, true);
-            autoDecomposeCheckBox = AddCheckBox(page, "自动分解装备", 112, 382, 126, true);
+            autoEquipCheckBox = AddCheckBox(page, "自动穿装备", 4, 492, 106, true);
+            autoDecomposeCheckBox = AddCheckBox(page, "自动分解装备", 112, 492, 126, true);
 
-            var advanced = CreateFoldout(page, "高级设置", 418, 850, true);
+            var advanced = CreateFoldout(page, "高级设置", 528, 850, true);
             advanced.Content.Height = 88;
             bagCleanupThresholdTextBox = AddNumberSetting(advanced.Content, "85", "清包阈值", 6, 12);
             bagTotalSlotsTextBox = AddNumberSetting(advanced.Content, "100", "背包总格数", 6, 46);
@@ -1422,6 +1432,32 @@ namespace Roadhog
                     rule.SkillId,
                     rule.SkillName,
                     rule.RunTiming);
+            }
+
+            RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+        }
+
+        private void PopulateStatusMaintenanceRules(
+            FlowLayoutPanel? list,
+            Label? emptyLabel,
+            IEnumerable<StatusMaintenanceRuleConfig>? rules)
+        {
+            if (list is null)
+            {
+                return;
+            }
+
+            list.Controls.Clear();
+            foreach (var rule in rules ?? Array.Empty<StatusMaintenanceRuleConfig>())
+            {
+                AddStatusMaintenanceRuleRow(
+                    list,
+                    emptyLabel,
+                    rule.Key,
+                    rule.SkillId,
+                    rule.SkillName,
+                    rule.RunTiming,
+                    rule.AbnormalStatusId);
             }
 
             RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
@@ -1520,6 +1556,79 @@ namespace Roadhog
             RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
         }
 
+        private void AddStatusMaintenanceRuleRow(
+            FlowLayoutPanel? list,
+            Label? emptyLabel,
+            string key = "",
+            uint skillId = 0,
+            string skillName = "",
+            MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
+            uint abnormalStatusId = 0)
+        {
+            if (list is null)
+            {
+                return;
+            }
+
+            var row = new Panel
+            {
+                BackColor = _pageBackground,
+                BorderStyle = BorderStyle.None,
+                Margin = new Padding(0, 0, 0, 7),
+                Size = new Size(630, 31),
+                Tag = abnormalStatusId
+            };
+
+            row.Controls.Add(new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                Font = new Font("Microsoft YaHei UI", 9F),
+                ForeColor = _textGreen,
+                Location = new Point(0, 3),
+                Size = new Size(28, 24),
+                Text = "技能",
+                TextAlign = ContentAlignment.MiddleLeft
+            });
+
+            var skillCombo = AddCombo(row, 36, 1, 260, 28);
+            skillCombo.Name = "maintenanceRuleSkillCombo";
+            PopulateMaintenanceSkillCombo(skillCombo, skillId, skillName);
+
+            var timingCombo = AddCombo(row, 304, 1, 90, 28);
+            timingCombo.Name = "maintenanceRuleTimingCombo";
+            PopulateMaintenanceTimingCombo(timingCombo, runTiming);
+
+            var keyButton = AddButton(row, "选择按键", 402, 0, 104, 30);
+            keyButton.Name = "maintenanceRuleKeyButton";
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                keyButton.Tag = key;
+                keyButton.Text = FormatSkillKey(key);
+            }
+
+            var deleteButton = AddButton(row, "删除", 514, 0, 58, 30);
+            deleteButton.Click += (_, _) =>
+            {
+                list.Controls.Remove(row);
+                row.Dispose();
+                RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+            };
+
+            keyButton.Click += (_, _) =>
+            {
+                var selectedKey = ShowKeyboardPicker(keyButton.Tag as string);
+                if (!string.IsNullOrWhiteSpace(selectedKey))
+                {
+                    keyButton.Tag = selectedKey;
+                    keyButton.Text = FormatSkillKey(selectedKey);
+                }
+            };
+
+            list.Controls.Add(row);
+            RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+        }
+
         private static void RefreshMaintenanceRuleEmptyLabel(FlowLayoutPanel? list, Label? emptyLabel)
         {
             if (emptyLabel is not null)
@@ -1532,6 +1641,7 @@ namespace Roadhog
         {
             RefreshMaintenanceSkillCombos(hpMaintenanceRuleList);
             RefreshMaintenanceSkillCombos(mpMaintenanceRuleList);
+            RefreshMaintenanceSkillCombos(statusMaintenanceRuleList);
         }
 
         private void RefreshMaintenanceSkillCombos(FlowLayoutPanel? list)
@@ -1808,6 +1918,40 @@ namespace Roadhog
                         Key = keyButton?.Tag as string ?? string.Empty,
                         SkillId = selectedSkill.SkillId,
                         SkillName = selectedSkill.SkillName,
+                        RunTiming = GetSelectedMaintenanceRunTiming(timingCombo)
+                    };
+                })
+                .ToList();
+        }
+
+        private static List<StatusMaintenanceRuleConfig> CaptureStatusMaintenanceRules(FlowLayoutPanel? list)
+        {
+            if (list is null)
+            {
+                return new List<StatusMaintenanceRuleConfig>();
+            }
+
+            return list.Controls
+                .OfType<Panel>()
+                .Select(row =>
+                {
+                    var keyButton = row.Controls
+                        .OfType<Button>()
+                        .FirstOrDefault(button => string.Equals(button.Name, "maintenanceRuleKeyButton", StringComparison.Ordinal));
+                    var skillCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleSkillCombo", StringComparison.Ordinal));
+                    var timingCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleTimingCombo", StringComparison.Ordinal));
+                    var selectedSkill = GetSelectedMaintenanceSkill(skillCombo);
+
+                    return new StatusMaintenanceRuleConfig
+                    {
+                        Key = keyButton?.Tag as string ?? string.Empty,
+                        SkillId = selectedSkill.SkillId,
+                        SkillName = selectedSkill.SkillName,
+                        AbnormalStatusId = row.Tag is uint abnormalStatusId ? abnormalStatusId : 0,
                         RunTiming = GetSelectedMaintenanceRunTiming(timingCombo)
                     };
                 })

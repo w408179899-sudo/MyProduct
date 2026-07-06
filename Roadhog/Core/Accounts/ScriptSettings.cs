@@ -170,6 +170,8 @@ public sealed class MaintenanceScriptSettings
 
     public List<MaintenanceKeyRuleConfig> MpMaintenanceRules { get; set; } = new();
 
+    public List<StatusMaintenanceRuleConfig> StatusMaintenanceRules { get; set; } = new();
+
     public bool AutoEquip { get; set; } = true;
 
     public bool AutoDecompose { get; set; } = true;
@@ -189,6 +191,7 @@ public sealed class MaintenanceScriptSettings
             SitHpRecoverToPercent = SitHpRecoverToPercent,
             HpMaintenanceRules = HpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<MaintenanceKeyRuleConfig>(),
             MpMaintenanceRules = MpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<MaintenanceKeyRuleConfig>(),
+            StatusMaintenanceRules = StatusMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<StatusMaintenanceRuleConfig>(),
             AutoEquip = AutoEquip,
             AutoDecompose = AutoDecompose,
             BagCleanupThreshold = BagCleanupThreshold,
@@ -217,6 +220,31 @@ public sealed class MaintenanceKeyRuleConfig
             Key = Key,
             SkillId = SkillId,
             SkillName = SkillName,
+            RunTiming = RunTiming
+        };
+    }
+}
+
+public sealed class StatusMaintenanceRuleConfig
+{
+    public string Key { get; set; } = string.Empty;
+
+    public uint SkillId { get; set; }
+
+    public string SkillName { get; set; } = string.Empty;
+
+    public uint AbnormalStatusId { get; set; }
+
+    public MaintenanceRuleRunTiming RunTiming { get; set; } = MaintenanceRuleRunTiming.Always;
+
+    public StatusMaintenanceRuleConfig Clone()
+    {
+        return new StatusMaintenanceRuleConfig
+        {
+            Key = Key,
+            SkillId = SkillId,
+            SkillName = SkillName,
+            AbnormalStatusId = AbnormalStatusId,
             RunTiming = RunTiming
         };
     }

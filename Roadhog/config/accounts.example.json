@@ -46,6 +46,7 @@
           "sitHpRecoverToPercent": 75,
           "hpMaintenanceRules": [],
           "mpMaintenanceRules": [],
+          "statusMaintenanceRules": [],
           "autoEquip": true,
           "autoDecompose": true,
           "bagCleanupThreshold": 85,

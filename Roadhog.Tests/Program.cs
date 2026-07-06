@@ -123,6 +123,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance mp rule presses configured key before skills", TestMaintenanceMpRulePressesConfiguredKeyAsync),
     ("maintenance selected skill confirms by skill id", TestMaintenanceSelectedSkillConfirmsBySkillIdAsync),
     ("maintenance selected cooling skill skips key and continues combat", TestMaintenanceSelectedCoolingSkillSkipsKeyAsync),
+    ("status maintenance presses missing buff and learns abnormal id", TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsync),
+    ("status maintenance skips active category zero buff", TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync),
+    ("status maintenance in-combat rule skips without target", TestStatusMaintenanceInCombatRuleSkipsWithoutTargetAsync),
     ("maintenance cooldown calibration ignores unrelated skill advance", TestMaintenanceCooldownCalibrationIgnoresUnrelatedSkillAdvanceAsync),
     ("stationary combat skips skill maintenance before cooldown calibration", TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync),
     ("maintenance sit enters with comma and exits with x", TestMaintenanceSitEnterExitAsync),
@@ -6307,6 +6310,126 @@ static async Task TestMaintenanceSelectedCoolingSkillSkipsKeyAsync()
 
     AssertFalse(keyboard.Keys.Contains("NumPad0"), "cooling selected maintenance skill should not press maintenance key");
     AssertFalse(keyboard.Keys.Count == 0, "combat should continue when selected maintenance skill is cooling");
+}
+
+static async Task TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad2",
+        SkillId = 1,
+        SkillName = "Status Buff",
+        RunTiming = MaintenanceRuleRunTiming.Always
+    });
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1),
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "Status Buff", 1, 1, "Status Buff", 1, false, 5_000, 0)
+        }
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "NumPad2", StringComparison.Ordinal))
+        {
+            gameApi.PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+                1,
+                DateTimeOffset.Now,
+                1,
+                new[] { Abnormal(4001, 0) });
+        }
+    };
+
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "missing status maintenance should press configured key");
+    var entry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed");
+    AssertFalse(entry is null, "status maintenance should log confirmed status key press");
+    AssertEqual(4001u, Convert.ToUInt32(entry!.Fields["abnormalStatusId"]), "learned status abnormal id");
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+
+    AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad2"), "learned active status should block repeat press");
+}
+
+static async Task TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad2",
+        SkillId = 1,
+        SkillName = "Status Buff",
+        RunTiming = MaintenanceRuleRunTiming.Always
+    });
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+            1,
+            DateTimeOffset.Now,
+            1,
+            new[] { Abnormal(1, 0) }),
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "Status Buff", 1, 1, "Status Buff", 1, false, 5_000, 0)
+        }
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "category zero active status should skip status maintenance key");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed"), "active status skip should not log status key press");
+}
+
+static async Task TestStatusMaintenanceInCombatRuleSkipsWithoutTargetAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad2",
+        SkillId = 1,
+        SkillName = "Status Buff",
+        RunTiming = MaintenanceRuleRunTiming.InCombat
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1),
+        Skills = new[]
+        {
+            new SkillSnapshot(1, "Status Buff", 1, 1, "Status Buff", 1, false, 5_000, 0)
+        }
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("NumPad2"), "in-combat status maintenance must not run without an attackable target");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed"), "skipped in-combat status maintenance should not log a key press");
 }
 
 static async Task TestMaintenanceCooldownCalibrationIgnoresUnrelatedSkillAdvanceAsync()

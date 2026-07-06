@@ -9,6 +9,7 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<uint, uint> knownCooldownEndTimes = new();
     private readonly Dictionary<uint, DateTimeOffset> uncalibratedUnknownSuppressUntil = new();
     private readonly Dictionary<string, DateTimeOffset> maintenanceKeyPressedAt = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<uint, uint> statusMaintenanceAbnormalIds = new();
     private readonly Dictionary<uint, uint> spiritmasterDotAbnormalIds = new();
     private readonly Dictionary<uint, uint> spiritmasterPetBuffAbnormalIds = new();
     private readonly Dictionary<uint, DateTimeOffset> spiritmasterPetHpCooldownUntil = new();
@@ -230,6 +231,19 @@ public sealed class SemiAutoCombatState
     {
         spiritmasterSummonVerifyUntil = DateTimeOffset.MinValue;
         LastSpiritmasterSummonVerifyLogAt = DateTimeOffset.MinValue;
+    }
+
+    public bool TryGetStatusMaintenanceAbnormalId(uint skillId, out uint abnormalId)
+    {
+        return statusMaintenanceAbnormalIds.TryGetValue(skillId, out abnormalId) && abnormalId != 0;
+    }
+
+    public void RememberStatusMaintenanceAbnormalId(uint skillId, uint abnormalId)
+    {
+        if (skillId != 0 && abnormalId != 0)
+        {
+            statusMaintenanceAbnormalIds[skillId] = abnormalId;
+        }
     }
 
     public bool TryGetSpiritmasterDotAbnormalId(uint skillId, out uint abnormalId)
