@@ -156,6 +156,11 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TickIntervalMs, 40);
         }
 
+        if (await ConfirmRetryablePressedSkillCooldownIfNeededAsync(context, state, settings, plan).ConfigureAwait(false))
+        {
+            return Ms(settings.TickIntervalMs, 40);
+        }
+
         if (await PressOpeningAttackKeyIfNeededAsync(context, state, settings, targetResult.Value).ConfigureAwait(false))
         {
             return Ms(settings.TickIntervalMs, 40);
@@ -234,7 +239,7 @@ public sealed class SemiAutoCombatController
         var useSpiritmasterLogic =
             plan.UsesSpiritmasterAutoLogic &&
             spiritContext?.CanUseSpiritmasterLogic != false;
-        if (useSpiritmasterLogic &&
+        if ((useSpiritmasterLogic || state.HasPressedSkillCooldownRetryKey()) &&
             state.IsAwaitingPressedSkillCooldownConfirmation(
                 cooldownObservedSkills,
                 DateTimeOffset.Now,
@@ -1969,6 +1974,35 @@ public sealed class SemiAutoCombatController
         return true;
     }
 
+    private async Task<bool> ConfirmRetryablePressedSkillCooldownIfNeededAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        SemiAutoSkillPlan plan)
+    {
+        if (!state.HasPressedSkillCooldownRetryKey())
+        {
+            return false;
+        }
+
+        var skillsResult = await ReadSkillsAsync(context, plan).ConfigureAwait(false);
+        var observedSkills = skillsResult.Success && skillsResult.Value is not null
+            ? ResolveConfiguredSkills(plan, skillsResult.Value)
+            : Array.Empty<SkillSnapshot>();
+
+        if (!state.IsAwaitingPressedSkillCooldownConfirmation(
+                observedSkills,
+                DateTimeOffset.Now,
+                out _,
+                out _))
+        {
+            return false;
+        }
+
+        await PressPendingSkillCooldownRetryIfDueAsync(context, state, settings).ConfigureAwait(false);
+        return true;
+    }
+
     private async Task PressPendingSkillCooldownRetryIfDueAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
@@ -2087,6 +2121,7 @@ public sealed class SemiAutoCombatController
         var readiness = SemiAutoSkillReleasePriority.GetActionCooldownReadiness(skill, state);
         if (readiness != SemiAutoSkillCooldownReadiness.Ready)
         {
+            state.MarkOpeningSkillHandled(target);
             LogOpeningSkillSkipped(
                 context,
                 target,
@@ -2107,7 +2142,7 @@ public sealed class SemiAutoCombatController
         state.MarkSkillPressed(
             skill,
             confirmationExpiresAt,
-            retryKey: plan.UsesSpiritmasterAutoLogic ? openingSkill.Key : null,
+            retryKey: openingSkill.Key,
             retrySkillName: openingSkill.Name,
             retrySkillType: openingSkill.Type,
             retryPhase: "opening_skill");

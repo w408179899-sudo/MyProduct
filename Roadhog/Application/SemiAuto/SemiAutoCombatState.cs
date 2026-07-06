@@ -562,6 +562,12 @@ public sealed class SemiAutoCombatState
         return true;
     }
 
+    public bool HasPressedSkillCooldownRetryKey()
+    {
+        return lastPressedSkillId is not null &&
+               !string.IsNullOrWhiteSpace(lastPressedCooldownRetryKey);
+    }
+
     public void MarkPressedSkillCooldownRetried(DateTimeOffset now)
     {
         lastPressedCooldownRetryAt = now;

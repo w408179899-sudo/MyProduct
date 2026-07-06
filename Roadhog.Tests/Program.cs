@@ -113,7 +113,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("opening skill uses server object id identity", TestOpeningSkillUsesServerObjectIdIdentityAsync),
     ("stale opening skill cooldown is ready before calibration", TestStaleOpeningSkillCooldownIsReadyBeforeCalibrationAsync),
     ("cooling opening skill skips to C", TestCoolingOpeningSkillSkipsToCAsync),
-    ("cooling opening skill retries on same target after cooldown", TestCoolingOpeningSkillRetriesOnSameTargetAfterCooldownAsync),
+    ("cooling opening skill does not retry on same target after cooldown", TestCoolingOpeningSkillDoesNotRetrySameTargetAfterCooldownAsync),
     ("maintenance hp rule presses configured key before skills", TestMaintenanceHpRulePressesConfiguredKeyAsync),
     ("maintenance hp rule exits rest before configured key", TestMaintenanceHpRuleExitsRestBeforeConfiguredKeyAsync),
     ("maintenance hp rule runs without attackable target", TestMaintenanceHpRuleRunsWithoutAttackableTargetAsync),
@@ -5658,6 +5658,7 @@ static async Task TestOpeningSkillPressesBeforeCOnceAsync()
 {
     var settings = CreateScriptSettings();
     settings.SemiAuto.AttackKeyLoopEnabled = true;
+    settings.SemiAuto.ConfirmTimeoutMs = 1000;
     var openingSkill = settings.Skills.ExecutionTree.First(node => node.SkillId == 8);
     settings.Skills.OpeningSkill = new OpeningSkillConfig
     {
@@ -5684,8 +5685,16 @@ static async Task TestOpeningSkillPressesBeforeCOnceAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
     AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "opening skill should press before opening C");
 
+    await Task.Delay(60).ConfigureAwait(false);
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad0", "C" }, keyboard.Keys.ToArray(), "opening C should run after opening skill was handled");
+    AssertSequence(new[] { "NumPad0", "NumPad0" }, keyboard.Keys.ToArray(), "opening skill should retry until cooldown confirms before C");
+
+    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [8] = ActiveCooldownEnd()
+    });
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad0", "NumPad0", "C" }, keyboard.Keys.ToArray(), "opening C should run after opening skill cooldown confirms");
 }
 
 static async Task TestOpeningSkillUsesServerObjectIdIdentityAsync()
@@ -5795,7 +5804,7 @@ static async Task TestCoolingOpeningSkillSkipsToCAsync()
         "cooling opening skill must not press the configured key");
 }
 
-static async Task TestCoolingOpeningSkillRetriesOnSameTargetAfterCooldownAsync()
+static async Task TestCoolingOpeningSkillDoesNotRetrySameTargetAfterCooldownAsync()
 {
     var settings = CreateScriptSettings();
     settings.SemiAuto.AttackKeyLoopEnabled = false;
@@ -5831,11 +5840,11 @@ static async Task TestCoolingOpeningSkillRetriesOnSameTargetAfterCooldownAsync()
         new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, 1_000, 0)
     };
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "same target should retry opening skill after cooldown becomes ready");
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "same target should not retry opening skill after cooldown becomes ready");
 
     gameApi.TargetOwnServerObjectId = 6000;
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad0", "NumPad0" }, keyboard.Keys.ToArray(), "next target should still press opening skill when ready");
+    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "next target should still press opening skill when ready");
 }
 
 static async Task TestMaintenanceHpRulePressesConfiguredKeyAsync()
