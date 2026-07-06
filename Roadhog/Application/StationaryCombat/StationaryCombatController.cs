@@ -21,6 +21,7 @@ public sealed class StationaryCombatController
     private const double TargetLeashExtraDistance = 5.0D;
     private const double PreLockFaceYawToleranceDegrees = 25.0D;
     private const double StartupRecoveryReachDistance = 3.0D;
+    private const double RevivePathAggressiveClearRadius = 15.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
     private const double DefaultPitchPixelsPerDegree = 13.0D;
     private const int DefaultReviveClickX = 470;
@@ -1458,6 +1459,18 @@ public sealed class StationaryCombatController
                 playerPosition,
                 forceRefresh: true)
             .ConfigureAwait(false);
+        var isRevivePathClearTarget = false;
+        if (target?.Position is null && IsRevivePathRecoveryPhase(recoveryPhase))
+        {
+            target = await SelectRevivePathAggressiveClearTargetAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    forceRefresh: true)
+                .ConfigureAwait(false);
+            isRevivePathClearTarget = target?.Position is not null;
+        }
+
         if (target?.Position is null)
         {
             return null;
@@ -1468,6 +1481,7 @@ public sealed class StationaryCombatController
         StopPathFollowPoller(state);
 
         var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
+        state.CurrentTargetIsRevivePathClear = isRevivePathClearTarget;
         var targetPosition = target.Position.Value;
         var targetDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(targetPosition, home);
         var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
@@ -1491,7 +1505,8 @@ public sealed class StationaryCombatController
                 ["aggressiveKnown"] = target.AggressiveKnown,
                 ["aggressiveToPlayer"] = target.IsAggressiveToPlayer,
                 ["passiveToPlayer"] = target.IsPassiveToPlayer,
-                ["aggressiveSource"] = target.AggressiveSource
+                ["aggressiveSource"] = target.AggressiveSource,
+                ["revivePathClear"] = isRevivePathClearTarget
             });
         }
 
@@ -1702,6 +1717,7 @@ public sealed class StationaryCombatController
         }
 
         if (!state.CurrentTargetIsMaintenanceDefense &&
+            !state.CurrentTargetIsRevivePathClear &&
             target.Position is not null &&
             StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) > radius + TargetLeashExtraDistance)
         {
@@ -3332,6 +3348,30 @@ public sealed class StationaryCombatController
             .FirstOrDefault();
     }
 
+    private async Task<WorldObjectSnapshot?> SelectRevivePathAggressiveClearTargetAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        bool forceRefresh)
+    {
+        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+        var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
+        return objects
+            .Where(target => !state.IsTargetIgnored(target))
+            .Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Where(target => target.Position is not null)
+            .Where(target => target.IsAggressiveToPlayer)
+            .Where(target => !IsClaimedByOther(target, state))
+            .Where(target => !IsActiveMonsterFiltered(target, activeMonsterNameFilters))
+            .Where(target => StationaryCombatTargetSelector.HorizontalDistance(
+                target.Position!.Value,
+                playerPosition) <= RevivePathAggressiveClearRadius)
+            .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition))
+            .ThenBy(target => target.ServerObjectId)
+            .ThenBy(target => target.EntityId)
+            .FirstOrDefault();
+    }
+
     private async Task<IReadOnlyList<WorldObjectSnapshot>> RefreshWorldObjectsAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
@@ -3386,6 +3426,7 @@ public sealed class StationaryCombatController
         return candidate is { Position: not null } target &&
                StationaryCombatTargetSelector.IsSelectableMonster(target) &&
                (currentTargetIsMaintenanceDefense ||
+                state.CurrentTargetIsRevivePathClear ||
                 IsTargetingLocalSide(target, state) ||
                 StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home) <= radius + TargetLeashExtraDistance);
     }
@@ -3398,6 +3439,12 @@ public sealed class StationaryCombatController
     private static bool PrefersAggressiveMonsters(AccountWorkerContext context)
     {
         return context.Config.ScriptSettings?.Combat?.PreferAggressiveMonsters == true;
+    }
+
+    private static bool IsRevivePathRecoveryPhase(string recoveryPhase)
+    {
+        return string.Equals(recoveryPhase, "death_recovery", StringComparison.Ordinal) ||
+               string.Equals(recoveryPhase, "startup_recovery", StringComparison.Ordinal);
     }
 
     private static IReadOnlyList<string> GetActiveMonsterNameFilters(AccountWorkerContext context)

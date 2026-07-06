@@ -24,6 +24,8 @@ public sealed class StationaryCombatState
 
     public bool CurrentTargetIsMaintenanceDefense { get; set; }
 
+    public bool CurrentTargetIsRevivePathClear { get; set; }
+
     public uint LocalCombatSideServerObjectId { get; set; }
 
     public uint LocalCombatSidePetServerObjectId { get; set; }
@@ -118,6 +120,7 @@ public sealed class StationaryCombatState
         CurrentTargetEntityId = 0;
         CurrentTargetServerObjectId = 0;
         CurrentTargetIsMaintenanceDefense = false;
+        CurrentTargetIsRevivePathClear = false;
         CandidateEntityId = 0;
         CandidateServerObjectId = 0;
         FacedCandidateEntityId = 0;
