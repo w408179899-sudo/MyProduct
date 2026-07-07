@@ -30,7 +30,8 @@
           "contestMonster": false,
           "counterEnemyRace": false,
           "stationaryCombatRadius": 30,
-          "pathCombatRadius": 30
+          "pathCombatRadius": 30,
+          "pathFollowReachDistance": 5
         },
         "paths": {
           "revivePathName": "穆尔海姆00133",

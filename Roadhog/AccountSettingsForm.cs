@@ -49,6 +49,9 @@ namespace Roadhog
         private Label? pathCombatRadiusLabel;
         private RoundedTextBox? pathCombatRadiusTextBox;
         private Label? pathCombatRadiusUnitLabel;
+        private Label? pathFollowReachDistanceLabel;
+        private RoundedTextBox? pathFollowReachDistanceTextBox;
+        private Label? pathFollowReachDistanceUnitLabel;
         private RoundedTextBox? cameraYawPixelsPerDegreeTextBox;
         private RoundedTextBox? cameraPitchPixelsPerDegreeTextBox;
         private RoundedCheckBox? enableLootCheckBox;
@@ -266,6 +269,7 @@ namespace Roadhog
             SetComboText(combatModeCombo, FormatCombatMode(settings.CombatMode));
             SetStationaryCombatRadius(settings.Combat);
             SetPathCombatRadius(settings.Combat);
+            SetPathFollowReachDistance(settings.Combat);
             SetCameraTurnScales(settings.Combat);
             RefreshCombatModeVisibility();
 
@@ -411,6 +415,7 @@ namespace Roadhog
                     StationaryCombatZ = 0.0D,
                     StationaryCombatRadius = ReadDouble(stationaryCombatRadiusTextBox, 30.0D, 1.0D, 500.0D),
                     PathCombatRadius = ReadDouble(pathCombatRadiusTextBox, 30.0D, 1.0D, 500.0D),
+                    PathFollowReachDistance = ReadDouble(pathFollowReachDistanceTextBox, 5.0D, 0.5D, 50.0D),
                     CameraYawPixelsPerDegree = ReadDouble(cameraYawPixelsPerDegreeTextBox, 11.0D, 0.1D, 100.0D),
                     CameraPitchPixelsPerDegree = ReadDouble(cameraPitchPixelsPerDegreeTextBox, 13.0D, 0.1D, 100.0D)
                 },
@@ -603,6 +608,9 @@ namespace Roadhog
             pathCombatRadiusLabel = AddLabel(page, "半径", 306, 108, 38, 22);
             pathCombatRadiusTextBox = AddTextBox(page, "30.0", 346, 104, 70, 28);
             pathCombatRadiusUnitLabel = AddLabel(page, "m", 422, 108, 20, 22);
+            pathFollowReachDistanceLabel = AddLabel(page, "精度", 562, 108, 38, 22);
+            pathFollowReachDistanceTextBox = AddTextBox(page, "5.0", 600, 104, 70, 28);
+            pathFollowReachDistanceUnitLabel = AddLabel(page, "m", 676, 108, 20, 22);
             RefreshCombatModeVisibility();
 
             enableLootCheckBox = AddCheckBox(page, "启用拾取", 4, 142, 88, true);
@@ -660,6 +668,21 @@ namespace Roadhog
             if (pathCombatRadiusUnitLabel is not null)
             {
                 pathCombatRadiusUnitLabel.Visible = pathVisible;
+            }
+
+            if (pathFollowReachDistanceLabel is not null)
+            {
+                pathFollowReachDistanceLabel.Visible = pathVisible;
+            }
+
+            if (pathFollowReachDistanceTextBox is not null)
+            {
+                pathFollowReachDistanceTextBox.Visible = pathVisible;
+            }
+
+            if (pathFollowReachDistanceUnitLabel is not null)
+            {
+                pathFollowReachDistanceUnitLabel.Visible = pathVisible;
             }
         }
 
@@ -857,6 +880,14 @@ namespace Roadhog
                 ? 30.0D
                 : Math.Min(combat.PathCombatRadius, 500.0D);
             SetText(pathCombatRadiusTextBox, radius.ToString("F1", CultureInfo.InvariantCulture));
+        }
+
+        private void SetPathFollowReachDistance(CombatScriptSettings combat)
+        {
+            var reachDistance = combat.PathFollowReachDistance <= 0.0D
+                ? 5.0D
+                : Math.Clamp(combat.PathFollowReachDistance, 0.5D, 50.0D);
+            SetText(pathFollowReachDistanceTextBox, reachDistance.ToString("F1", CultureInfo.InvariantCulture));
         }
 
         private void SetCameraTurnScales(CombatScriptSettings combat)

@@ -104,6 +104,8 @@ public sealed class CombatScriptSettings
 
     public double PathCombatRadius { get; set; } = 30.0D;
 
+    public double PathFollowReachDistance { get; set; } = 5.0D;
+
     public double CameraYawPixelsPerDegree { get; set; } = 11.0D;
 
     public double CameraPitchPixelsPerDegree { get; set; } = 13.0D;
@@ -123,6 +125,7 @@ public sealed class CombatScriptSettings
             StationaryCombatZ = StationaryCombatZ,
             StationaryCombatRadius = StationaryCombatRadius,
             PathCombatRadius = PathCombatRadius,
+            PathFollowReachDistance = PathFollowReachDistance,
             CameraYawPixelsPerDegree = CameraYawPixelsPerDegree,
             CameraPitchPixelsPerDegree = CameraPitchPixelsPerDegree
         };

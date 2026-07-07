@@ -67,6 +67,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path combat follows revive path before distant combat path", TestPathCombatFollowsRevivePathBeforeDistantCombatPathAsync),
     ("path combat starts combat path after access path completes", TestPathCombatStartsCombatPathAfterAccessPathCompletesAsync),
     ("path combat uses configured path radius before clearing monsters", TestPathCombatUsesConfiguredRadiusBeforeClearingMonstersAsync),
+    ("path combat uses configured path follow precision", TestPathCombatUsesConfiguredPathFollowPrecisionAsync),
     ("path combat resumes path after kill", TestPathCombatResumesPathAfterKillAsync),
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
     ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
@@ -1109,6 +1110,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
                     StationaryCombatZ = 259.832D,
                     StationaryCombatRadius = 42.5D,
                     PathCombatRadius = 37.5D,
+                    PathFollowReachDistance = 6.5D,
                     CameraYawPixelsPerDegree = 11.5D,
                     CameraPitchPixelsPerDegree = 13.25D
                 }
@@ -1128,6 +1130,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(259.832D, combat.StationaryCombatZ, "stationary z");
         AssertEqual(42.5D, combat.StationaryCombatRadius, "stationary radius");
         AssertEqual(37.5D, combat.PathCombatRadius, "path radius");
+        AssertEqual(6.5D, combat.PathFollowReachDistance, "path follow precision");
         AssertEqual(11.5D, combat.CameraYawPixelsPerDegree, "camera yaw pixels per degree");
         AssertEqual(13.25D, combat.CameraPitchPixelsPerDegree, "camera pitch pixels per degree");
         AssertFalse(!combat.PreferAggressiveMonsters, "prefer aggressive monsters should persist");
@@ -1137,6 +1140,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(1307.758D, clone.StationaryCombatX, "cloned stationary x");
         AssertEqual(42.5D, clone.StationaryCombatRadius, "cloned stationary radius");
         AssertEqual(37.5D, clone.PathCombatRadius, "cloned path radius");
+        AssertEqual(6.5D, clone.PathFollowReachDistance, "cloned path follow precision");
         AssertEqual(11.5D, clone.CameraYawPixelsPerDegree, "cloned camera yaw pixels per degree");
         AssertEqual(13.25D, clone.CameraPitchPixelsPerDegree, "cloned camera pitch pixels per degree");
         AssertFalse(!clone.PreferAggressiveMonsters, "prefer aggressive monsters should clone");
@@ -2545,6 +2549,56 @@ static async Task TestPathCombatUsesConfiguredRadiusBeforeClearingMonstersAsync(
                 entry.EventName == "stationary_combat.path_combat.target_selected" &&
                 Convert.ToString(entry.Fields["targetName"]) == "path-passive-inside-five"),
             "path combat target selection should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestPathCombatUsesConfiguredPathFollowPrecisionAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.CombatPathName = "combat-a";
+        settings.Combat.PathFollowReachDistance = 7;
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("combat-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(20, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(6, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var state = new StationaryCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller
+            .TickPathAsync(context, SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!state.PathCombat.Active, "path combat should start with configured path");
+        AssertEqual(1, state.PathCombat.PointIndex, "configured precision should treat first waypoint as reached");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "path combat should walk toward the next waypoint");
+        AssertFalse(!logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.path_combat.point_reached" &&
+                Convert.ToInt32(entry.Fields["pointIndex"]) == 0),
+            "path combat should log the first waypoint as reached inside configured precision");
     }
     finally
     {

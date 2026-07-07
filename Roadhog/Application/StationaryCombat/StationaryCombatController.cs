@@ -20,7 +20,7 @@ public sealed class StationaryCombatController
     private const double AcquireDistance = 25.0D;
     private const double TargetLeashExtraDistance = 5.0D;
     private const double PreLockFaceYawToleranceDegrees = 25.0D;
-    private const double StartupRecoveryReachDistance = 5.0D;
+    private const double DefaultPathFollowReachDistance = 5.0D;
     private const double RevivePathAggressiveClearRadius = 10.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
     private const double DefaultPitchPixelsPerDegree = 13.0D;
@@ -1074,15 +1074,16 @@ public sealed class StationaryCombatController
             }
         }
 
+        var pathFollowReachDistance = ResolvePathFollowReachDistance(context.Config.ScriptSettings?.Combat);
         while (state.DeathRecovery.RevivePathPointIndex >= 0 &&
                state.DeathRecovery.RevivePathPointIndex < state.DeathRecovery.RevivePathPoints.Count)
         {
             var point = state.DeathRecovery.RevivePathPoints[state.DeathRecovery.RevivePathPointIndex];
             var distance = StationaryCombatTargetSelector.HorizontalDistance(player.Position.Value, point);
-            if (distance > StartupRecoveryReachDistance)
+            if (distance > pathFollowReachDistance)
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
-                await PathFollowStepAsync(context, state, player, point, StartupRecoveryReachDistance).ConfigureAwait(false);
+                await PathFollowStepAsync(context, state, player, point, pathFollowReachDistance).ConfigureAwait(false);
                 await TryJumpDeathRevivePathIfStuckAsync(
                         context,
                         state,
@@ -1454,16 +1455,17 @@ public sealed class StationaryCombatController
             return defenseDelay.Value;
         }
 
+        var pathFollowReachDistance = ResolvePathFollowReachDistance(context.Config.ScriptSettings?.Combat);
         while (state.StartupRecoveryActive &&
                state.StartupRecoveryPointIndex >= 0 &&
                state.StartupRecoveryPointIndex < state.StartupRecoveryPoints.Count)
         {
             var point = state.StartupRecoveryPoints[state.StartupRecoveryPointIndex];
             var distance = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, point);
-            if (distance > StartupRecoveryReachDistance)
+            if (distance > pathFollowReachDistance)
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
-                await PathFollowStepAsync(context, state, player, point, StartupRecoveryReachDistance).ConfigureAwait(false);
+                await PathFollowStepAsync(context, state, player, point, pathFollowReachDistance).ConfigureAwait(false);
                 await TryJumpStartupRecoveryIfStuckAsync(
                         context,
                         state,
@@ -1940,16 +1942,17 @@ public sealed class StationaryCombatController
         var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
         var advancedPointCount = 0;
         var maxPointAdvances = Math.Max(1, state.PathCombat.Points.Count);
+        var pathFollowReachDistance = ResolvePathFollowReachDistance(context.Config.ScriptSettings?.Combat);
         while (state.PathCombat.Active &&
                state.PathCombat.PointIndex >= 0 &&
                state.PathCombat.PointIndex < state.PathCombat.Points.Count)
         {
             var point = state.PathCombat.Points[state.PathCombat.PointIndex];
             var distance = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, point);
-            if (distance > StartupRecoveryReachDistance)
+            if (distance > pathFollowReachDistance)
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
-                await PathFollowStepAsync(context, state, player, point, StartupRecoveryReachDistance).ConfigureAwait(false);
+                await PathFollowStepAsync(context, state, player, point, pathFollowReachDistance).ConfigureAwait(false);
                 await TryJumpPathCombatIfStuckAsync(
                         context,
                         state,
@@ -3984,6 +3987,11 @@ public sealed class StationaryCombatController
     private static double ResolvePathCombatRadius(CombatScriptSettings combat)
     {
         return Math.Max(1.0D, combat.PathCombatRadius);
+    }
+
+    private static double ResolvePathFollowReachDistance(CombatScriptSettings? combat)
+    {
+        return ClampDouble(combat?.PathFollowReachDistance ?? DefaultPathFollowReachDistance, 0.5D, 50.0D);
     }
 
     private static int FindNearestPathPointIndex(
