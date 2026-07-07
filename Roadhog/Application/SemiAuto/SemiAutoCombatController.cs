@@ -1048,7 +1048,6 @@ public sealed class SemiAutoCombatController
                 if (skillsResult.Success && skillsResult.Value is not null)
                 {
                     maintenanceSkill = ResolveMaintenanceRuleSkill(rule, plan, skillsResult.Value);
-                    TryUpdateMaintenanceCooldownCalibration(context, state, maintenanceSkill);
                     if (maintenanceSkill is not null &&
                         GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
                     {
@@ -1355,14 +1354,6 @@ public sealed class SemiAutoCombatController
         var baselineCooldowns = baselineResult.Success && baselineResult.Value is not null
             ? SnapshotCooldownEndTimes(baselineResult.Value)
             : null;
-        var baselineMaintenanceSkill = baselineResult.Success && baselineResult.Value is not null && maintenanceSkill is not null
-            ? ResolveMatchingSkillSnapshot(baselineResult.Value, maintenanceSkill)
-            : null;
-        if (baselineResult.Success && baselineResult.Value is not null)
-        {
-            TryUpdateMaintenanceCooldownCalibration(context, state, baselineMaintenanceSkill);
-        }
-
         var startedAt = DateTimeOffset.Now;
         var deadline = startedAt + MaintenanceConfirmWindow;
         var attempts = 0;
@@ -2921,13 +2912,6 @@ public sealed class SemiAutoCombatController
             ["offsetMs"] = calibration.OffsetMs,
             ["source"] = "maintenance"
         });
-    }
-
-    private static SkillSnapshot? ResolveMatchingSkillSnapshot(
-        IEnumerable<SkillSnapshot> skills,
-        SkillSnapshot match)
-    {
-        return skills.FirstOrDefault(skill => MatchesMaintenanceSkill(skill, match.SkillId, match.Name));
     }
 
     private static bool TryFindAdvancedCooldown(

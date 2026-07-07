@@ -686,7 +686,7 @@ public sealed class SemiAutoCombatState
         {
             if (skill.CooldownDuration == 0)
             {
-                return false;
+                continue;
             }
 
             var effectiveEndTime = GetEffectiveCooldownEndTime(skill, gameTick, readyToleranceMs);

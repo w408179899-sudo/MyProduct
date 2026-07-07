@@ -117,6 +117,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("calibrated cooldown tolerance treats near-ready as ready", TestCalibratedCooldownToleranceTreatsNearReadyAsReadyAsync),
     ("observed cooldown survives zero end tick read", TestObservedCooldownSurvivesZeroEndTickReadAsync),
     ("stale cooldown calibration invalidates impossible combat cooldowns", TestStaleCooldownCalibrationInvalidatesImpossibleCombatCooldownsAsync),
+    ("stale cooldown calibration skips zero-duration skills when invalidating", TestStaleCooldownCalibrationSkipsZeroDurationSkillsWhenInvalidatingAsync),
     ("valid cooldown calibration keeps plausible combat cooldowns cooling", TestValidCooldownCalibrationKeepsPlausibleCombatCooldownsCoolingAsync),
     ("invalidated cooldown calibration rebuilds after pressed skill advances", TestInvalidatedCooldownCalibrationRebuildsAfterPressedSkillAdvancesAsync),
     ("opening attack key switch presses C once", TestOpeningAttackKeySwitchPressesCOnceAsync),
@@ -137,6 +138,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("status maintenance skips active category zero buff", TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync),
     ("status maintenance in-combat rule skips without target", TestStatusMaintenanceInCombatRuleSkipsWithoutTargetAsync),
     ("status maintenance cooldown does not recalibrate combat clock", TestStatusMaintenanceCooldownDoesNotRecalibrateCombatClockAsync),
+    ("maintenance cooling skill observation does not recalibrate combat clock", TestMaintenanceCoolingSkillObservationDoesNotRecalibrateCombatClockAsync),
     ("maintenance cooldown calibration ignores unrelated skill advance", TestMaintenanceCooldownCalibrationIgnoresUnrelatedSkillAdvanceAsync),
     ("stationary combat skips skill maintenance before cooldown calibration", TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync),
     ("maintenance sit enters with comma and exits with x", TestMaintenanceSitEnterExitAsync),
@@ -6398,6 +6400,33 @@ static async Task TestStaleCooldownCalibrationInvalidatesImpossibleCombatCooldow
         "invalidated cooldown calibration should fall back to first root");
 }
 
+static async Task TestStaleCooldownCalibrationSkipsZeroDurationSkillsWhenInvalidatingAsync()
+{
+    var settings = CreateScriptSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var impossibleCooldownEnd = CooldownEndIn(130_000);
+    var gameApi = new FakeGameApi
+    {
+        Skills = CreateSkillSnapshotsById(CreateCombatRootCooldowns(impossibleCooldownEnd))
+            .Select(skill => skill.SkillId == 8
+                ? skill with { CooldownDuration = 0, CooldownEndTime = impossibleCooldownEnd }
+                : skill)
+            .ToArray()
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(state.HasCooldownTickCalibration, "zero-duration skill should not block stale cooldown invalidation");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "semi_auto.cooldown.calibration_invalidated"),
+        "stale cooldowns should still log calibration invalidation");
+}
+
 static async Task TestValidCooldownCalibrationKeepsPlausibleCombatCooldownsCoolingAsync()
 {
     var settings = CreateScriptSettings();
@@ -7223,6 +7252,55 @@ static async Task TestStatusMaintenanceCooldownDoesNotRecalibrateCombatClockAsyn
             entry.EventName == "semi_auto.cooldown.calibrated" &&
             Convert.ToUInt32(entry.Fields.GetValueOrDefault("skillId")) == 1378u),
         "status maintenance cooldown should not log combat clock calibration");
+}
+
+static async Task TestMaintenanceCoolingSkillObservationDoesNotRecalibrateCombatClockAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.HpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 50,
+        Key = "NumPad0",
+        SkillId = 1,
+        SkillName = "濞ｅ洦绻冩慨銏＄▕鐎ｎ剚绂?I",
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var previousMaintenanceSkill = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = CooldownEndIn(5_000)
+    }).First(skill => skill.SkillId == 1);
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 40, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = CooldownEndIn(30_000),
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var originalOffset = state.CooldownTickOffsetMs;
+    var observedOnly = state.TryUpdateCooldownTickCalibration(
+        new[] { previousMaintenanceSkill },
+        unchecked((uint)Environment.TickCount64),
+        DateTimeOffset.Now,
+        out _);
+    AssertFalse(observedOnly, "first maintenance cooldown observation should not calibrate");
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "cooling maintenance skill should not press key");
+    AssertEqual(originalOffset, state.CooldownTickOffsetMs, "cooling maintenance observation should not recalibrate combat cooldown offset");
+    AssertFalse(
+        logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.cooldown.calibrated" &&
+            Convert.ToUInt32(entry.Fields.GetValueOrDefault("skillId")) == 1u),
+        "cooling maintenance observation should not log combat clock calibration");
 }
 
 static async Task TestMaintenanceCooldownCalibrationIgnoresUnrelatedSkillAdvanceAsync()
