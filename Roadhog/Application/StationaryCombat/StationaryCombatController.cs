@@ -20,8 +20,8 @@ public sealed class StationaryCombatController
     private const double AcquireDistance = 25.0D;
     private const double TargetLeashExtraDistance = 5.0D;
     private const double PreLockFaceYawToleranceDegrees = 25.0D;
-    private const double StartupRecoveryReachDistance = 3.0D;
-    private const double RevivePathAggressiveClearRadius = 15.0D;
+    private const double StartupRecoveryReachDistance = 5.0D;
+    private const double RevivePathAggressiveClearRadius = 10.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
     private const double DefaultPitchPixelsPerDegree = 13.0D;
     private const int DefaultReviveClickX = 470;
@@ -369,7 +369,7 @@ public sealed class StationaryCombatController
         StationaryCombatState state)
     {
         var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
-        var radius = Math.Max(1.0D, combat.StationaryCombatRadius);
+        var radius = ResolvePathCombatRadius(combat);
 
         var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
         if (!playerResult.Success || playerResult.Value is null)
@@ -3981,6 +3981,11 @@ public sealed class StationaryCombatController
         return false;
     }
 
+    private static double ResolvePathCombatRadius(CombatScriptSettings combat)
+    {
+        return Math.Max(1.0D, combat.PathCombatRadius);
+    }
+
     private static int FindNearestPathPointIndex(
         Vector3Snapshot playerPosition,
         IReadOnlyList<Vector3Snapshot> points,
@@ -5087,11 +5092,17 @@ public sealed class StationaryCombatController
         var xChunks = BuildSignedCameraChunks(dx, options);
         var yChunks = BuildSignedCameraChunks(dy, options);
         var count = Math.Max(xChunks.Length, yChunks.Length);
+        var primeMoveCommands = EstimateCombinedPrimeMoveCommandCount(dx, dy, options);
+        var stepDelay = TimeSpan.FromMilliseconds(options.DragStepDelayMs);
         for (var i = 0; i < count; i++)
         {
             var stepX = i < xChunks.Length ? xChunks[i] : 0;
             var stepY = i < yChunks.Length ? yChunks[i] : 0;
             await SendCameraCombinedMoveStepAsync(context, stepX, stepY, options).ConfigureAwait(false);
+            if (i >= primeMoveCommands)
+            {
+                await DelayAsync(stepDelay, context).ConfigureAwait(false);
+            }
         }
     }
 
@@ -5116,8 +5127,6 @@ public sealed class StationaryCombatController
             });
             return;
         }
-
-        await DelayAsync(TimeSpan.FromMilliseconds(options.DragStepDelayMs), context).ConfigureAwait(false);
     }
 
     private static Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(AccountWorkerContext context)
@@ -5895,6 +5904,21 @@ public sealed class StationaryCombatController
             BuildSignedCameraChunks(dy, options).Length);
     }
 
+    private static int EstimateCombinedPrimeMoveCommandCount(
+        int dx,
+        int dy,
+        PathFollowTurnOptions options)
+    {
+        return Math.Max(
+            EstimatePrimeMoveCommandCount(dx, options),
+            EstimatePrimeMoveCommandCount(dy, options));
+    }
+
+    private static int EstimatePrimeMoveCommandCount(int pixels, PathFollowTurnOptions options)
+    {
+        return Math.Min(Math.Max(0, options.DragPrimePixels), Math.Abs(pixels));
+    }
+
     private static bool ShouldRestartMoveForYaw(bool isMoving, double yawErrorDegrees, double restartYawThresholdDegrees)
     {
         return isMoving && Math.Abs(yawErrorDegrees) > restartYawThresholdDegrees;
@@ -6007,7 +6031,7 @@ public sealed class StationaryCombatController
             SettleMs = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_SETTLE_MS", 20), 0, 500),
             MouseDownWarmupMs = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_MOUSE_DOWN_WARMUP_MS", 0), 0, 1000),
             MouseHoldAfterMoveMs = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_MOUSE_HOLD_AFTER_MOVE_MS", 0), 0, 1000),
-            MinCorrectionPixels = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_MIN_CORRECTION_PIXELS", 70), 0, 500),
+            MinCorrectionPixels = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_MIN_CORRECTION_PIXELS", 20), 0, 500),
             ToleranceDegrees = Math.Min(Math.Max(0.1D, ReadDoubleFromEnv("AION_FACE_TARGET_TOLERANCE_DEG", 2.5D)), yawTolerance),
             YawToleranceDegrees = yawTolerance,
             MicroYawToleranceDegrees = ReadPathFollowMicroYawTolerance(),
@@ -6024,7 +6048,7 @@ public sealed class StationaryCombatController
             DragTailPixels = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_DRAG_TAIL_PIXELS", 0), 0, 50),
             DragStepPixels = ClampInt(Math.Abs(ReadRawIntFromEnv("AION_FACE_TARGET_DRAG_STEP_PX", 20)), 1, 500),
             DragChunkMode = ReadCameraDragChunkMode(),
-            DragStepDelayMs = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_DRAG_STEP_DELAY_MS", 0), 0, 50),
+            DragStepDelayMs = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_DRAG_STEP_DELAY_MS", 3), 0, 50),
             TwoPassMaxPasses = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_TWO_PASS_MAX_PASSES", 2), 1, 4),
             AngleAdjustPollWaitMs = ClampInt(ReadRawIntFromEnv("AION_PATH_FOLLOW_ANGLE_ADJUST_POLL_WAIT_MS", 20), 0, 200),
             AdaptiveReadSettleMs = ClampInt(ReadRawIntFromEnv("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS", 20), 0, 200),

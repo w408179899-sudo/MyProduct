@@ -1143,7 +1143,6 @@ public sealed class SemiAutoCombatController
                 if (skillsResult.Success && skillsResult.Value is not null)
                 {
                     maintenanceSkill = ResolveStatusMaintenanceRuleSkill(rule, skillsResult.Value);
-                    TryUpdateMaintenanceCooldownCalibration(context, state, maintenanceSkill);
                     if (maintenanceSkill is not null &&
                         requireCooldownCalibrationForMaintenance &&
                         !state.HasCooldownTickCalibration &&

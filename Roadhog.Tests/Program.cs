@@ -66,7 +66,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path combat worker follows configured combat path", TestPathCombatWorkerFollowsConfiguredCombatPathAsync),
     ("path combat follows revive path before distant combat path", TestPathCombatFollowsRevivePathBeforeDistantCombatPathAsync),
     ("path combat starts combat path after access path completes", TestPathCombatStartsCombatPathAfterAccessPathCompletesAsync),
-    ("path combat uses configured radius before clearing monsters", TestPathCombatUsesConfiguredRadiusBeforeClearingMonstersAsync),
+    ("path combat uses configured path radius before clearing monsters", TestPathCombatUsesConfiguredRadiusBeforeClearingMonstersAsync),
     ("path combat resumes path after kill", TestPathCombatResumesPathAfterKillAsync),
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
     ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
@@ -136,6 +136,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("status maintenance presses missing buff and learns abnormal id", TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsync),
     ("status maintenance skips active category zero buff", TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync),
     ("status maintenance in-combat rule skips without target", TestStatusMaintenanceInCombatRuleSkipsWithoutTargetAsync),
+    ("status maintenance cooldown does not recalibrate combat clock", TestStatusMaintenanceCooldownDoesNotRecalibrateCombatClockAsync),
     ("maintenance cooldown calibration ignores unrelated skill advance", TestMaintenanceCooldownCalibrationIgnoresUnrelatedSkillAdvanceAsync),
     ("stationary combat skips skill maintenance before cooldown calibration", TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync),
     ("maintenance sit enters with comma and exits with x", TestMaintenanceSitEnterExitAsync),
@@ -1105,6 +1106,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
                     StationaryCombatY = 2844.230D,
                     StationaryCombatZ = 259.832D,
                     StationaryCombatRadius = 42.5D,
+                    PathCombatRadius = 37.5D,
                     CameraYawPixelsPerDegree = 11.5D,
                     CameraPitchPixelsPerDegree = 13.25D
                 }
@@ -1123,6 +1125,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(2844.230D, combat.StationaryCombatY, "stationary y");
         AssertEqual(259.832D, combat.StationaryCombatZ, "stationary z");
         AssertEqual(42.5D, combat.StationaryCombatRadius, "stationary radius");
+        AssertEqual(37.5D, combat.PathCombatRadius, "path radius");
         AssertEqual(11.5D, combat.CameraYawPixelsPerDegree, "camera yaw pixels per degree");
         AssertEqual(13.25D, combat.CameraPitchPixelsPerDegree, "camera pitch pixels per degree");
         AssertFalse(!combat.PreferAggressiveMonsters, "prefer aggressive monsters should persist");
@@ -1131,6 +1134,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertFalse(!clone.HasStationaryCombatPosition, "stationary combat position flag should clone");
         AssertEqual(1307.758D, clone.StationaryCombatX, "cloned stationary x");
         AssertEqual(42.5D, clone.StationaryCombatRadius, "cloned stationary radius");
+        AssertEqual(37.5D, clone.PathCombatRadius, "cloned path radius");
         AssertEqual(11.5D, clone.CameraYawPixelsPerDegree, "cloned camera yaw pixels per degree");
         AssertEqual(13.25D, clone.CameraPitchPixelsPerDegree, "cloned camera pitch pixels per degree");
         AssertFalse(!clone.PreferAggressiveMonsters, "prefer aggressive monsters should clone");
@@ -2419,7 +2423,7 @@ static async Task TestPathCombatStartsCombatPathAfterAccessPathCompletesAsync()
         var pathStore = new InMemorySharedPathStore(
             CreatePath("revive-a", revivePoints),
             CreatePath("combat-a",
-                new Vector3Snapshot(205, 0, 0),
+                new Vector3Snapshot(206, 0, 0),
                 new Vector3Snapshot(215, 0, 0)));
         var keyboard = new RecordingKeyboardInput();
         var logger = new InMemoryRoadhogLogger();
@@ -2470,7 +2474,8 @@ static async Task TestPathCombatUsesConfiguredRadiusBeforeClearingMonstersAsync(
         settings.SemiAuto.AttackKeyLoopEnabled = true;
         settings.SemiAuto.AttackKeyLoopIntervalMs = 1;
         settings.Combat.EnableLoot = false;
-        settings.Combat.StationaryCombatRadius = 3;
+        settings.Combat.StationaryCombatRadius = 1;
+        settings.Combat.PathCombatRadius = 3;
 
         var pathStore = new InMemorySharedPathStore(
             CreatePath("combat-a",
@@ -2518,19 +2523,19 @@ static async Task TestPathCombatUsesConfiguredRadiusBeforeClearingMonstersAsync(
 
         await controller.TickPathAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
-        AssertFalse(state.Fighting, "monster outside configured radius should not be selected");
+        AssertFalse(state.Fighting, "monster outside configured path radius should not be selected");
         AssertFalse(!state.PathCombat.Active, "path combat should stay active while no target is in radius");
         AssertEqual(1, state.PathCombat.PointIndex, "path combat should advance from nearest point to next waypoint");
         AssertFalse(!keyboard.KeyDowns.Contains("W"), "path combat should keep walking when target is outside radius");
 
-        settings.Combat.StationaryCombatRadius = 5;
+        settings.Combat.PathCombatRadius = 5;
         keyboard.Keys.Clear();
         keyboard.KeyUps.Clear();
 
         await controller.TickPathAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
-        AssertFalse(!state.Fighting, "monster inside configured radius should interrupt path into combat");
-        AssertEqual((ushort)220, state.CandidateEntityId, "path combat should select the monster inside UI radius");
+        AssertFalse(!state.Fighting, "monster inside configured path radius should interrupt path into combat");
+        AssertEqual((ushort)220, state.CandidateEntityId, "path combat should select the monster inside path UI radius");
         AssertFalse(state.CurrentTargetIsRevivePathClear, "path combat target should not be marked as revive path clear");
         AssertFalse(!keyboard.KeyUps.Contains("W"), "path combat should stop path movement before fighting");
         AssertFalse(!keyboard.Keys.Contains("C"), "path combat should press opening attack key while waiting for target aggro");
@@ -7160,6 +7165,64 @@ static async Task TestStatusMaintenanceInCombatRuleSkipsWithoutTargetAsync()
 
     AssertFalse(keyboard.Keys.Contains("NumPad2"), "in-combat status maintenance must not run without an attackable target");
     AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed"), "skipped in-combat status maintenance should not log a key press");
+}
+
+static async Task TestStatusMaintenanceCooldownDoesNotRecalibrateCombatClockAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad2",
+        SkillId = 1378,
+        SkillName = "Status Buff",
+        RunTiming = MaintenanceRuleRunTiming.Always
+    });
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var originalOffset = state.CooldownTickOffsetMs;
+    var osTick = unchecked((uint)Environment.TickCount64);
+    var gameTick = state.EstimateGameTick(osTick);
+    var statusCooldownEnd = unchecked(gameTick + 30_000u);
+    var previousStatusSkill = new SkillSnapshot(
+        1378,
+        "Status Buff",
+        1,
+        1,
+        "Status Buff",
+        1,
+        false,
+        120_000,
+        unchecked(statusCooldownEnd - 10_000u));
+    var observedOnly = state.TryUpdateCooldownTickCalibration(
+        new[] { previousStatusSkill },
+        osTick,
+        DateTimeOffset.Now,
+        out _);
+    AssertFalse(observedOnly, "first status maintenance cooldown observation should not calibrate");
+
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1),
+        Skills = new[]
+        {
+            previousStatusSkill with { CooldownEndTime = statusCooldownEnd }
+        }
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "cooling status maintenance should not press key");
+    AssertEqual(originalOffset, state.CooldownTickOffsetMs, "status maintenance cooldown should not recalibrate combat cooldown offset");
+    AssertFalse(
+        logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.cooldown.calibrated" &&
+            Convert.ToUInt32(entry.Fields.GetValueOrDefault("skillId")) == 1378u),
+        "status maintenance cooldown should not log combat clock calibration");
 }
 
 static async Task TestMaintenanceCooldownCalibrationIgnoresUnrelatedSkillAdvanceAsync()

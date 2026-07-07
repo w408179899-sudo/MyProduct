@@ -28,7 +28,9 @@
         "combat": {
           "enableLoot": true,
           "contestMonster": false,
-          "counterEnemyRace": false
+          "counterEnemyRace": false,
+          "stationaryCombatRadius": 30,
+          "pathCombatRadius": 30
         },
         "paths": {
           "revivePathName": "穆尔海姆00133",

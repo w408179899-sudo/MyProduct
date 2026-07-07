@@ -42,4 +42,12 @@
     </Content>
   </ItemGroup>
 
+  <PropertyGroup>
+    <RoadhogDesktopScriptRoot Condition="'$(RoadhogDesktopScriptRoot)' == ''">$(USERPROFILE)\Desktop\script</RoadhogDesktopScriptRoot>
+  </PropertyGroup>
+
+  <Target Name="CopyRoadhogRuntimeToDesktopScripts" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\Build\CopyRoadhogRuntime.ps1&quot; -SourceDirectory &quot;$(TargetDir).&quot; -DestinationRoot &quot;$(RoadhogDesktopScriptRoot)&quot;" />
+  </Target>
+
 </Project>

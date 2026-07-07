@@ -46,6 +46,9 @@ namespace Roadhog
         private Label? stationaryCombatRadiusLabel;
         private RoundedTextBox? stationaryCombatRadiusTextBox;
         private Label? stationaryCombatRadiusUnitLabel;
+        private Label? pathCombatRadiusLabel;
+        private RoundedTextBox? pathCombatRadiusTextBox;
+        private Label? pathCombatRadiusUnitLabel;
         private RoundedTextBox? cameraYawPixelsPerDegreeTextBox;
         private RoundedTextBox? cameraPitchPixelsPerDegreeTextBox;
         private RoundedCheckBox? enableLootCheckBox;
@@ -262,6 +265,7 @@ namespace Roadhog
             SetComboText(mainModeCombo, FormatMainMode(settings.MainMode));
             SetComboText(combatModeCombo, FormatCombatMode(settings.CombatMode));
             SetStationaryCombatRadius(settings.Combat);
+            SetPathCombatRadius(settings.Combat);
             SetCameraTurnScales(settings.Combat);
             RefreshCombatModeVisibility();
 
@@ -406,6 +410,7 @@ namespace Roadhog
                     StationaryCombatY = 0.0D,
                     StationaryCombatZ = 0.0D,
                     StationaryCombatRadius = ReadDouble(stationaryCombatRadiusTextBox, 30.0D, 1.0D, 500.0D),
+                    PathCombatRadius = ReadDouble(pathCombatRadiusTextBox, 30.0D, 1.0D, 500.0D),
                     CameraYawPixelsPerDegree = ReadDouble(cameraYawPixelsPerDegreeTextBox, 11.0D, 0.1D, 100.0D),
                     CameraPitchPixelsPerDegree = ReadDouble(cameraPitchPixelsPerDegreeTextBox, 13.0D, 0.1D, 100.0D)
                 },
@@ -595,6 +600,9 @@ namespace Roadhog
             stationaryCombatRadiusLabel = AddLabel(page, "半径", 306, 108, 38, 22);
             stationaryCombatRadiusTextBox = AddTextBox(page, "30.0", 346, 104, 70, 28);
             stationaryCombatRadiusUnitLabel = AddLabel(page, "m", 422, 108, 20, 22);
+            pathCombatRadiusLabel = AddLabel(page, "半径", 306, 108, 38, 22);
+            pathCombatRadiusTextBox = AddTextBox(page, "30.0", 346, 104, 70, 28);
+            pathCombatRadiusUnitLabel = AddLabel(page, "m", 422, 108, 20, 22);
             RefreshCombatModeVisibility();
 
             enableLootCheckBox = AddCheckBox(page, "启用拾取", 4, 142, 88, true);
@@ -611,7 +619,9 @@ namespace Roadhog
         private void RefreshCombatModeVisibility()
         {
             var visible = ParseMainMode(mainModeCombo?.Text) == AccountMainMode.CustomCombat;
-            var stationaryVisible = visible && ParseCombatMode(combatModeCombo?.Text) == AccountCombatMode.Stationary;
+            var combatMode = ParseCombatMode(combatModeCombo?.Text);
+            var stationaryVisible = visible && combatMode == AccountCombatMode.Stationary;
+            var pathVisible = visible && combatMode == AccountCombatMode.Path;
             if (combatModeCombo is not null)
             {
                 combatModeCombo.Visible = visible;
@@ -635,6 +645,21 @@ namespace Roadhog
             if (stationaryCombatRadiusUnitLabel is not null)
             {
                 stationaryCombatRadiusUnitLabel.Visible = stationaryVisible;
+            }
+
+            if (pathCombatRadiusLabel is not null)
+            {
+                pathCombatRadiusLabel.Visible = pathVisible;
+            }
+
+            if (pathCombatRadiusTextBox is not null)
+            {
+                pathCombatRadiusTextBox.Visible = pathVisible;
+            }
+
+            if (pathCombatRadiusUnitLabel is not null)
+            {
+                pathCombatRadiusUnitLabel.Visible = pathVisible;
             }
         }
 
@@ -824,6 +849,14 @@ namespace Roadhog
                 ? 30.0D
                 : Math.Min(combat.StationaryCombatRadius, 500.0D);
             SetText(stationaryCombatRadiusTextBox, radius.ToString("F1", CultureInfo.InvariantCulture));
+        }
+
+        private void SetPathCombatRadius(CombatScriptSettings combat)
+        {
+            var radius = combat.PathCombatRadius <= 0.0D
+                ? 30.0D
+                : Math.Min(combat.PathCombatRadius, 500.0D);
+            SetText(pathCombatRadiusTextBox, radius.ToString("F1", CultureInfo.InvariantCulture));
         }
 
         private void SetCameraTurnScales(CombatScriptSettings combat)
