@@ -590,10 +590,10 @@ namespace Roadhog
             savedProfileCombo.SelectedIndexChanged += (_, _) => LoadSelectedProfile();
             AddButton(page, "删除", 568, 31, 72, 30, (_, _) => DeleteSavedProfile());
             AddLabel(page, "方案名", 230, 36, 80, 22);
-            AddLabel(page, "水平", 314, 64, 38, 22);
-            cameraYawPixelsPerDegreeTextBox = AddTextBox(page, "11.0", 352, 60, 72, 28);
-            AddLabel(page, "俯仰", 438, 64, 38, 22);
-            cameraPitchPixelsPerDegreeTextBox = AddTextBox(page, "13.0", 476, 60, 72, 28);
+            AddLabel(page, "水平", 306, 76, 38, 22);
+            cameraYawPixelsPerDegreeTextBox = AddTextBox(page, "11.0", 346, 72, 70, 28);
+            AddLabel(page, "俯仰", 482, 76, 38, 22);
+            cameraPitchPixelsPerDegreeTextBox = AddTextBox(page, "13.0", 522, 72, 70, 28);
 
             mainModeCombo = AddCombo(page, 4, 72, 220, 28, "自定义打怪", "采集", "制作", "半自动");
             mainModeCombo.SelectedIndexChanged += (_, _) => RefreshCombatModeVisibility();
@@ -608,9 +608,9 @@ namespace Roadhog
             pathCombatRadiusLabel = AddLabel(page, "半径", 306, 108, 38, 22);
             pathCombatRadiusTextBox = AddTextBox(page, "30.0", 346, 104, 70, 28);
             pathCombatRadiusUnitLabel = AddLabel(page, "m", 422, 108, 20, 22);
-            pathFollowReachDistanceLabel = AddLabel(page, "精度", 562, 108, 38, 22);
-            pathFollowReachDistanceTextBox = AddTextBox(page, "5.0", 600, 104, 70, 28);
-            pathFollowReachDistanceUnitLabel = AddLabel(page, "m", 676, 108, 20, 22);
+            pathFollowReachDistanceLabel = AddLabel(page, "精度", 482, 108, 38, 22);
+            pathFollowReachDistanceTextBox = AddTextBox(page, "5.0", 522, 104, 70, 28);
+            pathFollowReachDistanceUnitLabel = AddLabel(page, "m", 598, 108, 20, 22);
             RefreshCombatModeVisibility();
 
             enableLootCheckBox = AddCheckBox(page, "启用拾取", 4, 142, 88, true);
