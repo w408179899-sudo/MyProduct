@@ -6214,12 +6214,13 @@ public sealed class StationaryCombatController
 
     private static (int X, int Y) ReadDeathReviveClickPoint(int reviveClickCount)
     {
-        if (reviveClickCount <= 0)
+        var clickIndex = Math.Max(0, reviveClickCount) % 3;
+        if (clickIndex == 0)
         {
             return (ReadDeathReviveClickX(), ReadDeathReviveClickY());
         }
 
-        if (reviveClickCount == 1)
+        if (clickIndex == 1)
         {
             return (ReadDeathReviveFallbackClickX(), ReadDeathReviveFallbackClickY());
         }

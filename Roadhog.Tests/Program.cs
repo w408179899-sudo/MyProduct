@@ -1845,11 +1845,25 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
             "death recovery should retry third revive click when player is still dead after second retry");
         AssertEqual(3, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record third revive click count");
 
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+        AssertSequence(
+            new[]
+            {
+                "move:-2000,-2000",
+                "move:-2000,-2000",
+                "move:470,300",
+                "down:Left",
+                "up:Left"
+            },
+            keyboard.MouseCommands.Skip(15).Take(5).ToArray(),
+            "death recovery should rotate back to the first revive click point");
+        AssertEqual(4, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record rotated revive click count");
+
         gameApi.Player = gameApi.Player with { CurrentHp = 10 };
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
         AssertSequence(
             Enumerable.Repeat("wheel:-1", 10).ToArray(),
-            keyboard.MouseCommands.Skip(15).Take(10).ToArray(),
+            keyboard.MouseCommands.Skip(20).Take(10).ToArray(),
             "revived player should scroll wheel down ten times before maintenance");
         AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "revived low hp should sit for recovery");
         AssertFalse(!semiAutoState.IsMaintenanceResting, "revive recovery should track resting state");
