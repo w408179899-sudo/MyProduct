@@ -126,6 +126,15 @@ namespace Tool
                         return;
                     }
 
+                    if (string.Equals(aionTestMode, "offset_check", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "offsetcheck", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "offsets", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "offset_probe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunOffsetCheckTest(process, gameBase);
+                        return;
+                    }
+
                     if (string.Equals(aionTestMode, "rest", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "height", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "rest_probe", StringComparison.OrdinalIgnoreCase) ||
@@ -891,16 +900,21 @@ namespace Tool
 
         private const ulong ActorEntityOffset = 0x08;
         private const ulong ActorObjectTypeOffset = 0x20;
+        private const uint ActorPlayerObjectType = 1;
+        private const uint ActorSummonedPetObjectType = 2;
         private const ulong ActorServerObjectIdOffset = 0x2C;
         private const ulong ActorNpcTemplateIdOffset = 0x30;
         private const ulong ActorStanceFlagsOffset = 0x34;
         private const ulong ActorLevelOffset = 0x3E;
         private const ulong ActorHpPercentOffset = 0x40;
         private const ulong ActorNameOffset = 0x42;
+        private const ulong ActorSummonOwnerServerObjectIdOffset = 0xFC;
         private const ulong ActorInteractionStateOffset = 0x1CC;
+        private const ulong ActorClassIdOffset = 0x228;
         private const ulong ActorMotionModeOffset = 0x2D0;
         private const ulong ActorSitOffsetCandidateOffset = 0x2D4;
         private const ulong ActorTargetServerObjectIdOffset = 0x358;
+        private const ulong ActorCurrentSummonedPetServerObjectIdOffset = 0xFA0;
         private const ulong ActorAbnormalBeginOffset = 0xF18;
         private const ulong ActorAbnormalEndOffset = 0xF20;
         private const ulong ActorAbnormalCapacityOffset = 0xF28;
@@ -1557,6 +1571,13 @@ namespace Tool
             public List<InventoryItemInfo> Items;
         }
 
+        private struct OffsetCheckStats
+        {
+            public int Ok;
+            public int Warn;
+            public int Fail;
+        }
+
         private sealed class FaceTargetOptions
         {
             public string KmBoxPortName;
@@ -1979,6 +2000,831 @@ namespace Tool
                               lastInfo.CameraPitch.ToString("F2") + "/" +
                               lastInfo.CameraRoll.ToString("F2") + "/" +
                               lastInfo.CameraYaw.ToString("F2"));
+        }
+
+        private static void RunOffsetCheckTest(VmmProcess process, ulong gameBase)
+        {
+            double radius = Math.Max(0.0, ReadDoubleFromEnv("AION_OFFSET_CHECK_RADIUS", 80.0));
+            int limit = ClampInt(ReadIntFromEnv("AION_OFFSET_CHECK_LIMIT", 40), 1, 500);
+            bool checkSkillItemFields = ReadBoolFromEnv("AION_OFFSET_CHECK_SKILL_ITEM_FIELDS", true);
+
+            Console.WriteLine("AION Roadhog runtime offset check probe.");
+            Console.WriteLine("Read-only check for the offsets used by the Roadhog VMM runtime path.");
+            Console.WriteLine("Radius=" + radius.ToString("F1") +
+                              " Limit=" + limit +
+                              " SkillItemFields=" + FormatYesNo(checkSkillItemFields) +
+                              " Env=AION_TEST_MODE=offset_check");
+
+            OffsetCheckStats stats = new OffsetCheckStats();
+
+            CheckOffsetRootPointers(process, gameBase, ref stats);
+
+            LocalPlayerInfo local;
+            ActorInfo localActor;
+            bool hasLocalActor;
+            CheckOffsetLocalPlayer(process, gameBase, ref stats, out local, out localActor, out hasLocalActor);
+
+            CheckOffsetCamera(process, gameBase, ref stats);
+            CheckOffsetSkills(process, gameBase, checkSkillItemFields, ref stats);
+            CheckOffsetTarget(process, gameBase, ref stats);
+            CheckOffsetWorldObjects(process, gameBase, radius, limit, ref stats);
+            CheckOffsetLootCorpses(process, gameBase, radius, limit, ref stats);
+            CheckOffsetAbnormalStatus(process, gameBase, ref stats);
+            CheckOffsetPartyLists(process, gameBase, ref stats);
+            CheckOffsetSummonPetLinks(process, gameBase, radius, limit, localActor, hasLocalActor, ref stats);
+
+            Console.WriteLine("OffsetCheckSummary OK=" + stats.Ok +
+                              " WARN=" + stats.Warn +
+                              " FAIL=" + stats.Fail);
+
+            if (stats.Fail > 0)
+            {
+                Environment.ExitCode = 2;
+            }
+        }
+
+        private static void CheckOffsetRootPointers(VmmProcess process, ulong gameBase, ref OffsetCheckStats stats)
+        {
+            ulong entitySystem;
+            if (TryReadPointer(process, gameBase + EntitySystemPointerRva, out entitySystem))
+            {
+                ulong entityTreeHeader;
+                if (TryReadPointer(process, entitySystem + EntityTreeOffset, out entityTreeHeader))
+                {
+                    PrintOffsetCheckOk(
+                        ref stats,
+                        "root.entity_system",
+                        "Game.dll+0x" + EntitySystemPointerRva.ToString("X") +
+                        "=" + FormatAddress(entitySystem) +
+                        " EntityTree+0x" + EntityTreeOffset.ToString("X") +
+                        "=" + FormatAddress(entityTreeHeader));
+                }
+                else
+                {
+                    PrintOffsetCheckFail(
+                        ref stats,
+                        "root.entity_system",
+                        "failed to read EntitySystem+0x" + EntityTreeOffset.ToString("X") + " entity tree header");
+                }
+            }
+            else
+            {
+                PrintOffsetCheckFail(
+                    ref stats,
+                    "root.entity_system",
+                    "failed to read Game.dll+0x" + EntitySystemPointerRva.ToString("X"));
+            }
+
+            ulong serverTreeHeader;
+            if (TryReadPointer(process, gameBase + ServerObjectTreeRva, out serverTreeHeader) && serverTreeHeader != 0)
+            {
+                ulong firstServerNode;
+                bool hasFirst = TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out firstServerNode);
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "root.server_object_tree",
+                    "Game.dll+0x" + ServerObjectTreeRva.ToString("X") +
+                    "=" + FormatAddress(serverTreeHeader) +
+                    " First=" + (hasFirst ? FormatAddress(firstServerNode) : "unreadable"));
+            }
+            else
+            {
+                PrintOffsetCheckFail(
+                    ref stats,
+                    "root.server_object_tree",
+                    "failed to read Game.dll+0x" + ServerObjectTreeRva.ToString("X"));
+            }
+
+            ulong skillManager;
+            if (TryReadPointer(process, gameBase + SkillManagerGlobalRva, out skillManager) && skillManager != 0)
+            {
+                ulong learnedTreeHeader;
+                bool hasLearnedTree = TryReadPointer(process, skillManager + LearnedSkillTreeOffset, out learnedTreeHeader);
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "root.skill_manager",
+                    "Game.dll+0x" + SkillManagerGlobalRva.ToString("X") +
+                    "=" + FormatAddress(skillManager) +
+                    " LearnedTree=" + (hasLearnedTree ? FormatAddress(learnedTreeHeader) : "unreadable"));
+            }
+            else
+            {
+                PrintOffsetCheckFail(
+                    ref stats,
+                    "root.skill_manager",
+                    "failed to read Game.dll+0x" + SkillManagerGlobalRva.ToString("X"));
+            }
+        }
+
+        private static bool CheckOffsetLocalPlayer(
+            VmmProcess process,
+            ulong gameBase,
+            ref OffsetCheckStats stats,
+            out LocalPlayerInfo local,
+            out ActorInfo localActor,
+            out bool hasLocalActor)
+        {
+            local = new LocalPlayerInfo();
+            localActor = new ActorInfo();
+            hasLocalActor = false;
+
+            string error;
+            if (!TryReadLocalPlayerInfo(process, gameBase, out local, out error))
+            {
+                PrintOffsetCheckFail(ref stats, "player.globals", error);
+                return false;
+            }
+
+            PrintOffsetCheckOk(
+                ref stats,
+                "player.globals",
+                "EntityId=" + local.EntityId +
+                " TargetId=" + local.TargetEntityId +
+                " HP=" + local.CurrentHp + "/" + local.MaxHp +
+                " MP=" + local.CurrentMp + "/" + local.MaxMp +
+                " DP=" + local.CurrentDp);
+
+            if (local.HasPosition && IsReasonablePosition(local.X, local.Y, local.Z))
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "player.position",
+                    "Entity=" + FormatAddress(local.Entity) +
+                    " EntitySystem=" + FormatAddress(local.EntitySystem) +
+                    " EntityTree=" + FormatAddress(local.EntityTreeHeader) +
+                    " Pos=" + FormatPosition(local));
+            }
+            else
+            {
+                PrintOffsetCheckFail(
+                    ref stats,
+                    "player.position",
+                    "local entity was not resolved from EntitySystem tree or position offsets are unreadable");
+                return true;
+            }
+
+            if (TryResolveActorFromEntityExperimental(process, local.Entity, 0, out localActor))
+            {
+                hasLocalActor = true;
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "actor.local",
+                    "Actor=" + FormatAddress(localActor.Actor) +
+                    " ObjType=" + localActor.ObjectType +
+                    " PlayerObjTypeExpected=" + ActorPlayerObjectType +
+                    " ServerId=" + localActor.ServerObjectId +
+                    " TargetServerId=" + localActor.TargetServerObjectId +
+                    " HP=" + localActor.CurrentHp + "/" + localActor.MaxHp +
+                    " Name=\"" + (localActor.Name ?? string.Empty) + "\"" +
+                    " Source=" + localActor.ResolveSource);
+
+                CheckOffsetLocalActorFields(process, localActor, ref stats);
+            }
+            else
+            {
+                PrintOffsetCheckFail(
+                    ref stats,
+                    "actor.local",
+                    "failed to resolve local Actor from local CEntity; checks CEntity vtable+0x" +
+                    EntityProxyManagerVfuncOffset.ToString("X") + " and fallback scans");
+            }
+
+            return true;
+        }
+
+        private static void CheckOffsetLocalActorFields(
+            VmmProcess process,
+            ActorInfo localActor,
+            ref OffsetCheckStats stats)
+        {
+            uint stanceFlags;
+            uint motionMode;
+            uint classId;
+            uint linkedPetServerObjectId;
+
+            bool stanceOk = TryReadUInt32(process, localActor.Actor + ActorStanceFlagsOffset, out stanceFlags);
+            bool motionOk = TryReadUInt32(process, localActor.Actor + ActorMotionModeOffset, out motionMode);
+            if (stanceOk && motionOk)
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "actor.local_state",
+                    "Stance(Actor+0x" + ActorStanceFlagsOffset.ToString("X") + ")=0x" +
+                    stanceFlags.ToString("X8") +
+                    " MotionMode(Actor+0x" + ActorMotionModeOffset.ToString("X") + ")=" + motionMode);
+            }
+            else
+            {
+                PrintOffsetCheckFail(
+                    ref stats,
+                    "actor.local_state",
+                    "failed to read stance/motion offsets from local Actor");
+            }
+
+            if (TryReadUInt32(process, localActor.Actor + ActorClassIdOffset, out classId))
+            {
+                if (classId <= 11U)
+                {
+                    PrintOffsetCheckOk(
+                        ref stats,
+                        "actor.class",
+                        "ClassId(Actor+0x" + ActorClassIdOffset.ToString("X") + ")=" + classId);
+                }
+                else
+                {
+                    PrintOffsetCheckWarn(
+                        ref stats,
+                        "actor.class",
+                        "read ClassId=" + classId + " from Actor+0x" + ActorClassIdOffset.ToString("X") +
+                        ", but it is outside the known 0..11 range");
+                }
+            }
+            else
+            {
+                PrintOffsetCheckFail(
+                    ref stats,
+                    "actor.class",
+                    "failed to read Actor+0x" + ActorClassIdOffset.ToString("X"));
+            }
+
+            if (TryReadUInt32(process, localActor.Actor + ActorCurrentSummonedPetServerObjectIdOffset, out linkedPetServerObjectId))
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "actor.summon_link",
+                    "CurrentSummonedPetServerId(Actor+0x" +
+                    ActorCurrentSummonedPetServerObjectIdOffset.ToString("X") + ")=" + linkedPetServerObjectId);
+            }
+            else
+            {
+                PrintOffsetCheckFail(
+                    ref stats,
+                    "actor.summon_link",
+                    "failed to read Actor+0x" + ActorCurrentSummonedPetServerObjectIdOffset.ToString("X"));
+            }
+        }
+
+        private static void CheckOffsetCamera(VmmProcess process, ulong gameBase, ref OffsetCheckStats stats)
+        {
+            ushort specialCameraMode;
+            bool hasSpecialMode = TryReadUInt16(process, gameBase + SpecialCameraModeRva, out specialCameraMode);
+            bool useSpecialCamera = hasSpecialMode && specialCameraMode != 0 && !HasCameraRvaOverride();
+            ulong pitchRva = useSpecialCamera ? SpecialCameraPitchRva : GetCameraPitchRva();
+            ulong rollRva = useSpecialCamera ? SpecialCameraRollRva : GetCameraRollRva();
+            ulong yawRva = useSpecialCamera ? SpecialCameraYawRva : GetCameraYawRva();
+
+            float pitch;
+            float roll;
+            float yaw;
+            if (TryReadSingle(process, gameBase + pitchRva, out pitch) &&
+                TryReadSingle(process, gameBase + rollRva, out roll) &&
+                TryReadSingle(process, gameBase + yawRva, out yaw) &&
+                IsReasonableAngleValue(pitch) &&
+                IsReasonableAngleValue(roll) &&
+                IsReasonableAngleValue(yaw))
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "camera.selected",
+                    "Mode=" + (hasSpecialMode ? specialCameraMode.ToString() : "unreadable") +
+                    " UseSpecial=" + FormatYesNo(useSpecialCamera) +
+                    " RVAs(P/R/Y)=0x" + pitchRva.ToString("X") + "/0x" +
+                    rollRva.ToString("X") + "/0x" + yawRva.ToString("X") +
+                    " Values=" + pitch.ToString("F2") + "/" + roll.ToString("F2") + "/" + yaw.ToString("F2"));
+            }
+            else
+            {
+                PrintOffsetCheckFail(
+                    ref stats,
+                    "camera.selected",
+                    "failed to read selected camera angles at RVAs 0x" +
+                    pitchRva.ToString("X") + "/0x" + rollRva.ToString("X") + "/0x" + yawRva.ToString("X"));
+            }
+
+            if (!hasSpecialMode)
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "camera.special_mode",
+                    "failed to read Game.dll+0x" + SpecialCameraModeRva.ToString("X") +
+                    "; normal camera read may still work");
+            }
+        }
+
+        private static void CheckOffsetSkills(
+            VmmProcess process,
+            ulong gameBase,
+            bool checkSkillItemFields,
+            ref OffsetCheckStats stats)
+        {
+            List<LearnedSkillInfo> skills;
+            int outerNodeCount;
+            string error;
+            if (!TryReadHighestLearnedSkills(process, gameBase, out skills, out outerNodeCount, out error))
+            {
+                PrintOffsetCheckFail(ref stats, "skills.learned_tree", error);
+                return;
+            }
+
+            if (outerNodeCount > 0)
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "skills.learned_tree",
+                    "OuterNodes=" + outerNodeCount +
+                    " ParsedSkills=" + skills.Count +
+                    " SkillManagerRva=0x" + SkillManagerGlobalRva.ToString("X") +
+                    " TreeOffset=0x" + LearnedSkillTreeOffset.ToString("X"));
+            }
+            else
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "skills.learned_tree",
+                    "learned skill tree was readable but had no outer nodes");
+            }
+
+            if (!checkSkillItemFields)
+            {
+                return;
+            }
+
+            if (skills.Count == 0)
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "skills.item_fields",
+                    "no learned SkillItem was parsed; field-level SkillItem checks skipped");
+                return;
+            }
+
+            CheckOffsetSampleSkillItemFields(process, skills[0], ref stats);
+        }
+
+        private static void CheckOffsetSampleSkillItemFields(
+            VmmProcess process,
+            LearnedSkillInfo skill,
+            ref OffsetCheckStats stats)
+        {
+            var missing = new List<string>();
+            uint skillId;
+            uint field0C;
+            ulong rankValue;
+            string name;
+            uint cooldownDuration;
+            uint cooldownEndTime;
+            uint toggleState;
+            uint skillLevel;
+            uint staticFieldD8;
+            uint runtimeState;
+            uint sourceFlags;
+
+            if (!TryReadUInt32(process, skill.SkillItem + SkillItemSkillIdOffset, out skillId) ||
+                skillId != skill.SkillId)
+            {
+                missing.Add("SkillItem+0x" + SkillItemSkillIdOffset.ToString("X"));
+            }
+
+            if (!TryReadUInt32(process, skill.SkillItem + SkillItemField0COffset, out field0C))
+            {
+                missing.Add("SkillItem+0x" + SkillItemField0COffset.ToString("X"));
+            }
+
+            if (!TryReadUInt64(process, skill.SkillItem + SkillItemRankValueOffset, out rankValue))
+            {
+                missing.Add("SkillItem+0x" + SkillItemRankValueOffset.ToString("X"));
+            }
+
+            if (!TryReadMsvcWString(process, skill.SkillItem + SkillItemNameOffset, out name))
+            {
+                missing.Add("SkillItem+0x" + SkillItemNameOffset.ToString("X"));
+                name = string.Empty;
+            }
+
+            if (!TryReadUInt32(process, skill.SkillItem + SkillItemCooldownDurationOffset, out cooldownDuration))
+            {
+                missing.Add("SkillItem+0x" + SkillItemCooldownDurationOffset.ToString("X"));
+            }
+
+            if (!TryReadUInt32(process, skill.SkillItem + SkillItemCooldownEndTimeOffset, out cooldownEndTime))
+            {
+                missing.Add("SkillItem+0x" + SkillItemCooldownEndTimeOffset.ToString("X"));
+            }
+
+            if (!TryReadUInt32(process, skill.SkillItem + SkillItemToggleStateOffset, out toggleState))
+            {
+                missing.Add("SkillItem+0x" + SkillItemToggleStateOffset.ToString("X"));
+            }
+
+            if (!TryReadUInt32(process, skill.SkillItem + SkillItemSkillLevelOffset, out skillLevel))
+            {
+                missing.Add("SkillItem+0x" + SkillItemSkillLevelOffset.ToString("X"));
+            }
+
+            if (!TryReadUInt32(process, skill.SkillItem + SkillItemStaticFieldD8Offset, out staticFieldD8))
+            {
+                missing.Add("SkillItem+0x" + SkillItemStaticFieldD8Offset.ToString("X"));
+            }
+
+            if (!TryReadUInt32(process, skill.SkillItem + SkillItemRuntimeStateOffset, out runtimeState))
+            {
+                missing.Add("SkillItem+0x" + SkillItemRuntimeStateOffset.ToString("X"));
+            }
+
+            if (!TryReadUInt32(process, skill.SkillItem + SkillItemSourceFlagsOffset, out sourceFlags))
+            {
+                missing.Add("SkillItem+0x" + SkillItemSourceFlagsOffset.ToString("X"));
+            }
+
+            if (missing.Count == 0)
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "skills.item_fields",
+                    "SampleId=" + skill.SkillId +
+                    " Item=" + FormatAddress(skill.SkillItem) +
+                    " Name=\"" + name + "\"" +
+                    " Level=" + skillLevel +
+                    " Cooldown=" + cooldownDuration + "/" + cooldownEndTime +
+                    " Toggle=" + toggleState +
+                    " RuntimeState=" + runtimeState +
+                    " SourceFlags=0x" + sourceFlags.ToString("X"));
+            }
+            else
+            {
+                PrintOffsetCheckFail(
+                    ref stats,
+                    "skills.item_fields",
+                    "SampleId=" + skill.SkillId +
+                    " Item=" + FormatAddress(skill.SkillItem) +
+                    " Missing=" + string.Join(",", missing.ToArray()));
+            }
+        }
+
+        private static void CheckOffsetTarget(VmmProcess process, ulong gameBase, ref OffsetCheckStats stats)
+        {
+            LockedTargetMonsterInfo target;
+            string error;
+            if (!TryReadLockedTargetMonsterInfo(process, gameBase, out target, out error))
+            {
+                PrintOffsetCheckFail(ref stats, "target.locked", error);
+                return;
+            }
+
+            if (target.TargetEntityId == 0)
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "target.locked",
+                    "target entity id is 0; lock a monster/NPC to verify target entity, actor, and distance fields");
+                return;
+            }
+
+            PrintOffsetCheckOk(
+                ref stats,
+                "target.locked",
+                "TargetEntityId=" + target.TargetEntityId +
+                " ServerId=" + FormatServerObjectId(target) +
+                " Entity=" + FormatAddress(target.Entity) +
+                " EntityType=" + FormatEntityType(target) +
+                " Pos=" + FormatPosition(target) +
+                " Distance=" + (target.HasDistance ? target.DistanceToLocalPlayer.ToString("F2") : "n/a"));
+
+            if (target.HasActor)
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "target.actor",
+                    "Actor=" + FormatAddress(target.Actor.Actor) +
+                    " ObjType=" + target.Actor.ObjectType +
+                    " TemplateId=" + target.Actor.NpcTemplateId +
+                    " HP=" + target.Actor.CurrentHp + "/" + target.Actor.MaxHp +
+                    " HpPercent=" + target.Actor.HpPercent +
+                    " TargetingMe=" + FormatYesNo(target.IsTargetingLocalPlayer));
+            }
+            else
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "target.actor",
+                    "target entity resolved, but actor candidate was not resolved");
+            }
+        }
+
+        private static void CheckOffsetWorldObjects(
+            VmmProcess process,
+            ulong gameBase,
+            double radius,
+            int limit,
+            ref OffsetCheckStats stats)
+        {
+            List<MonsterListEntry> entries;
+            int scannedServerObjects;
+            int resolvedEntities;
+            int npcLikeEntities;
+            string error;
+
+            if (!TryReadMonsterList(
+                process,
+                gameBase,
+                radius,
+                limit,
+                false,
+                new Dictionary<uint, NpcStaticDetail>(),
+                out entries,
+                out scannedServerObjects,
+                out resolvedEntities,
+                out npcLikeEntities,
+                out error))
+            {
+                PrintOffsetCheckFail(ref stats, "world.server_objects", error);
+                return;
+            }
+
+            if (scannedServerObjects > 0)
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "world.server_objects",
+                    "ScannedServerObjects=" + scannedServerObjects +
+                    " ResolvedEntities=" + resolvedEntities +
+                    " NpcLike=" + npcLikeEntities +
+                    " RowsInRadius=" + entries.Count);
+            }
+            else
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "world.server_objects",
+                    "server object tree was readable but no server objects were scanned");
+            }
+
+            if (npcLikeEntities > 0)
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "world.npc_entities",
+                    "NpcLikeEntities=" + npcLikeEntities +
+                    " RowsInRadius=" + entries.Count);
+            }
+            else
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "world.npc_entities",
+                    "no NPC-like entities were found; move near NPCs/monsters to verify actor fields in this group");
+            }
+        }
+
+        private static void CheckOffsetLootCorpses(
+            VmmProcess process,
+            ulong gameBase,
+            double radius,
+            int limit,
+            ref OffsetCheckStats stats)
+        {
+            List<LootCorpseListEntry> entries;
+            int scannedServerObjects;
+            int resolvedEntities;
+            int resolvedGameObjects;
+            int corpseCandidates;
+            int lootableCorpses;
+            string error;
+
+            if (!TryReadLootCorpseList(
+                process,
+                gameBase,
+                radius,
+                limit,
+                true,
+                false,
+                out entries,
+                out scannedServerObjects,
+                out resolvedEntities,
+                out resolvedGameObjects,
+                out corpseCandidates,
+                out lootableCorpses,
+                out error))
+            {
+                PrintOffsetCheckFail(ref stats, "loot.scan", error);
+                return;
+            }
+
+            if (resolvedGameObjects > 0)
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "loot.actor_fields",
+                    "ResolvedGameObjects=" + resolvedGameObjects +
+                    " RowsInRadius=" + entries.Count +
+                    " CorpseCandidates=" + corpseCandidates +
+                    " Lootable=" + lootableCorpses);
+            }
+            else
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "loot.actor_fields",
+                    "loot scan ran, but no NPC/game-object actor was resolved; move near monsters/corpses to verify Actor+0x11E0 and Actor+0x1CC");
+            }
+
+            if (corpseCandidates == 0 && lootableCorpses == 0)
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "loot.corpse_state",
+                    "no corpse/lootable corpse found; this is scene-dependent, not necessarily an offset failure");
+            }
+        }
+
+        private static void CheckOffsetAbnormalStatus(VmmProcess process, ulong gameBase, ref OffsetCheckStats stats)
+        {
+            ActorAbnormalStatusSnapshot snapshot;
+            string error;
+            if (!TryReadLocalActorAbnormalStatus(process, gameBase, out snapshot, out error))
+            {
+                PrintOffsetCheckFail(ref stats, "abnormal.local_actor", error);
+                return;
+            }
+
+            if (snapshot.Begin != 0 && snapshot.End != 0 && snapshot.End >= snapshot.Begin)
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "abnormal.local_actor",
+                    "Actor=" + FormatAddress(snapshot.Actor) +
+                    " Array=" + FormatAddress(snapshot.Begin) + "-" + FormatAddress(snapshot.End) +
+                    " Capacity=" + FormatAddress(snapshot.Capacity) +
+                    " Counts(Category0/Buff/Physical/Mental)=" +
+                    snapshot.Category0Count + "/" +
+                    snapshot.BuffCount + "/" +
+                    snapshot.PhysicalCount + "/" +
+                    snapshot.MentalCount +
+                    " EntryCount=" + (snapshot.Entries == null ? 0 : snapshot.Entries.Count));
+            }
+            else
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "abnormal.local_actor",
+                    "local actor abnormal vector fields were readable only as empty/unavailable values: Begin=" +
+                    FormatAddress(snapshot.Begin) + " End=" + FormatAddress(snapshot.End));
+            }
+        }
+
+        private static void CheckOffsetPartyLists(VmmProcess process, ulong gameBase, ref OffsetCheckStats stats)
+        {
+            ulong primaryHead;
+            ulong secondaryHead;
+            bool primaryOk = TryReadPointer(process, gameBase + PrimaryPartyListRva, out primaryHead);
+            bool secondaryOk = TryReadPointer(process, gameBase + SecondaryPartyListRva, out secondaryHead);
+
+            if (primaryOk || secondaryOk)
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "party.lists",
+                    "Primary(Game.dll+0x" + PrimaryPartyListRva.ToString("X") + ")=" +
+                    (primaryOk ? FormatAddress(primaryHead) : "unreadable") +
+                    " Secondary(Game.dll+0x" + SecondaryPartyListRva.ToString("X") + ")=" +
+                    (secondaryOk ? FormatAddress(secondaryHead) : "unreadable"));
+            }
+            else
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "party.lists",
+                    "failed to read primary and secondary party list heads; solo/no-party context may still have empty values");
+            }
+        }
+
+        private static void CheckOffsetSummonPetLinks(
+            VmmProcess process,
+            ulong gameBase,
+            double radius,
+            int limit,
+            ActorInfo localActor,
+            bool hasLocalActor,
+            ref OffsetCheckStats stats)
+        {
+            if (!hasLocalActor)
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "summon.owner_link",
+                    "local actor was not resolved, so summon owner-link checks were skipped");
+                return;
+            }
+
+            List<NearbyActorProbeEntry> entries;
+            LocalPlayerInfo local;
+            ActorInfo refreshedLocalActor;
+            bool hasRefreshedLocalActor;
+            int scannedServerObjects;
+            int resolvedEntities;
+            int npcLikeEntities;
+            int resolvedActors;
+            string error;
+            if (!TryReadNearbyActorProbeList(
+                process,
+                gameBase,
+                radius,
+                limit,
+                false,
+                0,
+                new Dictionary<uint, NpcStaticDetail>(),
+                out entries,
+                out local,
+                out refreshedLocalActor,
+                out hasRefreshedLocalActor,
+                out scannedServerObjects,
+                out resolvedEntities,
+                out npcLikeEntities,
+                out resolvedActors,
+                out error))
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "summon.owner_link",
+                    "nearby actor scan failed while checking pet owner field: " + error);
+                return;
+            }
+
+            int petActorCount = 0;
+            int ownerReadCount = 0;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                NearbyActorProbeEntry entry = entries[i];
+                if (!entry.HasActor || entry.Actor.ObjectType != ActorSummonedPetObjectType)
+                {
+                    continue;
+                }
+
+                petActorCount++;
+                uint ownerServerObjectId;
+                if (TryReadUInt32(process, entry.Actor.Actor + ActorSummonOwnerServerObjectIdOffset, out ownerServerObjectId))
+                {
+                    ownerReadCount++;
+                }
+            }
+
+            if (petActorCount == 0)
+            {
+                PrintOffsetCheckWarn(
+                    ref stats,
+                    "summon.owner_link",
+                    "no visible summoned-pet actor ObjectType=" + ActorSummonedPetObjectType +
+                    " in radius; Actor+0x" + ActorSummonOwnerServerObjectIdOffset.ToString("X") +
+                    " owner field was not scene-verified");
+            }
+            else if (ownerReadCount == petActorCount)
+            {
+                PrintOffsetCheckOk(
+                    ref stats,
+                    "summon.owner_link",
+                    "PetActors=" + petActorCount +
+                    " OwnerFieldReads=" + ownerReadCount +
+                    " Offset=Actor+0x" + ActorSummonOwnerServerObjectIdOffset.ToString("X"));
+            }
+            else
+            {
+                PrintOffsetCheckFail(
+                    ref stats,
+                    "summon.owner_link",
+                    "PetActors=" + petActorCount +
+                    " OwnerFieldReads=" + ownerReadCount +
+                    " Offset=Actor+0x" + ActorSummonOwnerServerObjectIdOffset.ToString("X"));
+            }
+        }
+
+        private static bool IsReasonableAngleValue(float value)
+        {
+            return !float.IsNaN(value) &&
+                   !float.IsInfinity(value) &&
+                   Math.Abs(value) < 1000000.0f;
+        }
+
+        private static void PrintOffsetCheckOk(ref OffsetCheckStats stats, string group, string detail)
+        {
+            stats.Ok++;
+            PrintOffsetCheckLine("OK", group, detail);
+        }
+
+        private static void PrintOffsetCheckWarn(ref OffsetCheckStats stats, string group, string detail)
+        {
+            stats.Warn++;
+            PrintOffsetCheckLine("WARN", group, detail);
+        }
+
+        private static void PrintOffsetCheckFail(ref OffsetCheckStats stats, string group, string detail)
+        {
+            stats.Fail++;
+            PrintOffsetCheckLine("FAIL", group, detail);
+        }
+
+        private static void PrintOffsetCheckLine(string status, string group, string detail)
+        {
+            Console.WriteLine("[" + status + "] " + group + " - " + detail);
         }
 
         private static double TicksToMilliseconds(long ticks)

@@ -5043,8 +5043,8 @@ namespace Roadhog
                     ("Num8", "NumPad8"),
                     ("Num9", "NumPad9"),
                     ("Num0", "NumPad0"),
-                    ("Num-", "NumPadSubtract"),
-                    ("Num+", "NumPadAdd")
+                    ("Num+", "NumPadAdd"),
+                    ("Num-", "NumPadSubtract")
                 }
             };
 
