@@ -51,6 +51,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("service options use client root environment", TestRoadhogServiceOptionsUseClientRootEnvironmentAsync),
     ("services load kmbox net config before input creation", TestRoadhogServicesLoadsKmBoxNetConfigAsync),
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
+    ("account config persists bag cleanup rules", TestAccountConfigPersistsBagCleanupRulesAsync),
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
     ("stationary combat derives home from revive path endpoint", TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync),
@@ -1294,6 +1295,77 @@ static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
         AssertEqual(pathName, load.Value?[0].ScriptSettings?.Paths.CombatPathName ?? string.Empty, "loaded combat path name");
         AssertEqual(618, load.Value?[0].ScriptSettings?.Paths.DeathReviveClickX ?? 0, "loaded death revive click x");
         AssertEqual(349, load.Value?[0].ScriptSettings?.Paths.DeathReviveClickY ?? 0, "loaded death revive click y");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+}
+
+static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
+{
+    var directory = CreateTempDirectory("roadhog-bag-cleanup-");
+    try
+    {
+        var accountPath = Path.Combine(directory, "accounts.json");
+        var store = new JsonAccountConfigStore(accountPath);
+        var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+        rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenEquipment).Enabled = true;
+        rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenEquipment).Action = BagCleanupAction.Discard;
+        rules.First(rule => rule.Key == BagCleanupRuleCatalog.Medicine).Enabled = true;
+
+        var account = new AccountConfig
+        {
+            AccountName = "account-cleanup",
+            ScriptSettings = new ScriptSettings
+            {
+                Maintenance = new MaintenanceScriptSettings
+                {
+                    BagCleanupThreshold = 3,
+                    BagCleanupSellItemClickX = 111,
+                    BagCleanupSellItemClickY = 222,
+                    BagCleanupSellButtonClickX = 333,
+                    BagCleanupSellButtonClickY = 444,
+                    BagCleanupRules = rules
+                }
+            }
+        };
+
+        var save = await store.UpsertAsync(account).ConfigureAwait(false);
+        AssertFalse(!save.Success, "account save should succeed");
+
+        var text = await File.ReadAllTextAsync(accountPath).ConfigureAwait(false);
+        AssertFalse(!text.Contains("\"BagCleanupRules\"", StringComparison.Ordinal), "account config should contain bag cleanup rules");
+        AssertFalse(!text.Contains("\"BagCleanupSellItemClickX\": 111", StringComparison.Ordinal), "account config should contain sell item click x");
+        AssertFalse(!text.Contains("\"BagCleanupSellItemClickY\": 222", StringComparison.Ordinal), "account config should contain sell item click y");
+        AssertFalse(!text.Contains("\"BagCleanupSellButtonClickX\": 333", StringComparison.Ordinal), "account config should contain sell button click x");
+        AssertFalse(!text.Contains("\"BagCleanupSellButtonClickY\": 444", StringComparison.Ordinal), "account config should contain sell button click y");
+        AssertFalse(!text.Contains("\"Key\": \"equipment.green\"", StringComparison.Ordinal), "bag cleanup rule key should be persisted");
+        AssertFalse(!text.Contains("\"Category\": \"equipment\"", StringComparison.Ordinal), "bag cleanup category should be persisted");
+        AssertFalse(!text.Contains("\"Quality\": \"green\"", StringComparison.Ordinal), "bag cleanup quality should be persisted");
+        AssertFalse(!text.Contains("\"weapon\"", StringComparison.Ordinal), "bag cleanup item kind should be persisted");
+        AssertFalse(!text.Contains("\"accessory\"", StringComparison.Ordinal), "bag cleanup accessory kind should be persisted");
+        AssertFalse(!text.Contains("\"Action\": \"Discard\"", StringComparison.Ordinal), "bag cleanup action should be persisted");
+
+        var load = await store.LoadAllAsync().ConfigureAwait(false);
+        AssertFalse(!load.Success, "account config should load");
+        var maintenance = load.Value?[0].ScriptSettings?.Maintenance;
+        AssertEqual(111, maintenance?.BagCleanupSellItemClickX ?? 0, "loaded sell item click x");
+        AssertEqual(222, maintenance?.BagCleanupSellItemClickY ?? 0, "loaded sell item click y");
+        AssertEqual(333, maintenance?.BagCleanupSellButtonClickX ?? 0, "loaded sell button click x");
+        AssertEqual(444, maintenance?.BagCleanupSellButtonClickY ?? 0, "loaded sell button click y");
+        var loadedRules = BagCleanupRuleCatalog.MergeWithDefaults(load.Value?[0].ScriptSettings?.Maintenance.BagCleanupRules);
+        var greenEquipment = loadedRules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenEquipment);
+        AssertFalse(!greenEquipment.Enabled, "green equipment cleanup should remain enabled");
+        AssertEqual(BagCleanupAction.Discard, greenEquipment.Action, "green equipment cleanup action");
+        AssertEqual("equipment", greenEquipment.Category, "green equipment category");
+        AssertEqual("green", greenEquipment.Quality, "green equipment quality");
+        AssertFalse(!greenEquipment.ItemKinds.Contains("accessory"), "green equipment map should include accessories");
+
+        var medicine = loadedRules.First(rule => rule.Key == BagCleanupRuleCatalog.Medicine);
+        AssertFalse(!medicine.Enabled, "medicine cleanup should remain enabled");
+        AssertEqual(BagCleanupAction.Sell, medicine.Action, "medicine cleanup default action");
+        AssertFalse(!medicine.ItemKinds.Contains("remedy"), "medicine map should include remedies");
     }
     finally
     {

@@ -88,9 +88,12 @@ namespace Roadhog
         private Label? mpMaintenanceEmptyLabel;
         private Label? statusMaintenanceEmptyLabel;
         private RoundedTextBox? bagCleanupThresholdTextBox;
+        private RoundedTextBox? bagCleanupSellItemClickPointTextBox;
+        private RoundedTextBox? bagCleanupSellButtonClickPointTextBox;
         private RoundedComboBox? bagCleanupInventoryCombo;
         private ListBox? bagCleanupExcludedItemListBox;
         private Label? bagCleanupInventoryStatusLabel;
+        private readonly Dictionary<string, BagCleanupRuleControls> bagCleanupRuleControls = new(StringComparer.OrdinalIgnoreCase);
         private RadioButton? skillAutoModeRadio;
         private RadioButton? skillManualModeRadio;
         private RadioButton? skillSystemModeRadio;
@@ -305,6 +308,13 @@ namespace Roadhog
             PopulateMaintenanceKeyRules(mpMaintenanceRuleList, mpMaintenanceEmptyLabel, settings.Maintenance.MpMaintenanceRules);
             PopulateStatusMaintenanceRules(statusMaintenanceRuleList, statusMaintenanceEmptyLabel, settings.Maintenance.StatusMaintenanceRules);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
+            SetText(
+                bagCleanupSellItemClickPointTextBox,
+                FormatScreenPoint(settings.Maintenance.BagCleanupSellItemClickX, settings.Maintenance.BagCleanupSellItemClickY));
+            SetText(
+                bagCleanupSellButtonClickPointTextBox,
+                FormatScreenPoint(settings.Maintenance.BagCleanupSellButtonClickX, settings.Maintenance.BagCleanupSellButtonClickY));
+            ApplyBagCleanupRules(settings.Maintenance.BagCleanupRules);
             PopulateBagCleanupExcludedItemList(settings.Maintenance.BagCleanupExcludedItemNames);
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
             SetChecked(spiritmasterAutoSkillCheckBox, settings.Skills.SpiritmasterAutoSkillLogicEnabled);
@@ -458,6 +468,8 @@ namespace Roadhog
                 deathReviveClickPointTextBox,
                 PathScriptSettings.DefaultDeathReviveClickX,
                 PathScriptSettings.DefaultDeathReviveClickY);
+            var bagCleanupSellItemClickPoint = ReadScreenPoint(bagCleanupSellItemClickPointTextBox, 0, 0);
+            var bagCleanupSellButtonClickPoint = ReadScreenPoint(bagCleanupSellButtonClickPointTextBox, 0, 0);
 
             var settings = new ScriptSettings
             {
@@ -503,6 +515,11 @@ namespace Roadhog
                     MpMaintenanceRules = CaptureMaintenanceKeyRules(mpMaintenanceRuleList),
                     StatusMaintenanceRules = CaptureStatusMaintenanceRules(statusMaintenanceRuleList),
                     BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 85),
+                    BagCleanupSellItemClickX = bagCleanupSellItemClickPoint.X,
+                    BagCleanupSellItemClickY = bagCleanupSellItemClickPoint.Y,
+                    BagCleanupSellButtonClickX = bagCleanupSellButtonClickPoint.X,
+                    BagCleanupSellButtonClickY = bagCleanupSellButtonClickPoint.Y,
+                    BagCleanupRules = CaptureBagCleanupRules(),
                     BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList()
                 },
                 Skills = new SkillScriptSettings
@@ -1800,6 +1817,7 @@ namespace Roadhog
             var tab = CreateBaseTab("清包");
             var page = CreatePagePanel();
             tab.Controls.Add(page);
+            bagCleanupRuleControls.Clear();
 
             AddCheckBox(page, "自动清包", 4, 16, 100, false);
             AddLabel(page, "清包阈值", 100, 16, 70, 26, _textGreen, FontStyle.Bold);
@@ -1811,40 +1829,66 @@ namespace Roadhog
             const int rightComboX = 346;
             const int cleanupOptionWidth = 118;
 
-            void AddCleanupOption(string text, int optionX, int comboX, int y)
+            void AddCleanupOption(BagCleanupRuleConfig rule, int optionX, int comboX, int y)
             {
-                var checkBox = AddCheckBox(page, text, optionX, y, cleanupOptionWidth, false);
+                var checkBox = AddCheckBox(page, rule.DisplayName, optionX, y, cleanupOptionWidth, false);
                 checkBox.Font = new Font("Microsoft YaHei UI", 8.25F);
                 checkBox.Size = new Size(cleanupOptionWidth, 22);
 
                 var combo = AddCombo(page, comboX, y - 1, 62, 24, "出售", "丢弃");
                 combo.Font = new Font("Microsoft YaHei UI", 8.25F, FontStyle.Bold);
+                SetComboText(combo, FormatBagCleanupAction(rule.Action));
+                bagCleanupRuleControls[rule.Key] = new BagCleanupRuleControls(checkBox, combo);
             }
 
             AddLabel(page, "清理物品类型", 4, 54, 120, 24, _textGreen, FontStyle.Bold);
 
             AddLabel(page, "装备品质", 18, 76, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption("绿色装备", leftOptionX, leftComboX, 98);
-            AddCleanupOption("蓝色装备", rightOptionX, rightComboX, 98);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenEquipment), leftOptionX, leftComboX, 98);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueEquipment), rightOptionX, rightComboX, 98);
 
             AddLabel(page, "魔石", 18, 128, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption("白色魔石", leftOptionX, leftComboX, 150);
-            AddCleanupOption("绿色魔石", rightOptionX, rightComboX, 150);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteManastone), leftOptionX, leftComboX, 150);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenManastone), rightOptionX, rightComboX, 150);
 
             AddLabel(page, "书卷", 18, 178, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption("烙印", leftOptionX, leftComboX, 200);
-            AddCleanupOption("制作图纸/卷轴", rightOptionX, rightComboX, 200);
-            AddCleanupOption("技能书", leftOptionX, leftComboX, 224);
-            AddCleanupOption("咒语书", rightOptionX, rightComboX, 224);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Stigma), leftOptionX, leftComboX, 200);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.RecipeScroll), rightOptionX, rightComboX, 200);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SkillBook), leftOptionX, leftComboX, 224);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SpellBook), rightOptionX, rightComboX, 224);
 
             AddLabel(page, "提炼石", 18, 254, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption("白色提炼石", leftOptionX, leftComboX, 276);
-            AddCleanupOption("绿色提炼石", rightOptionX, rightComboX, 276);
-            AddCleanupOption("蓝色提炼石", leftOptionX, leftComboX, 300);
-            AddCleanupOption("金色提炼石", rightOptionX, rightComboX, 300);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteExtractionStone), leftOptionX, leftComboX, 276);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenExtractionStone), rightOptionX, rightComboX, 276);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueExtractionStone), leftOptionX, leftComboX, 300);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GoldExtractionStone), rightOptionX, rightComboX, 300);
 
             AddLabel(page, "药品", 18, 330, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption("药水/仙药/灵药", leftOptionX, leftComboX, 352);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Medicine), leftOptionX, leftComboX, 352);
+
+            AddLabel(page, "出售道具", 18, 548, 68, 24, _textGreen, FontStyle.Bold);
+            bagCleanupSellItemClickPointTextBox = AddTextBox(page, "0,0", 86, 546, 84, 28);
+            var testSellItemPointButton = AddButton(page, "移动测试", 176, 546, 66, 28);
+            testSellItemPointButton.Click += async (_, _) =>
+                await TestBagCleanupPointMoveAsync(
+                        bagCleanupSellItemClickPointTextBox,
+                        testSellItemPointButton,
+                        0,
+                        0,
+                        "出售道具")
+                    .ConfigureAwait(true);
+
+            AddLabel(page, "出售", 244, 548, 40, 24, _textGreen, FontStyle.Bold);
+            bagCleanupSellButtonClickPointTextBox = AddTextBox(page, "0,0", 286, 546, 84, 28);
+            var testSellButtonPointButton = AddButton(page, "移动测试", 376, 546, 66, 28);
+            testSellButtonPointButton.Click += async (_, _) =>
+                await TestBagCleanupPointMoveAsync(
+                        bagCleanupSellButtonClickPointTextBox,
+                        testSellButtonPointButton,
+                        0,
+                        0,
+                        "出售")
+                    .ConfigureAwait(true);
 
             AddLabel(page, "不处理物品", 430, 54, 120, 24, _textGreen, FontStyle.Bold);
             var refreshInventoryButton = AddButton(page, "刷新背包", 542, 50, 96, 30);
@@ -1867,6 +1911,57 @@ namespace Roadhog
             AddButton(page, "清空", 688, 254, 80, 30, (_, _) => ClearBagCleanupExcludedItemList());
 
             return tab;
+        }
+
+        private static BagCleanupRuleConfig GetDefaultBagCleanupRule(string key)
+        {
+            return BagCleanupRuleCatalog.CreateDefaultRules()
+                .First(rule => string.Equals(rule.Key, key, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void ApplyBagCleanupRules(IEnumerable<BagCleanupRuleConfig>? rules)
+        {
+            foreach (var rule in BagCleanupRuleCatalog.MergeWithDefaults(rules))
+            {
+                if (!bagCleanupRuleControls.TryGetValue(rule.Key, out var controls))
+                {
+                    continue;
+                }
+
+                SetChecked(controls.CheckBox, rule.Enabled);
+                SetComboText(controls.ActionCombo, FormatBagCleanupAction(rule.Action));
+            }
+        }
+
+        private List<BagCleanupRuleConfig> CaptureBagCleanupRules()
+        {
+            var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+            foreach (var rule in rules)
+            {
+                if (!bagCleanupRuleControls.TryGetValue(rule.Key, out var controls))
+                {
+                    continue;
+                }
+
+                rule.Enabled = controls.CheckBox.Checked;
+                rule.Action = ParseBagCleanupAction(controls.ActionCombo.Text);
+            }
+
+            return rules;
+        }
+
+        private static string FormatBagCleanupAction(BagCleanupAction action)
+        {
+            return action == BagCleanupAction.Discard ? "丢弃" : "出售";
+        }
+
+        private static BagCleanupAction ParseBagCleanupAction(string? text)
+        {
+            var trimmed = text?.Trim();
+            return string.Equals(trimmed, "丢弃", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(trimmed, nameof(BagCleanupAction.Discard), StringComparison.OrdinalIgnoreCase)
+                ? BagCleanupAction.Discard
+                : BagCleanupAction.Sell;
         }
 
         private async Task RefreshBagCleanupInventoryAsync(Button button)
@@ -1918,6 +2013,49 @@ namespace Roadhog
                         ? "背包已拖到左上角"
                         : "测试背包拖拽失败: " + (result.Error ?? "未知错误"),
                     !result.Success);
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+
+        private async Task TestBagCleanupPointMoveAsync(
+            RoundedTextBox? textBox,
+            Button button,
+            int fallbackX,
+            int fallbackY,
+            string title)
+        {
+            var point = ReadScreenPoint(textBox, fallbackX, fallbackY);
+            SetText(textBox, FormatScreenPoint(point.X, point.Y));
+
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "移动中...";
+
+            try
+            {
+                var result = await _runtime
+                    .TestMoveMouseToScreenPointAsync(point.X, point.Y)
+                    .ConfigureAwait(true);
+                if (!result.Success)
+                {
+                    MessageBox.Show(
+                        this,
+                        result.Error ?? "测试移动失败。",
+                        title + "坐标",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                button.Text = "已移动";
+                await Task.Delay(700).ConfigureAwait(true);
             }
             finally
             {
@@ -5789,6 +5927,19 @@ namespace Roadhog
             Up,
             Down,
             Bottom
+        }
+
+        private sealed class BagCleanupRuleControls
+        {
+            public BagCleanupRuleControls(RoundedCheckBox checkBox, RoundedComboBox actionCombo)
+            {
+                CheckBox = checkBox;
+                ActionCombo = actionCombo;
+            }
+
+            public RoundedCheckBox CheckBox { get; }
+
+            public RoundedComboBox ActionCombo { get; }
         }
 
         private sealed class PathEditorControls

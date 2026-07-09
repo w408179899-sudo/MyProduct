@@ -196,7 +196,17 @@ public sealed class MaintenanceScriptSettings
 
     public int BagTotalSlots { get; set; } = 100;
 
+    public int BagCleanupSellItemClickX { get; set; }
+
+    public int BagCleanupSellItemClickY { get; set; }
+
+    public int BagCleanupSellButtonClickX { get; set; }
+
+    public int BagCleanupSellButtonClickY { get; set; }
+
     public List<string> BagCleanupExcludedItemNames { get; set; } = new();
+
+    public List<BagCleanupRuleConfig> BagCleanupRules { get; set; } = BagCleanupRuleCatalog.CreateDefaultRules();
 
     public MaintenanceScriptSettings Clone()
     {
@@ -214,11 +224,145 @@ public sealed class MaintenanceScriptSettings
             AutoDecompose = AutoDecompose,
             BagCleanupThreshold = BagCleanupThreshold,
             BagTotalSlots = BagTotalSlots,
+            BagCleanupSellItemClickX = BagCleanupSellItemClickX,
+            BagCleanupSellItemClickY = BagCleanupSellItemClickY,
+            BagCleanupSellButtonClickX = BagCleanupSellButtonClickX,
+            BagCleanupSellButtonClickY = BagCleanupSellButtonClickY,
             BagCleanupExcludedItemNames = BagCleanupExcludedItemNames?
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList() ?? new List<string>()
+                .ToList() ?? new List<string>(),
+            BagCleanupRules = BagCleanupRuleCatalog.MergeWithDefaults(BagCleanupRules)
+        };
+    }
+}
+
+public enum BagCleanupAction
+{
+    Sell,
+    Discard
+}
+
+public sealed class BagCleanupRuleConfig
+{
+    public string Key { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    public string Category { get; set; } = string.Empty;
+
+    public string Quality { get; set; } = string.Empty;
+
+    public List<string> ItemKinds { get; set; } = new();
+
+    public bool Enabled { get; set; }
+
+    public BagCleanupAction Action { get; set; } = BagCleanupAction.Sell;
+
+    public BagCleanupRuleConfig Clone()
+    {
+        return new BagCleanupRuleConfig
+        {
+            Key = Key?.Trim() ?? string.Empty,
+            DisplayName = DisplayName?.Trim() ?? string.Empty,
+            Category = Category?.Trim() ?? string.Empty,
+            Quality = Quality?.Trim() ?? string.Empty,
+            ItemKinds = ItemKinds?
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new List<string>(),
+            Enabled = Enabled,
+            Action = Action
+        };
+    }
+}
+
+public static class BagCleanupRuleCatalog
+{
+    public const string GreenEquipment = "equipment.green";
+    public const string BlueEquipment = "equipment.blue";
+    public const string WhiteManastone = "manastone.white";
+    public const string GreenManastone = "manastone.green";
+    public const string Stigma = "scroll.stigma";
+    public const string RecipeScroll = "scroll.recipe";
+    public const string SkillBook = "book.skill";
+    public const string SpellBook = "book.spell";
+    public const string WhiteExtractionStone = "extraction_stone.white";
+    public const string GreenExtractionStone = "extraction_stone.green";
+    public const string BlueExtractionStone = "extraction_stone.blue";
+    public const string GoldExtractionStone = "extraction_stone.gold";
+    public const string Medicine = "consumable.medicine";
+
+    public static List<BagCleanupRuleConfig> CreateDefaultRules()
+    {
+        return new List<BagCleanupRuleConfig>
+        {
+            Rule(GreenEquipment, "绿色装备", "equipment", "green", "weapon", "armor", "accessory", "shield"),
+            Rule(BlueEquipment, "蓝色装备", "equipment", "blue", "weapon", "armor", "accessory", "shield"),
+            Rule(WhiteManastone, "白色魔石", "manastone", "white", "manastone"),
+            Rule(GreenManastone, "绿色魔石", "manastone", "green", "manastone"),
+            Rule(Stigma, "烙印", "scroll", string.Empty, "stigma"),
+            Rule(RecipeScroll, "制作图纸/卷轴", "scroll", string.Empty, "recipe", "design", "scroll"),
+            Rule(SkillBook, "技能书", "book", string.Empty, "skill_book"),
+            Rule(SpellBook, "咒语书", "book", string.Empty, "spell_book"),
+            Rule(WhiteExtractionStone, "白色提炼石", "extraction_stone", "white", "extraction_stone"),
+            Rule(GreenExtractionStone, "绿色提炼石", "extraction_stone", "green", "extraction_stone"),
+            Rule(BlueExtractionStone, "蓝色提炼石", "extraction_stone", "blue", "extraction_stone"),
+            Rule(GoldExtractionStone, "金色提炼石", "extraction_stone", "gold", "extraction_stone"),
+            Rule(Medicine, "药水/仙药/灵药", "consumable", string.Empty, "potion", "elixir", "remedy")
+        };
+    }
+
+    public static List<BagCleanupRuleConfig> MergeWithDefaults(IEnumerable<BagCleanupRuleConfig>? configuredRules)
+    {
+        var configuredByKey = configuredRules?
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.Key))
+            .GroupBy(rule => rule.Key.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Last().Clone(), StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, BagCleanupRuleConfig>(StringComparer.OrdinalIgnoreCase);
+
+        var merged = new List<BagCleanupRuleConfig>();
+        foreach (var defaultRule in CreateDefaultRules())
+        {
+            if (configuredByKey.TryGetValue(defaultRule.Key, out var configuredRule))
+            {
+                defaultRule.Enabled = configuredRule.Enabled;
+                defaultRule.Action = configuredRule.Action;
+            }
+
+            merged.Add(defaultRule);
+        }
+
+        foreach (var configuredRule in configuredByKey.Values)
+        {
+            if (merged.Any(rule => string.Equals(rule.Key, configuredRule.Key, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            merged.Add(configuredRule.Clone());
+        }
+
+        return merged;
+    }
+
+    private static BagCleanupRuleConfig Rule(
+        string key,
+        string displayName,
+        string category,
+        string quality,
+        params string[] itemKinds)
+    {
+        return new BagCleanupRuleConfig
+        {
+            Key = key,
+            DisplayName = displayName,
+            Category = category,
+            Quality = quality,
+            ItemKinds = itemKinds.ToList(),
+            Action = BagCleanupAction.Sell
         };
     }
 }
