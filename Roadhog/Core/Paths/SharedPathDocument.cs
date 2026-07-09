@@ -10,6 +10,8 @@ public sealed class SharedPathDocument
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
 
+    public string CleanupNpcName { get; set; } = string.Empty;
+
     public List<SharedPathPoint> Points { get; set; } = new();
 
     public int PointCount => Points?.Count ?? 0;
@@ -26,6 +28,7 @@ public sealed class SharedPathDocument
             Name = Name,
             CreatedAt = CreatedAt,
             UpdatedAt = UpdatedAt,
+            CleanupNpcName = CleanupNpcName,
             Points = Points?.Select(point => point.Clone()).ToList() ?? new List<SharedPathPoint>()
         };
     }

@@ -3865,19 +3865,24 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
                     if (TryReadEntityPosition(process, entity, out var x, out var y, out var z) &&
                         IsReasonablePosition(x, y, z) &&
                         TryResolveActorFromEntity(process, entity, serverObjectId, out var actor) &&
-                        npcStaticDetails.TryGetValue(actor.NpcTemplateId, out var npcStaticDetail) &&
-                        npcStaticDetail.IsMonsterKnown &&
-                        npcStaticDetail.IsMonster)
+                        npcStaticDetails.TryGetValue(actor.NpcTemplateId, out var npcStaticDetail))
                     {
                         var dx = x - localX;
                         var dy = y - localY;
                         var dz = z - localZ;
                         var distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                        var isMonster = npcStaticDetail.IsMonsterKnown && npcStaticDetail.IsMonster;
+                        var name = string.IsNullOrWhiteSpace(actor.Name) ? npcStaticDetail.Name : actor.Name;
+                        if (string.IsNullOrWhiteSpace(name))
+                        {
+                            continue;
+                        }
+
                         result.Add(new WorldObjectSnapshot(
                             entityId,
                             serverObjectId,
-                            string.IsNullOrWhiteSpace(actor.Name) ? npcStaticDetail.Name : actor.Name,
-                            "monster",
+                            name,
+                            isMonster ? "monster" : "npc",
                             new Vector3Snapshot(x, y, z),
                             distance,
                             actor.CurrentHp,

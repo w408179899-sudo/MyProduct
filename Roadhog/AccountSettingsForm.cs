@@ -11,6 +11,7 @@ namespace Roadhog
     public sealed class AccountSettingsForm : Form
     {
         private const string ManualSkillMappingRowDragFormat = "Roadhog.ManualSkillMappingRow";
+        private const double CleanupNpcSearchRadiusMeters = 10.0D;
 
         private readonly string _account;
         private readonly RoadhogRuntime _runtime;
@@ -86,10 +87,7 @@ namespace Roadhog
         private Label? hpMaintenanceEmptyLabel;
         private Label? mpMaintenanceEmptyLabel;
         private Label? statusMaintenanceEmptyLabel;
-        private RoundedCheckBox? autoEquipCheckBox;
-        private RoundedCheckBox? autoDecomposeCheckBox;
         private RoundedTextBox? bagCleanupThresholdTextBox;
-        private RoundedTextBox? bagTotalSlotsTextBox;
         private RadioButton? skillAutoModeRadio;
         private RadioButton? skillManualModeRadio;
         private RadioButton? skillSystemModeRadio;
@@ -162,9 +160,10 @@ namespace Roadhog
             settingsTabs.TabPages.Add(CreateMaintenanceTab());
             settingsTabs.TabPages.Add(CreateSkillTab());
             settingsTabs.TabPages.Add(CreateFilterTab());
+            settingsTabs.TabPages.Add(CreateBagCleanupTab());
 
             Controls.Add(settingsTabs);
-            AddButton(this, "保存配置", 418, 3, 150, 30, SaveSettingsButton_Click).BringToFront();
+            AddButton(this, "保存配置", 500, 3, 150, 30, SaveSettingsButton_Click).BringToFront();
             LoadSavedSettings();
         }
 
@@ -302,10 +301,7 @@ namespace Roadhog
             PopulateMaintenanceKeyRules(hpMaintenanceRuleList, hpMaintenanceEmptyLabel, settings.Maintenance.HpMaintenanceRules);
             PopulateMaintenanceKeyRules(mpMaintenanceRuleList, mpMaintenanceEmptyLabel, settings.Maintenance.MpMaintenanceRules);
             PopulateStatusMaintenanceRules(statusMaintenanceRuleList, statusMaintenanceEmptyLabel, settings.Maintenance.StatusMaintenanceRules);
-            SetChecked(autoEquipCheckBox, settings.Maintenance.AutoEquip);
-            SetChecked(autoDecomposeCheckBox, settings.Maintenance.AutoDecompose);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
-            SetText(bagTotalSlotsTextBox, settings.Maintenance.BagTotalSlots.ToString());
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
             SetChecked(spiritmasterAutoSkillCheckBox, settings.Skills.SpiritmasterAutoSkillLogicEnabled);
             ApplyOpeningSkillSettings(settings.Skills.OpeningSkill);
@@ -356,9 +352,18 @@ namespace Roadhog
             var account = LoadAccountConfigOrDefault();
             var previousSettings = BuildEffectiveScriptSettings(account);
             var capturedSettings = CaptureScriptSettings();
+            capturedSettings.Maintenance.AutoEquip = previousSettings.Maintenance.AutoEquip;
+            capturedSettings.Maintenance.AutoDecompose = previousSettings.Maintenance.AutoDecompose;
+            capturedSettings.Maintenance.BagTotalSlots = previousSettings.Maintenance.BagTotalSlots;
             capturedSettings.SemiAuto = previousSettings.SemiAuto.Clone();
             capturedSettings.SemiAuto.AttackKeyLoopEnabled =
                 openingAttackKeyCheckBox?.Checked ?? capturedSettings.SemiAuto.AttackKeyLoopEnabled;
+            if (!SaveSelectedCleanupNpcBinding(out var cleanupBindingError))
+            {
+                error = cleanupBindingError;
+                return false;
+            }
+
             capturedSettings.Skills.KeyOrder = previousSettings.Skills.KeyOrder.Count == 0
                 ? SkillScriptSettings.DefaultKeyOrder()
                 : previousSettings.Skills.KeyOrder.ToList();
@@ -397,6 +402,50 @@ namespace Roadhog
             UpdateCurrentProfileDisplay(profileName);
             SetProfileStatus("已保存方案: " + profileName, false);
             return true;
+        }
+
+        private bool SaveSelectedCleanupNpcBinding(out string error)
+        {
+            error = string.Empty;
+            if (!pathEditors.TryGetValue(SharedPathKind.Maintenance, out var editor))
+            {
+                return true;
+            }
+
+            var pathName = GetText(maintenancePathNameTextBox, string.Empty);
+            if (string.IsNullOrWhiteSpace(pathName))
+            {
+                pathName = GetSelectedPathName(editor);
+            }
+
+            if (string.IsNullOrWhiteSpace(pathName))
+            {
+                return true;
+            }
+
+            var npcName = GetSelectedCleanupNpcName(editor);
+            var load = _pathStore.LoadAsync(pathName).GetAwaiter().GetResult();
+            if (!load.Success || load.Value is null)
+            {
+                if (string.IsNullOrWhiteSpace(npcName))
+                {
+                    return true;
+                }
+
+                error = "清包路径未保存，无法绑定NPC: " + pathName;
+                return false;
+            }
+
+            var document = load.Value;
+            document.CleanupNpcName = npcName;
+            var save = _pathStore.SaveAsync(document).GetAwaiter().GetResult();
+            if (save.Success)
+            {
+                return true;
+            }
+
+            error = save.Error ?? "保存清包路径NPC绑定失败。";
+            return false;
         }
 
         private ScriptSettings CaptureScriptSettings()
@@ -449,10 +498,7 @@ namespace Roadhog
                     HpMaintenanceRules = CaptureMaintenanceKeyRules(hpMaintenanceRuleList),
                     MpMaintenanceRules = CaptureMaintenanceKeyRules(mpMaintenanceRuleList),
                     StatusMaintenanceRules = CaptureStatusMaintenanceRules(statusMaintenanceRuleList),
-                    AutoEquip = autoEquipCheckBox?.Checked ?? true,
-                    AutoDecompose = autoDecomposeCheckBox?.Checked ?? true,
-                    BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 85),
-                    BagTotalSlots = ReadInt(bagTotalSlotsTextBox, 100)
+                    BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 85)
                 },
                 Skills = new SkillScriptSettings
                 {
@@ -709,9 +755,6 @@ namespace Roadhog
             contestMonsterCheckBox = AddCheckBox(page, "抢怪", 96, 142, 64, false);
             counterEnemyRaceCheckBox = AddCheckBox(page, "反击敌对种族", 160, 142, 140, false);
             preferAggressiveMonsterCheckBox = AddCheckBox(page, "优先攻击主动怪", 302, 142, 142, false);
-
-            var combatAdvanced = CreateFoldout(page, "高级打怪设置", 176, 850, false);
-            combatAdvanced.Content.Height = 58;
 
             return tab;
         }
@@ -1003,7 +1046,7 @@ namespace Roadhog
             AddLabel(page, "挂机路径选择:", 4, 8, 130, 22, _textGreen, FontStyle.Bold);
             pathOverviewLabels[SharedPathKind.Revive] = AddLabel(page, "复活路径:  未选（0点）", 24, 34, 320, 22);
             pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 24, 60, 260, 22);
-            pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "维护路径:  未选（0点）", 24, 86, 260, 22);
+            pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "清包路径:  未选（0点）", 24, 86, 260, 22);
             AddLabel(page, "死亡复活坐标:", 310, 86, 104, 22, _textGreen, FontStyle.Bold);
             deathReviveClickPointTextBox = AddTextBox(
                 page,
@@ -1029,7 +1072,7 @@ namespace Roadhog
             pathTabs.DrawItem += GreenTabs_DrawItem;
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Revive, "复活路径", "死亡复活后返回主路径", true));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Combat, "打怪路径", "打怪巡逻路径", false));
-            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Maintenance, "维护路径", "维护补给路径", false));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Maintenance, "清包路径", "清包路径", false));
             page.Controls.Add(pathTabs);
 
             return tab;
@@ -1073,6 +1116,15 @@ namespace Roadhog
 
             AddButton(page, "保存到列表", 6, 74, 100, 30, (_, _) => SavePath(editor));
             AddButton(page, "删除保存", 114, 74, 92, 30, (_, _) => DeleteSavedPath(editor));
+            if (kind == SharedPathKind.Maintenance)
+            {
+                AddLabel(page, "清包NPC", 222, 78, 72, 24, _textGreen, FontStyle.Bold);
+                editor.CleanupNpcRefreshButton = AddButton(page, "刷新附近NPC", 300, 74, 104, 30);
+                editor.CleanupNpcRefreshButton.Click += async (_, _) =>
+                    await RefreshCleanupNpcsAsync(editor).ConfigureAwait(true);
+                editor.CleanupNpcCombo = AddCombo(page, 414, 74, 238, 28);
+            }
+
             editor.SummaryLabel = AddLabel(page, "点数  0  |  总距  0.0  |  跳过  0", 6, 112, 300, 24, _textGreen, FontStyle.Bold);
             editor.StatusLabel = AddLabel(page, "等待读取坐标", 316, 112, 420, 24);
 
@@ -1082,6 +1134,8 @@ namespace Roadhog
             AddButton(page, "删除末点", 306, 144, 82, 30, (_, _) => RemoveLastPathPoint(editor));
             AddButton(page, "清空", 396, 144, 62, 30, (_, _) => ClearPathPoints(editor));
             AddButton(page, "复制路径", 466, 144, 88, 30, (_, _) => CopyPath(editor));
+            editor.ExecutePathButton = AddButton(page, "执行路径", 564, 144, 92, 30);
+            editor.ExecutePathButton.Click += async (_, _) => await ExecutePathAsync(editor).ConfigureAwait(true);
 
             var pointsBox = new RoundedTextBox
             {
@@ -1240,6 +1294,7 @@ namespace Roadhog
             editor.Buffer.Load(result.Value.Points);
             editor.SkippedCount = 0;
             SetText(editor.PathNameTextBox, result.Value.Name);
+            SetCleanupNpcSelection(editor, result.Value.CleanupNpcName);
             RefreshPathEditor(editor);
             RefreshPathOverviews();
             SetPathStatus(editor, "已加载路径: " + result.Value.Name, false);
@@ -1254,7 +1309,13 @@ namespace Roadhog
                 return;
             }
 
-            var result = await _pathStore.SaveAsync(editor.Buffer.ToDocument(name)).ConfigureAwait(true);
+            var document = editor.Buffer.ToDocument(name);
+            if (editor.Kind == SharedPathKind.Maintenance)
+            {
+                document.CleanupNpcName = GetSelectedCleanupNpcName(editor);
+            }
+
+            var result = await _pathStore.SaveAsync(document).ConfigureAwait(true);
             if (!result.Success)
             {
                 SetPathStatus(editor, result.Error ?? "保存路径失败", true);
@@ -1425,6 +1486,66 @@ namespace Roadhog
             SetPathStatus(editor, "路径文本已复制", false);
         }
 
+        private async Task ExecutePathAsync(PathEditorControls editor)
+        {
+            if (editor.ExecutePathCancellation is { IsCancellationRequested: false } running)
+            {
+                running.Cancel();
+                SetPathStatus(editor, "正在停止路径", false);
+                if (editor.ExecutePathButton is { IsDisposed: false } runningButton)
+                {
+                    runningButton.Text = "停止中...";
+                }
+
+                return;
+            }
+
+            if (editor.Buffer.Count == 0)
+            {
+                SetPathStatus(editor, "路径为空，无法执行", true);
+                return;
+            }
+
+            if (editor.ExecutePathButton is not { } button)
+            {
+                return;
+            }
+
+            using var executionCts = new CancellationTokenSource();
+            editor.ExecutePathCancellation = executionCts;
+            button.Text = "停止路径";
+            SetPathStatus(editor, "正在执行路径", false);
+
+            try
+            {
+                var result = await _runtime
+                    .ExecutePathAsync(
+                        _account,
+                        GetText(editor.PathNameTextBox, "manual_path"),
+                        editor.Buffer.Points.ToArray(),
+                        CaptureScriptSettings(),
+                        executionCts.Token)
+                    .ConfigureAwait(true);
+                SetPathStatus(
+                    editor,
+                    executionCts.IsCancellationRequested ? "路径执行已停止" :
+                    result.Success ? "路径执行完成" : result.Error ?? "路径执行失败",
+                    !result.Success && !executionCts.IsCancellationRequested);
+            }
+            finally
+            {
+                if (ReferenceEquals(editor.ExecutePathCancellation, executionCts))
+                {
+                    editor.ExecutePathCancellation = null;
+                }
+
+                if (!button.IsDisposed)
+                {
+                    button.Text = "执行路径";
+                }
+            }
+        }
+
         private void RefreshPathEditor(PathEditorControls editor)
         {
             if (editor.PointsTextBox is not null)
@@ -1441,11 +1562,137 @@ namespace Roadhog
             }
         }
 
+        private async Task RefreshCleanupNpcsAsync(PathEditorControls editor)
+        {
+            if (editor.CleanupNpcRefreshButton is not { } button)
+            {
+                return;
+            }
+
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "刷新中...";
+
+            try
+            {
+                var result = await _runtime.RefreshWorldObjectsAsync(_account).ConfigureAwait(true);
+                if (!result.Success || result.Value is null)
+                {
+                    SetPathStatus(editor, result.Error ?? "读取附近NPC失败", true);
+                    return;
+                }
+
+                var count = PopulateCleanupNpcCombo(editor, result.Value);
+                SetPathStatus(
+                    editor,
+                    "已刷新 10m 内 NPC " + count.ToString(CultureInfo.InvariantCulture) + " 个",
+                    count == 0);
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+
+        private int PopulateCleanupNpcCombo(PathEditorControls editor, IEnumerable<WorldObjectSnapshot> objects)
+        {
+            if (editor.CleanupNpcCombo is null)
+            {
+                return 0;
+            }
+
+            var previousName = GetSelectedCleanupNpcName(editor);
+            var items = objects
+                .Where(IsCleanupNpcCandidate)
+                .GroupBy(target => target.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(group => new CleanupNpcComboItem(
+                    group.Key,
+                    group.Min(target => target.DistanceToLocalPlayer ?? double.MaxValue)))
+                .OrderBy(item => item.DistanceMeters)
+                .ThenBy(item => item.Name, StringComparer.CurrentCulture)
+                .ToArray();
+
+            editor.CleanupNpcCombo.Items.Clear();
+            foreach (var item in items)
+            {
+                editor.CleanupNpcCombo.Items.Add(item);
+            }
+
+            if (items.Length == 0)
+            {
+                editor.CleanupNpcCombo.SelectedIndex = -1;
+                editor.CleanupNpcCombo.Text = string.Empty;
+                return 0;
+            }
+
+            var selectedIndex = Array.FindIndex(
+                items,
+                item => string.Equals(item.Name, previousName, StringComparison.OrdinalIgnoreCase));
+            editor.CleanupNpcCombo.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+            return items.Length;
+        }
+
+        private static bool IsCleanupNpcCandidate(WorldObjectSnapshot target)
+        {
+            return string.Equals(target.ObjectKind, "npc", StringComparison.OrdinalIgnoreCase) &&
+                   target.IsAlive &&
+                   !string.IsNullOrWhiteSpace(target.Name) &&
+                   target.DistanceToLocalPlayer is <= CleanupNpcSearchRadiusMeters;
+        }
+
+        private static string GetSelectedCleanupNpcName(PathEditorControls editor)
+        {
+            if (editor.CleanupNpcCombo is null)
+            {
+                return string.Empty;
+            }
+
+            if (editor.CleanupNpcCombo.SelectedItem is CleanupNpcComboItem item)
+            {
+                return item.Name;
+            }
+
+            return editor.CleanupNpcCombo.Text.Trim();
+        }
+
+        private static void SetCleanupNpcSelection(PathEditorControls editor, string? npcName)
+        {
+            if (editor.CleanupNpcCombo is null)
+            {
+                return;
+            }
+
+            var trimmed = npcName?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                editor.CleanupNpcCombo.SelectedIndex = -1;
+                editor.CleanupNpcCombo.Text = string.Empty;
+                return;
+            }
+
+            for (var i = 0; i < editor.CleanupNpcCombo.Items.Count; i++)
+            {
+                if (editor.CleanupNpcCombo.Items[i] is CleanupNpcComboItem item &&
+                    string.Equals(item.Name, trimmed, StringComparison.OrdinalIgnoreCase))
+                {
+                    editor.CleanupNpcCombo.SelectedIndex = i;
+                    return;
+                }
+            }
+
+            editor.CleanupNpcCombo.Items.Add(new CleanupNpcComboItem(trimmed, null));
+            editor.CleanupNpcCombo.SelectedIndex = editor.CleanupNpcCombo.Items.Count - 1;
+        }
+
         private void RefreshPathOverviews()
         {
             SetPathOverview(SharedPathKind.Revive, "复活路径", revivePathNameTextBox?.Text);
             SetPathOverview(SharedPathKind.Combat, "打怪路径", combatPathNameTextBox?.Text);
-            SetPathOverview(SharedPathKind.Maintenance, "维护路径", maintenancePathNameTextBox?.Text);
+            SetPathOverview(SharedPathKind.Maintenance, "清包路径", maintenancePathNameTextBox?.Text);
         }
 
         private void SetPathOverview(SharedPathKind kind, string label, string? pathName)
@@ -1540,22 +1787,55 @@ namespace Roadhog
             statusMaintenanceEmptyLabel = AddLabel(page, "暂无状态维护", 4, 406, 140, 24);
             statusMaintenanceEmptyLabel.BringToFront();
 
-            var separator = new Panel
+            return tab;
+        }
+
+        private TabPage CreateBagCleanupTab()
+        {
+            var tab = CreateBaseTab("清包");
+            var page = CreatePagePanel();
+            tab.Controls.Add(page);
+
+            AddCheckBox(page, "自动清包", 4, 16, 100, false);
+            AddLabel(page, "清包阈值", 100, 16, 70, 26, _textGreen, FontStyle.Bold);
+            bagCleanupThresholdTextBox = AddTextBox(page, "85", 172, 14, 84, 28);
+
+            void AddCleanupOption(string text, int x, int y, int checkWidth)
             {
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
-                BackColor = _softGreen,
-                Location = new Point(0, 484),
-                Size = new Size(850, 1)
-            };
-            page.Controls.Add(separator);
+                AddCheckBox(page, text, x, y, checkWidth, false);
+                AddCombo(page, x + checkWidth + 4, y - 1, 68, 28, "出售", "丢弃");
+            }
 
-            autoEquipCheckBox = AddCheckBox(page, "自动穿装备", 4, 492, 106, true);
-            autoDecomposeCheckBox = AddCheckBox(page, "自动分解装备", 112, 492, 126, true);
+            AddLabel(page, "清理物品类型", 4, 54, 120, 24, _textGreen, FontStyle.Bold);
 
-            var advanced = CreateFoldout(page, "高级设置", 528, 850, true);
-            advanced.Content.Height = 88;
-            bagCleanupThresholdTextBox = AddNumberSetting(advanced.Content, "85", "清包阈值", 6, 12);
-            bagTotalSlotsTextBox = AddNumberSetting(advanced.Content, "100", "背包总格数", 6, 46);
+            AddLabel(page, "装备品质", 18, 88, 80, 24, _textGreen, FontStyle.Bold);
+            AddCleanupOption("绿色武器", 24, 116, 90);
+            AddCleanupOption("蓝色武器", 214, 116, 90);
+            AddCleanupOption("黄金武器", 404, 116, 90);
+            AddCleanupOption("橙色武器", 594, 116, 90);
+            AddCleanupOption("绿色防具", 24, 148, 90);
+            AddCleanupOption("蓝色防具", 214, 148, 90);
+            AddCleanupOption("黄金防具", 404, 148, 90);
+            AddCleanupOption("橙色防具", 594, 148, 90);
+
+            AddLabel(page, "魔石", 18, 196, 80, 24, _textGreen, FontStyle.Bold);
+            AddCleanupOption("白色魔石", 24, 224, 90);
+            AddCleanupOption("绿色魔石", 214, 224, 90);
+
+            AddLabel(page, "书卷", 18, 272, 80, 24, _textGreen, FontStyle.Bold);
+            AddCleanupOption("烙印", 24, 300, 70);
+            AddCleanupOption("制作图纸/卷轴", 214, 300, 130);
+            AddCleanupOption("技能书", 444, 300, 78);
+            AddCleanupOption("咒语书", 624, 300, 78);
+
+            AddLabel(page, "提炼石", 18, 348, 80, 24, _textGreen, FontStyle.Bold);
+            AddCleanupOption("白色提炼石", 24, 376, 106);
+            AddCleanupOption("绿色提炼石", 214, 376, 106);
+            AddCleanupOption("蓝色提炼石", 404, 376, 106);
+            AddCleanupOption("金色提炼石", 594, 376, 106);
+
+            AddLabel(page, "药品", 18, 424, 80, 24, _textGreen, FontStyle.Bold);
+            AddCleanupOption("药水/仙药/灵药", 24, 452, 140);
 
             return tab;
         }
@@ -5305,9 +5585,37 @@ namespace Roadhog
 
             public Button? StopButton { get; set; }
 
+            public Button? CleanupNpcRefreshButton { get; set; }
+
+            public RoundedComboBox? CleanupNpcCombo { get; set; }
+
+            public Button? ExecutePathButton { get; set; }
+
+            public CancellationTokenSource? ExecutePathCancellation { get; set; }
+
             public PathRecordingBuffer Buffer { get; } = new();
 
             public int SkippedCount { get; set; }
+        }
+
+        private sealed class CleanupNpcComboItem
+        {
+            public CleanupNpcComboItem(string name, double? distanceMeters)
+            {
+                Name = name;
+                DistanceMeters = distanceMeters;
+            }
+
+            public string Name { get; }
+
+            public double? DistanceMeters { get; }
+
+            public override string ToString()
+            {
+                return DistanceMeters.HasValue && !double.IsInfinity(DistanceMeters.Value)
+                    ? Name + " (" + DistanceMeters.Value.ToString("F1", CultureInfo.InvariantCulture) + "m)"
+                    : Name;
+            }
         }
 
         private sealed class PathComboItem

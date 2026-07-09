@@ -163,7 +163,8 @@ public sealed class RoadhogServices : IDisposable
             accountOrchestrator,
             accountConfigStore,
             hardwareResolver,
-            keyboardInput);
+            keyboardInput,
+            stationaryCombatController);
         var offsets = new OffsetCatalogProvider(new OffsetCatalogLoader(), logger);
 
         return new RoadhogServices(

@@ -524,6 +524,104 @@ public sealed class StationaryCombatController
             .ConfigureAwait(false);
     }
 
+    public async Task<OperationResult> ExecutePathOnceAsync(
+        AccountWorkerContext context,
+        string pathName,
+        IReadOnlyList<Vector3Snapshot> points)
+    {
+        if (points.Count == 0)
+        {
+            return OperationResult.Fail("Path has no points.");
+        }
+
+        var state = new StationaryCombatState();
+        var pathPoints = points.ToArray();
+        var displayName = string.IsNullOrWhiteSpace(pathName) ? "manual_path" : pathName.Trim();
+        var reachDistance = ResolvePathFollowReachDistance(context.Config.ScriptSettings?.Combat);
+
+        try
+        {
+            var initialPlayerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+            if (!initialPlayerResult.Success || initialPlayerResult.Value?.Position is null)
+            {
+                return OperationResult.Fail(initialPlayerResult.Error ?? "Player position is missing.");
+            }
+
+            var initialPosition = initialPlayerResult.Value.Position.Value;
+            var nearestPointIndex = FindNearestPathPointIndex(initialPosition, pathPoints, double.MaxValue);
+            if (nearestPointIndex < 0)
+            {
+                return OperationResult.Fail("No nearest path point was found.");
+            }
+
+            state.PathCombat.Start(displayName, pathPoints, nearestPointIndex);
+            context.Logger.Info("manual_path.execute.start", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = displayName,
+                ["startPointIndex"] = nearestPointIndex,
+                ["startPointNumber"] = nearestPointIndex + 1,
+                ["pathPointCount"] = pathPoints.Length,
+                ["reachDistance"] = Math.Round(reachDistance, 2)
+            });
+
+            while (state.PathCombat.Active &&
+                   state.PathCombat.PointIndex >= 0 &&
+                   state.PathCombat.PointIndex < state.PathCombat.Points.Count)
+            {
+                context.StopToken.ThrowIfCancellationRequested();
+
+                var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+                if (!playerResult.Success || playerResult.Value?.Position is null)
+                {
+                    return OperationResult.Fail(playerResult.Error ?? "Player position is missing.");
+                }
+
+                var player = playerResult.Value;
+                var playerPosition = player.Position.Value;
+                var pointIndex = state.PathCombat.PointIndex;
+                var point = state.PathCombat.Points[pointIndex];
+                var distance = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, point);
+                if (distance > reachDistance)
+                {
+                    await PathFollowStepAsync(context, state, player, point, reachDistance).ConfigureAwait(false);
+                    await TryJumpPathCombatIfStuckAsync(context, state, playerPosition, pointIndex, distance)
+                        .ConfigureAwait(false);
+                    await Task.Delay(MoveTickDelay, context.StopToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                context.Logger.Info("manual_path.execute.point_reached", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["pathName"] = displayName,
+                    ["pointIndex"] = pointIndex,
+                    ["pointNumber"] = pointIndex + 1,
+                    ["pointCount"] = state.PathCombat.Points.Count,
+                    ["distance"] = Math.Round(distance, 2)
+                });
+                state.PathCombat.AdvancePoint(loopPath: false, reverseAtEnd: false);
+            }
+
+            context.Logger.Info("manual_path.execute.complete", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = displayName,
+                ["pointCount"] = pathPoints.Length
+            });
+            return OperationResult.Ok();
+        }
+        catch (OperationCanceledException)
+        {
+            return OperationResult.Fail("Path execution was canceled.");
+        }
+        finally
+        {
+            await StopMovementBestEffortAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+        }
+    }
+
     public async Task<TimeSpan?> TickPlayerLifeGuardAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
@@ -4716,6 +4814,43 @@ public sealed class StationaryCombatController
         {
             await _input.MouseUpAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
             state.IsRightMouseDown = false;
+        }
+    }
+
+    private async Task StopMovementBestEffortAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state)
+    {
+        if (state.IsMovingForward)
+        {
+            var result = await _input.KeyUpAsync("W", CancellationToken.None).ConfigureAwait(false);
+            state.IsMovingForward = false;
+            SetPathFollowMoving(state, false);
+            state.ResetCombatApproachStuckTracking();
+            if (!result.Success)
+            {
+                context.Logger.Warn("stationary_combat.input.w_up_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["source"] = "stop_movement_best_effort",
+                    ["error"] = result.Error
+                });
+            }
+        }
+
+        if (state.IsRightMouseDown)
+        {
+            var result = await _input.MouseUpAsync(RoadhogMouseButton.Right, CancellationToken.None).ConfigureAwait(false);
+            state.IsRightMouseDown = false;
+            if (!result.Success)
+            {
+                context.Logger.Warn("stationary_combat.input.right_mouse_up_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["source"] = "stop_movement_best_effort",
+                    ["error"] = result.Error
+                });
+            }
         }
     }
 

@@ -1,4 +1,6 @@
 using Roadhog.Application.Input;
+using Roadhog.Application.StationaryCombat;
+using Roadhog.Application.Workers;
 using Roadhog.Core.Api;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
@@ -6,6 +8,7 @@ using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Hardware;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
+using Roadhog.Core.Paths;
 
 namespace Roadhog.Application;
 
@@ -16,6 +19,7 @@ public sealed class RoadhogRuntime
     private readonly IAccountConfigStore? _accountConfigStore;
     private readonly IHardwareDeviceResolver? _hardwareResolver;
     private readonly IKeyboardInput? _keyboardInput;
+    private readonly StationaryCombatController? _stationaryCombatController;
     private const string InventoryToggleKey = "I";
     private const double InventoryUiMaxWindowX = 699.2;
     private const double InventoryUiMaxWindowY = 324.8;
@@ -41,13 +45,15 @@ public sealed class RoadhogRuntime
         AccountOrchestrator orchestrator,
         IAccountConfigStore? accountConfigStore = null,
         IHardwareDeviceResolver? hardwareResolver = null,
-        IKeyboardInput? keyboardInput = null)
+        IKeyboardInput? keyboardInput = null,
+        StationaryCombatController? stationaryCombatController = null)
     {
         _gameApi = gameApi;
         _logger = logger;
         _accountConfigStore = accountConfigStore;
         _hardwareResolver = hardwareResolver;
         _keyboardInput = keyboardInput;
+        _stationaryCombatController = stationaryCombatController;
         Accounts = accounts;
         Orchestrator = orchestrator;
     }
@@ -373,6 +379,35 @@ public sealed class RoadhogRuntime
         return OperationResult.Ok();
     }
 
+    public Task<OperationResult> ExecutePathAsync(
+        string accountName,
+        string pathName,
+        IReadOnlyList<SharedPathPoint> points,
+        ScriptSettings? settings = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_stationaryCombatController is null)
+        {
+            return Task.FromResult(OperationResult.Fail("Path execution controller is not available."));
+        }
+
+        if (points.Count == 0)
+        {
+            return Task.FromResult(OperationResult.Fail("Path has no points."));
+        }
+
+        var config = LoadExecutionAccountConfig(accountName, settings);
+        var context = new AccountWorkerContext(
+            config,
+            _gameApi,
+            _logger,
+            Accounts,
+            new AccountWorkerOptions(),
+            cancellationToken);
+        var vectors = points.Select(point => point.ToVector3()).ToArray();
+        return _stationaryCombatController.ExecutePathOnceAsync(context, pathName, vectors);
+    }
+
     private async Task<OperationResult<InventoryWindowSnapshot>> DragInventoryWindowToTopLeftAsync(
         IInventoryWindowGameApi inventoryApi,
         GameApiReadContext context,
@@ -669,6 +704,35 @@ public sealed class RoadhogRuntime
         if (config is not null)
         {
             config.VmmDeviceName = ResolveCurrentVmmDeviceName(config);
+        }
+
+        return config;
+    }
+
+    private AccountConfig LoadExecutionAccountConfig(string accountName, ScriptSettings? settings)
+    {
+        var config = LoadSavedAccountConfig(accountName) ?? new AccountConfig { AccountName = accountName };
+        var runtime = Accounts.Snapshot()
+            .FirstOrDefault(item => string.Equals(item.AccountName, accountName, StringComparison.OrdinalIgnoreCase));
+        if (runtime is not null)
+        {
+            config.ProcessId = runtime.ProcessId;
+            config.TargetProcessName = string.IsNullOrWhiteSpace(runtime.TargetProcessName)
+                ? config.TargetProcessName
+                : runtime.TargetProcessName;
+            config.VmmDeviceName = string.IsNullOrWhiteSpace(runtime.VmmDeviceName)
+                ? config.VmmDeviceName
+                : runtime.VmmDeviceName;
+            config.HardwareKey = string.IsNullOrWhiteSpace(runtime.HardwareKey)
+                ? config.HardwareKey
+                : runtime.HardwareKey;
+        }
+
+        if (settings is not null)
+        {
+            config.ScriptSettings = settings.Clone();
+            config.MainMode = config.ScriptSettings.MainMode;
+            config.CombatMode = config.ScriptSettings.CombatMode;
         }
 
         return config;
