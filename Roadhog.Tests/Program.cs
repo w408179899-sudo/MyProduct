@@ -44,6 +44,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
     ("runtime test move uses configured screen point", TestRuntimeTestMoveUsesScreenPointAsync),
     ("runtime normalizes inventory window then closes", TestRuntimeNormalizesInventoryWindowThenClosesAsync),
+    ("runtime normalizes inventory window and leaves open", TestRuntimeNormalizesInventoryWindowLeavesOpenAsync),
     ("window title formats character identity", TestWindowTitleFormatsCharacterIdentityAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
@@ -929,6 +930,7 @@ static Task TestFileLoggerSamplesNoisyVmmReadsAsync()
 static Task TestInputKeyMapAsync()
 {
     AssertHidCode("C", 0x06);
+    AssertHidCode("I", 0x0C);
     AssertHidCode("S", 0x16);
     AssertHidCode(" W ", 0x1A);
     AssertHidCode("Space", 0x2C);
@@ -1042,6 +1044,79 @@ static async Task TestRuntimeNormalizesInventoryWindowThenClosesAsync()
     AssertFalse(!gameApi.InventoryWindow.IsAtTopLeft(), "inventory window rect should be normalized to top-left");
     AssertEqual(712, gameApi.LastInventoryWindowContext?.ProcessId ?? 0, "inventory window read should use scoped process id");
     AssertSequence(new[] { "I", "I" }, keyboard.Keys.ToArray(), "normalization should open and close the inventory");
+    AssertFalse(!keyboard.MouseCommands.Contains("down:Left"), "normalization should hold left mouse for drag");
+    AssertFalse(!keyboard.MouseCommands.Contains("up:Left"), "normalization should release left mouse after drag");
+}
+
+static async Task TestRuntimeNormalizesInventoryWindowLeavesOpenAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    accounts.MarkStarting(new AccountConfig
+    {
+        AccountName = "account-scope",
+        ProcessId = 712,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga"
+    });
+
+    var gameApi = new FakeGameApi
+    {
+        InventoryWindow = CreateInventoryWindow(false, 594.2, 274.0)
+    };
+    var keyboard = new RecordingKeyboardInput();
+    var mouseDown = false;
+    var lastTargetX = 0;
+    var lastTargetY = 0;
+
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "I", StringComparison.OrdinalIgnoreCase))
+        {
+            gameApi.InventoryWindow = gameApi.InventoryWindow with
+            {
+                IsOpen = !gameApi.InventoryWindow.IsOpen,
+                CapturedAt = DateTimeOffset.Now
+            };
+        }
+    };
+    keyboard.AfterMouseDown = _ => mouseDown = true;
+    keyboard.AfterMouseUp = _ => mouseDown = false;
+    keyboard.AfterMove = (deltaX, deltaY) =>
+    {
+        if (!mouseDown && deltaX >= 0 && deltaY >= 0)
+        {
+            lastTargetX = deltaX;
+            lastTargetY = deltaY;
+            return;
+        }
+
+        if (mouseDown &&
+            deltaX == ScreenPointMouseMover.AbsoluteMouseResetDelta &&
+            deltaY == ScreenPointMouseMover.AbsoluteMouseResetDelta &&
+            lastTargetX > 0 &&
+            lastTargetY > 0)
+        {
+            gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
+        }
+    };
+
+    var runtime = new RoadhogRuntime(
+        gameApi,
+        logger,
+        accounts,
+        null!,
+        keyboardInput: keyboard);
+
+    var result = await runtime
+        .NormalizeInventoryWindowToTopLeftAsync("account-scope")
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "inventory window normalization should succeed: " + result.Error);
+    AssertFalse(!gameApi.InventoryWindow.IsOpen, "inventory window should remain open after normalization");
+    AssertFalse(!gameApi.InventoryWindow.IsAtTopLeft(), "inventory window rect should be normalized to top-left");
+    AssertEqual(712, gameApi.LastInventoryWindowContext?.ProcessId ?? 0, "inventory window read should use scoped process id");
+    AssertSequence(new[] { "I" }, keyboard.Keys.ToArray(), "normalization should only open the inventory");
     AssertFalse(!keyboard.MouseCommands.Contains("down:Left"), "normalization should hold left mouse for drag");
     AssertFalse(!keyboard.MouseCommands.Contains("up:Left"), "normalization should release left mouse after drag");
 }

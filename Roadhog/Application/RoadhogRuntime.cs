@@ -34,9 +34,10 @@ public sealed class RoadhogRuntime
     private static readonly TimeSpan InventoryToggleHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan InventoryOpenSettleDelay = TimeSpan.FromMilliseconds(700);
     private static readonly TimeSpan InventoryCloseSettleDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan InventoryDragStartSettleDelay = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan InventoryDragSettleDelay = TimeSpan.FromMilliseconds(500);
-    private static readonly int[] InventoryTitleDragXOffsets = { 160, 140, 180, 120, 200, 100, 220 };
-    private static readonly int[] InventoryTitleDragYOffsets = { 25, 22, 18, 15, 10, 5 };
+    private static readonly int[] InventoryTitleDragXOffsets = { 160 };
+    private static readonly int[] InventoryTitleDragYOffsets = { 15, 10, 5, 0, -5, -10, -15 };
 
     public RoadhogRuntime(
         IRoadhogGameApi gameApi,
@@ -315,6 +316,29 @@ public sealed class RoadhogRuntime
         string? accountName = null,
         CancellationToken cancellationToken = default)
     {
+        return await NormalizeInventoryWindowToTopLeftCoreAsync(
+                accountName,
+                closeAfterNormalize: true,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<OperationResult> NormalizeInventoryWindowToTopLeftAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        return await NormalizeInventoryWindowToTopLeftCoreAsync(
+                accountName,
+                closeAfterNormalize: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<OperationResult> NormalizeInventoryWindowToTopLeftCoreAsync(
+        string? accountName,
+        bool closeAfterNormalize,
+        CancellationToken cancellationToken)
+    {
         if (_keyboardInput is null)
         {
             return OperationResult.Fail("Keyboard input is not available for inventory window normalization.");
@@ -372,6 +396,20 @@ public sealed class RoadhogRuntime
             }
 
             snapshot = drag.Value;
+        }
+
+        if (!closeAfterNormalize)
+        {
+            _logger.Info("inventory_window.normalize.ok", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["x"] = snapshot.X,
+                ["y"] = snapshot.Y,
+                ["width"] = snapshot.Width,
+                ["height"] = snapshot.Height
+            });
+
+            return OperationResult.Ok();
         }
 
         var close = await PressInventoryToggleAsync(cancellationToken).ConfigureAwait(false);
@@ -469,6 +507,8 @@ public sealed class RoadhogRuntime
                 {
                     return OperationResult<InventoryWindowSnapshot>.Fail("Inventory drag start move failed: " + moveToStart.Error);
                 }
+
+                await DelayAsync(InventoryDragStartSettleDelay, cancellationToken).ConfigureAwait(false);
 
                 var down = await _keyboardInput!
                     .MouseDownAsync(RoadhogMouseButton.Left, cancellationToken)

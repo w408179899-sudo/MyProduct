@@ -6,6 +6,7 @@ public static class RoadhogInputKeyMap
         new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["C"] = 0x06,
+            ["I"] = 0x0C,
             ["S"] = 0x16,
             ["W"] = 0x1A,
             ["X"] = 0x1B,

@@ -1805,47 +1805,54 @@ namespace Roadhog
             AddLabel(page, "清包阈值", 100, 16, 70, 26, _textGreen, FontStyle.Bold);
             bagCleanupThresholdTextBox = AddTextBox(page, "85", 172, 14, 84, 28);
 
-            void AddCleanupOption(string text, int x, int y, int checkWidth)
-            {
-                var checkBox = AddCheckBox(page, text, x, y, checkWidth, false);
-                checkBox.Font = new Font("Microsoft YaHei UI", 8.25F);
-                checkBox.Size = new Size(checkWidth, 22);
+            const int leftOptionX = 24;
+            const int leftComboX = 144;
+            const int rightOptionX = 218;
+            const int rightComboX = 346;
+            const int cleanupOptionWidth = 118;
 
-                var combo = AddCombo(page, x + checkWidth + 2, y - 1, 62, 24, "出售", "丢弃");
+            void AddCleanupOption(string text, int optionX, int comboX, int y)
+            {
+                var checkBox = AddCheckBox(page, text, optionX, y, cleanupOptionWidth, false);
+                checkBox.Font = new Font("Microsoft YaHei UI", 8.25F);
+                checkBox.Size = new Size(cleanupOptionWidth, 22);
+
+                var combo = AddCombo(page, comboX, y - 1, 62, 24, "出售", "丢弃");
                 combo.Font = new Font("Microsoft YaHei UI", 8.25F, FontStyle.Bold);
             }
 
             AddLabel(page, "清理物品类型", 4, 54, 120, 24, _textGreen, FontStyle.Bold);
 
             AddLabel(page, "装备品质", 18, 76, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption("绿色武器", 24, 98, 76);
-            AddCleanupOption("蓝色武器", 194, 98, 76);
-            AddCleanupOption("绿色防具", 24, 122, 76);
-            AddCleanupOption("蓝色防具", 194, 122, 76);
+            AddCleanupOption("绿色装备", leftOptionX, leftComboX, 98);
+            AddCleanupOption("蓝色装备", rightOptionX, rightComboX, 98);
 
-            AddLabel(page, "魔石", 18, 152, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption("白色魔石", 24, 174, 76);
-            AddCleanupOption("绿色魔石", 194, 174, 76);
+            AddLabel(page, "魔石", 18, 128, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption("白色魔石", leftOptionX, leftComboX, 150);
+            AddCleanupOption("绿色魔石", rightOptionX, rightComboX, 150);
 
-            AddLabel(page, "书卷", 18, 202, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption("烙印", 24, 224, 52);
-            AddCleanupOption("制作图纸/卷轴", 194, 224, 116);
-            AddCleanupOption("技能书", 24, 248, 64);
-            AddCleanupOption("咒语书", 194, 248, 64);
+            AddLabel(page, "书卷", 18, 178, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption("烙印", leftOptionX, leftComboX, 200);
+            AddCleanupOption("制作图纸/卷轴", rightOptionX, rightComboX, 200);
+            AddCleanupOption("技能书", leftOptionX, leftComboX, 224);
+            AddCleanupOption("咒语书", rightOptionX, rightComboX, 224);
 
-            AddLabel(page, "提炼石", 18, 278, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption("白色提炼石", 24, 300, 92);
-            AddCleanupOption("绿色提炼石", 194, 300, 92);
-            AddCleanupOption("蓝色提炼石", 24, 324, 92);
-            AddCleanupOption("金色提炼石", 194, 324, 92);
+            AddLabel(page, "提炼石", 18, 254, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption("白色提炼石", leftOptionX, leftComboX, 276);
+            AddCleanupOption("绿色提炼石", rightOptionX, rightComboX, 276);
+            AddCleanupOption("蓝色提炼石", leftOptionX, leftComboX, 300);
+            AddCleanupOption("金色提炼石", rightOptionX, rightComboX, 300);
 
-            AddLabel(page, "药品", 18, 354, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption("药水/仙药/灵药", 24, 376, 124);
+            AddLabel(page, "药品", 18, 330, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption("药水/仙药/灵药", leftOptionX, leftComboX, 352);
 
             AddLabel(page, "不处理物品", 430, 54, 120, 24, _textGreen, FontStyle.Bold);
             var refreshInventoryButton = AddButton(page, "刷新背包", 542, 50, 96, 30);
             refreshInventoryButton.Click += async (_, _) =>
                 await RefreshBagCleanupInventoryAsync(refreshInventoryButton).ConfigureAwait(true);
+            var testInventoryWindowButton = AddButton(page, "测试拖到左上", 698, 50, 130, 30);
+            testInventoryWindowButton.Click += async (_, _) =>
+                await TestBagCleanupInventoryWindowNormalizeAsync(testInventoryWindowButton).ConfigureAwait(true);
 
             AddLabel(page, "当前背包", 430, 92, 82, 24, _textGreen, FontStyle.Bold);
             bagCleanupInventoryCombo = AddCombo(page, 430, 118, 248, 28);
@@ -1883,6 +1890,34 @@ namespace Roadhog
                         ? "背包为空或当前接口未返回物品"
                         : "已刷新 " + count.ToString(CultureInfo.InvariantCulture) + " 种物品",
                     false);
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+
+        private async Task TestBagCleanupInventoryWindowNormalizeAsync(Button button)
+        {
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "测试中...";
+            SetBagCleanupInventoryStatus("正在测试背包拖到左上角...", false);
+
+            try
+            {
+                var result = await _runtime
+                    .NormalizeInventoryWindowToTopLeftAsync(_account)
+                    .ConfigureAwait(true);
+                SetBagCleanupInventoryStatus(
+                    result.Success
+                        ? "背包已拖到左上角"
+                        : "测试背包拖拽失败: " + (result.Error ?? "未知错误"),
+                    !result.Success);
             }
             finally
             {
