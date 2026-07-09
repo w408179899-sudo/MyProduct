@@ -246,6 +246,31 @@ public sealed class RoadhogRuntime
         return result;
     }
 
+    public async Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> RefreshInventoryAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ReadInventoryAsync(accountName, cancellationToken).ConfigureAwait(false);
+        if (result.Success)
+        {
+            _logger.Info("inventory.refresh.ok", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["count"] = result.Value?.Count ?? 0
+            });
+        }
+        else
+        {
+            _logger.Warn("inventory.refresh.failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["error"] = result.Error
+            });
+        }
+
+        return result;
+    }
+
     public async Task<OperationResult> TestMoveMouseToScreenPointAsync(
         int x,
         int y,
@@ -589,6 +614,19 @@ public sealed class RoadhogRuntime
         }
 
         return _gameApi.ReadWorldObjectsAsync(cancellationToken);
+    }
+
+    private Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            return scopedApi.ReadInventoryAsync(CreateReadContext(accountName), cancellationToken);
+        }
+
+        return _gameApi.ReadInventoryAsync(cancellationToken);
     }
 
     private Task<OperationResult<PlayerSnapshot>> ReadPlayerSnapshotAsync(

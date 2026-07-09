@@ -31,6 +31,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime skill read maps saved hardware key to indexed fpga device", TestRuntimeSkillReadMapsSavedHardwareKeyToIndexedFpgaDeviceAsync),
     ("account start preserves configured indexed fpga device", TestAccountStartPreservesConfiguredIndexedFpgaDeviceAsync),
     ("account start lets configured vmm override hardware indexed device", TestAccountStartConfiguredVmmOverridesHardwareIndexedDeviceAsync),
+    ("runtime inventory read uses account scoped context", TestRuntimeInventoryReadUsesAccountScopeAsync),
     ("runtime world object read uses account scoped context", TestRuntimeWorldObjectReadUsesAccountScopeAsync),
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
@@ -54,6 +55,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat derives home from revive path endpoint", TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync),
     ("stationary combat skips active filtered monsters", TestStationaryCombatSkipsActiveFilteredMonstersAsync),
     ("stationary combat state uses server object id identity", TestStationaryCombatStateUsesServerObjectIdIdentityAsync),
+    ("tool bridge inventory parser reads bag items", TestToolBridgeInventoryParserReadsBagItemsAsync),
     ("tool bridge world parser reads aggressive monster flags", TestToolBridgeWorldParserReadsAggressiveFlagsAsync),
     ("vmm skill options group learned ranks by default", TestVmmSkillOptionsGroupLearnedRanksByDefaultAsync),
     ("stationary combat startup recovery follows nearest revive path point", TestStationaryCombatStartupRecoveryFollowsNearestRevivePointAsync),
@@ -496,6 +498,36 @@ static async Task TestAccountStartConfiguredVmmOverridesHardwareIndexedDeviceAsy
     var bound = logger.Entries.LastOrDefault(entry => entry.EventName == "account.hardware.bound");
     AssertFalse(bound is null, "account hardware binding should be logged");
     AssertEqual("fpga://devindex=0", Convert.ToString(bound!.Fields["vmmDevice"]) ?? string.Empty, "configured vmm should override hardware mapped vmm");
+}
+
+static async Task TestRuntimeInventoryReadUsesAccountScopeAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    accounts.MarkStarting(new AccountConfig
+    {
+        AccountName = "account-scope",
+        ProcessId = 712,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga"
+    });
+
+    var gameApi = new FakeGameApi
+    {
+        InventoryItems = new[]
+        {
+            new InventoryItemSnapshot(100, 200, "白色魔石", 1, 0, false)
+        }
+    };
+    var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
+
+    var result = await runtime.RefreshInventoryAsync("account-scope").ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "runtime inventory read should succeed");
+    AssertEqual(1, result.Value?.Count ?? 0, "inventory item count");
+    AssertEqual(712, gameApi.LastInventoryContext?.ProcessId ?? 0, "scoped process id");
+    AssertEqual("Aion.bin", gameApi.LastInventoryContext?.TargetProcessName ?? string.Empty, "scoped process name");
+    AssertEqual("fpga", gameApi.LastInventoryContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
 }
 
 static async Task TestRuntimeWorldObjectReadUsesAccountScopeAsync()
@@ -1455,6 +1487,34 @@ static Task TestToolBridgeWorldParserReadsAggressiveFlagsAsync()
     AssertFalse(objects[0].IsAggressiveToPlayer, "passive monster should not be aggressive to player");
     AssertFalse(!objects[0].IsPassiveToPlayer, "passive monster property should be true");
     AssertEqual("tribe_relation", objects[0].AggressiveSource ?? string.Empty, "aggressive source");
+    return Task.CompletedTask;
+}
+
+static Task TestToolBridgeInventoryParserReadsBagItemsAsync()
+{
+    var parserType = typeof(JsonAccountConfigStore).Assembly.GetType("Roadhog.Infrastructure.ToolBridge.ToolOutputParsers");
+    AssertFalse(parserType is null, "tool output parser type should exist");
+    var parseMethod = parserType!.GetMethod(
+        "ParseInventory",
+        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+    AssertFalse(parseMethod is null, "inventory parser method should exist");
+
+    var lines = new[]
+    {
+        "#001 Slot=12 Page=1 Cell=13 Row=2 Col=4 Addr=0x00000123456789AB InstanceId=987654 TemplateId=100200 Count=3 Name=\"白色魔石\" CustomName=\"\" Type=60 EquipMask=0x0 Equipped=no EquipArray=no Cash=no Flags=0x00000000 Value=0 ExpiryRaw=0 DurationSec=0 ExtraState=0x0",
+        "#002 Slot=n/a Page=n/a Cell=n/a Row=n/a Col=n/a Addr=0x00000123456789AC InstanceId=987655 TemplateId=100201 Count=1 Name=\"已装备耳环\" CustomName=\"\" Type=1 EquipMask=0x1 Equipped=yes EquipArray=yes Cash=no Flags=0x00000000 Value=0 ExpiryRaw=0 DurationSec=0 ExtraState=0x0"
+    };
+    var items = (IReadOnlyList<InventoryItemSnapshot>)parseMethod!.Invoke(null, new object[] { lines })!;
+
+    AssertEqual(2, items.Count, "two parsed inventory rows");
+    AssertEqual("白色魔石", items[0].Name, "first item name");
+    AssertEqual(100200U, items[0].TemplateId, "first item template");
+    AssertEqual(987654UL, items[0].InstanceId, "first item instance");
+    AssertEqual(3U, items[0].Count, "first item count");
+    AssertEqual(12, items[0].Slot, "first item slot");
+    AssertFalse(items[0].IsEquipped, "first item should be bag item");
+    AssertEqual(-1, items[1].Slot, "equipped item has no bag slot");
+    AssertFalse(!items[1].IsEquipped, "second item should be equipped");
     return Task.CompletedTask;
 }
 
@@ -9035,6 +9095,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi
 
     public IReadOnlyList<SkillSnapshot> Skills { get; set; } = Array.Empty<SkillSnapshot>();
 
+    public IReadOnlyList<InventoryItemSnapshot> InventoryItems { get; set; } = Array.Empty<InventoryItemSnapshot>();
+
     public PlayerAbnormalStatusSnapshot PlayerAbnormalStatuses { get; set; } =
         PlayerAbnormalStatusSnapshot.Empty(1);
 
@@ -9049,6 +9111,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi
     public GameApiReadContext? LastPlayerContext { get; private set; }
 
     public GameApiReadContext? LastSkillsContext { get; private set; }
+
+    public GameApiReadContext? LastInventoryContext { get; private set; }
 
     public GameApiReadContext? LastSummonedPetContext { get; private set; }
 
@@ -9228,7 +9292,15 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi
 
     public Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail("not used"));
+        return Task.FromResult(OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(InventoryItems));
+    }
+
+    public Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        LastInventoryContext = context;
+        return ReadInventoryAsync(cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)

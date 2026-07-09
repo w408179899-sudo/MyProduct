@@ -196,6 +196,8 @@ public sealed class MaintenanceScriptSettings
 
     public int BagTotalSlots { get; set; } = 100;
 
+    public List<string> BagCleanupExcludedItemNames { get; set; } = new();
+
     public MaintenanceScriptSettings Clone()
     {
         return new MaintenanceScriptSettings
@@ -211,7 +213,12 @@ public sealed class MaintenanceScriptSettings
             AutoEquip = AutoEquip,
             AutoDecompose = AutoDecompose,
             BagCleanupThreshold = BagCleanupThreshold,
-            BagTotalSlots = BagTotalSlots
+            BagTotalSlots = BagTotalSlots,
+            BagCleanupExcludedItemNames = BagCleanupExcludedItemNames?
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList() ?? new List<string>()
         };
     }
 }

@@ -88,6 +88,9 @@ namespace Roadhog
         private Label? mpMaintenanceEmptyLabel;
         private Label? statusMaintenanceEmptyLabel;
         private RoundedTextBox? bagCleanupThresholdTextBox;
+        private RoundedComboBox? bagCleanupInventoryCombo;
+        private ListBox? bagCleanupExcludedItemListBox;
+        private Label? bagCleanupInventoryStatusLabel;
         private RadioButton? skillAutoModeRadio;
         private RadioButton? skillManualModeRadio;
         private RadioButton? skillSystemModeRadio;
@@ -302,6 +305,7 @@ namespace Roadhog
             PopulateMaintenanceKeyRules(mpMaintenanceRuleList, mpMaintenanceEmptyLabel, settings.Maintenance.MpMaintenanceRules);
             PopulateStatusMaintenanceRules(statusMaintenanceRuleList, statusMaintenanceEmptyLabel, settings.Maintenance.StatusMaintenanceRules);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
+            PopulateBagCleanupExcludedItemList(settings.Maintenance.BagCleanupExcludedItemNames);
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
             SetChecked(spiritmasterAutoSkillCheckBox, settings.Skills.SpiritmasterAutoSkillLogicEnabled);
             ApplyOpeningSkillSettings(settings.Skills.OpeningSkill);
@@ -498,7 +502,8 @@ namespace Roadhog
                     HpMaintenanceRules = CaptureMaintenanceKeyRules(hpMaintenanceRuleList),
                     MpMaintenanceRules = CaptureMaintenanceKeyRules(mpMaintenanceRuleList),
                     StatusMaintenanceRules = CaptureStatusMaintenanceRules(statusMaintenanceRuleList),
-                    BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 85)
+                    BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 85),
+                    BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList()
                 },
                 Skills = new SkillScriptSettings
                 {
@@ -1802,42 +1807,233 @@ namespace Roadhog
 
             void AddCleanupOption(string text, int x, int y, int checkWidth)
             {
-                AddCheckBox(page, text, x, y, checkWidth, false);
-                AddCombo(page, x + checkWidth + 4, y - 1, 68, 28, "出售", "丢弃");
+                var checkBox = AddCheckBox(page, text, x, y, checkWidth, false);
+                checkBox.Font = new Font("Microsoft YaHei UI", 8.25F);
+                checkBox.Size = new Size(checkWidth, 22);
+
+                var combo = AddCombo(page, x + checkWidth + 2, y - 1, 62, 24, "出售", "丢弃");
+                combo.Font = new Font("Microsoft YaHei UI", 8.25F, FontStyle.Bold);
             }
 
             AddLabel(page, "清理物品类型", 4, 54, 120, 24, _textGreen, FontStyle.Bold);
 
-            AddLabel(page, "装备品质", 18, 88, 80, 24, _textGreen, FontStyle.Bold);
-            AddCleanupOption("绿色武器", 24, 116, 90);
-            AddCleanupOption("蓝色武器", 214, 116, 90);
-            AddCleanupOption("黄金武器", 404, 116, 90);
-            AddCleanupOption("橙色武器", 594, 116, 90);
-            AddCleanupOption("绿色防具", 24, 148, 90);
-            AddCleanupOption("蓝色防具", 214, 148, 90);
-            AddCleanupOption("黄金防具", 404, 148, 90);
-            AddCleanupOption("橙色防具", 594, 148, 90);
+            AddLabel(page, "装备品质", 18, 76, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption("绿色武器", 24, 98, 76);
+            AddCleanupOption("蓝色武器", 194, 98, 76);
+            AddCleanupOption("绿色防具", 24, 122, 76);
+            AddCleanupOption("蓝色防具", 194, 122, 76);
 
-            AddLabel(page, "魔石", 18, 196, 80, 24, _textGreen, FontStyle.Bold);
-            AddCleanupOption("白色魔石", 24, 224, 90);
-            AddCleanupOption("绿色魔石", 214, 224, 90);
+            AddLabel(page, "魔石", 18, 152, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption("白色魔石", 24, 174, 76);
+            AddCleanupOption("绿色魔石", 194, 174, 76);
 
-            AddLabel(page, "书卷", 18, 272, 80, 24, _textGreen, FontStyle.Bold);
-            AddCleanupOption("烙印", 24, 300, 70);
-            AddCleanupOption("制作图纸/卷轴", 214, 300, 130);
-            AddCleanupOption("技能书", 444, 300, 78);
-            AddCleanupOption("咒语书", 624, 300, 78);
+            AddLabel(page, "书卷", 18, 202, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption("烙印", 24, 224, 52);
+            AddCleanupOption("制作图纸/卷轴", 194, 224, 116);
+            AddCleanupOption("技能书", 24, 248, 64);
+            AddCleanupOption("咒语书", 194, 248, 64);
 
-            AddLabel(page, "提炼石", 18, 348, 80, 24, _textGreen, FontStyle.Bold);
-            AddCleanupOption("白色提炼石", 24, 376, 106);
-            AddCleanupOption("绿色提炼石", 214, 376, 106);
-            AddCleanupOption("蓝色提炼石", 404, 376, 106);
-            AddCleanupOption("金色提炼石", 594, 376, 106);
+            AddLabel(page, "提炼石", 18, 278, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption("白色提炼石", 24, 300, 92);
+            AddCleanupOption("绿色提炼石", 194, 300, 92);
+            AddCleanupOption("蓝色提炼石", 24, 324, 92);
+            AddCleanupOption("金色提炼石", 194, 324, 92);
 
-            AddLabel(page, "药品", 18, 424, 80, 24, _textGreen, FontStyle.Bold);
-            AddCleanupOption("药水/仙药/灵药", 24, 452, 140);
+            AddLabel(page, "药品", 18, 354, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption("药水/仙药/灵药", 24, 376, 124);
+
+            AddLabel(page, "不处理物品", 430, 54, 120, 24, _textGreen, FontStyle.Bold);
+            var refreshInventoryButton = AddButton(page, "刷新背包", 542, 50, 96, 30);
+            refreshInventoryButton.Click += async (_, _) =>
+                await RefreshBagCleanupInventoryAsync(refreshInventoryButton).ConfigureAwait(true);
+
+            AddLabel(page, "当前背包", 430, 92, 82, 24, _textGreen, FontStyle.Bold);
+            bagCleanupInventoryCombo = AddCombo(page, 430, 118, 248, 28);
+            bagCleanupInventoryCombo.Name = "bagCleanupInventoryCombo";
+            AddButton(page, "加入不处理", 688, 118, 100, 30, (_, _) => AddSelectedBagCleanupExcludedItem());
+
+            bagCleanupInventoryStatusLabel = AddLabel(page, "等待刷新背包", 430, 154, 360, 24);
+
+            AddLabel(page, "已选不处理", 430, 190, 120, 24, _textGreen, FontStyle.Bold);
+            bagCleanupExcludedItemListBox = CreateFilterListBox(page, 430, 216, 248, 280);
+            AddButton(page, "移除", 688, 216, 80, 30, (_, _) => RemoveSelectedBagCleanupExcludedItem());
+            AddButton(page, "清空", 688, 254, 80, 30, (_, _) => ClearBagCleanupExcludedItemList());
 
             return tab;
+        }
+
+        private async Task RefreshBagCleanupInventoryAsync(Button button)
+        {
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "刷新中...";
+
+            try
+            {
+                var result = await _runtime.RefreshInventoryAsync(_account).ConfigureAwait(true);
+                if (!result.Success || result.Value is null)
+                {
+                    SetBagCleanupInventoryStatus(result.Error ?? "读取背包失败", true);
+                    return;
+                }
+
+                var count = PopulateBagCleanupInventoryCombo(result.Value);
+                SetBagCleanupInventoryStatus(
+                    count == 0
+                        ? "背包为空或当前接口未返回物品"
+                        : "已刷新 " + count.ToString(CultureInfo.InvariantCulture) + " 种物品",
+                    false);
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+
+        private int PopulateBagCleanupInventoryCombo(IEnumerable<InventoryItemSnapshot> items)
+        {
+            if (bagCleanupInventoryCombo is null)
+            {
+                return 0;
+            }
+
+            var previousName = GetSelectedBagCleanupInventoryItemName();
+            var comboItems = items
+                .Where(IsBagCleanupInventoryCandidate)
+                .GroupBy(item => item.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(group => new BagCleanupInventoryComboItem(
+                    group.Key,
+                    group.Aggregate(0UL, (total, item) => total + item.Count),
+                    group.Min(item => item.Slot)))
+                .OrderBy(item => item.Name, StringComparer.CurrentCulture)
+                .ToArray();
+
+            bagCleanupInventoryCombo.Items.Clear();
+            foreach (var item in comboItems)
+            {
+                bagCleanupInventoryCombo.Items.Add(item);
+            }
+
+            if (comboItems.Length == 0)
+            {
+                bagCleanupInventoryCombo.Text = string.Empty;
+                return 0;
+            }
+
+            var selectedIndex = Array.FindIndex(
+                comboItems,
+                item => string.Equals(item.Name, previousName, StringComparison.OrdinalIgnoreCase));
+            bagCleanupInventoryCombo.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+            return comboItems.Length;
+        }
+
+        private static bool IsBagCleanupInventoryCandidate(InventoryItemSnapshot item)
+        {
+            return !item.IsEquipped &&
+                   item.Slot >= 0 &&
+                   !string.IsNullOrWhiteSpace(item.Name);
+        }
+
+        private string GetSelectedBagCleanupInventoryItemName()
+        {
+            if (bagCleanupInventoryCombo is null || bagCleanupInventoryCombo.SelectedIndex < 0)
+            {
+                return bagCleanupInventoryCombo?.Text.Trim() ?? string.Empty;
+            }
+
+            return bagCleanupInventoryCombo.Items[bagCleanupInventoryCombo.SelectedIndex] is BagCleanupInventoryComboItem item
+                ? item.Name
+                : bagCleanupInventoryCombo.Text.Trim();
+        }
+
+        private void AddSelectedBagCleanupExcludedItem()
+        {
+            AddBagCleanupExcludedItemName(GetSelectedBagCleanupInventoryItemName());
+        }
+
+        private void AddBagCleanupExcludedItemName(string? name)
+        {
+            if (bagCleanupExcludedItemListBox is null || string.IsNullOrWhiteSpace(name))
+            {
+                return;
+            }
+
+            var trimmed = name.Trim();
+            foreach (var existing in bagCleanupExcludedItemListBox.Items.Cast<object>())
+            {
+                if (string.Equals(Convert.ToString(existing), trimmed, StringComparison.OrdinalIgnoreCase))
+                {
+                    bagCleanupExcludedItemListBox.SelectedItem = existing;
+                    return;
+                }
+            }
+
+            var index = bagCleanupExcludedItemListBox.Items.Add(trimmed);
+            bagCleanupExcludedItemListBox.SelectedIndex = index;
+            SetBagCleanupInventoryStatus("已加入不处理: " + trimmed, false);
+        }
+
+        private void RemoveSelectedBagCleanupExcludedItem()
+        {
+            if (bagCleanupExcludedItemListBox is null || bagCleanupExcludedItemListBox.SelectedItems.Count == 0)
+            {
+                return;
+            }
+
+            var selected = bagCleanupExcludedItemListBox.SelectedItems.Cast<object>().ToArray();
+            foreach (var item in selected)
+            {
+                bagCleanupExcludedItemListBox.Items.Remove(item);
+            }
+        }
+
+        private void ClearBagCleanupExcludedItemList()
+        {
+            bagCleanupExcludedItemListBox?.Items.Clear();
+        }
+
+        private void PopulateBagCleanupExcludedItemList(IEnumerable<string>? itemNames)
+        {
+            if (bagCleanupExcludedItemListBox is null)
+            {
+                return;
+            }
+
+            bagCleanupExcludedItemListBox.Items.Clear();
+            foreach (var itemName in itemNames?
+                         .Where(value => !string.IsNullOrWhiteSpace(value))
+                         .Select(value => value.Trim())
+                         .Distinct(StringComparer.OrdinalIgnoreCase) ?? Array.Empty<string>())
+            {
+                bagCleanupExcludedItemListBox.Items.Add(itemName);
+            }
+        }
+
+        private List<string> CaptureBagCleanupExcludedItemList()
+        {
+            return bagCleanupExcludedItemListBox is null
+                ? new List<string>()
+                : bagCleanupExcludedItemListBox.Items
+                    .Cast<object>()
+                    .Select(item => Convert.ToString(item)?.Trim() ?? string.Empty)
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+        }
+
+        private void SetBagCleanupInventoryStatus(string text, bool isError)
+        {
+            if (bagCleanupInventoryStatusLabel is null)
+            {
+                return;
+            }
+
+            bagCleanupInventoryStatusLabel.ForeColor = isError ? Color.FromArgb(166, 40, 40) : _textGreen;
+            bagCleanupInventoryStatusLabel.Text = text;
         }
 
         private FlowLayoutPanel CreateMaintenanceRuleList(Control parent, int x, int y, int width, int height)
@@ -5615,6 +5811,38 @@ namespace Roadhog
                 return DistanceMeters.HasValue && !double.IsInfinity(DistanceMeters.Value)
                     ? Name + " (" + DistanceMeters.Value.ToString("F1", CultureInfo.InvariantCulture) + "m)"
                     : Name;
+            }
+        }
+
+        private sealed class BagCleanupInventoryComboItem
+        {
+            public BagCleanupInventoryComboItem(string name, ulong count, int firstSlot)
+            {
+                Name = name;
+                Count = count;
+                FirstSlot = firstSlot;
+            }
+
+            public string Name { get; }
+
+            public ulong Count { get; }
+
+            public int FirstSlot { get; }
+
+            public override string ToString()
+            {
+                var text = Name;
+                if (Count > 1)
+                {
+                    text += " x" + Count.ToString(CultureInfo.InvariantCulture);
+                }
+
+                if (FirstSlot >= 0)
+                {
+                    text += " [" + (FirstSlot + 1).ToString(CultureInfo.InvariantCulture) + "]";
+                }
+
+                return text;
             }
         }
 

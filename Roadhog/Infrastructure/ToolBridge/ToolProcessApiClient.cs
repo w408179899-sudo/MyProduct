@@ -78,8 +78,8 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
     public async Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(CancellationToken cancellationToken = default)
     {
         var output = await RunToolModeAsync(ToolApiMode.Inventory, cancellationToken).ConfigureAwait(false);
-        return output.Success
-            ? OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(Array.Empty<InventoryItemSnapshot>())
+        return output.Success && output.Value is not null
+            ? OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(ToolOutputParsers.ParseInventory(output.Value.StandardOutput))
             : OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail(output.Error ?? "Tool inventory mode failed.");
     }
 

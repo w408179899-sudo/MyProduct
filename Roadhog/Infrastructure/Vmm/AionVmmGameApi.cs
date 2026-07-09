@@ -103,6 +103,23 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
     private const ulong SkillItemRuntimeStateOffset = 0x6C;
     private const ulong SkillItemSourceFlagsOffset = 0x74;
 
+    private const ulong InventoryManagerGlobalRva = SkillManagerGlobalRva;
+    private const ulong InventoryCapacityOffset = 0x774;
+    private const ulong InventoryItemTreeHeaderOffset = 0x778;
+    private const ulong InventoryItemTreeCountOffset = 0x780;
+    private const ulong InventoryEquipmentIdsOffset = 0x788;
+    private const int InventoryEquipmentIdCount = 32;
+    private const int InventorySlotsPerPage = 27;
+    private const int InventoryColumnsPerPage = 9;
+    private const ulong InventoryNodeInstanceIdOffset = 0x20;
+    private const ulong InventoryNodeItemOffset = 0x28;
+    private const ulong InventoryItemInstanceIdOffset = 0x08;
+    private const ulong InventoryItemTemplateIdOffset = 0x0C;
+    private const ulong InventoryItemCountOffset = 0x10;
+    private const ulong InventoryItemNameOffset = 0x18;
+    private const ulong InventoryItemEquipmentMaskOffset = 0x74;
+    private const ulong InventoryItemSlotOffset = 0x4EE;
+
     private const ulong DlgInventoryDialog27MethodRva = 0x1BF060;
     private const ulong DlgInventoryDialog28MethodRva = 0x1C48D0;
     private const ulong DlgInventoryOpenFlagOffset = 0x585;
@@ -235,7 +252,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
 
     public Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail("Direct VMM inventory snapshot is not implemented yet."));
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadInventoryAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadInventoryCore(context), cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
@@ -740,6 +765,62 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         {
             _logger.Error("vmm.loot_corpses.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<IReadOnlyList<InventoryItemSnapshot>> ReadInventoryCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail("Module not found: " + moduleName);
+                }
+
+                if (!TryReadInventoryItems(process, gameBase, out var items, out var readError))
+                {
+                    return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail(readError);
+                }
+
+                var snapshots = items
+                    .Where(IsNormalBagInventoryItem)
+                    .OrderBy(item => item.Slot)
+                    .ThenBy(item => item.TemplateId)
+                    .ThenBy(item => item.InstanceId)
+                    .Select(item => new InventoryItemSnapshot(
+                        item.TemplateId,
+                        item.InstanceId,
+                        item.Name,
+                        ClampInventoryCount(item.Count),
+                        item.Slot,
+                        IsEquippedInventoryItem(item)))
+                    .ToArray();
+
+                _logger.Info("vmm.inventory.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["processName"] = process.Name,
+                    ["count"] = snapshots.Length
+                });
+
+                return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Ok(snapshots);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.inventory.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail(ex.Message);
         }
     }
 
@@ -1996,6 +2077,149 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         return requestedSkillIds
             .Where(id => id != 0)
             .ToHashSet();
+    }
+
+    private static bool TryReadInventoryItems(
+        VmmProcess process,
+        ulong gameBase,
+        out List<InventoryItemInfo> items,
+        out string error)
+    {
+        items = new List<InventoryItemInfo>();
+        error = string.Empty;
+
+        if (!TryReadPointer(process, gameBase + InventoryManagerGlobalRva, out var manager) || manager == 0)
+        {
+            error = "failed to read InventoryManager pointer at Game.dll+0x" + InventoryManagerGlobalRva.ToString("X");
+            return false;
+        }
+
+        var equipmentInstanceIds = ReadInventoryEquipmentInstanceIds(process, manager);
+        TryReadUInt64(process, manager + InventoryItemTreeCountOffset, out var treeCount);
+
+        if (!TryReadPointer(process, manager + InventoryItemTreeHeaderOffset, out var header) || header == 0)
+        {
+            error = "failed to read inventory item tree header at InventoryManager+0x" + InventoryItemTreeHeaderOffset.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, header + NodeLeftOffset, out var node))
+        {
+            error = "failed to read inventory item tree begin node";
+            return false;
+        }
+
+        var visited = new HashSet<ulong>();
+        var guardLimit = treeCount is > 0 and < 100000
+            ? checked((int)treeCount + 16)
+            : 100000;
+
+        for (var guard = 0; node != 0 && node != header && guard < guardLimit; guard++)
+        {
+            if (!visited.Add(node) || IsNilNode(process, node, header))
+            {
+                break;
+            }
+
+            if (TryReadInventoryItemFromNode(process, node, equipmentInstanceIds, out var item))
+            {
+                items.Add(item);
+            }
+
+            if (!TryGetNextTreeNode(process, header, node, out var next) || next == node)
+            {
+                break;
+            }
+
+            node = next;
+        }
+
+        return true;
+    }
+
+    private static bool TryReadInventoryItemFromNode(
+        VmmProcess process,
+        ulong node,
+        IReadOnlyCollection<uint> equipmentInstanceIds,
+        out InventoryItemInfo info)
+    {
+        info = new InventoryItemInfo
+        {
+            Name = string.Empty,
+            Slot = -1
+        };
+
+        if (!TryReadUInt32(process, node + InventoryNodeInstanceIdOffset, out var nodeInstanceId) ||
+            !TryReadPointer(process, node + InventoryNodeItemOffset, out var item) ||
+            item == 0)
+        {
+            return false;
+        }
+
+        if (!TryReadUInt32(process, item + InventoryItemInstanceIdOffset, out var instanceId) ||
+            instanceId == 0 ||
+            instanceId != nodeInstanceId)
+        {
+            return false;
+        }
+
+        info.InstanceId = instanceId;
+        info.IsInEquipmentArray = ContainsUInt32(equipmentInstanceIds, instanceId);
+
+        TryReadUInt32(process, item + InventoryItemTemplateIdOffset, out info.TemplateId);
+
+        if (TryReadUInt64(process, item + InventoryItemCountOffset, out var count))
+        {
+            info.Count = count;
+        }
+
+        if (TryReadMsvcWString(process, item + InventoryItemNameOffset, out var name))
+        {
+            info.Name = name;
+        }
+
+        TryReadUInt32(process, item + InventoryItemEquipmentMaskOffset, out info.EquipmentMask);
+
+        if (TryReadInt16(process, item + InventoryItemSlotOffset, out var slot))
+        {
+            info.Slot = slot;
+        }
+
+        return true;
+    }
+
+    private static uint[] ReadInventoryEquipmentInstanceIds(VmmProcess process, ulong manager)
+    {
+        var result = new uint[InventoryEquipmentIdCount];
+        for (var i = 0; i < result.Length; i++)
+        {
+            if (TryReadUInt32(process, manager + InventoryEquipmentIdsOffset + (ulong)(i * 4), out var value))
+            {
+                result[i] = value;
+            }
+        }
+
+        return result;
+    }
+
+    private static bool IsNormalBagInventoryItem(InventoryItemInfo item)
+    {
+        return item.Slot >= 0;
+    }
+
+    private static bool IsEquippedInventoryItem(InventoryItemInfo item)
+    {
+        return item.Slot < 0 || item.IsInEquipmentArray;
+    }
+
+    private static bool ContainsUInt32(IEnumerable<uint> values, uint value)
+    {
+        return value != 0 && values.Any(candidate => candidate == value);
+    }
+
+    private static uint ClampInventoryCount(ulong count)
+    {
+        return count > uint.MaxValue ? uint.MaxValue : (uint)count;
     }
 
     private static bool TryReadHighestLearnedSkills(
@@ -4990,6 +5214,26 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         }
     }
 
+    private static bool TryReadInt16(VmmProcess process, ulong address, out short value)
+    {
+        value = 0;
+        try
+        {
+            var buffer = process.MemRead(address, 2);
+            if (buffer is null || buffer.Length < 2)
+            {
+                return false;
+            }
+
+            value = BitConverter.ToInt16(buffer, 0);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static bool TryReadSingle(VmmProcess process, ulong address, out float value)
     {
         value = 0;
@@ -5142,6 +5386,17 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         string ListName,
         ulong MemberAddress,
         uint ServerObjectId);
+
+    private struct InventoryItemInfo
+    {
+        public uint InstanceId;
+        public uint TemplateId;
+        public ulong Count;
+        public string Name;
+        public uint EquipmentMask;
+        public short Slot;
+        public bool IsInEquipmentArray;
+    }
 
     private sealed class SummonedPetOwnerInfo
     {

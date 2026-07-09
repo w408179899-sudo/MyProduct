@@ -53,6 +53,30 @@ internal static partial class ToolOutputParsers
         return result;
     }
 
+    public static IReadOnlyList<InventoryItemSnapshot> ParseInventory(IEnumerable<string> lines)
+    {
+        var result = new List<InventoryItemSnapshot>();
+
+        foreach (var line in lines)
+        {
+            var match = InventoryLineRegex().Match(line);
+            if (!match.Success)
+            {
+                continue;
+            }
+
+            result.Add(new InventoryItemSnapshot(
+                ParseUInt(match.Groups["template"].Value),
+                ParseULong(match.Groups["instance"].Value),
+                match.Groups["name"].Value,
+                ParseUInt(match.Groups["count"].Value),
+                ParseSlot(match.Groups["slot"].Value),
+                IsYes(match.Groups["equipped"].Value)));
+        }
+
+        return result;
+    }
+
     public static PlayerSnapshot? ParseLastPlayerSnapshot(IEnumerable<string> lines)
     {
         PlayerSnapshot? latest = null;
@@ -278,6 +302,18 @@ internal static partial class ToolOutputParsers
         return uint.Parse(value, CultureInfo.InvariantCulture);
     }
 
+    private static ulong ParseULong(string value)
+    {
+        return ulong.Parse(value, CultureInfo.InvariantCulture);
+    }
+
+    private static int ParseSlot(string value)
+    {
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : -1;
+    }
+
     private static uint ParseHexUInt(string value)
     {
         return uint.Parse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
@@ -310,8 +346,16 @@ internal static partial class ToolOutputParsers
         return group.Success && string.Equals(group.Value, "yes", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool IsYes(string value)
+    {
+        return string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase);
+    }
+
     [GeneratedRegex(@"#\d+\s+Id=(?<id>\d+).*?HighestLevel=(?<highest>\d+).*?ItemLevel=(?<itemlevel>\d+).*?Name=""(?<name>[^""]*)""(?: Base=""(?<base>[^""]*)"" Tier=(?<tier>\d+))?.*?Toggle=(?<toggle>\d+).*?Cooldown=(?<cooldown>\d+)/(?<cooldownEnd>\d+)", RegexOptions.Compiled)]
     private static partial Regex SkillLineRegex();
+
+    [GeneratedRegex(@"#\d+\s+Slot=(?<slot>-?\d+|n/a).*?\sInstanceId=(?<instance>\d+)\s+TemplateId=(?<template>\d+)\s+Count=(?<count>\d+)\s+Name=""(?<name>[^""]*)"".*?\sEquipped=(?<equipped>yes|no)", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
+    private static partial Regex InventoryLineRegex();
 
     [GeneratedRegex(@"EntityId=(?<entity>\d+)\s+TargetId=(?<target>\d+).*?HP=(?<hp>\d+)/(?<maxHp>\d+).*?MP=(?<mp>\d+)/(?<maxMp>\d+).*?DP=(?<dp>\d+).*?Pos=(?:n/a|X=(?<x>-?\d+(?:\.\d+)?)\s+Y=(?<y>-?\d+(?:\.\d+)?)\s+Z=(?<z>-?\d+(?:\.\d+)?))", RegexOptions.Compiled)]
     private static partial Regex PlayerLineRegex();
