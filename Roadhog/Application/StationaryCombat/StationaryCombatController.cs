@@ -1,3 +1,4 @@
+using Roadhog.Application.Input;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
@@ -15,6 +16,7 @@ public sealed class StationaryCombatController
     private static readonly TimeSpan TabInterval = TimeSpan.FromMilliseconds(180);
     private static readonly TimeSpan MoveTickDelay = TimeSpan.FromMilliseconds(80);
     private static readonly TimeSpan IdleDelay = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan DeathRevivePreClickPause = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan TargetTimeout = TimeSpan.FromMinutes(1);
     private const double ReturnStopDistance = 2.0D;
     private const double AcquireDistance = 25.0D;
@@ -24,15 +26,14 @@ public sealed class StationaryCombatController
     private const double RevivePathAggressiveClearRadius = 10.0D;
     private const double DefaultYawPixelsPerDegree = 11.0D;
     private const double DefaultPitchPixelsPerDegree = 13.0D;
-    private const int DefaultReviveClickX = 470;
-    private const int DefaultReviveClickY = 300;
+    private const int DefaultReviveClickX = PathScriptSettings.DefaultDeathReviveClickX;
+    private const int DefaultReviveClickY = PathScriptSettings.DefaultDeathReviveClickY;
     private const int DefaultReviveFallbackClickX = 550;
     private const int DefaultReviveFallbackClickY = 375;
     private const int DefaultReviveThirdClickX = 690;
     private const int DefaultReviveThirdClickY = 468;
     private const int DefaultPostReviveScrollCount = 10;
     private const int DefaultPostReviveScrollDelta = -1;
-    private const int AbsoluteMouseResetDelta = -2000;
     private const ushort NpcEntityType = 3;
 
     private readonly IKeyboardInput _input;
@@ -756,7 +757,7 @@ public sealed class StationaryCombatController
             return StationaryCombatBehaviorStatus.Success;
         }
 
-        var (x, y) = ReadDeathReviveClickPoint(state.DeathRecovery.ReviveClickCount);
+        var (x, y) = ReadDeathReviveClickPoint(context, state.DeathRecovery.ReviveClickCount);
         var result = await ClickAbsoluteScreenPointAsync(context, x, y).ConfigureAwait(false);
         if (!result.Success)
         {
@@ -817,7 +818,7 @@ public sealed class StationaryCombatController
             return StationaryCombatBehaviorStatus.Running;
         }
 
-        var (x, y) = ReadDeathReviveClickPoint(state.DeathRecovery.ReviveClickCount);
+        var (x, y) = ReadDeathReviveClickPoint(context, state.DeathRecovery.ReviveClickCount);
         var result = await ClickAbsoluteScreenPointAsync(context, x, y).ConfigureAwait(false);
         if (!result.Success)
         {
@@ -1281,6 +1282,7 @@ public sealed class StationaryCombatController
             return move;
         }
 
+        await DelayAsync(DeathRevivePreClickPause, context).ConfigureAwait(false);
         var down = await _input.MouseDownAsync(RoadhogMouseButton.Left, context.StopToken).ConfigureAwait(false);
         if (!down.Success)
         {
@@ -1299,34 +1301,15 @@ public sealed class StationaryCombatController
         int x,
         int y)
     {
-        if (x < 0 || y < 0)
-        {
-            return OperationResult.Fail("Absolute mouse target must be non-negative.");
-        }
-
-        var resetCount = ReadDeathReviveMouseResetCount();
-        var stepDelay = TimeSpan.FromMilliseconds(ReadDeathReviveMouseStepDelayMs());
-        for (var i = 0; i < resetCount; i++)
-        {
-            var reset = await _input
-                .MoveMouseRelativeAsync(AbsoluteMouseResetDelta, AbsoluteMouseResetDelta, context.StopToken)
-                .ConfigureAwait(false);
-            if (!reset.Success)
-            {
-                return OperationResult.Fail("Absolute mouse reset failed. " + reset.Error);
-            }
-
-            await DelayAsync(stepDelay, context).ConfigureAwait(false);
-        }
-
-        var move = await _input.MoveMouseRelativeAsync(x, y, context.StopToken).ConfigureAwait(false);
-        if (!move.Success)
-        {
-            return OperationResult.Fail("Absolute mouse target move failed. " + move.Error);
-        }
-
-        await DelayAsync(stepDelay, context).ConfigureAwait(false);
-        return OperationResult.Ok();
+        return await ScreenPointMouseMover
+            .MoveToAsync(
+                _input,
+                x,
+                y,
+                ReadDeathReviveMouseResetCount(),
+                TimeSpan.FromMilliseconds(ReadDeathReviveMouseStepDelayMs()),
+                context.StopToken)
+            .ConfigureAwait(false);
     }
 
     private async Task<TimeSpan?> TickStartupRecoveryAsync(
@@ -6212,7 +6195,19 @@ public sealed class StationaryCombatController
         return ClampInt(ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_THIRD_CLICK_Y", DefaultReviveThirdClickY), 0, 32767);
     }
 
-    private static (int X, int Y) ReadDeathReviveClickPoint(int reviveClickCount)
+    private static (int X, int Y) ReadDeathReviveClickPoint(AccountWorkerContext context, int reviveClickCount)
+    {
+        if (context.Config.ScriptSettings?.Paths is { } paths)
+        {
+            return (
+                ClampInt(paths.DeathReviveClickX, 0, 32767),
+                ClampInt(paths.DeathReviveClickY, 0, 32767));
+        }
+
+        return ReadLegacyDeathReviveClickPoint(reviveClickCount);
+    }
+
+    private static (int X, int Y) ReadLegacyDeathReviveClickPoint(int reviveClickCount)
     {
         var clickIndex = Math.Max(0, reviveClickCount) % 3;
         if (clickIndex == 0)

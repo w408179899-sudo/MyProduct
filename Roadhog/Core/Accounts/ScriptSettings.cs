@@ -134,11 +134,19 @@ public sealed class CombatScriptSettings
 
 public sealed class PathScriptSettings
 {
+    public const int DefaultDeathReviveClickX = 470;
+
+    public const int DefaultDeathReviveClickY = 300;
+
     public string RevivePathName { get; set; } = "穆尔海姆00133";
 
     public string CombatPathName { get; set; } = string.Empty;
 
     public string MaintenancePathName { get; set; } = string.Empty;
+
+    public int DeathReviveClickX { get; set; } = DefaultDeathReviveClickX;
+
+    public int DeathReviveClickY { get; set; } = DefaultDeathReviveClickY;
 
     public bool LoopPath { get; set; } = true;
 
@@ -153,6 +161,8 @@ public sealed class PathScriptSettings
             RevivePathName = RevivePathName,
             CombatPathName = CombatPathName,
             MaintenancePathName = MaintenancePathName,
+            DeathReviveClickX = DeathReviveClickX,
+            DeathReviveClickY = DeathReviveClickY,
             LoopPath = LoopPath,
             ReverseAtEnd = ReverseAtEnd,
             DeathStopPath = DeathStopPath

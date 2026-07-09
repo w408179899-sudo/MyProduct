@@ -70,6 +70,8 @@ namespace Roadhog
         private RoundedTextBox? revivePathNameTextBox;
         private RoundedTextBox? combatPathNameTextBox;
         private RoundedTextBox? maintenancePathNameTextBox;
+        private RoundedTextBox? deathReviveClickPointTextBox;
+        private Button? deathReviveTestMoveButton;
         private RoundedCheckBox? loopPathCheckBox;
         private RoundedCheckBox? reverseAtEndCheckBox;
         private RoundedCheckBox? deathStopPathCheckBox;
@@ -279,16 +281,18 @@ namespace Roadhog
             SetChecked(preferAggressiveMonsterCheckBox, settings.Combat.PreferAggressiveMonsters);
             PopulateActiveMonsterFilterList(settings.Combat.ActiveMonsterNameFilters);
 
-            SetText(revivePathNameTextBox, settings.Paths.RevivePathName);
-            SetText(combatPathNameTextBox, settings.Paths.CombatPathName);
-            SetText(maintenancePathNameTextBox, settings.Paths.MaintenancePathName);
-            SetChecked(loopPathCheckBox, settings.Paths.LoopPath);
-            SetChecked(reverseAtEndCheckBox, settings.Paths.ReverseAtEnd);
-            SetChecked(deathStopPathCheckBox, settings.Paths.DeathStopPath);
+            var paths = settings.Paths ?? new PathScriptSettings();
+            SetText(revivePathNameTextBox, paths.RevivePathName);
+            SetText(combatPathNameTextBox, paths.CombatPathName);
+            SetText(maintenancePathNameTextBox, paths.MaintenancePathName);
+            SetText(deathReviveClickPointTextBox, FormatScreenPoint(paths.DeathReviveClickX, paths.DeathReviveClickY));
+            SetChecked(loopPathCheckBox, paths.LoopPath);
+            SetChecked(reverseAtEndCheckBox, paths.ReverseAtEnd);
+            SetChecked(deathStopPathCheckBox, paths.DeathStopPath);
             RefreshPathLibrary();
-            SelectConfiguredPath(SharedPathKind.Revive, settings.Paths.RevivePathName);
-            SelectConfiguredPath(SharedPathKind.Combat, settings.Paths.CombatPathName);
-            SelectConfiguredPath(SharedPathKind.Maintenance, settings.Paths.MaintenancePathName);
+            SelectConfiguredPath(SharedPathKind.Revive, paths.RevivePathName);
+            SelectConfiguredPath(SharedPathKind.Combat, paths.CombatPathName);
+            SelectConfiguredPath(SharedPathKind.Maintenance, paths.MaintenancePathName);
 
             SetChecked(sitMaintenanceCheckBox, settings.Maintenance.SitMaintenanceEnabled);
             SetText(sitMpBelowTextBox, settings.Maintenance.SitMpBelowPercent.ToString());
@@ -397,6 +401,11 @@ namespace Roadhog
 
         private ScriptSettings CaptureScriptSettings()
         {
+            var deathReviveClickPoint = ReadScreenPoint(
+                deathReviveClickPointTextBox,
+                PathScriptSettings.DefaultDeathReviveClickX,
+                PathScriptSettings.DefaultDeathReviveClickY);
+
             var settings = new ScriptSettings
             {
                 ProfileName = GetText(profileNameTextBox, "default_profile"),
@@ -424,6 +433,8 @@ namespace Roadhog
                     RevivePathName = GetText(revivePathNameTextBox, string.Empty),
                     CombatPathName = GetText(combatPathNameTextBox, string.Empty),
                     MaintenancePathName = GetText(maintenancePathNameTextBox, string.Empty),
+                    DeathReviveClickX = deathReviveClickPoint.X,
+                    DeathReviveClickY = deathReviveClickPoint.Y,
                     LoopPath = loopPathCheckBox?.Checked ?? true,
                     ReverseAtEnd = reverseAtEndCheckBox?.Checked ?? false,
                     DeathStopPath = deathStopPathCheckBox?.Checked ?? true
@@ -541,6 +552,40 @@ namespace Roadhog
             return Math.Clamp(value, minimum, maximum);
         }
 
+        private static string FormatScreenPoint(int x, int y)
+        {
+            return Math.Clamp(x, 0, 32767).ToString(CultureInfo.InvariantCulture) +
+                   "," +
+                   Math.Clamp(y, 0, 32767).ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static (int X, int Y) ReadScreenPoint(RoundedTextBox? textBox, int fallbackX, int fallbackY)
+        {
+            var text = textBox?.Text;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return (fallbackX, fallbackY);
+            }
+
+            var parts = text.Split(
+                new[] { ',', '，', ';', '；', ' ', '\t' },
+                StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2 ||
+                !TryReadScreenPointPart(parts[0], out var x) ||
+                !TryReadScreenPointPart(parts[1], out var y))
+            {
+                return (fallbackX, fallbackY);
+            }
+
+            return (Math.Clamp(x, 0, 32767), Math.Clamp(y, 0, 32767));
+        }
+
+        private static bool TryReadScreenPointPart(string text, out int value)
+        {
+            return int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value) ||
+                   int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.CurrentCulture, out value);
+        }
+
         private static string FormatMainMode(AccountMainMode mode)
         {
             return mode switch
@@ -573,6 +618,53 @@ namespace Roadhog
             return string.Equals(text, "路径打怪", StringComparison.Ordinal)
                 ? AccountCombatMode.Path
                 : AccountCombatMode.Stationary;
+        }
+
+        private async void TestDeathReviveMoveButton_Click(object? sender, EventArgs e)
+        {
+            var button = sender as Button ?? deathReviveTestMoveButton;
+            var point = ReadScreenPoint(
+                deathReviveClickPointTextBox,
+                PathScriptSettings.DefaultDeathReviveClickX,
+                PathScriptSettings.DefaultDeathReviveClickY);
+            SetText(deathReviveClickPointTextBox, FormatScreenPoint(point.X, point.Y));
+
+            if (button is not null)
+            {
+                button.Enabled = false;
+                button.Text = "移动中";
+            }
+
+            try
+            {
+                var result = await _runtime
+                    .TestMoveMouseToScreenPointAsync(point.X, point.Y)
+                    .ConfigureAwait(true);
+                if (!result.Success)
+                {
+                    MessageBox.Show(
+                        this,
+                        result.Error ?? "测试移动失败。",
+                        "测试移动",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (button is not null)
+                {
+                    button.Text = "已移动";
+                    await Task.Delay(700).ConfigureAwait(true);
+                }
+            }
+            finally
+            {
+                if (button is not null)
+                {
+                    button.Text = "测试移动";
+                    button.Enabled = true;
+                }
+            }
         }
 
         private TabPage CreateSummaryTab()
@@ -912,6 +1004,15 @@ namespace Roadhog
             pathOverviewLabels[SharedPathKind.Revive] = AddLabel(page, "复活路径:  未选（0点）", 24, 34, 320, 22);
             pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 24, 60, 260, 22);
             pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "维护路径:  未选（0点）", 24, 86, 260, 22);
+            AddLabel(page, "死亡复活坐标:", 310, 86, 104, 22, _textGreen, FontStyle.Bold);
+            deathReviveClickPointTextBox = AddTextBox(
+                page,
+                FormatScreenPoint(PathScriptSettings.DefaultDeathReviveClickX, PathScriptSettings.DefaultDeathReviveClickY),
+                420,
+                82,
+                150,
+                28);
+            deathReviveTestMoveButton = AddButton(page, "测试移动", 586, 82, 96, 28, TestDeathReviveMoveButton_Click);
 
             var pathTabs = new TabControl
             {

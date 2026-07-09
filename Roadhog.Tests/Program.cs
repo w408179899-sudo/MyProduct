@@ -40,6 +40,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
     ("file logger samples noisy vmm reads", TestFileLoggerSamplesNoisyVmmReadsAsync),
     ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
+    ("runtime test move uses configured screen point", TestRuntimeTestMoveUsesScreenPointAsync),
     ("window title formats character identity", TestWindowTitleFormatsCharacterIdentityAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
@@ -273,6 +274,8 @@ static async Task TestScriptProfileStoreRoundTripAsync()
         settings.CombatMode = AccountCombatMode.Stationary;
         settings.Combat.HasStationaryCombatPosition = true;
         settings.Combat.StationaryCombatX = 12.5D;
+        settings.Paths.DeathReviveClickX = 620;
+        settings.Paths.DeathReviveClickY = 340;
 
         var save = await store.SaveAsync(new ScriptProfileDocument
         {
@@ -291,6 +294,8 @@ static async Task TestScriptProfileStoreRoundTripAsync()
         AssertEqual(name, loaded.Value?.Settings.ProfileName ?? string.Empty, "loaded profile name");
         AssertEqual(AccountMainMode.CustomCombat, loaded.Value?.Settings.MainMode ?? AccountMainMode.SemiAuto, "loaded main mode");
         AssertEqual(12.5D, loaded.Value?.Settings.Combat.StationaryCombatX ?? 0.0D, "loaded combat x");
+        AssertEqual(620, loaded.Value?.Settings.Paths.DeathReviveClickX ?? 0, "loaded death revive click x");
+        AssertEqual(340, loaded.Value?.Settings.Paths.DeathReviveClickY ?? 0, "loaded death revive click y");
 
         var delete = await store.DeleteAsync(name).ConfigureAwait(false);
         AssertFalse(!delete.Success, "profile delete should succeed");
@@ -912,6 +917,28 @@ static Task TestInputKeyMapAsync()
     return Task.CompletedTask;
 }
 
+static async Task TestRuntimeTestMoveUsesScreenPointAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var keyboard = new RecordingKeyboardInput();
+    var runtime = new RoadhogRuntime(
+        new FakeGameApi(),
+        logger,
+        new AccountRuntimeManager(logger),
+        null!,
+        keyboardInput: keyboard);
+
+    var result = await runtime.TestMoveMouseToScreenPointAsync(640, 360).ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "runtime test move should succeed");
+    AssertSequence(
+        new[] { "move:-2000,-2000", "move:-2000,-2000", "move:640,360" },
+        keyboard.MouseCommands.ToArray(),
+        "runtime test move should only move mouse to screen point");
+    AssertFalse(keyboard.MouseCommands.Any(command => command.StartsWith("down:", StringComparison.Ordinal)), "runtime test move should not click mouse down");
+    AssertFalse(keyboard.MouseCommands.Any(command => command.StartsWith("up:", StringComparison.Ordinal)), "runtime test move should not click mouse up");
+}
+
 static async Task TestKmBoxNetKeyboardInputValidationAsync()
 {
     using var input = new KmBoxNetKeyboardInput(new KmBoxNetKeyboardInputOptions
@@ -1064,7 +1091,9 @@ static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
             {
                 Paths = new PathScriptSettings
                 {
-                    CombatPathName = pathName
+                    CombatPathName = pathName,
+                    DeathReviveClickX = 618,
+                    DeathReviveClickY = 349
                 }
             }
         };
@@ -1074,11 +1103,15 @@ static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
 
         var text = await File.ReadAllTextAsync(accountPath).ConfigureAwait(false);
         AssertFalse(!text.Contains("\"CombatPathName\"", StringComparison.Ordinal), "account config should contain shared path reference field");
+        AssertFalse(!text.Contains("\"DeathReviveClickX\"", StringComparison.Ordinal), "account config should contain death revive click x");
+        AssertFalse(!text.Contains("\"DeathReviveClickY\"", StringComparison.Ordinal), "account config should contain death revive click y");
         AssertFalse(text.Contains("\"Points\"", StringComparison.Ordinal), "account config should not contain path points");
 
         var load = await store.LoadAllAsync().ConfigureAwait(false);
         AssertFalse(!load.Success, "account config should load");
         AssertEqual(pathName, load.Value?[0].ScriptSettings?.Paths.CombatPathName ?? string.Empty, "loaded combat path name");
+        AssertEqual(618, load.Value?[0].ScriptSettings?.Paths.DeathReviveClickX ?? 0, "loaded death revive click x");
+        AssertEqual(349, load.Value?[0].ScriptSettings?.Paths.DeathReviveClickY ?? 0, "loaded death revive click y");
     }
     finally
     {
@@ -1773,6 +1806,8 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         settings.MainMode = AccountMainMode.CustomCombat;
         settings.CombatMode = AccountCombatMode.Stationary;
         settings.Paths.RevivePathName = "revive-a";
+        settings.Paths.DeathReviveClickX = 612;
+        settings.Paths.DeathReviveClickY = 345;
         settings.Maintenance.SitMaintenanceEnabled = true;
         settings.Maintenance.SitHpRecoverToPercent = 75;
         settings.Combat = new CombatScriptSettings
@@ -1811,9 +1846,9 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
 
         AssertEqual(StationaryCombatTopLevelState.DeathRecovery, stationaryState.TopLevelState, "dead player should enter death recovery");
         AssertSequence(
-            new[] { "move:-2000,-2000", "move:-2000,-2000", "move:470,300", "down:Left", "up:Left" },
+            new[] { "move:-2000,-2000", "move:-2000,-2000", "move:612,345", "down:Left", "up:Left" },
             keyboard.MouseCommands.ToArray(),
-            "death recovery should absolute-click revive button");
+            "death recovery should absolute-click configured revive button");
         AssertFalse(keyboard.Keys.Contains("Tab"), "death recovery must not enter target acquisition");
         AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "death recovery must not release combat skills");
 
@@ -1823,12 +1858,12 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
             {
                 "move:-2000,-2000",
                 "move:-2000,-2000",
-                "move:550,375",
+                "move:612,345",
                 "down:Left",
                 "up:Left"
             },
             keyboard.MouseCommands.Skip(5).Take(5).ToArray(),
-            "death recovery should retry fallback revive click when player is still dead after retry delay");
+            "death recovery should retry configured revive click when player is still dead after retry delay");
         AssertEqual(2, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record retry revive click count");
 
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
@@ -1837,12 +1872,12 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
             {
                 "move:-2000,-2000",
                 "move:-2000,-2000",
-                "move:690,468",
+                "move:612,345",
                 "down:Left",
                 "up:Left"
             },
             keyboard.MouseCommands.Skip(10).Take(5).ToArray(),
-            "death recovery should retry third revive click when player is still dead after second retry");
+            "death recovery should keep using configured revive click when player is still dead after second retry");
         AssertEqual(3, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record third revive click count");
 
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
@@ -1851,12 +1886,12 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
             {
                 "move:-2000,-2000",
                 "move:-2000,-2000",
-                "move:470,300",
+                "move:612,345",
                 "down:Left",
                 "up:Left"
             },
             keyboard.MouseCommands.Skip(15).Take(5).ToArray(),
-            "death recovery should rotate back to the first revive click point");
+            "death recovery should keep using configured revive click on later retries");
         AssertEqual(4, stationaryState.DeathRecovery.ReviveClickCount, "death recovery should record rotated revive click count");
 
         gameApi.Player = gameApi.Player with { CurrentHp = 10 };
@@ -2719,6 +2754,8 @@ static async Task TestWorkerLifeGuardRevivesBeforeSemiAutoAsync()
     {
         var settings = CreateScriptSettings();
         settings.MainMode = AccountMainMode.SemiAuto;
+        settings.Paths.DeathReviveClickX = 701;
+        settings.Paths.DeathReviveClickY = 402;
         var keyboard = new RecordingKeyboardInput();
         var logger = new InMemoryRoadhogLogger();
         var gameApi = new FakeGameApi
@@ -2755,9 +2792,9 @@ static async Task TestWorkerLifeGuardRevivesBeforeSemiAutoAsync()
         await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
 
         AssertSequence(
-            new[] { "move:-2000,-2000", "move:-2000,-2000", "move:470,300", "down:Left", "up:Left" },
+            new[] { "move:-2000,-2000", "move:-2000,-2000", "move:701,402", "down:Left", "up:Left" },
             keyboard.MouseCommands.Take(5).ToArray(),
-            "semi-auto death guard should absolute-click revive button");
+            "semi-auto death guard should absolute-click configured revive button");
         AssertFalse(keyboard.Keys.Any(key => key.StartsWith("D", StringComparison.OrdinalIgnoreCase)), "semi-auto combat keys must not run while dead");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "player_life.death.detected"), "worker life guard should log death detection");
     }

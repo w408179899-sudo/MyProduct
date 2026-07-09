@@ -1,8 +1,10 @@
+using Roadhog.Application.Input;
 using Roadhog.Core.Api;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Hardware;
+using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 
 namespace Roadhog.Application;
@@ -13,6 +15,7 @@ public sealed class RoadhogRuntime
     private readonly IRoadhogLogger _logger;
     private readonly IAccountConfigStore? _accountConfigStore;
     private readonly IHardwareDeviceResolver? _hardwareResolver;
+    private readonly IKeyboardInput? _keyboardInput;
 
     public RoadhogRuntime(
         IRoadhogGameApi gameApi,
@@ -20,12 +23,14 @@ public sealed class RoadhogRuntime
         AccountRuntimeManager accounts,
         AccountOrchestrator orchestrator,
         IAccountConfigStore? accountConfigStore = null,
-        IHardwareDeviceResolver? hardwareResolver = null)
+        IHardwareDeviceResolver? hardwareResolver = null,
+        IKeyboardInput? keyboardInput = null)
     {
         _gameApi = gameApi;
         _logger = logger;
         _accountConfigStore = accountConfigStore;
         _hardwareResolver = hardwareResolver;
+        _keyboardInput = keyboardInput;
         Accounts = accounts;
         Orchestrator = orchestrator;
     }
@@ -218,6 +223,46 @@ public sealed class RoadhogRuntime
         return result;
     }
 
+    public async Task<OperationResult> TestMoveMouseToScreenPointAsync(
+        int x,
+        int y,
+        CancellationToken cancellationToken = default)
+    {
+        if (_keyboardInput is null)
+        {
+            return OperationResult.Fail("Keyboard input is not available for test movement.");
+        }
+
+        var result = await ScreenPointMouseMover
+            .MoveToAsync(
+                _keyboardInput,
+                x,
+                y,
+                ReadDeathReviveMouseResetCount(),
+                TimeSpan.FromMilliseconds(ReadDeathReviveMouseStepDelayMs()),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (result.Success)
+        {
+            _logger.Info("mouse.test_move.ok", new Dictionary<string, object?>
+            {
+                ["x"] = x,
+                ["y"] = y
+            });
+        }
+        else
+        {
+            _logger.Warn("mouse.test_move.failed", new Dictionary<string, object?>
+            {
+                ["x"] = x,
+                ["y"] = y,
+                ["error"] = result.Error
+            });
+        }
+
+        return result;
+    }
+
     private Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
         string? accountName,
         CancellationToken cancellationToken)
@@ -380,6 +425,33 @@ public sealed class RoadhogRuntime
     {
         return string.IsNullOrWhiteSpace(vmmDeviceName) ||
             string.Equals(vmmDeviceName.Trim(), "fpga", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int ReadDeathReviveMouseResetCount()
+    {
+        return ClampInt(
+            ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", ScreenPointMouseMover.DefaultResetCount),
+            1,
+            10);
+    }
+
+    private static int ReadDeathReviveMouseStepDelayMs()
+    {
+        return ClampInt(
+            ReadRawIntFromEnv("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", ScreenPointMouseMover.DefaultStepDelayMs),
+            0,
+            1000);
+    }
+
+    private static int ClampInt(int value, int min, int max)
+    {
+        return Math.Max(min, Math.Min(max, value));
+    }
+
+    private static int ReadRawIntFromEnv(string name, int defaultValue)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
+        return int.TryParse(raw, out var value) ? value : defaultValue;
     }
 
     private static bool DeviceMatchesHardwareKey(HardwareDeviceFeature device, string hardwareKey)
