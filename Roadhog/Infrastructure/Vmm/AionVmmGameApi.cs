@@ -13,7 +13,7 @@ using Vmmsharp;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-public sealed class AionVmmGameApi : IRoadhogScopedGameApi
+public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi
 {
     private static readonly TimeSpan VmmReconnectDelay = TimeSpan.FromSeconds(5);
     private const int PlayerReadFailuresBeforeReconnect = 3;
@@ -103,11 +103,22 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     private const ulong SkillItemRuntimeStateOffset = 0x6C;
     private const ulong SkillItemSourceFlagsOffset = 0x74;
 
+    private const ulong DlgInventoryDialog27MethodRva = 0x1BF060;
+    private const ulong DlgInventoryDialog28MethodRva = 0x1C48D0;
+    private const ulong DlgInventoryOpenFlagOffset = 0x585;
+    private const ulong DlgInventoryWindowRectOffset = 0x58;
+    private const int DlgInventoryVtableBackSlots = 256;
+    private const uint InventoryUiMinAllocationSize = 0x400;
+    private const uint InventoryUiMaxAllocationSize = 0x3000;
+    private const ulong InventoryUiVadScanBytes = 1024UL * 1024UL * 1024UL;
+    private const int InventoryUiObjectScanLimit = 32;
+
     private readonly AionVmmGameApiOptions _options;
     private readonly IRoadhogLogger _logger;
     private readonly Dictionary<string, VmmConnection> _connections = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _connectionRetryNotBefore = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> _playerReadFailureCounts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, InventoryWindowCandidate> _inventoryWindowCandidateCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _connectionSync = new();
     private readonly object _xmlSync = new();
     private SkillXmlCatalog? _xmlCatalog;
@@ -251,6 +262,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadLootCorpsesCore(context), cancellationToken);
+    }
+
+    public Task<OperationResult<InventoryWindowSnapshot>> ReadInventoryWindowAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadInventoryWindowCore(context), cancellationToken);
     }
 
     private OperationResult<LockedTargetSnapshot> ReadLockedTargetCore(GameApiReadContext context)
@@ -722,6 +740,62 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         {
             _logger.Error("vmm.loot_corpses.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<InventoryWindowSnapshot> ReadInventoryWindowCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<InventoryWindowSnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<InventoryWindowSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                var cacheKey = BuildInventoryWindowCacheKey(context, process, gameBase);
+                if (_inventoryWindowCandidateCache.TryGetValue(cacheKey, out var cachedCandidate) &&
+                    TryReadInventoryWindowSnapshot(process, cachedCandidate, out var cachedSnapshot, out _))
+                {
+                    LogInventoryWindowRead(context, process, cachedSnapshot, cacheHit: true);
+                    return OperationResult<InventoryWindowSnapshot>.Ok(cachedSnapshot);
+                }
+
+                _inventoryWindowCandidateCache.Remove(cacheKey);
+
+                if (!TryFindInventoryWindowCandidate(
+                    process,
+                    gameBase,
+                    moduleName,
+                    out var candidate,
+                    out var findError))
+                {
+                    return OperationResult<InventoryWindowSnapshot>.Fail(findError);
+                }
+
+                if (!TryReadInventoryWindowSnapshot(process, candidate, out var snapshot, out var readError))
+                {
+                    return OperationResult<InventoryWindowSnapshot>.Fail(readError);
+                }
+
+                _inventoryWindowCandidateCache[cacheKey] = candidate;
+                LogInventoryWindowRead(context, process, snapshot, cacheHit: false);
+                return OperationResult<InventoryWindowSnapshot>.Ok(snapshot);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.inventory_window.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<InventoryWindowSnapshot>.Fail(ex.Message);
         }
     }
 
@@ -4355,6 +4429,420 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         return !TryReadByte(process, node + NodeIsNilOffset, out var isNil) || isNil != 0;
     }
 
+    private bool TryFindInventoryWindowCandidate(
+        VmmProcess process,
+        ulong gameBase,
+        string moduleName,
+        out InventoryWindowCandidate candidate,
+        out string error)
+    {
+        candidate = default;
+        error = string.Empty;
+
+        if (!TryGetModuleImageSize(process, moduleName, out var moduleSize) || moduleSize == 0)
+        {
+            moduleSize = 0x02000000;
+        }
+
+        var targetMethods = new Dictionary<ulong, string>
+        {
+            [gameBase + DlgInventoryDialog27MethodRva] = "DlgInventory.Dialog27Method",
+            [gameBase + DlgInventoryDialog28MethodRva] = "DlgInventory.Dialog28Method"
+        };
+
+        var methodSlots = FindPointerOccurrencesInRange(
+            process,
+            gameBase,
+            moduleSize,
+            targetMethods,
+            0x100000);
+
+        if (methodSlots.Count == 0)
+        {
+            error = "DlgInventory method references were not found in " + moduleName + ".";
+            return false;
+        }
+
+        var vtableCandidates = new Dictionary<ulong, string>();
+        foreach (var slot in methodSlots)
+        {
+            for (var i = 0; i <= DlgInventoryVtableBackSlots; i++)
+            {
+                var vtable = slot.Address - ((ulong)i * 8UL);
+                if (vtable < gameBase || vtable >= gameBase + moduleSize)
+                {
+                    continue;
+                }
+
+                vtableCandidates.TryAdd(vtable, slot.Label + "-back" + i.ToString(CultureInfo.InvariantCulture));
+            }
+        }
+
+        var candidates = FindHeapObjectsWithVtables(
+            process,
+            vtableCandidates,
+            InventoryUiMinAllocationSize,
+            InventoryUiMaxAllocationSize,
+            InventoryUiObjectScanLimit);
+
+        if (candidates.Count == 0)
+        {
+            candidates = FindVadObjectsWithVtables(
+                process,
+                vtableCandidates,
+                InventoryUiVadScanBytes,
+                InventoryUiObjectScanLimit);
+        }
+
+        if (candidates.Count == 0)
+        {
+            error = "DlgInventory object was not found in heap or private VAD memory.";
+            return false;
+        }
+
+        candidate = SelectInventoryWindowCandidate(candidates);
+        return true;
+    }
+
+    private static InventoryWindowCandidate SelectInventoryWindowCandidate(
+        IReadOnlyList<InventoryWindowCandidate> candidates)
+    {
+        return candidates
+            .OrderBy(GetInventoryWindowCandidateScore)
+            .ThenBy(candidate => candidate.ObjectAddress)
+            .First();
+    }
+
+    private static int GetInventoryWindowCandidateScore(InventoryWindowCandidate candidate)
+    {
+        var source = candidate.Source ?? string.Empty;
+        if (source.Contains("DlgInventory.Dialog27Method-back3", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        if (source.Contains("DlgInventory.Dialog27Method", StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
+        if (source.Contains("DlgInventory.Dialog28Method", StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        return 3;
+    }
+
+    private static bool TryReadInventoryWindowSnapshot(
+        VmmProcess process,
+        InventoryWindowCandidate candidate,
+        out InventoryWindowSnapshot snapshot,
+        out string error)
+    {
+        snapshot = default!;
+        error = string.Empty;
+
+        if (!TryReadByte(process, candidate.ObjectAddress + DlgInventoryOpenFlagOffset, out var flag0) ||
+            !TryReadByte(process, candidate.ObjectAddress + DlgInventoryOpenFlagOffset + 1, out var flag1) ||
+            !TryReadByte(process, candidate.ObjectAddress + DlgInventoryOpenFlagOffset + 2, out var flag2))
+        {
+            error = "Failed to read DlgInventory open flags.";
+            return false;
+        }
+
+        if (!TryReadDouble(process, candidate.ObjectAddress + DlgInventoryWindowRectOffset, out var x) ||
+            !TryReadDouble(process, candidate.ObjectAddress + DlgInventoryWindowRectOffset + 0x08, out var y) ||
+            !TryReadDouble(process, candidate.ObjectAddress + DlgInventoryWindowRectOffset + 0x10, out var width) ||
+            !TryReadDouble(process, candidate.ObjectAddress + DlgInventoryWindowRectOffset + 0x18, out var height))
+        {
+            error = "Failed to read DlgInventory rect.";
+            return false;
+        }
+
+        if (!IsPlausibleInventoryWindowRect(x, y, width, height))
+        {
+            error = "DlgInventory rect is outside expected bounds.";
+            return false;
+        }
+
+        snapshot = new InventoryWindowSnapshot(
+            flag0 != 0 && flag1 != 0 && flag2 != 0,
+            x,
+            y,
+            width,
+            height,
+            candidate.ObjectAddress,
+            candidate.VtableAddress,
+            DateTimeOffset.Now);
+        return true;
+    }
+
+    private static bool IsPlausibleInventoryWindowRect(double x, double y, double width, double height)
+    {
+        return double.IsFinite(x) &&
+            double.IsFinite(y) &&
+            double.IsFinite(width) &&
+            double.IsFinite(height) &&
+            x >= -1000.0 &&
+            y >= -1000.0 &&
+            x <= 4000.0 &&
+            y <= 4000.0 &&
+            width >= 100.0 &&
+            height >= 100.0 &&
+            width <= 2000.0 &&
+            height <= 2000.0;
+    }
+
+    private void LogInventoryWindowRead(
+        GameApiReadContext context,
+        VmmProcess process,
+        InventoryWindowSnapshot snapshot,
+        bool cacheHit)
+    {
+        _logger.Info("vmm.inventory_window.read", new Dictionary<string, object?>
+        {
+            ["account"] = context.AccountName,
+            ["pid"] = SafeGetProcessPid(process),
+            ["isOpen"] = snapshot.IsOpen,
+            ["x"] = snapshot.X,
+            ["y"] = snapshot.Y,
+            ["width"] = snapshot.Width,
+            ["height"] = snapshot.Height,
+            ["dialog"] = snapshot.DialogAddress.ToString("X"),
+            ["vtable"] = snapshot.VtableAddress.ToString("X"),
+            ["cacheHit"] = cacheHit
+        });
+    }
+
+    private string BuildInventoryWindowCacheKey(
+        GameApiReadContext context,
+        VmmProcess process,
+        ulong gameBase)
+    {
+        var pid = SafeGetProcessPid(process);
+        return ResolveVmmDeviceName(context.VmmDeviceName) +
+            "|" +
+            pid.ToString(CultureInfo.InvariantCulture) +
+            "|" +
+            gameBase.ToString("X", CultureInfo.InvariantCulture);
+    }
+
+    private static bool TryGetModuleImageSize(VmmProcess process, string moduleName, out ulong size)
+    {
+        size = 0;
+        try
+        {
+            var module = process.MapModuleFromName(moduleName);
+            if (module.fValid && module.cbImageSize != 0)
+            {
+                size = module.cbImageSize;
+                return true;
+            }
+        }
+        catch
+        {
+            size = 0;
+        }
+
+        return false;
+    }
+
+    private static List<PointerOccurrence> FindPointerOccurrencesInRange(
+        VmmProcess process,
+        ulong start,
+        ulong size,
+        IReadOnlyDictionary<ulong, string> targets,
+        int chunkSize)
+    {
+        var results = new List<PointerOccurrence>();
+        if (size == 0 || targets.Count == 0)
+        {
+            return results;
+        }
+
+        var end = start + size;
+        for (var address = start; address < end; address += (ulong)chunkSize)
+        {
+            var readSize = (int)Math.Min((ulong)chunkSize, end - address);
+            if (!TryReadBytes(process, address, readSize, out var bytes) || bytes.Length < 8)
+            {
+                continue;
+            }
+
+            for (var i = 0; i <= bytes.Length - 8; i += 8)
+            {
+                var value = BitConverter.ToUInt64(bytes, i);
+                if (targets.TryGetValue(value, out var label))
+                {
+                    results.Add(new PointerOccurrence(address + (ulong)i, value, label));
+                }
+            }
+        }
+
+        return results;
+    }
+
+    private static List<InventoryWindowCandidate> FindHeapObjectsWithVtables(
+        VmmProcess process,
+        IReadOnlyDictionary<ulong, string> vtableCandidates,
+        uint minAlloc,
+        uint maxAlloc,
+        int maxResults)
+    {
+        var results = new List<InventoryWindowCandidate>();
+        if (vtableCandidates.Count == 0 || maxResults <= 0)
+        {
+            return results;
+        }
+
+        try
+        {
+            var heaps = process.MapHeap();
+            if (heaps.heaps is null)
+            {
+                return results;
+            }
+
+            var seen = new HashSet<ulong>();
+            foreach (var heap in heaps.heaps)
+            {
+                VmmProcess.HeapAllocEntry[] allocations;
+                try
+                {
+                    allocations = process.MapHeapAlloc(heap.iHeapNum);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (allocations is null)
+                {
+                    continue;
+                }
+
+                foreach (var allocation in allocations)
+                {
+                    if (results.Count >= maxResults)
+                    {
+                        return results;
+                    }
+
+                    if (allocation.va == 0 ||
+                        allocation.cb < minAlloc ||
+                        allocation.cb > maxAlloc ||
+                        !seen.Add(allocation.va))
+                    {
+                        continue;
+                    }
+
+                    if (TryReadUInt64(process, allocation.va, out var vtable) &&
+                        vtableCandidates.TryGetValue(vtable, out var source))
+                    {
+                        results.Add(new InventoryWindowCandidate(
+                            allocation.va,
+                            vtable,
+                            source,
+                            allocation.cb));
+                    }
+                }
+            }
+        }
+        catch
+        {
+            return results;
+        }
+
+        return results;
+    }
+
+    private static List<InventoryWindowCandidate> FindVadObjectsWithVtables(
+        VmmProcess process,
+        IReadOnlyDictionary<ulong, string> vtableCandidates,
+        ulong maxScanBytes,
+        int maxResults)
+    {
+        var results = new List<InventoryWindowCandidate>();
+        if (vtableCandidates.Count == 0 || maxScanBytes == 0 || maxResults <= 0)
+        {
+            return results;
+        }
+
+        const int chunkSize = 0x10000;
+        var scanned = 0UL;
+        var seen = new HashSet<ulong>();
+
+        VmmProcess.VadEntry[] vads;
+        try
+        {
+            vads = process.MapVAD(true);
+        }
+        catch
+        {
+            return results;
+        }
+
+        if (vads is null)
+        {
+            return results;
+        }
+
+        foreach (var vad in vads.OrderBy(vad => vad.vaStart))
+        {
+            if (results.Count >= maxResults || scanned >= maxScanBytes)
+            {
+                break;
+            }
+
+            if (vad.vaStart == 0 ||
+                vad.vaEnd <= vad.vaStart ||
+                vad.fImage ||
+                vad.fTeb ||
+                vad.sText is not null && vad.sText.IndexOf("Game.dll", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                continue;
+            }
+
+            var vadSize = vad.vaEnd - vad.vaStart + 1;
+            if (vadSize < 8)
+            {
+                continue;
+            }
+
+            var offset = 0UL;
+            while (offset < vadSize && scanned < maxScanBytes && results.Count < maxResults)
+            {
+                var readSize = (int)Math.Min((ulong)chunkSize, vadSize - offset);
+                var address = vad.vaStart + offset;
+                if (TryReadBytes(process, address, readSize, out var bytes) && bytes.Length >= 8)
+                {
+                    for (var i = 0; i <= bytes.Length - 8 && results.Count < maxResults; i += 8)
+                    {
+                        var value = BitConverter.ToUInt64(bytes, i);
+                        if (vtableCandidates.TryGetValue(value, out var source))
+                        {
+                            var objectAddress = address + (ulong)i;
+                            if (seen.Add(objectAddress))
+                            {
+                                results.Add(new InventoryWindowCandidate(
+                                    objectAddress,
+                                    value,
+                                    "vad:" + source,
+                                    (uint)Math.Min(vadSize, uint.MaxValue)));
+                            }
+                        }
+                    }
+                }
+
+                offset += (ulong)readSize;
+                scanned += (ulong)readSize;
+            }
+        }
+
+        return results;
+    }
+
     private static bool TryReadByte(VmmProcess process, ulong address, out byte value)
     {
         value = 0;
@@ -4517,6 +5005,26 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
         }
     }
 
+    private static bool TryReadDouble(VmmProcess process, ulong address, out double value)
+    {
+        value = 0;
+        try
+        {
+            var buffer = process.MemRead(address, 8);
+            if (buffer is null || buffer.Length < 8)
+            {
+                return false;
+            }
+
+            value = BitConverter.ToDouble(buffer, 0);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static bool TryReadUInt32(VmmProcess process, ulong address, out uint value)
     {
         value = 0;
@@ -4579,6 +5087,17 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi
     {
         return value != 0 && value <= 0x00007FFFFFFFFFFFUL;
     }
+
+    private readonly record struct PointerOccurrence(
+        ulong Address,
+        ulong Value,
+        string Label);
+
+    private readonly record struct InventoryWindowCandidate(
+        ulong ObjectAddress,
+        ulong VtableAddress,
+        string Source,
+        uint AllocationSize);
 
     private sealed class LockedTargetInfo
     {

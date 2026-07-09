@@ -1,5 +1,6 @@
 using Roadhog;
 using Roadhog.Application;
+using Roadhog.Application.Input;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Workers;
@@ -41,6 +42,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("file logger samples noisy vmm reads", TestFileLoggerSamplesNoisyVmmReadsAsync),
     ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
     ("runtime test move uses configured screen point", TestRuntimeTestMoveUsesScreenPointAsync),
+    ("runtime normalizes inventory window then closes", TestRuntimeNormalizesInventoryWindowThenClosesAsync),
     ("window title formats character identity", TestWindowTitleFormatsCharacterIdentityAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
@@ -937,6 +939,79 @@ static async Task TestRuntimeTestMoveUsesScreenPointAsync()
         "runtime test move should only move mouse to screen point");
     AssertFalse(keyboard.MouseCommands.Any(command => command.StartsWith("down:", StringComparison.Ordinal)), "runtime test move should not click mouse down");
     AssertFalse(keyboard.MouseCommands.Any(command => command.StartsWith("up:", StringComparison.Ordinal)), "runtime test move should not click mouse up");
+}
+
+static async Task TestRuntimeNormalizesInventoryWindowThenClosesAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    accounts.MarkStarting(new AccountConfig
+    {
+        AccountName = "account-scope",
+        ProcessId = 712,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga"
+    });
+
+    var gameApi = new FakeGameApi
+    {
+        InventoryWindow = CreateInventoryWindow(false, 594.2, 274.0)
+    };
+    var keyboard = new RecordingKeyboardInput();
+    var mouseDown = false;
+    var lastTargetX = 0;
+    var lastTargetY = 0;
+
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "I", StringComparison.OrdinalIgnoreCase))
+        {
+            gameApi.InventoryWindow = gameApi.InventoryWindow with
+            {
+                IsOpen = !gameApi.InventoryWindow.IsOpen,
+                CapturedAt = DateTimeOffset.Now
+            };
+        }
+    };
+    keyboard.AfterMouseDown = _ => mouseDown = true;
+    keyboard.AfterMouseUp = _ => mouseDown = false;
+    keyboard.AfterMove = (deltaX, deltaY) =>
+    {
+        if (!mouseDown && deltaX >= 0 && deltaY >= 0)
+        {
+            lastTargetX = deltaX;
+            lastTargetY = deltaY;
+            return;
+        }
+
+        if (mouseDown &&
+            deltaX == ScreenPointMouseMover.AbsoluteMouseResetDelta &&
+            deltaY == ScreenPointMouseMover.AbsoluteMouseResetDelta &&
+            lastTargetX > 0 &&
+            lastTargetY > 0)
+        {
+            gameApi.InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0);
+        }
+    };
+
+    var runtime = new RoadhogRuntime(
+        gameApi,
+        logger,
+        accounts,
+        null!,
+        keyboardInput: keyboard);
+
+    var result = await runtime
+        .NormalizeInventoryWindowToTopLeftAndCloseAsync("account-scope")
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "inventory window normalization should succeed: " + result.Error);
+    AssertFalse(gameApi.InventoryWindow.IsOpen, "inventory window should be closed after normalization");
+    AssertFalse(!gameApi.InventoryWindow.IsAtTopLeft(), "inventory window rect should be normalized to top-left");
+    AssertEqual(712, gameApi.LastInventoryWindowContext?.ProcessId ?? 0, "inventory window read should use scoped process id");
+    AssertSequence(new[] { "I", "I" }, keyboard.Keys.ToArray(), "normalization should open and close the inventory");
+    AssertFalse(!keyboard.MouseCommands.Contains("down:Left"), "normalization should hold left mouse for drag");
+    AssertFalse(!keyboard.MouseCommands.Contains("up:Left"), "normalization should release left mouse after drag");
 }
 
 static async Task TestKmBoxNetKeyboardInputValidationAsync()
@@ -8642,6 +8717,19 @@ static string LastPressedSkill(InMemoryRoadhogLogger logger)
     return entry is null ? string.Empty : Convert.ToString(entry.Fields["skill"]) ?? string.Empty;
 }
 
+static InventoryWindowSnapshot CreateInventoryWindow(bool isOpen, double x, double y)
+{
+    return new InventoryWindowSnapshot(
+        isOpen,
+        x,
+        y,
+        324.8,
+        443.2,
+        0x1000,
+        0x2000,
+        DateTimeOffset.Now);
+}
+
 sealed class RecordingKeyboardInput : IKeyboardInput
 {
     public List<string> Keys { get; } = new();
@@ -8653,6 +8741,12 @@ sealed class RecordingKeyboardInput : IKeyboardInput
     public List<string> MouseCommands { get; } = new();
 
     public Action<string>? AfterPress { get; set; }
+
+    public Action<RoadhogMouseButton>? AfterMouseDown { get; set; }
+
+    public Action<RoadhogMouseButton>? AfterMouseUp { get; set; }
+
+    public Action<int, int>? AfterMove { get; set; }
 
     public Task<OperationResult> PressKeyAsync(
         string key,
@@ -8685,6 +8779,7 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         CancellationToken cancellationToken = default)
     {
         MouseCommands.Add("down:" + button);
+        AfterMouseDown?.Invoke(button);
         return Task.FromResult(OperationResult.Ok());
     }
 
@@ -8693,6 +8788,7 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         CancellationToken cancellationToken = default)
     {
         MouseCommands.Add("up:" + button);
+        AfterMouseUp?.Invoke(button);
         return Task.FromResult(OperationResult.Ok());
     }
 
@@ -8702,6 +8798,7 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         CancellationToken cancellationToken = default)
     {
         MouseCommands.Add("move:" + deltaX + "," + deltaY);
+        AfterMove?.Invoke(deltaX, deltaY);
         return Task.FromResult(OperationResult.Ok());
     }
 
@@ -8922,7 +9019,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi
 {
     public PlayerSnapshot Player { get; set; } = new(
         1,
@@ -8960,6 +9057,11 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
     public GameApiReadContext? LastLockedTargetAbnormalContext { get; private set; }
 
     public GameApiReadContext? LastWorldObjectsContext { get; private set; }
+
+    public GameApiReadContext? LastInventoryWindowContext { get; private set; }
+
+    public InventoryWindowSnapshot InventoryWindow { get; set; } =
+        new(false, 0.0, 0.0, 324.8, 443.2, 0x1000, 0x2000, DateTimeOffset.Now);
 
     public ushort TargetEntityId { get; set; } = 100;
 
@@ -9153,5 +9255,13 @@ sealed class FakeGameApi : IRoadhogScopedGameApi
         CancellationToken cancellationToken = default)
     {
         return ReadLootCorpsesAsync(cancellationToken);
+    }
+
+    public Task<OperationResult<InventoryWindowSnapshot>> ReadInventoryWindowAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        LastInventoryWindowContext = context;
+        return Task.FromResult(OperationResult<InventoryWindowSnapshot>.Ok(InventoryWindow));
     }
 }
