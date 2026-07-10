@@ -557,117 +557,179 @@ public sealed class RoadhogRuntime
             return Fail("sell_item_entry_click_failed", clickEntry.Error ?? "Sell item entry click failed.");
         }
 
-        var normalize = await seller.NormalizeInventoryWindowToTopLeftAsync(context).ConfigureAwait(false);
-        if (!normalize.Success)
+        var registeredItems = new List<BagCleanupRegisteredItem>();
+        var initialCandidateCount = 0;
+        ulong? initialMoney = null;
+        ulong? finalMoney = null;
+        ulong totalMoneyDelta = 0;
+        var batchIndex = 0;
+        while (true)
         {
-            return Fail("inventory_window_normalize_failed", normalize.Error ?? "Inventory normalize failed.");
-        }
-
-        var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
-        if (!inventoryRead.Success || inventoryRead.Value is null)
-        {
-            return Fail("inventory_read_before_sell_failed", inventoryRead.Error ?? "Inventory read failed.");
-        }
-
-        var candidates = BagCleanupItemMatcher
-            .SelectSellRegistrationItems(inventoryRead.Value, maintenance)
-            .ToArray();
-        _logger.Info("bag_cleanup.manual_test.sell.candidates", new Dictionary<string, object?>
-        {
-            ["account"] = account,
-            ["count"] = candidates.Length
-        });
-
-        if (candidates.Length == 0)
-        {
-            var emptyResult = new BagCleanupManualTestResult(
-                trimmedNpcName,
-                0,
-                0,
-                null,
-                null,
-                null,
-                Array.Empty<BagCleanupRegisteredItem>());
-            _logger.Info("bag_cleanup.manual_test.no_candidates", new Dictionary<string, object?>
+            if (batchIndex >= 10)
             {
-                ["account"] = account,
-                ["npcName"] = trimmedNpcName
-            });
-            return OperationResult<BagCleanupManualTestResult>.Ok(emptyResult);
-        }
-
-        InventoryWindowSnapshot? coordinateWindow = null;
-        if (maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental)
-        {
-            var windowRead = await BagCleanupGameApi
-                .ReadInventoryWindowAsync(context, InventoryWindowRectSource.RootWidgetRectExperimental)
-                .ConfigureAwait(false);
-            if (!windowRead.Success || windowRead.Value is null)
-            {
-                return Fail("inventory_window_rect_failed", windowRead.Error ?? "Experimental inventory Rect read failed.");
+                return Fail("sell_batch_limit_exceeded", "Bag cleanup exceeded 10 sell batches.");
             }
 
-            coordinateWindow = windowRead.Value;
-        }
+            var normalize = await seller.NormalizeInventoryWindowToTopLeftAsync(context).ConfigureAwait(false);
+            if (!normalize.Success)
+            {
+                return Fail("inventory_window_normalize_failed", normalize.Error ?? "Inventory normalize failed.");
+            }
 
-        var registered = await seller
-            .RegisterSellItemsAsync(context, maintenance, candidates, coordinateWindow)
-            .ConfigureAwait(false);
-        if (!registered.Success || registered.Value is null)
-        {
-            return Fail("sell_register_failed", registered.Error ?? "Sell register failed.");
-        }
+            var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
+            if (!inventoryRead.Success || inventoryRead.Value is null)
+            {
+                return Fail("inventory_read_before_sell_failed", inventoryRead.Error ?? "Inventory read failed.");
+            }
 
-        var closeInventory = await seller.CloseInventoryWindowAsync(context).ConfigureAwait(false);
-        if (!closeInventory.Success)
-        {
-            return Fail("inventory_window_close_failed", closeInventory.Error ?? "Inventory window close failed.");
-        }
+            var candidates = BagCleanupItemMatcher
+                .SelectSellRegistrationItems(inventoryRead.Value, maintenance)
+                .ToArray();
+            if (initialCandidateCount == 0)
+            {
+                initialCandidateCount = candidates.Length;
+            }
 
-        var moneyBefore = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
-        if (!moneyBefore.Success)
-        {
-            return Fail("money_read_before_sell_failed", moneyBefore.Error ?? "Inventory money read before sell failed.");
-        }
+            var batch = candidates
+                .Take(BagCleanupSeller.MaxSellRegistrationItemsPerBatch)
+                .ToArray();
+            _logger.Info("bag_cleanup.manual_test.sell.candidates", new Dictionary<string, object?>
+            {
+                ["account"] = account,
+                ["count"] = candidates.Length,
+                ["batchCount"] = batch.Length,
+                ["batchIndex"] = batchIndex + 1,
+                ["maxBatchCount"] = BagCleanupSeller.MaxSellRegistrationItemsPerBatch
+            });
 
-        var clickSell = await seller
-            .ClickScreenPointAsync(
-                context,
-                maintenance.BagCleanupSellButtonClickX,
-                maintenance.BagCleanupSellButtonClickY,
-                "sell_button")
-            .ConfigureAwait(false);
-        if (!clickSell.Success)
-        {
-            return Fail("sell_button_click_failed", clickSell.Error ?? "Sell button click failed.");
-        }
+            if (candidates.Length == 0)
+            {
+                if (registeredItems.Count == 0)
+                {
+                    var emptyResult = new BagCleanupManualTestResult(
+                        trimmedNpcName,
+                        0,
+                        0,
+                        null,
+                        null,
+                        null,
+                        Array.Empty<BagCleanupRegisteredItem>());
+                    _logger.Info("bag_cleanup.manual_test.no_candidates", new Dictionary<string, object?>
+                    {
+                        ["account"] = account,
+                        ["npcName"] = trimmedNpcName
+                    });
+                    return OperationResult<BagCleanupManualTestResult>.Ok(emptyResult);
+                }
 
-        await DelayAsync(TimeSpan.FromMilliseconds(ReadBagCleanupSellVerifyDelayMs()), cancellationToken)
-            .ConfigureAwait(false);
-        var moneyAfter = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
-        if (!moneyAfter.Success)
-        {
-            return Fail("money_verify_read_failed", moneyAfter.Error ?? "Inventory money verify read failed.");
-        }
+                break;
+            }
 
-        if (moneyAfter.Value <= moneyBefore.Value)
-        {
-            return Fail(
-                "money_verify_failed",
-                "Money did not increase after selling. before=" +
-                moneyBefore.Value.ToString(CultureInfo.InvariantCulture) +
-                ", after=" +
-                moneyAfter.Value.ToString(CultureInfo.InvariantCulture));
+            InventoryWindowSnapshot? coordinateWindow = null;
+            if (maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental)
+            {
+                var windowRead = await BagCleanupGameApi
+                    .ReadInventoryWindowAsync(context, InventoryWindowRectSource.RootWidgetRectExperimental)
+                    .ConfigureAwait(false);
+                if (!windowRead.Success || windowRead.Value is null)
+                {
+                    return Fail("inventory_window_rect_failed", windowRead.Error ?? "Experimental inventory Rect read failed.");
+                }
+
+                coordinateWindow = windowRead.Value;
+            }
+
+            var registered = await seller
+                .RegisterSellItemsAsync(context, maintenance, batch, coordinateWindow)
+                .ConfigureAwait(false);
+            if (!registered.Success || registered.Value is null)
+            {
+                return Fail("sell_register_failed", registered.Error ?? "Sell register failed.");
+            }
+
+            var closeInventory = await seller.CloseInventoryWindowAsync(context).ConfigureAwait(false);
+            if (!closeInventory.Success)
+            {
+                return Fail("inventory_window_close_failed", closeInventory.Error ?? "Inventory window close failed.");
+            }
+
+            var moneyBefore = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
+            if (!moneyBefore.Success)
+            {
+                return Fail("money_read_before_sell_failed", moneyBefore.Error ?? "Inventory money read before sell failed.");
+            }
+
+            initialMoney ??= moneyBefore.Value;
+            var clickSell = await seller
+                .ClickScreenPointAsync(
+                    context,
+                    maintenance.BagCleanupSellButtonClickX,
+                    maintenance.BagCleanupSellButtonClickY,
+                    "sell_button")
+                .ConfigureAwait(false);
+            if (!clickSell.Success)
+            {
+                return Fail("sell_button_click_failed", clickSell.Error ?? "Sell button click failed.");
+            }
+
+            await DelayAsync(TimeSpan.FromMilliseconds(ReadBagCleanupSellVerifyDelayMs()), cancellationToken)
+                .ConfigureAwait(false);
+            var moneyAfter = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
+            if (!moneyAfter.Success)
+            {
+                return Fail("money_verify_read_failed", moneyAfter.Error ?? "Inventory money verify read failed.");
+            }
+
+            if (moneyAfter.Value <= moneyBefore.Value)
+            {
+                return Fail(
+                    "money_verify_failed",
+                    "Money did not increase after selling. before=" +
+                    moneyBefore.Value.ToString(CultureInfo.InvariantCulture) +
+                    ", after=" +
+                    moneyAfter.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            batchIndex++;
+            var moneyDelta = moneyAfter.Value - moneyBefore.Value;
+            totalMoneyDelta += moneyDelta;
+            finalMoney = moneyAfter.Value;
+            registeredItems.AddRange(registered.Value);
+
+            var afterInventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
+            if (!afterInventoryRead.Success || afterInventoryRead.Value is null)
+            {
+                return Fail("inventory_read_after_sell_failed", afterInventoryRead.Error ?? "Inventory read after sell failed.");
+            }
+
+            var remainingSellCandidateCount = BagCleanupItemMatcher
+                .SelectSellRegistrationItems(afterInventoryRead.Value, maintenance)
+                .Count;
+            _logger.Info("bag_cleanup.manual_test.batch.ok", new Dictionary<string, object?>
+            {
+                ["account"] = account,
+                ["batchIndex"] = batchIndex,
+                ["batchRegisteredCount"] = registered.Value.Count,
+                ["totalRegisteredCount"] = registeredItems.Count,
+                ["moneyDelta"] = moneyDelta,
+                ["totalMoneyDelta"] = totalMoneyDelta,
+                ["remainingSellCandidateCount"] = remainingSellCandidateCount
+            });
+
+            if (remainingSellCandidateCount <= 0)
+            {
+                break;
+            }
         }
 
         var result = new BagCleanupManualTestResult(
             trimmedNpcName,
-            candidates.Length,
-            registered.Value.Count,
-            moneyBefore.Value,
-            moneyAfter.Value,
-            moneyAfter.Value - moneyBefore.Value,
-            registered.Value);
+            initialCandidateCount,
+            registeredItems.Count,
+            initialMoney,
+            finalMoney,
+            totalMoneyDelta,
+            registeredItems);
         _logger.Info("bag_cleanup.manual_test.ok", new Dictionary<string, object?>
         {
             ["account"] = account,

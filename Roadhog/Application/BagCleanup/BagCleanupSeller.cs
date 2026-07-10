@@ -10,6 +10,8 @@ namespace Roadhog.Application.BagCleanup;
 
 public sealed class BagCleanupSeller
 {
+    public const int MaxSellRegistrationItemsPerBatch = 3;
+
     private const string InventoryToggleKey = "I";
     private const double InventoryUiMaxWindowX = 699.2;
     private const double InventoryUiMaxWindowY = 324.8;
@@ -31,7 +33,7 @@ public sealed class BagCleanupSeller
     private const double DefaultBagPage2OffsetY = 298.0;
     private static readonly TimeSpan InventoryToggleHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan InventoryOpenSettleDelay = TimeSpan.FromMilliseconds(700);
-    private static readonly TimeSpan InventoryCloseSettleDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan InventoryCloseSettleDelay = TimeSpan.FromMilliseconds(1100);
     private static readonly TimeSpan InventoryDragStartSettleDelay = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan InventoryDragSettleDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan MouseClickHoldDelay = TimeSpan.FromMilliseconds(35);

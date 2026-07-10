@@ -19,6 +19,12 @@ public sealed class BagCleanupState
 
     public int InitialCandidateCount { get; private set; }
 
+    public int TotalRegisteredSellItemCount { get; private set; }
+
+    public int SellBatchCount { get; private set; }
+
+    public ulong TotalMoneyDelta { get; private set; }
+
     public ulong? InitialMoney { get; private set; }
 
     public Vector3Snapshot? TownReturnStartPosition { get; private set; }
@@ -72,6 +78,9 @@ public sealed class BagCleanupState
         InitialFreeSlots = freeSlots;
         TriggerThreshold = threshold;
         InitialCandidateCount = 0;
+        TotalRegisteredSellItemCount = 0;
+        SellBatchCount = 0;
+        TotalMoneyDelta = 0;
         InitialMoney = null;
         ReturnAfterFailureReason = string.Empty;
         ReturnAfterFailureError = string.Empty;
@@ -96,10 +105,15 @@ public sealed class BagCleanupState
         CleanupNpcName = path.CleanupNpcName?.Trim() ?? string.Empty;
     }
 
-    public void SetSellCandidates(IReadOnlyList<InventoryItemSnapshot> candidates)
+    public void SetSellCandidates(
+        IReadOnlyList<InventoryItemSnapshot> candidates,
+        int totalCandidateCount)
     {
         SellCandidates = candidates.ToArray();
-        InitialCandidateCount = SellCandidates.Count;
+        if (InitialCandidateCount <= 0)
+        {
+            InitialCandidateCount = totalCandidateCount;
+        }
     }
 
     public void SetInitialMoney(ulong money)
@@ -128,9 +142,10 @@ public sealed class BagCleanupState
         HasNormalizedInventoryWindow = true;
     }
 
-    public void MarkSellItemsRegistered()
+    public void MarkSellItemsRegistered(int count)
     {
         HasRegisteredSellItems = true;
+        TotalRegisteredSellItemCount += Math.Max(0, count);
     }
 
     public void MarkInventoryWindowClosed()
@@ -141,6 +156,12 @@ public sealed class BagCleanupState
     public void MarkSellButtonClicked()
     {
         HasClickedSellButton = true;
+    }
+
+    public void MarkSellBatchVerified(ulong moneyDelta)
+    {
+        SellBatchCount++;
+        TotalMoneyDelta += moneyDelta;
     }
 
     public void Advance(BagCleanupStep next)
@@ -213,6 +234,9 @@ public sealed class BagCleanupState
         InitialFreeSlots = 0;
         TriggerThreshold = 0;
         InitialCandidateCount = 0;
+        TotalRegisteredSellItemCount = 0;
+        SellBatchCount = 0;
+        TotalMoneyDelta = 0;
         InitialMoney = null;
         ReturnAfterFailureReason = string.Empty;
         ReturnAfterFailureError = string.Empty;

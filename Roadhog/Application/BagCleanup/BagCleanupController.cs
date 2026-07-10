@@ -195,7 +195,11 @@ public sealed class BagCleanupController
         }
 
         state.Start(freeSlots, threshold);
-        state.SetSellCandidates(candidates);
+        state.SetSellCandidates(
+            candidates
+                .Take(BagCleanupSeller.MaxSellRegistrationItemsPerBatch)
+                .ToArray(),
+            candidates.Count);
         context.Logger.Info("bag_cleanup.start", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -495,10 +499,16 @@ public sealed class BagCleanupController
 
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
         var candidates = BagCleanupItemMatcher.SelectSellRegistrationItems(read.Value, maintenance);
+        var batch = candidates
+            .Take(BagCleanupSeller.MaxSellRegistrationItemsPerBatch)
+            .ToArray();
         context.Logger.Info("bag_cleanup.sell.candidates", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
-            ["count"] = candidates.Count
+            ["count"] = candidates.Count,
+            ["batchCount"] = batch.Length,
+            ["batchIndex"] = state.SellBatchCount + 1,
+            ["maxBatchCount"] = BagCleanupSeller.MaxSellRegistrationItemsPerBatch
         });
 
         if (candidates.Count == 0)
@@ -507,7 +517,7 @@ public sealed class BagCleanupController
             return BagCleanupTickResult.Running("no_sell_candidates_after_return");
         }
 
-        state.SetSellCandidates(candidates);
+        state.SetSellCandidates(batch, candidates.Count);
         state.Advance(BagCleanupStep.RegisterSellItems);
         return BagCleanupTickResult.Running("sell_candidates_loaded");
     }
@@ -543,7 +553,7 @@ public sealed class BagCleanupController
             return CleanupFailure(context, state, "sell_register_failed", result.Error ?? "Sell register failed.");
         }
 
-        state.MarkSellItemsRegistered();
+        state.MarkSellItemsRegistered(result.Value?.Count ?? state.SellCandidates.Count);
         state.Advance(BagCleanupStep.CloseInventoryWindow);
         return BagCleanupTickResult.Running("sell_items_registered");
     }
@@ -657,22 +667,45 @@ public sealed class BagCleanupController
 
         var initialIds = state.SellCandidates.Select(item => item.InstanceId).ToHashSet();
         var remaining = inventory?.Count(item => initialIds.Contains(item.InstanceId));
+        int? remainingSellCandidateCount = null;
+        if (inventory is not null)
+        {
+            var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
+            remainingSellCandidateCount = BagCleanupItemMatcher
+                .SelectSellRegistrationItems(inventory, maintenance)
+                .Count;
+        }
+
         if (moneyAfter.Value > initialMoney)
         {
-            state.Advance(BagCleanupStep.ReturnByReversePath);
+            var moneyDelta = moneyAfter.Value - initialMoney;
+            state.MarkSellBatchVerified(moneyDelta);
             context.Logger.Info("bag_cleanup.verify.ok", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
                 ["initialMoney"] = initialMoney,
                 ["money"] = moneyAfter.Value,
-                ["moneyDelta"] = moneyAfter.Value - initialMoney,
+                ["moneyDelta"] = moneyDelta,
+                ["totalMoneyDelta"] = state.TotalMoneyDelta,
                 ["initialFreeSlots"] = state.InitialFreeSlots,
                 ["freeSlots"] = freeSlots,
                 ["totalSlots"] = totalSlots,
                 ["occupiedSlots"] = occupiedSlots,
                 ["initialCandidateCount"] = state.InitialCandidateCount,
-                ["remainingCandidateCount"] = remaining
+                ["batchIndex"] = state.SellBatchCount,
+                ["batchRegisteredCount"] = state.SellCandidates.Count,
+                ["totalRegisteredCount"] = state.TotalRegisteredSellItemCount,
+                ["remainingCandidateCount"] = remaining,
+                ["remainingSellCandidateCount"] = remainingSellCandidateCount
             });
+
+            if (remainingSellCandidateCount is > 0)
+            {
+                state.Advance(BagCleanupStep.NormalizeInventoryWindow);
+                return BagCleanupTickResult.Running("money_verified_more_sell_candidates");
+            }
+
+            state.Advance(BagCleanupStep.ReturnByReversePath);
             return BagCleanupTickResult.Running("money_verified");
         }
 
