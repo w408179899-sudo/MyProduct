@@ -10,7 +10,7 @@ namespace Roadhog.Application.BagCleanup;
 
 public sealed class BagCleanupSeller
 {
-    public const int MaxSellRegistrationItemsPerBatch = 3;
+    public const int MaxSellRegistrationItemsPerBatch = 30;
 
     private const string InventoryToggleKey = "I";
     private const double InventoryUiMaxWindowX = 699.2;
@@ -39,7 +39,7 @@ public sealed class BagCleanupSeller
     private static readonly TimeSpan MouseClickHoldDelay = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan BagCleanupSellRegisterAfterClickDelay = TimeSpan.FromMilliseconds(80);
     private static readonly int[] InventoryTitleDragXOffsets = { 160 };
-    private static readonly int[] InventoryTitleDragYOffsets = { 15, 10, 5, 0, -5, -10, -15 };
+    private static readonly int[] InventoryTitleDragYOffsets = { 10, 5, 0, -5, -10, -15, -20, -25, -30 };
 
     private readonly IKeyboardInput _input;
 
@@ -100,6 +100,23 @@ public sealed class BagCleanupSeller
     public async Task<OperationResult<InventoryWindowSnapshot>> NormalizeInventoryWindowToTopLeftAsync(
         AccountWorkerContext context)
     {
+        var open = await _input
+            .PressKeyAsync(InventoryToggleKey, InventoryToggleHoldDuration, context.StopToken)
+            .ConfigureAwait(false);
+        if (!open.Success)
+        {
+            return OperationResult<InventoryWindowSnapshot>.Fail(open.Error ?? "Inventory open toggle failed.");
+        }
+
+        await DelayAsync(InventoryOpenSettleDelay, context.StopToken).ConfigureAwait(false);
+        context.Logger.Info("bag_cleanup.inventory.open.requested", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = InventoryToggleKey,
+            ["settleMs"] = (int)InventoryOpenSettleDelay.TotalMilliseconds,
+            ["source"] = "normalize"
+        });
+
         var read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
         if (!read.Success || read.Value is null)
         {
@@ -109,28 +126,8 @@ public sealed class BagCleanupSeller
         var snapshot = read.Value;
         if (!snapshot.IsOpen)
         {
-            var open = await _input
-                .PressKeyAsync(InventoryToggleKey, InventoryToggleHoldDuration, context.StopToken)
-                .ConfigureAwait(false);
-            if (!open.Success)
-            {
-                return OperationResult<InventoryWindowSnapshot>.Fail(open.Error ?? "Inventory open toggle failed.");
-            }
-
-            await DelayAsync(InventoryOpenSettleDelay, context.StopToken).ConfigureAwait(false);
-            read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
-            if (!read.Success || read.Value is null)
-            {
-                return OperationResult<InventoryWindowSnapshot>.Fail(
-                    "Inventory window read after open failed: " + read.Error);
-            }
-
-            snapshot = read.Value;
-            if (!snapshot.IsOpen)
-            {
-                return OperationResult<InventoryWindowSnapshot>.Fail(
-                    "Inventory window did not open after pressing " + InventoryToggleKey + ".");
-            }
+            return OperationResult<InventoryWindowSnapshot>.Fail(
+                "Inventory window did not read as open after blind pressing " + InventoryToggleKey + ".");
         }
 
         if (!snapshot.IsAtTopLeft())
@@ -155,23 +152,28 @@ public sealed class BagCleanupSeller
         return OperationResult<InventoryWindowSnapshot>.Ok(snapshot);
     }
 
+    public async Task<OperationResult> OpenInventoryWindowAsync(AccountWorkerContext context)
+    {
+        var open = await _input
+            .PressKeyAsync(InventoryToggleKey, InventoryToggleHoldDuration, context.StopToken)
+            .ConfigureAwait(false);
+        if (!open.Success)
+        {
+            return OperationResult.Fail("Inventory open toggle failed: " + open.Error);
+        }
+
+        await DelayAsync(InventoryOpenSettleDelay, context.StopToken).ConfigureAwait(false);
+        context.Logger.Info("bag_cleanup.inventory.open.requested", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = InventoryToggleKey,
+            ["settleMs"] = (int)InventoryOpenSettleDelay.TotalMilliseconds
+        });
+        return OperationResult.Ok();
+    }
+
     public async Task<OperationResult> CloseInventoryWindowAsync(AccountWorkerContext context)
     {
-        var read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
-        {
-            return OperationResult.Fail("Inventory window read before close failed: " + read.Error);
-        }
-
-        if (!read.Value.IsOpen)
-        {
-            context.Logger.Info("bag_cleanup.inventory.close.already_closed", new Dictionary<string, object?>
-            {
-                ["account"] = context.Config.AccountName
-            });
-            return OperationResult.Ok();
-        }
-
         var close = await _input
             .PressKeyAsync(InventoryToggleKey, InventoryToggleHoldDuration, context.StopToken)
             .ConfigureAwait(false);
@@ -181,22 +183,35 @@ public sealed class BagCleanupSeller
         }
 
         await DelayAsync(InventoryCloseSettleDelay, context.StopToken).ConfigureAwait(false);
-        read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
+        context.Logger.Info("bag_cleanup.inventory.close.requested", new Dictionary<string, object?>
         {
-            return OperationResult.Fail("Inventory window read after close failed: " + read.Error);
-        }
-
-        if (read.Value.IsOpen)
-        {
-            return OperationResult.Fail("Inventory window is still open after pressing " + InventoryToggleKey + ".");
-        }
-
-        context.Logger.Info("bag_cleanup.inventory.close.ok", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName
+            ["account"] = context.Config.AccountName,
+            ["key"] = InventoryToggleKey,
+            ["settleMs"] = (int)InventoryCloseSettleDelay.TotalMilliseconds
         });
         return OperationResult.Ok();
+    }
+
+    public async Task WaitAfterSellItemEntryAsync(AccountWorkerContext context)
+    {
+        var delayMs = ReadSellItemEntryDelayMs();
+        await DelayAsync(TimeSpan.FromMilliseconds(delayMs), context.StopToken).ConfigureAwait(false);
+        context.Logger.Info("bag_cleanup.sell_item_entry.wait", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["delayMs"] = delayMs
+        });
+    }
+
+    public async Task WaitAfterSellRegistrationAsync(AccountWorkerContext context)
+    {
+        var delayMs = ReadAfterSellRegistrationDelayMs();
+        await DelayAsync(TimeSpan.FromMilliseconds(delayMs), context.StopToken).ConfigureAwait(false);
+        context.Logger.Info("bag_cleanup.sell_registration.wait", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["delayMs"] = delayMs
+        });
     }
 
     public async Task<OperationResult<IReadOnlyList<BagCleanupRegisteredItem>>> RegisterSellItemsAsync(
@@ -488,6 +503,30 @@ public sealed class BagCleanupSeller
     private static int ReadBagSellRegisterHoverMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", 200), 0, 5000);
+    }
+
+    private static int ReadSellItemEntryDelayMs()
+    {
+        var min = ClampInt(ReadRawIntFromEnv("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS", 1200), 0, 10000);
+        var max = ClampInt(ReadRawIntFromEnv("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS", 1800), 0, 10000);
+        if (max < min)
+        {
+            max = min;
+        }
+
+        return min == max ? min : Random.Shared.Next(min, max + 1);
+    }
+
+    private static int ReadAfterSellRegistrationDelayMs()
+    {
+        var min = ClampInt(ReadRawIntFromEnv("ROADHOG_BAG_CLEANUP_SELL_REGISTER_DONE_DELAY_MIN_MS", 300), 0, 10000);
+        var max = ClampInt(ReadRawIntFromEnv("ROADHOG_BAG_CLEANUP_SELL_REGISTER_DONE_DELAY_MAX_MS", 800), 0, 10000);
+        if (max < min)
+        {
+            max = min;
+        }
+
+        return min == max ? min : Random.Shared.Next(min, max + 1);
     }
 
     private static int ReadRawIntFromEnv(string name, int defaultValue)

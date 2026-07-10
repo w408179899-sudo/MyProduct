@@ -116,6 +116,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat waits after kill before loot key", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
     ("stationary combat waits near corpse after loot key", TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync),
     ("stationary combat runs after-combat maintenance after loot", TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync),
+    ("stationary combat returns from bag cleanup through revive path before finishing loot", TestStationaryCombatReturnsFromBagCleanupThroughRevivePathBeforeFinishingLootAsync),
     ("stationary combat postpones after-combat maintenance while pet is targeted", TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsTargetedAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("stationary combat interrupts sit when targeted by monster", TestStationaryCombatInterruptsSitWhenTargetedAsync),
@@ -1169,7 +1170,7 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
 
         var gameApi = new FakeGameApi
         {
-            InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0),
+            InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0),
             InventoryItems = new[]
             {
                 new InventoryItemSnapshot(167000450, 10, "slot-0", 1, 0, false, 24, 2),
@@ -1182,6 +1183,17 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
             }
         };
         var keyboard = new RecordingKeyboardInput();
+        keyboard.AfterPress = key =>
+        {
+            if (string.Equals(key, "I", StringComparison.OrdinalIgnoreCase))
+            {
+                gameApi.InventoryWindow = gameApi.InventoryWindow with
+                {
+                    IsOpen = !gameApi.InventoryWindow.IsOpen,
+                    CapturedAt = DateTimeOffset.Now
+                };
+            }
+        };
         var runtime = new RoadhogRuntime(
             gameApi,
             logger,
@@ -1225,7 +1237,7 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
             "fixed top-left registration should use the calibrated bag points");
         AssertEqual(712, gameApi.LastInventoryContext?.ProcessId ?? 0, "inventory read should use scoped process id");
 
-        gameApi.InventoryWindow = CreateInventoryWindow(true, 349.6, 162.4);
+        gameApi.InventoryWindow = CreateInventoryWindow(false, 349.6, 162.4);
         gameApi.InventoryItems = new[]
         {
             new InventoryItemSnapshot(167000450, 10, "slot-0", 1, 0, false, 24, 2)
@@ -1269,17 +1281,23 @@ static async Task TestRuntimeTestsBagCleanupFromNpcThroughSellAsync()
     var previousVerify = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS");
     var previousPointHover = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS");
     var previousRegisterHover = Environment.GetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS");
+    var previousSellItemEntryDelayMin = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS");
+    var previousSellItemEntryDelayMax = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS");
     var previousMouseReset = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT");
     var previousMouseStep = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
     var previousNpcAttempts = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS");
+    var previousNpcSelectDelay = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS");
     try
     {
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", "1");
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", "3");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", "0");
 
         var logger = new InMemoryRoadhogLogger();
         var accounts = new AccountRuntimeManager(logger);
@@ -1299,7 +1317,7 @@ static async Task TestRuntimeTestsBagCleanupFromNpcThroughSellAsync()
             TargetCurrentHp = 0,
             TargetMaxHp = 0,
             TargetIsTargetingLocalPlayer = false,
-            InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0),
+            InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0),
             InventoryMoney = 1000,
             InventoryItems = new[]
             {
@@ -1314,7 +1332,7 @@ static async Task TestRuntimeTestsBagCleanupFromNpcThroughSellAsync()
         {
             if (key == "I")
             {
-                gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
+                gameApi.InventoryWindow = CreateInventoryWindow(!gameApi.InventoryWindow.IsOpen, 0.0, 0.0);
                 return;
             }
 
@@ -1372,7 +1390,7 @@ static async Task TestRuntimeTestsBagCleanupFromNpcThroughSellAsync()
 
         AssertFalse(!result.Success, "manual bag cleanup test should succeed: " + result.Error);
         AssertEqual(2, f8Attempts, "manual cleanup should keep pressing F8 until configured npc is selected");
-        AssertSequence(new[] { "F8", "F8", "C", "I" }, keyboard.Keys.ToArray(), "manual cleanup key sequence");
+        AssertSequence(new[] { "F8", "F8", "C", "I", "I" }, keyboard.Keys.ToArray(), "manual cleanup key sequence");
         AssertEqual(2, result.Value?.CandidateCount ?? 0, "manual cleanup candidate count");
         AssertEqual(2, result.Value?.RegisteredCount ?? 0, "manual cleanup registered count");
         AssertEqual(1000UL, result.Value?.InitialMoney ?? 0UL, "manual cleanup initial money");
@@ -1388,9 +1406,12 @@ static async Task TestRuntimeTestsBagCleanupFromNpcThroughSellAsync()
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS", previousVerify);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS", previousPointHover);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", previousRegisterHover);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS", previousSellItemEntryDelayMin);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS", previousSellItemEntryDelayMax);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", previousMouseReset);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousMouseStep);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", previousNpcSelectDelay);
     }
 }
 
@@ -1434,9 +1455,12 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
     var previousVerify = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS");
     var previousPointHover = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS");
     var previousRegisterHover = Environment.GetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS");
+    var previousSellItemEntryDelayMin = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS");
+    var previousSellItemEntryDelayMax = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS");
     var previousMouseReset = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT");
     var previousMouseStep = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
     var previousNpcAttempts = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS");
+    var previousNpcSelectDelay = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS");
     var previousTownMinDistance = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE");
     try
     {
@@ -1444,9 +1468,12 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", "1");
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", "3");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", "1");
 
         var logger = new InMemoryRoadhogLogger();
@@ -1459,7 +1486,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
             TargetMaxHp = 0,
             TargetName = string.Empty,
             TargetIsTargetingLocalPlayer = false,
-            InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0),
+            InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0),
             InventoryMoney = 1000,
             InventoryCapacity = 10,
             InventoryItems = new[]
@@ -1493,7 +1520,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
             }
             else if (key == "I")
             {
-                gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
+                gameApi.InventoryWindow = CreateInventoryWindow(!gameApi.InventoryWindow.IsOpen, 0.0, 0.0);
             }
         };
 
@@ -1564,7 +1591,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         }
 
         AssertEqual(BagCleanupTickStatus.Completed, last?.Status ?? BagCleanupTickStatus.FatalFailure, "cleanup should complete");
-        AssertSequence(new[] { "NumPad7", "F8", "C", "I" }, keyboard.Keys.ToArray(), "cleanup should return, select npc, interact, and close inventory");
+        AssertSequence(new[] { "NumPad7", "F8", "C", "I", "I" }, keyboard.Keys.ToArray(), "cleanup should return, select npc, interact, and close inventory");
         AssertSequence(new[] { "cleanup-path:2", "cleanup-path 返回:2" }, pathCalls.ToArray(), "cleanup should follow path and reverse path");
         AssertFalse(gameApi.InventoryItems.Any(item => item.InstanceId is 10UL or 11UL), "sold items should be removed before verification");
         AssertEqual(1200UL, gameApi.InventoryMoney, "money should increase after sell");
@@ -1576,7 +1603,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         AssertEqual(7, Convert.ToInt32(check.Fields["occupiedSlots"]), "cleanup should count occupied slots from VMM inventory");
         AssertEqual("vmm", Convert.ToString(check.Fields["totalSlotsSource"]) ?? string.Empty, "cleanup capacity source");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.return.verify.ok"), "cleanup should verify town return position");
-        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.inventory.close.ok"), "cleanup should verify inventory close before sell");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.inventory.close.requested"), "cleanup should request inventory close before sell");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.verify.ok"), "cleanup should verify money increase");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.complete"), "cleanup should log completion");
     }
@@ -1586,9 +1613,12 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS", previousVerify);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS", previousPointHover);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", previousRegisterHover);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS", previousSellItemEntryDelayMin);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS", previousSellItemEntryDelayMax);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", previousMouseReset);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousMouseStep);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", previousNpcSelectDelay);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
     }
 }
@@ -1599,9 +1629,12 @@ static async Task TestBagCleanupControllerSellsMoreThanThreeItemsInBatchesAsync(
     var previousVerify = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS");
     var previousPointHover = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS");
     var previousRegisterHover = Environment.GetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS");
+    var previousSellItemEntryDelayMin = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS");
+    var previousSellItemEntryDelayMax = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS");
     var previousMouseReset = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT");
     var previousMouseStep = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
     var previousNpcAttempts = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS");
+    var previousNpcSelectDelay = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS");
     var previousTownMinDistance = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE");
     try
     {
@@ -1609,9 +1642,12 @@ static async Task TestBagCleanupControllerSellsMoreThanThreeItemsInBatchesAsync(
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", "1");
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", "1");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", "1");
 
         var logger = new InMemoryRoadhogLogger();
@@ -1635,7 +1671,7 @@ static async Task TestBagCleanupControllerSellsMoreThanThreeItemsInBatchesAsync(
             TargetMaxHp = 0,
             TargetName = string.Empty,
             TargetIsTargetingLocalPlayer = false,
-            InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0),
+            InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0),
             InventoryMoney = 1000,
             InventoryCapacity = 60,
             InventoryItems = sellItems
@@ -1746,24 +1782,28 @@ static async Task TestBagCleanupControllerSellsMoreThanThreeItemsInBatchesAsync(
 
         AssertEqual(BagCleanupTickStatus.Completed, last?.Status ?? BagCleanupTickStatus.FatalFailure, "batched cleanup should complete");
         AssertSequence(new[] { "NumPad7", "F8", "C" }, keyboard.Keys.Take(3).ToArray(), "batched cleanup should return, select npc, and interact");
-        AssertEqual(23, keyboard.Keys.Count(key => key == "I"), "batched cleanup should close each batch and reopen between batches");
-        AssertEqual(12, sellClickCount, "batched cleanup should click sell for every batch");
-        AssertEqual(1350UL, gameApi.InventoryMoney, "batched cleanup should increase money for both batches");
+        AssertEqual(4, keyboard.Keys.Count(key => key == "I"), "batched cleanup should open, close each batch, and reopen between batches");
+        AssertEqual(2, sellClickCount, "batched cleanup should click sell for every batch");
+        AssertEqual(1350UL, gameApi.InventoryMoney, "batched cleanup should increase money for every batch");
         AssertFalse(gameApi.InventoryItems.Any(), "batched cleanup should sell every matching item");
         AssertFalse(!logger.Entries.Any(entry =>
             entry.EventName == "bag_cleanup.sell.candidates" &&
             Convert.ToInt32(entry.Fields["batchCount"]) == BagCleanupSeller.MaxSellRegistrationItemsPerBatch),
-            "full batch should register at most three items");
+            "full batch should register at most thirty items");
         AssertFalse(!logger.Entries.Any(entry =>
             entry.EventName == "bag_cleanup.sell.candidates" &&
-            Convert.ToInt32(entry.Fields["batchCount"]) == 2),
+            Convert.ToInt32(entry.Fields["batchCount"]) == 5),
             "second batch should register remaining items");
         AssertEqual(
-            12,
-            logger.Entries.Count(entry => entry.EventName == "bag_cleanup.inventory.close.ok"),
-            "batched cleanup should close inventory before each sell click");
+            2,
+            logger.Entries.Count(entry => entry.EventName == "bag_cleanup.inventory.close.requested"),
+            "batched cleanup should request inventory close before each sell click");
         AssertEqual(
-            12,
+            2,
+            logger.Entries.Count(entry => entry.EventName == "bag_cleanup.inventory.open.requested"),
+            "batched cleanup should blindly open inventory for the first and follow-up batches");
+        AssertEqual(
+            2,
             logger.Entries.Count(entry => entry.EventName == "bag_cleanup.verify.ok"),
             "batched cleanup should verify both sell batches");
     }
@@ -1773,9 +1813,12 @@ static async Task TestBagCleanupControllerSellsMoreThanThreeItemsInBatchesAsync(
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS", previousVerify);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS", previousPointHover);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", previousRegisterHover);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS", previousSellItemEntryDelayMin);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS", previousSellItemEntryDelayMax);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", previousMouseReset);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousMouseStep);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", previousNpcSelectDelay);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
     }
 }
@@ -1784,12 +1827,14 @@ static async Task TestBagCleanupControllerReturnsWhenNpcNotFoundAsync()
 {
     var previousTownSettle = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS");
     var previousNpcAttempts = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS");
+    var previousNpcSelectDelay = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS");
     var previousTownMinDistance = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE");
     var previousFailureCooldown = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS");
     try
     {
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", "2");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", "1");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS", "1500000");
 
@@ -1906,6 +1951,7 @@ static async Task TestBagCleanupControllerReturnsWhenNpcNotFoundAsync()
     {
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", previousTownSettle);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", previousNpcSelectDelay);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS", previousFailureCooldown);
     }
@@ -1966,9 +2012,12 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
     var previousTownSettle = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS");
     var previousPointHover = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS");
     var previousRegisterHover = Environment.GetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS");
+    var previousSellItemEntryDelayMin = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS");
+    var previousSellItemEntryDelayMax = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS");
     var previousMouseReset = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT");
     var previousMouseStep = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
     var previousNpcAttempts = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS");
+    var previousNpcSelectDelay = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS");
     var previousTownMinDistance = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE");
     var previousFailureCooldown = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS");
     try
@@ -1976,9 +2025,12 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", "1");
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", "2");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", "1");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS", "1500000");
 
@@ -1992,7 +2044,7 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
             TargetMaxHp = 0,
             TargetName = string.Empty,
             TargetIsTargetingLocalPlayer = false,
-            InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0),
+            InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0),
             InventoryMoney = 1000,
             InventoryCapacity = 10,
             InventoryItems = new[]
@@ -2026,7 +2078,7 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
             }
             else if (key == "I")
             {
-                gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
+                gameApi.InventoryWindow = CreateInventoryWindow(!gameApi.InventoryWindow.IsOpen, 0.0, 0.0);
             }
         };
 
@@ -2090,9 +2142,12 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", previousTownSettle);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS", previousPointHover);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", previousRegisterHover);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MIN_MS", previousSellItemEntryDelayMin);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_ITEM_ENTRY_DELAY_MAX_MS", previousSellItemEntryDelayMax);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", previousMouseReset);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousMouseStep);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", previousNpcSelectDelay);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS", previousFailureCooldown);
     }
@@ -6088,6 +6143,86 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync()
         Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", previousWait);
         Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
         Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
+    }
+}
+
+static async Task TestStationaryCombatReturnsFromBagCleanupThroughRevivePathBeforeFinishingLootAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Paths.CombatPathName = "combat-a";
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            StationaryCombatRadius = 20
+        };
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("revive-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(100, 0, 0),
+                new Vector3Snapshot(200, 0, 0)),
+            CreatePath("combat-a",
+                new Vector3Snapshot(205, 0, 0),
+                new Vector3Snapshot(215, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var state = new StationaryCombatState();
+        state.StartLootAfterKill(
+            new LockedTargetSnapshot(
+                100,
+                5000,
+                0,
+                LockedTargetSnapshot.MonsterObjectType,
+                "dead-target",
+                0,
+                100,
+                new Vector3Snapshot(0, 0, 0),
+                0,
+                DateTimeOffset.Now),
+            DateTimeOffset.Now);
+        for (var i = 0; i < 5; i++)
+        {
+            state.LootAfterKill.Advance(DateTimeOffset.Now);
+        }
+
+        state.StartCleanupReturnToCombat();
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!state.CleanupReturnToCombatActive, "cleanup return should stay active while revive path is still running");
+        AssertFalse(!state.StartupRecoveryActive, "cleanup return should reuse startup recovery revive-path following");
+        AssertEqual("revive-a", state.StartupRecoveryPathName, "cleanup return should use configured revive path");
+        AssertEqual(1, state.StartupRecoveryPointIndex, "cleanup return should advance from reached camp point toward combat home");
+        AssertFalse(!state.LootAfterKill.Active, "loot should remain active until cleanup return reaches combat home");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.finished"),
+            "loot should not finish before cleanup return-to-combat recovery completes");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.startup_recovery.selected"),
+            "cleanup return should start revive-path recovery");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
     }
 }
 

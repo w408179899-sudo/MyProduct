@@ -2808,6 +2808,21 @@ public sealed class StationaryCombatController
         StationaryCombatState state,
         PlayerSnapshot player)
     {
+        if (state.CleanupReturnToCombatActive)
+        {
+            var returnStatus = await TickCleanupReturnToCombatAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player)
+                .ConfigureAwait(false);
+            if (returnStatus == StationaryCombatBehaviorStatus.Running)
+            {
+                return StationaryCombatBehaviorStatus.Running;
+            }
+        }
+
         if (await TryPostponePostCombatMaintenanceForDefenseTargetAsync(
                     context,
                     semiAutoState,
@@ -2829,6 +2844,30 @@ public sealed class StationaryCombatController
                 await StopMovementAsync(context, state).ConfigureAwait(false);
                 StopPathFollowPoller(state);
                 return StationaryCombatBehaviorStatus.Running;
+            }
+
+            if (cleanupResult.Status is BagCleanupTickStatus.Completed or BagCleanupTickStatus.RecoverableFailure)
+            {
+                state.StartCleanupReturnToCombat();
+                context.Logger.Info("stationary_combat.bag_cleanup.return_to_combat.start", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["cleanupStatus"] = cleanupResult.Status.ToString(),
+                    ["cleanupReason"] = cleanupResult.Reason,
+                    ["revivePathName"] = GetRevivePathName(context)
+                });
+
+                var returnStatus = await TickCleanupReturnToCombatAsync(
+                        context,
+                        plan,
+                        semiAutoState,
+                        state,
+                        player)
+                    .ConfigureAwait(false);
+                if (returnStatus == StationaryCombatBehaviorStatus.Running)
+                {
+                    return StationaryCombatBehaviorStatus.Running;
+                }
             }
 
             if (cleanupResult.Status == BagCleanupTickStatus.FatalFailure)
@@ -2872,6 +2911,81 @@ public sealed class StationaryCombatController
             });
         }
 
+        return StationaryCombatBehaviorStatus.Success;
+    }
+
+    private async Task<StationaryCombatBehaviorStatus> TickCleanupReturnToCombatAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player)
+    {
+        if (player.Position is not { } playerPosition)
+        {
+            state.CompleteCleanupReturnToCombat();
+            context.Logger.Warn("stationary_combat.bag_cleanup.return_to_combat.skipped", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["reason"] = "player_position_missing",
+                ["revivePathName"] = GetRevivePathName(context)
+            });
+            return StationaryCombatBehaviorStatus.Success;
+        }
+
+        var homeResult = await TryResolveStationaryHomeAsync(context, state).ConfigureAwait(false);
+        if (!homeResult.Success || homeResult.Value is null)
+        {
+            state.CompleteCleanupReturnToCombat();
+            context.Logger.Warn("stationary_combat.bag_cleanup.return_to_combat.skipped", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["reason"] = homeResult.Error,
+                ["revivePathName"] = GetRevivePathName(context)
+            });
+            return StationaryCombatBehaviorStatus.Success;
+        }
+
+        var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
+        var home = homeResult.Value.Position;
+        var radius = Math.Max(1.0D, combat.StationaryCombatRadius);
+        var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home);
+        var delay = state.StartupRecoveryActive
+            ? await ContinueStartupRecoveryAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player,
+                    playerPosition,
+                    home,
+                    radius,
+                    playerDistanceFromHome)
+                .ConfigureAwait(false)
+            : await TickStartupRecoveryAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player,
+                    playerPosition,
+                    home,
+                    radius,
+                    playerDistanceFromHome)
+                .ConfigureAwait(false);
+
+        if (delay is not null || state.StartupRecoveryActive)
+        {
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        state.CompleteCleanupReturnToCombat();
+        context.Logger.Info("stationary_combat.bag_cleanup.return_to_combat.complete", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["revivePathName"] = GetRevivePathName(context),
+            ["homeDistance"] = Math.Round(playerDistanceFromHome, 2)
+        });
         return StationaryCombatBehaviorStatus.Success;
     }
 

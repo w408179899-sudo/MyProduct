@@ -1932,12 +1932,6 @@ namespace Roadhog
             var refreshInventoryButton = AddButton(page, "刷新背包", 542, 50, 96, 30);
             refreshInventoryButton.Click += async (_, _) =>
                 await RefreshBagCleanupInventoryAsync(refreshInventoryButton).ConfigureAwait(true);
-            var testInventoryWindowButton = AddButton(page, "测试拖到左上", 698, 50, 130, 30);
-            testInventoryWindowButton.Click += async (_, _) =>
-                await TestBagCleanupInventoryWindowNormalizeAsync(testInventoryWindowButton).ConfigureAwait(true);
-            var testSellRegisterButton = AddButton(page, "测试登记出售", 698, 84, 130, 30);
-            testSellRegisterButton.Click += async (_, _) =>
-                await TestBagCleanupSellRegisterAsync(testSellRegisterButton).ConfigureAwait(true);
 
             AddLabel(page, "当前背包", 430, 92, 82, 24, _textGreen, FontStyle.Bold);
             bagCleanupInventoryCombo = AddCombo(page, 430, 118, 248, 28);

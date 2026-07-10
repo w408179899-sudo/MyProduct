@@ -62,6 +62,7 @@ public sealed class BagCleanupController
             BagCleanupStep.OpenNpcDialog => await TickOpenNpcDialogAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.ClickSellItemEntry => await TickClickSellItemEntryAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.NormalizeInventoryWindow => await TickNormalizeInventoryWindowAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.OpenInventoryWindow => await TickOpenInventoryWindowAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.ReadSellCandidates => await TickReadSellCandidatesAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.RegisterSellItems => await TickRegisterSellItemsAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.CloseInventoryWindow => await TickCloseInventoryWindowAsync(context, state).ConfigureAwait(false),
@@ -467,6 +468,7 @@ public sealed class BagCleanupController
             return CleanupFailure(context, state, "sell_item_entry_click_failed", result.Error ?? "Sell item entry click failed.");
         }
 
+        await _seller.WaitAfterSellItemEntryAsync(context).ConfigureAwait(false);
         state.MarkSellItemEntryClicked();
         state.Advance(BagCleanupStep.NormalizeInventoryWindow);
         return BagCleanupTickResult.Running("sell_item_entry_clicked");
@@ -485,6 +487,24 @@ public sealed class BagCleanupController
         state.MarkInventoryWindowNormalized();
         state.Advance(BagCleanupStep.ReadSellCandidates);
         return BagCleanupTickResult.Running("inventory_window_normalized");
+    }
+
+    private async Task<BagCleanupTickResult> TickOpenInventoryWindowAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        var result = await _seller.OpenInventoryWindowAsync(context).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            return CleanupFailure(
+                context,
+                state,
+                "inventory_window_open_failed",
+                result.Error ?? "Inventory window open failed.");
+        }
+
+        state.Advance(BagCleanupStep.ReadSellCandidates);
+        return BagCleanupTickResult.Running("inventory_window_opened");
     }
 
     private async Task<BagCleanupTickResult> TickReadSellCandidatesAsync(
@@ -554,6 +574,7 @@ public sealed class BagCleanupController
         }
 
         state.MarkSellItemsRegistered(result.Value?.Count ?? state.SellCandidates.Count);
+        await _seller.WaitAfterSellRegistrationAsync(context).ConfigureAwait(false);
         state.Advance(BagCleanupStep.CloseInventoryWindow);
         return BagCleanupTickResult.Running("sell_items_registered");
     }
@@ -701,7 +722,7 @@ public sealed class BagCleanupController
 
             if (remainingSellCandidateCount is > 0)
             {
-                state.Advance(BagCleanupStep.NormalizeInventoryWindow);
+                state.Advance(BagCleanupStep.OpenInventoryWindow);
                 return BagCleanupTickResult.Running("money_verified_more_sell_candidates");
             }
 

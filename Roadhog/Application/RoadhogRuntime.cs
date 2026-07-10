@@ -41,7 +41,7 @@ public sealed class RoadhogRuntime
     private static readonly TimeSpan BagCleanupSellRegisterClickHoldDelay = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan BagCleanupSellRegisterAfterClickDelay = TimeSpan.FromMilliseconds(80);
     private static readonly int[] InventoryTitleDragXOffsets = { 160 };
-    private static readonly int[] InventoryTitleDragYOffsets = { 15, 10, 5, 0, -5, -10, -15 };
+    private static readonly int[] InventoryTitleDragYOffsets = { 10, 5, 0, -5, -10, -15, -20, -25, -30 };
     private const int BagSlotColumns = 9;
     private const int BagSlotsPerPage = 27;
     private const double DefaultBagSlot0CenterX = 30.0;
@@ -557,6 +557,8 @@ public sealed class RoadhogRuntime
             return Fail("sell_item_entry_click_failed", clickEntry.Error ?? "Sell item entry click failed.");
         }
 
+        await seller.WaitAfterSellItemEntryAsync(context).ConfigureAwait(false);
+
         var registeredItems = new List<BagCleanupRegisteredItem>();
         var initialCandidateCount = 0;
         ulong? initialMoney = null;
@@ -565,15 +567,26 @@ public sealed class RoadhogRuntime
         var batchIndex = 0;
         while (true)
         {
-            if (batchIndex >= 10)
+            if (batchIndex >= 40)
             {
-                return Fail("sell_batch_limit_exceeded", "Bag cleanup exceeded 10 sell batches.");
+                return Fail("sell_batch_limit_exceeded", "Bag cleanup exceeded 40 sell batches.");
             }
 
-            var normalize = await seller.NormalizeInventoryWindowToTopLeftAsync(context).ConfigureAwait(false);
-            if (!normalize.Success)
+            if (batchIndex == 0)
             {
-                return Fail("inventory_window_normalize_failed", normalize.Error ?? "Inventory normalize failed.");
+                var normalize = await seller.NormalizeInventoryWindowToTopLeftAsync(context).ConfigureAwait(false);
+                if (!normalize.Success)
+                {
+                    return Fail("inventory_window_normalize_failed", normalize.Error ?? "Inventory normalize failed.");
+                }
+            }
+            else
+            {
+                var openInventory = await seller.OpenInventoryWindowAsync(context).ConfigureAwait(false);
+                if (!openInventory.Success)
+                {
+                    return Fail("inventory_window_open_failed", openInventory.Error ?? "Inventory window open failed.");
+                }
             }
 
             var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
@@ -646,6 +659,8 @@ public sealed class RoadhogRuntime
             {
                 return Fail("sell_register_failed", registered.Error ?? "Sell register failed.");
             }
+
+            await seller.WaitAfterSellRegistrationAsync(context).ConfigureAwait(false);
 
             var closeInventory = await seller.CloseInventoryWindowAsync(context).ConfigureAwait(false);
             if (!closeInventory.Success)
@@ -762,19 +777,6 @@ public sealed class RoadhogRuntime
         var context = string.IsNullOrWhiteSpace(accountName)
             ? new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty)
             : CreateReadContext(accountName);
-        var read = await inventoryApi
-            .ReadInventoryWindowAsync(context, rectSource, cancellationToken)
-            .ConfigureAwait(false);
-        if (!read.Success || read.Value is null)
-        {
-            return OperationResult<InventoryWindowSnapshot>.Fail("Inventory window read failed: " + read.Error);
-        }
-
-        if (read.Value.IsOpen)
-        {
-            return read;
-        }
-
         var open = await PressInventoryToggleAsync(cancellationToken).ConfigureAwait(false);
         if (!open.Success)
         {
@@ -782,19 +784,19 @@ public sealed class RoadhogRuntime
         }
 
         await DelayAsync(InventoryOpenSettleDelay, cancellationToken).ConfigureAwait(false);
-        read = await inventoryApi
+        var read = await inventoryApi
             .ReadInventoryWindowAsync(context, rectSource, cancellationToken)
             .ConfigureAwait(false);
         if (!read.Success || read.Value is null)
         {
             return OperationResult<InventoryWindowSnapshot>.Fail(
-                "Inventory window read after open failed: " + read.Error);
+                "Inventory window read after blind open failed: " + read.Error);
         }
 
         return read.Value.IsOpen
             ? read
             : OperationResult<InventoryWindowSnapshot>.Fail(
-                "Inventory window did not open after pressing " + InventoryToggleKey + ".");
+                "Inventory window did not read as open after blind pressing " + InventoryToggleKey + ".");
     }
 
     private async Task<OperationResult> NormalizeInventoryWindowToTopLeftCoreAsync(
@@ -816,33 +818,24 @@ public sealed class RoadhogRuntime
             ? new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty)
             : CreateReadContext(accountName);
 
+        var open = await PressInventoryToggleAsync(cancellationToken).ConfigureAwait(false);
+        if (!open.Success)
+        {
+            return open;
+        }
+
+        await DelayAsync(InventoryOpenSettleDelay, cancellationToken).ConfigureAwait(false);
         var read = await inventoryApi.ReadInventoryWindowAsync(context, cancellationToken).ConfigureAwait(false);
         if (!read.Success || read.Value is null)
         {
-            return OperationResult.Fail("Inventory window read failed: " + read.Error);
+            return OperationResult.Fail("Inventory window read after blind open failed: " + read.Error);
         }
 
         var snapshot = read.Value;
         if (!snapshot.IsOpen)
         {
-            var open = await PressInventoryToggleAsync(cancellationToken).ConfigureAwait(false);
-            if (!open.Success)
-            {
-                return open;
-            }
-
-            await DelayAsync(InventoryOpenSettleDelay, cancellationToken).ConfigureAwait(false);
-            read = await inventoryApi.ReadInventoryWindowAsync(context, cancellationToken).ConfigureAwait(false);
-            if (!read.Success || read.Value is null)
-            {
-                return OperationResult.Fail("Inventory window read after open failed: " + read.Error);
-            }
-
-            snapshot = read.Value;
-            if (!snapshot.IsOpen)
-            {
-                return OperationResult.Fail("Inventory window did not open after pressing " + InventoryToggleKey + ".");
-            }
+            return OperationResult.Fail(
+                "Inventory window did not read as open after blind pressing " + InventoryToggleKey + ".");
         }
 
         if (!snapshot.IsAtTopLeft())

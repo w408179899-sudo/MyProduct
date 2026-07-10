@@ -15,6 +15,8 @@ public sealed class StationaryCombatState
 
     public StationaryCombatPathCombatState PathCombat { get; } = new();
 
+    public bool CleanupReturnToCombatActive { get; private set; }
+
     public bool ReturningHome { get; set; }
 
     public bool Fighting { get; set; }
@@ -145,6 +147,7 @@ public sealed class StationaryCombatState
         ReturningHome = false;
         LootAfterKill.Reset();
         BagCleanup.Reset();
+        CleanupReturnToCombatActive = false;
         PathCombat.Reset();
         ClearStartupRecovery();
         ClearTarget();
@@ -261,6 +264,7 @@ public sealed class StationaryCombatState
     {
         LootAfterKill.Reset();
         BagCleanup.Reset();
+        CleanupReturnToCombatActive = false;
     }
 
     public bool IsTargetIgnored(ushort entityId)
@@ -305,6 +309,24 @@ public sealed class StationaryCombatState
     public void MarkStartupRecoveryChecked()
     {
         StartupRecoveryChecked = true;
+    }
+
+    public void StartCleanupReturnToCombat()
+    {
+        CleanupReturnToCombatActive = true;
+        StartupRecoveryChecked = false;
+        StartupRecoveryActive = false;
+        StartupRecoveryPathName = string.Empty;
+        StartupRecoveryPointIndex = -1;
+        StartupRecoveryPoints = Array.Empty<Vector3Snapshot>();
+        ResetStartupRecoveryStuckTracking();
+        ReturningHome = false;
+        ClearTarget();
+    }
+
+    public void CompleteCleanupReturnToCombat()
+    {
+        CleanupReturnToCombatActive = false;
     }
 
     public bool TryGetStationaryHomeFromRevivePath(
