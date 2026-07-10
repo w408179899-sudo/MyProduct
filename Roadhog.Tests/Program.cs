@@ -37,6 +37,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
     ("runtime locked target abnormal read uses account scoped context", TestRuntimeLockedTargetAbnormalReadUsesAccountScopeAsync),
+#if DEBUG
+    ("runtime api probe covers vmm read paths", TestRuntimeApiProbeCoversVmmReadPathsAsync),
+#endif
     ("aion class catalog maps old twelve classes", TestAionClassCatalogAsync),
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
     ("runtime kill efficiency tracks kill intervals", TestRuntimeKillEfficiencyTracksKillIntervalsAsync),
@@ -761,6 +764,124 @@ static async Task TestRuntimeLockedTargetAbnormalReadUsesAccountScopeAsync()
     AssertEqual("Aion.bin", gameApi.LastLockedTargetAbnormalContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastLockedTargetAbnormalContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
 }
+
+#if DEBUG
+static async Task TestRuntimeApiProbeCoversVmmReadPathsAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    accounts.MarkStarting(new AccountConfig
+    {
+        AccountName = "account-scope",
+        ProcessId = 712,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga"
+    });
+
+    var capturedAt = DateTimeOffset.Now;
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            10,
+            11,
+            "Scoped Character",
+            100,
+            100,
+            50,
+            50,
+            0,
+            new Vector3Snapshot(1, 2, 3),
+            capturedAt),
+        PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+            10,
+            capturedAt,
+            1,
+            new[] { new AbnormalStatusEntrySnapshot(0, 9001, 2, 0, 1, 0x1234) }),
+        SummonedPet = SummonedPetSnapshot.NotSummoned(1711370025, capturedAt),
+        SummonedPetRoster = SummonedPetRosterSnapshot.Empty(1711370025, capturedAt),
+        Skills = new[]
+        {
+            new SkillSnapshot(101, "Probe Skill", 1, 1, "Probe Skill", 1, false, 0, 0)
+        },
+        InventoryItems = new[]
+        {
+            new InventoryItemSnapshot(100, 200, "Probe Item", 1, 0, false)
+        },
+        InventoryMoney = 12345,
+        InventoryCapacity = 100,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, 1000, "Probe Object", "monster", new Vector3Snapshot(1, 2, 3), 4, 100, 100)
+        },
+        LootCorpses = new[]
+        {
+            new LootCorpseSnapshot(
+                101,
+                1001,
+                3,
+                LootCorpseSnapshot.MonsterObjectType,
+                200001,
+                50,
+                "Probe Corpse",
+                new Vector3Snapshot(2, 3, 4),
+                5,
+                0,
+                100,
+                0,
+                1,
+                0x25,
+                capturedAt)
+        },
+        InventoryWindow = new InventoryWindowSnapshot(
+            true,
+            0,
+            0,
+            324.8,
+            443.2,
+            0x1000,
+            0x2000,
+            capturedAt,
+            InventoryWindowRectSource.LegacyDialogRect,
+            0x3000,
+            0x4000)
+    };
+    var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
+
+    var result = await runtime.RunApiProbeAsync("account-scope").ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "runtime api probe should return a result");
+    var probe = result.Value ?? throw new InvalidOperationException("runtime api probe returned null");
+    AssertFalse(!probe.AllPassed, "all fake api probe checks should pass");
+    AssertEqual(RoadhogApiProbeResult.RequiredCheckNames.Count, probe.TotalCount, "api probe check count");
+    AssertSequence(
+        RoadhogApiProbeResult.RequiredCheckNames,
+        probe.Checks.Select(check => check.Name).ToArray(),
+        "api probe check names");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "api_probe.completed"), "api probe should log completion");
+
+    AssertEqual(712, gameApi.LastPlayerContext?.ProcessId ?? 0, "player probe should use scoped process id");
+    AssertEqual(712, gameApi.LastPlayerAbnormalContext?.ProcessId ?? 0, "player abnormal probe should use scoped process id");
+    AssertEqual(712, gameApi.LastLockedTargetContext?.ProcessId ?? 0, "locked target probe should use scoped process id");
+    AssertEqual(712, gameApi.LastLockedTargetAbnormalContext?.ProcessId ?? 0, "locked target abnormal probe should use scoped process id");
+    AssertEqual(712, gameApi.LastSummonedPetContext?.ProcessId ?? 0, "summoned pet probe should use scoped process id");
+    AssertEqual(712, gameApi.LastSummonedPetRosterContext?.ProcessId ?? 0, "summoned pet roster probe should use scoped process id");
+    AssertEqual(712, gameApi.LastSkillsContext?.ProcessId ?? 0, "skills probe should use scoped process id");
+    AssertEqual(712, gameApi.LastInventoryContext?.ProcessId ?? 0, "inventory probe should use scoped process id");
+    AssertEqual(712, gameApi.LastInventoryMoneyContext?.ProcessId ?? 0, "money probe should use scoped process id");
+    AssertEqual(712, gameApi.LastInventoryCapacityContext?.ProcessId ?? 0, "capacity probe should use scoped process id");
+    AssertEqual(712, gameApi.LastWorldObjectsContext?.ProcessId ?? 0, "world objects probe should use scoped process id");
+    AssertEqual(712, gameApi.LastLootCorpsesContext?.ProcessId ?? 0, "loot corpses probe should use scoped process id");
+    AssertEqual(712, gameApi.LastInventoryWindowContext?.ProcessId ?? 0, "inventory window probe should use scoped process id");
+    AssertSequence(
+        new[]
+        {
+            InventoryWindowRectSource.LegacyDialogRect,
+            InventoryWindowRectSource.RootWidgetRectExperimental
+        },
+        gameApi.InventoryWindowRectSources,
+        "inventory window probe rect sources");
+}
+#endif
 
 static async Task TestRuntimePlayerReadReturnsCharacterNameAsync()
 {
@@ -10551,6 +10672,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
 
     public GameApiReadContext? LastPlayerContext { get; private set; }
 
+    public GameApiReadContext? LastPlayerAbnormalContext { get; private set; }
+
     public GameApiReadContext? LastSkillsContext { get; private set; }
 
     public GameApiReadContext? LastInventoryContext { get; private set; }
@@ -10563,13 +10686,19 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
 
     public GameApiReadContext? LastSummonedPetRosterContext { get; private set; }
 
+    public GameApiReadContext? LastLockedTargetContext { get; private set; }
+
     public GameApiReadContext? LastLockedTargetAbnormalContext { get; private set; }
 
     public GameApiReadContext? LastWorldObjectsContext { get; private set; }
 
+    public GameApiReadContext? LastLootCorpsesContext { get; private set; }
+
     public GameApiReadContext? LastInventoryWindowContext { get; private set; }
 
     public InventoryWindowRectSource? LastInventoryWindowRectSource { get; private set; }
+
+    public List<InventoryWindowRectSource> InventoryWindowRectSources { get; } = new();
 
     public InventoryWindowSnapshot InventoryWindow { get; set; } =
         new(false, 0.0, 0.0, 324.8, 443.2, 0x1000, 0x2000, DateTimeOffset.Now);
@@ -10625,6 +10754,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
+        LastPlayerAbnormalContext = context;
         return ReadPlayerAbnormalStatusesAsync(cancellationToken);
     }
 
@@ -10677,6 +10807,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
+        LastLockedTargetContext = context;
         return ReadLockedTargetAsync(cancellationToken);
     }
 
@@ -10793,6 +10924,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
+        LastLootCorpsesContext = context;
         return ReadLootCorpsesAsync(cancellationToken);
     }
 
@@ -10810,6 +10942,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
         CancellationToken cancellationToken = default)
     {
         LastInventoryWindowRectSource = rectSource;
+        InventoryWindowRectSources.Add(rectSource);
         return ReadInventoryWindowAsync(context, cancellationToken);
     }
 }

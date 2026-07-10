@@ -284,6 +284,142 @@ public sealed class RoadhogRuntime
         return result;
     }
 
+#if DEBUG
+    public async Task<OperationResult<RoadhogApiProbeResult>> RunApiProbeAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var checks = new List<RoadhogApiProbeCheckResult>(RoadhogApiProbeResult.RequiredCheckNames.Count);
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "Player",
+            token => ReadPlayerSnapshotAsync(accountName, token),
+            player => "entity=" + player.EntityId.ToString(CultureInfo.InvariantCulture) +
+                ", name=" + player.CharacterName +
+                ", hp=" + player.CurrentHp.ToString(CultureInfo.InvariantCulture) +
+                "/" + player.MaxHp.ToString(CultureInfo.InvariantCulture) +
+                ", pos=" + (player.Position is null ? "none" : "ok"),
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "PlayerAbnormalStatuses",
+            token => ReadPlayerAbnormalStatusSnapshotAsync(accountName, token),
+            abnormal => "entity=" + abnormal.EntityId.ToString(CultureInfo.InvariantCulture) +
+                ", entries=" + abnormal.Entries.Count.ToString(CultureInfo.InvariantCulture) +
+                ", harmful=" + abnormal.HarmfulAbnormalCount.ToString(CultureInfo.InvariantCulture),
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "LockedTarget",
+            token => ReadLockedTargetSnapshotAsync(accountName, token),
+            target => "hasTarget=" + target.HasTarget.ToString() +
+                ", entity=" + target.TargetEntityId.ToString(CultureInfo.InvariantCulture) +
+                ", name=" + target.Name,
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "LockedTargetAbnormalStatuses",
+            token => ReadLockedTargetAbnormalStatusSnapshotAsync(accountName, token),
+            abnormal => "hasTarget=" + abnormal.HasTarget.ToString() +
+                ", entries=" + abnormal.AbnormalStatusCount.ToString(CultureInfo.InvariantCulture) +
+                ", physical=" + abnormal.PhysicalDebuffCount.ToString(CultureInfo.InvariantCulture),
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "SummonedPet",
+            token => ReadSummonedPetSnapshotAsync(accountName, token),
+            pet => "summoned=" + pet.IsSummoned.ToString() +
+                ", serverObjectId=" + pet.ServerObjectId.ToString(CultureInfo.InvariantCulture) +
+                ", name=" + pet.Name,
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "SummonedPetRoster",
+            token => ReadSummonedPetRosterSnapshotAsync(accountName, token),
+            roster => "localSummoned=" + roster.LocalPlayerPet.IsSummoned.ToString() +
+                ", partyPets=" + roster.PartyMemberPetCount.ToString(CultureInfo.InvariantCulture) +
+                ", visiblePets=" + roster.VisibleSummonedPetCount.ToString(CultureInfo.InvariantCulture),
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "Skills",
+            token => ReadSkillsAsync(accountName, token),
+            skills => "count=" + skills.Count.ToString(CultureInfo.InvariantCulture),
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "Inventory",
+            token => ReadInventoryAsync(accountName, token),
+            items => "count=" + items.Count.ToString(CultureInfo.InvariantCulture),
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "InventoryMoney",
+            token => ReadInventoryMoneyAsync(accountName, token),
+            money => "money=" + money.ToString(CultureInfo.InvariantCulture),
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "InventoryCapacity",
+            token => ReadInventoryCapacityAsync(accountName, token),
+            capacity => "slots=" + capacity.ToString(CultureInfo.InvariantCulture),
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "WorldObjects",
+            token => ReadWorldObjectsAsync(accountName, token),
+            objects => "count=" + objects.Count.ToString(CultureInfo.InvariantCulture),
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "LootCorpses",
+            token => ReadLootCorpsesAsync(accountName, token),
+            corpses => "count=" + corpses.Count.ToString(CultureInfo.InvariantCulture),
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "InventoryWindow.LegacyDialogRect",
+            token => ReadInventoryWindowSnapshotAsync(accountName, InventoryWindowRectSource.LegacyDialogRect, token),
+            window => "open=" + window.IsOpen.ToString() +
+                ", x=" + window.X.ToString("0.###", CultureInfo.InvariantCulture) +
+                ", y=" + window.Y.ToString("0.###", CultureInfo.InvariantCulture) +
+                ", dialog=0x" + window.DialogAddress.ToString("X", CultureInfo.InvariantCulture),
+            cancellationToken).ConfigureAwait(false));
+
+        checks.Add(await RunApiProbeCheckAsync(
+            "InventoryWindow.RootWidgetRectExperimental",
+            token => ReadInventoryWindowSnapshotAsync(accountName, InventoryWindowRectSource.RootWidgetRectExperimental, token),
+            window => "open=" + window.IsOpen.ToString() +
+                ", x=" + window.X.ToString("0.###", CultureInfo.InvariantCulture) +
+                ", y=" + window.Y.ToString("0.###", CultureInfo.InvariantCulture) +
+                ", root=0x" + window.RootWidgetAddress.ToString("X", CultureInfo.InvariantCulture),
+            cancellationToken).ConfigureAwait(false));
+
+        var result = new RoadhogApiProbeResult(checks);
+        var fields = new Dictionary<string, object?>
+        {
+            ["account"] = accountName,
+            ["total"] = result.TotalCount,
+            ["passed"] = result.PassedCount,
+            ["failed"] = result.FailedCount,
+            ["failedChecks"] = string.Join(
+                ",",
+                result.Checks.Where(check => !check.Success).Select(check => check.Name))
+        };
+
+        if (result.AllPassed)
+        {
+            _logger.Info("api_probe.completed", fields);
+        }
+        else
+        {
+            _logger.Warn("api_probe.completed", fields);
+        }
+
+        return OperationResult<RoadhogApiProbeResult>.Ok(result);
+    }
+#endif
+
     public async Task<OperationResult> TestMoveMouseToScreenPointAsync(
         int x,
         int y,
@@ -1140,6 +1276,57 @@ public sealed class RoadhogRuntime
             (u * v * bottomRight);
     }
 
+#if DEBUG
+    private static async Task<RoadhogApiProbeCheckResult> RunApiProbeCheckAsync<T>(
+        string name,
+        Func<CancellationToken, Task<OperationResult<T>>> read,
+        Func<T, string> describe,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await read(cancellationToken).ConfigureAwait(false);
+            if (!result.Success)
+            {
+                return RoadhogApiProbeCheckResult.Fail(
+                    name,
+                    result.Error ?? "API read failed.");
+            }
+
+            var value = result.Value;
+            if (value is null)
+            {
+                return RoadhogApiProbeCheckResult.Fail(name, "API returned null.");
+            }
+
+            return RoadhogApiProbeCheckResult.Pass(name, describe(value));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return RoadhogApiProbeCheckResult.Fail(
+                name,
+                ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    private Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetSnapshotAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            return scopedApi.ReadLockedTargetAsync(CreateReadContext(accountName), cancellationToken);
+        }
+
+        return _gameApi.ReadLockedTargetAsync(cancellationToken);
+    }
+#endif
+
     private Task<OperationResult<IReadOnlyList<SkillSnapshot>>> ReadSkillsAsync(
         string? accountName,
         CancellationToken cancellationToken)
@@ -1178,6 +1365,64 @@ public sealed class RoadhogRuntime
 
         return _gameApi.ReadInventoryAsync(cancellationToken);
     }
+
+#if DEBUG
+    private Task<OperationResult<ulong>> ReadInventoryMoneyAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is not IInventoryMoneyGameApi moneyApi)
+        {
+            return Task.FromResult(OperationResult<ulong>.Fail(
+                "Inventory money VMM API is not available."));
+        }
+
+        return moneyApi.ReadInventoryMoneyAsync(CreateReadContextOrDefault(accountName), cancellationToken);
+    }
+
+    private Task<OperationResult<int>> ReadInventoryCapacityAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is not IInventoryCapacityGameApi capacityApi)
+        {
+            return Task.FromResult(OperationResult<int>.Fail(
+                "Inventory capacity VMM API is not available."));
+        }
+
+        return capacityApi.ReadInventoryCapacityAsync(CreateReadContextOrDefault(accountName), cancellationToken);
+    }
+
+    private Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            return scopedApi.ReadLootCorpsesAsync(CreateReadContext(accountName), cancellationToken);
+        }
+
+        return _gameApi.ReadLootCorpsesAsync(cancellationToken);
+    }
+
+    private Task<OperationResult<InventoryWindowSnapshot>> ReadInventoryWindowSnapshotAsync(
+        string? accountName,
+        InventoryWindowRectSource rectSource,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is not IInventoryWindowGameApi inventoryWindowApi)
+        {
+            return Task.FromResult(OperationResult<InventoryWindowSnapshot>.Fail(
+                "Inventory window VMM API is not available."));
+        }
+
+        return inventoryWindowApi.ReadInventoryWindowAsync(
+            CreateReadContextOrDefault(accountName),
+            rectSource,
+            cancellationToken);
+    }
+#endif
 
     private Task<OperationResult<PlayerSnapshot>> ReadPlayerSnapshotAsync(
         string? accountName,
@@ -1243,6 +1488,15 @@ public sealed class RoadhogRuntime
 
         return _gameApi.ReadSummonedPetRosterAsync(cancellationToken);
     }
+
+#if DEBUG
+    private GameApiReadContext CreateReadContextOrDefault(string? accountName)
+    {
+        return string.IsNullOrWhiteSpace(accountName)
+            ? new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty)
+            : CreateReadContext(accountName);
+    }
+#endif
 
     private GameApiReadContext CreateReadContext(string accountName)
     {

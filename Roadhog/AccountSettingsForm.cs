@@ -745,6 +745,43 @@ namespace Roadhog
             }
         }
 
+#if DEBUG
+        private async Task RunApiProbeAsync(Button button)
+        {
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "探针中...";
+
+            try
+            {
+                var result = await _runtime
+                    .RunApiProbeAsync(_account)
+                    .ConfigureAwait(true);
+                var message = result.Success && result.Value is not null
+                    ? result.Value.ToDisplayText()
+                    : "API探针失败: " + (result.Error ?? "未知错误");
+                var icon = result.Success && result.Value?.AllPassed == true
+                    ? MessageBoxIcon.Information
+                    : MessageBoxIcon.Warning;
+
+                MessageBox.Show(
+                    this,
+                    message,
+                    "API探针",
+                    MessageBoxButtons.OK,
+                    icon);
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+#endif
+
         private TabPage CreateSummaryTab()
         {
             var tab = CreateBaseTab("总览");
@@ -787,6 +824,12 @@ namespace Roadhog
             contestMonsterCheckBox = AddCheckBox(page, "抢怪", 96, 142, 64, false);
             counterEnemyRaceCheckBox = AddCheckBox(page, "反击敌对种族", 160, 142, 140, false);
             preferAggressiveMonsterCheckBox = AddCheckBox(page, "优先攻击主动怪", 302, 142, 142, false);
+
+#if DEBUG
+            var apiProbeButton = AddButton(page, "API探针", 20, 232, 170, 36);
+            apiProbeButton.Click += async (_, _) =>
+                await RunApiProbeAsync(apiProbeButton).ConfigureAwait(true);
+#endif
 
             return tab;
         }
