@@ -14,6 +14,7 @@ public enum BagCleanupStep
     NormalizeInventoryWindow,
     ReadSellCandidates,
     RegisterSellItems,
+    CloseInventoryWindow,
     ClickSellButton,
     VerifyInventory,
     ReturnByReversePath,

@@ -618,6 +618,12 @@ public sealed class RoadhogRuntime
             return Fail("sell_register_failed", registered.Error ?? "Sell register failed.");
         }
 
+        var closeInventory = await seller.CloseInventoryWindowAsync(context).ConfigureAwait(false);
+        if (!closeInventory.Success)
+        {
+            return Fail("inventory_window_close_failed", closeInventory.Error ?? "Inventory window close failed.");
+        }
+
         var moneyBefore = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
         if (!moneyBefore.Success)
         {

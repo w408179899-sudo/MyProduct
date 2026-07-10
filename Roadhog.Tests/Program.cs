@@ -1311,6 +1311,12 @@ static async Task TestRuntimeTestsBagCleanupFromNpcThroughSellAsync()
         var f8Attempts = 0;
         keyboard.AfterPress = key =>
         {
+            if (key == "I")
+            {
+                gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
+                return;
+            }
+
             if (key != "F8")
             {
                 return;
@@ -1365,13 +1371,14 @@ static async Task TestRuntimeTestsBagCleanupFromNpcThroughSellAsync()
 
         AssertFalse(!result.Success, "manual bag cleanup test should succeed: " + result.Error);
         AssertEqual(2, f8Attempts, "manual cleanup should keep pressing F8 until configured npc is selected");
-        AssertSequence(new[] { "F8", "F8", "C" }, keyboard.Keys.ToArray(), "manual cleanup key sequence");
+        AssertSequence(new[] { "F8", "F8", "C", "I" }, keyboard.Keys.ToArray(), "manual cleanup key sequence");
         AssertEqual(2, result.Value?.CandidateCount ?? 0, "manual cleanup candidate count");
         AssertEqual(2, result.Value?.RegisteredCount ?? 0, "manual cleanup registered count");
         AssertEqual(1000UL, result.Value?.InitialMoney ?? 0UL, "manual cleanup initial money");
         AssertEqual(1200UL, result.Value?.FinalMoney ?? 0UL, "manual cleanup final money");
         AssertEqual(200UL, result.Value?.MoneyDelta ?? 0UL, "manual cleanup money delta");
         AssertFalse(!keyboard.MouseCommands.Contains("down:Right"), "manual cleanup should right click bag items");
+        AssertFalse(gameApi.InventoryWindow.IsOpen, "manual cleanup should close inventory before sell click");
         AssertEqual(712, gameApi.LastInventoryMoneyContext?.ProcessId ?? 0, "money read should use scoped process id");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.manual_test.ok"), "manual cleanup should log success");
     }
@@ -1483,6 +1490,10 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
                 gameApi.TargetCurrentHp = 0;
                 gameApi.TargetMaxHp = 0;
             }
+            else if (key == "I")
+            {
+                gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
+            }
         };
 
         var leftClicks = 0;
@@ -1552,10 +1563,11 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         }
 
         AssertEqual(BagCleanupTickStatus.Completed, last?.Status ?? BagCleanupTickStatus.FatalFailure, "cleanup should complete");
-        AssertSequence(new[] { "NumPad7", "F8", "C" }, keyboard.Keys.ToArray(), "cleanup should return, select npc, and interact");
+        AssertSequence(new[] { "NumPad7", "F8", "C", "I" }, keyboard.Keys.ToArray(), "cleanup should return, select npc, interact, and close inventory");
         AssertSequence(new[] { "cleanup-path:2", "cleanup-path 返回:2" }, pathCalls.ToArray(), "cleanup should follow path and reverse path");
         AssertFalse(gameApi.InventoryItems.Any(item => item.InstanceId is 10UL or 11UL), "sold items should be removed before verification");
         AssertEqual(1200UL, gameApi.InventoryMoney, "money should increase after sell");
+        AssertFalse(gameApi.InventoryWindow.IsOpen, "cleanup should close inventory before sell click");
         AssertFalse(state.LastCompletedAt == DateTimeOffset.MinValue, "completion should start cleanup cooldown");
         var check = logger.Entries.FirstOrDefault(entry => entry.EventName == "bag_cleanup.check");
         AssertFalse(check is null, "cleanup check should be logged");
@@ -1563,6 +1575,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         AssertEqual(7, Convert.ToInt32(check.Fields["occupiedSlots"]), "cleanup should count occupied slots from VMM inventory");
         AssertEqual("vmm", Convert.ToString(check.Fields["totalSlotsSource"]) ?? string.Empty, "cleanup capacity source");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.return.verify.ok"), "cleanup should verify town return position");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.inventory.close.ok"), "cleanup should verify inventory close before sell");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.verify.ok"), "cleanup should verify money increase");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.complete"), "cleanup should log completion");
     }
@@ -1822,6 +1835,10 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
                 gameApi.TargetName = cleanupNpcName;
                 gameApi.TargetCurrentHp = 0;
                 gameApi.TargetMaxHp = 0;
+            }
+            else if (key == "I")
+            {
+                gameApi.InventoryWindow = CreateInventoryWindow(false, 0.0, 0.0);
             }
         };
 

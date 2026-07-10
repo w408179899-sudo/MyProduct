@@ -52,6 +52,8 @@ public sealed class BagCleanupState
 
     public bool HasRegisteredSellItems { get; private set; }
 
+    public bool HasClosedInventoryWindow { get; private set; }
+
     public bool HasClickedSellButton { get; private set; }
 
     public bool IsReturningAfterFailure => !string.IsNullOrWhiteSpace(ReturnAfterFailureReason);
@@ -83,6 +85,7 @@ public sealed class BagCleanupState
         HasClickedSellItemEntry = false;
         HasNormalizedInventoryWindow = false;
         HasRegisteredSellItems = false;
+        HasClosedInventoryWindow = false;
         HasClickedSellButton = false;
     }
 
@@ -128,6 +131,11 @@ public sealed class BagCleanupState
     public void MarkSellItemsRegistered()
     {
         HasRegisteredSellItems = true;
+    }
+
+    public void MarkInventoryWindowClosed()
+    {
+        HasClosedInventoryWindow = true;
     }
 
     public void MarkSellButtonClicked()
@@ -218,6 +226,7 @@ public sealed class BagCleanupState
         HasClickedSellItemEntry = false;
         HasNormalizedInventoryWindow = false;
         HasRegisteredSellItems = false;
+        HasClosedInventoryWindow = false;
         HasClickedSellButton = false;
     }
 }

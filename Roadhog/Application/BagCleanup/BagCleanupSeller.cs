@@ -31,6 +31,7 @@ public sealed class BagCleanupSeller
     private const double DefaultBagPage2OffsetY = 298.0;
     private static readonly TimeSpan InventoryToggleHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan InventoryOpenSettleDelay = TimeSpan.FromMilliseconds(700);
+    private static readonly TimeSpan InventoryCloseSettleDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan InventoryDragStartSettleDelay = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan InventoryDragSettleDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan MouseClickHoldDelay = TimeSpan.FromMilliseconds(35);
@@ -150,6 +151,50 @@ public sealed class BagCleanupSeller
             ["height"] = snapshot.Height
         });
         return OperationResult<InventoryWindowSnapshot>.Ok(snapshot);
+    }
+
+    public async Task<OperationResult> CloseInventoryWindowAsync(AccountWorkerContext context)
+    {
+        var read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
+        if (!read.Success || read.Value is null)
+        {
+            return OperationResult.Fail("Inventory window read before close failed: " + read.Error);
+        }
+
+        if (!read.Value.IsOpen)
+        {
+            context.Logger.Info("bag_cleanup.inventory.close.already_closed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName
+            });
+            return OperationResult.Ok();
+        }
+
+        var close = await _input
+            .PressKeyAsync(InventoryToggleKey, InventoryToggleHoldDuration, context.StopToken)
+            .ConfigureAwait(false);
+        if (!close.Success)
+        {
+            return OperationResult.Fail("Inventory close toggle failed: " + close.Error);
+        }
+
+        await DelayAsync(InventoryCloseSettleDelay, context.StopToken).ConfigureAwait(false);
+        read = await BagCleanupGameApi.ReadInventoryWindowAsync(context).ConfigureAwait(false);
+        if (!read.Success || read.Value is null)
+        {
+            return OperationResult.Fail("Inventory window read after close failed: " + read.Error);
+        }
+
+        if (read.Value.IsOpen)
+        {
+            return OperationResult.Fail("Inventory window is still open after pressing " + InventoryToggleKey + ".");
+        }
+
+        context.Logger.Info("bag_cleanup.inventory.close.ok", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName
+        });
+        return OperationResult.Ok();
     }
 
     public async Task<OperationResult<IReadOnlyList<BagCleanupRegisteredItem>>> RegisterSellItemsAsync(

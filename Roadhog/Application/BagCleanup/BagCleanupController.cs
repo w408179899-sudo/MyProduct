@@ -64,6 +64,7 @@ public sealed class BagCleanupController
             BagCleanupStep.NormalizeInventoryWindow => await TickNormalizeInventoryWindowAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.ReadSellCandidates => await TickReadSellCandidatesAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.RegisterSellItems => await TickRegisterSellItemsAsync(context, state).ConfigureAwait(false),
+            BagCleanupStep.CloseInventoryWindow => await TickCloseInventoryWindowAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.ClickSellButton => await TickClickSellButtonAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.VerifyInventory => await TickVerifyInventoryAsync(context, state).ConfigureAwait(false),
             BagCleanupStep.ReturnByReversePath => await TickReturnByReversePathAsync(context, state).ConfigureAwait(false),
@@ -543,8 +544,27 @@ public sealed class BagCleanupController
         }
 
         state.MarkSellItemsRegistered();
-        state.Advance(BagCleanupStep.ClickSellButton);
+        state.Advance(BagCleanupStep.CloseInventoryWindow);
         return BagCleanupTickResult.Running("sell_items_registered");
+    }
+
+    private async Task<BagCleanupTickResult> TickCloseInventoryWindowAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        var result = await _seller.CloseInventoryWindowAsync(context).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            return CleanupFailure(
+                context,
+                state,
+                "inventory_window_close_failed",
+                result.Error ?? "Inventory window close failed.");
+        }
+
+        state.MarkInventoryWindowClosed();
+        state.Advance(BagCleanupStep.ClickSellButton);
+        return BagCleanupTickResult.Running("inventory_window_closed");
     }
 
     private async Task<BagCleanupTickResult> TickClickSellButtonAsync(
