@@ -71,7 +71,8 @@ internal static partial class ToolOutputParsers
                 match.Groups["name"].Value,
                 ParseUInt(match.Groups["count"].Value),
                 ParseSlot(match.Groups["slot"].Value),
-                IsYes(match.Groups["equipped"].Value)));
+                IsYes(match.Groups["equipped"].Value),
+                ParseOptionalUInt(match.Groups["type"])));
         }
 
         return result;
@@ -354,7 +355,7 @@ internal static partial class ToolOutputParsers
     [GeneratedRegex(@"#\d+\s+Id=(?<id>\d+).*?HighestLevel=(?<highest>\d+).*?ItemLevel=(?<itemlevel>\d+).*?Name=""(?<name>[^""]*)""(?: Base=""(?<base>[^""]*)"" Tier=(?<tier>\d+))?.*?Toggle=(?<toggle>\d+).*?Cooldown=(?<cooldown>\d+)/(?<cooldownEnd>\d+)", RegexOptions.Compiled)]
     private static partial Regex SkillLineRegex();
 
-    [GeneratedRegex(@"#\d+\s+Slot=(?<slot>-?\d+|n/a).*?\sInstanceId=(?<instance>\d+)\s+TemplateId=(?<template>\d+)\s+Count=(?<count>\d+)\s+Name=""(?<name>[^""]*)"".*?\sEquipped=(?<equipped>yes|no)", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"#\d+\s+Slot=(?<slot>-?\d+|n/a).*?\sInstanceId=(?<instance>\d+)\s+TemplateId=(?<template>\d+)\s+Count=(?<count>\d+)\s+Name=""(?<name>[^""]*)""(?:.*?\sType=(?<type>\d+))?.*?\sEquipped=(?<equipped>yes|no)", RegexOptions.Compiled | RegexOptions.IgnoreCase)]
     private static partial Regex InventoryLineRegex();
 
     [GeneratedRegex(@"EntityId=(?<entity>\d+)\s+TargetId=(?<target>\d+).*?HP=(?<hp>\d+)/(?<maxHp>\d+).*?MP=(?<mp>\d+)/(?<maxMp>\d+).*?DP=(?<dp>\d+).*?Pos=(?:n/a|X=(?<x>-?\d+(?:\.\d+)?)\s+Y=(?<y>-?\d+(?:\.\d+)?)\s+Z=(?<z>-?\d+(?:\.\d+)?))", RegexOptions.Compiled)]

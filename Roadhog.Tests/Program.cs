@@ -45,6 +45,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime test move uses configured screen point", TestRuntimeTestMoveUsesScreenPointAsync),
     ("runtime normalizes inventory window then closes", TestRuntimeNormalizesInventoryWindowThenClosesAsync),
     ("runtime normalizes inventory window and leaves open", TestRuntimeNormalizesInventoryWindowLeavesOpenAsync),
+    ("runtime registers configured bag cleanup sell items", TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync),
     ("window title formats character identity", TestWindowTitleFormatsCharacterIdentityAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
@@ -1122,6 +1123,111 @@ static async Task TestRuntimeNormalizesInventoryWindowLeavesOpenAsync()
     AssertFalse(!keyboard.MouseCommands.Contains("up:Left"), "normalization should release left mouse after drag");
 }
 
+static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
+{
+    var previousResetCount = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT");
+    var previousStepDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
+    var previousHover = Environment.GetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS");
+    var previousSlot0X = Environment.GetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_X");
+    var previousSlot0Y = Environment.GetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_Y");
+    var previousStepX = Environment.GetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_X");
+    var previousStepY = Environment.GetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_Y");
+    try
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", "1");
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_X", "100");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_Y", "200");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_X", "10");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_Y", "20");
+
+        var logger = new InMemoryRoadhogLogger();
+        var accounts = new AccountRuntimeManager(logger);
+        accounts.MarkStarting(new AccountConfig
+        {
+            AccountName = "account-scope",
+            ProcessId = 712,
+            TargetProcessName = "Aion.bin",
+            VmmDeviceName = "fpga"
+        });
+
+        var gameApi = new FakeGameApi
+        {
+            InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0),
+            InventoryItems = new[]
+            {
+                new InventoryItemSnapshot(167000452, 11, "魔石:命中+21", 1, 31, false, 24, 2),
+                new InventoryItemSnapshot(167000290, 12, "魔石:生命力+40", 10, 22, false, 24, 1),
+                new InventoryItemSnapshot(167000454, 13, "魔石:排除", 1, 32, false, 24, 2),
+                new InventoryItemSnapshot(100100, 14, "绿色装备", 1, 3, false, 1, 2)
+            }
+        };
+        var keyboard = new RecordingKeyboardInput();
+        var runtime = new RoadhogRuntime(
+            gameApi,
+            logger,
+            accounts,
+            null!,
+            keyboardInput: keyboard);
+        var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+        rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenManastone).Enabled = true;
+        rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenEquipment).Enabled = true;
+        rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenEquipment).Action = BagCleanupAction.Discard;
+        var settings = new MaintenanceScriptSettings
+        {
+            BagCleanupRules = rules,
+            BagCleanupExcludedItemNames = new List<string> { "魔石:排除" }
+        };
+
+        var result = await runtime
+            .TestRegisterBagCleanupSellItemsAsync("account-scope", settings)
+            .ConfigureAwait(false);
+
+        AssertFalse(!result.Success, "sell registration should succeed: " + result.Error);
+        AssertEqual(1, result.Value?.RegisteredCount ?? 0, "registered sell item count");
+        AssertEqual("魔石:命中+21", result.Value?.Items[0].Name ?? string.Empty, "registered sell item name");
+        AssertEqual(140, result.Value?.Items[0].X ?? 0, "registered sell item x");
+        AssertEqual(260, result.Value?.Items[0].Y ?? 0, "registered sell item y");
+        AssertSequence(
+            new[] { "move:-2000,-2000", "move:140,260", "down:Right", "up:Right" },
+            keyboard.MouseCommands.ToArray(),
+            "sell registration should right-click only the configured bag slot");
+        AssertEqual(712, gameApi.LastInventoryContext?.ProcessId ?? 0, "inventory read should use scoped process id");
+
+        gameApi.InventoryWindow = CreateInventoryWindow(true, 349.6, 162.4);
+        keyboard.MouseCommands.Clear();
+        settings.BagCleanupItemCoordinateMode = BagCleanupItemCoordinateMode.WindowRectRelativeExperimental;
+
+        var experimentalResult = await runtime
+            .TestRegisterBagCleanupSellItemsAsync("account-scope", settings)
+            .ConfigureAwait(false);
+
+        AssertFalse(!experimentalResult.Success, "experimental sell registration should succeed: " + experimentalResult.Error);
+        AssertEqual(1, experimentalResult.Value?.RegisteredCount ?? 0, "experimental registered sell item count");
+        AssertEqual(540, experimentalResult.Value?.Items[0].X ?? 0, "experimental registered sell item x");
+        AssertEqual(450, experimentalResult.Value?.Items[0].Y ?? 0, "experimental registered sell item y");
+        AssertEqual(
+            InventoryWindowRectSource.RootWidgetRectExperimental,
+            gameApi.LastInventoryWindowRectSource ?? InventoryWindowRectSource.LegacyDialogRect,
+            "experimental registration should request root widget Rect");
+        AssertSequence(
+            new[] { "move:-2000,-2000", "move:540,450", "down:Right", "up:Right" },
+            keyboard.MouseCommands.ToArray(),
+            "experimental sell registration should use the window-relative bag point");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", previousResetCount);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousStepDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", previousHover);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_X", previousSlot0X);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_Y", previousSlot0Y);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_X", previousStepX);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_Y", previousStepY);
+    }
+}
+
 static async Task TestKmBoxNetKeyboardInputValidationAsync()
 {
     using var input = new KmBoxNetKeyboardInput(new KmBoxNetKeyboardInputOptions
@@ -1326,6 +1432,7 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
                     BagCleanupSellItemClickY = 222,
                     BagCleanupSellButtonClickX = 333,
                     BagCleanupSellButtonClickY = 444,
+                    BagCleanupItemCoordinateMode = BagCleanupItemCoordinateMode.WindowRectRelativeExperimental,
                     BagCleanupRules = rules
                 }
             }
@@ -1340,6 +1447,11 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
         AssertFalse(!text.Contains("\"BagCleanupSellItemClickY\": 222", StringComparison.Ordinal), "account config should contain sell item click y");
         AssertFalse(!text.Contains("\"BagCleanupSellButtonClickX\": 333", StringComparison.Ordinal), "account config should contain sell button click x");
         AssertFalse(!text.Contains("\"BagCleanupSellButtonClickY\": 444", StringComparison.Ordinal), "account config should contain sell button click y");
+        AssertFalse(
+            !text.Contains(
+                "\"BagCleanupItemCoordinateMode\": \"WindowRectRelativeExperimental\"",
+                StringComparison.Ordinal),
+            "account config should contain bag item coordinate mode");
         AssertFalse(!text.Contains("\"Key\": \"equipment.green\"", StringComparison.Ordinal), "bag cleanup rule key should be persisted");
         AssertFalse(!text.Contains("\"Category\": \"equipment\"", StringComparison.Ordinal), "bag cleanup category should be persisted");
         AssertFalse(!text.Contains("\"Quality\": \"green\"", StringComparison.Ordinal), "bag cleanup quality should be persisted");
@@ -1354,6 +1466,10 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
         AssertEqual(222, maintenance?.BagCleanupSellItemClickY ?? 0, "loaded sell item click y");
         AssertEqual(333, maintenance?.BagCleanupSellButtonClickX ?? 0, "loaded sell button click x");
         AssertEqual(444, maintenance?.BagCleanupSellButtonClickY ?? 0, "loaded sell button click y");
+        AssertEqual(
+            BagCleanupItemCoordinateMode.WindowRectRelativeExperimental,
+            maintenance?.BagCleanupItemCoordinateMode ?? BagCleanupItemCoordinateMode.LegacyNormalizedTopLeft,
+            "loaded bag item coordinate mode");
         var loadedRules = BagCleanupRuleCatalog.MergeWithDefaults(load.Value?[0].ScriptSettings?.Maintenance.BagCleanupRules);
         var greenEquipment = loadedRules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenEquipment);
         AssertFalse(!greenEquipment.Enabled, "green equipment cleanup should remain enabled");
@@ -1659,8 +1775,10 @@ static Task TestToolBridgeInventoryParserReadsBagItemsAsync()
     AssertEqual(987654UL, items[0].InstanceId, "first item instance");
     AssertEqual(3U, items[0].Count, "first item count");
     AssertEqual(12, items[0].Slot, "first item slot");
+    AssertEqual(60U, items[0].ItemType, "first item type");
     AssertFalse(items[0].IsEquipped, "first item should be bag item");
     AssertEqual(-1, items[1].Slot, "equipped item has no bag slot");
+    AssertEqual(1U, items[1].ItemType, "equipped item type");
     AssertFalse(!items[1].IsEquipped, "second item should be equipped");
     return Task.CompletedTask;
 }
@@ -9271,6 +9389,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi
 
     public GameApiReadContext? LastInventoryWindowContext { get; private set; }
 
+    public InventoryWindowRectSource? LastInventoryWindowRectSource { get; private set; }
+
     public InventoryWindowSnapshot InventoryWindow { get; set; } =
         new(false, 0.0, 0.0, 324.8, 443.2, 0x1000, 0x2000, DateTimeOffset.Now);
 
@@ -9482,5 +9602,14 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi
     {
         LastInventoryWindowContext = context;
         return Task.FromResult(OperationResult<InventoryWindowSnapshot>.Ok(InventoryWindow));
+    }
+
+    public Task<OperationResult<InventoryWindowSnapshot>> ReadInventoryWindowAsync(
+        GameApiReadContext context,
+        InventoryWindowRectSource rectSource,
+        CancellationToken cancellationToken = default)
+    {
+        LastInventoryWindowRectSource = rectSource;
+        return ReadInventoryWindowAsync(context, cancellationToken);
     }
 }

@@ -204,6 +204,9 @@ public sealed class MaintenanceScriptSettings
 
     public int BagCleanupSellButtonClickY { get; set; }
 
+    public BagCleanupItemCoordinateMode BagCleanupItemCoordinateMode { get; set; } =
+        BagCleanupItemCoordinateMode.LegacyNormalizedTopLeft;
+
     public List<string> BagCleanupExcludedItemNames { get; set; } = new();
 
     public List<BagCleanupRuleConfig> BagCleanupRules { get; set; } = BagCleanupRuleCatalog.CreateDefaultRules();
@@ -228,6 +231,7 @@ public sealed class MaintenanceScriptSettings
             BagCleanupSellItemClickY = BagCleanupSellItemClickY,
             BagCleanupSellButtonClickX = BagCleanupSellButtonClickX,
             BagCleanupSellButtonClickY = BagCleanupSellButtonClickY,
+            BagCleanupItemCoordinateMode = BagCleanupItemCoordinateMode,
             BagCleanupExcludedItemNames = BagCleanupExcludedItemNames?
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value.Trim())
@@ -236,6 +240,12 @@ public sealed class MaintenanceScriptSettings
             BagCleanupRules = BagCleanupRuleCatalog.MergeWithDefaults(BagCleanupRules)
         };
     }
+}
+
+public enum BagCleanupItemCoordinateMode
+{
+    LegacyNormalizedTopLeft,
+    WindowRectRelativeExperimental
 }
 
 public enum BagCleanupAction

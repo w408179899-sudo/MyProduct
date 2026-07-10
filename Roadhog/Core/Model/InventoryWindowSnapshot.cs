@@ -8,10 +8,19 @@ public sealed record InventoryWindowSnapshot(
     double Height,
     ulong DialogAddress,
     ulong VtableAddress,
-    DateTimeOffset CapturedAt)
+    DateTimeOffset CapturedAt,
+    InventoryWindowRectSource RectSource = InventoryWindowRectSource.LegacyDialogRect,
+    ulong RootWidgetAddress = 0,
+    ulong RectAddress = 0)
 {
     public bool IsAtTopLeft(double tolerance = 1.0)
     {
         return Math.Abs(X) <= tolerance && Math.Abs(Y) <= tolerance;
     }
+}
+
+public enum InventoryWindowRectSource
+{
+    LegacyDialogRect,
+    RootWidgetRectExperimental
 }

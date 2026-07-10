@@ -9,6 +9,7 @@ using Roadhog.Core.Hardware;
 using Roadhog.Core.Input;
 using Roadhog.Core.Model;
 using Roadhog.Core.Paths;
+using System.Globalization;
 
 namespace Roadhog.Application;
 
@@ -36,8 +37,15 @@ public sealed class RoadhogRuntime
     private static readonly TimeSpan InventoryCloseSettleDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan InventoryDragStartSettleDelay = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan InventoryDragSettleDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan BagCleanupSellRegisterClickHoldDelay = TimeSpan.FromMilliseconds(35);
+    private static readonly TimeSpan BagCleanupSellRegisterAfterClickDelay = TimeSpan.FromMilliseconds(80);
     private static readonly int[] InventoryTitleDragXOffsets = { 160 };
     private static readonly int[] InventoryTitleDragYOffsets = { 15, 10, 5, 0, -5, -10, -15 };
+    private const int BagSlotColumns = 9;
+    private const double DefaultBagSlot0CenterX = 35.0;
+    private const double DefaultBagSlot0CenterY = 95.0;
+    private const double DefaultBagSlotStepX = 32.0;
+    private const double DefaultBagSlotStepY = 32.0;
 
     public RoadhogRuntime(
         IRoadhogGameApi gameApi,
@@ -334,6 +342,198 @@ public sealed class RoadhogRuntime
             .ConfigureAwait(false);
     }
 
+    public async Task<OperationResult<BagCleanupSellRegistrationResult>> TestRegisterBagCleanupSellItemsAsync(
+        string? accountName,
+        MaintenanceScriptSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        if (_keyboardInput is null)
+        {
+            return OperationResult<BagCleanupSellRegistrationResult>.Fail(
+                "Keyboard input is not available for bag cleanup sell registration.");
+        }
+
+        InventoryWindowSnapshot? coordinateWindow = null;
+        if (settings.BagCleanupItemCoordinateMode != BagCleanupItemCoordinateMode.WindowRectRelativeExperimental)
+        {
+            var normalize = await NormalizeInventoryWindowToTopLeftCoreAsync(
+                    accountName,
+                    closeAfterNormalize: false,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!normalize.Success)
+            {
+                return OperationResult<BagCleanupSellRegistrationResult>.Fail(
+                    "Inventory window normalization failed: " + normalize.Error);
+            }
+        }
+        else
+        {
+            var windowRead = await EnsureInventoryWindowOpenAsync(
+                    accountName,
+                    InventoryWindowRectSource.RootWidgetRectExperimental,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!windowRead.Success || windowRead.Value is null)
+            {
+                return OperationResult<BagCleanupSellRegistrationResult>.Fail(
+                    "Experimental inventory Rect read failed: " + windowRead.Error);
+            }
+
+            coordinateWindow = windowRead.Value;
+        }
+
+        var read = await ReadInventoryAsync(accountName, cancellationToken).ConfigureAwait(false);
+        if (!read.Success || read.Value is null)
+        {
+            return OperationResult<BagCleanupSellRegistrationResult>.Fail(
+                "Inventory read failed: " + read.Error);
+        }
+
+        var candidates = BagCleanupItemMatcher
+            .SelectSellRegistrationItems(read.Value, settings)
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            _logger.Info("bag_cleanup.sell_register.none", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["inventoryCount"] = read.Value.Count
+            });
+            return OperationResult<BagCleanupSellRegistrationResult>.Ok(
+                new BagCleanupSellRegistrationResult(0, Array.Empty<BagCleanupSellRegistrationItem>()));
+        }
+
+        var registered = new List<BagCleanupSellRegistrationItem>();
+        foreach (var item in candidates)
+        {
+            var point = EstimateBagItemScreenPoint(
+                item.Slot,
+                settings.BagCleanupItemCoordinateMode,
+                coordinateWindow);
+            _logger.Info("bag_cleanup.sell_register.item", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["name"] = item.Name,
+                ["templateId"] = item.TemplateId,
+                ["slot"] = item.Slot,
+                ["itemType"] = item.ItemType,
+                ["qualityRank"] = item.QualityRank,
+                ["x"] = point.X,
+                ["y"] = point.Y,
+                ["coordinateMode"] = settings.BagCleanupItemCoordinateMode.ToString(),
+                ["rectSource"] = coordinateWindow?.RectSource.ToString() ?? InventoryWindowRectSource.LegacyDialogRect.ToString()
+            });
+
+            var move = await ScreenPointMouseMover
+                .MoveToAsync(
+                    _keyboardInput,
+                    point.X,
+                    point.Y,
+                    ReadDeathReviveMouseResetCount(),
+                    TimeSpan.FromMilliseconds(ReadDeathReviveMouseStepDelayMs()),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!move.Success)
+            {
+                return OperationResult<BagCleanupSellRegistrationResult>.Fail(
+                    "Move to bag item failed: " + move.Error);
+            }
+
+            await DelayAsync(TimeSpan.FromMilliseconds(ReadBagSellRegisterHoverMs()), cancellationToken)
+                .ConfigureAwait(false);
+
+            var down = await _keyboardInput.MouseDownAsync(RoadhogMouseButton.Right, cancellationToken)
+                .ConfigureAwait(false);
+            if (!down.Success)
+            {
+                return OperationResult<BagCleanupSellRegistrationResult>.Fail(
+                    "Right mouse down failed: " + down.Error);
+            }
+
+            await DelayAsync(BagCleanupSellRegisterClickHoldDelay, cancellationToken).ConfigureAwait(false);
+            var up = await _keyboardInput.MouseUpAsync(RoadhogMouseButton.Right, cancellationToken)
+                .ConfigureAwait(false);
+            if (!up.Success)
+            {
+                return OperationResult<BagCleanupSellRegistrationResult>.Fail(
+                    "Right mouse up failed: " + up.Error);
+            }
+
+            registered.Add(new BagCleanupSellRegistrationItem(
+                item.TemplateId,
+                item.InstanceId,
+                item.Name,
+                item.Slot,
+                point.X,
+                point.Y));
+            await DelayAsync(BagCleanupSellRegisterAfterClickDelay, cancellationToken).ConfigureAwait(false);
+        }
+
+        _logger.Info("bag_cleanup.sell_register.ok", new Dictionary<string, object?>
+        {
+            ["account"] = accountName,
+            ["count"] = registered.Count
+        });
+
+        return OperationResult<BagCleanupSellRegistrationResult>.Ok(
+            new BagCleanupSellRegistrationResult(registered.Count, registered));
+    }
+
+    private async Task<OperationResult<InventoryWindowSnapshot>> EnsureInventoryWindowOpenAsync(
+        string? accountName,
+        InventoryWindowRectSource rectSource,
+        CancellationToken cancellationToken)
+    {
+        if (_keyboardInput is null)
+        {
+            return OperationResult<InventoryWindowSnapshot>.Fail(
+                "Keyboard input is not available for inventory window reading.");
+        }
+
+        if (_gameApi is not IInventoryWindowGameApi inventoryApi)
+        {
+            return OperationResult<InventoryWindowSnapshot>.Fail("Inventory window VMM API is not available.");
+        }
+
+        var context = string.IsNullOrWhiteSpace(accountName)
+            ? new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty)
+            : CreateReadContext(accountName);
+        var read = await inventoryApi
+            .ReadInventoryWindowAsync(context, rectSource, cancellationToken)
+            .ConfigureAwait(false);
+        if (!read.Success || read.Value is null)
+        {
+            return OperationResult<InventoryWindowSnapshot>.Fail("Inventory window read failed: " + read.Error);
+        }
+
+        if (read.Value.IsOpen)
+        {
+            return read;
+        }
+
+        var open = await PressInventoryToggleAsync(cancellationToken).ConfigureAwait(false);
+        if (!open.Success)
+        {
+            return OperationResult<InventoryWindowSnapshot>.Fail(open.Error ?? "Inventory open toggle failed.");
+        }
+
+        await DelayAsync(InventoryOpenSettleDelay, cancellationToken).ConfigureAwait(false);
+        read = await inventoryApi
+            .ReadInventoryWindowAsync(context, rectSource, cancellationToken)
+            .ConfigureAwait(false);
+        if (!read.Success || read.Value is null)
+        {
+            return OperationResult<InventoryWindowSnapshot>.Fail(
+                "Inventory window read after open failed: " + read.Error);
+        }
+
+        return read.Value.IsOpen
+            ? read
+            : OperationResult<InventoryWindowSnapshot>.Fail(
+                "Inventory window did not open after pressing " + InventoryToggleKey + ".");
+    }
+
     private async Task<OperationResult> NormalizeInventoryWindowToTopLeftCoreAsync(
         string? accountName,
         bool closeAfterNormalize,
@@ -595,6 +795,29 @@ public sealed class RoadhogRuntime
             ClampInt((int)Math.Round(topLeft.Y + yOffset), 0, short.MaxValue));
     }
 
+    private static (int X, int Y) EstimateBagItemScreenPoint(
+        int slot,
+        BagCleanupItemCoordinateMode coordinateMode,
+        InventoryWindowSnapshot? window)
+    {
+        var column = Math.Max(0, slot) % BagSlotColumns;
+        var row = Math.Max(0, slot) / BagSlotColumns;
+        var slotOriginX = ReadRawDoubleFromEnv("ROADHOG_BAG_SLOT0_CENTER_X", DefaultBagSlot0CenterX);
+        var slotOriginY = ReadRawDoubleFromEnv("ROADHOG_BAG_SLOT0_CENTER_Y", DefaultBagSlot0CenterY);
+        var x = slotOriginX + (column * ReadRawDoubleFromEnv("ROADHOG_BAG_SLOT_STEP_X", DefaultBagSlotStepX));
+        var y = slotOriginY + (row * ReadRawDoubleFromEnv("ROADHOG_BAG_SLOT_STEP_Y", DefaultBagSlotStepY));
+        if (coordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental && window is not null)
+        {
+            var topLeft = EstimateInventoryWindowTopLeftScreen(window.X, window.Y);
+            x += topLeft.X;
+            y += topLeft.Y;
+        }
+
+        return (
+            ClampInt((int)Math.Round(x), 0, short.MaxValue),
+            ClampInt((int)Math.Round(y), 0, short.MaxValue));
+    }
+
     private static (double X, double Y) EstimateInventoryWindowTopLeftScreen(double uiX, double uiY)
     {
         var u = ClampDouble(uiX / InventoryUiMaxWindowX, 0.0, 1.0);
@@ -852,6 +1075,11 @@ public sealed class RoadhogRuntime
             1000);
     }
 
+    private static int ReadBagSellRegisterHoverMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", 200), 0, 5000);
+    }
+
     private static int ClampInt(int value, int min, int max)
     {
         return Math.Max(min, Math.Min(max, value));
@@ -875,6 +1103,14 @@ public sealed class RoadhogRuntime
         return int.TryParse(raw, out var value) ? value : defaultValue;
     }
 
+    private static double ReadRawDoubleFromEnv(string name, double defaultValue)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
+        return double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+            ? value
+            : defaultValue;
+    }
+
     private static bool DeviceMatchesHardwareKey(HardwareDeviceFeature device, string hardwareKey)
     {
         var expected = hardwareKey.Trim();
@@ -882,3 +1118,15 @@ public sealed class RoadhogRuntime
             device.AliasKeys.Any(alias => string.Equals(alias.Trim(), expected, StringComparison.OrdinalIgnoreCase));
     }
 }
+
+public sealed record BagCleanupSellRegistrationResult(
+    int RegisteredCount,
+    IReadOnlyList<BagCleanupSellRegistrationItem> Items);
+
+public sealed record BagCleanupSellRegistrationItem(
+    uint TemplateId,
+    ulong InstanceId,
+    string Name,
+    int Slot,
+    int X,
+    int Y);

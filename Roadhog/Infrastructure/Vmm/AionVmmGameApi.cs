@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 using System.Xml;
@@ -117,14 +118,30 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
     private const ulong InventoryItemTemplateIdOffset = 0x0C;
     private const ulong InventoryItemCountOffset = 0x10;
     private const ulong InventoryItemNameOffset = 0x18;
+    private const ulong InventoryItemTypeOffset = 0x60;
     private const ulong InventoryItemEquipmentMaskOffset = 0x74;
     private const ulong InventoryItemSlotOffset = 0x4EE;
+    private const ulong ItemStaticIndexRva = 0x908FF8;
+    private const ulong StaticResolverChunkListRva = 0xD03860;
+    private const ulong ItemStaticRecordIdOffset = 0x000;
+    private const int ItemStaticRecordQualityRankOffset = 0x1D9;
+    private const int StaticResolverEntrySize = 0x10;
+    private const int StaticResolverPackedHandleOffset = 0x08;
+    private const int StaticResolverPackedChunkShift = 14;
+    private const uint StaticResolverPackedOffsetMask = 0x3FFF;
+    private const uint MaxStaticResolverEntries = 2_000_000;
+    private const uint MaxStaticChunkCompressedBytes = 4 * 1024 * 1024;
+    private const uint MaxStaticChunkUncompressedBytes = 16 * 1024 * 1024;
 
     private const ulong DlgInventoryDialog27MethodRva = 0x1BF060;
     private const ulong DlgInventoryDialog28MethodRva = 0x1C48D0;
     private const ulong DlgInventoryOpenFlagOffset = 0x585;
     private const ulong DlgInventoryWindowRectOffset = 0x58;
+    private const ulong DlgInventoryRootWidgetOffset = 0x4D8;
     private const int DlgInventoryVtableBackSlots = 256;
+    private const ulong RootWidgetRectScanBytes = 0x800;
+    private const ulong RootWidgetRectScanStep = 0x08;
+    private const string RootWidgetRectOffsetEnvironmentVariable = "ROADHOG_INVENTORY_ROOT_WIDGET_RECT_OFFSET";
     private const uint InventoryUiMinAllocationSize = 0x400;
     private const uint InventoryUiMaxAllocationSize = 0x3000;
     private const ulong InventoryUiVadScanBytes = 1024UL * 1024UL * 1024UL;
@@ -293,7 +310,18 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         GameApiReadContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.Run(() => ReadInventoryWindowCore(context), cancellationToken);
+        return ReadInventoryWindowAsync(
+            context,
+            InventoryWindowRectSource.LegacyDialogRect,
+            cancellationToken);
+    }
+
+    public Task<OperationResult<InventoryWindowSnapshot>> ReadInventoryWindowAsync(
+        GameApiReadContext context,
+        InventoryWindowRectSource rectSource,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadInventoryWindowCore(context, rectSource), cancellationToken);
     }
 
     private OperationResult<LockedTargetSnapshot> ReadLockedTargetCore(GameApiReadContext context)
@@ -792,6 +820,20 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
                     return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail(readError);
                 }
 
+                var qualityByTemplate = new Dictionary<uint, byte>();
+                var staticChunkCache = new Dictionary<uint, byte[]>();
+                for (var i = 0; i < items.Count; i++)
+                {
+                    var item = items[i];
+                    item.QualityRank = ReadItemQualityRank(
+                        process,
+                        gameBase,
+                        item.TemplateId,
+                        qualityByTemplate,
+                        staticChunkCache);
+                    items[i] = item;
+                }
+
                 var snapshots = items
                     .Where(IsNormalBagInventoryItem)
                     .OrderBy(item => item.Slot)
@@ -803,7 +845,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
                         item.Name,
                         ClampInventoryCount(item.Count),
                         item.Slot,
-                        IsEquippedInventoryItem(item)))
+                        IsEquippedInventoryItem(item),
+                        item.ItemType,
+                        item.QualityRank))
                     .ToArray();
 
                 _logger.Info("vmm.inventory.read", new Dictionary<string, object?>
@@ -824,7 +868,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         }
     }
 
-    private OperationResult<InventoryWindowSnapshot> ReadInventoryWindowCore(GameApiReadContext context)
+    private OperationResult<InventoryWindowSnapshot> ReadInventoryWindowCore(
+        GameApiReadContext context,
+        InventoryWindowRectSource rectSource)
     {
         try
         {
@@ -845,7 +891,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
 
                 var cacheKey = BuildInventoryWindowCacheKey(context, process, gameBase);
                 if (_inventoryWindowCandidateCache.TryGetValue(cacheKey, out var cachedCandidate) &&
-                    TryReadInventoryWindowSnapshot(process, cachedCandidate, out var cachedSnapshot, out _))
+                    TryReadInventoryWindowSnapshot(
+                        process,
+                        cachedCandidate,
+                        rectSource,
+                        out var cachedSnapshot,
+                        out _))
                 {
                     LogInventoryWindowRead(context, process, cachedSnapshot, cacheHit: true);
                     return OperationResult<InventoryWindowSnapshot>.Ok(cachedSnapshot);
@@ -863,7 +914,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
                     return OperationResult<InventoryWindowSnapshot>.Fail(findError);
                 }
 
-                if (!TryReadInventoryWindowSnapshot(process, candidate, out var snapshot, out var readError))
+                if (!TryReadInventoryWindowSnapshot(process, candidate, rectSource, out var snapshot, out var readError))
                 {
                     return OperationResult<InventoryWindowSnapshot>.Fail(readError);
                 }
@@ -2178,6 +2229,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
             info.Name = name;
         }
 
+        TryReadUInt32(process, item + InventoryItemTypeOffset, out info.ItemType);
         TryReadUInt32(process, item + InventoryItemEquipmentMaskOffset, out info.EquipmentMask);
 
         if (TryReadInt16(process, item + InventoryItemSlotOffset, out var slot))
@@ -4766,6 +4818,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
     private static bool TryReadInventoryWindowSnapshot(
         VmmProcess process,
         InventoryWindowCandidate candidate,
+        InventoryWindowRectSource rectSource,
         out InventoryWindowSnapshot snapshot,
         out string error)
     {
@@ -4780,18 +4833,20 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
             return false;
         }
 
-        if (!TryReadDouble(process, candidate.ObjectAddress + DlgInventoryWindowRectOffset, out var x) ||
-            !TryReadDouble(process, candidate.ObjectAddress + DlgInventoryWindowRectOffset + 0x08, out var y) ||
-            !TryReadDouble(process, candidate.ObjectAddress + DlgInventoryWindowRectOffset + 0x10, out var width) ||
-            !TryReadDouble(process, candidate.ObjectAddress + DlgInventoryWindowRectOffset + 0x18, out var height))
+        var rootWidgetAddress = 0UL;
+        var rectAddress = 0UL;
+        if (!TryReadInventoryWindowRect(
+                process,
+                candidate,
+                rectSource,
+                out var x,
+                out var y,
+                out var width,
+                out var height,
+                out rootWidgetAddress,
+                out rectAddress,
+                out error))
         {
-            error = "Failed to read DlgInventory rect.";
-            return false;
-        }
-
-        if (!IsPlausibleInventoryWindowRect(x, y, width, height))
-        {
-            error = "DlgInventory rect is outside expected bounds.";
             return false;
         }
 
@@ -4803,8 +4858,138 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
             height,
             candidate.ObjectAddress,
             candidate.VtableAddress,
-            DateTimeOffset.Now);
+            DateTimeOffset.Now,
+            rectSource,
+            rootWidgetAddress,
+            rectAddress);
         return true;
+    }
+
+    private static bool TryReadInventoryWindowRect(
+        VmmProcess process,
+        InventoryWindowCandidate candidate,
+        InventoryWindowRectSource rectSource,
+        out double x,
+        out double y,
+        out double width,
+        out double height,
+        out ulong rootWidgetAddress,
+        out ulong rectAddress,
+        out string error)
+    {
+        x = 0;
+        y = 0;
+        width = 0;
+        height = 0;
+        rootWidgetAddress = 0;
+        rectAddress = 0;
+        error = string.Empty;
+
+        switch (rectSource)
+        {
+            case InventoryWindowRectSource.LegacyDialogRect:
+                rectAddress = candidate.ObjectAddress + DlgInventoryWindowRectOffset;
+                break;
+
+            case InventoryWindowRectSource.RootWidgetRectExperimental:
+                if (!TryReadPointer(process, candidate.ObjectAddress + DlgInventoryRootWidgetOffset, out rootWidgetAddress) ||
+                    !IsLikelyUserPointer(rootWidgetAddress))
+                {
+                    error = "Failed to read DlgInventory+0x4D8 root widget pointer.";
+                    return false;
+                }
+
+                if (!TryResolveRootWidgetRectAddress(process, rootWidgetAddress, out rectAddress, out error))
+                {
+                    return false;
+                }
+
+                break;
+
+            default:
+                error = "Unsupported inventory window rect source: " + rectSource + ".";
+                return false;
+        }
+
+        if (!TryReadDouble(process, rectAddress, out x) ||
+            !TryReadDouble(process, rectAddress + 0x08, out y) ||
+            !TryReadDouble(process, rectAddress + 0x10, out width) ||
+            !TryReadDouble(process, rectAddress + 0x18, out height))
+        {
+            error = "Failed to read inventory window rect at 0x" + rectAddress.ToString("X") + ".";
+            return false;
+        }
+
+        if (!IsPlausibleInventoryWindowRect(x, y, width, height))
+        {
+            error = "Inventory window rect at 0x" + rectAddress.ToString("X") + " is outside expected bounds.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryResolveRootWidgetRectAddress(
+        VmmProcess process,
+        ulong rootWidgetAddress,
+        out ulong rectAddress,
+        out string error)
+    {
+        rectAddress = 0;
+        error = string.Empty;
+
+        var configuredOffset = ReadRvaFromEnv(RootWidgetRectOffsetEnvironmentVariable, ulong.MaxValue);
+        if (configuredOffset != ulong.MaxValue)
+        {
+            rectAddress = rootWidgetAddress + configuredOffset;
+            return true;
+        }
+
+        var candidates = new List<ulong>();
+        for (var offset = 0UL; offset + 0x18 < RootWidgetRectScanBytes; offset += RootWidgetRectScanStep)
+        {
+            var address = rootWidgetAddress + offset;
+            if (!TryReadDouble(process, address, out var x) ||
+                !TryReadDouble(process, address + 0x08, out var y) ||
+                !TryReadDouble(process, address + 0x10, out var width) ||
+                !TryReadDouble(process, address + 0x18, out var height) ||
+                !IsPlausibleInventoryWindowRect(x, y, width, height))
+            {
+                continue;
+            }
+
+            candidates.Add(address);
+        }
+
+        if (candidates.Count == 1)
+        {
+            rectAddress = candidates[0];
+            return true;
+        }
+
+        if (candidates.Count == 0)
+        {
+            error = "No plausible UiRect was found within root widget +0x" +
+                RootWidgetRectScanBytes.ToString("X") +
+                ". Configure " +
+                RootWidgetRectOffsetEnvironmentVariable +
+                " after validating the Rect offset.";
+            return false;
+        }
+
+        var offsets = string.Join(
+            ", ",
+            candidates
+                .Take(8)
+                .Select(address => "+0x" + (address - rootWidgetAddress).ToString("X")));
+        error = "Root widget has " +
+            candidates.Count.ToString(CultureInfo.InvariantCulture) +
+            " plausible UiRect candidates (" +
+            offsets +
+            "). Configure " +
+            RootWidgetRectOffsetEnvironmentVariable +
+            " to select one.";
+        return false;
     }
 
     private static bool IsPlausibleInventoryWindowRect(double x, double y, double width, double height)
@@ -4840,6 +5025,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
             ["height"] = snapshot.Height,
             ["dialog"] = snapshot.DialogAddress.ToString("X"),
             ["vtable"] = snapshot.VtableAddress.ToString("X"),
+            ["rectSource"] = snapshot.RectSource.ToString(),
+            ["rootWidget"] = snapshot.RootWidgetAddress == 0 ? string.Empty : snapshot.RootWidgetAddress.ToString("X"),
+            ["rectAddress"] = snapshot.RectAddress == 0 ? string.Empty : snapshot.RectAddress.ToString("X"),
             ["cacheHit"] = cacheHit
         });
     }
@@ -5167,6 +5355,179 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         return true;
     }
 
+    private static byte ReadItemQualityRank(
+        VmmProcess process,
+        ulong gameBase,
+        uint templateId,
+        Dictionary<uint, byte> qualityByTemplate,
+        Dictionary<uint, byte[]> staticChunkCache)
+    {
+        if (templateId == 0)
+        {
+            return 0;
+        }
+
+        if (qualityByTemplate.TryGetValue(templateId, out var cached))
+        {
+            return cached;
+        }
+
+        var quality = TryReadItemStaticQualityRank(
+            process,
+            gameBase,
+            templateId,
+            staticChunkCache,
+            out var rank)
+                ? rank
+                : (byte)0;
+        qualityByTemplate[templateId] = quality;
+        return quality;
+    }
+
+    private static bool TryReadItemStaticQualityRank(
+        VmmProcess process,
+        ulong gameBase,
+        uint templateId,
+        Dictionary<uint, byte[]> staticChunkCache,
+        out byte qualityRank)
+    {
+        qualityRank = 0;
+        if (!TryFindStaticItemPackedHandle(process, gameBase, templateId, out var packedHandle))
+        {
+            return false;
+        }
+
+        var rawChunkIndex = packedHandle >> StaticResolverPackedChunkShift;
+        var chunkIndex = rawChunkIndex == 0 ? 0 : rawChunkIndex - 1;
+        var recordOffset = packedHandle & StaticResolverPackedOffsetMask;
+        if (!TryReadStaticResolverChunk(process, gameBase, chunkIndex, staticChunkCache, out var chunk) ||
+            recordOffset + ItemStaticRecordQualityRankOffset >= chunk.Length ||
+            recordOffset + sizeof(uint) > chunk.Length)
+        {
+            return false;
+        }
+
+        var offset = checked((int)recordOffset);
+        var recordId = BitConverter.ToUInt32(chunk, offset + (int)ItemStaticRecordIdOffset);
+        if (recordId != templateId)
+        {
+            return false;
+        }
+
+        qualityRank = chunk[offset + ItemStaticRecordQualityRankOffset];
+        return true;
+    }
+
+    private static bool TryFindStaticItemPackedHandle(
+        VmmProcess process,
+        ulong gameBase,
+        uint templateId,
+        out uint packedHandle)
+    {
+        packedHandle = 0;
+        if (!TryReadUInt32(process, gameBase + ItemStaticIndexRva + 0x04, out var count) ||
+            count == 0 ||
+            count > MaxStaticResolverEntries ||
+            !TryReadPointer(process, gameBase + ItemStaticIndexRva + 0x10, out var entries) ||
+            entries == 0)
+        {
+            return false;
+        }
+
+        var left = 0;
+        var right = checked((int)count) - 1;
+        while (left <= right)
+        {
+            var middle = left + ((right - left) / 2);
+            var entry = entries + ((ulong)middle * StaticResolverEntrySize);
+            if (!TryReadUInt32(process, entry, out var key))
+            {
+                return false;
+            }
+
+            if (templateId < key)
+            {
+                right = middle - 1;
+                continue;
+            }
+
+            if (templateId > key)
+            {
+                left = middle + 1;
+                continue;
+            }
+
+            if (!TryReadUInt64(process, entry + StaticResolverPackedHandleOffset, out var rawHandle))
+            {
+                return false;
+            }
+
+            packedHandle = unchecked((uint)rawHandle);
+            return packedHandle != 0;
+        }
+
+        return false;
+    }
+
+    private static bool TryReadStaticResolverChunk(
+        VmmProcess process,
+        ulong gameBase,
+        uint chunkIndex,
+        Dictionary<uint, byte[]> staticChunkCache,
+        out byte[] chunk)
+    {
+        if (staticChunkCache.TryGetValue(chunkIndex, out chunk!))
+        {
+            return true;
+        }
+
+        chunk = Array.Empty<byte>();
+        if (!TryReadPointer(process, gameBase + StaticResolverChunkListRva + ((ulong)chunkIndex * 8), out var chunkPointer) ||
+            chunkPointer == 0 ||
+            !TryReadUInt32(process, chunkPointer, out var compressedSize) ||
+            !TryReadUInt32(process, chunkPointer + 0x04, out var uncompressedSize) ||
+            compressedSize <= 6 ||
+            compressedSize > MaxStaticChunkCompressedBytes ||
+            uncompressedSize == 0 ||
+            uncompressedSize > MaxStaticChunkUncompressedBytes ||
+            !TryReadBytes(process, chunkPointer + 0x08, checked((int)compressedSize), out var compressed))
+        {
+            return false;
+        }
+
+        if (!TryInflateZlib(compressed, checked((int)uncompressedSize), out chunk))
+        {
+            return false;
+        }
+
+        staticChunkCache[chunkIndex] = chunk;
+        return true;
+    }
+
+    private static bool TryInflateZlib(byte[] zlib, int expectedSize, out byte[] inflated)
+    {
+        inflated = Array.Empty<byte>();
+        if (zlib.Length <= 6 || expectedSize <= 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var input = new MemoryStream(zlib, 2, zlib.Length - 6);
+            using var deflate = new DeflateStream(input, CompressionMode.Decompress);
+            using var output = new MemoryStream(expectedSize);
+            deflate.CopyTo(output);
+            inflated = output.ToArray();
+            return inflated.Length >= expectedSize;
+        }
+        catch
+        {
+            inflated = Array.Empty<byte>();
+            return false;
+        }
+    }
+
     private static bool TryReadUtf16String(VmmProcess process, ulong address, int maxChars, out string value)
     {
         value = string.Empty;
@@ -5393,6 +5754,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         public uint TemplateId;
         public ulong Count;
         public string Name;
+        public uint ItemType;
+        public byte QualityRank;
         public uint EquipmentMask;
         public short Slot;
         public bool IsInEquipmentArray;

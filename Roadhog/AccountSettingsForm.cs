@@ -90,6 +90,7 @@ namespace Roadhog
         private RoundedTextBox? bagCleanupThresholdTextBox;
         private RoundedTextBox? bagCleanupSellItemClickPointTextBox;
         private RoundedTextBox? bagCleanupSellButtonClickPointTextBox;
+        private RoundedComboBox? bagCleanupItemCoordinateModeCombo;
         private RoundedComboBox? bagCleanupInventoryCombo;
         private ListBox? bagCleanupExcludedItemListBox;
         private Label? bagCleanupInventoryStatusLabel;
@@ -314,6 +315,9 @@ namespace Roadhog
             SetText(
                 bagCleanupSellButtonClickPointTextBox,
                 FormatScreenPoint(settings.Maintenance.BagCleanupSellButtonClickX, settings.Maintenance.BagCleanupSellButtonClickY));
+            SetComboText(
+                bagCleanupItemCoordinateModeCombo,
+                FormatBagCleanupItemCoordinateMode(settings.Maintenance.BagCleanupItemCoordinateMode));
             ApplyBagCleanupRules(settings.Maintenance.BagCleanupRules);
             PopulateBagCleanupExcludedItemList(settings.Maintenance.BagCleanupExcludedItemNames);
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
@@ -519,6 +523,7 @@ namespace Roadhog
                     BagCleanupSellItemClickY = bagCleanupSellItemClickPoint.Y,
                     BagCleanupSellButtonClickX = bagCleanupSellButtonClickPoint.X,
                     BagCleanupSellButtonClickY = bagCleanupSellButtonClickPoint.Y,
+                    BagCleanupItemCoordinateMode = CaptureBagCleanupItemCoordinateMode(),
                     BagCleanupRules = CaptureBagCleanupRules(),
                     BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList()
                 },
@@ -1890,6 +1895,19 @@ namespace Roadhog
                         "出售")
                     .ConfigureAwait(true);
 
+            AddLabel(page, "物品坐标", 18, 500, 68, 24, _textGreen, FontStyle.Bold);
+            bagCleanupItemCoordinateModeCombo = AddCombo(
+                page,
+                86,
+                498,
+                180,
+                28,
+                "固定左上角（当前）",
+                "窗口 Rect（实验）");
+            SetComboText(
+                bagCleanupItemCoordinateModeCombo,
+                FormatBagCleanupItemCoordinateMode(BagCleanupItemCoordinateMode.LegacyNormalizedTopLeft));
+
             AddLabel(page, "不处理物品", 430, 54, 120, 24, _textGreen, FontStyle.Bold);
             var refreshInventoryButton = AddButton(page, "刷新背包", 542, 50, 96, 30);
             refreshInventoryButton.Click += async (_, _) =>
@@ -1897,6 +1915,9 @@ namespace Roadhog
             var testInventoryWindowButton = AddButton(page, "测试拖到左上", 698, 50, 130, 30);
             testInventoryWindowButton.Click += async (_, _) =>
                 await TestBagCleanupInventoryWindowNormalizeAsync(testInventoryWindowButton).ConfigureAwait(true);
+            var testSellRegisterButton = AddButton(page, "测试登记出售", 698, 84, 130, 30);
+            testSellRegisterButton.Click += async (_, _) =>
+                await TestBagCleanupSellRegisterAsync(testSellRegisterButton).ConfigureAwait(true);
 
             AddLabel(page, "当前背包", 430, 92, 82, 24, _textGreen, FontStyle.Bold);
             bagCleanupInventoryCombo = AddCombo(page, 430, 118, 248, 28);
@@ -1964,6 +1985,23 @@ namespace Roadhog
                 : BagCleanupAction.Sell;
         }
 
+        private static string FormatBagCleanupItemCoordinateMode(BagCleanupItemCoordinateMode mode)
+        {
+            return mode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental
+                ? "窗口 Rect（实验）"
+                : "固定左上角（当前）";
+        }
+
+        private BagCleanupItemCoordinateMode CaptureBagCleanupItemCoordinateMode()
+        {
+            return string.Equals(
+                bagCleanupItemCoordinateModeCombo?.Text?.Trim(),
+                "窗口 Rect（实验）",
+                StringComparison.OrdinalIgnoreCase)
+                ? BagCleanupItemCoordinateMode.WindowRectRelativeExperimental
+                : BagCleanupItemCoordinateMode.LegacyNormalizedTopLeft;
+        }
+
         private async Task RefreshBagCleanupInventoryAsync(Button button)
         {
             var originalText = button.Text;
@@ -2013,6 +2051,59 @@ namespace Roadhog
                         ? "背包已拖到左上角"
                         : "测试背包拖拽失败: " + (result.Error ?? "未知错误"),
                     !result.Success);
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+
+        private async Task TestBagCleanupSellRegisterAsync(Button button)
+        {
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "登记中...";
+            SetBagCleanupInventoryStatus("正在按当前配置登记出售物品...", false);
+
+            try
+            {
+                var settings = new MaintenanceScriptSettings
+                {
+                    BagCleanupItemCoordinateMode = CaptureBagCleanupItemCoordinateMode(),
+                    BagCleanupRules = CaptureBagCleanupRules(),
+                    BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList()
+                };
+                var result = await _runtime
+                    .TestRegisterBagCleanupSellItemsAsync(_account, settings)
+                    .ConfigureAwait(true);
+                if (!result.Success || result.Value is null)
+                {
+                    SetBagCleanupInventoryStatus(
+                        "登记出售测试失败: " + (result.Error ?? "未知错误"),
+                        true);
+                    return;
+                }
+
+                if (result.Value.RegisteredCount == 0)
+                {
+                    SetBagCleanupInventoryStatus("没有匹配当前出售配置的背包物品", false);
+                    return;
+                }
+
+                var names = string.Join(
+                    ", ",
+                    result.Value.Items
+                        .Select(item => item.Name)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Take(3));
+                var suffix = result.Value.Items.Count > 3 ? "..." : string.Empty;
+                SetBagCleanupInventoryStatus(
+                    "已登记出售 " + result.Value.RegisteredCount.ToString(CultureInfo.InvariantCulture) + " 件: " + names + suffix,
+                    false);
             }
             finally
             {

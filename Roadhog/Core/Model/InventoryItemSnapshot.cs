@@ -6,4 +6,6 @@ public sealed record InventoryItemSnapshot(
     string Name,
     uint Count,
     int Slot,
-    bool IsEquipped);
+    bool IsEquipped,
+    uint ItemType = 0,
+    byte QualityRank = 0);
