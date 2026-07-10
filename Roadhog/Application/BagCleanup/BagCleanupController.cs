@@ -80,12 +80,24 @@ public sealed class BagCleanupController
             return 0;
         }
 
-        var occupied = items
+        var occupied = CountOccupiedSlots(items, totalSlots);
+        return Math.Max(0, totalSlots - occupied);
+    }
+
+    public static int CountOccupiedSlots(
+        IEnumerable<InventoryItemSnapshot> items,
+        int totalSlots)
+    {
+        if (totalSlots <= 0)
+        {
+            return 0;
+        }
+
+        return items
             .Where(item => !item.IsEquipped && item.Slot >= 0 && item.Slot < totalSlots)
             .Select(item => item.Slot)
             .Distinct()
             .Count();
-        return Math.Max(0, totalSlots - occupied);
     }
 
     private async Task<BagCleanupTickResult> TryStartAsync(
@@ -132,13 +144,20 @@ public sealed class BagCleanupController
             return BagCleanupTickResult.Skipped("cleanup_failure_cooldown");
         }
 
-        var totalSlots = Math.Max(1, settings.BagTotalSlots);
         var read = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
         if (!read.Success || read.Value is null)
         {
             return RecoverableFailure(context, state, "inventory_read_failed", read.Error ?? "Inventory read failed.");
         }
 
+        var capacity = await ReadInventoryCapacityAsync(context).ConfigureAwait(false);
+        if (!capacity.Success)
+        {
+            return RecoverableFailure(context, state, "inventory_capacity_read_failed", capacity.Error ?? "Inventory capacity read failed.");
+        }
+
+        var totalSlots = capacity.Value;
+        var occupiedSlots = CountOccupiedSlots(read.Value, totalSlots);
         var freeSlots = CountFreeSlots(read.Value, totalSlots);
         var candidates = BagCleanupItemMatcher.SelectSellRegistrationItems(read.Value, settings);
         context.Logger.Info("bag_cleanup.check", new Dictionary<string, object?>
@@ -147,6 +166,9 @@ public sealed class BagCleanupController
             ["freeSlots"] = freeSlots,
             ["threshold"] = threshold,
             ["totalSlots"] = totalSlots,
+            ["totalSlotsSource"] = "vmm",
+            ["inventoryItemCount"] = read.Value.Count,
+            ["occupiedSlots"] = occupiedSlots,
             ["candidateCount"] = candidates.Count
         });
 
@@ -387,7 +409,21 @@ public sealed class BagCleanupController
             .ConfigureAwait(false);
         if (!result.Success)
         {
-            return CleanupFailure(context, state, "cleanup_npc_select_failed", result.Error ?? "Cleanup NPC select failed.");
+            var error = result.Error ?? "Cleanup NPC select failed.";
+            if (state.CleanupPath is not null)
+            {
+                context.Logger.Warn("bag_cleanup.npc.select.failed_returning", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["pathName"] = state.PathName,
+                    ["npcName"] = state.CleanupNpcName,
+                    ["error"] = error
+                });
+                state.ReturnAfterFailure("cleanup_npc_select_failed", error);
+                return BagCleanupTickResult.Running("cleanup_npc_select_failed_returning");
+            }
+
+            return CleanupFailure(context, state, "cleanup_npc_select_failed", error);
         }
 
         state.Advance(BagCleanupStep.OpenNpcDialog);
@@ -577,10 +613,28 @@ public sealed class BagCleanupController
             });
         }
 
-        var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
-        var freeSlots = inventory is null
-            ? (int?)null
-            : CountFreeSlots(inventory, Math.Max(1, maintenance.BagTotalSlots));
+        int? freeSlots = null;
+        int? occupiedSlots = null;
+        int? totalSlots = null;
+        if (inventory is not null)
+        {
+            var capacity = await ReadInventoryCapacityAsync(context).ConfigureAwait(false);
+            if (capacity.Success)
+            {
+                totalSlots = capacity.Value;
+                occupiedSlots = CountOccupiedSlots(inventory, capacity.Value);
+                freeSlots = CountFreeSlots(inventory, capacity.Value);
+            }
+            else
+            {
+                context.Logger.Warn("bag_cleanup.verify.capacity_read_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["error"] = capacity.Error
+                });
+            }
+        }
+
         var initialIds = state.SellCandidates.Select(item => item.InstanceId).ToHashSet();
         var remaining = inventory?.Count(item => initialIds.Contains(item.InstanceId));
         if (moneyAfter.Value > initialMoney)
@@ -594,6 +648,8 @@ public sealed class BagCleanupController
                 ["moneyDelta"] = moneyAfter.Value - initialMoney,
                 ["initialFreeSlots"] = state.InitialFreeSlots,
                 ["freeSlots"] = freeSlots,
+                ["totalSlots"] = totalSlots,
+                ["occupiedSlots"] = occupiedSlots,
                 ["initialCandidateCount"] = state.InitialCandidateCount,
                 ["remainingCandidateCount"] = remaining
             });
@@ -636,6 +692,27 @@ public sealed class BagCleanupController
             ["account"] = context.Config.AccountName,
             ["pathName"] = state.PathName
         });
+
+        if (state.IsReturningAfterFailure)
+        {
+            var reason = state.ReturnAfterFailureReason;
+            var error = string.IsNullOrWhiteSpace(state.ReturnAfterFailureError)
+                ? reason
+                : state.ReturnAfterFailureError;
+            context.Logger.Warn("bag_cleanup.failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["reason"] = reason,
+                ["error"] = error,
+                ["fatal"] = false,
+                ["returnedByReversePath"] = true,
+                ["step"] = state.Step.ToString()
+            });
+            state.MarkFailed(DateTimeOffset.Now, reason);
+            state.Reset();
+            return BagCleanupTickResult.RecoverableFailure(reason, error);
+        }
+
         state.MarkCompleted(DateTimeOffset.Now);
         state.Complete();
         state.Reset();
@@ -683,6 +760,23 @@ public sealed class BagCleanupController
         state.MarkFailed(DateTimeOffset.Now, reason);
         state.Reset();
         return BagCleanupTickResult.RecoverableFailure(reason, error);
+    }
+
+    private static async Task<OperationResult<int>> ReadInventoryCapacityAsync(
+        AccountWorkerContext context)
+    {
+        var read = await BagCleanupGameApi.ReadInventoryCapacityAsync(context).ConfigureAwait(false);
+        if (!read.Success)
+        {
+            return read;
+        }
+
+        if (read.Value <= 0)
+        {
+            return OperationResult<int>.Fail("Inventory capacity is invalid: " + read.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        return read;
     }
 
     private static double Distance(Vector3Snapshot left, Vector3Snapshot right)

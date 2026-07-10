@@ -47,8 +47,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime normalizes inventory window then closes", TestRuntimeNormalizesInventoryWindowThenClosesAsync),
     ("runtime normalizes inventory window and leaves open", TestRuntimeNormalizesInventoryWindowLeavesOpenAsync),
     ("runtime registers configured bag cleanup sell items", TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync),
+    ("runtime tests bag cleanup from npc through sell", TestRuntimeTestsBagCleanupFromNpcThroughSellAsync),
     ("bag cleanup controller stays inactive when disabled", TestBagCleanupControllerSkipsWhenDisabledAsync),
     ("bag cleanup controller sells configured items and returns", TestBagCleanupControllerSellsItemsAndReturnsAsync),
+    ("bag cleanup controller returns by reverse path when npc is not found", TestBagCleanupControllerReturnsWhenNpcNotFoundAsync),
     ("bag cleanup controller skips within cooldown", TestBagCleanupControllerSkipsWithinCooldownAsync),
     ("bag cleanup controller failure cools down instead of stopping", TestBagCleanupControllerFailureCoolsDownAsync),
     ("bag cleanup matcher groups weapon armor and accessory as equipment", TestBagCleanupMatcherGroupsEquipmentTypesAsync),
@@ -949,6 +951,7 @@ static Task TestInputKeyMapAsync()
     AssertHidCode("OemPlus", 0x2E);
     AssertHidCode("OemComma", 0x36);
     AssertHidCode("Tab", 0x2B);
+    AssertHidCode("F8", 0x41);
     AssertHidCode("F9", 0x42);
     AssertHidCode("NumPad0", 0x62);
     AssertHidCode("NumPadSubtract", 0x56);
@@ -1260,6 +1263,129 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
     }
 }
 
+static async Task TestRuntimeTestsBagCleanupFromNpcThroughSellAsync()
+{
+    var previousVerify = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS");
+    var previousPointHover = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS");
+    var previousRegisterHover = Environment.GetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS");
+    var previousMouseReset = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT");
+    var previousMouseStep = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
+    var previousNpcAttempts = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS");
+    try
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", "1");
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", "3");
+
+        var logger = new InMemoryRoadhogLogger();
+        var accounts = new AccountRuntimeManager(logger);
+        accounts.MarkStarting(new AccountConfig
+        {
+            AccountName = "account-scope",
+            ProcessId = 712,
+            TargetProcessName = "Aion.bin",
+            VmmDeviceName = "fpga"
+        });
+
+        var cleanupNpcName = "cleanup-vendor";
+        var gameApi = new FakeGameApi
+        {
+            TargetEntityId = 0,
+            TargetName = string.Empty,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetIsTargetingLocalPlayer = false,
+            InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0),
+            InventoryMoney = 1000,
+            InventoryItems = new[]
+            {
+                new InventoryItemSnapshot(167000450, 10, "green-manastone-a", 1, 0, false, 24, 2),
+                new InventoryItemSnapshot(167000451, 11, "green-manastone-b", 1, 1, false, 24, 2),
+                new InventoryItemSnapshot(1001, 12, "kept", 1, 2, false, 1, 4)
+            }
+        };
+        var keyboard = new RecordingKeyboardInput();
+        var f8Attempts = 0;
+        keyboard.AfterPress = key =>
+        {
+            if (key != "F8")
+            {
+                return;
+            }
+
+            f8Attempts++;
+            gameApi.TargetEntityId = 77;
+            gameApi.TargetServerObjectId = 7700;
+            gameApi.TargetName = f8Attempts == 1 ? "other-player" : cleanupNpcName;
+            gameApi.TargetCurrentHp = 0;
+            gameApi.TargetMaxHp = 0;
+        };
+
+        var leftClicks = 0;
+        keyboard.AfterMouseUp = button =>
+        {
+            if (button != RoadhogMouseButton.Left)
+            {
+                return;
+            }
+
+            leftClicks++;
+            if (leftClicks == 2)
+            {
+                gameApi.InventoryItems = gameApi.InventoryItems
+                    .Where(item => item.InstanceId is not 10UL and not 11UL)
+                    .ToArray();
+                gameApi.InventoryMoney += 200;
+            }
+        };
+
+        var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+        rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenManastone).Enabled = true;
+        var settings = new MaintenanceScriptSettings
+        {
+            BagCleanupRules = rules,
+            BagCleanupSellItemClickX = 100,
+            BagCleanupSellItemClickY = 200,
+            BagCleanupSellButtonClickX = 300,
+            BagCleanupSellButtonClickY = 400
+        };
+        var runtime = new RoadhogRuntime(
+            gameApi,
+            logger,
+            accounts,
+            null!,
+            keyboardInput: keyboard);
+
+        var result = await runtime
+            .TestBagCleanupFromNpcAsync("account-scope", cleanupNpcName, settings)
+            .ConfigureAwait(false);
+
+        AssertFalse(!result.Success, "manual bag cleanup test should succeed: " + result.Error);
+        AssertEqual(2, f8Attempts, "manual cleanup should keep pressing F8 until configured npc is selected");
+        AssertSequence(new[] { "F8", "F8", "C" }, keyboard.Keys.ToArray(), "manual cleanup key sequence");
+        AssertEqual(2, result.Value?.CandidateCount ?? 0, "manual cleanup candidate count");
+        AssertEqual(2, result.Value?.RegisteredCount ?? 0, "manual cleanup registered count");
+        AssertEqual(1000UL, result.Value?.InitialMoney ?? 0UL, "manual cleanup initial money");
+        AssertEqual(1200UL, result.Value?.FinalMoney ?? 0UL, "manual cleanup final money");
+        AssertEqual(200UL, result.Value?.MoneyDelta ?? 0UL, "manual cleanup money delta");
+        AssertFalse(!keyboard.MouseCommands.Contains("down:Right"), "manual cleanup should right click bag items");
+        AssertEqual(712, gameApi.LastInventoryMoneyContext?.ProcessId ?? 0, "money read should use scoped process id");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.manual_test.ok"), "manual cleanup should log success");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS", previousVerify);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_POINT_HOVER_MS", previousPointHover);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", previousRegisterHover);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", previousMouseReset);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousMouseStep);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
+    }
+}
+
 static async Task TestBagCleanupControllerSkipsWhenDisabledAsync()
 {
     var logger = new InMemoryRoadhogLogger();
@@ -1274,8 +1400,7 @@ static async Task TestBagCleanupControllerSkipsWhenDisabledAsync()
     settings.Maintenance = new MaintenanceScriptSettings
     {
         BagCleanupEnabled = false,
-        BagCleanupThreshold = 5,
-        BagTotalSlots = 10
+        BagCleanupThreshold = 5
     };
     var pathCalls = new List<string>();
     var controller = new BagCleanupController(
@@ -1328,6 +1453,7 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
             TargetIsTargetingLocalPlayer = false,
             InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0),
             InventoryMoney = 1000,
+            InventoryCapacity = 10,
             InventoryItems = new[]
             {
                 new InventoryItemSnapshot(167000450, 10, "green-manastone-a", 1, 0, false, 24, 2),
@@ -1386,7 +1512,6 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         {
             BagCleanupEnabled = true,
             BagCleanupThreshold = 5,
-            BagTotalSlots = 10,
             BagCleanupRules = rules,
             BagCleanupSellItemClickX = 100,
             BagCleanupSellItemClickY = 200,
@@ -1432,6 +1557,11 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         AssertFalse(gameApi.InventoryItems.Any(item => item.InstanceId is 10UL or 11UL), "sold items should be removed before verification");
         AssertEqual(1200UL, gameApi.InventoryMoney, "money should increase after sell");
         AssertFalse(state.LastCompletedAt == DateTimeOffset.MinValue, "completion should start cleanup cooldown");
+        var check = logger.Entries.FirstOrDefault(entry => entry.EventName == "bag_cleanup.check");
+        AssertFalse(check is null, "cleanup check should be logged");
+        AssertEqual(10, Convert.ToInt32(check!.Fields["totalSlots"]), "cleanup should use VMM inventory capacity");
+        AssertEqual(7, Convert.ToInt32(check.Fields["occupiedSlots"]), "cleanup should count occupied slots from VMM inventory");
+        AssertEqual("vmm", Convert.ToString(check.Fields["totalSlotsSource"]) ?? string.Empty, "cleanup capacity source");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.return.verify.ok"), "cleanup should verify town return position");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.verify.ok"), "cleanup should verify money increase");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.complete"), "cleanup should log completion");
@@ -1449,6 +1579,137 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
     }
 }
 
+static async Task TestBagCleanupControllerReturnsWhenNpcNotFoundAsync()
+{
+    var previousTownSettle = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS");
+    var previousNpcAttempts = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS");
+    var previousTownMinDistance = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE");
+    var previousFailureCooldown = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS");
+    try
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", "0");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", "2");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", "1");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS", "1500000");
+
+        var logger = new InMemoryRoadhogLogger();
+        var keyboard = new RecordingKeyboardInput();
+        var cleanupNpcName = "cleanup-vendor";
+        var gameApi = new FakeGameApi
+        {
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetName = string.Empty,
+            TargetIsTargetingLocalPlayer = false,
+            InventoryCapacity = 10,
+            InventoryItems = new[]
+            {
+                new InventoryItemSnapshot(167000450, 10, "green-manastone-a", 1, 0, false, 24, 2),
+                new InventoryItemSnapshot(167000451, 11, "green-manastone-b", 1, 1, false, 24, 2),
+                new InventoryItemSnapshot(1001, 12, "kept", 1, 2, false, 1, 4),
+                new InventoryItemSnapshot(1002, 13, "filler-3", 1, 3, false, 1, 1),
+                new InventoryItemSnapshot(1003, 14, "filler-4", 1, 4, false, 1, 1),
+                new InventoryItemSnapshot(1004, 15, "filler-5", 1, 5, false, 1, 1),
+                new InventoryItemSnapshot(1005, 16, "filler-6", 1, 6, false, 1, 1)
+            }
+        };
+        keyboard.AfterPress = key =>
+        {
+            if (key == "NumPad7")
+            {
+                gameApi.Player = gameApi.Player with
+                {
+                    Position = new Vector3Snapshot(100, 0, 0),
+                    CapturedAt = DateTimeOffset.Now
+                };
+            }
+            else if (key == "F8")
+            {
+                gameApi.TargetEntityId = 77;
+                gameApi.TargetServerObjectId = 7700;
+                gameApi.TargetName = "wrong-target";
+                gameApi.TargetCurrentHp = 0;
+                gameApi.TargetMaxHp = 0;
+            }
+        };
+
+        var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+        rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenManastone).Enabled = true;
+        var settings = CreateScriptSettings();
+        settings.Paths.TownReturnKey = "NumPad7";
+        settings.Paths.MaintenancePathName = "cleanup-path";
+        settings.Maintenance = new MaintenanceScriptSettings
+        {
+            BagCleanupEnabled = true,
+            BagCleanupThreshold = 5,
+            BagCleanupRules = rules,
+            BagCleanupSellItemClickX = 100,
+            BagCleanupSellItemClickY = 200,
+            BagCleanupSellButtonClickX = 300,
+            BagCleanupSellButtonClickY = 400
+        };
+        var pathStore = new InMemorySharedPathStore(new SharedPathDocument
+        {
+            Name = "cleanup-path",
+            CleanupNpcName = cleanupNpcName,
+            Points = new List<SharedPathPoint>
+            {
+                new() { X = 1, Y = 0, Z = 0 },
+                new() { X = 2, Y = 0, Z = 0 }
+            }
+        });
+        var pathCalls = new List<string>();
+        var controller = new BagCleanupController(
+            keyboard,
+            pathStore,
+            (context, pathName, points) =>
+            {
+                pathCalls.Add(pathName + ":" + points.Count);
+                return Task.FromResult(OperationResult.Ok());
+            });
+        var state = new BagCleanupState();
+        var context = CreateContext(settings, gameApi, logger);
+        BagCleanupTickResult? last = null;
+        for (var i = 0; i < 30; i++)
+        {
+            last = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+            if (last.Status == BagCleanupTickStatus.RecoverableFailure ||
+                last.Status == BagCleanupTickStatus.FatalFailure ||
+                last.Status == BagCleanupTickStatus.Completed)
+            {
+                break;
+            }
+        }
+
+        AssertEqual(BagCleanupTickStatus.RecoverableFailure, last?.Status ?? BagCleanupTickStatus.FatalFailure, "npc miss should be recoverable after return path");
+        AssertEqual("cleanup_npc_select_failed", last?.Reason ?? string.Empty, "npc miss failure reason");
+        AssertSequence(new[] { "NumPad7", "F8", "F8" }, keyboard.Keys.ToArray(), "npc miss key sequence");
+        AssertSequence(new[] { "cleanup-path:2", "cleanup-path 返回:2" }, pathCalls.ToArray(), "npc miss should follow cleanup path then reverse it");
+        AssertFalse(state.LastCompletedAt != DateTimeOffset.MinValue, "npc miss should not start completion cooldown");
+        AssertFalse(state.LastFailedAt == DateTimeOffset.MinValue, "npc miss should start failure cooldown after reverse path");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.npc.select.failed_returning"), "npc miss should log return decision");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "bag_cleanup.failed" &&
+                entry.Fields.TryGetValue("returnedByReversePath", out var returned) &&
+                returned is bool boolValue &&
+                boolValue),
+            "npc miss failure should log that reverse path completed");
+
+        var skipped = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+        AssertEqual(BagCleanupTickStatus.Skipped, skipped.Status, "npc miss should skip during failure cooldown");
+        AssertEqual("cleanup_failure_cooldown", skipped.Reason, "npc miss failure cooldown reason");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", previousTownSettle);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_FAILURE_COOLDOWN_MS", previousFailureCooldown);
+    }
+}
+
 static async Task TestBagCleanupControllerSkipsWithinCooldownAsync()
 {
     var logger = new InMemoryRoadhogLogger();
@@ -1462,7 +1723,6 @@ static async Task TestBagCleanupControllerSkipsWithinCooldownAsync()
     {
         BagCleanupEnabled = true,
         BagCleanupThreshold = 5,
-        BagTotalSlots = 10,
         BagCleanupRules = rules,
         BagCleanupSellItemClickX = 100,
         BagCleanupSellItemClickY = 200,
@@ -1533,6 +1793,7 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
             TargetIsTargetingLocalPlayer = false,
             InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0),
             InventoryMoney = 1000,
+            InventoryCapacity = 10,
             InventoryItems = new[]
             {
                 new InventoryItemSnapshot(167000450, 10, "green-manastone-a", 1, 0, false, 24, 2),
@@ -1573,7 +1834,6 @@ static async Task TestBagCleanupControllerFailureCoolsDownAsync()
         {
             BagCleanupEnabled = true,
             BagCleanupThreshold = 5,
-            BagTotalSlots = 10,
             BagCleanupRules = rules,
             BagCleanupSellItemClickX = 100,
             BagCleanupSellItemClickY = 200,
@@ -9811,7 +10071,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
 {
     public PlayerSnapshot Player { get; set; } = new(
         1,
@@ -9831,6 +10091,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
 
     public ulong InventoryMoney { get; set; }
 
+    public int InventoryCapacity { get; set; }
+
     public PlayerAbnormalStatusSnapshot PlayerAbnormalStatuses { get; set; } =
         PlayerAbnormalStatusSnapshot.Empty(1);
 
@@ -9849,6 +10111,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
     public GameApiReadContext? LastInventoryContext { get; private set; }
 
     public GameApiReadContext? LastInventoryMoneyContext { get; private set; }
+
+    public GameApiReadContext? LastInventoryCapacityContext { get; private set; }
 
     public GameApiReadContext? LastSummonedPetContext { get; private set; }
 
@@ -10051,6 +10315,14 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
     {
         LastInventoryMoneyContext = context;
         return Task.FromResult(OperationResult<ulong>.Ok(InventoryMoney));
+    }
+
+    public Task<OperationResult<int>> ReadInventoryCapacityAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        LastInventoryCapacityContext = context;
+        return Task.FromResult(OperationResult<int>.Ok(InventoryCapacity));
     }
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)

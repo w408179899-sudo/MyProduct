@@ -376,7 +376,6 @@ namespace Roadhog
             var capturedSettings = CaptureScriptSettings();
             capturedSettings.Maintenance.AutoEquip = previousSettings.Maintenance.AutoEquip;
             capturedSettings.Maintenance.AutoDecompose = previousSettings.Maintenance.AutoDecompose;
-            capturedSettings.Maintenance.BagTotalSlots = previousSettings.Maintenance.BagTotalSlots;
             capturedSettings.SemiAuto = previousSettings.SemiAuto.Clone();
             capturedSettings.SemiAuto.AttackKeyLoopEnabled =
                 openingAttackKeyCheckBox?.Checked ?? capturedSettings.SemiAuto.AttackKeyLoopEnabled;
@@ -1888,6 +1887,10 @@ namespace Roadhog
             AddLabel(page, "药品", 18, 330, 80, 22, _textGreen, FontStyle.Bold);
             AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Medicine), leftOptionX, leftComboX, 352);
 
+            var testCleanupButton = AddButton(page, "测试清包", 38, 418, 166, 36);
+            testCleanupButton.Click += async (_, _) =>
+                await TestBagCleanupFromNpcAsync(testCleanupButton).ConfigureAwait(true);
+
             AddLabel(page, "出售道具", 18, 548, 68, 24, _textGreen, FontStyle.Bold);
             bagCleanupSellItemClickPointTextBox = AddTextBox(page, "0,0", 86, 546, 84, 28);
             var testSellItemPointButton = AddButton(page, "移动测试", 176, 546, 66, 28);
@@ -2120,6 +2123,73 @@ namespace Roadhog
                 var suffix = result.Value.Items.Count > 3 ? "..." : string.Empty;
                 SetBagCleanupInventoryStatus(
                     "已登记出售 " + result.Value.RegisteredCount.ToString(CultureInfo.InvariantCulture) + " 件: " + names + suffix,
+                    false);
+            }
+            finally
+            {
+                if (!button.IsDisposed)
+                {
+                    button.Text = originalText;
+                    button.Enabled = true;
+                }
+            }
+        }
+
+        private async Task TestBagCleanupFromNpcAsync(Button button)
+        {
+            var originalText = button.Text;
+            button.Enabled = false;
+            button.Text = "清包中...";
+            SetBagCleanupInventoryStatus("正在测试清包：F8 查找清包 NPC...", false);
+
+            try
+            {
+                var settings = CaptureScriptSettings();
+                var pathName = settings.Paths.MaintenancePathName?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(pathName))
+                {
+                    SetBagCleanupInventoryStatus("测试清包失败：未配置清包路径", true);
+                    return;
+                }
+
+                var path = await _pathStore.LoadAsync(pathName).ConfigureAwait(true);
+                if (!path.Success || path.Value is null)
+                {
+                    SetBagCleanupInventoryStatus(
+                        "测试清包失败：读取清包路径失败: " + (path.Error ?? pathName),
+                        true);
+                    return;
+                }
+
+                var npcName = path.Value.CleanupNpcName?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(npcName))
+                {
+                    SetBagCleanupInventoryStatus("测试清包失败：清包路径未绑定 NPC", true);
+                    return;
+                }
+
+                var result = await _runtime
+                    .TestBagCleanupFromNpcAsync(_account, npcName, settings.Maintenance)
+                    .ConfigureAwait(true);
+                if (!result.Success || result.Value is null)
+                {
+                    SetBagCleanupInventoryStatus(
+                        "测试清包失败: " + (result.Error ?? "未知错误"),
+                        true);
+                    return;
+                }
+
+                if (result.Value.RegisteredCount == 0)
+                {
+                    SetBagCleanupInventoryStatus("测试清包完成：没有匹配出售配置的背包物品", false);
+                    return;
+                }
+
+                SetBagCleanupInventoryStatus(
+                    "测试清包完成：登记 " +
+                    result.Value.RegisteredCount.ToString(CultureInfo.InvariantCulture) +
+                    " 件，金币 +" +
+                    (result.Value.MoneyDelta ?? 0UL).ToString("N0", CultureInfo.InvariantCulture),
                     false);
             }
             finally

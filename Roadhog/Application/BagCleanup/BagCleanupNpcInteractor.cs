@@ -27,7 +27,7 @@ public sealed class BagCleanupNpcInteractor
             return OperationResult.Fail("Cleanup NPC name is empty.");
         }
 
-        var maxAttempts = Math.Max(1, ReadIntFromEnv("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", 60));
+        var maxAttempts = Math.Max(1, ReadIntFromEnv("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", 30));
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             var press = await _input

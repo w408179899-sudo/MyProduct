@@ -76,6 +76,18 @@ internal static class BagCleanupGameApi
         return moneyApi.ReadInventoryMoneyAsync(CreateReadContext(context), context.StopToken);
     }
 
+    public static Task<OperationResult<int>> ReadInventoryCapacityAsync(
+        AccountWorkerContext context)
+    {
+        if (context.GameApi is not IInventoryCapacityGameApi capacityApi)
+        {
+            return Task.FromResult(OperationResult<int>.Fail(
+                "Inventory capacity VMM API is not available."));
+        }
+
+        return capacityApi.ReadInventoryCapacityAsync(CreateReadContext(context), context.StopToken);
+    }
+
     public static GameApiReadContext CreateReadContext(AccountWorkerContext context)
     {
         return new GameApiReadContext(

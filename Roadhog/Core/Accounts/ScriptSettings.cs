@@ -199,8 +199,6 @@ public sealed class MaintenanceScriptSettings
 
     public int BagCleanupThreshold { get; set; } = 5;
 
-    public int BagTotalSlots { get; set; } = 100;
-
     public int BagCleanupSellItemClickX { get; set; }
 
     public int BagCleanupSellItemClickY { get; set; }
@@ -232,7 +230,6 @@ public sealed class MaintenanceScriptSettings
             AutoEquip = AutoEquip,
             AutoDecompose = AutoDecompose,
             BagCleanupThreshold = BagCleanupThreshold,
-            BagTotalSlots = BagTotalSlots,
             BagCleanupSellItemClickX = BagCleanupSellItemClickX,
             BagCleanupSellItemClickY = BagCleanupSellItemClickY,
             BagCleanupSellButtonClickX = BagCleanupSellButtonClickX,

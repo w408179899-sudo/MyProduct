@@ -14,7 +14,7 @@ using Vmmsharp;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi
+public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
 {
     private static readonly TimeSpan VmmReconnectDelay = TimeSpan.FromSeconds(5);
     private const int PlayerReadFailuresBeforeReconnect = 3;
@@ -287,6 +287,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadInventoryMoneyCore(context), cancellationToken);
+    }
+
+    public Task<OperationResult<int>> ReadInventoryCapacityAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadInventoryCapacityCore(context), cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
@@ -930,6 +937,60 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
                 ["account"] = context.AccountName
             });
             return OperationResult<ulong>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<int> ReadInventoryCapacityCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<int>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<int>.Fail("Module not found: " + moduleName);
+                }
+
+                if (!TryReadPointer(process, gameBase + InventoryManagerGlobalRva, out var manager) || manager == 0)
+                {
+                    return OperationResult<int>.Fail(
+                        "failed to read InventoryManager pointer at Game.dll+0x" +
+                        InventoryManagerGlobalRva.ToString("X", CultureInfo.InvariantCulture));
+                }
+
+                if (!TryReadUInt32(process, manager + InventoryCapacityOffset, out var capacity))
+                {
+                    return OperationResult<int>.Fail(
+                        "failed to read inventory capacity at InventoryManager+0x" +
+                        InventoryCapacityOffset.ToString("X", CultureInfo.InvariantCulture));
+                }
+
+                _logger.Info("vmm.inventory.capacity.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["processName"] = process.Name,
+                    ["capacity"] = capacity
+                });
+
+                return OperationResult<int>.Ok(checked((int)capacity));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.inventory.capacity.exception", ex, new Dictionary<string, object?>
+            {
+                ["account"] = context.AccountName
+            });
+            return OperationResult<int>.Fail(ex.Message);
         }
     }
 

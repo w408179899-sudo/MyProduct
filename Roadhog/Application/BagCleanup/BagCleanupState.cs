@@ -29,6 +29,10 @@ public sealed class BagCleanupState
 
     public string LastFailureReason { get; private set; } = string.Empty;
 
+    public string ReturnAfterFailureReason { get; private set; } = string.Empty;
+
+    public string ReturnAfterFailureError { get; private set; } = string.Empty;
+
     public string PathName { get; private set; } = string.Empty;
 
     public string CleanupNpcName { get; private set; } = string.Empty;
@@ -50,6 +54,8 @@ public sealed class BagCleanupState
 
     public bool HasClickedSellButton { get; private set; }
 
+    public bool IsReturningAfterFailure => !string.IsNullOrWhiteSpace(ReturnAfterFailureReason);
+
     public bool Active => Step != BagCleanupStep.Inactive &&
                           Step != BagCleanupStep.Complete &&
                           Step != BagCleanupStep.Failed &&
@@ -65,6 +71,8 @@ public sealed class BagCleanupState
         TriggerThreshold = threshold;
         InitialCandidateCount = 0;
         InitialMoney = null;
+        ReturnAfterFailureReason = string.Empty;
+        ReturnAfterFailureError = string.Empty;
         TownReturnStartPosition = null;
         PathName = string.Empty;
         CleanupNpcName = string.Empty;
@@ -134,6 +142,13 @@ public sealed class BagCleanupState
         RetryCount = 0;
     }
 
+    public void ReturnAfterFailure(string reason, string error)
+    {
+        ReturnAfterFailureReason = reason?.Trim() ?? string.Empty;
+        ReturnAfterFailureError = error?.Trim() ?? string.Empty;
+        Advance(BagCleanupStep.ReturnByReversePath);
+    }
+
     public void IncrementRetry()
     {
         RetryCount++;
@@ -191,6 +206,8 @@ public sealed class BagCleanupState
         TriggerThreshold = 0;
         InitialCandidateCount = 0;
         InitialMoney = null;
+        ReturnAfterFailureReason = string.Empty;
+        ReturnAfterFailureError = string.Empty;
         TownReturnStartPosition = null;
         PathName = string.Empty;
         CleanupNpcName = string.Empty;

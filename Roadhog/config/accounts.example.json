@@ -53,8 +53,7 @@
           "bagCleanupEnabled": false,
           "autoEquip": true,
           "autoDecompose": true,
-          "bagCleanupThreshold": 5,
-          "bagTotalSlots": 100
+          "bagCleanupThreshold": 5
         },
         "skills": {
           "mode": "Auto",

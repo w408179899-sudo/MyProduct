@@ -25,6 +25,7 @@ public static class RoadhogInputKeyMap
             ["OemPlus"] = 0x2E,
             ["OemComma"] = 0x36,
             ["Tab"] = 0x2B,
+            ["F8"] = 0x41,
             ["F9"] = 0x42,
             ["NumPad1"] = 0x59,
             ["NumPad2"] = 0x5A,

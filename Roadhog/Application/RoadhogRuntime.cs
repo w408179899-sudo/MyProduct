@@ -1,4 +1,5 @@
 using Roadhog.Application.Input;
+using Roadhog.Application.BagCleanup;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Api;
@@ -481,6 +482,197 @@ public sealed class RoadhogRuntime
 
         return OperationResult<BagCleanupSellRegistrationResult>.Ok(
             new BagCleanupSellRegistrationResult(registered.Count, registered));
+    }
+
+    public async Task<OperationResult<BagCleanupManualTestResult>> TestBagCleanupFromNpcAsync(
+        string? accountName,
+        string npcName,
+        MaintenanceScriptSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        OperationResult<BagCleanupManualTestResult> Fail(string reason, string error)
+        {
+            _logger.Warn("bag_cleanup.manual_test.failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["reason"] = reason,
+                ["error"] = error
+            });
+            return OperationResult<BagCleanupManualTestResult>.Fail(reason + ": " + error);
+        }
+
+        if (_keyboardInput is null)
+        {
+            return Fail("input_unavailable", "Keyboard input is not available for bag cleanup test.");
+        }
+
+        var trimmedNpcName = npcName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmedNpcName))
+        {
+            return Fail("npc_name_empty", "Cleanup NPC name is empty.");
+        }
+
+        var account = accountName ?? string.Empty;
+        var scriptSettings = LoadSavedAccountConfig(account)?.ScriptSettings?.Clone() ?? new ScriptSettings();
+        scriptSettings.Maintenance = settings.Clone();
+        var config = LoadExecutionAccountConfig(account, scriptSettings);
+        var context = new AccountWorkerContext(
+            config,
+            _gameApi,
+            _logger,
+            Accounts,
+            new AccountWorkerOptions(),
+            cancellationToken);
+        var npcInteractor = new BagCleanupNpcInteractor(_keyboardInput);
+        var seller = new BagCleanupSeller(_keyboardInput);
+        var maintenance = config.ScriptSettings?.Maintenance ?? settings;
+
+        _logger.Info("bag_cleanup.manual_test.start", new Dictionary<string, object?>
+        {
+            ["account"] = account,
+            ["npcName"] = trimmedNpcName
+        });
+
+        var select = await npcInteractor.SelectConfiguredNpcAsync(context, trimmedNpcName).ConfigureAwait(false);
+        if (!select.Success)
+        {
+            return Fail("cleanup_npc_select_failed", select.Error ?? "Cleanup NPC select failed.");
+        }
+
+        var dialog = await npcInteractor.OpenDialogAsync(context).ConfigureAwait(false);
+        if (!dialog.Success)
+        {
+            return Fail("npc_dialog_open_failed", dialog.Error ?? "NPC dialog open failed.");
+        }
+
+        var clickEntry = await seller
+            .ClickScreenPointAsync(
+                context,
+                maintenance.BagCleanupSellItemClickX,
+                maintenance.BagCleanupSellItemClickY,
+                "sell_item_entry")
+            .ConfigureAwait(false);
+        if (!clickEntry.Success)
+        {
+            return Fail("sell_item_entry_click_failed", clickEntry.Error ?? "Sell item entry click failed.");
+        }
+
+        var normalize = await seller.NormalizeInventoryWindowToTopLeftAsync(context).ConfigureAwait(false);
+        if (!normalize.Success)
+        {
+            return Fail("inventory_window_normalize_failed", normalize.Error ?? "Inventory normalize failed.");
+        }
+
+        var inventoryRead = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
+        if (!inventoryRead.Success || inventoryRead.Value is null)
+        {
+            return Fail("inventory_read_before_sell_failed", inventoryRead.Error ?? "Inventory read failed.");
+        }
+
+        var candidates = BagCleanupItemMatcher
+            .SelectSellRegistrationItems(inventoryRead.Value, maintenance)
+            .ToArray();
+        _logger.Info("bag_cleanup.manual_test.sell.candidates", new Dictionary<string, object?>
+        {
+            ["account"] = account,
+            ["count"] = candidates.Length
+        });
+
+        if (candidates.Length == 0)
+        {
+            var emptyResult = new BagCleanupManualTestResult(
+                trimmedNpcName,
+                0,
+                0,
+                null,
+                null,
+                null,
+                Array.Empty<BagCleanupRegisteredItem>());
+            _logger.Info("bag_cleanup.manual_test.no_candidates", new Dictionary<string, object?>
+            {
+                ["account"] = account,
+                ["npcName"] = trimmedNpcName
+            });
+            return OperationResult<BagCleanupManualTestResult>.Ok(emptyResult);
+        }
+
+        InventoryWindowSnapshot? coordinateWindow = null;
+        if (maintenance.BagCleanupItemCoordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental)
+        {
+            var windowRead = await BagCleanupGameApi
+                .ReadInventoryWindowAsync(context, InventoryWindowRectSource.RootWidgetRectExperimental)
+                .ConfigureAwait(false);
+            if (!windowRead.Success || windowRead.Value is null)
+            {
+                return Fail("inventory_window_rect_failed", windowRead.Error ?? "Experimental inventory Rect read failed.");
+            }
+
+            coordinateWindow = windowRead.Value;
+        }
+
+        var registered = await seller
+            .RegisterSellItemsAsync(context, maintenance, candidates, coordinateWindow)
+            .ConfigureAwait(false);
+        if (!registered.Success || registered.Value is null)
+        {
+            return Fail("sell_register_failed", registered.Error ?? "Sell register failed.");
+        }
+
+        var moneyBefore = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
+        if (!moneyBefore.Success)
+        {
+            return Fail("money_read_before_sell_failed", moneyBefore.Error ?? "Inventory money read before sell failed.");
+        }
+
+        var clickSell = await seller
+            .ClickScreenPointAsync(
+                context,
+                maintenance.BagCleanupSellButtonClickX,
+                maintenance.BagCleanupSellButtonClickY,
+                "sell_button")
+            .ConfigureAwait(false);
+        if (!clickSell.Success)
+        {
+            return Fail("sell_button_click_failed", clickSell.Error ?? "Sell button click failed.");
+        }
+
+        await DelayAsync(TimeSpan.FromMilliseconds(ReadBagCleanupSellVerifyDelayMs()), cancellationToken)
+            .ConfigureAwait(false);
+        var moneyAfter = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
+        if (!moneyAfter.Success)
+        {
+            return Fail("money_verify_read_failed", moneyAfter.Error ?? "Inventory money verify read failed.");
+        }
+
+        if (moneyAfter.Value <= moneyBefore.Value)
+        {
+            return Fail(
+                "money_verify_failed",
+                "Money did not increase after selling. before=" +
+                moneyBefore.Value.ToString(CultureInfo.InvariantCulture) +
+                ", after=" +
+                moneyAfter.Value.ToString(CultureInfo.InvariantCulture));
+        }
+
+        var result = new BagCleanupManualTestResult(
+            trimmedNpcName,
+            candidates.Length,
+            registered.Value.Count,
+            moneyBefore.Value,
+            moneyAfter.Value,
+            moneyAfter.Value - moneyBefore.Value,
+            registered.Value);
+        _logger.Info("bag_cleanup.manual_test.ok", new Dictionary<string, object?>
+        {
+            ["account"] = account,
+            ["npcName"] = trimmedNpcName,
+            ["candidateCount"] = result.CandidateCount,
+            ["registeredCount"] = result.RegisteredCount,
+            ["initialMoney"] = result.InitialMoney,
+            ["money"] = result.FinalMoney,
+            ["moneyDelta"] = result.MoneyDelta
+        });
+        return OperationResult<BagCleanupManualTestResult>.Ok(result);
     }
 
     private async Task<OperationResult<InventoryWindowSnapshot>> EnsureInventoryWindowOpenAsync(
@@ -1114,6 +1306,11 @@ public sealed class RoadhogRuntime
         return ClampInt(ReadRawIntFromEnv("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", 200), 0, 5000);
     }
 
+    private static int ReadBagCleanupSellVerifyDelayMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_BAG_CLEANUP_SELL_VERIFY_DELAY_MS", 1000), 0, 10000);
+    }
+
     private static int ClampInt(int value, int min, int max)
     {
         return Math.Max(min, Math.Min(max, value));
@@ -1164,3 +1361,12 @@ public sealed record BagCleanupSellRegistrationItem(
     int Slot,
     int X,
     int Y);
+
+public sealed record BagCleanupManualTestResult(
+    string NpcName,
+    int CandidateCount,
+    int RegisteredCount,
+    ulong? InitialMoney,
+    ulong? FinalMoney,
+    ulong? MoneyDelta,
+    IReadOnlyList<BagCleanupRegisteredItem> Items);
