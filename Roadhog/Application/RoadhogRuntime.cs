@@ -42,10 +42,13 @@ public sealed class RoadhogRuntime
     private static readonly int[] InventoryTitleDragXOffsets = { 160 };
     private static readonly int[] InventoryTitleDragYOffsets = { 15, 10, 5, 0, -5, -10, -15 };
     private const int BagSlotColumns = 9;
-    private const double DefaultBagSlot0CenterX = 35.0;
-    private const double DefaultBagSlot0CenterY = 95.0;
-    private const double DefaultBagSlotStepX = 32.0;
-    private const double DefaultBagSlotStepY = 32.0;
+    private const int BagSlotsPerPage = 27;
+    private const double DefaultBagSlot0CenterX = 30.0;
+    private const double DefaultBagSlot0CenterY = 86.0;
+    private const double DefaultBagSlotStepX = 40.875;
+    private const double DefaultBagSlotStepY = 35.5;
+    private const double DefaultBagPage1OffsetY = 151.0;
+    private const double DefaultBagPage2OffsetY = 298.0;
 
     public RoadhogRuntime(
         IRoadhogGameApi gameApi,
@@ -800,12 +803,17 @@ public sealed class RoadhogRuntime
         BagCleanupItemCoordinateMode coordinateMode,
         InventoryWindowSnapshot? window)
     {
-        var column = Math.Max(0, slot) % BagSlotColumns;
-        var row = Math.Max(0, slot) / BagSlotColumns;
+        var normalizedSlot = Math.Max(0, slot);
+        var page = normalizedSlot / BagSlotsPerPage;
+        var indexInPage = normalizedSlot % BagSlotsPerPage;
+        var column = indexInPage % BagSlotColumns;
+        var rowInPage = indexInPage / BagSlotColumns;
         var slotOriginX = ReadRawDoubleFromEnv("ROADHOG_BAG_SLOT0_CENTER_X", DefaultBagSlot0CenterX);
         var slotOriginY = ReadRawDoubleFromEnv("ROADHOG_BAG_SLOT0_CENTER_Y", DefaultBagSlot0CenterY);
         var x = slotOriginX + (column * ReadRawDoubleFromEnv("ROADHOG_BAG_SLOT_STEP_X", DefaultBagSlotStepX));
-        var y = slotOriginY + (row * ReadRawDoubleFromEnv("ROADHOG_BAG_SLOT_STEP_Y", DefaultBagSlotStepY));
+        var y = slotOriginY +
+            (rowInPage * ReadRawDoubleFromEnv("ROADHOG_BAG_SLOT_STEP_Y", DefaultBagSlotStepY)) +
+            ReadBagPageOffsetY(page);
         if (coordinateMode == BagCleanupItemCoordinateMode.WindowRectRelativeExperimental && window is not null)
         {
             var topLeft = EstimateInventoryWindowTopLeftScreen(window.X, window.Y);
@@ -816,6 +824,32 @@ public sealed class RoadhogRuntime
         return (
             ClampInt((int)Math.Round(x), 0, short.MaxValue),
             ClampInt((int)Math.Round(y), 0, short.MaxValue));
+    }
+
+    private static double ReadBagPageOffsetY(int page)
+    {
+        if (page <= 0)
+        {
+            return 0.0;
+        }
+
+        var page1Offset = ReadRawDoubleFromEnv(
+            "ROADHOG_BAG_PAGE1_OFFSET_Y",
+            DefaultBagPage1OffsetY);
+        if (page == 1)
+        {
+            return page1Offset;
+        }
+
+        var page2Offset = ReadRawDoubleFromEnv(
+            "ROADHOG_BAG_PAGE2_OFFSET_Y",
+            DefaultBagPage2OffsetY);
+        if (page == 2)
+        {
+            return page2Offset;
+        }
+
+        return page2Offset + ((page - 2) * (page2Offset - page1Offset));
     }
 
     private static (double X, double Y) EstimateInventoryWindowTopLeftScreen(double uiX, double uiY)

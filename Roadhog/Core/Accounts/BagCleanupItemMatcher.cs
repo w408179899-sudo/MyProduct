@@ -59,7 +59,12 @@ public static class BagCleanupItemMatcher
 
     private static bool IsEquipment(InventoryItemSnapshot item)
     {
-        return item.ItemType == 1 ||
+        if (IsRecipeOrDesignScroll(item))
+        {
+            return false;
+        }
+
+        return IsKnownEquipmentType(item.ItemType) ||
                ContainsAny(
                    item.Name,
                    "剑",
@@ -81,6 +86,15 @@ public static class BagCleanupItemMatcher
                    "戒指");
     }
 
+    private static bool IsKnownEquipmentType(uint itemType)
+    {
+        return itemType == 1 ||
+               itemType == 2 ||
+               itemType == 6 ||
+               itemType == 7 ||
+               itemType == 8;
+    }
+
     private static bool IsManastone(InventoryItemSnapshot item)
     {
         return item.ItemType == 24 ||
@@ -92,10 +106,17 @@ public static class BagCleanupItemMatcher
     {
         if (string.Equals(rule.Key, BagCleanupRuleCatalog.Stigma, StringComparison.OrdinalIgnoreCase))
         {
-            return ContainsAny(item.Name, "烙印");
+            return item.ItemType == 9 ||
+                   ContainsAny(item.Name, "烙印");
         }
 
-        return ContainsAny(item.Name, "图纸", "图案", "卷轴", "制作");
+        return IsRecipeOrDesignScroll(item);
+    }
+
+    private static bool IsRecipeOrDesignScroll(InventoryItemSnapshot item)
+    {
+        return item.ItemType == 27 ||
+               ContainsAny(item.Name, "图纸", "图案", "卷轴", "制作");
     }
 
     private static bool IsBook(InventoryItemSnapshot item, BagCleanupRuleConfig rule)

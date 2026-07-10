@@ -46,6 +46,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime normalizes inventory window then closes", TestRuntimeNormalizesInventoryWindowThenClosesAsync),
     ("runtime normalizes inventory window and leaves open", TestRuntimeNormalizesInventoryWindowLeavesOpenAsync),
     ("runtime registers configured bag cleanup sell items", TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync),
+    ("bag cleanup matcher groups weapon armor and accessory as equipment", TestBagCleanupMatcherGroupsEquipmentTypesAsync),
+    ("bag cleanup matcher maps stigma item type", TestBagCleanupMatcherMapsStigmaItemTypeAsync),
     ("window title formats character identity", TestWindowTitleFormatsCharacterIdentityAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
@@ -1132,15 +1134,19 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
     var previousSlot0Y = Environment.GetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_Y");
     var previousStepX = Environment.GetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_X");
     var previousStepY = Environment.GetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_Y");
+    var previousPage1OffsetY = Environment.GetEnvironmentVariable("ROADHOG_BAG_PAGE1_OFFSET_Y");
+    var previousPage2OffsetY = Environment.GetEnvironmentVariable("ROADHOG_BAG_PAGE2_OFFSET_Y");
     try
     {
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_RESET_COUNT", "1");
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SELL_REGISTER_HOVER_MS", "0");
-        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_X", "100");
-        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_Y", "200");
-        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_X", "10");
-        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_Y", "20");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_X", "30");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_Y", "86");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_X", "40.875");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_Y", "35.5");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_PAGE1_OFFSET_Y", "151");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_PAGE2_OFFSET_Y", "298");
 
         var logger = new InMemoryRoadhogLogger();
         var accounts = new AccountRuntimeManager(logger);
@@ -1157,10 +1163,13 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
             InventoryWindow = CreateInventoryWindow(true, 0.0, 0.0),
             InventoryItems = new[]
             {
-                new InventoryItemSnapshot(167000452, 11, "魔石:命中+21", 1, 31, false, 24, 2),
-                new InventoryItemSnapshot(167000290, 12, "魔石:生命力+40", 10, 22, false, 24, 1),
-                new InventoryItemSnapshot(167000454, 13, "魔石:排除", 1, 32, false, 24, 2),
-                new InventoryItemSnapshot(100100, 14, "绿色装备", 1, 3, false, 1, 2)
+                new InventoryItemSnapshot(167000450, 10, "slot-0", 1, 0, false, 24, 2),
+                new InventoryItemSnapshot(167000451, 11, "slot-26", 1, 26, false, 24, 2),
+                new InventoryItemSnapshot(167000452, 12, "slot-53", 1, 53, false, 24, 2),
+                new InventoryItemSnapshot(167000453, 13, "slot-80", 1, 80, false, 24, 2),
+                new InventoryItemSnapshot(167000290, 14, "white", 10, 22, false, 24, 1),
+                new InventoryItemSnapshot(167000454, 15, "excluded", 1, 32, false, 24, 2),
+                new InventoryItemSnapshot(100100, 16, "green-equipment", 1, 3, false, 1, 2)
             }
         };
         var keyboard = new RecordingKeyboardInput();
@@ -1177,7 +1186,7 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
         var settings = new MaintenanceScriptSettings
         {
             BagCleanupRules = rules,
-            BagCleanupExcludedItemNames = new List<string> { "魔石:排除" }
+            BagCleanupExcludedItemNames = new List<string> { "excluded" }
         };
 
         var result = await runtime
@@ -1185,17 +1194,33 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
             .ConfigureAwait(false);
 
         AssertFalse(!result.Success, "sell registration should succeed: " + result.Error);
-        AssertEqual(1, result.Value?.RegisteredCount ?? 0, "registered sell item count");
-        AssertEqual("魔石:命中+21", result.Value?.Items[0].Name ?? string.Empty, "registered sell item name");
-        AssertEqual(140, result.Value?.Items[0].X ?? 0, "registered sell item x");
-        AssertEqual(260, result.Value?.Items[0].Y ?? 0, "registered sell item y");
+        AssertEqual(4, result.Value?.RegisteredCount ?? 0, "registered sell item count");
+        AssertEqual("slot-0", result.Value?.Items[0].Name ?? string.Empty, "first registered sell item name");
+        AssertEqual(30, result.Value?.Items[0].X ?? 0, "row 0 column 0 x");
+        AssertEqual(86, result.Value?.Items[0].Y ?? 0, "row 0 column 0 y");
+        AssertEqual(357, result.Value?.Items[1].X ?? 0, "row 2 column 8 x");
+        AssertEqual(157, result.Value?.Items[1].Y ?? 0, "row 2 column 8 y");
+        AssertEqual(357, result.Value?.Items[2].X ?? 0, "row 5 column 8 x");
+        AssertEqual(308, result.Value?.Items[2].Y ?? 0, "row 5 column 8 y");
+        AssertEqual(357, result.Value?.Items[3].X ?? 0, "row 8 column 8 x");
+        AssertEqual(455, result.Value?.Items[3].Y ?? 0, "row 8 column 8 y");
         AssertSequence(
-            new[] { "move:-2000,-2000", "move:140,260", "down:Right", "up:Right" },
+            new[]
+            {
+                "move:-2000,-2000", "move:30,86", "down:Right", "up:Right",
+                "move:-2000,-2000", "move:357,157", "down:Right", "up:Right",
+                "move:-2000,-2000", "move:357,308", "down:Right", "up:Right",
+                "move:-2000,-2000", "move:357,455", "down:Right", "up:Right"
+            },
             keyboard.MouseCommands.ToArray(),
-            "sell registration should right-click only the configured bag slot");
+            "fixed top-left registration should use the calibrated bag points");
         AssertEqual(712, gameApi.LastInventoryContext?.ProcessId ?? 0, "inventory read should use scoped process id");
 
         gameApi.InventoryWindow = CreateInventoryWindow(true, 349.6, 162.4);
+        gameApi.InventoryItems = new[]
+        {
+            new InventoryItemSnapshot(167000450, 10, "slot-0", 1, 0, false, 24, 2)
+        };
         keyboard.MouseCommands.Clear();
         settings.BagCleanupItemCoordinateMode = BagCleanupItemCoordinateMode.WindowRectRelativeExperimental;
 
@@ -1205,14 +1230,14 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
 
         AssertFalse(!experimentalResult.Success, "experimental sell registration should succeed: " + experimentalResult.Error);
         AssertEqual(1, experimentalResult.Value?.RegisteredCount ?? 0, "experimental registered sell item count");
-        AssertEqual(540, experimentalResult.Value?.Items[0].X ?? 0, "experimental registered sell item x");
-        AssertEqual(450, experimentalResult.Value?.Items[0].Y ?? 0, "experimental registered sell item y");
+        AssertEqual(430, experimentalResult.Value?.Items[0].X ?? 0, "experimental registered sell item x");
+        AssertEqual(276, experimentalResult.Value?.Items[0].Y ?? 0, "experimental registered sell item y");
         AssertEqual(
             InventoryWindowRectSource.RootWidgetRectExperimental,
             gameApi.LastInventoryWindowRectSource ?? InventoryWindowRectSource.LegacyDialogRect,
             "experimental registration should request root widget Rect");
         AssertSequence(
-            new[] { "move:-2000,-2000", "move:540,450", "down:Right", "up:Right" },
+            new[] { "move:-2000,-2000", "move:430,276", "down:Right", "up:Right" },
             keyboard.MouseCommands.ToArray(),
             "experimental sell registration should use the window-relative bag point");
     }
@@ -1225,7 +1250,65 @@ static async Task TestRuntimeRegistersConfiguredBagCleanupSellItemsAsync()
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT0_CENTER_Y", previousSlot0Y);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_X", previousStepX);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_SLOT_STEP_Y", previousStepY);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_PAGE1_OFFSET_Y", previousPage1OffsetY);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_PAGE2_OFFSET_Y", previousPage2OffsetY);
     }
+}
+
+static Task TestBagCleanupMatcherGroupsEquipmentTypesAsync()
+{
+    var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+    rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenEquipment).Enabled = true;
+    rules.First(rule => rule.Key == BagCleanupRuleCatalog.BlueEquipment).Enabled = true;
+    var settings = new MaintenanceScriptSettings
+    {
+        BagCleanupRules = rules
+    };
+    var items = new[]
+    {
+        new InventoryItemSnapshot(100100336, 1, "堕落骑士之战斗锤", 1, 0, false, 2, 2),
+        new InventoryItemSnapshot(115000435, 2, "蓝色盾牌", 1, 1, false, 6, 3),
+        new InventoryItemSnapshot(110100687, 3, "修罗之长袍上衣", 1, 2, false, 7, 2),
+        new InventoryItemSnapshot(121000371, 4, "背叛者之水晶项链", 1, 3, false, 8, 2),
+        new InventoryItemSnapshot(111300629, 5, "命运之皮革手套", 1, 4, false, 7, 3),
+        new InventoryItemSnapshot(152205278, 6, "图案:匠人之钛质锁链手套", 1, 5, false, 27, 2),
+        new InventoryItemSnapshot(152206023, 7, "图案:黑湖水之项链", 1, 6, false, 27, 3)
+    };
+
+    var selected = BagCleanupItemMatcher.SelectSellRegistrationItems(items, settings);
+
+    AssertSequence(
+        new[] { "堕落骑士之战斗锤", "蓝色盾牌", "修罗之长袍上衣", "背叛者之水晶项链", "命运之皮革手套" },
+        selected.Select(item => item.Name).ToArray(),
+        "equipment cleanup should include weapon, shield, armor and accessory item types while excluding recipes");
+
+    return Task.CompletedTask;
+}
+
+static Task TestBagCleanupMatcherMapsStigmaItemTypeAsync()
+{
+    var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+    rules.First(rule => rule.Key == BagCleanupRuleCatalog.Stigma).Enabled = true;
+    var settings = new MaintenanceScriptSettings
+    {
+        BagCleanupRules = rules
+    };
+    var items = new[]
+    {
+        new InventoryItemSnapshot(140000100, 1, "痊愈之闪光 I", 1, 11, false, 9, 2),
+        new InventoryItemSnapshot(140000100, 2, "痊愈之闪光 I", 1, 12, false, 9, 2),
+        new InventoryItemSnapshot(140000150, 3, "生命力吸收 II", 1, 13, false, 9, 2),
+        new InventoryItemSnapshot(152205278, 4, "图案:匠人之钛质锁链手套", 1, 18, false, 27, 2)
+    };
+
+    var selected = BagCleanupItemMatcher.SelectSellRegistrationItems(items, settings);
+
+    AssertSequence(
+        new[] { "痊愈之闪光 I", "痊愈之闪光 I", "生命力吸收 II" },
+        selected.Select(item => item.Name).ToArray(),
+        "stigma cleanup should map item type 9 even when the item name does not contain stigma");
+
+    return Task.CompletedTask;
 }
 
 static async Task TestKmBoxNetKeyboardInputValidationAsync()
