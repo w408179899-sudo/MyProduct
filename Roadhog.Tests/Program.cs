@@ -160,6 +160,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance mp rule presses configured key before skills", TestMaintenanceMpRulePressesConfiguredKeyAsync),
     ("maintenance selected skill confirms by skill id", TestMaintenanceSelectedSkillConfirmsBySkillIdAsync),
     ("maintenance selected cooling skill skips key and continues combat", TestMaintenanceSelectedCoolingSkillSkipsKeyAsync),
+    ("dp maintenance skips below required dp", TestDpMaintenanceSkipsBelowRequiredDpAsync),
+    ("dp maintenance presses configured key at required dp", TestDpMaintenancePressesConfiguredKeyAtRequiredDpAsync),
+    ("dp maintenance selected cooling skill skips key", TestDpMaintenanceSelectedCoolingSkillSkipsKeyAsync),
     ("status maintenance presses missing buff and learns abnormal id", TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsync),
     ("status maintenance skips active category zero buff", TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync),
     ("status maintenance in-combat rule skips without target", TestStatusMaintenanceInCombatRuleSkipsWithoutTargetAsync),
@@ -2646,6 +2649,16 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
                     BagCleanupSellButtonClickX = 333,
                     BagCleanupSellButtonClickY = 444,
                     BagCleanupItemCoordinateMode = BagCleanupItemCoordinateMode.WindowRectRelativeExperimental,
+                    DpMaintenanceRules = new List<DpMaintenanceRuleConfig>
+                    {
+                        new()
+                        {
+                            RequiredDp = 4000,
+                            Key = "NumPad9",
+                            SkillId = 1787,
+                            SkillName = "Pet DP Buff"
+                        }
+                    },
                     BagCleanupRules = rules
                 }
             }
@@ -2661,6 +2674,9 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
         AssertFalse(!text.Contains("\"BagCleanupSellItemClickY\": 222", StringComparison.Ordinal), "account config should contain sell item click y");
         AssertFalse(!text.Contains("\"BagCleanupSellButtonClickX\": 333", StringComparison.Ordinal), "account config should contain sell button click x");
         AssertFalse(!text.Contains("\"BagCleanupSellButtonClickY\": 444", StringComparison.Ordinal), "account config should contain sell button click y");
+        AssertFalse(!text.Contains("\"DpMaintenanceRules\"", StringComparison.Ordinal), "account config should contain dp maintenance rules");
+        AssertFalse(!text.Contains("\"RequiredDp\": 4000", StringComparison.Ordinal), "account config should contain dp requirement");
+        AssertFalse(!text.Contains("\"Key\": \"NumPad9\"", StringComparison.Ordinal), "account config should contain dp maintenance key");
         AssertFalse(
             !text.Contains(
                 "\"BagCleanupItemCoordinateMode\": \"WindowRectRelativeExperimental\"",
@@ -2685,6 +2701,9 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
             BagCleanupItemCoordinateMode.WindowRectRelativeExperimental,
             maintenance?.BagCleanupItemCoordinateMode ?? BagCleanupItemCoordinateMode.LegacyNormalizedTopLeft,
             "loaded bag item coordinate mode");
+        AssertEqual(1, maintenance?.DpMaintenanceRules.Count ?? 0, "loaded dp maintenance rule count");
+        AssertEqual(4000, maintenance?.DpMaintenanceRules[0].RequiredDp ?? 0, "loaded dp requirement");
+        AssertEqual("NumPad9", maintenance?.DpMaintenanceRules[0].Key ?? string.Empty, "loaded dp maintenance key");
         var loadedRules = BagCleanupRuleCatalog.MergeWithDefaults(load.Value?[0].ScriptSettings?.Maintenance.BagCleanupRules);
         var greenEquipment = loadedRules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenEquipment);
         AssertFalse(!greenEquipment.Enabled, "green equipment cleanup should remain enabled");
@@ -9035,6 +9054,125 @@ static async Task TestMaintenanceSelectedCoolingSkillSkipsKeyAsync()
 
     AssertFalse(keyboard.Keys.Contains("NumPad0"), "cooling selected maintenance skill should not press maintenance key");
     AssertFalse(keyboard.Keys.Count == 0, "combat should continue when selected maintenance skill is cooling");
+}
+
+static async Task TestDpMaintenanceSkipsBelowRequiredDpAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.DpMaintenanceRules.Add(new DpMaintenanceRuleConfig
+    {
+        RequiredDp = 2000,
+        Key = "NumPad9",
+        SkillId = 1,
+        SkillName = "DP Buff"
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 1000, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("NumPad9"), "dp maintenance key must not press below required dp");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.dp_key_pressed"), "below required dp should not log dp maintenance key press");
+}
+
+static async Task TestDpMaintenancePressesConfiguredKeyAtRequiredDpAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.DpMaintenanceRules.Add(new DpMaintenanceRuleConfig
+    {
+        RequiredDp = 2000,
+        Key = "NumPad9",
+        SkillId = 1,
+        SkillName = "DP Buff"
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 2000, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "NumPad9", StringComparison.Ordinal))
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = ActiveCooldownEnd(),
+                [5] = 0,
+                [6] = 0
+            });
+        }
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad9" }, keyboard.Keys.ToArray(), "ready dp maintenance key");
+    var entry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.dp_key_pressed");
+    AssertFalse(entry is null, "dp maintenance key press should be logged");
+    AssertEqual(2000, Convert.ToInt32(entry!.Fields["requiredDp"]), "dp maintenance required dp");
+    AssertEqual(1u, Convert.ToUInt32(entry.Fields["confirmedSkillId"]), "confirmed dp maintenance skill id");
+}
+
+static async Task TestDpMaintenanceSelectedCoolingSkillSkipsKeyAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.DpMaintenanceRules.Add(new DpMaintenanceRuleConfig
+    {
+        RequiredDp = 2000,
+        Key = "NumPad9",
+        SkillId = 1,
+        SkillName = "DP Buff"
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 4000, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = CooldownEndIn(30_000),
+            [5] = 0,
+            [6] = 0
+        })
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("NumPad9"), "cooling selected dp maintenance skill should not press maintenance key");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.dp_skill_cooling"),
+        "cooling selected dp maintenance skill should be logged");
 }
 
 static async Task TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsync()

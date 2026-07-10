@@ -85,9 +85,11 @@ namespace Roadhog
         private FlowLayoutPanel? hpMaintenanceRuleList;
         private FlowLayoutPanel? mpMaintenanceRuleList;
         private FlowLayoutPanel? statusMaintenanceRuleList;
+        private FlowLayoutPanel? dpMaintenanceRuleList;
         private Label? hpMaintenanceEmptyLabel;
         private Label? mpMaintenanceEmptyLabel;
         private Label? statusMaintenanceEmptyLabel;
+        private Label? dpMaintenanceEmptyLabel;
         private RoundedTextBox? bagCleanupThresholdTextBox;
         private RoundedCheckBox? bagCleanupEnabledCheckBox;
         private RoundedTextBox? bagCleanupSellItemClickPointTextBox;
@@ -311,6 +313,7 @@ namespace Roadhog
             PopulateMaintenanceKeyRules(hpMaintenanceRuleList, hpMaintenanceEmptyLabel, settings.Maintenance.HpMaintenanceRules);
             PopulateMaintenanceKeyRules(mpMaintenanceRuleList, mpMaintenanceEmptyLabel, settings.Maintenance.MpMaintenanceRules);
             PopulateStatusMaintenanceRules(statusMaintenanceRuleList, statusMaintenanceEmptyLabel, settings.Maintenance.StatusMaintenanceRules);
+            PopulateDpMaintenanceRules(dpMaintenanceRuleList, dpMaintenanceEmptyLabel, settings.Maintenance.DpMaintenanceRules);
             SetChecked(bagCleanupEnabledCheckBox, settings.Maintenance.BagCleanupEnabled);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
             SetText(
@@ -522,6 +525,7 @@ namespace Roadhog
                     HpMaintenanceRules = CaptureMaintenanceKeyRules(hpMaintenanceRuleList),
                     MpMaintenanceRules = CaptureMaintenanceKeyRules(mpMaintenanceRuleList),
                     StatusMaintenanceRules = CaptureStatusMaintenanceRules(statusMaintenanceRuleList),
+                    DpMaintenanceRules = CaptureDpMaintenanceRules(dpMaintenanceRuleList),
                     BagCleanupEnabled = bagCleanupEnabledCheckBox?.Checked ?? false,
                     BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 5),
                     BagCleanupSellItemClickX = bagCleanupSellItemClickPoint.X,
@@ -1873,6 +1877,12 @@ namespace Roadhog
             statusMaintenanceEmptyLabel = AddLabel(page, "暂无状态维护", 4, 406, 140, 24);
             statusMaintenanceEmptyLabel.BringToFront();
 
+            AddLabel(page, "DP维护", 4, 498, 66, 24, _textGreen, FontStyle.Bold);
+            AddButton(page, "新增DP维护", 68, 494, 120, 30, (_, _) => AddDpMaintenanceRuleRow(dpMaintenanceRuleList, dpMaintenanceEmptyLabel));
+            dpMaintenanceRuleList = CreateMaintenanceRuleList(page, 4, 532, 830, 66);
+            dpMaintenanceEmptyLabel = AddLabel(page, "暂无DP维护", 4, 532, 140, 24);
+            dpMaintenanceEmptyLabel.BringToFront();
+
             return tab;
         }
 
@@ -2492,6 +2502,32 @@ namespace Roadhog
             RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
         }
 
+        private void PopulateDpMaintenanceRules(
+            FlowLayoutPanel? list,
+            Label? emptyLabel,
+            IEnumerable<DpMaintenanceRuleConfig>? rules)
+        {
+            if (list is null)
+            {
+                return;
+            }
+
+            list.Controls.Clear();
+            foreach (var rule in rules ?? Array.Empty<DpMaintenanceRuleConfig>())
+            {
+                AddDpMaintenanceRuleRow(
+                    list,
+                    emptyLabel,
+                    rule.RequiredDp,
+                    rule.Key,
+                    rule.SkillId,
+                    rule.SkillName,
+                    rule.RunTiming);
+            }
+
+            RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+        }
+
         private void AddMaintenanceKeyRuleRow(
             FlowLayoutPanel? list,
             Label? emptyLabel,
@@ -2658,6 +2694,99 @@ namespace Roadhog
             RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
         }
 
+        private void AddDpMaintenanceRuleRow(
+            FlowLayoutPanel? list,
+            Label? emptyLabel,
+            int requiredDp = 2000,
+            string key = "",
+            uint skillId = 0,
+            string skillName = "",
+            MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always)
+        {
+            if (list is null)
+            {
+                return;
+            }
+
+            var row = new Panel
+            {
+                BackColor = _pageBackground,
+                BorderStyle = BorderStyle.None,
+                Margin = new Padding(0, 0, 0, 7),
+                Size = new Size(630, 31)
+            };
+
+            row.Controls.Add(new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                Font = new Font("Microsoft YaHei UI", 9F),
+                ForeColor = _textGreen,
+                Location = new Point(0, 3),
+                Size = new Size(42, 24),
+                Text = "DP≥",
+                TextAlign = ContentAlignment.MiddleLeft
+            });
+
+            var requiredDpTextBox = AddTextBox(
+                row,
+                Math.Clamp(requiredDp, 1, 4000).ToString(CultureInfo.InvariantCulture),
+                44,
+                1,
+                64,
+                28);
+            requiredDpTextBox.Name = "maintenanceRuleRequiredDpTextBox";
+
+            row.Controls.Add(new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                Font = new Font("Microsoft YaHei UI", 9F),
+                ForeColor = _textGreen,
+                Location = new Point(112, 3),
+                Size = new Size(24, 24),
+                Text = "按",
+                TextAlign = ContentAlignment.MiddleLeft
+            });
+
+            var skillCombo = AddCombo(row, 138, 1, 210, 28);
+            skillCombo.Name = "maintenanceRuleSkillCombo";
+            PopulateMaintenanceSkillCombo(skillCombo, skillId, skillName);
+
+            var timingCombo = AddCombo(row, 356, 1, 90, 28);
+            timingCombo.Name = "maintenanceRuleTimingCombo";
+            PopulateMaintenanceTimingCombo(timingCombo, runTiming);
+
+            var keyButton = AddButton(row, "选择按键", 454, 0, 104, 30);
+            keyButton.Name = "maintenanceRuleKeyButton";
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                keyButton.Tag = key;
+                keyButton.Text = FormatSkillKey(key);
+            }
+
+            var deleteButton = AddButton(row, "删除", 566, 0, 58, 30);
+            deleteButton.Click += (_, _) =>
+            {
+                list.Controls.Remove(row);
+                row.Dispose();
+                RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+            };
+
+            keyButton.Click += (_, _) =>
+            {
+                var selectedKey = ShowKeyboardPicker(keyButton.Tag as string);
+                if (!string.IsNullOrWhiteSpace(selectedKey))
+                {
+                    keyButton.Tag = selectedKey;
+                    keyButton.Text = FormatSkillKey(selectedKey);
+                }
+            };
+
+            list.Controls.Add(row);
+            RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+        }
+
         private static void RefreshMaintenanceRuleEmptyLabel(FlowLayoutPanel? list, Label? emptyLabel)
         {
             if (emptyLabel is not null)
@@ -2671,6 +2800,7 @@ namespace Roadhog
             RefreshMaintenanceSkillCombos(hpMaintenanceRuleList);
             RefreshMaintenanceSkillCombos(mpMaintenanceRuleList);
             RefreshMaintenanceSkillCombos(statusMaintenanceRuleList);
+            RefreshMaintenanceSkillCombos(dpMaintenanceRuleList);
         }
 
         private void RefreshMaintenanceSkillCombos(FlowLayoutPanel? list)
@@ -2991,6 +3121,43 @@ namespace Roadhog
                         SkillId = selectedSkill.SkillId,
                         SkillName = selectedSkill.SkillName,
                         AbnormalStatusId = row.Tag is uint abnormalStatusId ? abnormalStatusId : 0,
+                        RunTiming = GetSelectedMaintenanceRunTiming(timingCombo)
+                    };
+                })
+                .ToList();
+        }
+
+        private static List<DpMaintenanceRuleConfig> CaptureDpMaintenanceRules(FlowLayoutPanel? list)
+        {
+            if (list is null)
+            {
+                return new List<DpMaintenanceRuleConfig>();
+            }
+
+            return list.Controls
+                .OfType<Panel>()
+                .Select(row =>
+                {
+                    var requiredDpTextBox = row.Controls
+                        .OfType<RoundedTextBox>()
+                        .FirstOrDefault(textBox => string.Equals(textBox.Name, "maintenanceRuleRequiredDpTextBox", StringComparison.Ordinal));
+                    var keyButton = row.Controls
+                        .OfType<Button>()
+                        .FirstOrDefault(button => string.Equals(button.Name, "maintenanceRuleKeyButton", StringComparison.Ordinal));
+                    var skillCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleSkillCombo", StringComparison.Ordinal));
+                    var timingCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleTimingCombo", StringComparison.Ordinal));
+                    var selectedSkill = GetSelectedMaintenanceSkill(skillCombo);
+
+                    return new DpMaintenanceRuleConfig
+                    {
+                        RequiredDp = Math.Clamp(ReadInt(requiredDpTextBox, 2000), 1, 4000),
+                        Key = keyButton?.Tag as string ?? string.Empty,
+                        SkillId = selectedSkill.SkillId,
+                        SkillName = selectedSkill.SkillName,
                         RunTiming = GetSelectedMaintenanceRunTiming(timingCombo)
                     };
                 })

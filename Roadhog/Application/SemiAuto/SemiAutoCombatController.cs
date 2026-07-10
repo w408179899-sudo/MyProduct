@@ -561,6 +561,20 @@ public sealed class SemiAutoCombatController
             return true;
         }
 
+        if (await TryPressDpMaintenanceRuleAsync(
+                context,
+                state,
+                settings,
+                maintenance.DpMaintenanceRules,
+                "dp",
+                player,
+                beforeMaintenanceKeyPress,
+                requireCooldownCalibrationForMaintenance)
+            .ConfigureAwait(false))
+        {
+            return true;
+        }
+
         if (await TryPressMaintenanceRuleAsync(
                 context,
                 state,
@@ -748,6 +762,22 @@ public sealed class SemiAutoCombatController
                 player,
                 beforeMaintenanceKeyPress,
                 plan,
+                requireCooldownCalibrationForMaintenance,
+                runTiming,
+                includeAlwaysRules)
+            .ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        if (await TryPressDpMaintenanceRuleAsync(
+                context,
+                state,
+                settings,
+                maintenance.DpMaintenanceRules,
+                "dp",
+                player,
+                beforeMaintenanceKeyPress,
                 requireCooldownCalibrationForMaintenance,
                 runTiming,
                 includeAlwaysRules)
@@ -1202,6 +1232,210 @@ public sealed class SemiAutoCombatController
         }
 
         return false;
+    }
+
+    private async Task<bool> TryPressDpMaintenanceRuleAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        IEnumerable<DpMaintenanceRuleConfig>? rules,
+        string resource,
+        PlayerSnapshot player,
+        Func<Task>? beforeMaintenanceKeyPress = null,
+        bool requireCooldownCalibrationForMaintenance = false,
+        MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
+        bool includeAlwaysRules = true)
+    {
+        var configuredRules = (rules ?? Array.Empty<DpMaintenanceRuleConfig>())
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
+                           IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules))
+            .OrderByDescending(rule => NormalizeRequiredDp(rule.RequiredDp))
+            .ToArray();
+        if (configuredRules.Length == 0)
+        {
+            return false;
+        }
+
+        OperationResult<IReadOnlyList<SkillSnapshot>>? skillsResult = null;
+        foreach (var rule in configuredRules)
+        {
+            var requiredDp = NormalizeRequiredDp(rule.RequiredDp);
+            if (player.CurrentDp < requiredDp)
+            {
+                continue;
+            }
+
+            if (requireCooldownCalibrationForMaintenance &&
+                !state.HasCooldownTickCalibration)
+            {
+                continue;
+            }
+
+            var hasExplicitSkill = HasExplicitDpMaintenanceSkill(rule);
+            SkillSnapshot? maintenanceSkill = null;
+            if (hasExplicitSkill)
+            {
+                skillsResult ??= await ReadAllSkillsAsync(context).ConfigureAwait(false);
+                if (skillsResult.Success && skillsResult.Value is not null)
+                {
+                    maintenanceSkill = ResolveDpMaintenanceRuleSkill(rule, skillsResult.Value);
+                    if (maintenanceSkill is not null &&
+                        GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
+                    {
+                        LogDpMaintenanceRuleSkippedCooling(context, state, rule, resource, maintenanceSkill);
+                        continue;
+                    }
+
+                    if (maintenanceSkill is null)
+                    {
+                        LogDpMaintenanceRuleSkippedMissing(context, state, rule, resource);
+                        continue;
+                    }
+                }
+                else
+                {
+                    LogDpMaintenanceRuleSkillReadFailed(context, state, rule, resource, skillsResult.Error);
+                    continue;
+                }
+            }
+            else
+            {
+                var now = DateTimeOffset.Now;
+                if (!state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
+                {
+                    continue;
+                }
+            }
+
+            return await ExecuteDpMaintenanceKeyRuleAsync(
+                    context,
+                    state,
+                    settings,
+                    rule,
+                    resource,
+                    player,
+                    requiredDp,
+                    beforeMaintenanceKeyPress,
+                    maintenanceSkill)
+                .ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
+    private async Task<bool> ExecuteDpMaintenanceKeyRuleAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        DpMaintenanceRuleConfig rule,
+        string resource,
+        PlayerSnapshot player,
+        int requiredDp,
+        Func<Task>? beforeMaintenanceKeyPress,
+        SkillSnapshot? maintenanceSkill)
+    {
+        if (beforeMaintenanceKeyPress is not null)
+        {
+            await beforeMaintenanceKeyPress().ConfigureAwait(false);
+        }
+
+        if (!await EnsureStandingBeforeMaintenanceKeyAsync(
+                    context,
+                    state,
+                    settings,
+                    player,
+                    resource,
+                    rule.Key)
+                .ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        var baselineResult = await ReadAllSkillsAsync(context).ConfigureAwait(false);
+        var baselineCooldowns = baselineResult.Success && baselineResult.Value is not null
+            ? SnapshotCooldownEndTimes(baselineResult.Value)
+            : null;
+        var startedAt = DateTimeOffset.Now;
+        var deadline = startedAt + MaintenanceConfirmWindow;
+        var attempts = 0;
+        SkillSnapshot? confirmedSkill = null;
+
+        while (DateTimeOffset.Now <= deadline)
+        {
+            attempts++;
+            var result = await _keyboard
+                .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
+                .ConfigureAwait(false);
+            if (!result.Success)
+            {
+                LogMaintenanceKeyFailure(context, state, rule.Key, resource, result.Error);
+                return false;
+            }
+
+            if (baselineCooldowns is not null)
+            {
+                var skillsResult = await ReadAllSkillsAsync(context).ConfigureAwait(false);
+                if (skillsResult.Success &&
+                    skillsResult.Value is not null)
+                {
+                    if (TryFindAdvancedCooldown(baselineCooldowns, skillsResult.Value, maintenanceSkill, out confirmedSkill))
+                    {
+                        TryUpdateMaintenanceCooldownCalibration(context, state, confirmedSkill);
+                        break;
+                    }
+                }
+            }
+
+            var remaining = deadline - DateTimeOffset.Now;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            var delay = remaining < MaintenanceConfirmPollInterval
+                ? remaining
+                : MaintenanceConfirmPollInterval;
+            await Task.Delay(delay, context.StopToken).ConfigureAwait(false);
+        }
+
+        var completedAt = DateTimeOffset.Now;
+        if (confirmedSkill is null)
+        {
+            context.Logger.Warn("semi_auto.maintenance.dp_unconfirmed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["resource"] = resource,
+                ["key"] = rule.Key,
+                ["currentDp"] = player.CurrentDp,
+                ["requiredDp"] = requiredDp,
+                ["attempts"] = attempts,
+                ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
+                ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds),
+                ["baselineReadSuccess"] = baselineResult.Success,
+                ["baselineError"] = baselineResult.Error,
+                ["maintenanceSkillId"] = maintenanceSkill?.SkillId,
+                ["maintenanceSkillName"] = maintenanceSkill?.Name
+            });
+            return true;
+        }
+
+        state.MarkMaintenanceKeyAttempted(rule.Key, completedAt);
+        context.Logger.Info("semi_auto.maintenance.dp_key_pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["currentDp"] = player.CurrentDp,
+            ["requiredDp"] = requiredDp,
+            ["attempts"] = attempts,
+            ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
+            ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds),
+            ["confirmed"] = true,
+            ["confirmedSkillId"] = confirmedSkill.SkillId,
+            ["confirmedSkillName"] = confirmedSkill.Name,
+            ["confirmedCooldownEndTime"] = confirmedSkill.CooldownEndTime
+        });
+        return true;
     }
 
     private async Task<bool> ExecuteStatusMaintenanceKeyRuleAsync(
@@ -2675,7 +2909,8 @@ public sealed class SemiAutoCombatController
         return (allowSitMaintenance && maintenance.SitMaintenanceEnabled) ||
                HasMaintenanceRules(maintenance.HpMaintenanceRules, runTiming, includeAlwaysRules) ||
                HasMaintenanceRules(maintenance.MpMaintenanceRules, runTiming, includeAlwaysRules) ||
-               HasStatusMaintenanceRules(maintenance.StatusMaintenanceRules, runTiming, includeAlwaysRules);
+               HasStatusMaintenanceRules(maintenance.StatusMaintenanceRules, runTiming, includeAlwaysRules) ||
+               HasDpMaintenanceRules(maintenance.DpMaintenanceRules, runTiming, includeAlwaysRules);
     }
 
     private static bool HasMaintenanceRules(
@@ -2693,12 +2928,30 @@ public sealed class SemiAutoCombatController
         bool includeAlwaysRules)
     {
         return rules?.Any(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
-                                  HasStatusMaintenanceRuleSelection(rule) &&
+                                   HasStatusMaintenanceRuleSelection(rule) &&
+                                   IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules)) == true;
+    }
+
+    private static bool HasDpMaintenanceRules(
+        IEnumerable<DpMaintenanceRuleConfig>? rules,
+        MaintenanceRuleRunTiming runTiming,
+        bool includeAlwaysRules)
+    {
+        return rules?.Any(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
                                   IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules)) == true;
     }
 
     private static bool IsMaintenanceRuleAllowed(
         MaintenanceKeyRuleConfig rule,
+        MaintenanceRuleRunTiming runTiming,
+        bool includeAlwaysRules)
+    {
+        return rule.RunTiming == runTiming ||
+               (includeAlwaysRules && rule.RunTiming == MaintenanceRuleRunTiming.Always);
+    }
+
+    private static bool IsMaintenanceRuleAllowed(
+        DpMaintenanceRuleConfig rule,
         MaintenanceRuleRunTiming runTiming,
         bool includeAlwaysRules)
     {
@@ -2732,6 +2985,11 @@ public sealed class SemiAutoCombatController
     }
 
     private static bool HasExplicitStatusMaintenanceSkill(StatusMaintenanceRuleConfig rule)
+    {
+        return rule.SkillId != 0 || !string.IsNullOrWhiteSpace(rule.SkillName);
+    }
+
+    private static bool HasExplicitDpMaintenanceSkill(DpMaintenanceRuleConfig rule)
     {
         return rule.SkillId != 0 || !string.IsNullOrWhiteSpace(rule.SkillName);
     }
@@ -2774,6 +3032,18 @@ public sealed class SemiAutoCombatController
         IReadOnlyList<SkillSnapshot> skills)
     {
         return skills.FirstOrDefault(skill => MatchesMaintenanceSkill(skill, rule.SkillId, rule.SkillName));
+    }
+
+    private static SkillSnapshot? ResolveDpMaintenanceRuleSkill(
+        DpMaintenanceRuleConfig rule,
+        IReadOnlyList<SkillSnapshot> skills)
+    {
+        return skills.FirstOrDefault(skill => MatchesMaintenanceSkill(skill, rule.SkillId, rule.SkillName));
+    }
+
+    private static int NormalizeRequiredDp(int requiredDp)
+    {
+        return Math.Clamp(requiredDp, 1, 4000);
     }
 
     private static bool MatchesMaintenanceSkill(SkillSnapshot skill, uint skillId, string? skillName)
@@ -3101,6 +3371,84 @@ public sealed class SemiAutoCombatController
             ["skillId"] = rule.SkillId,
             ["skillName"] = rule.SkillName,
             ["abnormalStatusId"] = rule.AbnormalStatusId,
+            ["error"] = error
+        });
+    }
+
+    private static void LogDpMaintenanceRuleSkippedCooling(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        DpMaintenanceRuleConfig rule,
+        string resource,
+        SkillSnapshot skill)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastMaintenanceWarningAt, now))
+        {
+            return;
+        }
+
+        state.LastMaintenanceWarningAt = now;
+        context.Logger.Info("semi_auto.maintenance.dp_skill_cooling", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["requiredDp"] = NormalizeRequiredDp(rule.RequiredDp),
+            ["skillId"] = skill.SkillId,
+            ["skillName"] = skill.Name,
+            ["cooldownDuration"] = skill.CooldownDuration,
+            ["cooldownEndTime"] = skill.CooldownEndTime,
+            ["cooldownOffsetMs"] = state.CooldownTickOffsetMs
+        });
+    }
+
+    private static void LogDpMaintenanceRuleSkippedMissing(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        DpMaintenanceRuleConfig rule,
+        string resource)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastMaintenanceWarningAt, now))
+        {
+            return;
+        }
+
+        state.LastMaintenanceWarningAt = now;
+        context.Logger.Warn("semi_auto.maintenance.dp_skill_missing", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["requiredDp"] = NormalizeRequiredDp(rule.RequiredDp),
+            ["skillId"] = rule.SkillId,
+            ["skillName"] = rule.SkillName
+        });
+    }
+
+    private static void LogDpMaintenanceRuleSkillReadFailed(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        DpMaintenanceRuleConfig rule,
+        string resource,
+        string? error)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastMaintenanceWarningAt, now))
+        {
+            return;
+        }
+
+        state.LastMaintenanceWarningAt = now;
+        context.Logger.Warn("semi_auto.maintenance.dp_skill_read_failed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["requiredDp"] = NormalizeRequiredDp(rule.RequiredDp),
+            ["skillId"] = rule.SkillId,
+            ["skillName"] = rule.SkillName,
             ["error"] = error
         });
     }
