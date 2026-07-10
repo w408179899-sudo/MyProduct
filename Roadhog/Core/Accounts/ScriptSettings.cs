@@ -144,6 +144,8 @@ public sealed class PathScriptSettings
 
     public string MaintenancePathName { get; set; } = string.Empty;
 
+    public string TownReturnKey { get; set; } = string.Empty;
+
     public int DeathReviveClickX { get; set; } = DefaultDeathReviveClickX;
 
     public int DeathReviveClickY { get; set; } = DefaultDeathReviveClickY;
@@ -161,6 +163,7 @@ public sealed class PathScriptSettings
             RevivePathName = RevivePathName,
             CombatPathName = CombatPathName,
             MaintenancePathName = MaintenancePathName,
+            TownReturnKey = TownReturnKey,
             DeathReviveClickX = DeathReviveClickX,
             DeathReviveClickY = DeathReviveClickY,
             LoopPath = LoopPath,
@@ -172,6 +175,8 @@ public sealed class PathScriptSettings
 
 public sealed class MaintenanceScriptSettings
 {
+    public bool BagCleanupEnabled { get; set; }
+
     public bool SitMaintenanceEnabled { get; set; } = true;
 
     public int SitMpBelowPercent { get; set; } = 10;
@@ -192,7 +197,7 @@ public sealed class MaintenanceScriptSettings
 
     public bool AutoDecompose { get; set; } = true;
 
-    public int BagCleanupThreshold { get; set; } = 85;
+    public int BagCleanupThreshold { get; set; } = 5;
 
     public int BagTotalSlots { get; set; } = 100;
 
@@ -223,6 +228,7 @@ public sealed class MaintenanceScriptSettings
             HpMaintenanceRules = HpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<MaintenanceKeyRuleConfig>(),
             MpMaintenanceRules = MpMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<MaintenanceKeyRuleConfig>(),
             StatusMaintenanceRules = StatusMaintenanceRules?.Select(rule => rule.Clone()).ToList() ?? new List<StatusMaintenanceRuleConfig>(),
+            BagCleanupEnabled = BagCleanupEnabled,
             AutoEquip = AutoEquip,
             AutoDecompose = AutoDecompose,
             BagCleanupThreshold = BagCleanupThreshold,

@@ -71,6 +71,7 @@ namespace Roadhog
         private RoundedTextBox? revivePathNameTextBox;
         private RoundedTextBox? combatPathNameTextBox;
         private RoundedTextBox? maintenancePathNameTextBox;
+        private Button? townReturnKeyButton;
         private RoundedTextBox? deathReviveClickPointTextBox;
         private Button? deathReviveTestMoveButton;
         private RoundedCheckBox? loopPathCheckBox;
@@ -88,6 +89,7 @@ namespace Roadhog
         private Label? mpMaintenanceEmptyLabel;
         private Label? statusMaintenanceEmptyLabel;
         private RoundedTextBox? bagCleanupThresholdTextBox;
+        private RoundedCheckBox? bagCleanupEnabledCheckBox;
         private RoundedTextBox? bagCleanupSellItemClickPointTextBox;
         private RoundedTextBox? bagCleanupSellButtonClickPointTextBox;
         private RoundedComboBox? bagCleanupItemCoordinateModeCombo;
@@ -291,6 +293,7 @@ namespace Roadhog
             SetText(revivePathNameTextBox, paths.RevivePathName);
             SetText(combatPathNameTextBox, paths.CombatPathName);
             SetText(maintenancePathNameTextBox, paths.MaintenancePathName);
+            SetKeyButton(townReturnKeyButton, paths.TownReturnKey);
             SetText(deathReviveClickPointTextBox, FormatScreenPoint(paths.DeathReviveClickX, paths.DeathReviveClickY));
             SetChecked(loopPathCheckBox, paths.LoopPath);
             SetChecked(reverseAtEndCheckBox, paths.ReverseAtEnd);
@@ -308,6 +311,7 @@ namespace Roadhog
             PopulateMaintenanceKeyRules(hpMaintenanceRuleList, hpMaintenanceEmptyLabel, settings.Maintenance.HpMaintenanceRules);
             PopulateMaintenanceKeyRules(mpMaintenanceRuleList, mpMaintenanceEmptyLabel, settings.Maintenance.MpMaintenanceRules);
             PopulateStatusMaintenanceRules(statusMaintenanceRuleList, statusMaintenanceEmptyLabel, settings.Maintenance.StatusMaintenanceRules);
+            SetChecked(bagCleanupEnabledCheckBox, settings.Maintenance.BagCleanupEnabled);
             SetText(bagCleanupThresholdTextBox, settings.Maintenance.BagCleanupThreshold.ToString());
             SetText(
                 bagCleanupSellItemClickPointTextBox,
@@ -502,6 +506,7 @@ namespace Roadhog
                     RevivePathName = GetText(revivePathNameTextBox, string.Empty),
                     CombatPathName = GetText(combatPathNameTextBox, string.Empty),
                     MaintenancePathName = GetText(maintenancePathNameTextBox, string.Empty),
+                    TownReturnKey = townReturnKeyButton?.Tag as string ?? string.Empty,
                     DeathReviveClickX = deathReviveClickPoint.X,
                     DeathReviveClickY = deathReviveClickPoint.Y,
                     LoopPath = loopPathCheckBox?.Checked ?? true,
@@ -518,7 +523,8 @@ namespace Roadhog
                     HpMaintenanceRules = CaptureMaintenanceKeyRules(hpMaintenanceRuleList),
                     MpMaintenanceRules = CaptureMaintenanceKeyRules(mpMaintenanceRuleList),
                     StatusMaintenanceRules = CaptureStatusMaintenanceRules(statusMaintenanceRuleList),
-                    BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 85),
+                    BagCleanupEnabled = bagCleanupEnabledCheckBox?.Checked ?? false,
+                    BagCleanupThreshold = ReadInt(bagCleanupThresholdTextBox, 5),
                     BagCleanupSellItemClickX = bagCleanupSellItemClickPoint.X,
                     BagCleanupSellItemClickY = bagCleanupSellItemClickPoint.Y,
                     BagCleanupSellButtonClickX = bagCleanupSellButtonClickPoint.X,
@@ -1139,12 +1145,23 @@ namespace Roadhog
             AddLabel(page, "路径名", 252, 42, 54, 22);
             editor.SavedPathCombo = AddCombo(page, 306, 38, 254, 28);
             editor.SavedPathCombo.SelectedIndexChanged += (_, _) => LoadSelectedPath(editor);
-            AddLabel(page, "已保存路径", 566, 42, 120, 22);
+            AddLabel(page, "已保存路径", 566, 42, 76, 22);
 
             AddButton(page, "保存到列表", 6, 74, 100, 30, (_, _) => SavePath(editor));
             AddButton(page, "删除保存", 114, 74, 92, 30, (_, _) => DeleteSavedPath(editor));
             if (kind == SharedPathKind.Maintenance)
             {
+                AddLabel(page, "回程按键", 648, 42, 70, 22, _textGreen, FontStyle.Bold);
+                townReturnKeyButton = AddButton(page, "选择按键", 718, 38, 104, 30);
+                townReturnKeyButton.Click += (_, _) =>
+                {
+                    var selectedKey = ShowKeyboardPicker(townReturnKeyButton.Tag as string);
+                    if (!string.IsNullOrWhiteSpace(selectedKey))
+                    {
+                        SetKeyButton(townReturnKeyButton, selectedKey);
+                    }
+                };
+
                 AddLabel(page, "清包NPC", 222, 78, 72, 24, _textGreen, FontStyle.Bold);
                 editor.CleanupNpcRefreshButton = AddButton(page, "刷新附近NPC", 300, 74, 104, 30);
                 editor.CleanupNpcRefreshButton.Click += async (_, _) =>
@@ -1824,9 +1841,9 @@ namespace Roadhog
             tab.Controls.Add(page);
             bagCleanupRuleControls.Clear();
 
-            AddCheckBox(page, "自动清包", 4, 16, 100, false);
-            AddLabel(page, "清包阈值", 100, 16, 70, 26, _textGreen, FontStyle.Bold);
-            bagCleanupThresholdTextBox = AddTextBox(page, "85", 172, 14, 84, 28);
+            bagCleanupEnabledCheckBox = AddCheckBox(page, "自动清包", 4, 16, 100, false);
+            AddLabel(page, "剩余格低于", 100, 16, 82, 26, _textGreen, FontStyle.Bold);
+            bagCleanupThresholdTextBox = AddTextBox(page, "5", 184, 14, 72, 28);
 
             const int leftOptionX = 24;
             const int leftComboX = 144;
@@ -2701,15 +2718,25 @@ namespace Roadhog
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(key))
+            SetKeyButton(openingSkillKeyButton, key);
+        }
+
+        private static void SetKeyButton(Button? keyButton, string? key)
+        {
+            if (keyButton is null)
             {
-                openingSkillKeyButton.Tag = null;
-                openingSkillKeyButton.Text = "选择按键";
                 return;
             }
 
-            openingSkillKeyButton.Tag = key;
-            openingSkillKeyButton.Text = FormatSkillKey(key);
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                keyButton.Tag = null;
+                keyButton.Text = "选择按键";
+                return;
+            }
+
+            keyButton.Tag = key.Trim();
+            keyButton.Text = FormatSkillKey(key);
         }
 
         private void RefreshOpeningSkillCombo()

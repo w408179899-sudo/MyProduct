@@ -1,4 +1,5 @@
 using Roadhog.Application.Input;
+using Roadhog.Application.BagCleanup;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
@@ -39,6 +40,7 @@ public sealed class StationaryCombatController
     private readonly IKeyboardInput _input;
     private readonly SemiAutoCombatController _semiAuto;
     private readonly ISharedPathStore? _pathStore;
+    private readonly BagCleanupController? _bagCleanup;
 
     public StationaryCombatController(
         IKeyboardInput input,
@@ -48,6 +50,9 @@ public sealed class StationaryCombatController
         _input = input;
         _semiAuto = semiAuto;
         _pathStore = pathStore;
+        _bagCleanup = pathStore is null
+            ? null
+            : new BagCleanupController(input, pathStore, ExecutePathOnceAsync);
     }
 
     public async Task<TimeSpan> TickAsync(
@@ -2811,6 +2816,30 @@ public sealed class StationaryCombatController
                 .ConfigureAwait(false))
         {
             return StationaryCombatBehaviorStatus.Running;
+        }
+
+        if (_bagCleanup is not null)
+        {
+            var cleanupResult = await _bagCleanup
+                .TickAfterLootAsync(context, state.BagCleanup)
+                .ConfigureAwait(false);
+            if (cleanupResult.Status == BagCleanupTickStatus.Running)
+            {
+                semiAutoState.ResetAttackKeyPressThrottle();
+                await StopMovementAsync(context, state).ConfigureAwait(false);
+                StopPathFollowPoller(state);
+                return StationaryCombatBehaviorStatus.Running;
+            }
+
+            if (cleanupResult.Status == BagCleanupTickStatus.FatalFailure)
+            {
+                context.Logger.Warn("stationary_combat.bag_cleanup.failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["reason"] = cleanupResult.Reason,
+                    ["error"] = cleanupResult.Error
+                });
+            }
         }
 
         var handled = await _semiAuto

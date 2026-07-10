@@ -14,7 +14,7 @@ using Vmmsharp;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi
+public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi
 {
     private static readonly TimeSpan VmmReconnectDelay = TimeSpan.FromSeconds(5);
     private const int PlayerReadFailuresBeforeReconnect = 3;
@@ -105,6 +105,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
     private const ulong SkillItemSourceFlagsOffset = 0x74;
 
     private const ulong InventoryManagerGlobalRva = SkillManagerGlobalRva;
+    private const ulong InventoryCurrentMoneyOffset = 0x768;
+    private const ulong InventoryMoneyInstanceIdOffset = 0x770;
     private const ulong InventoryCapacityOffset = 0x774;
     private const ulong InventoryItemTreeHeaderOffset = 0x778;
     private const ulong InventoryItemTreeCountOffset = 0x780;
@@ -278,6 +280,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadInventoryCore(context), cancellationToken);
+    }
+
+    public Task<OperationResult<ulong>> ReadInventoryMoneyAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadInventoryMoneyCore(context), cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(CancellationToken cancellationToken = default)
@@ -865,6 +874,62 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         {
             _logger.Error("vmm.inventory.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<ulong> ReadInventoryMoneyCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<ulong>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<ulong>.Fail("Module not found: " + moduleName);
+                }
+
+                if (!TryReadPointer(process, gameBase + InventoryManagerGlobalRva, out var manager) || manager == 0)
+                {
+                    return OperationResult<ulong>.Fail(
+                        "failed to read InventoryManager pointer at Game.dll+0x" +
+                        InventoryManagerGlobalRva.ToString("X", CultureInfo.InvariantCulture));
+                }
+
+                if (!TryReadUInt64(process, manager + InventoryCurrentMoneyOffset, out var money))
+                {
+                    return OperationResult<ulong>.Fail(
+                        "failed to read inventory money at InventoryManager+0x" +
+                        InventoryCurrentMoneyOffset.ToString("X", CultureInfo.InvariantCulture));
+                }
+
+                TryReadUInt32(process, manager + InventoryMoneyInstanceIdOffset, out var moneyInstanceId);
+                _logger.Info("vmm.inventory.money.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["processName"] = process.Name,
+                    ["money"] = money,
+                    ["moneyInstanceId"] = moneyInstanceId
+                });
+
+                return OperationResult<ulong>.Ok(money);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.inventory.money.exception", ex, new Dictionary<string, object?>
+            {
+                ["account"] = context.AccountName
+            });
+            return OperationResult<ulong>.Fail(ex.Message);
         }
     }
 

@@ -50,9 +50,10 @@
           "hpMaintenanceRules": [],
           "mpMaintenanceRules": [],
           "statusMaintenanceRules": [],
+          "bagCleanupEnabled": false,
           "autoEquip": true,
           "autoDecompose": true,
-          "bagCleanupThreshold": 85,
+          "bagCleanupThreshold": 5,
           "bagTotalSlots": 100
         },
         "skills": {

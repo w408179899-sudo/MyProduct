@@ -1,3 +1,4 @@
+using Roadhog.Application.BagCleanup;
 using Roadhog.Core.Model;
 
 namespace Roadhog.Application.StationaryCombat;
@@ -9,6 +10,8 @@ public sealed class StationaryCombatState
     public StationaryCombatDeathRecoveryState DeathRecovery { get; } = new();
 
     public StationaryCombatLootAfterKillState LootAfterKill { get; } = new();
+
+    public BagCleanupState BagCleanup { get; } = new();
 
     public StationaryCombatPathCombatState PathCombat { get; } = new();
 
@@ -141,6 +144,7 @@ public sealed class StationaryCombatState
         TopLevelState = StationaryCombatTopLevelState.DeathRecovery;
         ReturningHome = false;
         LootAfterKill.Reset();
+        BagCleanup.Reset();
         PathCombat.Reset();
         ClearStartupRecovery();
         ClearTarget();
@@ -256,6 +260,7 @@ public sealed class StationaryCombatState
     public void ClearLootAfterKill()
     {
         LootAfterKill.Reset();
+        BagCleanup.Reset();
     }
 
     public bool IsTargetIgnored(ushort entityId)
