@@ -50,6 +50,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime tests bag cleanup from npc through sell", TestRuntimeTestsBagCleanupFromNpcThroughSellAsync),
     ("bag cleanup controller stays inactive when disabled", TestBagCleanupControllerSkipsWhenDisabledAsync),
     ("bag cleanup controller sells configured items and returns", TestBagCleanupControllerSellsItemsAndReturnsAsync),
+    ("bag cleanup controller abandons town return when attacked", TestBagCleanupControllerAbandonsTownReturnWhenAttackedAsync),
     ("bag cleanup controller sells more than three items in batches", TestBagCleanupControllerSellsMoreThanThreeItemsInBatchesAsync),
     ("bag cleanup controller returns by reverse path when npc is not found", TestBagCleanupControllerReturnsWhenNpcNotFoundAsync),
     ("bag cleanup controller skips within cooldown", TestBagCleanupControllerSkipsWithinCooldownAsync),
@@ -1620,6 +1621,110 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", previousNpcSelectDelay);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
+    }
+}
+
+static async Task TestBagCleanupControllerAbandonsTownReturnWhenAttackedAsync()
+{
+    var previousTownSettle = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS");
+    try
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", "5000");
+
+        var logger = new InMemoryRoadhogLogger();
+        var keyboard = new RecordingKeyboardInput();
+        var gameApi = new FakeGameApi
+        {
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetName = string.Empty,
+            TargetIsTargetingLocalPlayer = false,
+            InventoryCapacity = 10,
+            InventoryItems = new[]
+            {
+                new InventoryItemSnapshot(167000450, 10, "green-manastone-a", 1, 0, false, 24, 2),
+                new InventoryItemSnapshot(167000451, 11, "green-manastone-b", 1, 1, false, 24, 2),
+                new InventoryItemSnapshot(1001, 12, "kept", 1, 2, false, 1, 4),
+                new InventoryItemSnapshot(1002, 13, "filler-3", 1, 3, false, 1, 1),
+                new InventoryItemSnapshot(1003, 14, "filler-4", 1, 4, false, 1, 1),
+                new InventoryItemSnapshot(1004, 15, "filler-5", 1, 5, false, 1, 1),
+                new InventoryItemSnapshot(1005, 16, "filler-6", 1, 6, false, 1, 1)
+            }
+        };
+        keyboard.AfterPress = key =>
+        {
+            if (key != "NumPad7")
+            {
+                return;
+            }
+
+            gameApi.TargetEntityId = 200;
+            gameApi.TargetOwnServerObjectId = 2200;
+            gameApi.TargetServerObjectId = 100;
+            gameApi.TargetName = "attacker";
+            gameApi.TargetCurrentHp = 1000;
+            gameApi.TargetMaxHp = 1000;
+            gameApi.TargetIsTargetingLocalPlayer = true;
+        };
+
+        var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+        rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenManastone).Enabled = true;
+        var settings = CreateScriptSettings();
+        settings.Paths.TownReturnKey = "NumPad7";
+        settings.Paths.MaintenancePathName = "cleanup-path";
+        settings.Maintenance = new MaintenanceScriptSettings
+        {
+            BagCleanupEnabled = true,
+            BagCleanupThreshold = 5,
+            BagCleanupRules = rules,
+            BagCleanupSellItemClickX = 100,
+            BagCleanupSellItemClickY = 200,
+            BagCleanupSellButtonClickX = 300,
+            BagCleanupSellButtonClickY = 400
+        };
+
+        var pathCalls = new List<string>();
+        var controller = new BagCleanupController(
+            keyboard,
+            new InMemorySharedPathStore(new SharedPathDocument
+            {
+                Name = "cleanup-path",
+                CleanupNpcName = "cleanup-npc",
+                Points = new List<SharedPathPoint>
+                {
+                    new() { X = 1, Y = 0, Z = 0 },
+                    new() { X = 2, Y = 0, Z = 0 }
+                }
+            }),
+            (context, pathName, points) =>
+            {
+                pathCalls.Add(pathName);
+                return Task.FromResult(OperationResult.Ok());
+            });
+        var state = new BagCleanupState();
+        var context = CreateContext(settings, gameApi, logger);
+        BagCleanupTickResult? last = null;
+        for (var i = 0; i < 5; i++)
+        {
+            last = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+            if (last.Status != BagCleanupTickStatus.Running)
+            {
+                break;
+            }
+        }
+
+        AssertEqual(BagCleanupTickStatus.Skipped, last?.Status ?? BagCleanupTickStatus.FatalFailure, "interrupted town return should abandon current cleanup");
+        AssertEqual("town_return_interrupted_by_attack", last?.Reason ?? string.Empty, "interrupted town return reason");
+        AssertSequence(new[] { "NumPad7", "Escape", "Escape" }, keyboard.Keys.ToArray(), "interrupted return should cancel cast with two Esc presses");
+        AssertEqual(0, pathCalls.Count, "interrupted return should not follow cleanup path");
+        AssertFalse(state.Active, "interrupted return should reset cleanup state");
+        AssertFalse(state.LastFailedAt != DateTimeOffset.MinValue, "interrupted return should not enter failure cooldown");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.return.interrupted_by_attack"), "interrupted return should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", previousTownSettle);
     }
 }
 

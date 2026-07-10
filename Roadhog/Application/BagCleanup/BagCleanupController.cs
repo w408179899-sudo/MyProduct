@@ -15,6 +15,8 @@ public delegate Task<OperationResult> BagCleanupPathExecutor(
 public sealed class BagCleanupController
 {
     private static readonly TimeSpan TownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
+    private static readonly TimeSpan TownReturnInterruptEscapeHoldDuration = TimeSpan.FromMilliseconds(35);
+    private static readonly TimeSpan TownReturnInterruptEscapeInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan DefaultTownReturnSettleDelay = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan DefaultSafeWaitTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan DefaultCleanupCooldown = TimeSpan.FromMinutes(25);
@@ -286,6 +288,12 @@ public sealed class BagCleanupController
         AccountWorkerContext context,
         BagCleanupState state)
     {
+        var interrupted = await TryAbandonTownReturnIfInterruptedAsync(context, state).ConfigureAwait(false);
+        if (interrupted is not null)
+        {
+            return interrupted;
+        }
+
         if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnSettleDelay())
         {
             return BagCleanupTickResult.Running("waiting_for_town_return");
@@ -337,6 +345,48 @@ public sealed class BagCleanupController
         });
         state.Advance(BagCleanupStep.LoadCleanupPath);
         return BagCleanupTickResult.Running("town_return_settled");
+    }
+
+    private async Task<BagCleanupTickResult?> TryAbandonTownReturnIfInterruptedAsync(
+        AccountWorkerContext context,
+        BagCleanupState state)
+    {
+        var attack = await _safetyChecker.FindAttackingTargetNameAsync(context).ConfigureAwait(false);
+        if (!attack.Success)
+        {
+            context.Logger.Warn("bag_cleanup.return.attack_check_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["error"] = attack.Error
+            });
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(attack.Value))
+        {
+            return null;
+        }
+
+        var firstEscape = await _input
+            .PressKeyAsync("Escape", TownReturnInterruptEscapeHoldDuration, context.StopToken)
+            .ConfigureAwait(false);
+        await DelayAsync(TownReturnInterruptEscapeInterval, context.StopToken).ConfigureAwait(false);
+        var secondEscape = await _input
+            .PressKeyAsync("Escape", TownReturnInterruptEscapeHoldDuration, context.StopToken)
+            .ConfigureAwait(false);
+
+        context.Logger.Warn("bag_cleanup.return.interrupted_by_attack", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["attackerName"] = attack.Value,
+            ["firstEscapeSuccess"] = firstEscape.Success,
+            ["firstEscapeError"] = firstEscape.Error,
+            ["secondEscapeSuccess"] = secondEscape.Success,
+            ["secondEscapeError"] = secondEscape.Error
+        });
+
+        state.Reset();
+        return BagCleanupTickResult.Skipped("town_return_interrupted_by_attack");
     }
 
     private async Task<BagCleanupTickResult> TickLoadCleanupPathAsync(
