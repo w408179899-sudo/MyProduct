@@ -3217,6 +3217,7 @@ public sealed class StationaryCombatController
         }
 
         if (!state.CurrentTargetIsMaintenanceDefense &&
+            !state.CurrentTargetIsRevivePathClear &&
             !AllowsClaimedTargets(context) &&
             IsClaimedByOther(target, state))
         {
@@ -3227,7 +3228,8 @@ public sealed class StationaryCombatController
                     target.EntityId,
                     target.ServerObjectId,
                     target.Name,
-                    "target_owned_by_other")
+                    "target_owned_by_other",
+                    target.TargetServerObjectId)
                 .ConfigureAwait(false);
         }
 
@@ -4020,6 +4022,7 @@ public sealed class StationaryCombatController
         LockedTargetSnapshot target)
     {
         if (state.CurrentTargetIsMaintenanceDefense ||
+            state.CurrentTargetIsRevivePathClear ||
             AllowsClaimedTargets(context) ||
             !IsClaimedByOther(target, state))
         {
@@ -4033,7 +4036,8 @@ public sealed class StationaryCombatController
                 target.TargetEntityId,
                 target.ServerObjectId,
                 target.Name,
-                "target_owned_by_other")
+                "target_owned_by_other",
+                target.TargetServerObjectId)
             .ConfigureAwait(false);
     }
 
@@ -4085,7 +4089,8 @@ public sealed class StationaryCombatController
         ushort targetEntityId,
         uint targetServerObjectId,
         string targetName,
-        string reason)
+        string reason,
+        uint targetingServerObjectId = 0)
     {
         var now = DateTimeOffset.Now;
         var elapsedMs = state.TargetStartedAt == DateTimeOffset.MinValue
@@ -4098,6 +4103,12 @@ public sealed class StationaryCombatController
             ["targetEntityId"] = targetEntityId,
             ["serverObjectId"] = targetServerObjectId,
             ["targetServerObjectId"] = targetServerObjectId,
+            ["targetingServerObjectId"] = targetingServerObjectId,
+            ["localServerObjectId"] = state.LocalCombatSideServerObjectId,
+            ["localPetServerObjectId"] = state.LocalCombatSidePetServerObjectId,
+            ["currentTargetIsMaintenanceDefense"] = state.CurrentTargetIsMaintenanceDefense,
+            ["currentTargetIsRevivePathClear"] = state.CurrentTargetIsRevivePathClear,
+            ["currentTargetBypassesHomeLeash"] = state.CurrentTargetBypassesHomeLeash,
             ["targetName"] = targetName,
             ["reason"] = reason,
             ["elapsedMs"] = elapsedMs,

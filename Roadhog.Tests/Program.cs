@@ -115,6 +115,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat keeps previously engaged target while it self targets", TestStationaryCombatKeepsPreviouslyEngagedTargetWhileSelfTargetingAsync),
     ("stationary combat keeps current target that previously targeted player", TestStationaryCombatKeepsCurrentTargetThatPreviouslyTargetedPlayerAsync),
     ("stationary combat keeps spiritmaster pet targeted fight", TestStationaryCombatKeepsSpiritmasterPetTargetedFightAsync),
+    ("stationary combat keeps revive path clear target claimed by other", TestStationaryCombatKeepsRevivePathClearTargetClaimedByOtherAsync),
+    ("stationary combat reacquires revive path clear target claimed by other", TestStationaryCombatReacquiresRevivePathClearTargetClaimedByOtherAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
     ("stationary combat loots locked dead target directly", TestStationaryCombatLootsLockedDeadTargetDirectlyAsync),
     ("stationary combat waits after kill before loot key", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
@@ -5789,10 +5791,13 @@ static async Task TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync(
     AssertFalse(state.Fighting, "claimed locked target should clear current fight state");
     AssertFalse(!state.IsTargetIgnored(100), "claimed locked target should be ignored");
     AssertFalse(keyboard.Keys.Contains("D2"), "claimed locked target must not release skills");
-    AssertFalse(!logger.Entries.Any(entry =>
+    var ignoredEntry = logger.Entries.FirstOrDefault(entry =>
         entry.EventName == "stationary_combat.target.ignored" &&
-        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
-        "claimed target ignore should be logged");
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal));
+    AssertFalse(ignoredEntry is null, "claimed target ignore should be logged");
+    AssertEqual(999u, Convert.ToUInt32(ignoredEntry!.Fields["targetingServerObjectId"]), "claimed target log should include owner server id");
+    AssertEqual(0u, Convert.ToUInt32(ignoredEntry.Fields["localPetServerObjectId"]), "claimed target log should include local pet server id");
+    AssertFalse(Convert.ToBoolean(ignoredEntry.Fields["currentTargetIsRevivePathClear"]), "claimed target log should include revive path clear marker");
 
     gameApi.TargetEntityId = 0;
     gameApi.TargetServerObjectId = 0;
@@ -6034,6 +6039,164 @@ static async Task TestStationaryCombatKeepsSpiritmasterPetTargetedFightAsync()
         entry.EventName == "stationary_combat.target.ignored" &&
         string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
         "pet-targeted monster should not log claimed-target ignore");
+}
+
+static async Task TestStationaryCombatKeepsRevivePathClearTargetClaimedByOtherAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+
+    const uint targetServerObjectId = 100;
+    const uint otherServerObjectId = 999;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = targetServerObjectId,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = otherServerObjectId,
+        TargetIsTargetingLocalPlayer = false,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, targetServerObjectId, "clear-target", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000, otherServerObjectId, false)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = targetServerObjectId,
+        CandidateEntityId = 100,
+        CandidateServerObjectId = targetServerObjectId,
+        CurrentTargetIsRevivePathClear = true,
+        CurrentTargetBypassesHomeLeash = true
+    };
+    state.MarkCandidate(100, targetServerObjectId, DateTimeOffset.Now);
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "revive path clear target should stay in fight even if locked target looks claimed");
+    AssertEqual((ushort)100, state.CurrentTargetEntityId, "revive path clear current target should stay");
+    AssertEqual(targetServerObjectId, state.CurrentTargetServerObjectId, "revive path clear server id should stay");
+    AssertFalse(state.IsTargetIgnored(100, targetServerObjectId), "revive path clear target should not be ignored as claimed");
+    AssertFalse(logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.ignored" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
+        "revive path clear target should not log claimed-target ignore");
+}
+
+static async Task TestStationaryCombatReacquiresRevivePathClearTargetClaimedByOtherAsync()
+{
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        const uint targetServerObjectId = 100;
+        const uint otherServerObjectId = 999;
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 200, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 200,
+            TargetOwnServerObjectId = 200,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(8, 0, 0),
+            TargetServerObjectId = 0,
+            TargetIsTargetingLocalPlayer = false,
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, targetServerObjectId, "clear-target", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000, otherServerObjectId, false),
+                new WorldObjectSnapshot(200, 200, "wrong-lock", "monster", new Vector3Snapshot(12, 0, 0), 12, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CurrentTargetServerObjectId = targetServerObjectId,
+            CandidateEntityId = 100,
+            CandidateServerObjectId = targetServerObjectId,
+            CurrentTargetIsRevivePathClear = true,
+            CurrentTargetBypassesHomeLeash = true
+        };
+        state.MarkCandidate(100, targetServerObjectId, DateTimeOffset.Now);
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.Fighting, "revive path clear target should stay in fight while reacquiring");
+        AssertEqual((ushort)100, state.CurrentTargetEntityId, "reacquire should keep original revive path clear target");
+        AssertEqual(targetServerObjectId, state.CurrentTargetServerObjectId, "reacquire should keep original revive path clear server id");
+        AssertFalse(state.IsTargetIgnored(100, targetServerObjectId), "claimed revive path clear target should not be ignored during reacquire");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.reacquire" &&
+            Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), (ushort)100)),
+            "revive path clear target should log current target reacquire");
+        AssertFalse(logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.ignored" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
+            "revive path clear reacquire should not log claimed-target ignore");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
 }
 
 static async Task TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync()
