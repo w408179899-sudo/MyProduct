@@ -90,6 +90,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("path combat starts combat path after access path completes", TestPathCombatStartsCombatPathAfterAccessPathCompletesAsync),
     ("path combat uses configured path radius before clearing monsters", TestPathCombatUsesConfiguredRadiusBeforeClearingMonstersAsync),
     ("path combat uses configured path follow precision", TestPathCombatUsesConfiguredPathFollowPrecisionAsync),
+    ("path combat returns after twenty minutes without a kill", TestPathCombatNoKillReturnStartsRevivePathAtFirstPointAsync),
+    ("path combat recent kill prevents no kill return", TestPathCombatRecentKillPreventsNoKillReturnAsync),
+    ("path combat failed no kill return waits before retry", TestPathCombatFailedNoKillReturnWaitsBeforeRetryAsync),
     ("path combat resumes path after kill", TestPathCombatResumesPathAfterKillAsync),
     ("worker life guard revives before semi-auto combat", TestWorkerLifeGuardRevivesBeforeSemiAutoAsync),
     ("worker life guard revives before stationary position validation", TestWorkerLifeGuardRevivesBeforeStationaryPositionValidationAsync),
@@ -108,6 +111,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat jumps while stuck approaching target", TestStationaryCombatJumpsWhileStuckApproachingTargetAsync),
     ("stationary combat ignores target when lock times out", TestStationaryCombatIgnoresTargetWhenLockTimesOutAsync),
     ("stationary combat ignores target when kill times out", TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync),
+    ("stationary combat ignores locked target with no damage and no targeting", TestStationaryCombatIgnoresNoDamageNoTargetingTargetAsync),
+    ("stationary combat keeps locked target after damage progress", TestStationaryCombatKeepsNoTargetingTargetAfterDamageProgressAsync),
+    ("stationary combat defense can select ignored local target", TestStationaryCombatDefenseCanSelectIgnoredLocalTargetAsync),
     ("stationary combat keeps fight when locked target server id matches", TestStationaryCombatKeepsFightWhenLockedServerIdMatchesAsync),
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
     ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
@@ -4289,6 +4295,212 @@ static async Task TestPathCombatUsesConfiguredPathFollowPrecisionAsync()
     }
 }
 
+static async Task TestPathCombatNoKillReturnStartsRevivePathAtFirstPointAsync()
+{
+    var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS");
+    var previousSettle = Environment.GetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_SETTLE_MS");
+    var previousMinDistance = Environment.GetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_MIN_DISTANCE");
+    var previousRetry = Environment.GetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_RETRY_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", "1200000");
+    Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_MIN_DISTANCE", "5");
+    Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_RETRY_MS", "60000");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.TownReturnKey = "NumPad7";
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Paths.CombatPathName = "combat-a";
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("revive-a",
+                new Vector3Snapshot(100, 0, 0),
+                new Vector3Snapshot(200, 0, 0),
+                new Vector3Snapshot(300, 0, 0)),
+            CreatePath("combat-a",
+                new Vector3Snapshot(300, 0, 0),
+                new Vector3Snapshot(320, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var runtimeStates = new AccountRuntimeManager(logger);
+        runtimeStates.GetOrCreate("account1");
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(
+                1,
+                100,
+                "Fake",
+                100,
+                100,
+                100,
+                100,
+                0,
+                new Vector3Snapshot(900, 0, 0),
+                DateTimeOffset.Now,
+                90,
+                10,
+                90),
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = Array.Empty<SkillSnapshot>()
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var state = new StationaryCombatState();
+        state.NoKillRecovery.ObserveCombatActivity(null, DateTimeOffset.Now.AddMinutes(-21));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var context = CreateContext(settings, gameApi, logger, runtimeStates);
+
+        await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+
+        AssertSequence(new[] { "NumPad7" }, keyboard.Keys.ToArray(), "twenty-one minute kill gap should press town return once");
+        AssertEqual(
+            StationaryCombatNoKillRecoveryStep.WaitTownReturnSettle,
+            state.NoKillRecovery.Step,
+            "no-kill recovery should wait for town return");
+
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(100, 0, 0) };
+        await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+
+        AssertEqual(
+            StationaryCombatNoKillRecoveryStep.FollowRevivePath,
+            state.NoKillRecovery.Step,
+            "verified town return should begin revive path");
+        AssertEqual(1, state.StartupRecoveryPointIndex, "revive path should begin at point zero before advancing");
+        var verifyLog = logger.Entries.Last(entry => entry.EventName == "stationary_combat.no_kill.return.verify.ok");
+        AssertEqual(0, Convert.ToInt32(verifyLog.Fields["startPointIndex"]), "no-kill recovery start point index");
+
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(200, 0, 0) };
+        await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(300, 0, 0) };
+        await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+
+        AssertFalse(state.NoKillRecovery.Active, "completed revive path should end no-kill recovery");
+        AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad7"), "completed recovery should reset the twenty minute watch");
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "stationary_combat.no_kill.recovery.complete"),
+            "completed no-kill recovery should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", previousTimeout);
+        Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_SETTLE_MS", previousSettle);
+        Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_MIN_DISTANCE", previousMinDistance);
+        Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_RETRY_MS", previousRetry);
+    }
+}
+
+static async Task TestPathCombatRecentKillPreventsNoKillReturnAsync()
+{
+    var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", "1200000");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.TownReturnKey = "NumPad7";
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Paths.CombatPathName = "combat-a";
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("revive-a", new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(100, 0, 0)),
+            CreatePath("combat-a", new Vector3Snapshot(100, 0, 0), new Vector3Snapshot(120, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var runtimeStates = new AccountRuntimeManager(logger);
+        runtimeStates.GetOrCreate("account1");
+        runtimeStates.MarkKill("account1", 100, 1000, DateTimeOffset.Now);
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(
+                1, 100, "Fake", 100, 100, 100, 100, 0,
+                new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = Array.Empty<SkillSnapshot>()
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+
+        await controller
+            .TickPathAsync(
+                CreateContext(settings, gameApi, logger, runtimeStates),
+                SemiAutoSkillPlan.FromSettings(settings.Skills),
+                new SemiAutoCombatState(),
+                new StationaryCombatState())
+            .ConfigureAwait(false);
+
+        AssertFalse(keyboard.Keys.Contains("NumPad7"), "recent kill should keep the no-kill return inactive");
+        AssertFalse(
+            logger.Entries.Any(entry => entry.EventName == "stationary_combat.no_kill.return.press"),
+            "recent kill should not log a town return");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", previousTimeout);
+    }
+}
+
+static async Task TestPathCombatFailedNoKillReturnWaitsBeforeRetryAsync()
+{
+    var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS");
+    var previousSettle = Environment.GetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_SETTLE_MS");
+    var previousMinDistance = Environment.GetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_MIN_DISTANCE");
+    var previousRetry = Environment.GetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_RETRY_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", "1200000");
+    Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_MIN_DISTANCE", "5");
+    Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_RETRY_MS", "60000");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Path;
+        settings.Paths.TownReturnKey = "NumPad7";
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Paths.CombatPathName = "combat-a";
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("revive-a", new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(100, 0, 0)),
+            CreatePath("combat-a", new Vector3Snapshot(100, 0, 0), new Vector3Snapshot(120, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var runtimeStates = new AccountRuntimeManager(logger);
+        runtimeStates.GetOrCreate("account1");
+        runtimeStates.MarkKill("account1", 100, 1000, DateTimeOffset.Now.AddMinutes(-21));
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(
+                1, 100, "Fake", 100, 100, 100, 100, 0,
+                new Vector3Snapshot(500, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = Array.Empty<SkillSnapshot>()
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var state = new StationaryCombatState();
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var context = CreateContext(settings, gameApi, logger, runtimeStates);
+
+        await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+        await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+        await controller.TickPathAsync(context, plan, new SemiAutoCombatState(), state).ConfigureAwait(false);
+
+        AssertFalse(state.NoKillRecovery.Active, "unchanged position should stop the failed return attempt");
+        AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad7"), "failed return should wait before pressing again");
+        var postponed = logger.Entries.Last(entry => entry.EventName == "stationary_combat.no_kill.recovery.postponed");
+        AssertEqual(
+            "town_return_position_unchanged",
+            Convert.ToString(postponed.Fields["reason"]) ?? string.Empty,
+            "failed town return reason");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", previousTimeout);
+        Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_SETTLE_MS", previousSettle);
+        Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_MIN_DISTANCE", previousMinDistance);
+        Environment.SetEnvironmentVariable("ROADHOG_NO_KILL_RETURN_RETRY_MS", previousRetry);
+    }
+}
+
 static async Task TestPathCombatResumesPathAfterKillAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
@@ -5537,6 +5749,207 @@ static async Task TestStationaryCombatIgnoresTargetWhenKillTimesOutAsync()
         entry.EventName == "stationary_combat.target.ignored" &&
         string.Equals(Convert.ToString(entry.Fields["reason"]), "not_dead", StringComparison.Ordinal)),
         "kill timeout should be logged");
+}
+
+static async Task TestStationaryCombatIgnoresNoDamageNoTargetingTargetAsync()
+{
+    var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS");
+    try
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS", "1");
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 100,
+            TargetOwnServerObjectId = 100,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(8, 0, 0),
+            TargetServerObjectId = 0,
+            TargetIsTargetingLocalPlayer = false,
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "idle", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState { Fighting = true };
+        state.SetCurrentTarget(100, 100);
+        state.MarkCandidate(100, 100, DateTimeOffset.Now);
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await Task.Delay(20).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(state.Fighting, "no-damage no-targeting fight should clear fighting state");
+        AssertFalse(!state.IsTargetIgnored(100, 100), "no-damage no-targeting target should be ignored");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.ignored" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "no_damage_no_targeting", StringComparison.Ordinal)),
+            "no-damage no-targeting ignore should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS", previousTimeout);
+    }
+}
+
+static async Task TestStationaryCombatKeepsNoTargetingTargetAfterDamageProgressAsync()
+{
+    var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS");
+    try
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS", "1");
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 100,
+            TargetOwnServerObjectId = 100,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(8, 0, 0),
+            TargetServerObjectId = 0,
+            TargetIsTargetingLocalPlayer = false,
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "damaged", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState { Fighting = true };
+        state.SetCurrentTarget(100, 100);
+        state.MarkCandidate(100, 100, DateTimeOffset.Now);
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        gameApi.TargetCurrentHp = 900;
+        await Task.Delay(20).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.Fighting, "damaged no-targeting fight should continue");
+        AssertFalse(state.IsTargetIgnored(100, 100), "damaged no-targeting target should not be ignored");
+        AssertFalse(logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.ignored" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "no_damage_no_targeting", StringComparison.Ordinal)),
+            "damaged no-targeting target should not log no-damage ignore");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS", previousTimeout);
+    }
+}
+
+static async Task TestStationaryCombatDefenseCanSelectIgnoredLocalTargetAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = 100,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = 1,
+        TargetIsTargetingLocalPlayer = true,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, 100, "ignored-local", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000, 1, true)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+    state.IgnoreTarget(100, 100);
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "ignored local-side target should be selected for defense");
+    AssertEqual((ushort)100, state.CurrentTargetEntityId, "ignored local-side target entity");
+    AssertEqual(100u, state.CurrentTargetServerObjectId, "ignored local-side target server id");
+    AssertFalse(!state.CurrentTargetIsMaintenanceDefense, "ignored local-side target should be marked as defense");
+    AssertFalse(!state.IsTargetIgnored(100, 100), "defense selection should not remove the ignored marker");
 }
 
 static async Task TestStationaryCombatKeepsFightWhenLockedServerIdMatchesAsync()

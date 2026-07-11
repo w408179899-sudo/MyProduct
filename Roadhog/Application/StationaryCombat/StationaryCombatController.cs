@@ -19,6 +19,10 @@ public sealed class StationaryCombatController
     private static readonly TimeSpan IdleDelay = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan DeathRevivePreClickPause = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan TargetTimeout = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan NoKillTownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
+    private static readonly TimeSpan DefaultNoKillTimeout = TimeSpan.FromMinutes(20);
+    private static readonly TimeSpan DefaultNoKillTownReturnSettleDelay = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan DefaultNoKillRetryDelay = TimeSpan.FromMinutes(1);
     private const double ReturnStopDistance = 2.0D;
     private const double AcquireDistance = 25.0D;
     private const double TargetLeashExtraDistance = 5.0D;
@@ -138,6 +142,18 @@ public sealed class StationaryCombatController
                     state,
                     player)
                 .ConfigureAwait(false);
+        }
+
+        var noKillRecoveryDelay = await TickNoKillRecoveryAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player)
+            .ConfigureAwait(false);
+        if (noKillRecoveryDelay is not null)
+        {
+            return noKillRecoveryDelay.Value;
         }
 
         if (await _semiAuto
@@ -444,6 +460,18 @@ public sealed class StationaryCombatController
                     state,
                     player)
                 .ConfigureAwait(false);
+        }
+
+        var noKillRecoveryDelay = await TickNoKillRecoveryAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player)
+            .ConfigureAwait(false);
+        if (noKillRecoveryDelay is not null)
+        {
+            return noKillRecoveryDelay.Value;
         }
 
         if (await _semiAuto
@@ -2525,6 +2553,19 @@ public sealed class StationaryCombatController
             return claimedDelay.Value;
         }
 
+        var noDamageDelay = await TryIgnoreNoDamageNoTargetingLockedTargetAsync(
+                context,
+                semiAutoState,
+                state,
+                target,
+                now,
+                "fight")
+            .ConfigureAwait(false);
+        if (noDamageDelay is not null)
+        {
+            return noDamageDelay.Value;
+        }
+
         if (IsTargetTimedOut(state, now))
         {
             return await IgnoreCurrentTargetAsync(
@@ -2987,6 +3028,235 @@ public sealed class StationaryCombatController
             ["homeDistance"] = Math.Round(playerDistanceFromHome, 2)
         });
         return StationaryCombatBehaviorStatus.Success;
+    }
+
+    private async Task<TimeSpan?> TickNoKillRecoveryAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player)
+    {
+        var now = DateTimeOffset.Now;
+        var runtime = context.RuntimeStates
+            .Snapshot()
+            .FirstOrDefault(item => string.Equals(
+                item.AccountName,
+                context.Config.AccountName,
+                StringComparison.OrdinalIgnoreCase));
+        state.NoKillRecovery.ObserveCombatActivity(runtime?.LastKillAt ?? runtime?.StartedAt, now);
+
+        if (!state.NoKillRecovery.Active)
+        {
+            if (!state.NoKillRecovery.IsDue(now, ReadNoKillTimeout()))
+            {
+                return null;
+            }
+
+            var paths = context.Config.ScriptSettings?.Paths ?? new PathScriptSettings();
+            var key = paths.TownReturnKey?.Trim() ?? string.Empty;
+            var revivePathName = GetRevivePathName(context);
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                return PostponeNoKillRecovery(
+                    context,
+                    state,
+                    now,
+                    "town_return_key_missing",
+                    "Town return key is not configured.");
+            }
+
+            if (_pathStore is null || string.IsNullOrWhiteSpace(revivePathName))
+            {
+                return PostponeNoKillRecovery(
+                    context,
+                    state,
+                    now,
+                    "revive_path_missing",
+                    "Revive path is not configured.");
+            }
+
+            var pathResult = await _pathStore.LoadAsync(revivePathName, context.StopToken).ConfigureAwait(false);
+            if (!pathResult.Success || pathResult.Value?.Points is not { Count: >= 2 } pathPoints)
+            {
+                return PostponeNoKillRecovery(
+                    context,
+                    state,
+                    now,
+                    "revive_path_unavailable",
+                    pathResult.Error ?? "Revive path has fewer than two points.");
+            }
+
+            if (player.Position is not { } startPosition)
+            {
+                return PostponeNoKillRecovery(
+                    context,
+                    state,
+                    now,
+                    "player_position_missing",
+                    "Player position before town return is not available.");
+            }
+
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+            state.PathCombat.Reset();
+            state.ClearStartupRecovery();
+            state.ClearTarget();
+
+            var press = await _input
+                .PressKeyAsync(key, NoKillTownReturnHoldDuration, context.StopToken)
+                .ConfigureAwait(false);
+            if (!press.Success)
+            {
+                return PostponeNoKillRecovery(
+                    context,
+                    state,
+                    now,
+                    "town_return_press_failed",
+                    press.Error ?? "Town return key press failed.");
+            }
+
+            var revivePoints = pathPoints
+                .Select(point => point.ToVector3())
+                .ToArray();
+            state.NoKillRecovery.StartTownReturn(startPosition, revivePathName, revivePoints, now);
+            context.Logger.Warn("stationary_combat.no_kill.return.press", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["key"] = key,
+                ["timeoutMs"] = (long)ReadNoKillTimeout().TotalMilliseconds,
+                ["lastKillAt"] = runtime?.LastKillAt,
+                ["watchStartedAt"] = state.NoKillRecovery.WatchStartedAt,
+                ["revivePathName"] = revivePathName,
+                ["startX"] = startPosition.X,
+                ["startY"] = startPosition.Y,
+                ["startZ"] = startPosition.Z
+            });
+            return IdleDelay;
+        }
+
+        if (state.NoKillRecovery.Step == StationaryCombatNoKillRecoveryStep.WaitTownReturnSettle)
+        {
+            if (now - state.NoKillRecovery.StepStartedAt < ReadNoKillTownReturnSettleDelay())
+            {
+                return IdleDelay;
+            }
+
+            if (state.NoKillRecovery.TownReturnStartPosition is not { } startPosition)
+            {
+                return PostponeNoKillRecovery(
+                    context,
+                    state,
+                    now,
+                    "town_return_start_position_missing",
+                    "Town return start position was not recorded.");
+            }
+
+            var afterResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+            if (!afterResult.Success || afterResult.Value?.Position is not { } endPosition)
+            {
+                return PostponeNoKillRecovery(
+                    context,
+                    state,
+                    now,
+                    "town_return_end_position_missing",
+                    afterResult.Error ?? "Player position after town return is not available.");
+            }
+
+            var distance = StationaryCombatTargetSelector.HorizontalDistance(startPosition, endPosition);
+            if (distance < ReadNoKillTownReturnMinDistance())
+            {
+                return PostponeNoKillRecovery(
+                    context,
+                    state,
+                    now,
+                    "town_return_position_unchanged",
+                    "Town return did not move the character enough. distance=" +
+                    distance.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            var revivePoints = state.NoKillRecovery.RevivePathPoints;
+            if (revivePoints.Count < 2)
+            {
+                return PostponeNoKillRecovery(
+                    context,
+                    state,
+                    now,
+                    "revive_path_unavailable",
+                    "Revive path points were not retained after town return.");
+            }
+
+            var revivePathName = state.NoKillRecovery.RevivePathName;
+            state.SetStationaryHomeFromRevivePath(revivePathName, revivePoints[^1], revivePoints.Count);
+            state.StartStartupRecovery(revivePathName, revivePoints, 0);
+            state.NoKillRecovery.StartRevivePath(now);
+            context.Logger.Info("stationary_combat.no_kill.return.verify.ok", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["distance"] = Math.Round(distance, 2),
+                ["revivePathName"] = revivePathName,
+                ["startPointIndex"] = 0,
+                ["pathPointCount"] = revivePoints.Count
+            });
+            player = afterResult.Value;
+        }
+
+        if (state.NoKillRecovery.Step != StationaryCombatNoKillRecoveryStep.FollowRevivePath ||
+            player.Position is not { } playerPosition ||
+            state.NoKillRecovery.RevivePathPoints.Count < 2)
+        {
+            return IdleDelay;
+        }
+
+        var home = state.NoKillRecovery.RevivePathPoints[^1];
+        var combat = context.Config.ScriptSettings?.Combat ?? new CombatScriptSettings();
+        var radius = Math.Max(1.0D, combat.StationaryCombatRadius);
+        var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home);
+        var recoveryDelay = await ContinueStartupRecoveryAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                player,
+                playerPosition,
+                home,
+                radius,
+                playerDistanceFromHome)
+            .ConfigureAwait(false);
+        if (recoveryDelay is not null || state.StartupRecoveryActive)
+        {
+            return recoveryDelay ?? MoveTickDelay;
+        }
+
+        var completedPathName = state.NoKillRecovery.RevivePathName;
+        state.NoKillRecovery.Complete(DateTimeOffset.Now);
+        context.Logger.Info("stationary_combat.no_kill.recovery.complete", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["revivePathName"] = completedPathName,
+            ["nextTimeoutMs"] = (long)ReadNoKillTimeout().TotalMilliseconds
+        });
+        return IdleDelay;
+    }
+
+    private static TimeSpan PostponeNoKillRecovery(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        DateTimeOffset now,
+        string reason,
+        string error)
+    {
+        var retryDelay = ReadNoKillRetryDelay();
+        state.NoKillRecovery.Postpone(now, retryDelay);
+        context.Logger.Warn("stationary_combat.no_kill.recovery.postponed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["error"] = error,
+            ["retryDelayMs"] = (long)retryDelay.TotalMilliseconds
+        });
+        return IdleDelay;
     }
 
     private async Task<bool> TryPostponePostCombatMaintenanceForDefenseTargetAsync(
@@ -3906,6 +4176,19 @@ public sealed class StationaryCombatController
             return claimedDelay.Value;
         }
 
+        var noDamageDelay = await TryIgnoreNoDamageNoTargetingLockedTargetAsync(
+                context,
+                semiAutoState,
+                state,
+                effectiveLockedTarget,
+                DateTimeOffset.Now,
+                phase)
+            .ConfigureAwait(false);
+        if (noDamageDelay is not null)
+        {
+            return noDamageDelay.Value;
+        }
+
         var openingDelay = await TryWaitForLockedTargetToTargetPlayerAsync(
                 context,
                 plan,
@@ -4041,6 +4324,56 @@ public sealed class StationaryCombatController
             .ConfigureAwait(false);
     }
 
+    private async Task<TimeSpan?> TryIgnoreNoDamageNoTargetingLockedTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        LockedTargetSnapshot target,
+        DateTimeOffset now,
+        string phase)
+    {
+        if (state.CurrentTargetIsMaintenanceDefense ||
+            IsTargetingLocalSide(target, state))
+        {
+            state.ResetCurrentTargetDamageObservation();
+            return null;
+        }
+
+        state.TrackCurrentTargetDamageObservation(target, now);
+        if (state.CurrentTargetDamageObserved ||
+            state.CurrentTargetDamageObservedAt == DateTimeOffset.MinValue)
+        {
+            return null;
+        }
+
+        var timeoutMs = ReadNoDamageNoTargetingTimeoutMs();
+        var observedFor = now - state.CurrentTargetDamageObservedAt;
+        if (observedFor.TotalMilliseconds < timeoutMs)
+        {
+            return null;
+        }
+
+        return await IgnoreCurrentTargetAsync(
+                context,
+                semiAutoState,
+                state,
+                target.TargetEntityId,
+                target.ServerObjectId,
+                target.Name,
+                "no_damage_no_targeting",
+                target.TargetServerObjectId,
+                timeoutMs,
+                new Dictionary<string, object?>
+                {
+                    ["phase"] = phase,
+                    ["currentHp"] = target.CurrentHp,
+                    ["maxHp"] = target.MaxHp,
+                    ["baselineHp"] = state.CurrentTargetDamageBaselineHp,
+                    ["observedMs"] = (long)Math.Max(0.0D, observedFor.TotalMilliseconds)
+                })
+            .ConfigureAwait(false);
+    }
+
     private async Task<TimeSpan?> TryWaitForLockedTargetToTargetPlayerAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
@@ -4090,14 +4423,16 @@ public sealed class StationaryCombatController
         uint targetServerObjectId,
         string targetName,
         string reason,
-        uint targetingServerObjectId = 0)
+        uint targetingServerObjectId = 0,
+        long? timeoutMs = null,
+        IReadOnlyDictionary<string, object?>? extraFields = null)
     {
         var now = DateTimeOffset.Now;
         var elapsedMs = state.TargetStartedAt == DateTimeOffset.MinValue
             ? 0
             : (long)Math.Max(0.0D, (now - state.TargetStartedAt).TotalMilliseconds);
         state.IgnoreTarget(targetEntityId, targetServerObjectId);
-        context.Logger.Info("stationary_combat.target.ignored", new Dictionary<string, object?>
+        var fields = new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["targetEntityId"] = targetEntityId,
@@ -4112,8 +4447,17 @@ public sealed class StationaryCombatController
             ["targetName"] = targetName,
             ["reason"] = reason,
             ["elapsedMs"] = elapsedMs,
-            ["timeoutMs"] = (long)TargetTimeout.TotalMilliseconds
-        });
+            ["timeoutMs"] = timeoutMs ?? (long)TargetTimeout.TotalMilliseconds
+        };
+        if (extraFields is not null)
+        {
+            foreach (var field in extraFields)
+            {
+                fields[field.Key] = field.Value;
+            }
+        }
+
+        context.Logger.Info("stationary_combat.target.ignored", fields);
         state.ClearTarget();
         semiAutoState.ResetAttackKeyPressThrottle();
         await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -4332,7 +4676,6 @@ public sealed class StationaryCombatController
     {
         var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
         return objects
-            .Where(target => !state.IsTargetIgnored(target))
             .Where(target => IsTargetingLocalSide(target, state))
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
             .Where(target => target.Position is not null)
@@ -6442,6 +6785,42 @@ public sealed class StationaryCombatController
     private static int ReadCombatApproachJumpIntervalMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_COMBAT_APPROACH_JUMP_INTERVAL_MS", 60), 0, 1000);
+    }
+
+    private static int ReadNoDamageNoTargetingTimeoutMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS", 10_000), 1, 60_000);
+    }
+
+    private static TimeSpan ReadNoKillTimeout()
+    {
+        return TimeSpan.FromMilliseconds(ClampInt(
+            ReadRawIntFromEnv("ROADHOG_NO_KILL_RETURN_TIMEOUT_MS", (int)DefaultNoKillTimeout.TotalMilliseconds),
+            0,
+            24 * 60 * 60 * 1000));
+    }
+
+    private static TimeSpan ReadNoKillTownReturnSettleDelay()
+    {
+        return TimeSpan.FromMilliseconds(ClampInt(
+            ReadRawIntFromEnv(
+                "ROADHOG_NO_KILL_RETURN_SETTLE_MS",
+                (int)DefaultNoKillTownReturnSettleDelay.TotalMilliseconds),
+            0,
+            60_000));
+    }
+
+    private static TimeSpan ReadNoKillRetryDelay()
+    {
+        return TimeSpan.FromMilliseconds(ClampInt(
+            ReadRawIntFromEnv("ROADHOG_NO_KILL_RETURN_RETRY_MS", (int)DefaultNoKillRetryDelay.TotalMilliseconds),
+            0,
+            60 * 60 * 1000));
+    }
+
+    private static double ReadNoKillTownReturnMinDistance()
+    {
+        return ClampDouble(ReadDoubleFromEnv("ROADHOG_NO_KILL_RETURN_MIN_DISTANCE", 5.0D), 0.0D, 10_000.0D);
     }
 
     private static double ReadPathCombatAccessPathDistance()

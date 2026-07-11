@@ -13,6 +13,8 @@ public sealed class StationaryCombatState
 
     public BagCleanupState BagCleanup { get; } = new();
 
+    public StationaryCombatNoKillRecoveryState NoKillRecovery { get; } = new();
+
     public StationaryCombatPathCombatState PathCombat { get; } = new();
 
     public bool CleanupReturnToCombatActive { get; private set; }
@@ -58,6 +60,16 @@ public sealed class StationaryCombatState
     public DateTimeOffset LastCombatApproachJumpAt { get; private set; } = DateTimeOffset.MinValue;
 
     public int CombatApproachJumpCount { get; private set; }
+
+    public ushort CurrentTargetDamageEntityId { get; private set; }
+
+    public uint CurrentTargetDamageServerObjectId { get; private set; }
+
+    public uint CurrentTargetDamageBaselineHp { get; private set; }
+
+    public DateTimeOffset CurrentTargetDamageObservedAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public bool CurrentTargetDamageObserved { get; private set; }
 
     public ushort PendingTabCandidateEntityId { get; private set; }
 
@@ -137,6 +149,7 @@ public sealed class StationaryCombatState
         TargetStartedAt = DateTimeOffset.MinValue;
         PathCombat.ClearCurrentTargetAnchor();
         ResetCombatApproachStuckTracking();
+        ResetCurrentTargetDamageObservation();
         ClearPendingTabVerification();
         ClearWrongLockNudge();
     }
@@ -147,6 +160,7 @@ public sealed class StationaryCombatState
         ReturningHome = false;
         LootAfterKill.Reset();
         BagCleanup.Reset();
+        NoKillRecovery.ResetWatch(now);
         CleanupReturnToCombatActive = false;
         PathCombat.Reset();
         ClearStartupRecovery();
@@ -230,8 +244,58 @@ public sealed class StationaryCombatState
 
     public void SetCurrentTarget(ushort entityId, uint serverObjectId)
     {
+        if (!IsSameTarget(CurrentTargetEntityId, CurrentTargetServerObjectId, entityId, serverObjectId))
+        {
+            ResetCurrentTargetDamageObservation();
+        }
+
         CurrentTargetEntityId = entityId;
         CurrentTargetServerObjectId = serverObjectId;
+    }
+
+    public void TrackCurrentTargetDamageObservation(LockedTargetSnapshot target, DateTimeOffset now)
+    {
+        if (!target.HasKnownHealth || target.CurrentHp == 0)
+        {
+            ResetCurrentTargetDamageObservation();
+            return;
+        }
+
+        if (!IsSameTarget(
+                CurrentTargetDamageEntityId,
+                CurrentTargetDamageServerObjectId,
+                target.TargetEntityId,
+                target.ServerObjectId) ||
+            CurrentTargetDamageObservedAt == DateTimeOffset.MinValue)
+        {
+            CurrentTargetDamageEntityId = target.TargetEntityId;
+            CurrentTargetDamageServerObjectId = target.ServerObjectId;
+            CurrentTargetDamageBaselineHp = target.CurrentHp;
+            CurrentTargetDamageObservedAt = now;
+            CurrentTargetDamageObserved = false;
+            return;
+        }
+
+        if (target.CurrentHp < CurrentTargetDamageBaselineHp)
+        {
+            CurrentTargetDamageObserved = true;
+            return;
+        }
+
+        if (!CurrentTargetDamageObserved && target.CurrentHp > CurrentTargetDamageBaselineHp)
+        {
+            CurrentTargetDamageBaselineHp = target.CurrentHp;
+            CurrentTargetDamageObservedAt = now;
+        }
+    }
+
+    public void ResetCurrentTargetDamageObservation()
+    {
+        CurrentTargetDamageEntityId = 0;
+        CurrentTargetDamageServerObjectId = 0;
+        CurrentTargetDamageBaselineHp = 0;
+        CurrentTargetDamageObservedAt = DateTimeOffset.MinValue;
+        CurrentTargetDamageObserved = false;
     }
 
     public bool IsCurrentTarget(LockedTargetSnapshot target)
