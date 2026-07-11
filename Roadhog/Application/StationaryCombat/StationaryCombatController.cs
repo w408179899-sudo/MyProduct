@@ -39,7 +39,7 @@ public sealed class StationaryCombatController
     private const int DefaultReviveFallbackClickY = 375;
     private const int DefaultReviveThirdClickX = 690;
     private const int DefaultReviveThirdClickY = 468;
-    private const int DefaultPostReviveScrollCount = 10;
+    private const int DefaultPostReviveScrollCount = 30;
     private const int DefaultPostReviveScrollDelta = -1;
     private const ushort NpcEntityType = 3;
 

@@ -3554,9 +3554,9 @@ static async Task TestStationaryCombatDeathRecoveryClicksReviveAndRecoversBefore
         gameApi.Player = gameApi.Player with { CurrentHp = 10 };
         await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
         AssertSequence(
-            Enumerable.Repeat("wheel:-1", 10).ToArray(),
-            keyboard.MouseCommands.Skip(20).Take(10).ToArray(),
-            "revived player should scroll wheel down ten times before maintenance");
+            Enumerable.Repeat("wheel:-1", 30).ToArray(),
+            keyboard.MouseCommands.Skip(20).Take(30).ToArray(),
+            "revived player should scroll wheel down thirty times before maintenance");
         AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "revived low hp should sit for recovery");
         AssertFalse(!semiAutoState.IsMaintenanceResting, "revive recovery should track resting state");
 
