@@ -1,5 +1,6 @@
 #if DEBUG
 using System.Globalization;
+using Roadhog.Core.Api;
 
 namespace Roadhog.Application;
 
@@ -27,7 +28,7 @@ public sealed record RoadhogApiProbeCheckResult(
 public sealed record RoadhogApiProbeResult(
     IReadOnlyList<RoadhogApiProbeCheckResult> Checks)
 {
-    public static readonly IReadOnlyList<string> RequiredCheckNames = Array.AsReadOnly(new[]
+    private static readonly string[] ApiCheckNames =
     {
         "Player",
         "PlayerAbnormalStatuses",
@@ -43,7 +44,10 @@ public sealed record RoadhogApiProbeResult(
         "LootCorpses",
         "InventoryWindow.LegacyDialogRect",
         "InventoryWindow.RootWidgetRectExperimental"
-    });
+    };
+
+    public static readonly IReadOnlyList<string> RequiredCheckNames = Array.AsReadOnly(
+        ApiCheckNames.Concat(GameApiAddressProbeResult.RequiredCheckNames).ToArray());
 
     public int TotalCount => Checks.Count;
 

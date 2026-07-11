@@ -777,12 +777,7 @@ namespace Roadhog
                     ? MessageBoxIcon.Information
                     : MessageBoxIcon.Warning;
 
-                MessageBox.Show(
-                    this,
-                    message,
-                    "API探针",
-                    MessageBoxButtons.OK,
-                    icon);
+                ShowApiProbeResult(message, icon);
             }
             finally
             {
@@ -792,6 +787,62 @@ namespace Roadhog
                     button.Enabled = true;
                 }
             }
+        }
+
+        private void ShowApiProbeResult(string message, MessageBoxIcon icon)
+        {
+            using var dialog = new Form
+            {
+                AutoScaleDimensions = new SizeF(7F, 17F),
+                AutoScaleMode = AutoScaleMode.Font,
+                BackColor = _pageBackground,
+                ClientSize = new Size(920, 620),
+                Font = new Font("Microsoft YaHei UI", 9F),
+                FormBorderStyle = FormBorderStyle.Sizable,
+                MinimizeBox = false,
+                MinimumSize = new Size(720, 460),
+                ShowInTaskbar = false,
+                StartPosition = FormStartPosition.CenterParent,
+                Text = icon == MessageBoxIcon.Information ? "API探针 - 全部通过" : "API探针 - 存在失败"
+            };
+
+            var resultTextBox = new TextBox
+            {
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = Color.White,
+                Font = new Font("Consolas", 9F),
+                Location = new Point(12, 12),
+                Multiline = true,
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Both,
+                Size = new Size(896, 548),
+                Text = message,
+                WordWrap = false
+            };
+            dialog.Controls.Add(resultTextBox);
+
+            var copyButton = new Button
+            {
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
+                Location = new Point(726, 574),
+                Size = new Size(84, 32),
+                Text = "复制结果"
+            };
+            copyButton.Click += (_, _) => Clipboard.SetText(message);
+            dialog.Controls.Add(copyButton);
+
+            var closeButton = new Button
+            {
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
+                DialogResult = DialogResult.OK,
+                Location = new Point(824, 574),
+                Size = new Size(84, 32),
+                Text = "关闭"
+            };
+            dialog.AcceptButton = closeButton;
+            dialog.CancelButton = closeButton;
+            dialog.Controls.Add(closeButton);
+            dialog.ShowDialog(this);
         }
 #endif
 

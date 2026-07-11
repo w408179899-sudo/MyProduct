@@ -395,6 +395,8 @@ public sealed class RoadhogRuntime
                 ", root=0x" + window.RootWidgetAddress.ToString("X", CultureInfo.InvariantCulture),
             cancellationToken).ConfigureAwait(false));
 
+        checks.AddRange(await RunApiAddressProbeChecksAsync(accountName, cancellationToken).ConfigureAwait(false));
+
         var result = new RoadhogApiProbeResult(checks);
         var fields = new Dictionary<string, object?>
         {
@@ -1311,6 +1313,49 @@ public sealed class RoadhogRuntime
                 name,
                 ex.GetType().Name + ": " + ex.Message);
         }
+    }
+
+    private async Task<IReadOnlyList<RoadhogApiProbeCheckResult>> RunApiAddressProbeChecksAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is not IRoadhogApiAddressProbe addressProbe)
+        {
+            return CreateFailedAddressProbeChecks("Address probe provider is unavailable.");
+        }
+
+        try
+        {
+            var result = await addressProbe
+                .ProbeAddressesAsync(CreateReadContextOrDefault(accountName), cancellationToken)
+                .ConfigureAwait(false);
+            if (!result.Success || result.Value is null)
+            {
+                return CreateFailedAddressProbeChecks(result.Error ?? "Address probe failed.");
+            }
+
+            var returned = result.Value.ToDictionary(check => check.Name, StringComparer.Ordinal);
+            return GameApiAddressProbeResult.RequiredCheckNames
+                .Select(name => returned.TryGetValue(name, out var check)
+                    ? new RoadhogApiProbeCheckResult(check.Name, check.Success, check.Detail)
+                    : RoadhogApiProbeCheckResult.Fail(name, "Address probe did not return this check."))
+                .ToArray();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return CreateFailedAddressProbeChecks(ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    private static IReadOnlyList<RoadhogApiProbeCheckResult> CreateFailedAddressProbeChecks(string error)
+    {
+        return GameApiAddressProbeResult.RequiredCheckNames
+            .Select(name => RoadhogApiProbeCheckResult.Fail(name, error))
+            .ToArray();
     }
 
     private Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetSnapshotAsync(

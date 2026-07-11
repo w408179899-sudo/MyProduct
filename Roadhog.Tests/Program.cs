@@ -878,6 +878,9 @@ static async Task TestRuntimeApiProbeCoversVmmReadPathsAsync()
         RoadhogApiProbeResult.RequiredCheckNames,
         probe.Checks.Select(check => check.Name).ToArray(),
         "api probe check names");
+    AssertFalse(
+        !probe.ToDisplayText().Contains("address=0x10001000", StringComparison.Ordinal),
+        "api probe display should include the exact resolved address");
     AssertFalse(!logger.Entries.Any(entry => entry.EventName == "api_probe.completed"), "api probe should log completion");
 
     AssertEqual(712, gameApi.LastPlayerContext?.ProcessId ?? 0, "player probe should use scoped process id");
@@ -893,6 +896,7 @@ static async Task TestRuntimeApiProbeCoversVmmReadPathsAsync()
     AssertEqual(712, gameApi.LastWorldObjectsContext?.ProcessId ?? 0, "world objects probe should use scoped process id");
     AssertEqual(712, gameApi.LastLootCorpsesContext?.ProcessId ?? 0, "loot corpses probe should use scoped process id");
     AssertEqual(712, gameApi.LastInventoryWindowContext?.ProcessId ?? 0, "inventory window probe should use scoped process id");
+    AssertEqual(712, gameApi.LastAddressProbeContext?.ProcessId ?? 0, "address probe should use scoped process id");
     AssertSequence(
         new[]
         {
@@ -11453,6 +11457,9 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
 }
 
 sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
+#if DEBUG
+    , IRoadhogApiAddressProbe
+#endif
 {
     private readonly object _playerReadSync = new();
 
@@ -11518,6 +11525,10 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
     public GameApiReadContext? LastLootCorpsesContext { get; private set; }
 
     public GameApiReadContext? LastInventoryWindowContext { get; private set; }
+
+#if DEBUG
+    public GameApiReadContext? LastAddressProbeContext { get; private set; }
+#endif
 
     public InventoryWindowRectSource? LastInventoryWindowRectSource { get; private set; }
 
@@ -11768,6 +11779,22 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
         LastInventoryWindowContext = context;
         return Task.FromResult(OperationResult<InventoryWindowSnapshot>.Ok(InventoryWindow));
     }
+
+#if DEBUG
+    public Task<OperationResult<IReadOnlyList<GameApiAddressProbeResult>>> ProbeAddressesAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        LastAddressProbeContext = context;
+        IReadOnlyList<GameApiAddressProbeResult> checks = GameApiAddressProbeResult.RequiredCheckNames
+            .Select(name => new GameApiAddressProbeResult(
+                name,
+                true,
+                "Game.dll base=0x10000000, RVA=0x1000, address=0x10001000; fake read ok"))
+            .ToArray();
+        return Task.FromResult(OperationResult<IReadOnlyList<GameApiAddressProbeResult>>.Ok(checks));
+    }
+#endif
 
     public Task<OperationResult<InventoryWindowSnapshot>> ReadInventoryWindowAsync(
         GameApiReadContext context,

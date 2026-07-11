@@ -14,6 +14,8 @@
 |---|---:|---|
 | `EntitySystemPointerRva` | `0x904690` | EntitySystem 根指针；读取本地玩家、锁定目标、周围怪物、尸体、异常状态都从这里进入。 |
 | `ServerObjectTreeRva` | `0xD21740` | Server object 树根；把 server object id 映射到 entity id，用于目标身份、怪物列表、尸体列表。 |
+| `PrimaryPartyListRva` | `0xD1BAE8` | 主队伍成员链表；用于召唤物归属和队伍召唤物快照。 |
+| `SecondaryPartyListRva` | `0xD1BB50` | 备用队伍成员链表；和主链表合并、去重。 |
 | `LocalEntityIdRva` | `0xD21798` | 本地玩家 entity id；`+0x2` 是当前目标 entity id，用于玩家状态、锁定目标、距离和排除自己。 |
 | `LocalMaxHpRva` | `0xD267DC` | 本地最大 HP；用于维护、死亡判断、回血阈值。 |
 | `LocalCurrentHpRva` | `0xD267E0` | 本地当前 HP；用于维护、死亡判断、回血阈值。 |
@@ -28,6 +30,11 @@
 | `SpecialCameraRollRva` | `0xD218DC` | 特殊镜头 roll。 |
 | `SpecialCameraYawRva` | `0xD218E0` | 特殊镜头 yaw。 |
 | `SkillManagerGlobalRva` | `0xD004A0` | Skill manager 指针；技能列表、冷却、技能名读取都从这里进入。 |
+| `InventoryManagerGlobalRva` | `0xD004A0` | 当前版本和 Skill manager 共用根对象；背包、金币、容量和装备 instance id 从这里进入。 |
+| `ItemStaticIndexRva` | `0x908FF8` | 物品 template id 到 packed handle 的静态索引；用于品质映射。 |
+| `StaticResolverChunkListRva` | `0xD03860` | 静态数据压缩块指针列表；根据 packed handle 读取物品品质。 |
+| `DlgInventoryDialog27MethodRva` | `0x1BF060` | `DlgInventory` DialogId 27 方法；用于扫描背包窗口 vtable/对象。 |
+| `DlgInventoryDialog28MethodRva` | `0x1C48D0` | `DlgInventory` DialogId 28 方法；用于扫描背包窗口 vtable/对象。 |
 
 ## 通用树和链表结构
 
@@ -141,6 +148,43 @@ Roadhog 从 MSVC 风格的 wide string 对象读取技能名。
 | Length | `+0x10` | 字符数量。 |
 | Capacity | `+0x18` | 判断 inline 还是 pointer storage，并过滤异常字符串。 |
 
+## InventoryManager 和物品静态数据
+
+| 字段 | 偏移 | 业务用途 |
+|---|---:|---|
+| `InventoryCurrentMoneyOffset` | `+0x768` | 当前金币，按 `UInt64` 读取。 |
+| `InventoryMoneyInstanceIdOffset` | `+0x770` | 金币对象 instance id，作为读取诊断。 |
+| `InventoryCapacityOffset` | `+0x774` | 背包总容量。 |
+| `InventoryItemTreeHeaderOffset` | `+0x778` | 背包物品红黑树 header。 |
+| `InventoryItemTreeCountOffset` | `+0x780` | 背包物品树节点数量。 |
+| `InventoryEquipmentIdsOffset` | `+0x788` | 32 个已装备物品 instance id，用于区分背包物品和已装备物品。 |
+| `InventoryItemInstanceIdOffset` | `+0x08` | 物品 instance id。 |
+| `InventoryItemTemplateIdOffset` | `+0x0C` | 物品 template id。 |
+| `InventoryItemCountOffset` | `+0x10` | 堆叠数量。 |
+| `InventoryItemNameOffset` | `+0x18` | 物品名 MSVC 宽字符串。 |
+| `InventoryItemTypeOffset` | `+0x60` | 物品类型，用于装备、魔石、烙印等分类。 |
+| `InventoryItemEquipmentMaskOffset` | `+0x74` | 装备类别掩码。 |
+| `InventoryItemSlotOffset` | `+0x4EE` | 背包格子 slot，用于计算页、行、列和屏幕坐标。 |
+| `ItemStaticIndexRva + 0x04` | `+0x04` | 静态索引数量。 |
+| `ItemStaticIndexRva + 0x10` | `+0x10` | 静态索引 entries 指针。 |
+| `StaticResolverPackedHandleOffset` | `+0x08` | 索引 entry 中的 packed handle。 |
+| `ItemStaticRecordQualityRankOffset` | `+0x1D9` | 解压后的物品静态记录品质。 |
+
+## DlgInventory 窗口
+
+| 字段 | 偏移 | 业务用途 |
+|---|---:|---|
+| `DlgInventoryOpenFlagOffset` | `+0x585` | 背包窗口 open/visible 候选标记。 |
+| `DlgInventoryWindowRectOffset` | `+0x58` | 旧版窗口 Rect，四个 `double`。 |
+| `DlgInventoryRootWidgetOffset` | `+0x4D8` | root widget 指针，用于实验版 Rect 定位。 |
+| root widget Rect | 环境变量或 `0x800` 字节扫描 | 可用 `ROADHOG_INVENTORY_ROOT_WIDGET_RECT_OFFSET` 固定；否则按 `8` 字节步长扫描合理 Rect。 |
+
+## Debug API 地址探针
+
+- “API探针”按钮、结果类型、地址探针接口和 VMM 实现都在 `#if DEBUG` 内，Release 产物不包含这些符号。
+- 每项地址检查同时显示 `Game.dll base`、`RVA`、最终绝对地址；对象成员显示对象地址、成员偏移和最终绝对地址。
+- 除业务 API 外，探针独立验证玩家基础值、普通/特殊相机、队伍链表、技能/背包管理器、背包成员、物品静态索引、静态数据块和两个 `DlgInventory` 方法地址。
+
 ## Actor 解析辅助值
 
 这些值用于从已知 `CEntity` 找到对应 `Actor`。
@@ -167,9 +211,11 @@ Roadhog 从 MSVC 风格的 wide string 对象读取技能名。
 | 尸体和拾取扫描 | 周围怪物扫描偏移，再加 `Actor + 0x11E0` 和 `Actor + 0x1CC`。 |
 | 坐地板前等待有害异常 | 本地 actor abnormal begin/end/category2 count 和 abnormal entry 字段。 |
 | 已学技能、冷却、连续技/维护技能确认 | Skill manager RVA、已学技能树、list offset、SkillItem offset、MSVC string offset。 |
+| 背包物品、金币、容量、装备状态 | Inventory manager、物品树、金币/容量、装备 instance id 和物品字段。 |
+| 背包物品品质 | 物品静态索引、packed handle、静态压缩块和品质字段。 |
+| 背包窗口位置 | 两个 DlgInventory 方法 RVA、open flag、旧 Rect、root widget 和实验 Rect。 |
 
 ## 当前没有作为 Roadhog VMM 直接偏移实现的内容
 
-- `AionVmmGameApi` 里的直接 VMM 背包读取当前仍是 not implemented。
-- 采集、背包模式可以通过 Tool bridge 走，但那些偏移属于 `Tool/Program.cs`，不是 Roadhog 运行时 VMM adapter 的直接依赖。
+- 采集业务目前没有单独的 Roadhog VMM 数据接口；Tool probe 里的采集偏移不算 Roadhog 运行时依赖。
 - XML 技能/NPC 文件提供静态元数据，用于技能分类和怪物分类；它们是文件数据，不是内存偏移。

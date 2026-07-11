@@ -15,6 +15,9 @@ using Vmmsharp;
 namespace Roadhog.Infrastructure.Vmm;
 
 public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
+#if DEBUG
+    , IRoadhogApiAddressProbe
+#endif
 {
     private static readonly TimeSpan VmmReconnectDelay = TimeSpan.FromSeconds(5);
     private const int PlayerReadFailuresBeforeReconnect = 3;
@@ -339,6 +342,333 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
     {
         return Task.Run(() => ReadInventoryWindowCore(context, rectSource), cancellationToken);
     }
+
+#if DEBUG
+    public Task<OperationResult<IReadOnlyList<GameApiAddressProbeResult>>> ProbeAddressesAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ProbeAddressesCore(context), cancellationToken);
+    }
+
+    private OperationResult<IReadOnlyList<GameApiAddressProbeResult>> ProbeAddressesCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<IReadOnlyList<GameApiAddressProbeResult>>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<IReadOnlyList<GameApiAddressProbeResult>>.Fail("Module not found: " + moduleName);
+                }
+
+                var managerSlot = gameBase + SkillManagerGlobalRva;
+                var hasManager = TryReadPointer(process, managerSlot, out var manager) && manager != 0;
+                var checks = new List<GameApiAddressProbeResult>(GameApiAddressProbeResult.RequiredCheckNames.Count)
+                {
+                    ProbePointerAddress(process, "Address.EntitySystemPointer", gameBase, EntitySystemPointerRva),
+                    ProbePointerAddress(process, "Address.ServerObjectTree", gameBase, ServerObjectTreeRva),
+                    ProbePointerAddress(process, "Address.PrimaryPartyList", gameBase, PrimaryPartyListRva, allowZero: true),
+                    ProbePointerAddress(process, "Address.SecondaryPartyList", gameBase, SecondaryPartyListRva, allowZero: true),
+                    ProbeUInt16Address(process, "Address.LocalEntityId", gameBase, LocalEntityIdRva),
+                    ProbeUInt16Address(process, "Address.LocalTargetEntityId", gameBase, LocalEntityIdRva + 0x02),
+                    ProbeUInt32Address(process, "Address.LocalMaxHp", gameBase, LocalMaxHpRva),
+                    ProbeUInt32Address(process, "Address.LocalCurrentHp", gameBase, LocalCurrentHpRva),
+                    ProbeUInt32Address(process, "Address.LocalMaxMp", gameBase, LocalMaxMpRva),
+                    ProbeUInt32Address(process, "Address.LocalCurrentMp", gameBase, LocalCurrentMpRva),
+                    ProbeUInt16Address(process, "Address.LocalCurrentDp", gameBase, LocalCurrentDpRva),
+                    ProbeSingleAddress(process, "Address.CameraPitch", gameBase, GetCameraPitchRva()),
+                    ProbeSingleAddress(process, "Address.CameraRoll", gameBase, GetCameraRollRva()),
+                    ProbeSingleAddress(process, "Address.CameraYaw", gameBase, GetCameraYawRva()),
+                    ProbeUInt16Address(process, "Address.SpecialCameraMode", gameBase, SpecialCameraModeRva),
+                    ProbeSingleAddress(process, "Address.SpecialCameraPitch", gameBase, SpecialCameraPitchRva),
+                    ProbeSingleAddress(process, "Address.SpecialCameraRoll", gameBase, SpecialCameraRollRva),
+                    ProbeSingleAddress(process, "Address.SpecialCameraYaw", gameBase, SpecialCameraYawRva),
+                    ProbePointerAddress(process, "Address.SkillInventoryManager", gameBase, SkillManagerGlobalRva),
+                    ProbeObjectPointerAddress(process, "Address.LearnedSkillTree", "SkillManager", manager, LearnedSkillTreeOffset, hasManager),
+                    ProbeObjectUInt64Address(process, "Address.InventoryMoney", "InventoryManager", manager, InventoryCurrentMoneyOffset, hasManager),
+                    ProbeObjectUInt32Address(process, "Address.InventoryCapacity", "InventoryManager", manager, InventoryCapacityOffset, hasManager),
+                    ProbeObjectPointerAddress(process, "Address.InventoryItemTreeHeader", "InventoryManager", manager, InventoryItemTreeHeaderOffset, hasManager),
+                    ProbeObjectUInt32Address(process, "Address.InventoryItemTreeCount", "InventoryManager", manager, InventoryItemTreeCountOffset, hasManager),
+                    ProbeObjectBytesAddress(process, "Address.InventoryEquipmentIds", "InventoryManager", manager, InventoryEquipmentIdsOffset, InventoryEquipmentIdCount * sizeof(uint), hasManager),
+                    ProbeItemStaticIndexAddress(process, gameBase),
+                    ProbeStaticResolverChunkAddress(process, gameBase),
+                    ProbeCodeAddress(process, "Address.DlgInventoryDialog27Method", gameBase, DlgInventoryDialog27MethodRva),
+                    ProbeCodeAddress(process, "Address.DlgInventoryDialog28Method", gameBase, DlgInventoryDialog28MethodRva)
+                };
+
+                return OperationResult<IReadOnlyList<GameApiAddressProbeResult>>.Ok(checks);
+            }
+        }
+        catch (Exception ex)
+        {
+            return OperationResult<IReadOnlyList<GameApiAddressProbeResult>>.Fail(
+                ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    private static GameApiAddressProbeResult ProbePointerAddress(
+        VmmProcess process,
+        string name,
+        ulong gameBase,
+        ulong rva,
+        bool allowZero = false)
+    {
+        var address = gameBase + rva;
+        if (!TryReadPointer(process, address, out var value))
+        {
+            return AddressProbeFail(name, gameBase, rva, "pointer read failed");
+        }
+
+        if (value == 0 && !allowZero)
+        {
+            return AddressProbeFail(name, gameBase, rva, "pointer is null");
+        }
+
+        return AddressProbePass(name, gameBase, rva, "pointer=0x" + value.ToString("X", CultureInfo.InvariantCulture));
+    }
+
+    private static GameApiAddressProbeResult ProbeUInt16Address(
+        VmmProcess process,
+        string name,
+        ulong gameBase,
+        ulong rva)
+    {
+        return TryReadUInt16(process, gameBase + rva, out var value)
+            ? AddressProbePass(name, gameBase, rva, "value=" + value.ToString(CultureInfo.InvariantCulture))
+            : AddressProbeFail(name, gameBase, rva, "UInt16 read failed");
+    }
+
+    private static GameApiAddressProbeResult ProbeUInt32Address(
+        VmmProcess process,
+        string name,
+        ulong gameBase,
+        ulong rva)
+    {
+        return TryReadUInt32(process, gameBase + rva, out var value)
+            ? AddressProbePass(name, gameBase, rva, "value=" + value.ToString(CultureInfo.InvariantCulture))
+            : AddressProbeFail(name, gameBase, rva, "UInt32 read failed");
+    }
+
+    private static GameApiAddressProbeResult ProbeSingleAddress(
+        VmmProcess process,
+        string name,
+        ulong gameBase,
+        ulong rva)
+    {
+        return TryReadSingle(process, gameBase + rva, out var value) && float.IsFinite(value)
+            ? AddressProbePass(name, gameBase, rva, "value=" + value.ToString("0.######", CultureInfo.InvariantCulture))
+            : AddressProbeFail(name, gameBase, rva, "Single read failed or value is not finite");
+    }
+
+    private static GameApiAddressProbeResult ProbeObjectPointerAddress(
+        VmmProcess process,
+        string name,
+        string objectName,
+        ulong objectAddress,
+        ulong offset,
+        bool hasObject)
+    {
+        if (!hasObject)
+        {
+            return ObjectAddressProbeFail(name, objectName, objectAddress, offset, "root pointer is unavailable");
+        }
+
+        return TryReadPointer(process, objectAddress + offset, out var value) && value != 0
+            ? ObjectAddressProbePass(name, objectName, objectAddress, offset, "pointer=0x" + value.ToString("X", CultureInfo.InvariantCulture))
+            : ObjectAddressProbeFail(name, objectName, objectAddress, offset, "pointer read failed or is null");
+    }
+
+    private static GameApiAddressProbeResult ProbeObjectUInt64Address(
+        VmmProcess process,
+        string name,
+        string objectName,
+        ulong objectAddress,
+        ulong offset,
+        bool hasObject)
+    {
+        if (!hasObject)
+        {
+            return ObjectAddressProbeFail(name, objectName, objectAddress, offset, "root pointer is unavailable");
+        }
+
+        return TryReadUInt64(process, objectAddress + offset, out var value)
+            ? ObjectAddressProbePass(name, objectName, objectAddress, offset, "value=" + value.ToString(CultureInfo.InvariantCulture))
+            : ObjectAddressProbeFail(name, objectName, objectAddress, offset, "UInt64 read failed");
+    }
+
+    private static GameApiAddressProbeResult ProbeObjectUInt32Address(
+        VmmProcess process,
+        string name,
+        string objectName,
+        ulong objectAddress,
+        ulong offset,
+        bool hasObject)
+    {
+        if (!hasObject)
+        {
+            return ObjectAddressProbeFail(name, objectName, objectAddress, offset, "root pointer is unavailable");
+        }
+
+        return TryReadUInt32(process, objectAddress + offset, out var value)
+            ? ObjectAddressProbePass(name, objectName, objectAddress, offset, "value=" + value.ToString(CultureInfo.InvariantCulture))
+            : ObjectAddressProbeFail(name, objectName, objectAddress, offset, "UInt32 read failed");
+    }
+
+    private static GameApiAddressProbeResult ProbeObjectBytesAddress(
+        VmmProcess process,
+        string name,
+        string objectName,
+        ulong objectAddress,
+        ulong offset,
+        int length,
+        bool hasObject)
+    {
+        if (!hasObject)
+        {
+            return ObjectAddressProbeFail(name, objectName, objectAddress, offset, "root pointer is unavailable");
+        }
+
+        return TryReadBytes(process, objectAddress + offset, length, out var bytes) && bytes.Length == length
+            ? ObjectAddressProbePass(name, objectName, objectAddress, offset, "bytes=" + bytes.Length.ToString(CultureInfo.InvariantCulture))
+            : ObjectAddressProbeFail(name, objectName, objectAddress, offset, "byte range read failed");
+    }
+
+    private static GameApiAddressProbeResult ProbeItemStaticIndexAddress(VmmProcess process, ulong gameBase)
+    {
+        const string name = "Address.ItemStaticIndex";
+        var rva = ItemStaticIndexRva;
+        if (!TryReadUInt32(process, gameBase + rva + 0x04, out var count) ||
+            !TryReadPointer(process, gameBase + rva + 0x10, out var entries))
+        {
+            return AddressProbeFail(name, gameBase, rva, "count or entries read failed");
+        }
+
+        if (count == 0 || count > MaxStaticResolverEntries || entries == 0)
+        {
+            return AddressProbeFail(
+                name,
+                gameBase,
+                rva,
+                "invalid count=" + count.ToString(CultureInfo.InvariantCulture) +
+                ", entries=0x" + entries.ToString("X", CultureInfo.InvariantCulture));
+        }
+
+        return AddressProbePass(
+            name,
+            gameBase,
+            rva,
+            "count=" + count.ToString(CultureInfo.InvariantCulture) +
+            ", entries=0x" + entries.ToString("X", CultureInfo.InvariantCulture));
+    }
+
+    private static GameApiAddressProbeResult ProbeStaticResolverChunkAddress(VmmProcess process, ulong gameBase)
+    {
+        const string name = "Address.StaticResolverChunk0";
+        var rva = StaticResolverChunkListRva;
+        if (!TryReadPointer(process, gameBase + rva, out var chunk) || chunk == 0)
+        {
+            return AddressProbeFail(name, gameBase, rva, "chunk 0 pointer read failed or is null");
+        }
+
+        if (!TryReadUInt32(process, chunk, out var compressedSize) ||
+            !TryReadUInt32(process, chunk + 0x04, out var uncompressedSize))
+        {
+            return AddressProbeFail(name, gameBase, rva, "chunk header read failed at 0x" + chunk.ToString("X"));
+        }
+
+        var valid = compressedSize > 6 &&
+            compressedSize <= MaxStaticChunkCompressedBytes &&
+            uncompressedSize > 0 &&
+            uncompressedSize <= MaxStaticChunkUncompressedBytes;
+        var detail = "chunk=0x" + chunk.ToString("X", CultureInfo.InvariantCulture) +
+            ", compressed=" + compressedSize.ToString(CultureInfo.InvariantCulture) +
+            ", uncompressed=" + uncompressedSize.ToString(CultureInfo.InvariantCulture);
+        return valid
+            ? AddressProbePass(name, gameBase, rva, detail)
+            : AddressProbeFail(name, gameBase, rva, "invalid " + detail);
+    }
+
+    private static GameApiAddressProbeResult ProbeCodeAddress(
+        VmmProcess process,
+        string name,
+        ulong gameBase,
+        ulong rva)
+    {
+        if (!TryReadBytes(process, gameBase + rva, 8, out var bytes) || bytes.Length < 8)
+        {
+            return AddressProbeFail(name, gameBase, rva, "code read failed");
+        }
+
+        return AddressProbePass(name, gameBase, rva, "bytes=" + Convert.ToHexString(bytes));
+    }
+
+    private static GameApiAddressProbeResult AddressProbePass(
+        string name,
+        ulong gameBase,
+        ulong rva,
+        string detail)
+    {
+        return new GameApiAddressProbeResult(name, true, FormatProbeAddress(gameBase, rva) + "; " + detail);
+    }
+
+    private static GameApiAddressProbeResult AddressProbeFail(
+        string name,
+        ulong gameBase,
+        ulong rva,
+        string detail)
+    {
+        return new GameApiAddressProbeResult(name, false, FormatProbeAddress(gameBase, rva) + "; " + detail);
+    }
+
+    private static string FormatProbeAddress(ulong gameBase, ulong rva)
+    {
+        return "Game.dll base=0x" + gameBase.ToString("X", CultureInfo.InvariantCulture) +
+            ", RVA=0x" + rva.ToString("X", CultureInfo.InvariantCulture) +
+            ", address=0x" + (gameBase + rva).ToString("X", CultureInfo.InvariantCulture);
+    }
+
+    private static GameApiAddressProbeResult ObjectAddressProbePass(
+        string name,
+        string objectName,
+        ulong objectAddress,
+        ulong offset,
+        string detail)
+    {
+        return new GameApiAddressProbeResult(
+            name,
+            true,
+            FormatObjectProbeAddress(objectName, objectAddress, offset) + "; " + detail);
+    }
+
+    private static GameApiAddressProbeResult ObjectAddressProbeFail(
+        string name,
+        string objectName,
+        ulong objectAddress,
+        ulong offset,
+        string detail)
+    {
+        return new GameApiAddressProbeResult(
+            name,
+            false,
+            FormatObjectProbeAddress(objectName, objectAddress, offset) + "; " + detail);
+    }
+
+    private static string FormatObjectProbeAddress(string objectName, ulong objectAddress, ulong offset)
+    {
+        return objectName + "=0x" + objectAddress.ToString("X", CultureInfo.InvariantCulture) +
+            ", offset=0x" + offset.ToString("X", CultureInfo.InvariantCulture) +
+            ", address=0x" + (objectAddress + offset).ToString("X", CultureInfo.InvariantCulture);
+    }
+#endif
 
     private OperationResult<LockedTargetSnapshot> ReadLockedTargetCore(GameApiReadContext context)
     {
