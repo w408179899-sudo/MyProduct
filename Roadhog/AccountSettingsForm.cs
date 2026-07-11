@@ -72,6 +72,7 @@ namespace Roadhog
         private RoundedTextBox? combatPathNameTextBox;
         private RoundedTextBox? maintenancePathNameTextBox;
         private Button? townReturnKeyButton;
+        private RoundedTextBox? pathRecordingMinimumDistanceTextBox;
         private RoundedTextBox? deathReviveClickPointTextBox;
         private Button? deathReviveTestMoveButton;
         private RoundedCheckBox? loopPathCheckBox;
@@ -296,6 +297,9 @@ namespace Roadhog
             SetText(combatPathNameTextBox, paths.CombatPathName);
             SetText(maintenancePathNameTextBox, paths.MaintenancePathName);
             SetKeyButton(townReturnKeyButton, paths.TownReturnKey);
+            SetText(
+                pathRecordingMinimumDistanceTextBox,
+                paths.RecordingMinimumDistance.ToString("0.###", CultureInfo.InvariantCulture));
             SetText(deathReviveClickPointTextBox, FormatScreenPoint(paths.DeathReviveClickX, paths.DeathReviveClickY));
             SetChecked(loopPathCheckBox, paths.LoopPath);
             SetChecked(reverseAtEndCheckBox, paths.ReverseAtEnd);
@@ -509,6 +513,11 @@ namespace Roadhog
                     CombatPathName = GetText(combatPathNameTextBox, string.Empty),
                     MaintenancePathName = GetText(maintenancePathNameTextBox, string.Empty),
                     TownReturnKey = townReturnKeyButton?.Tag as string ?? string.Empty,
+                    RecordingMinimumDistance = ReadDouble(
+                        pathRecordingMinimumDistanceTextBox,
+                        PathScriptSettings.DefaultRecordingMinimumDistance,
+                        PathRecordingBuffer.MinimumAllowedDistanceMeters,
+                        PathRecordingBuffer.MaximumAllowedDistanceMeters),
                     DeathReviveClickX = deathReviveClickPoint.X,
                     DeathReviveClickY = deathReviveClickPoint.Y,
                     LoopPath = loopPathCheckBox?.Checked ?? true,
@@ -1126,6 +1135,15 @@ namespace Roadhog
             pathOverviewLabels[SharedPathKind.Revive] = AddLabel(page, "复活路径:  未选（0点）", 24, 34, 320, 22);
             pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 24, 60, 260, 22);
             pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "清包路径:  未选（0点）", 24, 86, 260, 22);
+            AddLabel(page, "录制最小距离:", 350, 34, 104, 22, _textGreen, FontStyle.Bold);
+            pathRecordingMinimumDistanceTextBox = AddTextBox(
+                page,
+                PathScriptSettings.DefaultRecordingMinimumDistance.ToString("0.###", CultureInfo.InvariantCulture),
+                458,
+                30,
+                80,
+                28);
+            AddLabel(page, "米", 544, 34, 28, 22);
             AddLabel(page, "死亡复活坐标:", 310, 86, 104, 22, _textGreen, FontStyle.Bold);
             deathReviveClickPointTextBox = AddTextBox(
                 page,
@@ -1249,7 +1267,7 @@ namespace Roadhog
             var loopCheckBox = AddCheckBox(pathAdvanced.Content, "循环路径", 6, 12, 92, true);
             var reverseCheckBox = AddCheckBox(pathAdvanced.Content, "到终点反向", 102, 12, 106, false);
             var deathStopCheckBox = AddCheckBox(pathAdvanced.Content, "死亡停止路径", 206, 12, 130, true);
-            AddLabel(pathAdvanced.Content, "最短录制距离固定 5 米，自动录制每 250ms 读取一次", 346, 13, 360, 24);
+            AddLabel(pathAdvanced.Content, "自动录制每 250ms 读取一次", 346, 13, 240, 24);
             if (kind == SharedPathKind.Revive)
             {
                 loopPathCheckBox = loopCheckBox;
@@ -1522,14 +1540,19 @@ namespace Roadhog
                 return;
             }
 
-            var addResult = editor.Buffer.TryAdd(position, result.Value.CapturedAt);
+            var minimumDistanceMeters = ReadDouble(
+                pathRecordingMinimumDistanceTextBox,
+                PathScriptSettings.DefaultRecordingMinimumDistance,
+                PathRecordingBuffer.MinimumAllowedDistanceMeters,
+                PathRecordingBuffer.MaximumAllowedDistanceMeters);
+            var addResult = editor.Buffer.TryAdd(position, result.Value.CapturedAt, minimumDistanceMeters);
             if (!addResult.Success)
             {
                 editor.SkippedCount++;
                 RefreshPathEditor(editor);
                 if (showSkipped)
                 {
-                    SetPathStatus(editor, addResult.Error ?? "距离不足 5 米，未录点", true);
+                    SetPathStatus(editor, addResult.Error ?? "距离不足当前最小录制距离，未录点", true);
                 }
 
                 return;

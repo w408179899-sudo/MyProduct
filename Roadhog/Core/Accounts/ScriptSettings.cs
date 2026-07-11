@@ -134,6 +134,8 @@ public sealed class CombatScriptSettings
 
 public sealed class PathScriptSettings
 {
+    public const double DefaultRecordingMinimumDistance = 5.0D;
+
     public const int DefaultDeathReviveClickX = 470;
 
     public const int DefaultDeathReviveClickY = 300;
@@ -145,6 +147,8 @@ public sealed class PathScriptSettings
     public string MaintenancePathName { get; set; } = string.Empty;
 
     public string TownReturnKey { get; set; } = string.Empty;
+
+    public double RecordingMinimumDistance { get; set; } = DefaultRecordingMinimumDistance;
 
     public int DeathReviveClickX { get; set; } = DefaultDeathReviveClickX;
 
@@ -164,6 +168,7 @@ public sealed class PathScriptSettings
             CombatPathName = CombatPathName,
             MaintenancePathName = MaintenancePathName,
             TownReturnKey = TownReturnKey,
+            RecordingMinimumDistance = RecordingMinimumDistance,
             DeathReviveClickX = DeathReviveClickX,
             DeathReviveClickY = DeathReviveClickY,
             LoopPath = LoopPath,

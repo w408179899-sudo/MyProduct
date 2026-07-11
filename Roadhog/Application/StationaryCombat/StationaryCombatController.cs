@@ -23,6 +23,8 @@ public sealed class StationaryCombatController
     private static readonly TimeSpan DefaultNoKillTimeout = TimeSpan.FromMinutes(20);
     private static readonly TimeSpan DefaultNoKillTownReturnSettleDelay = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan DefaultNoKillRetryDelay = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan DefaultManualPathPlayerReadRetryTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DefaultManualPathPlayerReadRetryInterval = TimeSpan.FromMilliseconds(200);
     private const double ReturnStopDistance = 2.0D;
     private const double AcquireDistance = 25.0D;
     private const double TargetLeashExtraDistance = 5.0D;
@@ -574,7 +576,12 @@ public sealed class StationaryCombatController
 
         try
         {
-            var initialPlayerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+            var initialPlayerResult = await ReadManualPathPlayerWithRetryAsync(
+                    context,
+                    state,
+                    displayName,
+                    pointIndex: -1)
+                .ConfigureAwait(false);
             if (!initialPlayerResult.Success || initialPlayerResult.Value?.Position is null)
             {
                 return OperationResult.Fail(initialPlayerResult.Error ?? "Player position is missing.");
@@ -604,7 +611,12 @@ public sealed class StationaryCombatController
             {
                 context.StopToken.ThrowIfCancellationRequested();
 
-                var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+                var playerResult = await ReadManualPathPlayerWithRetryAsync(
+                        context,
+                        state,
+                        displayName,
+                        state.PathCombat.PointIndex)
+                    .ConfigureAwait(false);
                 if (!playerResult.Success || playerResult.Value?.Position is null)
                 {
                     return OperationResult.Fail(playerResult.Error ?? "Player position is missing.");
@@ -653,6 +665,68 @@ public sealed class StationaryCombatController
             await StopMovementBestEffortAsync(context, state).ConfigureAwait(false);
             StopPathFollowPoller(state);
         }
+    }
+
+    private async Task<OperationResult<PlayerSnapshot>> ReadManualPathPlayerWithRetryAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        string pathName,
+        int pointIndex)
+    {
+        var failedAt = DateTimeOffset.MinValue;
+        var attempt = 0;
+        var lastError = "Player position is missing.";
+        while (!context.StopToken.IsCancellationRequested)
+        {
+            var result = await ReadPlayerAsync(context).ConfigureAwait(false);
+            if (result.Success && result.Value?.Position is not null)
+            {
+                if (attempt > 0)
+                {
+                    context.Logger.Info("manual_path.player_read.recovered", new Dictionary<string, object?>
+                    {
+                        ["account"] = context.Config.AccountName,
+                        ["pathName"] = pathName,
+                        ["pointIndex"] = pointIndex,
+                        ["attempts"] = attempt,
+                        ["failedMs"] = (long)Math.Max(0.0D, (DateTimeOffset.Now - failedAt).TotalMilliseconds)
+                    });
+                }
+
+                return result;
+            }
+
+            attempt++;
+            failedAt = failedAt == DateTimeOffset.MinValue ? DateTimeOffset.Now : failedAt;
+            lastError = result.Error ?? "Player position is missing.";
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+
+            var failedFor = DateTimeOffset.Now - failedAt;
+            var timeout = ReadManualPathPlayerReadRetryTimeout();
+            context.Logger.Warn("manual_path.player_read.retry", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = pathName,
+                ["pointIndex"] = pointIndex,
+                ["attempt"] = attempt,
+                ["failedMs"] = (long)Math.Max(0.0D, failedFor.TotalMilliseconds),
+                ["timeoutMs"] = (long)timeout.TotalMilliseconds,
+                ["error"] = lastError
+            });
+            if (failedFor >= timeout)
+            {
+                return OperationResult<PlayerSnapshot>.Fail(
+                    "Player read failed continuously during path execution. attempts=" + attempt +
+                    ", timeoutMs=" + (long)timeout.TotalMilliseconds +
+                    ", error=" + lastError);
+            }
+
+            await DelayAsync(ReadManualPathPlayerReadRetryInterval(), context).ConfigureAwait(false);
+        }
+
+        context.StopToken.ThrowIfCancellationRequested();
+        return OperationResult<PlayerSnapshot>.Fail(lastError);
     }
 
     public async Task<TimeSpan?> TickPlayerLifeGuardAsync(
@@ -6821,6 +6895,26 @@ public sealed class StationaryCombatController
     private static double ReadNoKillTownReturnMinDistance()
     {
         return ClampDouble(ReadDoubleFromEnv("ROADHOG_NO_KILL_RETURN_MIN_DISTANCE", 5.0D), 0.0D, 10_000.0D);
+    }
+
+    private static TimeSpan ReadManualPathPlayerReadRetryTimeout()
+    {
+        return TimeSpan.FromMilliseconds(ClampInt(
+            ReadRawIntFromEnv(
+                "ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_TIMEOUT_MS",
+                (int)DefaultManualPathPlayerReadRetryTimeout.TotalMilliseconds),
+            0,
+            60_000));
+    }
+
+    private static TimeSpan ReadManualPathPlayerReadRetryInterval()
+    {
+        return TimeSpan.FromMilliseconds(ClampInt(
+            ReadRawIntFromEnv(
+                "ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_INTERVAL_MS",
+                (int)DefaultManualPathPlayerReadRetryInterval.TotalMilliseconds),
+            0,
+            5_000));
     }
 
     private static double ReadPathCombatAccessPathDistance()

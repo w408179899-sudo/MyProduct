@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Roadhog.Core.Accounts;
 using Roadhog.Core.Common;
 using Roadhog.Core.Model;
 
@@ -7,7 +8,11 @@ namespace Roadhog.Core.Paths;
 
 public sealed class PathRecordingBuffer
 {
-    public const double MinimumDistanceMeters = 5.0D;
+    public const double MinimumDistanceMeters = PathScriptSettings.DefaultRecordingMinimumDistance;
+
+    public const double MinimumAllowedDistanceMeters = 0.5D;
+
+    public const double MaximumAllowedDistanceMeters = 100.0D;
 
     private readonly List<SharedPathPoint> _points = new();
 
@@ -35,7 +40,10 @@ public sealed class PathRecordingBuffer
         DateTimeOffset recordedAt,
         double minimumDistanceMeters = MinimumDistanceMeters)
     {
-        minimumDistanceMeters = Math.Max(MinimumDistanceMeters, minimumDistanceMeters);
+        minimumDistanceMeters = Math.Clamp(
+            minimumDistanceMeters,
+            MinimumAllowedDistanceMeters,
+            MaximumAllowedDistanceMeters);
 
         if (_points.Count > 0)
         {

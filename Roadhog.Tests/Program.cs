@@ -85,6 +85,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
     ("stationary combat death recovery path clears nearby aggressive monsters", TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync),
     ("stationary combat death recovery path jumps when stuck", TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync),
+    ("manual path retries transient player read failures", TestManualPathRetriesTransientPlayerReadFailuresAsync),
+    ("manual path fails after player read retry timeout", TestManualPathFailsAfterPlayerReadRetryTimeoutAsync),
     ("path combat worker follows configured combat path", TestPathCombatWorkerFollowsConfiguredCombatPathAsync),
     ("path combat follows revive path before distant combat path", TestPathCombatFollowsRevivePathBeforeDistantCombatPathAsync),
     ("path combat starts combat path after access path completes", TestPathCombatStartsCombatPathAfterAccessPathCompletesAsync),
@@ -254,6 +256,14 @@ static Task TestPathRecorderMinimumDistanceAsync()
         new[] { "0.000, 0.000, 0.000", "3.000, 4.000, 0.000" },
         buffer.ToCoordinateText().Split(Environment.NewLine),
         "coordinate export");
+
+    var customBuffer = new PathRecordingBuffer();
+    customBuffer.TryAdd(new Vector3Snapshot(0, 0, 0), now);
+    var belowCustomMinimum = customBuffer.TryAdd(new Vector3Snapshot(1.9F, 0, 0), now.AddSeconds(1), 2.0D);
+    AssertFalse(belowCustomMinimum.Success, "point below configured minimum must be skipped");
+    var atCustomMinimum = customBuffer.TryAdd(new Vector3Snapshot(2.0F, 0, 0), now.AddSeconds(2), 2.0D);
+    AssertFalse(!atCustomMinimum.Success, "point at configured minimum below five meters must be accepted");
+    AssertEqual(2, customBuffer.Count, "custom minimum accepted point count");
 
     return Task.CompletedTask;
 }
@@ -2600,6 +2610,7 @@ static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
                 {
                     CombatPathName = pathName,
                     TownReturnKey = "NumPad7",
+                    RecordingMinimumDistance = 2.5D,
                     DeathReviveClickX = 618,
                     DeathReviveClickY = 349
                 }
@@ -2612,6 +2623,7 @@ static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
         var text = await File.ReadAllTextAsync(accountPath).ConfigureAwait(false);
         AssertFalse(!text.Contains("\"CombatPathName\"", StringComparison.Ordinal), "account config should contain shared path reference field");
         AssertFalse(!text.Contains("\"TownReturnKey\": \"NumPad7\"", StringComparison.Ordinal), "account config should contain town return key");
+        AssertFalse(!text.Contains("\"RecordingMinimumDistance\": 2.5", StringComparison.Ordinal), "account config should contain recording minimum distance");
         AssertFalse(!text.Contains("\"DeathReviveClickX\"", StringComparison.Ordinal), "account config should contain death revive click x");
         AssertFalse(!text.Contains("\"DeathReviveClickY\"", StringComparison.Ordinal), "account config should contain death revive click y");
         AssertFalse(text.Contains("\"Points\"", StringComparison.Ordinal), "account config should not contain path points");
@@ -2620,6 +2632,7 @@ static async Task TestAccountConfigStoresSharedPathNamesOnlyAsync()
         AssertFalse(!load.Success, "account config should load");
         AssertEqual(pathName, load.Value?[0].ScriptSettings?.Paths.CombatPathName ?? string.Empty, "loaded combat path name");
         AssertEqual("NumPad7", load.Value?[0].ScriptSettings?.Paths.TownReturnKey ?? string.Empty, "loaded town return key");
+        AssertEqual(2.5D, load.Value?[0].ScriptSettings?.Paths.RecordingMinimumDistance ?? 0.0D, "loaded recording minimum distance");
         AssertEqual(618, load.Value?[0].ScriptSettings?.Paths.DeathReviveClickX ?? 0, "loaded death revive click x");
         AssertEqual(349, load.Value?[0].ScriptSettings?.Paths.DeathReviveClickY ?? 0, "loaded death revive click y");
     }
@@ -3973,6 +3986,94 @@ static async Task TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync()
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE", previousStuckDistance);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS", previousJumpHold);
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestManualPathRetriesTransientPlayerReadFailuresAsync()
+{
+    var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_TIMEOUT_MS");
+    var previousInterval = Environment.GetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_INTERVAL_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_TIMEOUT_MS", "1000");
+    Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_INTERVAL_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi();
+        var atStart = gameApi.Player with { Position = new Vector3Snapshot(0, 0, 0) };
+        var atEnd = gameApi.Player with { Position = new Vector3Snapshot(10, 0, 0) };
+        gameApi.Player = atEnd;
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
+        for (var index = 0; index < 10; index++)
+        {
+            gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Fail("transient player read"));
+        }
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+
+        var result = await controller
+            .ExecutePathOnceAsync(
+                CreateContext(settings, gameApi, logger),
+                "cleanup-path",
+                new[] { new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(10, 0, 0) })
+            .ConfigureAwait(false);
+
+        AssertFalse(!result.Success, "transient player reads should not abort path: " + result.Error);
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "path should begin moving before the transient read failure");
+        AssertFalse(!keyboard.KeyUps.Contains("W"), "transient read failure should release W");
+        AssertFalse(
+            logger.Entries.Count(entry => entry.EventName == "manual_path.player_read.retry") <= 0,
+            "player read retry should be logged");
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "manual_path.player_read.recovered"),
+            "player read recovery should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_TIMEOUT_MS", previousTimeout);
+        Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_INTERVAL_MS", previousInterval);
+    }
+}
+
+static async Task TestManualPathFailsAfterPlayerReadRetryTimeoutAsync()
+{
+    var previousTimeout = Environment.GetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_TIMEOUT_MS");
+    var previousInterval = Environment.GetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_INTERVAL_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_TIMEOUT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_INTERVAL_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi();
+        var atStart = gameApi.Player with { Position = new Vector3Snapshot(0, 0, 0) };
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
+        gameApi.PlayerReadResults.Enqueue(OperationResult<PlayerSnapshot>.Ok(atStart));
+        gameApi.PlayerReadFallback = OperationResult<PlayerSnapshot>.Fail("persistent player read failure");
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+
+        var result = await controller
+            .ExecutePathOnceAsync(
+                CreateContext(settings, gameApi, logger),
+                "cleanup-path",
+                new[] { new Vector3Snapshot(0, 0, 0), new Vector3Snapshot(10, 0, 0) })
+            .ConfigureAwait(false);
+
+        AssertFalse(result.Success, "player read should fail after the configured retry timeout");
+        AssertFalse(
+            !(result.Error ?? string.Empty).Contains("failed continuously", StringComparison.OrdinalIgnoreCase),
+            "timeout failure should describe the continuous player read failure");
+        AssertFalse(!keyboard.KeyUps.Contains("W"), "timed-out player read should release W");
+        AssertEqual(1, logger.Entries.Count(entry => entry.EventName == "manual_path.player_read.retry"), "timeout retry log count");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_TIMEOUT_MS", previousTimeout);
+        Environment.SetEnvironmentVariable("ROADHOG_MANUAL_PATH_PLAYER_READ_RETRY_INTERVAL_MS", previousInterval);
     }
 }
 
@@ -11353,6 +11454,8 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
 
 sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
 {
+    private readonly object _playerReadSync = new();
+
     public PlayerSnapshot Player { get; set; } = new(
         1,
         0,
@@ -11366,6 +11469,12 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
         DateTimeOffset.Now);
 
     public IReadOnlyList<SkillSnapshot> Skills { get; set; } = Array.Empty<SkillSnapshot>();
+
+    public Queue<OperationResult<PlayerSnapshot>> PlayerReadResults { get; } = new();
+
+    public OperationResult<PlayerSnapshot>? PlayerReadFallback { get; set; }
+
+    public int PlayerReadCount { get; private set; }
 
     public IReadOnlyList<InventoryItemSnapshot> InventoryItems { get; set; } = Array.Empty<InventoryItemSnapshot>();
 
@@ -11447,7 +11556,17 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
 
     public Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(OperationResult<PlayerSnapshot>.Ok(Player));
+        lock (_playerReadSync)
+        {
+            PlayerReadCount++;
+            if (PlayerReadResults.Count > 0)
+            {
+                return Task.FromResult(PlayerReadResults.Dequeue());
+            }
+
+            return Task.FromResult(
+                PlayerReadFallback ?? OperationResult<PlayerSnapshot>.Ok(Player));
+        }
     }
 
     public Task<OperationResult<PlayerSnapshot>> ReadPlayerAsync(
