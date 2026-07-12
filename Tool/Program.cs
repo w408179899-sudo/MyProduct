@@ -221,6 +221,14 @@ namespace Tool
                         return;
                     }
 
+                    if (string.Equals(aionTestMode, "condition_probe", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "condition", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "target_condition", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunConditionProbeTest(process, gameBase);
+                        return;
+                    }
+
                     if (string.Equals(aionTestMode, "inventory", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "items", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "bag", StringComparison.OrdinalIgnoreCase))
@@ -3329,6 +3337,295 @@ namespace Tool
             }
 
             Console.ReadKey(true);
+        }
+
+        private static void RunConditionProbeTest(VmmProcess process, ulong gameBase)
+        {
+            int maxDurationMs = ClampInt(ReadIntFromEnv("AION_CONDITION_PROBE_MAX_DURATION_MS", 120000), 1000, 300000);
+            int waitMs = ClampInt(ReadIntFromEnv("AION_CONDITION_PROBE_WAIT_MS", 60000), 1000, 120000);
+            int intervalMs = ClampInt(ReadIntFromEnv("AION_CONDITION_PROBE_INTERVAL_MS", 50), 50, 5000);
+            uint expectedAbnormalId = ReadUIntFromEnv("AION_CONDITION_EXPECTED_ABNORMAL_ID", 0);
+            bool printBaselineEntries = ReadBoolFromEnv("AION_CONDITION_PRINT_BASELINE", true);
+            bool printCurrentEntriesOnEvent = ReadBoolFromEnv("AION_CONDITION_PRINT_EVENT_ENTRIES", false);
+            bool printTimeTicks = ReadBoolFromEnv("AION_CONDITION_PRINT_TIME_TICKS", false);
+
+            Console.WriteLine("AION target-condition abnormal-status probe for one locked target.");
+            Console.WriteLine("This is read-only. It waits for a locked target, tracks that target, and stops on death/target loss/target switch/max duration.");
+            Console.WriteLine("MaxDurationMs=" + maxDurationMs +
+                              " WaitMs=" + waitMs +
+                              " IntervalMs=" + intervalMs +
+                              " ExpectedAbnormalId=" + (expectedAbnormalId == 0 ? "none" : expectedAbnormalId.ToString()) +
+                              " PrintBaseline=" + FormatYesNo(printBaselineEntries) +
+                              " PrintTimeTicks=" + FormatYesNo(printTimeTicks) + ".");
+            Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Waiting for locked target...");
+
+            LockedTargetMonsterInfo target;
+            ActorAbnormalStatusSnapshot baseline;
+            string error;
+            bool captured = false;
+            var waitStopwatch = Stopwatch.StartNew();
+            do
+            {
+                if (TryReadLockedTargetAbnormalStatus(process, gameBase, out target, out baseline, out error) &&
+                    IsConditionProbeLockedTargetCandidate(target))
+                {
+                    captured = true;
+                    break;
+                }
+
+                Thread.Sleep(Math.Min(intervalMs, 100));
+            }
+            while (waitStopwatch.ElapsedMilliseconds <= waitMs);
+
+            if (!captured)
+            {
+                Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] No locked target before wait timeout.");
+                return;
+            }
+
+            Console.WriteLine(FormatDotProbeTarget("ConditionProbeTarget", target));
+            Console.WriteLine(FormatActorAbnormalSnapshot("ConditionProbeBaseline ", baseline));
+            if (printBaselineEntries)
+            {
+                PrintDotProbeEntries("  Baseline", baseline.Entries, expectedAbnormalId);
+            }
+
+            string targetKey = BuildConditionProbeTargetKey(target);
+            var previous = BuildAbnormalEntryMap(baseline.Entries);
+            var tracking = new Dictionary<string, DotStatusTracking>(StringComparer.Ordinal);
+            var baselineKeys = new HashSet<string>(StringComparer.Ordinal);
+            AddConditionProbeBaselineEntries(targetKey, previous, tracking, baselineKeys);
+
+            Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Condition probe captured baseline. Fight this target now.");
+
+            var stopwatch = Stopwatch.StartNew();
+            int sample = 0;
+            string stopReason = "max_duration";
+            while (stopwatch.ElapsedMilliseconds <= maxDurationMs)
+            {
+                Thread.Sleep(intervalMs);
+                sample++;
+                int elapsedMs = unchecked((int)Math.Min(int.MaxValue, stopwatch.ElapsedMilliseconds));
+
+                LockedTargetMonsterInfo currentTarget;
+                ActorAbnormalStatusSnapshot currentSnapshot;
+                if (!TryReadLockedTargetAbnormalStatus(process, gameBase, out currentTarget, out currentSnapshot, out error))
+                {
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Sample=" + sample + " Read failed: " + error);
+                    continue;
+                }
+
+                if (!IsConditionProbeLockedTargetCandidate(currentTarget))
+                {
+                    stopReason = "target_lost";
+                    MarkConditionProbePreviousRemoved(tracking, previous, targetKey, elapsedMs);
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] ConditionProbeStop Sample=" + sample + " ElapsedMs=" + elapsedMs + " Reason=target_lost");
+                    break;
+                }
+
+                if (!IsSameConditionProbeTarget(target, currentTarget))
+                {
+                    stopReason = "target_changed";
+                    MarkConditionProbePreviousRemoved(tracking, previous, targetKey, elapsedMs);
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                                      "ConditionProbeStop Sample=" + sample +
+                                      " ElapsedMs=" + elapsedMs +
+                                      " Reason=target_changed" +
+                                      " OldEntityId=" + target.TargetEntityId +
+                                      " NewEntityId=" + currentTarget.TargetEntityId +
+                                      " OldServerId=" + FormatServerObjectId(target) +
+                                      " NewServerId=" + FormatServerObjectId(currentTarget));
+                    break;
+                }
+
+                var current = BuildAbnormalEntryMap(currentSnapshot.Entries);
+                foreach (var pair in current)
+                {
+                    string trackingKey = BuildConditionProbeTrackingKey(targetKey, pair.Key);
+                    DotStatusTracking state;
+                    if (!tracking.TryGetValue(trackingKey, out state))
+                    {
+                        state = CreateDotStatusTracking(trackingKey, pair.Value, false, elapsedMs, sample);
+                        state.AddedAfterBaseline = true;
+                        tracking[trackingKey] = state;
+                        Console.WriteLine(FormatDotProbeEvent("ADDED", sample, elapsedMs, pair.Value, expectedAbnormalId, currentTarget));
+                        continue;
+                    }
+
+                    if (!previous.ContainsKey(pair.Key) && !state.CurrentPresent)
+                    {
+                        state.CurrentPresent = true;
+                        state.CurrentStartMs = elapsedMs;
+                        state.ApplyCount++;
+                        state.Removed = false;
+                        state.RemovedAtMs = 0;
+                        Console.WriteLine(FormatDotProbeEvent("REAPPEARED", sample, elapsedMs, pair.Value, expectedAbnormalId, currentTarget));
+                    }
+
+                    AbnormalStatusEntry oldEntry;
+                    if (previous.TryGetValue(pair.Key, out oldEntry) &&
+                        HasAbnormalEntryRuntimeChange(oldEntry, pair.Value))
+                    {
+                        state.ChangeCount++;
+                        if (printTimeTicks ||
+                            oldEntry.LevelOrStack != pair.Value.LevelOrStack ||
+                            oldEntry.Field00 != pair.Value.Field00)
+                        {
+                            Console.WriteLine(FormatDotProbeChangeEvent(sample, elapsedMs, oldEntry, pair.Value, expectedAbnormalId, currentTarget));
+                        }
+                    }
+
+                    state.LastSeenMs = elapsedMs;
+                    state.LastSample = sample;
+                    state.LastEntry = pair.Value;
+                    state.CurrentPresent = true;
+                    state.Removed = false;
+                    state.RemovedAtMs = 0;
+                }
+
+                foreach (var pair in previous)
+                {
+                    if (current.ContainsKey(pair.Key))
+                    {
+                        continue;
+                    }
+
+                    string trackingKey = BuildConditionProbeTrackingKey(targetKey, pair.Key);
+                    DotStatusTracking state;
+                    if (tracking.TryGetValue(trackingKey, out state) && !state.Removed)
+                    {
+                        state.Removed = true;
+                        state.RemovedAtMs = elapsedMs;
+                        Console.WriteLine(FormatDotProbeEvent("REMOVED", sample, elapsedMs, pair.Value, expectedAbnormalId, currentTarget));
+                        state.CurrentPresent = false;
+                        state.RemoveCount++;
+                        state.TotalObservedMs += Math.Max(0, elapsedMs - state.CurrentStartMs);
+                    }
+                }
+
+                if (printCurrentEntriesOnEvent && HasAbnormalMapDifference(previous, current))
+                {
+                    PrintDotProbeEntries("  Current", currentSnapshot.Entries, expectedAbnormalId);
+                }
+
+                previous = current;
+
+                if (IsConditionProbeTargetDead(currentTarget))
+                {
+                    stopReason = "target_dead";
+                    MarkConditionProbePreviousRemoved(tracking, previous, targetKey, elapsedMs);
+                    Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] " +
+                                      "ConditionProbeStop Sample=" + sample +
+                                      " ElapsedMs=" + elapsedMs +
+                                      " Reason=target_dead" +
+                                      " HP=" + currentTarget.Actor.CurrentHp + "/" + currentTarget.Actor.MaxHp +
+                                      " HpPercent=" + currentTarget.Actor.HpPercent);
+                    break;
+                }
+            }
+
+            Console.WriteLine("[" + DateTime.Now.ToString("HH:mm:ss.fff") + "] Condition probe finished. StopReason=" + stopReason + ".");
+            PrintDotProbeSummary(tracking, baselineKeys, expectedAbnormalId, unchecked((int)Math.Min(int.MaxValue, stopwatch.ElapsedMilliseconds)));
+        }
+
+        private static bool IsSameConditionProbeTarget(LockedTargetMonsterInfo first, LockedTargetMonsterInfo second)
+        {
+            if (first.TargetEntityId == 0 || second.TargetEntityId == 0 || first.TargetEntityId != second.TargetEntityId)
+            {
+                return false;
+            }
+
+            return !first.HasServerObjectId ||
+                   !second.HasServerObjectId ||
+                   first.ServerObjectId == second.ServerObjectId;
+        }
+
+        private static bool IsConditionProbeLockedTargetCandidate(LockedTargetMonsterInfo target)
+        {
+            if (target.TargetEntityId == 0 || target.TargetEntityId == ushort.MaxValue)
+            {
+                return false;
+            }
+
+            if (target.HasServerObjectId &&
+                target.LocalServerObjectId != 0 &&
+                target.ServerObjectId == target.LocalServerObjectId)
+            {
+                return false;
+            }
+
+            if (target.HasActor &&
+                target.Actor.ServerObjectId != 0 &&
+                target.LocalServerObjectId != 0 &&
+                target.Actor.ServerObjectId == target.LocalServerObjectId)
+            {
+                return false;
+            }
+
+            if (target.HasActor &&
+                target.Actor.ObjectType == 1 &&
+                target.HasDistance &&
+                target.DistanceToLocalPlayer < 0.1D)
+            {
+                return false;
+            }
+
+            return target.HasActor;
+        }
+
+        private static bool IsConditionProbeTargetDead(LockedTargetMonsterInfo target)
+        {
+            return target.HasActor &&
+                   target.Actor.MaxHp > 0 &&
+                   (target.Actor.CurrentHp == 0 || target.Actor.HpPercent == 0);
+        }
+
+        private static string BuildConditionProbeTargetKey(LockedTargetMonsterInfo target)
+        {
+            return (target.HasServerObjectId ? target.ServerObjectId.ToString() : "0") + ":" + target.TargetEntityId.ToString();
+        }
+
+        private static string BuildConditionProbeTrackingKey(string targetKey, string abnormalKey)
+        {
+            return targetKey + "|" + abnormalKey;
+        }
+
+        private static void AddConditionProbeBaselineEntries(
+            string targetKey,
+            Dictionary<string, AbnormalStatusEntry> entries,
+            Dictionary<string, DotStatusTracking> tracking,
+            HashSet<string> baselineKeys)
+        {
+            foreach (var pair in entries)
+            {
+                string trackingKey = BuildConditionProbeTrackingKey(targetKey, pair.Key);
+                baselineKeys.Add(trackingKey);
+                if (!tracking.ContainsKey(trackingKey))
+                {
+                    tracking[trackingKey] = CreateDotStatusTracking(trackingKey, pair.Value, true, 0, 0);
+                }
+            }
+        }
+
+        private static void MarkConditionProbePreviousRemoved(
+            Dictionary<string, DotStatusTracking> tracking,
+            Dictionary<string, AbnormalStatusEntry> previous,
+            string targetKey,
+            int elapsedMs)
+        {
+            foreach (var pair in previous)
+            {
+                string trackingKey = BuildConditionProbeTrackingKey(targetKey, pair.Key);
+                DotStatusTracking state;
+                if (tracking.TryGetValue(trackingKey, out state) && state.CurrentPresent)
+                {
+                    state.CurrentPresent = false;
+                    state.Removed = true;
+                    state.RemovedAtMs = elapsedMs;
+                    state.RemoveCount++;
+                    state.TotalObservedMs += Math.Max(0, elapsedMs - state.CurrentStartMs);
+                }
+            }
         }
 
         private static void RunDotStatusProbeTest(VmmProcess process, ulong gameBase)
