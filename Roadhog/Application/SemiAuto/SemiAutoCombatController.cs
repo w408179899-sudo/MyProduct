@@ -1055,9 +1055,9 @@ public sealed class SemiAutoCombatController
         OperationResult<IReadOnlyList<InventoryItemSnapshot>>? inventoryResult = null;
         foreach (var rule in (rules ?? Array.Empty<MaintenanceKeyRuleConfig>())
                      .Where(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
-                                    IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules))
-                     .OrderBy(rule => Math.Clamp(rule.BelowPercent, 0, 100))
-                     .ThenBy(rule => rule.ActionType == MaintenanceRuleActionType.Potion ? 0 : 1))
+                                     IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules))
+                     .OrderBy(rule => GetMaintenanceRuleActionPriority(resource, rule))
+                     .ThenBy(rule => Math.Clamp(rule.BelowPercent, 0, 100)))
         {
             var threshold = Math.Clamp(rule.BelowPercent, 0, 100);
             if (percent > threshold)
@@ -3110,6 +3110,14 @@ public sealed class SemiAutoCombatController
     private static bool HasExplicitMaintenanceSkill(MaintenanceKeyRuleConfig rule)
     {
         return rule.SkillId != 0 || !string.IsNullOrWhiteSpace(rule.SkillName);
+    }
+
+    private static int GetMaintenanceRuleActionPriority(string resource, MaintenanceKeyRuleConfig rule)
+    {
+        return string.Equals(resource, "mp", StringComparison.OrdinalIgnoreCase) &&
+               rule.ActionType == MaintenanceRuleActionType.Potion
+            ? 0
+            : 1;
     }
 
     private static bool HasExplicitStatusMaintenanceSkill(StatusMaintenanceRuleConfig rule)

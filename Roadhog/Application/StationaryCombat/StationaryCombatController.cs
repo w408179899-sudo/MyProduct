@@ -41,6 +41,7 @@ public sealed class StationaryCombatController
     private const int DefaultReviveThirdClickY = 468;
     private const int DefaultPostReviveScrollCount = 30;
     private const int DefaultPostReviveScrollDelta = -1;
+    private const int DefaultPostCombatMaintenanceRoundLimit = 8;
     private const ushort NpcEntityType = 3;
 
     private readonly IKeyboardInput _input;
@@ -2996,37 +2997,105 @@ public sealed class StationaryCombatController
             }
         }
 
-        var handled = await _semiAuto
-            .TryHandleMaintenanceAsync(
+        await RunPostCombatMaintenanceRoundAsync(
                 context,
+                plan,
                 semiAutoState,
-                player,
-                allowSitMaintenance: false,
-                clearSitWhenDisallowed: false,
-                beforeMaintenanceKeyPress: async () =>
-                {
-                    semiAutoState.ResetAttackKeyPressThrottle();
-                    await StopMovementAsync(context, state).ConfigureAwait(false);
-                    StopPathFollowPoller(state);
-                },
-                plan: plan,
-                requireCooldownCalibrationForMaintenance: true,
-                runTiming: MaintenanceRuleRunTiming.AfterCombat,
-                includeAlwaysRules: true)
+                state,
+                player)
             .ConfigureAwait(false);
 
-        if (handled)
+        return StationaryCombatBehaviorStatus.Success;
+    }
+
+    private async Task<bool> RunPostCombatMaintenanceRoundAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player)
+    {
+        var handledAny = false;
+        var currentPlayer = player;
+        for (var iteration = 1; iteration <= DefaultPostCombatMaintenanceRoundLimit; iteration++)
         {
+            var handled = await _semiAuto
+                .TryHandleMaintenanceAsync(
+                    context,
+                    semiAutoState,
+                    currentPlayer,
+                    allowSitMaintenance: false,
+                    clearSitWhenDisallowed: false,
+                    beforeMaintenanceKeyPress: async () =>
+                    {
+                        semiAutoState.ResetAttackKeyPressThrottle();
+                        await StopMovementAsync(context, state).ConfigureAwait(false);
+                        StopPathFollowPoller(state);
+                    },
+                    plan: plan,
+                    requireCooldownCalibrationForMaintenance: true,
+                    runTiming: MaintenanceRuleRunTiming.AfterCombat,
+                    includeAlwaysRules: true)
+                .ConfigureAwait(false);
+            if (!handled)
+            {
+                break;
+            }
+
+            handledAny = true;
             context.Logger.Info("stationary_combat.loot.post_combat_maintenance", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
                 ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
                 ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
-                ["targetName"] = state.LootAfterKill.KilledTargetName
+                ["targetName"] = state.LootAfterKill.KilledTargetName,
+                ["iteration"] = iteration
             });
+
+            if (iteration == DefaultPostCombatMaintenanceRoundLimit)
+            {
+                context.Logger.Warn("stationary_combat.loot.post_combat_maintenance_limit", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
+                    ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
+                    ["targetName"] = state.LootAfterKill.KilledTargetName,
+                    ["limit"] = DefaultPostCombatMaintenanceRoundLimit
+                });
+                break;
+            }
+
+            var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+            if (!playerResult.Success || playerResult.Value is null)
+            {
+                context.Logger.Warn("stationary_combat.loot.post_combat_maintenance_player_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
+                    ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
+                    ["targetName"] = state.LootAfterKill.KilledTargetName,
+                    ["iteration"] = iteration,
+                    ["error"] = playerResult.Error
+                });
+                break;
+            }
+
+            currentPlayer = playerResult.Value;
+            if (currentPlayer.IsDead)
+            {
+                context.Logger.Warn("stationary_combat.loot.post_combat_maintenance_player_dead", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
+                    ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
+                    ["targetName"] = state.LootAfterKill.KilledTargetName,
+                    ["iteration"] = iteration
+                });
+                break;
+            }
         }
 
-        return StationaryCombatBehaviorStatus.Success;
+        return handledAny;
     }
 
     private async Task<StationaryCombatBehaviorStatus> TickCleanupReturnToCombatAsync(

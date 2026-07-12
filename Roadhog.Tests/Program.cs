@@ -130,6 +130,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat waits after kill before loot key", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
     ("stationary combat waits near corpse after loot key", TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync),
     ("stationary combat runs after-combat maintenance after loot", TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync),
+    ("stationary combat runs after-combat maintenance round", TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync),
     ("stationary combat returns from bag cleanup through revive path before finishing loot", TestStationaryCombatReturnsFromBagCleanupThroughRevivePathBeforeFinishingLootAsync),
     ("stationary combat postpones after-combat maintenance while pet is targeted", TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsTargetedAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
@@ -7079,6 +7080,150 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync()
         AssertSequence(new[] { "NumPadDecimal", "D8" }, keyboard.Keys, "after-combat maintenance should run after loot key");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.post_combat_maintenance"), "post-combat maintenance should be logged");
         AssertFalse(state.LootAfterKill.Active, "loot state should finish after post-combat maintenance");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", previousWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
+    }
+}
+
+static async Task TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync()
+{
+    var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
+    var previousWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS");
+    var previousPressCount = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT");
+    var previousPressInterval = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", null);
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+        settings.Maintenance.SitMaintenanceEnabled = false;
+        settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+        {
+            Key = "NumPad6",
+            SkillId = 1,
+            SkillName = "Status Buff",
+            RunTiming = MaintenanceRuleRunTiming.AfterCombat
+        });
+        settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+        {
+            BelowPercent = 45,
+            Key = "NumPad3",
+            SkillId = 5,
+            SkillName = "Mana Skill",
+            RunTiming = MaintenanceRuleRunTiming.AfterCombat
+        });
+        settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+        {
+            BelowPercent = 60,
+            ActionType = MaintenanceRuleActionType.Potion,
+            Key = "NumPadAdd",
+            RunTiming = MaintenanceRuleRunTiming.AfterCombat
+        });
+
+        PlayerSnapshot PlayerWith(uint hp, uint mp) => new(
+            1,
+            100,
+            "Fake",
+            hp,
+            100,
+            mp,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            90,
+            10,
+            90);
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = PlayerWith(100, 20),
+            PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1),
+            InventoryItems = new[]
+            {
+                new InventoryItemSnapshot(1, 1, "上级精神之仙药", 1, 0, false, 17)
+            },
+            TargetEntityId = 100,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 4430,
+            TargetPosition = new Vector3Snapshot(2.5f, 0, 0),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0
+            })
+        };
+        keyboard.AfterPress = key =>
+        {
+            if (string.Equals(key, "NumPad6", StringComparison.Ordinal))
+            {
+                gameApi.PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+                    1,
+                    DateTimeOffset.Now,
+                    1,
+                    new[] { Abnormal(4001, 0) });
+            }
+            else if (string.Equals(key, "NumPadAdd", StringComparison.Ordinal))
+            {
+                gameApi.Player = PlayerWith(100, 40);
+            }
+            else if (string.Equals(key, "NumPad3", StringComparison.Ordinal))
+            {
+                gameApi.Player = PlayerWith(100, 80);
+                gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+                {
+                    [1] = 0,
+                    [5] = ActiveCooldownEnd()
+                });
+            }
+        };
+
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var semiAutoState = new SemiAutoCombatState();
+        CalibrateCooldownClock(semiAutoState);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CandidateEntityId = 100
+        };
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, state)
+            .ConfigureAwait(false);
+
+        AssertSequence(
+            new[] { "NumPadDecimal", "NumPad6", "NumPadAdd", "NumPad3" },
+            keyboard.Keys,
+            "after-combat maintenance round should continue through status, potion, and skill");
+        AssertEqual(
+            3,
+            logger.Entries.Count(entry => entry.EventName == "stationary_combat.loot.post_combat_maintenance"),
+            "each handled after-combat maintenance action should be logged");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.potion_pressed"), "mp potion should press during after-combat round");
+        AssertFalse(state.LootAfterKill.Active, "loot state should finish after maintenance round");
     }
     finally
     {
