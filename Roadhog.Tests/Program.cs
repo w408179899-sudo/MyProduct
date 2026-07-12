@@ -166,6 +166,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance in-combat rule skips without attackable target", TestMaintenanceInCombatRuleSkipsWithoutAttackableTargetAsync),
     ("maintenance in-combat rule runs before skills", TestMaintenanceInCombatRuleRunsBeforeSkillsAsync),
     ("maintenance mp rule presses configured key before skills", TestMaintenanceMpRulePressesConfiguredKeyAsync),
+    ("maintenance mp potion matches recovery and secret potion names", TestMaintenanceMpPotionMatchesAdditionalNamesAsync),
+    ("maintenance mp potion rejects wrong item type and falls back to skill", TestMaintenanceMpPotionRejectsWrongTypeAndFallsBackAsync),
+    ("maintenance mp potion runs before skill and skill retries next tick", TestMaintenanceMpPotionRunsBeforeSkillAsync),
     ("maintenance selected skill confirms by skill id", TestMaintenanceSelectedSkillConfirmsBySkillIdAsync),
     ("maintenance selected cooling skill skips key and continues combat", TestMaintenanceSelectedCoolingSkillSkipsKeyAsync),
     ("dp maintenance skips below required dp", TestDpMaintenanceSkipsBelowRequiredDpAsync),
@@ -2682,6 +2685,16 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
                             SkillName = "Pet DP Buff"
                         }
                     },
+                    MpMaintenanceRules = new List<MaintenanceKeyRuleConfig>
+                    {
+                        new()
+                        {
+                            BelowPercent = 60,
+                            ActionType = MaintenanceRuleActionType.Potion,
+                            Key = "NumPad2",
+                            RunTiming = MaintenanceRuleRunTiming.AfterCombat
+                        }
+                    },
                     BagCleanupRules = rules
                 }
             }
@@ -2700,6 +2713,7 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
         AssertFalse(!text.Contains("\"DpMaintenanceRules\"", StringComparison.Ordinal), "account config should contain dp maintenance rules");
         AssertFalse(!text.Contains("\"RequiredDp\": 4000", StringComparison.Ordinal), "account config should contain dp requirement");
         AssertFalse(!text.Contains("\"Key\": \"NumPad9\"", StringComparison.Ordinal), "account config should contain dp maintenance key");
+        AssertFalse(!text.Contains("\"ActionType\": \"Potion\"", StringComparison.Ordinal), "account config should contain potion maintenance type");
         AssertFalse(
             !text.Contains(
                 "\"BagCleanupItemCoordinateMode\": \"WindowRectRelativeExperimental\"",
@@ -2727,6 +2741,9 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
         AssertEqual(1, maintenance?.DpMaintenanceRules.Count ?? 0, "loaded dp maintenance rule count");
         AssertEqual(4000, maintenance?.DpMaintenanceRules[0].RequiredDp ?? 0, "loaded dp requirement");
         AssertEqual("NumPad9", maintenance?.DpMaintenanceRules[0].Key ?? string.Empty, "loaded dp maintenance key");
+        AssertEqual(1, maintenance?.MpMaintenanceRules.Count ?? 0, "loaded mp maintenance rule count");
+        AssertEqual(MaintenanceRuleActionType.Potion, maintenance?.MpMaintenanceRules[0].ActionType ?? MaintenanceRuleActionType.Skill, "loaded mp maintenance action type");
+        AssertEqual(MaintenanceRuleRunTiming.AfterCombat, maintenance?.MpMaintenanceRules[0].RunTiming ?? MaintenanceRuleRunTiming.Always, "loaded mp maintenance timing");
         var loadedRules = BagCleanupRuleCatalog.MergeWithDefaults(load.Value?[0].ScriptSettings?.Maintenance.BagCleanupRules);
         var greenEquipment = loadedRules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenEquipment);
         AssertFalse(!greenEquipment.Enabled, "green equipment cleanup should remain enabled");
@@ -9489,6 +9506,128 @@ static async Task TestMaintenanceMpRulePressesConfiguredKeyAsync()
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
 
     AssertSequence(new[] { "NumPad1" }, keyboard.Keys.ToArray(), "low mp maintenance key");
+}
+
+static async Task TestMaintenanceMpPotionMatchesAdditionalNamesAsync()
+{
+    foreach (var potionName in new[] { "高级精神恢复剂", "高级精神秘药" })
+    {
+        var settings = CreateScriptSettings();
+        settings.Maintenance.SitMaintenanceEnabled = false;
+        settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+        {
+            BelowPercent = 60,
+            ActionType = MaintenanceRuleActionType.Potion,
+            Key = "NumPad2"
+        });
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var keyboard = new RecordingKeyboardInput();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 20, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+            InventoryItems = new[]
+            {
+                new InventoryItemSnapshot(1, 1, potionName, 1, 0, false, 17)
+            }
+        };
+
+        await new SemiAutoCombatController(keyboard)
+            .TickAsync(CreateContext(settings, gameApi, new InMemoryRoadhogLogger()), plan, new SemiAutoCombatState())
+            .ConfigureAwait(false);
+
+        AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), $"mp potion name {potionName}");
+    }
+}
+
+static async Task TestMaintenanceMpPotionRejectsWrongTypeAndFallsBackAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        ActionType = MaintenanceRuleActionType.Potion,
+        Key = "NumPad2"
+    });
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        Key = "NumPad3",
+        SkillId = 1,
+        SkillName = "Mana Skill"
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 20, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        InventoryItems = new[]
+        {
+            new InventoryItemSnapshot(1, 1, "魔石:精神力+50", 1, 0, false, 24)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint> { [1] = 0 })
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (key == "NumPad3")
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint> { [1] = ActiveCooldownEnd() });
+        }
+    };
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+
+    await new SemiAutoCombatController(keyboard)
+        .TickAsync(CreateContext(settings, gameApi, new InMemoryRoadhogLogger()), plan, state)
+        .ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "wrong item type should skip potion and use skill");
+}
+
+static async Task TestMaintenanceMpPotionRunsBeforeSkillAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        Key = "NumPad3",
+        SkillId = 1,
+        SkillName = "Mana Skill"
+    });
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        ActionType = MaintenanceRuleActionType.Potion,
+        Key = "NumPad2"
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 20, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        InventoryItems = new[]
+        {
+            new InventoryItemSnapshot(1, 1, "上级精神之仙药", 1, 0, false, 17)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint> { [1] = 0 })
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (key == "NumPad3")
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint> { [1] = ActiveCooldownEnd() });
+        }
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    CalibrateCooldownClock(state);
+    var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad2", "NumPad3" }, keyboard.Keys.ToArray(), "potion should run first, then skill on next low-mp tick");
 }
 
 static async Task TestMaintenanceSelectedSkillConfirmsBySkillIdAsync()

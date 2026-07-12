@@ -2544,7 +2544,8 @@ namespace Roadhog
                     rule.Key,
                     rule.SkillId,
                     rule.SkillName,
-                    rule.RunTiming);
+                    rule.RunTiming,
+                    rule.ActionType);
             }
 
             RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
@@ -2609,7 +2610,8 @@ namespace Roadhog
             string key = "",
             uint skillId = 0,
             string skillName = "",
-            MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always)
+            MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
+            MaintenanceRuleActionType actionType = MaintenanceRuleActionType.Skill)
         {
             if (list is null)
             {
@@ -2621,7 +2623,7 @@ namespace Roadhog
                 BackColor = _pageBackground,
                 BorderStyle = BorderStyle.None,
                 Margin = new Padding(0, 0, 0, 7),
-                Size = new Size(630, 31)
+                Size = new Size(ReferenceEquals(list, mpMaintenanceRuleList) ? 690 : 630, 31)
             };
 
             row.Controls.Add(new Label
@@ -2657,15 +2659,35 @@ namespace Roadhog
                 TextAlign = ContentAlignment.MiddleLeft
             });
 
-            var skillCombo = AddCombo(row, 138, 1, 210, 28);
+            var allowPotion = ReferenceEquals(list, mpMaintenanceRuleList);
+            RoundedComboBox? actionCombo = null;
+            if (allowPotion)
+            {
+                actionCombo = AddCombo(row, 138, 1, 74, 28);
+                actionCombo.Name = "maintenanceRuleActionCombo";
+                PopulateMaintenanceActionCombo(actionCombo, actionType, allowPotion: true);
+            }
+
+            var skillCombo = AddCombo(row, allowPotion ? 220 : 138, 1, allowPotion ? 190 : 210, 28);
             skillCombo.Name = "maintenanceRuleSkillCombo";
             PopulateMaintenanceSkillCombo(skillCombo, skillId, skillName);
 
-            var timingCombo = AddCombo(row, 356, 1, 90, 28);
+            void RefreshActionState()
+            {
+                skillCombo.Enabled = GetSelectedMaintenanceActionType(actionCombo) == MaintenanceRuleActionType.Skill;
+            }
+
+            if (actionCombo is not null)
+            {
+                actionCombo.SelectedIndexChanged += (_, _) => RefreshActionState();
+                RefreshActionState();
+            }
+
+            var timingCombo = AddCombo(row, allowPotion ? 418 : 356, 1, 90, 28);
             timingCombo.Name = "maintenanceRuleTimingCombo";
             PopulateMaintenanceTimingCombo(timingCombo, runTiming);
 
-            var keyButton = AddButton(row, "选择按键", 454, 0, 104, 30);
+            var keyButton = AddButton(row, "选择按键", allowPotion ? 516 : 454, 0, 104, 30);
             keyButton.Name = "maintenanceRuleKeyButton";
             if (!string.IsNullOrWhiteSpace(key))
             {
@@ -2673,7 +2695,7 @@ namespace Roadhog
                 keyButton.Text = FormatSkillKey(key);
             }
 
-            var deleteButton = AddButton(row, "删除", 566, 0, 58, 30);
+            var deleteButton = AddButton(row, "删除", allowPotion ? 628 : 566, 0, 58, 30);
             deleteButton.Click += (_, _) =>
             {
                 list.Controls.Remove(row);
@@ -2998,6 +3020,35 @@ namespace Roadhog
                 : MaintenanceRuleRunTiming.Always;
         }
 
+        private static void PopulateMaintenanceActionCombo(
+            RoundedComboBox combo,
+            MaintenanceRuleActionType selectedActionType,
+            bool allowPotion)
+        {
+            combo.Items.Clear();
+            combo.Items.Add(new MaintenanceActionComboItem(MaintenanceRuleActionType.Skill, "技能"));
+            if (allowPotion)
+            {
+                combo.Items.Add(new MaintenanceActionComboItem(MaintenanceRuleActionType.Potion, "药水"));
+            }
+
+            combo.SelectedIndex = allowPotion && selectedActionType == MaintenanceRuleActionType.Potion ? 1 : 0;
+        }
+
+        private static MaintenanceRuleActionType GetSelectedMaintenanceActionType(RoundedComboBox? combo)
+        {
+            if (combo is null ||
+                combo.SelectedIndex < 0 ||
+                combo.SelectedIndex >= combo.Items.Count)
+            {
+                return MaintenanceRuleActionType.Skill;
+            }
+
+            return combo.Items[combo.SelectedIndex] is MaintenanceActionComboItem item
+                ? item.ActionType
+                : MaintenanceRuleActionType.Skill;
+        }
+
         private void ApplyOpeningSkillSettings(OpeningSkillConfig? config)
         {
             var openingSkill = config ?? new OpeningSkillConfig();
@@ -3150,6 +3201,9 @@ namespace Roadhog
                     var skillCombo = row.Controls
                         .OfType<RoundedComboBox>()
                         .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleSkillCombo", StringComparison.Ordinal));
+                    var actionCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleActionCombo", StringComparison.Ordinal));
                     var timingCombo = row.Controls
                         .OfType<RoundedComboBox>()
                         .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleTimingCombo", StringComparison.Ordinal));
@@ -3158,6 +3212,7 @@ namespace Roadhog
                     return new MaintenanceKeyRuleConfig
                     {
                         BelowPercent = ReadPercent(belowTextBox, 50),
+                        ActionType = GetSelectedMaintenanceActionType(actionCombo),
                         Key = keyButton?.Tag as string ?? string.Empty,
                         SkillId = selectedSkill.SkillId,
                         SkillName = selectedSkill.SkillName,
@@ -4967,6 +5022,24 @@ namespace Roadhog
             }
         }
 
+        private sealed class MaintenanceActionComboItem
+        {
+            public MaintenanceActionComboItem(MaintenanceRuleActionType actionType, string displayText)
+            {
+                ActionType = actionType;
+                DisplayText = displayText;
+            }
+
+            public MaintenanceRuleActionType ActionType { get; }
+
+            private string DisplayText { get; }
+
+            public override string ToString()
+            {
+                return DisplayText;
+            }
+        }
+
         private sealed class OpeningSkillComboItem
         {
             public static readonly OpeningSkillComboItem Empty = new(0, string.Empty, "选择技能");
@@ -6232,23 +6305,6 @@ namespace Roadhog
             {
                 new[]
                 {
-                    ("1", "D1"),
-                    ("2", "D2"),
-                    ("3", "D3"),
-                    ("4", "D4"),
-                    ("5", "D5"),
-                    ("6", "D6"),
-                    ("7", "D7"),
-                    ("8", "D8"),
-                    ("9", "D9"),
-                    ("0", "D0"),
-                    ("-", "OemMinus"),
-                    ("=", "OemPlus"),
-                    (",", "OemComma"),
-                    ("X", "X")
-                },
-                new[]
-                {
                     ("Num1", "NumPad1"),
                     ("Num2", "NumPad2"),
                     ("Num3", "NumPad3"),
@@ -6261,6 +6317,21 @@ namespace Roadhog
                     ("Num0", "NumPad0"),
                     ("Num+", "NumPadAdd"),
                     ("Num-", "NumPadSubtract")
+                },
+                new[]
+                {
+                    ("1", "D1"),
+                    ("2", "D2"),
+                    ("3", "D3"),
+                    ("4", "D4"),
+                    ("5", "D5"),
+                    ("6", "D6"),
+                    ("7", "D7"),
+                    ("8", "D8"),
+                    ("9", "D9"),
+                    ("0", "D0"),
+                    ("-", "OemMinus"),
+                    ("=", "OemPlus")
                 }
             };
 
@@ -6310,7 +6381,10 @@ namespace Roadhog
                 "Shift" => 78,
                 "Space" => 176,
                 "Ctrl" or "Alt" or "Win" or "Menu" => 54,
-                "Num1" or "Num2" or "Num3" or "Num4" or "Num5" or
+                "1" or "2" or "3" or "4" or "5" or
+                    "6" or "7" or "8" or "9" or "0" or
+                    "-" or "=" or
+                    "Num1" or "Num2" or "Num3" or "Num4" or "Num5" or
                     "Num6" or "Num7" or "Num8" or "Num9" or "Num0" or
                     "Num-" or "Num+" => 54,
                 _ => 42

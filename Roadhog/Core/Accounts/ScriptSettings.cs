@@ -392,6 +392,8 @@ public sealed class MaintenanceKeyRuleConfig
 {
     public int BelowPercent { get; set; } = 50;
 
+    public MaintenanceRuleActionType ActionType { get; set; } = MaintenanceRuleActionType.Skill;
+
     public string Key { get; set; } = string.Empty;
 
     public uint SkillId { get; set; }
@@ -405,12 +407,19 @@ public sealed class MaintenanceKeyRuleConfig
         return new MaintenanceKeyRuleConfig
         {
             BelowPercent = BelowPercent,
+            ActionType = ActionType,
             Key = Key,
             SkillId = SkillId,
             SkillName = SkillName,
             RunTiming = RunTiming
         };
     }
+}
+
+public enum MaintenanceRuleActionType
+{
+    Skill,
+    Potion
 }
 
 public sealed class StatusMaintenanceRuleConfig

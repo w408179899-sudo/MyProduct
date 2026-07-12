@@ -1052,10 +1052,12 @@ public sealed class SemiAutoCombatController
 
         var percent = Percent(current, max);
         OperationResult<IReadOnlyList<SkillSnapshot>>? skillsResult = null;
+        OperationResult<IReadOnlyList<InventoryItemSnapshot>>? inventoryResult = null;
         foreach (var rule in (rules ?? Array.Empty<MaintenanceKeyRuleConfig>())
                      .Where(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
                                     IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules))
-                     .OrderBy(rule => Math.Clamp(rule.BelowPercent, 0, 100)))
+                     .OrderBy(rule => Math.Clamp(rule.BelowPercent, 0, 100))
+                     .ThenBy(rule => rule.ActionType == MaintenanceRuleActionType.Potion ? 0 : 1))
         {
             var threshold = Math.Clamp(rule.BelowPercent, 0, 100);
             if (percent > threshold)
@@ -1064,6 +1066,41 @@ public sealed class SemiAutoCombatController
             }
 
             var now = DateTimeOffset.Now;
+            if (rule.ActionType == MaintenanceRuleActionType.Potion)
+            {
+                if (!string.Equals(resource, "mp", StringComparison.OrdinalIgnoreCase) ||
+                    !state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
+                {
+                    continue;
+                }
+
+                inventoryResult ??= await ReadInventoryAsync(context).ConfigureAwait(false);
+                if (!inventoryResult.Success || inventoryResult.Value is null)
+                {
+                    LogMaintenancePotionInventoryReadFailed(context, state, rule, inventoryResult.Error);
+                    continue;
+                }
+
+                if (!inventoryResult.Value.Any(IsSpiritMpPotion))
+                {
+                    continue;
+                }
+
+                return await ExecuteMaintenancePotionRuleAsync(
+                        context,
+                        state,
+                        settings,
+                        rule,
+                        resource,
+                        current,
+                        max,
+                        percent,
+                        threshold,
+                        player,
+                        beforeMaintenanceKeyPress)
+                    .ConfigureAwait(false);
+            }
+
             if (requireCooldownCalibrationForMaintenance &&
                 !state.HasCooldownTickCalibration)
             {
@@ -1551,6 +1588,97 @@ public sealed class SemiAutoCombatController
             ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAtUnconfirmed - startedAt).TotalMilliseconds)
         });
         return true;
+    }
+
+    private async Task<bool> ExecuteMaintenancePotionRuleAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        MaintenanceKeyRuleConfig rule,
+        string resource,
+        uint current,
+        uint max,
+        double percent,
+        int threshold,
+        PlayerSnapshot player,
+        Func<Task>? beforeMaintenanceKeyPress)
+    {
+        if (beforeMaintenanceKeyPress is not null)
+        {
+            await beforeMaintenanceKeyPress().ConfigureAwait(false);
+        }
+
+        if (!await EnsureStandingBeforeMaintenanceKeyAsync(
+                    context,
+                    state,
+                    settings,
+                    player,
+                    resource,
+                    rule.Key)
+                .ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        var result = await _keyboard
+            .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            LogMaintenanceKeyFailure(context, state, rule.Key, "mp_potion", result.Error);
+            return false;
+        }
+
+        var completedAt = DateTimeOffset.Now;
+        state.MarkMaintenanceKeyAttempted(rule.Key, completedAt);
+        context.Logger.Info("semi_auto.maintenance.potion_pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["current"] = current,
+            ["max"] = max,
+            ["percent"] = Math.Round(percent, 1),
+            ["belowPercent"] = threshold
+        });
+        return true;
+    }
+
+    private static bool IsSpiritMpPotion(InventoryItemSnapshot item)
+    {
+        if (item.Count == 0 || item.Slot < 0 || item.IsEquipped || item.ItemType != 17)
+        {
+            return false;
+        }
+
+        var name = item.Name ?? string.Empty;
+        return name.Contains("精神", StringComparison.Ordinal) &&
+               (name.Contains("药水", StringComparison.Ordinal) ||
+                name.Contains("仙药", StringComparison.Ordinal) ||
+                name.Contains("灵药", StringComparison.Ordinal) ||
+                name.Contains("恢复", StringComparison.Ordinal) ||
+                name.Contains("秘药", StringComparison.Ordinal));
+    }
+
+    private static void LogMaintenancePotionInventoryReadFailed(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        MaintenanceKeyRuleConfig rule,
+        string? error)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastMaintenanceWarningAt, now))
+        {
+            return;
+        }
+
+        state.LastMaintenanceWarningAt = now;
+        context.Logger.Warn("semi_auto.maintenance.potion_inventory_read_failed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = rule.Key,
+            ["error"] = error
+        });
     }
 
     private async Task<bool> ExecuteMaintenanceKeyRuleAsync(
@@ -3522,6 +3650,17 @@ public sealed class SemiAutoCombatController
         }
 
         return context.GameApi.ReadPlayerAsync(context.StopToken);
+    }
+
+    private static Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(
+        AccountWorkerContext context)
+    {
+        if (context.GameApi is IRoadhogScopedGameApi scopedApi)
+        {
+            return scopedApi.ReadInventoryAsync(CreateReadContext(context), context.StopToken);
+        }
+
+        return context.GameApi.ReadInventoryAsync(context.StopToken);
     }
 
     private static Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(
