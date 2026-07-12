@@ -60,6 +60,8 @@ public sealed class SemiAutoScriptSettings
 
     public int DefaultChainTimeMs { get; set; } = 2500;
 
+    public bool ConditionSkillPreemptsChain { get; set; } = true;
+
     public SemiAutoScriptSettings Clone()
     {
         return new SemiAutoScriptSettings
@@ -75,7 +77,8 @@ public sealed class SemiAutoScriptSettings
             PostPressSuppressMs = PostPressSuppressMs,
             ConfirmTimeoutMs = ConfirmTimeoutMs,
             ConfirmPollMs = ConfirmPollMs,
-            DefaultChainTimeMs = DefaultChainTimeMs
+            DefaultChainTimeMs = DefaultChainTimeMs,
+            ConditionSkillPreemptsChain = ConditionSkillPreemptsChain
         };
     }
 }

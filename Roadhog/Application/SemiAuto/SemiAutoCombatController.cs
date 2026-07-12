@@ -10,11 +10,13 @@ namespace Roadhog.Application.SemiAuto;
 
 public sealed class SemiAutoCombatController
 {
+    private const int ChainWindowPerLinkMs = 600;
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan MaintenanceConfirmWindow = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan MaintenanceConfirmPollInterval = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan MaintenanceKeyRetryInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan MaintenanceRestExitBeforeKeyDelay = TimeSpan.FromMilliseconds(150);
+    private static readonly TimeSpan PostCombatPotionPressInterval = TimeSpan.FromMilliseconds(800);
     private static readonly TimeSpan SpiritmasterCooldownConfirmRetryInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan SpiritmasterSummonKeyInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan SpiritmasterSummonAttemptInterval = TimeSpan.FromSeconds(6);
@@ -258,6 +260,8 @@ public sealed class SemiAutoCombatController
             });
         }
 
+        TryStartPendingChainWindowFromRootCooldown(context, state, configuredSkills, now);
+
         var spiritContext = plan.UsesSpiritmasterAutoLogic
             ? await ReadSpiritmasterCombatContextAsync(context, targetResult.Value).ConfigureAwait(false)
             : null;
@@ -302,6 +306,14 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TickIntervalMs, 40);
         }
 
+        var conditionTargetAbnormalStatuses = spiritContext?.LockedTargetAbnormalStatuses;
+        if (conditionTargetAbnormalStatuses is null &&
+            ShouldReadTargetConditionAbnormalStatuses(settings, plan, state, configuredSkills))
+        {
+            conditionTargetAbnormalStatuses = await ReadTargetConditionAbnormalStatusesAsync(context, state)
+                .ConfigureAwait(false);
+        }
+
         var decision = useSpiritmasterLogic
             ? SpiritmasterAutoSkillReleasePriority.SelectNext(
                 plan,
@@ -311,7 +323,13 @@ public sealed class SemiAutoCombatController
                 skillSettings.Spiritmaster,
                 spiritContext,
                 DateTimeOffset.Now)
-            : SemiAutoSkillReleasePriority.SelectNext(plan, state, configuredSkills, settings, DateTimeOffset.Now);
+            : SemiAutoSkillReleasePriority.SelectNext(
+                plan,
+                state,
+                configuredSkills,
+                settings,
+                DateTimeOffset.Now,
+                conditionTargetAbnormalStatuses);
         if (decision.Kind != SemiAutoSkillReleaseDecisionKind.None)
         {
             await ExecuteReleaseDecisionAsync(context, plan, state, decision, settings).ConfigureAwait(false);
@@ -1074,6 +1092,25 @@ public sealed class SemiAutoCombatController
                     continue;
                 }
 
+                if (runTiming == MaintenanceRuleRunTiming.AfterCombat)
+                {
+                    return await ExecuteMaintenancePotionRuleAsync(
+                            context,
+                            state,
+                            settings,
+                            rule,
+                            resource,
+                            current,
+                            max,
+                            percent,
+                            threshold,
+                            player,
+                            beforeMaintenanceKeyPress,
+                            pressCount: 2,
+                            pressInterval: PostCombatPotionPressInterval)
+                        .ConfigureAwait(false);
+                }
+
                 inventoryResult ??= await ReadInventoryAsync(context).ConfigureAwait(false);
                 if (!inventoryResult.Success || inventoryResult.Value is null)
                 {
@@ -1601,7 +1638,9 @@ public sealed class SemiAutoCombatController
         double percent,
         int threshold,
         PlayerSnapshot player,
-        Func<Task>? beforeMaintenanceKeyPress)
+        Func<Task>? beforeMaintenanceKeyPress,
+        int pressCount = 1,
+        TimeSpan? pressInterval = null)
     {
         if (beforeMaintenanceKeyPress is not null)
         {
@@ -1620,13 +1659,23 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var result = await _keyboard
-            .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
-            .ConfigureAwait(false);
-        if (!result.Success)
+        var repeats = Math.Max(1, pressCount);
+        var interval = pressInterval.GetValueOrDefault();
+        for (var pressIndex = 1; pressIndex <= repeats; pressIndex++)
         {
-            LogMaintenanceKeyFailure(context, state, rule.Key, "mp_potion", result.Error);
-            return false;
+            var result = await _keyboard
+                .PressKeyAsync(rule.Key, Ms(settings.KeyHoldMs, 25), context.StopToken)
+                .ConfigureAwait(false);
+            if (!result.Success)
+            {
+                LogMaintenanceKeyFailure(context, state, rule.Key, "mp_potion", result.Error);
+                return false;
+            }
+
+            if (pressIndex < repeats && interval > TimeSpan.Zero)
+            {
+                await Task.Delay(interval, context.StopToken).ConfigureAwait(false);
+            }
         }
 
         var completedAt = DateTimeOffset.Now;
@@ -1639,7 +1688,9 @@ public sealed class SemiAutoCombatController
             ["current"] = current,
             ["max"] = max,
             ["percent"] = Math.Round(percent, 1),
-            ["belowPercent"] = threshold
+            ["belowPercent"] = threshold,
+            ["pressCount"] = repeats,
+            ["pressIntervalMs"] = (long)interval.TotalMilliseconds
         });
         return true;
     }
@@ -1876,8 +1927,35 @@ public sealed class SemiAutoCombatController
                 state,
                 node,
                 settings,
-                includeTriggerPrefix: decision.Kind != SemiAutoSkillReleaseDecisionKind.PressChain)
+                includeTriggerPrefix: decision.Kind == SemiAutoSkillReleaseDecisionKind.PressRoot)
             .ConfigureAwait(false);
+        if (decision.Kind == SemiAutoSkillReleaseDecisionKind.PressCondition)
+        {
+            if (pressed)
+            {
+                var confirmationExpiresAt = DateTimeOffset.Now + ResolveCooldownConfirmationWindow(settings, plan.UsesSpiritmasterAutoLogic);
+                state.MarkSkillPressed(
+                    decision.Skill,
+                    confirmationExpiresAt,
+                    retryKey: plan.UsesSpiritmasterAutoLogic ? node.Key : null,
+                    retrySkillName: node.Name,
+                    retrySkillType: node.Type,
+                    retryPhase: "condition");
+                state.SuppressUncalibratedUnknownSkill(decision.Skill, confirmationExpiresAt);
+                var preemptedChain = state.HasChainWork;
+                if (preemptedChain)
+                {
+                    var pendingNode = state.PendingChainNextNode ?? node;
+                    LogChainEnded(context, pendingNode, "condition_preempted", decision.Skill);
+                    state.ClearChain();
+                }
+
+                LogConditionSkillPressed(context, node, decision, preemptedChain);
+            }
+
+            return;
+        }
+
         if (decision.Kind == SemiAutoSkillReleaseDecisionKind.PressChain)
         {
             if (pressed)
@@ -1895,7 +1973,7 @@ public sealed class SemiAutoCombatController
                 }
                 else
                 {
-                    StartPendingChainConfirmation(context, state, node, decision.Skill, settings);
+                    StartPendingChainConfirmation(context, state, node, decision.Skill);
                 }
 
                 if (ShouldLearnSpiritmasterDotAfterPress(context, plan, node, decision.Skill))
@@ -1925,7 +2003,7 @@ public sealed class SemiAutoCombatController
             state.SuppressUncalibratedUnknownSkill(decision.Skill, confirmationExpiresAt);
             if (node.Children.Count > 0)
             {
-                StartPendingChainAdvance(context, state, node, decision.Skill, settings);
+                StartPendingChainAdvance(context, state, node, decision.Skill);
             }
 
             if (ShouldLearnSpiritmasterDotAfterPress(context, plan, node, decision.Skill))
@@ -2938,8 +3016,7 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoSkillNode sourceNode,
-        SkillSnapshot sourceSkill,
-        SemiAutoScriptSettings settings)
+        SkillSnapshot sourceSkill)
     {
         if (sourceNode.Children.Count == 0)
         {
@@ -2947,7 +3024,7 @@ public sealed class SemiAutoCombatController
             return;
         }
 
-        StartPendingChainAdvance(context, state, sourceNode, sourceSkill, sourceNode.Children[0], settings);
+        StartPendingChainAdvance(context, state, sourceNode, sourceSkill, sourceNode.Children[0]);
     }
 
     private static void StartPendingChainAdvance(
@@ -2955,25 +3032,75 @@ public sealed class SemiAutoCombatController
         SemiAutoCombatState state,
         SemiAutoSkillNode sourceNode,
         SkillSnapshot sourceSkill,
-        SemiAutoSkillNode nextNode,
-        SemiAutoScriptSettings settings)
+        SemiAutoSkillNode nextNode)
     {
-        var windowMs = ResolveChainWindowMs();
+        var windowMs = ResolveChainWindowMs(sourceNode);
         state.StartPendingChainAdvance(
             sourceNode,
             nextNode,
-            DateTimeOffset.Now + Ms(windowMs, 2500),
-            sourceSkill.CooldownEndTime);
-        context.Logger.Info("semi_auto.chain.pending", new Dictionary<string, object?>
+            DateTimeOffset.MinValue,
+            sourceSkill.CooldownEndTime,
+            windowMs);
+        LogPendingChain(context, state, sourceNode, sourceSkill.CooldownEndTime, nextNode, windowMs);
+    }
+
+    private static void TryStartPendingChainWindowFromRootCooldown(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        IReadOnlyList<SkillSnapshot> configuredSkills,
+        DateTimeOffset now)
+    {
+        var sourceNode = state.PendingChainSourceNode;
+        if (sourceNode is null || state.HasPendingChainWindowStarted)
+        {
+            return;
+        }
+
+        var sourceSkill = sourceNode.ResolveSkill(configuredSkills);
+        if (sourceSkill is null || !state.HasPendingChainSourceCooldownAdvanced(sourceSkill))
+        {
+            return;
+        }
+
+        var windowMs = state.PendingChainWindowMs > 0
+            ? state.PendingChainWindowMs
+            : ResolveChainWindowMs(sourceNode);
+        var expiresAt = now + TimeSpan.FromMilliseconds(Math.Max(1, windowMs));
+        state.StartPendingChainWindow(expiresAt);
+        context.Logger.Info("semi_auto.chain.window_started", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["sourceSkill"] = sourceNode.Name,
             ["sourceKey"] = sourceNode.Key,
             ["sourceCooldownEndTime"] = sourceSkill.CooldownEndTime,
+            ["windowMs"] = windowMs,
+            ["expiresInMs"] = windowMs
+        });
+    }
+
+    private static void LogPendingChain(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoSkillNode sourceNode,
+        uint sourceCooldownEndTime,
+        SemiAutoSkillNode nextNode,
+        int windowMs)
+    {
+        var expiresInMs = state.HasPendingChainWindowStarted
+            ? Math.Max(0, (int)Math.Ceiling((state.PendingChainExpiresAt - DateTimeOffset.Now).TotalMilliseconds))
+            : (int?)null;
+        context.Logger.Info("semi_auto.chain.pending", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["sourceSkill"] = sourceNode.Name,
+            ["sourceKey"] = sourceNode.Key,
+            ["sourceCooldownEndTime"] = sourceCooldownEndTime,
             ["nextSkill"] = nextNode.Name,
             ["nextKey"] = nextNode.Key,
             ["configuredChildCount"] = sourceNode.Children.Count,
-            ["expiresInMs"] = windowMs
+            ["windowMs"] = windowMs,
+            ["windowStarted"] = state.HasPendingChainWindowStarted,
+            ["expiresInMs"] = expiresInMs
         });
     }
 
@@ -2981,28 +3108,23 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoSkillNode chainNode,
-        SkillSnapshot chainSkill,
-        SemiAutoScriptSettings settings)
+        SkillSnapshot chainSkill)
     {
-        var sourceNode = chainNode.Parent ?? chainNode;
-        var windowMs = ResolveChainWindowMs();
+        var sourceNode = state.PendingChainSourceNode ?? ResolveChainRoot(chainNode);
+        var windowMs = state.PendingChainWindowMs > 0
+            ? state.PendingChainWindowMs
+            : ResolveChainWindowMs(sourceNode);
+        var sourceCooldownEndTime = state.PendingChainSourceNode is not null
+            ? state.PendingChainSourceCooldownEndTime
+            : chainSkill.CooldownEndTime;
         state.StartPendingChainAdvance(
             sourceNode,
             chainNode,
-            DateTimeOffset.Now + Ms(windowMs, 2500),
-            chainSkill.CooldownEndTime);
+            state.PendingChainExpiresAt,
+            sourceCooldownEndTime,
+            windowMs);
         state.MarkPendingChainNextPressed(chainSkill);
-        context.Logger.Info("semi_auto.chain.pending", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["sourceSkill"] = sourceNode.Name,
-            ["sourceKey"] = sourceNode.Key,
-            ["sourceCooldownEndTime"] = chainSkill.CooldownEndTime,
-            ["nextSkill"] = chainNode.Name,
-            ["nextKey"] = chainNode.Key,
-            ["configuredChildCount"] = sourceNode.Children.Count,
-            ["expiresInMs"] = windowMs
-        });
+        LogPendingChain(context, state, sourceNode, sourceCooldownEndTime, chainNode, windowMs);
     }
 
     private static void LogChainEnded(
@@ -3023,9 +3145,53 @@ public sealed class SemiAutoCombatController
         });
     }
 
-    private static int ResolveChainWindowMs()
+    private static void LogConditionSkillPressed(
+        AccountWorkerContext context,
+        SemiAutoSkillNode node,
+        SemiAutoSkillReleaseDecision decision,
+        bool preemptedChain)
     {
-        return 2500;
+        context.Logger.Info("semi_auto.condition_skill.pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["skill"] = node.Name,
+            ["key"] = node.Key,
+            ["conditionStatus"] = decision.ConditionStatus,
+            ["conditionAbnormalId"] = decision.ConditionAbnormalId,
+            ["preemptedChain"] = preemptedChain
+        });
+    }
+
+    private static int ResolveChainWindowMs(SemiAutoSkillNode sourceNode)
+    {
+        return Math.Max(1, ResolveMaxChainDepth(sourceNode) - 1) * ChainWindowPerLinkMs;
+    }
+
+    private static int ResolveMaxChainDepth(SemiAutoSkillNode node)
+    {
+        if (node.Children.Count == 0)
+        {
+            return 1;
+        }
+
+        var maxChildDepth = 0;
+        foreach (var child in node.Children)
+        {
+            maxChildDepth = Math.Max(maxChildDepth, ResolveMaxChainDepth(child));
+        }
+
+        return 1 + maxChildDepth;
+    }
+
+    private static SemiAutoSkillNode ResolveChainRoot(SemiAutoSkillNode node)
+    {
+        var current = node;
+        while (current.Parent is not null)
+        {
+            current = current.Parent;
+        }
+
+        return current;
     }
 
     private static bool HasMaintenanceWork(
@@ -3669,6 +3835,44 @@ public sealed class SemiAutoCombatController
         }
 
         return context.GameApi.ReadInventoryAsync(context.StopToken);
+    }
+
+    private static bool ShouldReadTargetConditionAbnormalStatuses(
+        SemiAutoScriptSettings settings,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState state,
+        IReadOnlyList<SkillSnapshot> configuredSkills)
+    {
+        if (state.HasChainWork && !settings.ConditionSkillPreemptsChain)
+        {
+            return false;
+        }
+
+        return SemiAutoSkillReleasePriority.HasRunnableTargetConditionSkill(plan, state, configuredSkills);
+    }
+
+    private static async Task<LockedTargetAbnormalStatusSnapshot?> ReadTargetConditionAbnormalStatusesAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state)
+    {
+        var result = await ReadLockedTargetAbnormalStatusesAsync(context).ConfigureAwait(false);
+        if (result.Success && result.Value is not null)
+        {
+            return result.Value;
+        }
+
+        var now = DateTimeOffset.Now;
+        if (ShouldLog(state.LastConditionSkillWarningAt, now))
+        {
+            state.LastConditionSkillWarningAt = now;
+            context.Logger.Warn("semi_auto.condition_skill.target_abnormal_read_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["error"] = result.Error
+            });
+        }
+
+        return null;
     }
 
     private static Task<OperationResult<PlayerAbnormalStatusSnapshot>> ReadPlayerAbnormalStatusesAsync(

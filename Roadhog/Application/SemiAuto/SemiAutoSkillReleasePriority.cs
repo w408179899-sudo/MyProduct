@@ -6,14 +6,49 @@ namespace Roadhog.Application.SemiAuto;
 public static class SemiAutoSkillReleasePriority
 {
     public const int CooldownReadyToleranceMs = 80;
+    private static readonly IReadOnlyDictionary<string, uint[]> TargetConditionAbnormalIds =
+        new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Stumble"] = new uint[] { 8218, 8635, 8636, 8637, 8676 },
+            ["OpenAerial"] = new uint[] { 8224, 8678, 19552 },
+            ["Stun"] = new uint[]
+            {
+                1499, 1500, 1501, 1521, 1939, 1940, 8225, 8255, 8315, 8361, 8383, 8411,
+                8483, 8535, 8648, 11904, 18691, 19221, 19246, 19250, 19260, 19781, 19792,
+                19808, 19870
+            },
+            ["Bind"] = new uint[] { 1077, 1119, 1277, 1343, 1746, 17479 },
+            ["Blind"] = new uint[]
+            {
+                802, 863, 1056, 8259, 8539, 8575, 8652, 8714, 11514, 11572, 11574, 16564,
+                16633, 16789, 16914, 17008, 17123, 17124, 17173, 17356, 17357, 17395,
+                17410, 17479, 17576, 17684, 17697, 18625, 18698, 18773, 18977, 19058,
+                19169
+            },
+            ["Spin"] = new uint[] { 8223, 8677 },
+            ["Stagger"] = new uint[] { 8217, 8632, 8633, 8634, 8675 }
+        };
 
     public static SemiAutoSkillReleaseDecision SelectNext(
         SemiAutoSkillPlan plan,
         SemiAutoCombatState state,
         IReadOnlyList<SkillSnapshot> skills,
         SemiAutoScriptSettings settings,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        LockedTargetAbnormalStatusSnapshot? targetAbnormalStatuses = null)
     {
+        var conditionDecision = SelectTargetConditionSkill(
+            plan,
+            state,
+            skills,
+            targetAbnormalStatuses,
+            now,
+            settings.ConditionSkillPreemptsChain || !state.HasChainWork);
+        if (conditionDecision.Kind != SemiAutoSkillReleaseDecisionKind.None)
+        {
+            return conditionDecision;
+        }
+
         var pendingSource = state.PendingChainSourceNode;
         var pendingNext = state.PendingChainNextNode;
         if (pendingSource is not null && pendingNext is not null)
@@ -62,6 +97,11 @@ public static class SemiAutoSkillReleasePriority
 
             var skill = root.ResolveSkill(skills);
             if (skill is null)
+            {
+                continue;
+            }
+
+            if (IsTargetConditionSkill(skill))
             {
                 continue;
             }
@@ -127,6 +167,10 @@ public static class SemiAutoSkillReleasePriority
                 {
                     reason = FormatCooldownReason(skill, state);
                 }
+                else if (IsTargetConditionSkill(skill))
+                {
+                    reason = "condition-waiting_status=" + skill.XmlTargetValidStatuses;
+                }
                 else if (readiness == SemiAutoSkillCooldownReadiness.Unknown)
                 {
                     reason = "ready_unverified_cooldown_end=" + skill.CooldownEndTime +
@@ -138,6 +182,143 @@ public static class SemiAutoSkillReleasePriority
         }
 
         return string.Join(" | ", reasons);
+    }
+
+    public static bool HasRunnableTargetConditionSkill(
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState state,
+        IReadOnlyList<SkillSnapshot> skills)
+    {
+        var now = DateTimeOffset.Now;
+        foreach (var root in plan.Roots)
+        {
+            if (root.IsDp)
+            {
+                continue;
+            }
+
+            var skill = root.ResolveSkill(skills);
+            if (skill is null ||
+                !IsTargetConditionSkill(skill) ||
+                state.IsUncalibratedUnknownSuppressed(skill, now))
+            {
+                continue;
+            }
+
+            if (GetActionCooldownReadiness(skill, state) != SemiAutoSkillCooldownReadiness.CoolingDown)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static bool IsTargetConditionSkill(SkillSnapshot skill)
+    {
+        return !string.IsNullOrWhiteSpace(skill.XmlTargetValidStatuses);
+    }
+
+    private static SemiAutoSkillReleaseDecision SelectTargetConditionSkill(
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState state,
+        IReadOnlyList<SkillSnapshot> skills,
+        LockedTargetAbnormalStatusSnapshot? targetAbnormalStatuses,
+        DateTimeOffset now,
+        bool allowWhileChainPending)
+    {
+        if (!allowWhileChainPending ||
+            targetAbnormalStatuses is not { IsMonsterAlive: true } ||
+            targetAbnormalStatuses.Entries.Count == 0)
+        {
+            return SemiAutoSkillReleaseDecision.None;
+        }
+
+        var targetAbnormalIds = targetAbnormalStatuses.Entries
+            .Select(entry => entry.AbnormalId)
+            .Where(id => id != 0)
+            .ToHashSet();
+        if (targetAbnormalIds.Count == 0)
+        {
+            return SemiAutoSkillReleaseDecision.None;
+        }
+
+        foreach (var root in plan.Roots)
+        {
+            if (root.IsDp)
+            {
+                continue;
+            }
+
+            var skill = root.ResolveSkill(skills);
+            if (skill is null || !IsTargetConditionSkill(skill))
+            {
+                continue;
+            }
+
+            if (state.IsUncalibratedUnknownSuppressed(skill, now))
+            {
+                continue;
+            }
+
+            var readiness = GetActionCooldownReadiness(skill, state);
+            if (readiness == SemiAutoSkillCooldownReadiness.CoolingDown)
+            {
+                continue;
+            }
+
+            if (TryMatchTargetCondition(skill, targetAbnormalIds, out var status, out var abnormalId))
+            {
+                return SemiAutoSkillReleaseDecision.PressCondition(root, skill, status, abnormalId);
+            }
+        }
+
+        return SemiAutoSkillReleaseDecision.None;
+    }
+
+    private static bool TryMatchTargetCondition(
+        SkillSnapshot skill,
+        HashSet<uint> targetAbnormalIds,
+        out string status,
+        out uint abnormalId)
+    {
+        foreach (var candidateStatus in SplitTargetValidStatuses(skill.XmlTargetValidStatuses))
+        {
+            if (!TargetConditionAbnormalIds.TryGetValue(candidateStatus, out var mappedAbnormalIds))
+            {
+                continue;
+            }
+
+            foreach (var mappedAbnormalId in mappedAbnormalIds)
+            {
+                if (targetAbnormalIds.Contains(mappedAbnormalId))
+                {
+                    status = candidateStatus;
+                    abnormalId = mappedAbnormalId;
+                    return true;
+                }
+            }
+        }
+
+        status = string.Empty;
+        abnormalId = 0;
+        return false;
+    }
+
+    private static IEnumerable<string> SplitTargetValidStatuses(string? statuses)
+    {
+        if (string.IsNullOrWhiteSpace(statuses))
+        {
+            yield break;
+        }
+
+        foreach (var status in statuses.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!string.IsNullOrWhiteSpace(status))
+            {
+                yield return status;
+            }
+        }
     }
 
     public static bool IsSkillReady(SkillSnapshot skill, SemiAutoCombatState state)
@@ -236,6 +417,7 @@ public enum SemiAutoSkillReleaseDecisionKind
     None,
     ClearPendingChain,
     PressChain,
+    PressCondition,
     PressRoot
 }
 
@@ -243,7 +425,9 @@ public sealed record SemiAutoSkillReleaseDecision(
     SemiAutoSkillReleaseDecisionKind Kind,
     SemiAutoSkillNode? Node,
     SkillSnapshot? Skill,
-    string Reason)
+    string Reason,
+    string? ConditionStatus = null,
+    uint ConditionAbnormalId = 0)
 {
     public static readonly SemiAutoSkillReleaseDecision None = new(
         SemiAutoSkillReleaseDecisionKind.None,
@@ -251,9 +435,13 @@ public sealed record SemiAutoSkillReleaseDecision(
         null,
         "none");
 
-    public bool ShouldPress => Kind is SemiAutoSkillReleaseDecisionKind.PressChain or SemiAutoSkillReleaseDecisionKind.PressRoot;
+    public bool ShouldPress => Kind is SemiAutoSkillReleaseDecisionKind.PressChain
+        or SemiAutoSkillReleaseDecisionKind.PressCondition
+        or SemiAutoSkillReleaseDecisionKind.PressRoot;
 
-    public bool BlocksFallbackThisTick => Kind is SemiAutoSkillReleaseDecisionKind.ClearPendingChain or SemiAutoSkillReleaseDecisionKind.PressChain;
+    public bool BlocksFallbackThisTick => Kind is SemiAutoSkillReleaseDecisionKind.ClearPendingChain
+        or SemiAutoSkillReleaseDecisionKind.PressChain
+        or SemiAutoSkillReleaseDecisionKind.PressCondition;
 
     public static SemiAutoSkillReleaseDecision ClearPendingChain(
         SemiAutoSkillNode node,
@@ -274,6 +462,21 @@ public sealed record SemiAutoSkillReleaseDecision(
             node,
             skill,
             "chain");
+    }
+
+    public static SemiAutoSkillReleaseDecision PressCondition(
+        SemiAutoSkillNode node,
+        SkillSnapshot skill,
+        string conditionStatus,
+        uint conditionAbnormalId)
+    {
+        return new SemiAutoSkillReleaseDecision(
+            SemiAutoSkillReleaseDecisionKind.PressCondition,
+            node,
+            skill,
+            "condition",
+            conditionStatus,
+            conditionAbnormalId);
     }
 
     public static SemiAutoSkillReleaseDecision PressRoot(SemiAutoSkillNode node, SkillSnapshot skill)

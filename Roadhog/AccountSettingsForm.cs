@@ -63,6 +63,7 @@ namespace Roadhog
         private ListBox? activeMonsterFilterListBox;
         private Label? activeMonsterFilterStatusLabel;
         private RoundedCheckBox? openingAttackKeyCheckBox;
+        private RoundedCheckBox? conditionSkillPreemptsChainCheckBox;
         private RoundedCheckBox? spiritmasterAutoSkillCheckBox;
         private Button? spiritmasterSettingsButton;
         private RoundedCheckBox? openingSkillEnabledCheckBox;
@@ -332,6 +333,7 @@ namespace Roadhog
             ApplyBagCleanupRules(settings.Maintenance.BagCleanupRules);
             PopulateBagCleanupExcludedItemList(settings.Maintenance.BagCleanupExcludedItemNames);
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
+            SetChecked(conditionSkillPreemptsChainCheckBox, settings.SemiAuto.ConditionSkillPreemptsChain);
             SetChecked(spiritmasterAutoSkillCheckBox, settings.Skills.SpiritmasterAutoSkillLogicEnabled);
             ApplyOpeningSkillSettings(settings.Skills.OpeningSkill);
             currentSpiritmasterSettings = (settings.Skills.Spiritmaster ?? new SpiritmasterSkillSettings()).Clone();
@@ -386,6 +388,8 @@ namespace Roadhog
             capturedSettings.SemiAuto = previousSettings.SemiAuto.Clone();
             capturedSettings.SemiAuto.AttackKeyLoopEnabled =
                 openingAttackKeyCheckBox?.Checked ?? capturedSettings.SemiAuto.AttackKeyLoopEnabled;
+            capturedSettings.SemiAuto.ConditionSkillPreemptsChain =
+                conditionSkillPreemptsChainCheckBox?.Checked ?? capturedSettings.SemiAuto.ConditionSkillPreemptsChain;
             if (!SaveSelectedCleanupNpcBinding(out var cleanupBindingError))
             {
                 error = cleanupBindingError;
@@ -3311,6 +3315,7 @@ namespace Roadhog
             spiritmasterAutoSkillCheckBox.Click += (_, _) => RefreshSpiritmasterAutoSkillCheckBoxState();
             spiritmasterSettingsButton = AddButton(page, "精灵设置", 740, 10, 96, 30, (_, _) => ShowSpiritmasterSettingsDialog());
             spiritmasterSettingsButton.Visible = false;
+            conditionSkillPreemptsChainCheckBox = AddCheckBox(page, "条件抢连招", 548, 42, 126, true);
 
             var autoPanel = CreateSkillModePanel(page, "autoSkillPanel", true);
             autoSkillPanel = autoPanel;
@@ -3860,9 +3865,9 @@ namespace Roadhog
             {
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = _pageBackground,
-                Location = new Point(0, 48),
+                Location = new Point(0, 74),
                 Name = name,
-                Size = new Size(850, 528),
+                Size = new Size(850, 502),
                 Visible = visible
             };
 
@@ -4688,6 +4693,12 @@ namespace Roadhog
 
         private static string GetSystemEffectCategory(SkillSnapshot skill)
         {
+            if (HasSkillTag(skill, "condition") ||
+                HasUsefulSkillValue(skill.XmlTargetValidStatuses))
+            {
+                return "条件技能";
+            }
+
             if (IsSystemDamageOverTimeSkill(skill))
             {
                 return "持续伤害";
@@ -4739,6 +4750,12 @@ namespace Roadhog
                 HasUsefulSkillValue(skill.XmlCounterSkill))
             {
                 return "触发技能";
+            }
+
+            if (HasSkillTag(skill, "condition") ||
+                HasUsefulSkillValue(skill.XmlTargetValidStatuses))
+            {
+                return "条件技能";
             }
 
             if (IsSystemDamageOverTimeSkill(skill))
@@ -5758,6 +5775,7 @@ namespace Roadhog
             {
                 "状态技能" => new[] { "保护之盾", "主神之盔甲", "捕获" },
                 "触发技能" => new[] { "盾牌反击", "惩戒一击", "盾牌猛击", "脚踝重击" },
+                "条件技能" => new[] { "共鸣烟雾" },
                 "连续技" => new[] { "会心一击", "气合", "必灭一击", "连续乱打" },
                 "DP技能" => new[] { "暗黑之惩戒" },
                 "激活技能" => new[] { "铜墙铁壁", "盾牌防御" },
@@ -5805,6 +5823,12 @@ namespace Roadhog
                 HasUsefulSkillValue(skill.XmlCounterSkill))
             {
                 return "触发技能";
+            }
+
+            if (HasSkillTag(skill, "condition") ||
+                HasUsefulSkillValue(skill.XmlTargetValidStatuses))
+            {
+                return "条件技能";
             }
 
             if (IsNamedSkill(baseName, ChainSkillBaseNames) ||
@@ -5913,6 +5937,7 @@ namespace Roadhog
             "主动技能",
             "状态技能",
             "触发技能",
+            "条件技能",
             "连续技",
             "DP技能",
             "激活技能"

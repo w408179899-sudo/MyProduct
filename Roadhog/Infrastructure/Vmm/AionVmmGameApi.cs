@@ -2417,6 +2417,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         detail.StatusFx = GetSkillXmlValue(element, "status_fx", "statusfx");
         detail.AuraFx = GetSkillXmlValue(element, "aura_fx", "aurafx");
         detail.CounterSkill = GetSkillXmlValue(element, "counter_skill", "counterskill");
+        detail.TargetValidStatuses = FormatSkillXmlTargetValidStatuses(element);
         detail.CostDp = GetSkillXmlValue(element, "cost_dp", "costdp");
         detail.UltraSkill = GetSkillXmlValue(element, "ultra_skill", "ultraskill");
         detail.Effect1Type = GetSkillXmlValue(element, "effect1_type", "effect_1_type", "effect1type");
@@ -2488,6 +2489,26 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         }
 
         return max;
+    }
+
+    private static string FormatSkillXmlTargetValidStatuses(XElement element)
+    {
+        var statuses = new List<string>();
+        for (var i = 1; i <= 8; i++)
+        {
+            var value = GetSkillXmlValue(
+                element,
+                "target_valid_status" + i.ToString(CultureInfo.InvariantCulture),
+                "targetvalidstatus" + i.ToString(CultureInfo.InvariantCulture));
+            if (HasUsefulSkillXmlValue(value))
+            {
+                statuses.Add(value.Trim());
+            }
+        }
+
+        return statuses.Count == 0
+            ? string.Empty
+            : string.Join(",", statuses.Distinct(StringComparer.OrdinalIgnoreCase));
     }
 
     private static bool TryGetSkillXmlValue(XElement element, out string value, params string[] names)
@@ -2959,6 +2980,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         var prechainCategory = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.PrechainCategoryName) : null;
         var chainTime = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.ChainTime) : null;
         var counterSkill = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.CounterSkill) : null;
+        var targetValidStatuses = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.TargetValidStatuses) : null;
         var costDp = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.CostDp) : null;
         var skillCategory = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.SkillCategory) : null;
         var skillType = skill.HasXmlStaticDetail ? EmptyToNull(skill.XmlStaticDetail.SkillType) : null;
@@ -2998,7 +3020,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
             targetRange,
             effects,
             effectRemainMs,
-            effectCheckTimeMs);
+            effectCheckTimeMs,
+            targetValidStatuses);
     }
 
     private static string? FormatSkillXmlEffects(SkillXmlStaticDetail detail)
@@ -3061,6 +3084,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         if (HasUsefulSkillXmlValue(detail.CounterSkill))
         {
             tags.Add("counter");
+        }
+
+        if (HasUsefulSkillXmlValue(detail.TargetValidStatuses))
+        {
+            tags.Add("condition");
         }
 
         if (HasUsefulSkillXmlValue(detail.CostDp) || HasUsefulSkillXmlValue(detail.UltraSkill))
@@ -6341,6 +6369,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         public string StatusFx;
         public string AuraFx;
         public string CounterSkill;
+        public string TargetValidStatuses;
         public string CostDp;
         public string UltraSkill;
         public string Effect1Type;

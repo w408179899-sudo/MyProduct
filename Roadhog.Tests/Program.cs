@@ -140,6 +140,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat mp sit maintenance runs without defense target", TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
     ("available skill tree keeps chain roots in normal category", TestAvailableSkillTreeKeepsChainRootsInNormalCategoryAsync),
+    ("manual skill category maps target valid status as condition", TestManualSkillCategoryMapsTargetValidStatusAsConditionAsync),
+    ("condition skill preempt switch persists from skill UI", TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync),
     ("selected skill refresh removes unavailable current skills", TestSelectedSkillRefreshRemovesUnavailableCurrentSkillsAsync),
     ("skill tree maps at most configured roots across the 24 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
@@ -170,6 +172,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance mp potion matches recovery and secret potion names", TestMaintenanceMpPotionMatchesAdditionalNamesAsync),
     ("maintenance mp potion rejects wrong item type and falls back to skill", TestMaintenanceMpPotionRejectsWrongTypeAndFallsBackAsync),
     ("maintenance mp potion runs before skill and skill retries next tick", TestMaintenanceMpPotionRunsBeforeSkillAsync),
+    ("after-combat mp potion skips inventory and presses twice", TestAfterCombatMpPotionSkipsInventoryAndPressesTwiceAsync),
     ("maintenance selected skill confirms by skill id", TestMaintenanceSelectedSkillConfirmsBySkillIdAsync),
     ("maintenance selected cooling skill skips key and continues combat", TestMaintenanceSelectedCoolingSkillSkipsKeyAsync),
     ("dp maintenance skips below required dp", TestDpMaintenanceSkipsBelowRequiredDpAsync),
@@ -211,6 +214,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ("chain survives target gap and target switch", TestChainSurvivesTargetGapAsync),
     ("chain lock prevents root fallback while child is missing", TestChainLockPreventsRootFallbackWhileChildMissingAsync),
     ("chain keeps root key and does not fall back in same tick when chain breaks", TestChainStrictOrderAsync),
+    ("condition skill preempts pending chain and clears it", TestConditionSkillPreemptsPendingChainAsync),
+    ("condition skill preempt switch keeps pending chain priority", TestConditionSkillPreemptSwitchKeepsPendingChainPriorityAsync),
+    ("condition skill waits for target status", TestConditionSkillWaitsForTargetStatusAsync),
+    ("condition skill respects cooldown", TestConditionSkillRespectsCooldownAsync),
+    ("chain window uses configured chain depth", TestChainWindowUsesConfiguredDepthAsync),
+    ("chain window starts when root cooldown advances", TestChainWindowStartsFromRootCooldownAsync),
+    ("chain window does not reset after child advance", TestChainWindowDoesNotResetAfterChildAdvanceAsync),
     ("combat tick counts kill when monster target dies", TestCombatTickCountsKillAsync)
 };
 
@@ -7215,7 +7225,7 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync()
             .ConfigureAwait(false);
 
         AssertSequence(
-            new[] { "NumPadDecimal", "NumPad6", "NumPadAdd", "NumPad3" },
+            new[] { "NumPadDecimal", "NumPad6", "NumPadAdd", "NumPadAdd", "NumPad3" },
             keyboard.Keys,
             "after-combat maintenance round should continue through status, potion, and skill");
         AssertEqual(
@@ -7223,6 +7233,7 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync()
             logger.Entries.Count(entry => entry.EventName == "stationary_combat.loot.post_combat_maintenance"),
             "each handled after-combat maintenance action should be logged");
         AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.potion_pressed"), "mp potion should press during after-combat round");
+        AssertFalse(gameApi.LastInventoryContext is not null, "after-combat potion should not read inventory");
         AssertFalse(state.LootAfterKill.Active, "loot state should finish after maintenance round");
     }
     finally
@@ -7879,6 +7890,77 @@ static Task TestAvailableSkillTreeKeepsChainRootsInNormalCategoryAsync()
             AssertFalse(
                 !ContainsDirectTreeNode(chainRootNode!.Nodes, chainSkill.Name),
                 "chain root entry should contain the chain child");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+
+    if (failure is not null)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    return Task.CompletedTask;
+}
+
+static Task TestManualSkillCategoryMapsTargetValidStatusAsConditionAsync()
+{
+    var conditionSkill = new SkillSnapshot(
+        1003,
+        "Resonance Smoke I",
+        1,
+        1,
+        "Resonance Smoke",
+        1,
+        false,
+        1000,
+        0,
+        XmlActivation: "Active",
+        XmlTags: "condition",
+        XmlTargetValidStatuses: "Stumble");
+
+    AssertEqual("条件技能", GetManualSkillCategoryForTest(conditionSkill), "condition skill category");
+    return Task.CompletedTask;
+}
+
+static Task TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var settings = CreateScriptSettings();
+            settings.SemiAuto.ConditionSkillPreemptsChain = true;
+            var configStore = new InMemoryAccountConfigStore(new AccountConfig
+            {
+                AccountName = "account1",
+                ScriptSettings = settings
+            });
+
+            using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
+            AssertFalse(
+                !GetCheckBoxCheckedForTest(form, "conditionSkillPreemptsChainCheckBox"),
+                "condition preempt switch should load enabled state");
+
+            SetCheckBoxCheckedForTest(form, "conditionSkillPreemptsChainCheckBox", false);
+            var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
+            AssertFalse(!saved, "condition preempt switch save failed: " + error);
+
+            var load = configStore.LoadAllAsync().GetAwaiter().GetResult();
+            AssertFalse(!load.Success, "saved config should load");
+            var savedSettings = load.Value!
+                .Single(account => string.Equals(account.AccountName, "account1", StringComparison.OrdinalIgnoreCase))
+                .ScriptSettings;
+            AssertFalse(
+                savedSettings?.SemiAuto.ConditionSkillPreemptsChain != false,
+                "condition preempt switch should persist disabled state");
         }
         catch (Exception ex)
         {
@@ -9775,6 +9857,46 @@ static async Task TestMaintenanceMpPotionRunsBeforeSkillAsync()
     AssertSequence(new[] { "NumPad2", "NumPad3" }, keyboard.Keys.ToArray(), "potion should run first, then skill on next low-mp tick");
 }
 
+static async Task TestAfterCombatMpPotionSkipsInventoryAndPressesTwiceAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        ActionType = MaintenanceRuleActionType.Potion,
+        Key = "NumPadAdd",
+        RunTiming = MaintenanceRuleRunTiming.AfterCombat
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 20, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now)
+    };
+    var state = new SemiAutoCombatState();
+
+    var handled = await new SemiAutoCombatController(keyboard)
+        .TryHandleMaintenanceAsync(
+            CreateContext(settings, gameApi, logger),
+            state,
+            gameApi.Player,
+            allowSitMaintenance: false,
+            clearSitWhenDisallowed: false,
+            runTiming: MaintenanceRuleRunTiming.AfterCombat)
+        .ConfigureAwait(false);
+
+    AssertFalse(!handled, "after-combat mp potion should be handled");
+    AssertSequence(new[] { "NumPadAdd", "NumPadAdd" }, keyboard.Keys.ToArray(), "after-combat mp potion should press twice");
+    AssertFalse(gameApi.LastInventoryContext is not null, "after-combat mp potion should not read inventory");
+
+    var entry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.potion_pressed");
+    AssertFalse(entry is null, "after-combat mp potion should log one maintenance action");
+    AssertEqual(2, Convert.ToInt32(entry!.Fields["pressCount"]), "after-combat potion press count");
+    AssertEqual(800L, Convert.ToInt64(entry.Fields["pressIntervalMs"]), "after-combat potion press interval");
+}
+
 static async Task TestMaintenanceSelectedSkillConfirmsBySkillIdAsync()
 {
     var settings = CreateScriptSettings();
@@ -10868,6 +10990,319 @@ static async Task TestChainStrictOrderAsync()
         "third stage skill");
 }
 
+static async Task TestConditionSkillPreemptsPendingChainAsync()
+{
+    var settings = CreateConditionSkillSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot(
+            Abnormal(8218, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var root = plan.Roots.Single(node => node.SkillId == 6);
+    state.StartPendingChainAdvance(root, root.Children[0], DateTimeOffset.Now.AddSeconds(5), ActiveCooldownEnd(), 1200);
+    gameApi.Skills = WithConditionSkillStatus(
+        CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = ActiveCooldownEnd(),
+            [6] = ActiveCooldownEnd(),
+            [61] = 0,
+            [62] = 0,
+            [7] = ActiveCooldownEnd(),
+            [8] = ActiveCooldownEnd(),
+            [9] = ActiveCooldownEnd()
+        }));
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "condition skill should preempt chain without trigger prefix");
+    AssertFalse(state.HasChainWork, "condition preempt should clear pending chain");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.chain.ended" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "condition_preempted", StringComparison.Ordinal)),
+        "condition preempt should log chain clear");
+    var conditionLog = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.condition_skill.pressed");
+    AssertFalse(conditionLog is null, "condition skill should log matched status");
+    AssertEqual("Stumble", Convert.ToString(conditionLog!.Fields["conditionStatus"]) ?? string.Empty, "matched condition status");
+    AssertEqual(8218L, Convert.ToInt64(conditionLog.Fields["conditionAbnormalId"]), "matched condition abnormal id");
+    AssertEqual(true, Convert.ToBoolean(conditionLog.Fields["preemptedChain"]), "condition preempt flag");
+}
+
+static async Task TestConditionSkillPreemptSwitchKeepsPendingChainPriorityAsync()
+{
+    var settings = CreateConditionSkillSettings();
+    settings.SemiAuto.ConditionSkillPreemptsChain = false;
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot(
+            Abnormal(8218, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var root = plan.Roots.Single(node => node.SkillId == 6);
+    state.StartPendingChainAdvance(root, root.Children[0], DateTimeOffset.Now.AddSeconds(5), ActiveCooldownEnd(), 1200);
+    gameApi.Skills = WithConditionSkillStatus(
+        CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = ActiveCooldownEnd(),
+            [6] = ActiveCooldownEnd(),
+            [61] = 0,
+            [62] = 0,
+            [7] = ActiveCooldownEnd(),
+            [8] = ActiveCooldownEnd(),
+            [9] = ActiveCooldownEnd()
+        }));
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "D6" }, keyboard.Keys.ToArray(), "disabled preempt should keep pending chain first");
+    AssertFalse(!state.HasChainWork, "pending chain should remain active after chain press");
+    AssertFalse(gameApi.LastLockedTargetAbnormalContext is not null, "disabled chain preempt should not read condition abnormal");
+}
+
+static async Task TestConditionSkillWaitsForTargetStatusAsync()
+{
+    var settings = CreateConditionSkillSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot()
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    gameApi.Skills = WithConditionSkillStatus(
+        CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = ActiveCooldownEnd(),
+            [7] = ActiveCooldownEnd(),
+            [8] = ActiveCooldownEnd(),
+            [9] = ActiveCooldownEnd()
+        }));
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
+
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "condition skill should wait for matching target abnormal");
+    AssertFalse(keyboard.Keys.Contains("D1"), "condition skill must not fall through as ordinary root");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.condition_skill.pressed"), "unmatched condition should not press");
+}
+
+static async Task TestConditionSkillRespectsCooldownAsync()
+{
+    var settings = CreateConditionSkillSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        LockedTargetAbnormalStatuses = CreateLockedTargetAbnormalSnapshot(
+            Abnormal(8218, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory))
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    gameApi.Skills = WithConditionSkillStatus(
+        CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = ActiveCooldownEnd(),
+            [5] = 0,
+            [6] = ActiveCooldownEnd(),
+            [7] = ActiveCooldownEnd(),
+            [8] = ActiveCooldownEnd(),
+            [9] = ActiveCooldownEnd()
+        }));
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
+
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D5"), keyboard.Keys.ToArray(), "cooling condition skill should yield to normal root");
+    AssertFalse(keyboard.Keys.Contains("D1"), "cooling condition skill should not press");
+}
+
+static async Task TestChainWindowUsesConfiguredDepthAsync()
+{
+    var twoStageWindow = await StartChainAndReadWindowAsync(CreateScriptSettings(), 5).ConfigureAwait(false);
+    AssertEqual(600, twoStageWindow, "two-stage chain window");
+
+    var threeStageWindow = await StartChainAndReadWindowAsync(CreateScriptSettings(), 6).ConfigureAwait(false);
+    AssertEqual(1200, threeStageWindow, "three-stage chain window");
+
+    var fourStageSettings = CreateScriptSettings();
+    var root = fourStageSettings.Skills.ExecutionTree.Single(node => node.SkillId == 6);
+    root.Children[0].Children[0].Children.Add(Node(64, "Fourth Chain Stage", "chain"));
+
+    var fourStageWindow = await StartChainAndReadWindowAsync(fourStageSettings, 6).ConfigureAwait(false);
+    AssertEqual(1800, fourStageWindow, "four-stage chain window");
+}
+
+static async Task TestChainWindowStartsFromRootCooldownAsync()
+{
+    var settings = CreateScriptSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi();
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+    var root = plan.Roots.Single(node => node.SkillId == 6);
+
+    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = ActiveCooldownEnd(),
+        [5] = ActiveCooldownEnd(),
+        [6] = 0,
+        [61] = 0,
+        [62] = 0,
+        [7] = ActiveCooldownEnd(),
+        [8] = ActiveCooldownEnd(),
+        [9] = ActiveCooldownEnd()
+    });
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    AssertFalse(!state.HasChainWork, "root press should create pending chain");
+    AssertFalse(state.HasPendingChainWindowStarted, "chain window must wait for root cooldown");
+    AssertEqual(1200, state.PendingChainWindowMs, "three-stage pending window");
+
+    keyboard.Keys.Clear();
+    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = ActiveCooldownEnd(),
+        [5] = ActiveCooldownEnd(),
+        [6] = 0,
+        [61] = 0,
+        [62] = 0,
+        [7] = ActiveCooldownEnd(),
+        [8] = ActiveCooldownEnd(),
+        [9] = ActiveCooldownEnd()
+    });
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    AssertFalse(state.HasPendingChainWindowStarted, "chain window must not start before root cooldown advances");
+    AssertEqual(root.Children[0].Name, LastPressedSkill(logger), "second stage can be attempted before root cooldown is confirmed");
+
+    keyboard.Keys.Clear();
+    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = ActiveCooldownEnd(),
+        [5] = ActiveCooldownEnd(),
+        [6] = ActiveCooldownEnd(),
+        [61] = 0,
+        [62] = 0,
+        [7] = ActiveCooldownEnd(),
+        [8] = ActiveCooldownEnd(),
+        [9] = ActiveCooldownEnd()
+    });
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    AssertFalse(!state.HasPendingChainWindowStarted, "chain window should start when root cooldown advances");
+    var remaining = state.PendingChainExpiresAt - DateTimeOffset.Now;
+    AssertFalse(remaining <= TimeSpan.Zero, "chain window should have positive remaining time");
+    AssertFalse(remaining > TimeSpan.FromMilliseconds(1200), "chain window should not exceed configured total");
+}
+
+static async Task TestChainWindowDoesNotResetAfterChildAdvanceAsync()
+{
+    var settings = CreateScriptSettings();
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi();
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+    var root = plan.Roots.Single(node => node.SkillId == 6);
+
+    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = ActiveCooldownEnd(),
+        [5] = ActiveCooldownEnd(),
+        [6] = 0,
+        [61] = 0,
+        [62] = 0,
+        [7] = ActiveCooldownEnd(),
+        [8] = ActiveCooldownEnd(),
+        [9] = ActiveCooldownEnd()
+    });
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = ActiveCooldownEnd(),
+        [5] = ActiveCooldownEnd(),
+        [6] = ActiveCooldownEnd(),
+        [61] = 0,
+        [62] = 0,
+        [7] = ActiveCooldownEnd(),
+        [8] = ActiveCooldownEnd(),
+        [9] = ActiveCooldownEnd()
+    });
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    AssertFalse(!state.HasPendingChainWindowStarted, "second stage should start root cooldown window");
+    var expiresAt = state.PendingChainExpiresAt;
+
+    keyboard.Keys.Clear();
+    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = ActiveCooldownEnd(),
+        [5] = ActiveCooldownEnd(),
+        [6] = ActiveCooldownEnd(),
+        [61] = ActiveCooldownEnd(),
+        [62] = 0,
+        [7] = ActiveCooldownEnd(),
+        [8] = ActiveCooldownEnd(),
+        [9] = ActiveCooldownEnd()
+    });
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    AssertEqual(expiresAt, state.PendingChainExpiresAt, "chain expiry must not reset after child advance");
+    AssertEqual(root.SkillId, state.PendingChainSourceNode?.SkillId ?? 0, "pending chain source should remain root");
+    AssertEqual(root.Children[0].Children[0].Name, LastPressedSkill(logger), "third stage skill");
+}
+
+static async Task<int> StartChainAndReadWindowAsync(ScriptSettings settings, uint readyRootSkillId)
+{
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi();
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = ActiveCooldownEnd(),
+        [5] = readyRootSkillId == 5 ? 0 : ActiveCooldownEnd(),
+        [6] = readyRootSkillId == 6 ? 0 : ActiveCooldownEnd(),
+        [7] = ActiveCooldownEnd(),
+        [8] = ActiveCooldownEnd(),
+        [9] = ActiveCooldownEnd()
+    });
+
+    await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+
+    AssertFalse(!state.HasChainWork, "ready chain root should create pending chain");
+    AssertFalse(state.HasPendingChainWindowStarted, "chain window should not start until root cooldown advances");
+    return state.PendingChainWindowMs;
+}
+
 static async Task TestCombatTickCountsKillAsync()
 {
     var settings = CreateScriptSettings();
@@ -11048,6 +11483,13 @@ static ScriptSettings CreateScriptSettings()
     };
 }
 
+static ScriptSettings CreateConditionSkillSettings()
+{
+    var settings = CreateScriptSettings();
+    settings.Skills.ExecutionTree[0] = Node(1, "共鸣烟雾 I", "条件技能");
+    return settings;
+}
+
 static SkillScriptSettings CreateSkillSettings()
 {
     return new SkillScriptSettings
@@ -11085,20 +11527,39 @@ static SkillConfigNode Node(uint id, string name, string type, params SkillConfi
 
 static AccountSettingsForm CreateAccountSettingsFormForTests()
 {
-    var logger = new InMemoryRoadhogLogger();
-    var accounts = new AccountRuntimeManager(logger);
-    var runtime = new RoadhogRuntime(new FakeGameApi(), logger, accounts, null!);
     var configStore = new InMemoryAccountConfigStore(new AccountConfig
     {
         AccountName = "account1",
         ScriptSettings = CreateScriptSettings()
     });
+
+    return CreateAccountSettingsFormForTestsWithStore(configStore);
+}
+
+static AccountSettingsForm CreateAccountSettingsFormForTestsWithStore(InMemoryAccountConfigStore configStore)
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    var runtime = new RoadhogRuntime(new FakeGameApi(), logger, accounts, null!);
     return new AccountSettingsForm(
         "account1",
         runtime,
         configStore,
         new InMemorySharedPathStore(),
         new InMemoryScriptProfileStore());
+}
+
+static bool InvokeSaveCurrentSettingsForTest(AccountSettingsForm form, out string error)
+{
+    var method = typeof(AccountSettingsForm).GetMethod(
+        "SaveCurrentSettings",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(method is null, "save current settings method should exist");
+
+    var arguments = new object?[] { string.Empty };
+    var result = (bool)method!.Invoke(form, arguments)!;
+    error = arguments[0] as string ?? string.Empty;
+    return result;
 }
 
 static void InvokePopulateAvailableSkillTree(
@@ -11132,6 +11593,37 @@ static string GetManualSkillCategoryForTest(SkillSnapshot skill)
         System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
     AssertFalse(method is null, "manual skill category method should exist");
     return (string)method!.Invoke(null, new object[] { skill })!;
+}
+
+static bool GetCheckBoxCheckedForTest(AccountSettingsForm form, string fieldName)
+{
+    var checkBox = GetPrivateFieldForTest(form, fieldName);
+    var property = checkBox.GetType().GetProperty(
+        "Checked",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+    AssertFalse(property is null, fieldName + " checked property should exist");
+    return (bool)property!.GetValue(checkBox)!;
+}
+
+static void SetCheckBoxCheckedForTest(AccountSettingsForm form, string fieldName, bool isChecked)
+{
+    var checkBox = GetPrivateFieldForTest(form, fieldName);
+    var property = checkBox.GetType().GetProperty(
+        "Checked",
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+    AssertFalse(property is null, fieldName + " checked property should exist");
+    property!.SetValue(checkBox, isChecked);
+}
+
+static object GetPrivateFieldForTest(AccountSettingsForm form, string fieldName)
+{
+    var field = typeof(AccountSettingsForm).GetField(
+        fieldName,
+        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+    AssertFalse(field is null, fieldName + " field should exist");
+    var value = field!.GetValue(form);
+    AssertFalse(value is null, fieldName + " field should be initialized");
+    return value!;
 }
 
 static System.Windows.Forms.TreeNode? FindDirectTreeNode(System.Windows.Forms.TreeNodeCollection nodes, string text)
@@ -11191,6 +11683,37 @@ static IReadOnlyList<SkillSnapshot> CreateSkillSnapshotsById(IReadOnlyDictionary
                 configured);
         })
         .ToArray();
+}
+
+static IReadOnlyList<SkillSnapshot> WithConditionSkillStatus(
+    IReadOnlyList<SkillSnapshot> skills,
+    string targetValidStatuses = "Stumble")
+{
+    return skills
+        .Select(skill => skill.SkillId == 1
+            ? skill with
+            {
+                Name = "共鸣烟雾 I",
+                DisplayBaseName = "共鸣烟雾",
+                XmlTags = AppendSkillTag(skill.XmlTags, "condition"),
+                XmlTargetValidStatuses = targetValidStatuses
+            }
+            : skill)
+        .ToArray();
+}
+
+static string AppendSkillTag(string? tags, string tag)
+{
+    if (string.IsNullOrWhiteSpace(tags))
+    {
+        return tag;
+    }
+
+    return tags
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Any(value => string.Equals(value, tag, StringComparison.OrdinalIgnoreCase))
+        ? tags
+        : tags + "," + tag;
 }
 
 static IReadOnlyDictionary<uint, uint> CreateCombatRootCooldowns(uint cooldownEnd)

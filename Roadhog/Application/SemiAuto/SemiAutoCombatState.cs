@@ -45,11 +45,15 @@ public sealed class SemiAutoCombatState
 
     public DateTimeOffset PendingChainExpiresAt { get; private set; }
 
+    public int PendingChainWindowMs { get; private set; }
+
     public bool PendingChainNextPressStarted { get; private set; }
 
     public uint PendingChainNextCooldownEndTime { get; private set; }
 
     public bool HasChainWork => PendingChainSourceNode is not null;
+
+    public bool HasPendingChainWindowStarted => PendingChainExpiresAt != DateTimeOffset.MinValue;
 
     public bool HasCooldownTickCalibration => cooldownTickOffsetMs.HasValue;
 
@@ -60,6 +64,8 @@ public sealed class SemiAutoCombatState
     public DateTimeOffset LastPlanWarningAt { get; set; } = DateTimeOffset.MinValue;
 
     public DateTimeOffset LastSkillWarningAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastConditionSkillWarningAt { get; set; } = DateTimeOffset.MinValue;
 
     public DateTimeOffset LastTargetStateLogAt { get; set; } = DateTimeOffset.MinValue;
 
@@ -391,12 +397,28 @@ public sealed class SemiAutoCombatState
         DateTimeOffset expiresAt,
         uint sourceCooldownEndTime)
     {
+        StartPendingChainAdvance(sourceNode, nextNode, expiresAt, sourceCooldownEndTime, 0);
+    }
+
+    public void StartPendingChainAdvance(
+        SemiAutoSkillNode sourceNode,
+        SemiAutoSkillNode nextNode,
+        DateTimeOffset expiresAt,
+        uint sourceCooldownEndTime,
+        int windowMs)
+    {
         PendingChainSourceNode = sourceNode;
         PendingChainNextNode = nextNode;
         PendingChainSourceCooldownEndTime = sourceCooldownEndTime;
         PendingChainExpiresAt = expiresAt;
+        PendingChainWindowMs = windowMs;
         PendingChainNextPressStarted = false;
         PendingChainNextCooldownEndTime = 0;
+    }
+
+    public void StartPendingChainWindow(DateTimeOffset expiresAt)
+    {
+        PendingChainExpiresAt = expiresAt;
     }
 
     public void ClearPendingChainAdvance()
@@ -405,13 +427,16 @@ public sealed class SemiAutoCombatState
         PendingChainNextNode = null;
         PendingChainSourceCooldownEndTime = 0;
         PendingChainExpiresAt = DateTimeOffset.MinValue;
+        PendingChainWindowMs = 0;
         PendingChainNextPressStarted = false;
         PendingChainNextCooldownEndTime = 0;
     }
 
     public bool IsPendingChainExpired(DateTimeOffset now)
     {
-        return PendingChainSourceNode is not null && now >= PendingChainExpiresAt;
+        return PendingChainSourceNode is not null &&
+               HasPendingChainWindowStarted &&
+               now >= PendingChainExpiresAt;
     }
 
     public bool HasPendingChainSourceCooldownAdvanced(SkillSnapshot sourceSkill)

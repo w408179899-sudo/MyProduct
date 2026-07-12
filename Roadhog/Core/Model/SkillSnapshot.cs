@@ -27,4 +27,5 @@ public sealed record SkillSnapshot(
     string? XmlTargetRange = null,
     string? XmlEffects = null,
     int? XmlEffectRemainMs = null,
-    int? XmlEffectCheckTimeMs = null);
+    int? XmlEffectCheckTimeMs = null,
+    string? XmlTargetValidStatuses = null);
