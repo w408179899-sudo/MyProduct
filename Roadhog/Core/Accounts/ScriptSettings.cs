@@ -36,9 +36,15 @@ public sealed class ScriptSettings
 
 public sealed class SemiAutoScriptSettings
 {
+    public const int DefaultChainWindowPerLinkMs = 600;
+    public const int MinimumChainWindowPerLinkMs = 1;
+    public const int MaximumChainWindowPerLinkMs = 10000;
+
     public int TickIntervalMs { get; set; } = 30;
 
     public int ChainTickIntervalMs { get; set; } = 40;
+
+    public int ChainWindowPerLinkMs { get; set; } = DefaultChainWindowPerLinkMs;
 
     public int TargetIdleDelayMs { get; set; } = 200;
 
@@ -68,6 +74,7 @@ public sealed class SemiAutoScriptSettings
         {
             TickIntervalMs = TickIntervalMs,
             ChainTickIntervalMs = ChainTickIntervalMs,
+            ChainWindowPerLinkMs = ChainWindowPerLinkMs,
             TargetIdleDelayMs = TargetIdleDelayMs,
             KeyHoldMs = KeyHoldMs,
             AttackKeyLoopEnabled = AttackKeyLoopEnabled,

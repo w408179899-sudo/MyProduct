@@ -90,6 +90,7 @@
         "semiAuto": {
           "tickIntervalMs": 40,
           "chainTickIntervalMs": 40,
+          "chainWindowPerLinkMs": 600,
           "targetIdleDelayMs": 200,
           "keyHoldMs": 25,
           "keyGapMs": 30,

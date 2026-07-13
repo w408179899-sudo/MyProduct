@@ -10,7 +10,6 @@ namespace Roadhog.Application.SemiAuto;
 
 public sealed class SemiAutoCombatController
 {
-    private const int ChainWindowPerLinkMs = 600;
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan MaintenanceConfirmWindow = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan MaintenanceConfirmPollInterval = TimeSpan.FromMilliseconds(300);
@@ -260,7 +259,7 @@ public sealed class SemiAutoCombatController
             });
         }
 
-        TryStartPendingChainWindowFromRootCooldown(context, state, configuredSkills, now);
+        TryStartPendingChainWindowFromRootCooldown(context, state, configuredSkills, now, settings);
 
         var spiritContext = plan.UsesSpiritmasterAutoLogic
             ? await ReadSpiritmasterCombatContextAsync(context, targetResult.Value).ConfigureAwait(false)
@@ -1973,7 +1972,7 @@ public sealed class SemiAutoCombatController
                 }
                 else
                 {
-                    StartPendingChainConfirmation(context, state, node, decision.Skill);
+                    StartPendingChainConfirmation(context, state, node, decision.Skill, settings);
                 }
 
                 if (ShouldLearnSpiritmasterDotAfterPress(context, plan, node, decision.Skill))
@@ -2003,7 +2002,7 @@ public sealed class SemiAutoCombatController
             state.SuppressUncalibratedUnknownSkill(decision.Skill, confirmationExpiresAt);
             if (node.Children.Count > 0)
             {
-                StartPendingChainAdvance(context, state, node, decision.Skill);
+                StartPendingChainAdvance(context, state, node, decision.Skill, settings);
             }
 
             if (ShouldLearnSpiritmasterDotAfterPress(context, plan, node, decision.Skill))
@@ -3016,7 +3015,8 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoSkillNode sourceNode,
-        SkillSnapshot sourceSkill)
+        SkillSnapshot sourceSkill,
+        SemiAutoScriptSettings settings)
     {
         if (sourceNode.Children.Count == 0)
         {
@@ -3024,7 +3024,7 @@ public sealed class SemiAutoCombatController
             return;
         }
 
-        StartPendingChainAdvance(context, state, sourceNode, sourceSkill, sourceNode.Children[0]);
+        StartPendingChainAdvance(context, state, sourceNode, sourceSkill, sourceNode.Children[0], settings);
     }
 
     private static void StartPendingChainAdvance(
@@ -3032,9 +3032,10 @@ public sealed class SemiAutoCombatController
         SemiAutoCombatState state,
         SemiAutoSkillNode sourceNode,
         SkillSnapshot sourceSkill,
-        SemiAutoSkillNode nextNode)
+        SemiAutoSkillNode nextNode,
+        SemiAutoScriptSettings settings)
     {
-        var windowMs = ResolveChainWindowMs(sourceNode);
+        var windowMs = ResolveChainWindowMs(sourceNode, settings);
         state.StartPendingChainAdvance(
             sourceNode,
             nextNode,
@@ -3048,7 +3049,8 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoCombatState state,
         IReadOnlyList<SkillSnapshot> configuredSkills,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        SemiAutoScriptSettings settings)
     {
         var sourceNode = state.PendingChainSourceNode;
         if (sourceNode is null || state.HasPendingChainWindowStarted)
@@ -3064,7 +3066,7 @@ public sealed class SemiAutoCombatController
 
         var windowMs = state.PendingChainWindowMs > 0
             ? state.PendingChainWindowMs
-            : ResolveChainWindowMs(sourceNode);
+            : ResolveChainWindowMs(sourceNode, settings);
         var expiresAt = now + TimeSpan.FromMilliseconds(Math.Max(1, windowMs));
         state.StartPendingChainWindow(expiresAt);
         context.Logger.Info("semi_auto.chain.window_started", new Dictionary<string, object?>
@@ -3108,12 +3110,13 @@ public sealed class SemiAutoCombatController
         AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoSkillNode chainNode,
-        SkillSnapshot chainSkill)
+        SkillSnapshot chainSkill,
+        SemiAutoScriptSettings settings)
     {
         var sourceNode = state.PendingChainSourceNode ?? ResolveChainRoot(chainNode);
         var windowMs = state.PendingChainWindowMs > 0
             ? state.PendingChainWindowMs
-            : ResolveChainWindowMs(sourceNode);
+            : ResolveChainWindowMs(sourceNode, settings);
         var sourceCooldownEndTime = state.PendingChainSourceNode is not null
             ? state.PendingChainSourceCooldownEndTime
             : chainSkill.CooldownEndTime;
@@ -3162,9 +3165,24 @@ public sealed class SemiAutoCombatController
         });
     }
 
-    private static int ResolveChainWindowMs(SemiAutoSkillNode sourceNode)
+    private static int ResolveChainWindowMs(SemiAutoSkillNode sourceNode, SemiAutoScriptSettings settings)
     {
-        return Math.Max(1, ResolveMaxChainDepth(sourceNode) - 1) * ChainWindowPerLinkMs;
+        var perLinkMs = ResolveChainWindowPerLinkMs(settings);
+        return Math.Max(1, ResolveMaxChainDepth(sourceNode) - 1) * perLinkMs;
+    }
+
+    private static int ResolveChainWindowPerLinkMs(SemiAutoScriptSettings settings)
+    {
+        var configured = settings.ChainWindowPerLinkMs;
+        if (configured <= 0)
+        {
+            configured = SemiAutoScriptSettings.DefaultChainWindowPerLinkMs;
+        }
+
+        return Math.Clamp(
+            configured,
+            SemiAutoScriptSettings.MinimumChainWindowPerLinkMs,
+            SemiAutoScriptSettings.MaximumChainWindowPerLinkMs);
     }
 
     private static int ResolveMaxChainDepth(SemiAutoSkillNode node)

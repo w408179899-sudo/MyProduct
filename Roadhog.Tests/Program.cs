@@ -11142,6 +11142,11 @@ static async Task TestChainWindowUsesConfiguredDepthAsync()
 
     var fourStageWindow = await StartChainAndReadWindowAsync(fourStageSettings, 6).ConfigureAwait(false);
     AssertEqual(1800, fourStageWindow, "four-stage chain window");
+
+    var customSettings = CreateScriptSettings();
+    customSettings.SemiAuto.ChainWindowPerLinkMs = 800;
+    var customWindow = await StartChainAndReadWindowAsync(customSettings, 6).ConfigureAwait(false);
+    AssertEqual(1600, customWindow, "custom per-link chain window");
 }
 
 static async Task TestChainWindowStartsFromRootCooldownAsync()

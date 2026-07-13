@@ -64,6 +64,7 @@ namespace Roadhog
         private Label? activeMonsterFilterStatusLabel;
         private RoundedCheckBox? openingAttackKeyCheckBox;
         private RoundedCheckBox? conditionSkillPreemptsChainCheckBox;
+        private RoundedTextBox? chainWindowPerLinkTextBox;
         private RoundedCheckBox? spiritmasterAutoSkillCheckBox;
         private Button? spiritmasterSettingsButton;
         private RoundedCheckBox? openingSkillEnabledCheckBox;
@@ -334,6 +335,7 @@ namespace Roadhog
             PopulateBagCleanupExcludedItemList(settings.Maintenance.BagCleanupExcludedItemNames);
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
             SetChecked(conditionSkillPreemptsChainCheckBox, settings.SemiAuto.ConditionSkillPreemptsChain);
+            SetText(chainWindowPerLinkTextBox, settings.SemiAuto.ChainWindowPerLinkMs.ToString());
             SetChecked(spiritmasterAutoSkillCheckBox, settings.Skills.SpiritmasterAutoSkillLogicEnabled);
             ApplyOpeningSkillSettings(settings.Skills.OpeningSkill);
             currentSpiritmasterSettings = (settings.Skills.Spiritmaster ?? new SpiritmasterSkillSettings()).Clone();
@@ -390,6 +392,11 @@ namespace Roadhog
                 openingAttackKeyCheckBox?.Checked ?? capturedSettings.SemiAuto.AttackKeyLoopEnabled;
             capturedSettings.SemiAuto.ConditionSkillPreemptsChain =
                 conditionSkillPreemptsChainCheckBox?.Checked ?? capturedSettings.SemiAuto.ConditionSkillPreemptsChain;
+            capturedSettings.SemiAuto.ChainWindowPerLinkMs =
+                Math.Clamp(
+                    ReadInt(chainWindowPerLinkTextBox, capturedSettings.SemiAuto.ChainWindowPerLinkMs),
+                    SemiAutoScriptSettings.MinimumChainWindowPerLinkMs,
+                    SemiAutoScriptSettings.MaximumChainWindowPerLinkMs);
             if (!SaveSelectedCleanupNpcBinding(out var cleanupBindingError))
             {
                 error = cleanupBindingError;
@@ -3316,6 +3323,14 @@ namespace Roadhog
             spiritmasterSettingsButton = AddButton(page, "精灵设置", 740, 10, 96, 30, (_, _) => ShowSpiritmasterSettingsDialog());
             spiritmasterSettingsButton.Visible = false;
             conditionSkillPreemptsChainCheckBox = AddCheckBox(page, "条件抢连招", 548, 42, 126, true);
+            chainWindowPerLinkTextBox = AddTextBox(
+                page,
+                SemiAutoScriptSettings.DefaultChainWindowPerLinkMs.ToString(),
+                700,
+                42,
+                58,
+                28);
+            AddLabel(page, "连招段ms", 766, 44, 76, 24);
 
             var autoPanel = CreateSkillModePanel(page, "autoSkillPanel", true);
             autoSkillPanel = autoPanel;
