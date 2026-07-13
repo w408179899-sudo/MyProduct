@@ -741,16 +741,15 @@ public sealed class RoadhogRuntime
                 initialCandidateCount = candidates.Length;
             }
 
-            var batch = candidates
-                .Take(BagCleanupSeller.MaxSellRegistrationItemsPerBatch)
-                .ToArray();
+            var batch = BagCleanupSellBatchPlanner.SelectNextBatch(candidates);
             _logger.Info("bag_cleanup.manual_test.sell.candidates", new Dictionary<string, object?>
             {
                 ["account"] = account,
                 ["count"] = candidates.Length,
-                ["batchCount"] = batch.Length,
+                ["batchCount"] = batch.Items.Count,
+                ["batchKind"] = batch.KindName,
                 ["batchIndex"] = batchIndex + 1,
-                ["maxBatchCount"] = BagCleanupSeller.MaxSellRegistrationItemsPerBatch
+                ["maxBatchCount"] = batch.MaxBatchCount
             });
 
             if (candidates.Length == 0)
@@ -791,7 +790,7 @@ public sealed class RoadhogRuntime
             }
 
             var registered = await seller
-                .RegisterSellItemsAsync(context, maintenance, batch, coordinateWindow)
+                .RegisterSellItemsAsync(context, maintenance, batch.Items, coordinateWindow)
                 .ConfigureAwait(false);
             if (!registered.Success || registered.Value is null)
             {

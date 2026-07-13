@@ -57,7 +57,7 @@ public static class BagCleanupItemMatcher
         };
     }
 
-    private static bool IsEquipment(InventoryItemSnapshot item)
+    public static bool IsEquipment(InventoryItemSnapshot item)
     {
         if (IsRecipeOrDesignScroll(item))
         {

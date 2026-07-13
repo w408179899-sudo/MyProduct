@@ -198,10 +198,9 @@ public sealed class BagCleanupController
         }
 
         state.Start(freeSlots, threshold);
+        var batch = BagCleanupSellBatchPlanner.SelectNextBatch(candidates);
         state.SetSellCandidates(
-            candidates
-                .Take(BagCleanupSeller.MaxSellRegistrationItemsPerBatch)
-                .ToArray(),
+            batch.Items,
             candidates.Count);
         context.Logger.Info("bag_cleanup.start", new Dictionary<string, object?>
         {
@@ -444,7 +443,11 @@ public sealed class BagCleanupController
             .ConfigureAwait(false);
         if (!result.Success)
         {
-            return CleanupFailure(context, state, "cleanup_path_follow_failed", result.Error ?? "Cleanup path follow failed.");
+            return ReturnByReversePathAfterFailure(
+                context,
+                state,
+                "cleanup_path_follow_failed",
+                result.Error ?? "Cleanup path follow failed.");
         }
 
         state.Advance(BagCleanupStep.SelectCleanupNpc);
@@ -493,7 +496,11 @@ public sealed class BagCleanupController
         var result = await _npcInteractor.OpenDialogAsync(context).ConfigureAwait(false);
         if (!result.Success)
         {
-            return CleanupFailure(context, state, "npc_dialog_open_failed", result.Error ?? "NPC dialog open failed.");
+            return ReturnByReversePathAfterFailure(
+                context,
+                state,
+                "npc_dialog_open_failed",
+                result.Error ?? "NPC dialog open failed.");
         }
 
         state.MarkNpcDialogOpened();
@@ -515,7 +522,11 @@ public sealed class BagCleanupController
             .ConfigureAwait(false);
         if (!result.Success)
         {
-            return CleanupFailure(context, state, "sell_item_entry_click_failed", result.Error ?? "Sell item entry click failed.");
+            return ReturnByReversePathAfterFailure(
+                context,
+                state,
+                "sell_item_entry_click_failed",
+                result.Error ?? "Sell item entry click failed.");
         }
 
         await _seller.WaitAfterSellItemEntryAsync(context).ConfigureAwait(false);
@@ -531,7 +542,11 @@ public sealed class BagCleanupController
         var result = await _seller.NormalizeInventoryWindowToTopLeftAsync(context).ConfigureAwait(false);
         if (!result.Success)
         {
-            return CleanupFailure(context, state, "inventory_window_normalize_failed", result.Error ?? "Inventory normalize failed.");
+            return ReturnByReversePathAfterFailure(
+                context,
+                state,
+                "inventory_window_normalize_failed",
+                result.Error ?? "Inventory normalize failed.");
         }
 
         state.MarkInventoryWindowNormalized();
@@ -546,7 +561,7 @@ public sealed class BagCleanupController
         var result = await _seller.OpenInventoryWindowAsync(context).ConfigureAwait(false);
         if (!result.Success)
         {
-            return CleanupFailure(
+            return ReturnByReversePathAfterFailure(
                 context,
                 state,
                 "inventory_window_open_failed",
@@ -564,21 +579,24 @@ public sealed class BagCleanupController
         var read = await BagCleanupGameApi.ReadInventoryAsync(context).ConfigureAwait(false);
         if (!read.Success || read.Value is null)
         {
-            return CleanupFailure(context, state, "inventory_read_before_sell_failed", read.Error ?? "Inventory read failed.");
+            return ReturnByReversePathAfterFailure(
+                context,
+                state,
+                "inventory_read_before_sell_failed",
+                read.Error ?? "Inventory read failed.");
         }
 
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
         var candidates = BagCleanupItemMatcher.SelectSellRegistrationItems(read.Value, maintenance);
-        var batch = candidates
-            .Take(BagCleanupSeller.MaxSellRegistrationItemsPerBatch)
-            .ToArray();
+        var batch = BagCleanupSellBatchPlanner.SelectNextBatch(candidates);
         context.Logger.Info("bag_cleanup.sell.candidates", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["count"] = candidates.Count,
-            ["batchCount"] = batch.Length,
+            ["batchCount"] = batch.Items.Count,
+            ["batchKind"] = batch.KindName,
             ["batchIndex"] = state.SellBatchCount + 1,
-            ["maxBatchCount"] = BagCleanupSeller.MaxSellRegistrationItemsPerBatch
+            ["maxBatchCount"] = batch.MaxBatchCount
         });
 
         if (candidates.Count == 0)
@@ -587,7 +605,7 @@ public sealed class BagCleanupController
             return BagCleanupTickResult.Running("no_sell_candidates_after_return");
         }
 
-        state.SetSellCandidates(batch, candidates.Count);
+        state.SetSellCandidates(batch.Items, candidates.Count);
         state.Advance(BagCleanupStep.RegisterSellItems);
         return BagCleanupTickResult.Running("sell_candidates_loaded");
     }
@@ -605,7 +623,7 @@ public sealed class BagCleanupController
                 .ConfigureAwait(false);
             if (!read.Success || read.Value is null)
             {
-                return CleanupFailure(
+                return ReturnByReversePathAfterFailure(
                     context,
                     state,
                     "inventory_window_rect_failed",
@@ -620,7 +638,11 @@ public sealed class BagCleanupController
             .ConfigureAwait(false);
         if (!result.Success)
         {
-            return CleanupFailure(context, state, "sell_register_failed", result.Error ?? "Sell register failed.");
+            return ReturnByReversePathAfterFailure(
+                context,
+                state,
+                "sell_register_failed",
+                result.Error ?? "Sell register failed.");
         }
 
         state.MarkSellItemsRegistered(result.Value?.Count ?? state.SellCandidates.Count);
@@ -636,7 +658,7 @@ public sealed class BagCleanupController
         var result = await _seller.CloseInventoryWindowAsync(context).ConfigureAwait(false);
         if (!result.Success)
         {
-            return CleanupFailure(
+            return ReturnByReversePathAfterFailure(
                 context,
                 state,
                 "inventory_window_close_failed",
@@ -656,7 +678,11 @@ public sealed class BagCleanupController
         var moneyBefore = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
         if (!moneyBefore.Success)
         {
-            return RecoverableFailure(context, state, "money_read_before_sell_failed", moneyBefore.Error ?? "Inventory money read before sell failed.");
+            return ReturnByReversePathAfterFailure(
+                context,
+                state,
+                "money_read_before_sell_failed",
+                moneyBefore.Error ?? "Inventory money read before sell failed.");
         }
 
         state.SetInitialMoney(moneyBefore.Value);
@@ -675,7 +701,11 @@ public sealed class BagCleanupController
             .ConfigureAwait(false);
         if (!result.Success)
         {
-            return CleanupFailure(context, state, "sell_button_click_failed", result.Error ?? "Sell button click failed.");
+            return ReturnByReversePathAfterFailure(
+                context,
+                state,
+                "sell_button_click_failed",
+                result.Error ?? "Sell button click failed.");
         }
 
         state.MarkSellButtonClicked();
@@ -691,12 +721,20 @@ public sealed class BagCleanupController
         var moneyAfter = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
         if (!moneyAfter.Success)
         {
-            return RecoverableFailure(context, state, "money_verify_read_failed", moneyAfter.Error ?? "Inventory money verify read failed.");
+            return ReturnByReversePathAfterFailure(
+                context,
+                state,
+                "money_verify_read_failed",
+                moneyAfter.Error ?? "Inventory money verify read failed.");
         }
 
         if (state.InitialMoney is not { } initialMoney)
         {
-            return RecoverableFailure(context, state, "money_baseline_missing", "Money before sell was not recorded.");
+            return ReturnByReversePathAfterFailure(
+                context,
+                state,
+                "money_baseline_missing",
+                "Money before sell was not recorded.");
         }
 
         IReadOnlyList<InventoryItemSnapshot>? inventory = null;
@@ -780,7 +818,7 @@ public sealed class BagCleanupController
             return BagCleanupTickResult.Running("money_verified");
         }
 
-        return RecoverableFailure(
+        return ReturnByReversePathAfterFailure(
             context,
             state,
             "money_verify_failed",
@@ -790,6 +828,30 @@ public sealed class BagCleanupController
             moneyAfter.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) +
             ", remainingCandidateCount=" +
             (remaining?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unknown"));
+    }
+
+    private static BagCleanupTickResult ReturnByReversePathAfterFailure(
+        AccountWorkerContext context,
+        BagCleanupState state,
+        string reason,
+        string error)
+    {
+        if (state.CleanupPath is null)
+        {
+            return CleanupFailure(context, state, reason, error);
+        }
+
+        context.Logger.Warn("bag_cleanup.failure.returning", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["error"] = error,
+            ["fatal"] = false,
+            ["pathName"] = state.PathName,
+            ["step"] = state.Step.ToString()
+        });
+        state.ReturnAfterFailure(reason, error);
+        return BagCleanupTickResult.Running(reason + "_returning");
     }
 
     private async Task<BagCleanupTickResult> TickReturnByReversePathAsync(
