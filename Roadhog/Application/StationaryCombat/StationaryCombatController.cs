@@ -361,6 +361,28 @@ public sealed class StationaryCombatController
             var isFacingTarget = await FaceTargetStepAsync(context, state, player, targetPosition, target).ConfigureAwait(false);
             if (!isFacingTarget)
             {
+                var faceTargetTimeoutMs = ReadFaceTargetTimeoutMs();
+                if (state.TargetStartedAt != DateTimeOffset.MinValue &&
+                    DateTimeOffset.Now - state.TargetStartedAt >= TimeSpan.FromMilliseconds(faceTargetTimeoutMs))
+                {
+                    return await IgnoreCurrentTargetAsync(
+                            context,
+                            semiAutoState,
+                            state,
+                            target.EntityId,
+                            target.ServerObjectId,
+                            target.Name,
+                            "face_target_failed",
+                            timeoutMs: faceTargetTimeoutMs,
+                            extraFields: new Dictionary<string, object?>
+                            {
+                                ["phase"] = "pre_lock",
+                                ["playerDistanceToTarget"] = Math.Round(playerDistanceToTarget, 2),
+                                ["targetDistanceFromHome"] = Math.Round(targetDistanceFromHome, 2)
+                            })
+                        .ConfigureAwait(false);
+                }
+
                 semiAutoState.ResetAttackKeyPressThrottle();
                 return MoveTickDelay;
             }
@@ -6933,6 +6955,11 @@ public sealed class StationaryCombatController
     private static int ReadNoDamageNoTargetingTimeoutMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_NO_DAMAGE_NO_TARGETING_TIMEOUT_MS", 10_000), 1, 60_000);
+    }
+
+    private static int ReadFaceTargetTimeoutMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_FACE_TARGET_TIMEOUT_MS", 10_000), 1, 60_000);
     }
 
     private static TimeSpan ReadNoKillTimeout()
