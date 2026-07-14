@@ -22,6 +22,24 @@ using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
 
+if (PartyMemberLiveProbe.ShouldRun(args))
+{
+    Environment.ExitCode = PartyMemberLiveProbe.Run(args);
+    return;
+}
+
+if (TacticsSignLiveProbe.ShouldRun(args))
+{
+    Environment.ExitCode = TacticsSignLiveProbe.Run(args);
+    return;
+}
+
+if (KmboxKeyPressProbe.ShouldRun(args))
+{
+    Environment.ExitCode = KmboxKeyPressProbe.RunAsync(args).GetAwaiter().GetResult();
+    return;
+}
+
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("path recorder enforces five meter minimum", TestPathRecorderMinimumDistanceAsync),

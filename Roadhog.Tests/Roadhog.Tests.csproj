@@ -12,4 +12,10 @@
     <ProjectReference Include="..\Roadhog\Roadhog.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Reference Include="vmmsharp">
+      <HintPath>..\Roadhog\Lib\vmmsharp.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
 </Project>
