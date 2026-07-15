@@ -313,6 +313,41 @@ static-summon-pet
 - 是否需要跟随队长，由距离模块统一处理，不直接写在加血逻辑里。
 - 是否参与拾取由队员拾取开关决定。
 
+解异常的业务门槛：
+
+- 不能只看 `PartyMemberRecord` 状态条目的 `DispelCategory == 2`。
+- 运行时 `entry+0x08 DispelCategory` 只能当诊断字段；它可能把正面吟唱读成 `2`，也可能漏掉 XML 里明确是 `DebuffPhy` 的负面状态。
+- 必须用 `AbnormalId` 查 `client_skills.xml`，按 `target_slot` 分类。
+- `Buff` / `Chant` / `Boost` 归为正面状态，不能触发解异常。
+- `Debuff` 归为负面状态。
+- `client_skills.xml` 里的 `dispel_category=DebuffPhy` 才是肉体异常解除候选的主要判断来源。
+- `client_skills.xml` 里的 `dispel_category=DebuffMen` 是精神异常解除候选，需要用精神解除技能单独处理。
+- 找不到静态表或无法分类时按 `Unknown` 处理，第一版不要自动解。
+- 只有 `StatusKind == Negative` 且 `XmlDispelCategory == DebuffPhy` 的条目，才进入 `CleanseCandidate`，再按对应 F 键选中队友本体并释放解状态技能。
+- 只有 `StatusKind == Negative` 且 `XmlDispelCategory == DebuffMen` 的条目，才进入 `MentalCleanseCandidate`，再按对应 F 键选中队友本体并释放精神解除技能。
+
+已验证案例：2026-07-15 在 `script\2` 三人队伍中，全队都有 `AbnormalId=8232`，运行时条目 `DispelCategory=2`。静态表显示 `target_slot=Chant`、`target_relation_restriction=Friend`、`effect1_type=StatUp`，probe 分类为 `Positive`，`CleanseCandidateCount=0`。自动清除开启时没有按 `NumPad7`，这是正确行为。
+
+持续伤害负面案例：同一环境下，让队友 `HiApple` 中 `AbnormalId=1632`，probe 读到 `NegativeIds=1632:L9:Debuff`，同时 HP 按 tick 下降。静态表显示 `name=EL_EarthGrab_G2`、`skill_category=SKILLCTG_PHYSICAL_DEBUFF`、`dispel_category=DebuffPhy`、`target_slot=Debuff`、`target_relation_restriction=Enemy`。这个样本证明正负面分类可以闭环，同时也证明肉体解除候选应优先查 XML 的 `dispel_category`。
+
+精神异常分类：`client_skills.xml` 中 `dispel_category=DebuffMen` 有 208 条，典型是恐惧、睡眠、变形类状态，例如 `KN_AbsoluteScare_G1`、`RA_ParalyzeArrow_G1`、`WI_SleepingStorm_G1`、`EL_Fear_G1`。对应解除技能表现为 `effect*_type=DispelDebuffMental`，例如 `PR_CureMind_G1/G2/G3` 和 `PR_MassDispel_G1`。第一版约定精神解除按 `NumPad8`。
+
+清状态 + 加血端到端验证：2026-07-15 使用 `script\2` 治愈星 `Jone`，KMBox `192.168.4.188:49412 / C5440C3D`，队友 `HiApple` 对应 `F2`。当 `HiApple` 同时 `HP=3522/3903` 且 `CleanseCandidateIds=1632:L9:Debuff` 时，probe 先执行 `Action=cleanse`，按键 `F2,NumPad7`，结果 `Success=yes`。清状态候选消失后，继续执行 `Action=heal`，按 `NumPad1`，结果 `Success=yes`。最终 120 秒测试统计为 `CleansePressCount=13 / CleansePressSuccessCount=13`、`HealPressCount=9 / HealPressSuccessCount=9`、`SawDamage=yes`、`SawHealAfterDamage=yes`、`SawPhysicalCleared=yes`。
+
+第一版正式业务顺序：
+
+```text
+if team member has CleanseCandidate:
+  select member body by F2-F6
+  press physical cleanse key NumPad7
+else if team member has MentalCleanseCandidate:
+  select member body by F2-F6
+  press mental cleanse key NumPad8
+else if team member HP is below max:
+  select member body by F2-F6
+  press heal key NumPad1
+```
+
 加血队员选中具体队友的第一版方案：
 
 - 一个小队最多 6 人。

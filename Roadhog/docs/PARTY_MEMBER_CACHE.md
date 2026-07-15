@@ -431,6 +431,251 @@ entry +0x10 = 等级/层数
 不要只按 entry+0x08 判断
 ```
 
+状态分类规则：
+
+```text
+PartyMemberRecord +0x77/+0x79 只负责告诉我们“有哪些状态条目”
+entry +0x04 AbnormalId 用来查 Source/client_skills.xml
+entry +0x08 DispelCategory / runtime bucket 只能作为诊断字段，不能单独判定正负面，也不能稳定判定是否可用肉体解除
+
+client_skills.xml:
+  target_slot = Buff / 0   -> 正面状态
+  target_slot = Chant / 2  -> 正面状态
+  target_slot = Boost / 5  -> 正面状态
+  target_slot = Debuff / 1 -> 负面状态
+  dispel_category = DebuffPhy -> 肉体异常/可用对应解除技能处理
+  dispel_category = DebuffMen -> 精神异常/可用精神解除技能处理
+  target_relation_restriction = Friend 且有增益效果 -> 倾向正面
+  找不到静态表或无法分类 -> Unknown，不触发自动解状态
+```
+
+维护加血队员的肉体解状态候选应使用更严格的业务字段：
+
+```text
+CleanseCandidate =
+  AbnormalId != 0
+  && StatusKind == Negative     // 静态表确认是 Debuff
+  && XmlDispelCategory == DebuffPhy
+```
+
+精神解状态候选单独处理：
+
+```text
+MentalCleanseCandidate =
+  AbnormalId != 0
+  && StatusKind == Negative
+  && XmlDispelCategory == DebuffMen
+```
+
+也就是说：
+
+- `PhysicalCount` 只是 `DispelCategory == 2` 的原始计数。
+- `PhysicalCount > 0` 不等于“队友有需要解除的负面肉体异常”。
+- `entry +0x08 DispelCategory` 不能作为第一判断来源；实测负面 `1632` 的 XML 是 `DebuffPhy`，但运行时字段没有进入原来的 `PhysicalCount`。
+- `NegativeCount` 表示静态表分类为负面状态的条目数量。
+- `CleanseCandidateCount` 才是第一版可以触发 `NumPad7` 的数量。
+- `MentalCleanseCandidateCount` 才是第一版可以触发 `NumPad8` 的数量。
+
+### 状态分类 live probe 验证
+
+验证时间：2026-07-15。
+
+测试环境：
+
+```text
+运行根目录: C:\Users\GoldGiven\Desktop\script\2
+VMM: fpga://devindex=2
+PID: 9788
+本地角色: Jone，治愈星
+队伍人数: 3
+静态表: C:\Users\GoldGiven\Desktop\script\2\Source\client_skills.xml
+```
+
+当时全队都有一个正面状态，读到的队伍条目均为：
+
+```text
+AbnormalId=8232
+DispelCategory=2
+```
+
+`client_skills.xml` 中 `8232` 的关键信息：
+
+```text
+id=8232
+name=CH_AuraStatUpAreaSpeedEffect
+target_slot=Chant
+target_relation_restriction=Friend
+effect1_type=StatUp
+effect1_reserved13=speed
+```
+
+probe 分类结果：
+
+```text
+StatusKind=Positive
+PositiveCount=1
+PositiveIds=8232:L1:Chant
+NegativeCount=0
+NegativeIds=None
+CleanseCandidateCount=0
+CleanseCandidateIds=None
+NeedsCleanse=no
+```
+
+维护探针在自动清除打开时再次验证：
+
+```text
+AutoPressCleanse=yes
+CleanseCandidateCount=0
+NeedsCleanse=no
+AutoPressAttempted=no
+CleansePressCount=0
+```
+
+结论：`8232` 虽然 `DispelCategory=2`，但它是 `target_slot=Chant` 的正面吟唱/增益状态，不能触发 `NumPad7`。第一版正式实现必须按 `AbnormalId + client_skills.xml target_slot` 分类后，再决定是否解状态。
+
+负面状态验证：
+
+同一环境下，让队友 `HiApple` 受到持续伤害状态，probe 读到：
+
+```text
+Member=HiApple
+NegativeCount=1
+NegativeIds=1632:L9:Debuff
+PositiveCount=1
+PositiveIds=8232:L1:Chant
+HP: 3903/3903 -> 3847/3903 -> 3795/3903 -> 3771/3903 -> 3747/3903 -> 3695/3903 -> 3643/3903
+```
+
+`client_skills.xml` 中 `1632` 的关键信息：
+
+```text
+id=1632
+name=EL_EarthGrab_G2
+type=Magical
+skill_category=SKILLCTG_PHYSICAL_DEBUFF
+dispel_category=DebuffPhy
+target_slot=Debuff
+target_relation_restriction=Enemy
+effect2_type=SpellATK
+effect2_checktime=3000
+```
+
+结论：
+
+- `1632` 可以被明确分类为负面状态。
+- HP tick 下降证明它确实是持续伤害/异常状态。
+- `CleanseCandidate` 应优先根据 XML 的 `dispel_category=DebuffPhy` 判断，而不是依赖运行时 `entry+0x08`。
+
+### 精神异常状态分类
+
+`client_skills.xml` 里确实存在精神异常类别：
+
+```text
+dispel_category=DebuffMen: 208 条
+skill_category=SKILLCTG_MENTAL_DEBUFF
+target_slot=Debuff
+target_relation_restriction=Enemy
+```
+
+典型样本：
+
+```text
+id=540  name=KN_AbsoluteScare_G1      effect=Fear
+id=695  name=RA_ParalyzeArrow_G1      effect=Sleep/StatUp
+id=1443 name=WI_SleepingStorm_G1      effect=Sleep/StatUp
+id=1454 name=WI_CursedTree_G1         effect=Deform/Sleep
+id=1636 name=EL_Fear_G1               effect=Fear/Deform
+```
+
+精神解除技能在同一份技能表里表现为：
+
+```text
+id=1063 name=PR_CureMind_G1    effect1_type=DispelDebuffMental
+id=1064 name=PR_CureMind_G2    effect1_type=DispelDebuffMental
+id=1110 name=PR_CureMind_G3    effect1_type=DispelDebuffMental
+id=1180 name=PR_MassDispel_G1  effect1_type=DispelDebuffPhysical effect2_type=DispelDebuffMental
+id=9910 name=item_potion_cure_mental effect1_type=DispelDebuffMental
+```
+
+第一版按键约定：
+
+```text
+肉体异常解除: NumPad7
+精神异常解除: NumPad8
+治疗: NumPad1
+```
+
+维护动作优先级：
+
+```text
+1. CleanseCandidateCount > 0       -> F2-F6 选中队友本体 -> NumPad7
+2. MentalCleanseCandidateCount > 0 -> F2-F6 选中队友本体 -> NumPad8
+3. HP 未满                         -> F2-F6 选中队友本体 -> NumPad1
+```
+
+### 清状态 + 加血端到端验证
+
+验证时间：2026-07-15。
+
+测试环境：
+
+```text
+运行根目录: C:\Users\GoldGiven\Desktop\script\2
+VMM: fpga://devindex=2
+PID: 9788
+本地角色: Jone，治愈星
+目标队友: HiApple，F2
+KMBox: 192.168.4.188:49412 / C5440C3D
+治疗键: NumPad1
+解状态键: NumPad7
+```
+
+端到端结果：
+
+```text
+sample=1
+HiApple HP=3522/3903
+NegativeIds=1632:L9:Debuff
+CleanseCandidateIds=1632:L9:Debuff
+Action=cleanse
+Key=F2,NumPad7
+Success=yes
+Status=pressed:F2,NumPad7:cleanse:target_confirmed:attempt=2
+
+sample=3
+CleanseCandidateIds=None
+Action=heal
+Key=NumPad1
+Success=yes
+Status=pressed:NumPad1:heal:already_selected
+```
+
+后续多次重复验证也成立：
+
+```text
+NegativeIds=1360:L9:Debuff -> Action=cleanse -> NumPad7 success
+NegativeIds=1632:L9:Debuff -> Action=cleanse -> NumPad7 success
+CleanseCandidateIds=None 且 HP 未满 -> Action=heal -> NumPad1 success
+```
+
+最终摘要：
+
+```text
+SawDamage=yes
+SawHealAfterDamage=yes
+SawPhysicalAbnormal=yes
+SawPhysicalCleared=yes
+AutoPressCount=22
+AutoPressSuccessCount=22
+CleansePressCount=13
+CleansePressSuccessCount=13
+HealPressCount=9
+HealPressSuccessCount=9
+```
+
+结论：加血维护队员的第一版核心闭环成立。读取队员状态后，先按 `CleanseCandidate` 选择队友并释放 `NumPad7`；清状态候选消失后，如果 HP 未满，再对同一目标释放 `NumPad1`。
+
 读取时应把数量 clamp 到 `0..112`，避免异常数据导致越界。
 
 ## 队员位置

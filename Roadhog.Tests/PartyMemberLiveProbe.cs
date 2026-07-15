@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Reflection;
 using System.Text;
+using System.Xml.Linq;
 using Hardware.KmBox;
 using MemProcVmm = Vmmsharp.Vmm;
 using Vmmsharp;
@@ -73,6 +74,9 @@ internal static class PartyMemberLiveProbe
     private const int PartyMemberMaxAbnormalCount = 112;
 
     private const uint AbnormalCategoryPhysical = 2;
+    private const string AbnormalKindPositive = "Positive";
+    private const string AbnormalKindNegative = "Negative";
+    private const string AbnormalKindUnknown = "Unknown";
     private const ulong AbnormalEntrySize = 0x12;
     private const ulong AbnormalEntryField00Offset = 0x00;
     private const ulong AbnormalEntryIdOffset = 0x04;
@@ -117,6 +121,7 @@ internal static class PartyMemberLiveProbe
         var remote = ReadOption(args, "--remote=", "ROADHOG_PARTY_PROBE_REMOTE", "VMM_REMOTE", string.Empty);
         var processId = ReadIntOption(args, "--pid=", "ROADHOG_PARTY_PROBE_PID", "VMM_PID", 0);
         var printAllEntries = ReadBoolFromEnv("AION_PARTY_PRINT_ABNORMAL_ENTRIES", false);
+        var abnormalStatusCatalog = LoadAbnormalStatusCatalog(args);
 
         Console.WriteLine("Roadhog party member live probe.");
         Console.WriteLine("Device=" + deviceName +
@@ -125,6 +130,10 @@ internal static class PartyMemberLiveProbe
                           " Pid=" + (processId > 0 ? processId.ToString(CultureInfo.InvariantCulture) : "<by-name>") +
                           " Module=" + moduleName);
         Console.WriteLine("Reads PartyMemberRecord from primary/secondary party lists. CachedPosition is diagnostic only.");
+        Console.WriteLine("AbnormalStatusCatalog Loaded=" + (abnormalStatusCatalog.Loaded ? "yes" : "no") +
+                          " Count=" + abnormalStatusCatalog.Count.ToString(CultureInfo.InvariantCulture) +
+                          " Source=\"" + abnormalStatusCatalog.SourcePath + "\"" +
+                          " Error=\"" + abnormalStatusCatalog.Error + "\"");
 
         try
         {
@@ -154,7 +163,7 @@ internal static class PartyMemberLiveProbe
 
             if (IsTeamHealProbeRequested(args))
             {
-                return RunTeamHealProbe(process, gameBase, args);
+                return RunTeamHealProbe(process, gameBase, args, abnormalStatusCatalog);
             }
 
             if (!TryReadPartyMemberProbeSnapshots(process, gameBase, out var members, out var error))
@@ -182,7 +191,7 @@ internal static class PartyMemberLiveProbe
                 hasLiveSummary ? liveSummary.LocalServerObjectId : 0,
                 hasLiveSummary));
 
-            PrintPartyMemberProbeSnapshots(members, printAllEntries);
+            PrintPartyMemberProbeSnapshots(members, printAllEntries, abnormalStatusCatalog);
             return members.Count == 0 ? 5 : 0;
         }
         catch (Exception ex)
@@ -613,7 +622,11 @@ internal static class PartyMemberLiveProbe
         return true;
     }
 
-    private static int RunTeamHealProbe(VmmProcess process, ulong gameBase, string[] args)
+    private static int RunTeamHealProbe(
+        VmmProcess process,
+        ulong gameBase,
+        string[] args,
+        AbnormalStatusCatalog abnormalStatusCatalog)
     {
         var monitorMs = Math.Max(
             1000,
@@ -631,6 +644,10 @@ internal static class PartyMemberLiveProbe
             ReadIntOption(args, "--auto-press-interval-ms=", "ROADHOG_TEAM_HEAL_PRESS_INTERVAL_MS", "ROADHOG_PRESS_INTERVAL_MS", 2500));
         var healKey = ReadOption(args, "--heal-key=", "ROADHOG_TEAM_HEAL_KEY", "ROADHOG_HEAL_KEY", "NumPad1");
         var cleanseKey = ReadOption(args, "--cleanse-key=", "ROADHOG_TEAM_CLEANSE_KEY", "ROADHOG_CLEANSE_KEY", "NumPad7");
+        var mentalCleanseKey = ReadOption(args, "--mental-cleanse-key=", "ROADHOG_TEAM_MENTAL_CLEANSE_KEY", "ROADHOG_MENTAL_CLEANSE_KEY", "NumPad8");
+        var autoPressMentalCleanse = ReadBoolFromEnv(
+            "ROADHOG_TEAM_MENTAL_CLEANSE_AUTO_PRESS",
+            autoPressSupport);
         var selectConfirmDelayMs = Math.Max(
             50,
             ReadIntOption(args, "--select-confirm-delay-ms=", "ROADHOG_TEAM_SELECT_CONFIRM_DELAY_MS", "ROADHOG_SELECT_CONFIRM_DELAY_MS", 220));
@@ -652,22 +669,27 @@ internal static class PartyMemberLiveProbe
                           " StopOnIncrease=" + (stopOnIncrease ? "yes" : "no") +
                           " AutoPressHeal=" + (autoPressHeal ? "yes" : "no") +
                           " AutoPressCleanse=" + (autoPressCleanse ? "yes" : "no") +
+                          " AutoPressMentalCleanse=" + (autoPressMentalCleanse ? "yes" : "no") +
                           " RepeatAutoPress=" + (repeatAutoPress ? "yes" : "no") +
                           " AutoPressIntervalMs=" + autoPressIntervalMs.ToString(CultureInfo.InvariantCulture) +
                           " HealKey=" + healKey +
                           " CleanseKey=" + cleanseKey +
+                          " MentalCleanseKey=" + (string.IsNullOrWhiteSpace(mentalCleanseKey) ? "<none>" : mentalCleanseKey) +
                           " SelectRetryCount=" + selectRetryCount.ToString(CultureInfo.InvariantCulture) +
                           " SelectConfirmDelayMs=" + selectConfirmDelayMs.ToString(CultureInfo.InvariantCulture) +
                           " TargetActionCooldownMs=" + targetActionCooldownMs.ToString(CultureInfo.InvariantCulture));
-        Console.WriteLine("Watch party HP and physical abnormal statuses from PartyMemberRecord; select the member body before pressing maintenance keys.");
+        Console.WriteLine("Watch party HP and classified abnormal statuses from PartyMemberRecord; select the member body before pressing maintenance keys.");
 
         var started = DateTime.UtcNow;
         var previousHpByMember = new Dictionary<uint, uint>();
         var previousPhysicalByMember = new Dictionary<uint, int>();
+        var previousMentalCleanseByMember = new Dictionary<uint, int>();
         var sawDamageByMember = new HashSet<uint>();
         var sawHealByMember = new HashSet<uint>();
         var sawPhysicalByMember = new HashSet<uint>();
         var sawPhysicalClearedByMember = new HashSet<uint>();
+        var sawMentalCleanseByMember = new HashSet<uint>();
+        var sawMentalCleanseClearedByMember = new HashSet<uint>();
         var autoPressAttempted = false;
         var autoPressSucceeded = false;
         var autoPressStatus = "not_attempted";
@@ -675,6 +697,8 @@ internal static class PartyMemberLiveProbe
         var autoPressSuccessCount = 0;
         var cleansePressCount = 0;
         var cleansePressSuccessCount = 0;
+        var mentalCleansePressCount = 0;
+        var mentalCleansePressSuccessCount = 0;
         var healPressCount = 0;
         var healPressSuccessCount = 0;
         var lastActionKind = "none";
@@ -790,7 +814,28 @@ internal static class PartyMemberLiveProbe
                                      liveSummary.LocalTargetServerObjectId != 0 &&
                                      liveSummary.LocalTargetServerObjectId == member.ServerObjectId;
                     var pressMode = isSelected ? "action_only_current_target" : "select_then_action";
-                    var needsCleanse = member.PhysicalCount > 0;
+                    var positiveCount = CountAbnormalStatuses(member, abnormalStatusCatalog, AbnormalKindPositive);
+                    var negativeCount = CountAbnormalStatuses(member, abnormalStatusCatalog, AbnormalKindNegative);
+                    var unknownStatusCount = CountAbnormalStatuses(member, abnormalStatusCatalog, AbnormalKindUnknown);
+                    var cleanseCandidateCount = CountCleanseCandidateAbnormals(member, abnormalStatusCatalog);
+                    var mentalCleanseCandidateCount = CountMentalCleanseCandidateAbnormals(member, abnormalStatusCatalog);
+                    var needsCleanse = cleanseCandidateCount > 0;
+                    var needsMentalCleanse = mentalCleanseCandidateCount > 0;
+
+                    var previousMentalCleanseKnown = previousMentalCleanseByMember.TryGetValue(member.ServerObjectId, out var previousMentalCleanseCount);
+                    if (mentalCleanseCandidateCount > 0)
+                    {
+                        sawMentalCleanseByMember.Add(member.ServerObjectId);
+                    }
+
+                    if (previousMentalCleanseKnown &&
+                        previousMentalCleanseCount > 0 &&
+                        mentalCleanseCandidateCount == 0)
+                    {
+                        sawMentalCleanseClearedByMember.Add(member.ServerObjectId);
+                    }
+
+                    previousMentalCleanseByMember[member.ServerObjectId] = mentalCleanseCandidateCount;
 
                     Console.WriteLine("SupportProbeMember sample=" + sample.ToString(CultureInfo.InvariantCulture) +
                                       " Member=" + member.Name +
@@ -804,7 +849,17 @@ internal static class PartyMemberLiveProbe
                                       " HpDelta=" + hpDelta.ToString(CultureInfo.InvariantCulture) +
                                       " PhysicalCount=" + member.PhysicalCount.ToString(CultureInfo.InvariantCulture) +
                                       " PhysicalIds=" + FormatPhysicalAbnormalIds(member) +
+                                      " PositiveCount=" + positiveCount.ToString(CultureInfo.InvariantCulture) +
+                                      " PositiveIds=" + FormatAbnormalIdsByKind(member, abnormalStatusCatalog, AbnormalKindPositive) +
+                                      " NegativeCount=" + negativeCount.ToString(CultureInfo.InvariantCulture) +
+                                      " NegativeIds=" + FormatAbnormalIdsByKind(member, abnormalStatusCatalog, AbnormalKindNegative) +
+                                      " UnknownStatusCount=" + unknownStatusCount.ToString(CultureInfo.InvariantCulture) +
+                                      " CleanseCandidateCount=" + cleanseCandidateCount.ToString(CultureInfo.InvariantCulture) +
+                                      " CleanseCandidateIds=" + FormatCleanseCandidateAbnormalIds(member, abnormalStatusCatalog) +
+                                      " MentalCleanseCandidateCount=" + mentalCleanseCandidateCount.ToString(CultureInfo.InvariantCulture) +
+                                      " MentalCleanseCandidateIds=" + FormatMentalCleanseCandidateAbnormalIds(member, abnormalStatusCatalog) +
                                       " NeedsCleanse=" + (needsCleanse ? "yes" : "no") +
+                                      " NeedsMentalCleanse=" + (needsMentalCleanse ? "yes" : "no") +
                                       " IsSelected=" + (isSelected ? "yes" : "no") +
                                       " PressMode=" + pressMode +
                                       " LiveActor=" + (member.HasLiveActor ? "yes" : "no") +
@@ -820,12 +875,25 @@ internal static class PartyMemberLiveProbe
                 if (autoPressCleanse)
                 {
                     actionMember = supportMembers.FirstOrDefault(member =>
-                        member.PhysicalCount > 0 &&
+                        CountCleanseCandidateAbnormals(member, abnormalStatusCatalog) > 0 &&
                         IsTargetActionReady(member, "cleanse", DateTime.UtcNow));
                     if (actionMember.ServerObjectId != 0)
                     {
                         actionKind = "cleanse";
                         actionKey = cleanseKey;
+                        hasAction = true;
+                    }
+                }
+
+                if (!hasAction && autoPressMentalCleanse)
+                {
+                    actionMember = supportMembers.FirstOrDefault(member =>
+                        CountMentalCleanseCandidateAbnormals(member, abnormalStatusCatalog) > 0 &&
+                        IsTargetActionReady(member, "mental_cleanse", DateTime.UtcNow));
+                    if (actionMember.ServerObjectId != 0)
+                    {
+                        actionKind = "mental_cleanse";
+                        actionKey = mentalCleanseKey;
                         hasAction = true;
                     }
                 }
@@ -865,6 +933,10 @@ internal static class PartyMemberLiveProbe
                     {
                         cleansePressCount++;
                     }
+                    else if (string.Equals(actionKind, "mental_cleanse", StringComparison.OrdinalIgnoreCase))
+                    {
+                        mentalCleansePressCount++;
+                    }
                     else if (string.Equals(actionKind, "heal", StringComparison.OrdinalIgnoreCase))
                     {
                         healPressCount++;
@@ -897,6 +969,10 @@ internal static class PartyMemberLiveProbe
                         {
                             cleansePressSuccessCount++;
                         }
+                        else if (string.Equals(actionKind, "mental_cleanse", StringComparison.OrdinalIgnoreCase))
+                        {
+                            mentalCleansePressSuccessCount++;
+                        }
                         else if (string.Equals(actionKind, "heal", StringComparison.OrdinalIgnoreCase))
                         {
                             healPressSuccessCount++;
@@ -909,6 +985,8 @@ internal static class PartyMemberLiveProbe
                                       " TargetServerId=" + actionMember.ServerObjectId.ToString(CultureInfo.InvariantCulture) +
                                       " TargetPhysicalCount=" + actionMember.PhysicalCount.ToString(CultureInfo.InvariantCulture) +
                                       " TargetPhysicalIds=" + FormatPhysicalAbnormalIds(actionMember) +
+                                      " TargetCleanseCandidateIds=" + FormatCleanseCandidateAbnormalIds(actionMember, abnormalStatusCatalog) +
+                                      " TargetMentalCleanseCandidateIds=" + FormatMentalCleanseCandidateAbnormalIds(actionMember, abnormalStatusCatalog) +
                                       " TargetHP=" + actionMember.CurrentHp.ToString(CultureInfo.InvariantCulture) + "/" + actionMember.MaxHp.ToString(CultureInfo.InvariantCulture) +
                                       " SelectKey=" + selectKey +
                                       " ActionKey=" + actionKey +
@@ -945,11 +1023,15 @@ internal static class PartyMemberLiveProbe
                           " SawHealAfterDamage=" + (sawHealByMember.Count > 0 ? "yes" : "no") +
                           " SawPhysicalAbnormal=" + (sawPhysicalByMember.Count > 0 ? "yes" : "no") +
                           " SawPhysicalCleared=" + (sawPhysicalClearedByMember.Count > 0 ? "yes" : "no") +
+                          " SawMentalCleanseCandidate=" + (sawMentalCleanseByMember.Count > 0 ? "yes" : "no") +
+                          " SawMentalCleanseCleared=" + (sawMentalCleanseClearedByMember.Count > 0 ? "yes" : "no") +
                           " AutoPressAttempted=" + (autoPressAttempted ? "yes" : "no") +
                           " AutoPressCount=" + autoPressCount.ToString(CultureInfo.InvariantCulture) +
                           " AutoPressSuccessCount=" + autoPressSuccessCount.ToString(CultureInfo.InvariantCulture) +
                           " CleansePressCount=" + cleansePressCount.ToString(CultureInfo.InvariantCulture) +
                           " CleansePressSuccessCount=" + cleansePressSuccessCount.ToString(CultureInfo.InvariantCulture) +
+                          " MentalCleansePressCount=" + mentalCleansePressCount.ToString(CultureInfo.InvariantCulture) +
+                          " MentalCleansePressSuccessCount=" + mentalCleansePressSuccessCount.ToString(CultureInfo.InvariantCulture) +
                           " HealPressCount=" + healPressCount.ToString(CultureInfo.InvariantCulture) +
                           " HealPressSuccessCount=" + healPressSuccessCount.ToString(CultureInfo.InvariantCulture) +
                           " AutoPressSucceeded=" + (autoPressSucceeded ? "yes" : "no") +
@@ -1145,6 +1227,332 @@ internal static class PartyMemberLiveProbe
         return ids.Length == 0
             ? "None"
             : string.Join(",", ids);
+    }
+
+    private static int CountAbnormalStatuses(
+        PartyMemberProbeSnapshot member,
+        AbnormalStatusCatalog abnormalStatusCatalog,
+        string statusKind)
+    {
+        var count = 0;
+        foreach (var entry in member.Entries)
+        {
+            if (string.Equals(ClassifyAbnormalStatus(entry, abnormalStatusCatalog), statusKind, StringComparison.Ordinal))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int CountCleanseCandidateAbnormals(
+        PartyMemberProbeSnapshot member,
+        AbnormalStatusCatalog abnormalStatusCatalog)
+    {
+        var count = 0;
+        foreach (var entry in member.Entries)
+        {
+            if (IsCleanseCandidateAbnormal(entry, abnormalStatusCatalog))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int CountMentalCleanseCandidateAbnormals(
+        PartyMemberProbeSnapshot member,
+        AbnormalStatusCatalog abnormalStatusCatalog)
+    {
+        var count = 0;
+        foreach (var entry in member.Entries)
+        {
+            if (IsMentalCleanseCandidateAbnormal(entry, abnormalStatusCatalog))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static string FormatAbnormalIdsByKind(
+        PartyMemberProbeSnapshot member,
+        AbnormalStatusCatalog abnormalStatusCatalog,
+        string statusKind)
+    {
+        var ids = member.Entries
+            .Where(entry => string.Equals(ClassifyAbnormalStatus(entry, abnormalStatusCatalog), statusKind, StringComparison.Ordinal))
+            .Select(entry => FormatAbnormalIdWithStaticInfo(entry, abnormalStatusCatalog))
+            .ToArray();
+
+        return ids.Length == 0 ? "None" : string.Join(",", ids);
+    }
+
+    private static string FormatCleanseCandidateAbnormalIds(
+        PartyMemberProbeSnapshot member,
+        AbnormalStatusCatalog abnormalStatusCatalog)
+    {
+        var ids = member.Entries
+            .Where(entry => IsCleanseCandidateAbnormal(entry, abnormalStatusCatalog))
+            .Select(entry => FormatAbnormalIdWithStaticInfo(entry, abnormalStatusCatalog))
+            .ToArray();
+
+        return ids.Length == 0 ? "None" : string.Join(",", ids);
+    }
+
+    private static string FormatMentalCleanseCandidateAbnormalIds(
+        PartyMemberProbeSnapshot member,
+        AbnormalStatusCatalog abnormalStatusCatalog)
+    {
+        var ids = member.Entries
+            .Where(entry => IsMentalCleanseCandidateAbnormal(entry, abnormalStatusCatalog))
+            .Select(entry => FormatAbnormalIdWithStaticInfo(entry, abnormalStatusCatalog))
+            .ToArray();
+
+        return ids.Length == 0 ? "None" : string.Join(",", ids);
+    }
+
+    private static string FormatAbnormalIdWithStaticInfo(
+        AbnormalStatusEntry entry,
+        AbnormalStatusCatalog abnormalStatusCatalog)
+    {
+        var text = entry.AbnormalId.ToString(CultureInfo.InvariantCulture) +
+                   ":L" + entry.LevelOrStack.ToString(CultureInfo.InvariantCulture);
+        if (abnormalStatusCatalog.TryGet(entry.AbnormalId, out var detail) &&
+            !string.IsNullOrWhiteSpace(detail.TargetSlot))
+        {
+            text += ":" + detail.TargetSlot;
+        }
+
+        return text;
+    }
+
+    private static bool IsCleanseCandidateAbnormal(
+        AbnormalStatusEntry entry,
+        AbnormalStatusCatalog abnormalStatusCatalog)
+    {
+        return entry.AbnormalId != 0 &&
+               string.Equals(ClassifyAbnormalStatus(entry, abnormalStatusCatalog), AbnormalKindNegative, StringComparison.Ordinal) &&
+               IsPhysicalCleanseCategory(entry, abnormalStatusCatalog);
+    }
+
+    private static bool IsMentalCleanseCandidateAbnormal(
+        AbnormalStatusEntry entry,
+        AbnormalStatusCatalog abnormalStatusCatalog)
+    {
+        return entry.AbnormalId != 0 &&
+               string.Equals(ClassifyAbnormalStatus(entry, abnormalStatusCatalog), AbnormalKindNegative, StringComparison.Ordinal) &&
+               IsMentalCleanseCategory(entry, abnormalStatusCatalog);
+    }
+
+    private static bool IsPhysicalCleanseCategory(
+        AbnormalStatusEntry entry,
+        AbnormalStatusCatalog abnormalStatusCatalog)
+    {
+        if (abnormalStatusCatalog.TryGet(entry.AbnormalId, out var detail) &&
+            !string.IsNullOrWhiteSpace(detail.DispelCategory))
+        {
+            var category = NormalizeSkillXmlToken(detail.DispelCategory);
+            return string.Equals(category, "debuffphy", StringComparison.Ordinal) ||
+                   string.Equals(category, "physicaldebuff", StringComparison.Ordinal) ||
+                   string.Equals(category, "physical", StringComparison.Ordinal) ||
+                   string.Equals(category, "2", StringComparison.Ordinal);
+        }
+
+        return entry.DispelCategory == AbnormalCategoryPhysical;
+    }
+
+    private static bool IsMentalCleanseCategory(
+        AbnormalStatusEntry entry,
+        AbnormalStatusCatalog abnormalStatusCatalog)
+    {
+        if (!abnormalStatusCatalog.TryGet(entry.AbnormalId, out var detail) ||
+            string.IsNullOrWhiteSpace(detail.DispelCategory))
+        {
+            return false;
+        }
+
+        var category = NormalizeSkillXmlToken(detail.DispelCategory);
+        return string.Equals(category, "debuffmen", StringComparison.Ordinal) ||
+               string.Equals(category, "mentaldebuff", StringComparison.Ordinal) ||
+               string.Equals(category, "mental", StringComparison.Ordinal);
+    }
+
+    private static string ClassifyAbnormalStatus(
+        AbnormalStatusEntry entry,
+        AbnormalStatusCatalog abnormalStatusCatalog)
+    {
+        if (entry.AbnormalId == 0)
+        {
+            return AbnormalKindUnknown;
+        }
+
+        if (!abnormalStatusCatalog.TryGet(entry.AbnormalId, out var detail))
+        {
+            return AbnormalKindUnknown;
+        }
+
+        return detail.StatusKind;
+    }
+
+    private static AbnormalStatusCatalog LoadAbnormalStatusCatalog(string[] args)
+    {
+        var path = ResolveClientSkillsXmlPath(args);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return AbnormalStatusCatalog.Failed(string.Empty, "client_skills.xml not found");
+        }
+
+        try
+        {
+            var document = XDocument.Load(path);
+            var entries = new Dictionary<uint, AbnormalStatusStaticInfo>();
+            foreach (var element in document.Descendants("skill_base_client"))
+            {
+                var idText = GetSkillXmlValue(element, "id", "skill_id", "skillid");
+                if (!uint.TryParse(idText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) || id == 0)
+                {
+                    continue;
+                }
+
+                var info = new AbnormalStatusStaticInfo
+                {
+                    Id = id,
+                    XmlName = GetSkillXmlValue(element, "name", "skill_name", "skillname"),
+                    TargetSlot = GetSkillXmlValue(element, "target_slot", "targetslot"),
+                    TargetRelationRestriction = GetSkillXmlValue(element, "target_relation_restriction", "targetrelationrestriction"),
+                    DispelCategory = GetSkillXmlValue(element, "dispel_category", "dispelcategory"),
+                    Effect1Type = GetSkillXmlValue(element, "effect1_type", "effect_1_type", "effect1type"),
+                    Effect2Type = GetSkillXmlValue(element, "effect2_type", "effect_2_type", "effect2type"),
+                    Effect3Type = GetSkillXmlValue(element, "effect3_type", "effect_3_type", "effect3type"),
+                    Effect4Type = GetSkillXmlValue(element, "effect4_type", "effect_4_type", "effect4type")
+                };
+                info.StatusKind = ClassifyStaticAbnormalStatus(info);
+                entries[id] = info;
+            }
+
+            return AbnormalStatusCatalog.LoadedFrom(path, entries);
+        }
+        catch (Exception ex)
+        {
+            return AbnormalStatusCatalog.Failed(path, ex.GetType().Name + ":" + ex.Message);
+        }
+    }
+
+    private static string ResolveClientSkillsXmlPath(string[] args)
+    {
+        var explicitPath = ReadOption(
+            args,
+            "--client-skills=",
+            "ROADHOG_CLIENT_SKILLS_XML",
+            "AION_CLIENT_SKILLS_XML",
+            string.Empty);
+        if (IsReadableFile(explicitPath))
+        {
+            return explicitPath;
+        }
+
+        var memProcFsHome = Environment.GetEnvironmentVariable("MEMPROCFS_HOME");
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(memProcFsHome))
+        {
+            candidates.Add(Path.Combine(memProcFsHome, "Source", "client_skills.xml"));
+            candidates.Add(Path.Combine(memProcFsHome, "client_skills.xml"));
+        }
+
+        candidates.Add(Path.Combine(Environment.CurrentDirectory, "Roadhog", "Source", "client_skills.xml"));
+        candidates.Add(Path.Combine(Environment.CurrentDirectory, "Source", "client_skills.xml"));
+        candidates.Add(Path.Combine(AppContext.BaseDirectory, "Source", "client_skills.xml"));
+        candidates.Add(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "Roadhog", "Source", "client_skills.xml"));
+
+        foreach (var candidate in candidates)
+        {
+            if (IsReadableFile(candidate))
+            {
+                return Path.GetFullPath(candidate);
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool IsReadableFile(string path)
+    {
+        return !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+    }
+
+    private static string GetSkillXmlValue(XElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            foreach (var child in element.Elements())
+            {
+                if (string.Equals(child.Name.LocalName, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return child.Value.Trim();
+                }
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string ClassifyStaticAbnormalStatus(AbnormalStatusStaticInfo info)
+    {
+        var targetSlot = NormalizeSkillXmlToken(info.TargetSlot);
+        if (string.Equals(targetSlot, "debuff", StringComparison.Ordinal) ||
+            string.Equals(targetSlot, "1", StringComparison.Ordinal))
+        {
+            return AbnormalKindNegative;
+        }
+
+        if (string.Equals(targetSlot, "buff", StringComparison.Ordinal) ||
+            string.Equals(targetSlot, "chant", StringComparison.Ordinal) ||
+            string.Equals(targetSlot, "boost", StringComparison.Ordinal) ||
+            string.Equals(targetSlot, "0", StringComparison.Ordinal) ||
+            string.Equals(targetSlot, "2", StringComparison.Ordinal) ||
+            string.Equals(targetSlot, "5", StringComparison.Ordinal))
+        {
+            return AbnormalKindPositive;
+        }
+
+        var relation = NormalizeSkillXmlToken(info.TargetRelationRestriction);
+        if (string.Equals(relation, "enemy", StringComparison.Ordinal))
+        {
+            return AbnormalKindNegative;
+        }
+
+        if (string.Equals(relation, "friend", StringComparison.Ordinal) &&
+            HasAnyEffectType(info))
+        {
+            return AbnormalKindPositive;
+        }
+
+        return AbnormalKindUnknown;
+    }
+
+    private static bool HasAnyEffectType(AbnormalStatusStaticInfo info)
+    {
+        return !string.IsNullOrWhiteSpace(info.Effect1Type) ||
+               !string.IsNullOrWhiteSpace(info.Effect2Type) ||
+               !string.IsNullOrWhiteSpace(info.Effect3Type) ||
+               !string.IsNullOrWhiteSpace(info.Effect4Type);
+    }
+
+    private static string NormalizeSkillXmlToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return value.Trim()
+            .Replace("_", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .ToLowerInvariant();
     }
 
     private static bool TryReadLocalTargetServerObjectId(
@@ -1592,7 +2000,10 @@ internal static class PartyMemberLiveProbe
         return !TryReadByte(process, node + NodeIsNilOffset, out var isNil) || isNil != 0;
     }
 
-    private static void PrintPartyMemberProbeSnapshots(List<PartyMemberProbeSnapshot> snapshots, bool printAllEntries)
+    private static void PrintPartyMemberProbeSnapshots(
+        List<PartyMemberProbeSnapshot> snapshots,
+        bool printAllEntries,
+        AbnormalStatusCatalog abnormalStatusCatalog)
     {
         Console.WriteLine("PartyMemberRecords Count=" + snapshots.Count);
         if (snapshots.Count == 0)
@@ -1603,15 +2014,18 @@ internal static class PartyMemberLiveProbe
 
         for (var i = 0; i < snapshots.Count; i++)
         {
-            Console.WriteLine(FormatPartyMemberProbeSnapshot(i + 1, snapshots[i]));
+            Console.WriteLine(FormatPartyMemberProbeSnapshot(i + 1, snapshots[i], abnormalStatusCatalog));
             if (printAllEntries)
             {
-                PrintAbnormalEntries(snapshots[i].Entries);
+                PrintAbnormalEntries(snapshots[i].Entries, abnormalStatusCatalog);
             }
         }
     }
 
-    private static string FormatPartyMemberProbeSnapshot(int index, PartyMemberProbeSnapshot snapshot)
+    private static string FormatPartyMemberProbeSnapshot(
+        int index,
+        PartyMemberProbeSnapshot snapshot,
+        AbnormalStatusCatalog abnormalStatusCatalog)
     {
         return "Party#" + index.ToString("00", CultureInfo.InvariantCulture) +
                " List=" + snapshot.ListName +
@@ -1640,6 +2054,15 @@ internal static class PartyMemberLiveProbe
                " RawAbnormalCount=" + snapshot.RawAbnormalCount.ToString(CultureInfo.InvariantCulture) +
                " EntryCount=" + snapshot.Entries.Count.ToString(CultureInfo.InvariantCulture) +
                " PhysicalCount=" + snapshot.PhysicalCount.ToString(CultureInfo.InvariantCulture) +
+               " PositiveCount=" + CountAbnormalStatuses(snapshot, abnormalStatusCatalog, AbnormalKindPositive).ToString(CultureInfo.InvariantCulture) +
+               " PositiveIds=" + FormatAbnormalIdsByKind(snapshot, abnormalStatusCatalog, AbnormalKindPositive) +
+               " NegativeCount=" + CountAbnormalStatuses(snapshot, abnormalStatusCatalog, AbnormalKindNegative).ToString(CultureInfo.InvariantCulture) +
+               " NegativeIds=" + FormatAbnormalIdsByKind(snapshot, abnormalStatusCatalog, AbnormalKindNegative) +
+               " UnknownStatusCount=" + CountAbnormalStatuses(snapshot, abnormalStatusCatalog, AbnormalKindUnknown).ToString(CultureInfo.InvariantCulture) +
+               " CleanseCandidateCount=" + CountCleanseCandidateAbnormals(snapshot, abnormalStatusCatalog).ToString(CultureInfo.InvariantCulture) +
+               " CleanseCandidateIds=" + FormatCleanseCandidateAbnormalIds(snapshot, abnormalStatusCatalog) +
+               " MentalCleanseCandidateCount=" + CountMentalCleanseCandidateAbnormals(snapshot, abnormalStatusCatalog).ToString(CultureInfo.InvariantCulture) +
+               " MentalCleanseCandidateIds=" + FormatMentalCleanseCandidateAbnormalIds(snapshot, abnormalStatusCatalog) +
                " UpdateTime=0x" + snapshot.UpdateTime.ToString("X", CultureInfo.InvariantCulture);
     }
 
@@ -1752,7 +2175,9 @@ internal static class PartyMemberLiveProbe
                " Runtime=0x" + snapshot.RuntimeState.ToString("X2", CultureInfo.InvariantCulture);
     }
 
-    private static void PrintAbnormalEntries(List<AbnormalStatusEntry> entries)
+    private static void PrintAbnormalEntries(
+        List<AbnormalStatusEntry> entries,
+        AbnormalStatusCatalog abnormalStatusCatalog)
     {
         if (entries.Count == 0)
         {
@@ -1763,12 +2188,21 @@ internal static class PartyMemberLiveProbe
         for (var i = 0; i < entries.Count; i++)
         {
             var entry = entries[i];
+            var statusKind = ClassifyAbnormalStatus(entry, abnormalStatusCatalog);
+            var detail = abnormalStatusCatalog.TryGet(entry.AbnormalId, out var staticInfo)
+                ? staticInfo
+                : default;
             Console.WriteLine(
                 "  Abnormal#" + (i + 1).ToString("00", CultureInfo.InvariantCulture) +
                 " Address=" + FormatAddress(entry.Address) +
                 " Field00=0x" + entry.Field00.ToString("X", CultureInfo.InvariantCulture) +
                 " Id=" + entry.AbnormalId.ToString(CultureInfo.InvariantCulture) +
                 " DispelCategory=" + entry.DispelCategory.ToString(CultureInfo.InvariantCulture) +
+                " StatusKind=" + statusKind +
+                " XmlName=\"" + (detail is null ? string.Empty : detail.XmlName) + "\"" +
+                " TargetSlot=\"" + (detail is null ? string.Empty : detail.TargetSlot) + "\"" +
+                " XmlDispelCategory=\"" + (detail is null ? string.Empty : detail.DispelCategory) + "\"" +
+                " Relation=\"" + (detail is null ? string.Empty : detail.TargetRelationRestriction) + "\"" +
                 " TimeOrSource=0x" + entry.TimeOrSource.ToString("X", CultureInfo.InvariantCulture) +
                 " LevelOrStack=" + entry.LevelOrStack.ToString(CultureInfo.InvariantCulture));
         }
@@ -2000,6 +2434,67 @@ internal static class PartyMemberLiveProbe
         catch
         {
         }
+    }
+
+    private sealed class AbnormalStatusCatalog
+    {
+        private readonly Dictionary<uint, AbnormalStatusStaticInfo> byId;
+
+        private AbnormalStatusCatalog(
+            string sourcePath,
+            string error,
+            Dictionary<uint, AbnormalStatusStaticInfo> byId)
+        {
+            SourcePath = sourcePath;
+            Error = error;
+            this.byId = byId;
+        }
+
+        public string SourcePath { get; }
+
+        public string Error { get; }
+
+        public bool Loaded => string.IsNullOrWhiteSpace(Error);
+
+        public int Count => byId.Count;
+
+        public static AbnormalStatusCatalog LoadedFrom(
+            string sourcePath,
+            Dictionary<uint, AbnormalStatusStaticInfo> byId)
+        {
+            return new AbnormalStatusCatalog(sourcePath, string.Empty, byId);
+        }
+
+        public static AbnormalStatusCatalog Failed(string sourcePath, string error)
+        {
+            return new AbnormalStatusCatalog(sourcePath, error, new Dictionary<uint, AbnormalStatusStaticInfo>());
+        }
+
+        public bool TryGet(uint abnormalId, out AbnormalStatusStaticInfo info)
+        {
+            if (byId.TryGetValue(abnormalId, out var value))
+            {
+                info = value;
+                return true;
+            }
+
+            info = null!;
+            return false;
+        }
+    }
+
+    private sealed class AbnormalStatusStaticInfo
+    {
+        public uint Id;
+        public string XmlName = string.Empty;
+        public string TargetSlot = string.Empty;
+        public string TargetRelationRestriction = string.Empty;
+        public string DispelCategory = string.Empty;
+        public string Effect1Type = string.Empty;
+        public string Effect2Type = string.Empty;
+        public string Effect3Type = string.Empty;
+        public string Effect4Type = string.Empty;
+        public string StatusKind = AbnormalKindUnknown;
     }
 
     private struct AbnormalStatusEntry
