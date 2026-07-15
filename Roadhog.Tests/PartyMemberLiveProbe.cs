@@ -632,16 +632,16 @@ internal static class PartyMemberLiveProbe
             1000,
             ReadIntOption(args, "--monitor-ms=", "ROADHOG_TEAM_HEAL_MONITOR_MS", "ROADHOG_MONITOR_MS", 60000));
         var intervalMs = Math.Max(
-            250,
-            ReadIntOption(args, "--interval-ms=", "ROADHOG_TEAM_HEAL_INTERVAL_MS", "ROADHOG_INTERVAL_MS", 1000));
+            100,
+            ReadIntOption(args, "--interval-ms=", "ROADHOG_TEAM_HEAL_INTERVAL_MS", "ROADHOG_INTERVAL_MS", 200));
         var stopOnIncrease = ReadBoolFromEnv("ROADHOG_TEAM_HEAL_STOP_ON_INCREASE", false);
         var autoPressHeal = ReadBoolFromEnv("ROADHOG_TEAM_HEAL_AUTO_PRESS", false);
         var autoPressSupport = ReadBoolFromEnv("ROADHOG_TEAM_SUPPORT_AUTO_PRESS", autoPressHeal);
         var autoPressCleanse = ReadBoolFromEnv("ROADHOG_TEAM_CLEANSE_AUTO_PRESS", autoPressSupport);
         var repeatAutoPress = ReadBoolFromEnv("ROADHOG_TEAM_HEAL_REPEAT_PRESS", false);
         var autoPressIntervalMs = Math.Max(
-            500,
-            ReadIntOption(args, "--auto-press-interval-ms=", "ROADHOG_TEAM_HEAL_PRESS_INTERVAL_MS", "ROADHOG_PRESS_INTERVAL_MS", 2500));
+            100,
+            ReadIntOption(args, "--auto-press-interval-ms=", "ROADHOG_TEAM_HEAL_PRESS_INTERVAL_MS", "ROADHOG_PRESS_INTERVAL_MS", 300));
         var healKey = ReadOption(args, "--heal-key=", "ROADHOG_TEAM_HEAL_KEY", "ROADHOG_HEAL_KEY", "NumPad1");
         var cleanseKey = ReadOption(args, "--cleanse-key=", "ROADHOG_TEAM_CLEANSE_KEY", "ROADHOG_CLEANSE_KEY", "NumPad7");
         var mentalCleanseKey = ReadOption(args, "--mental-cleanse-key=", "ROADHOG_TEAM_MENTAL_CLEANSE_KEY", "ROADHOG_MENTAL_CLEANSE_KEY", "NumPad8");
@@ -649,8 +649,8 @@ internal static class PartyMemberLiveProbe
             "ROADHOG_TEAM_MENTAL_CLEANSE_AUTO_PRESS",
             autoPressSupport);
         var selectConfirmDelayMs = Math.Max(
-            50,
-            ReadIntOption(args, "--select-confirm-delay-ms=", "ROADHOG_TEAM_SELECT_CONFIRM_DELAY_MS", "ROADHOG_SELECT_CONFIRM_DELAY_MS", 220));
+            30,
+            ReadIntOption(args, "--select-confirm-delay-ms=", "ROADHOG_TEAM_SELECT_CONFIRM_DELAY_MS", "ROADHOG_SELECT_CONFIRM_DELAY_MS", 120));
         var selectRetryCount = Math.Max(
             1,
             ReadIntOption(args, "--select-retry-count=", "ROADHOG_TEAM_SELECT_RETRY_COUNT", "ROADHOG_SELECT_RETRY_COUNT", 4));
@@ -660,8 +660,8 @@ internal static class PartyMemberLiveProbe
         var kmboxIp = ReadOption(args, "--kmbox-ip=", "ROADHOG_KMBOX_IP", "KMBOX_NET_IP", "192.168.2.188");
         var kmboxPort = ReadIntOption(args, "--kmbox-port=", "ROADHOG_KMBOX_PORT", "KMBOX_NET_PORT", 4967);
         var kmboxMac = ReadOption(args, "--kmbox-mac=", "ROADHOG_KMBOX_MAC", "KMBOX_NET_MAC", "5BF7E466");
-        var kmboxHoldMs = Math.Max(1, ReadIntOption(args, "--kmbox-hold-ms=", "ROADHOG_KMBOX_HOLD_MS", "KMBOX_HOLD_MS", 70));
-        var kmboxGapMs = Math.Max(0, ReadIntOption(args, "--kmbox-gap-ms=", "ROADHOG_KMBOX_GAP_MS", "KMBOX_GAP_MS", 350));
+        var kmboxHoldMs = Math.Max(1, ReadIntOption(args, "--kmbox-hold-ms=", "ROADHOG_KMBOX_HOLD_MS", "KMBOX_HOLD_MS", 45));
+        var kmboxGapMs = Math.Max(0, ReadIntOption(args, "--kmbox-gap-ms=", "ROADHOG_KMBOX_GAP_MS", "KMBOX_GAP_MS", 120));
 
         Console.WriteLine("Roadhog team support live probe.");
         Console.WriteLine("MonitorMs=" + monitorMs.ToString(CultureInfo.InvariantCulture) +
@@ -682,7 +682,7 @@ internal static class PartyMemberLiveProbe
 
         var started = DateTime.UtcNow;
         var previousHpByMember = new Dictionary<uint, uint>();
-        var previousPhysicalByMember = new Dictionary<uint, int>();
+        var previousCleanseCandidateByMember = new Dictionary<uint, int>();
         var previousMentalCleanseByMember = new Dictionary<uint, int>();
         var sawDamageByMember = new HashSet<uint>();
         var sawHealByMember = new HashSet<uint>();
@@ -793,27 +793,6 @@ internal static class PartyMemberLiveProbe
                         sawHealByMember.Add(member.ServerObjectId);
                     }
 
-                    var previousPhysicalKnown = previousPhysicalByMember.TryGetValue(member.ServerObjectId, out var previousPhysicalCount);
-                    if (member.PhysicalCount > 0)
-                    {
-                        sawPhysicalByMember.Add(member.ServerObjectId);
-                    }
-
-                    if (previousPhysicalKnown &&
-                        previousPhysicalCount > 0 &&
-                        member.PhysicalCount == 0)
-                    {
-                        sawPhysicalClearedByMember.Add(member.ServerObjectId);
-                    }
-
-                    previousHpByMember[member.ServerObjectId] = member.CurrentHp;
-                    previousPhysicalByMember[member.ServerObjectId] = member.PhysicalCount;
-
-                    var selectKey = ComputeSelectMemberKey(members, member.ServerObjectId, hasLocal ? liveSummary.LocalServerObjectId : 0);
-                    var isSelected = hasLiveSummary &&
-                                     liveSummary.LocalTargetServerObjectId != 0 &&
-                                     liveSummary.LocalTargetServerObjectId == member.ServerObjectId;
-                    var pressMode = isSelected ? "action_only_current_target" : "select_then_action";
                     var positiveCount = CountAbnormalStatuses(member, abnormalStatusCatalog, AbnormalKindPositive);
                     var negativeCount = CountAbnormalStatuses(member, abnormalStatusCatalog, AbnormalKindNegative);
                     var unknownStatusCount = CountAbnormalStatuses(member, abnormalStatusCatalog, AbnormalKindUnknown);
@@ -821,6 +800,28 @@ internal static class PartyMemberLiveProbe
                     var mentalCleanseCandidateCount = CountMentalCleanseCandidateAbnormals(member, abnormalStatusCatalog);
                     var needsCleanse = cleanseCandidateCount > 0;
                     var needsMentalCleanse = mentalCleanseCandidateCount > 0;
+
+                    var previousCleanseCandidateKnown = previousCleanseCandidateByMember.TryGetValue(member.ServerObjectId, out var previousCleanseCandidateCount);
+                    if (cleanseCandidateCount > 0)
+                    {
+                        sawPhysicalByMember.Add(member.ServerObjectId);
+                    }
+
+                    if (previousCleanseCandidateKnown &&
+                        previousCleanseCandidateCount > 0 &&
+                        cleanseCandidateCount == 0)
+                    {
+                        sawPhysicalClearedByMember.Add(member.ServerObjectId);
+                    }
+
+                    previousHpByMember[member.ServerObjectId] = member.CurrentHp;
+                    previousCleanseCandidateByMember[member.ServerObjectId] = cleanseCandidateCount;
+
+                    var selectKey = ComputeSelectMemberKey(members, member.ServerObjectId, hasLocal ? liveSummary.LocalServerObjectId : 0);
+                    var isSelected = hasLiveSummary &&
+                                     liveSummary.LocalTargetServerObjectId != 0 &&
+                                     liveSummary.LocalTargetServerObjectId == member.ServerObjectId;
+                    var pressMode = isSelected ? "action_only_current_target" : "select_then_action";
 
                     var previousMentalCleanseKnown = previousMentalCleanseByMember.TryGetValue(member.ServerObjectId, out var previousMentalCleanseCount);
                     if (mentalCleanseCandidateCount > 0)
@@ -872,28 +873,26 @@ internal static class PartyMemberLiveProbe
                 var actionMember = default(PartyMemberProbeSnapshot);
                 var hasAction = false;
 
-                if (autoPressCleanse)
+                if (autoPressMentalCleanse)
                 {
                     actionMember = supportMembers.FirstOrDefault(member =>
-                        CountCleanseCandidateAbnormals(member, abnormalStatusCatalog) > 0 &&
-                        IsTargetActionReady(member, "cleanse", DateTime.UtcNow));
-                    if (actionMember.ServerObjectId != 0)
-                    {
-                        actionKind = "cleanse";
-                        actionKey = cleanseKey;
-                        hasAction = true;
-                    }
-                }
-
-                if (!hasAction && autoPressMentalCleanse)
-                {
-                    actionMember = supportMembers.FirstOrDefault(member =>
-                        CountMentalCleanseCandidateAbnormals(member, abnormalStatusCatalog) > 0 &&
-                        IsTargetActionReady(member, "mental_cleanse", DateTime.UtcNow));
+                        CountMentalCleanseCandidateAbnormals(member, abnormalStatusCatalog) > 0);
                     if (actionMember.ServerObjectId != 0)
                     {
                         actionKind = "mental_cleanse";
                         actionKey = mentalCleanseKey;
+                        hasAction = true;
+                    }
+                }
+
+                if (!hasAction && autoPressCleanse)
+                {
+                    actionMember = supportMembers.FirstOrDefault(member =>
+                        CountCleanseCandidateAbnormals(member, abnormalStatusCatalog) > 0);
+                    if (actionMember.ServerObjectId != 0)
+                    {
+                        actionKind = "cleanse";
+                        actionKey = cleanseKey;
                         hasAction = true;
                     }
                 }
@@ -903,8 +902,7 @@ internal static class PartyMemberLiveProbe
                     actionMember = supportMembers.FirstOrDefault(member =>
                         member.MaxHp > 0 &&
                         member.CurrentHp > 0 &&
-                        member.CurrentHp < member.MaxHp &&
-                        IsTargetActionReady(member, "heal", DateTime.UtcNow));
+                        member.CurrentHp < member.MaxHp);
                     if (actionMember.ServerObjectId != 0)
                     {
                         actionKind = "heal";
@@ -917,8 +915,11 @@ internal static class PartyMemberLiveProbe
                                      !autoPressAttempted;
                 var pressIntervalElapsed = lastAutoPressAt == DateTime.MinValue ||
                                            (DateTime.UtcNow - lastAutoPressAt).TotalMilliseconds >= autoPressIntervalMs;
+                var targetActionReady = !hasAction ||
+                                        IsTargetActionReady(actionMember, actionKind, DateTime.UtcNow);
 
                 if (hasAction &&
+                    targetActionReady &&
                     canRepeatPress &&
                     pressIntervalElapsed)
                 {
@@ -996,11 +997,21 @@ internal static class PartyMemberLiveProbe
                 }
                 else if (hasAction)
                 {
+                    var skipReason = "press_interval";
+                    if (!targetActionReady)
+                    {
+                        skipReason = "target_action_cooldown";
+                    }
+                    else if (!canRepeatPress)
+                    {
+                        skipReason = "repeat_disabled";
+                    }
+
                     Console.WriteLine("SupportProbeAction sample=" + sample.ToString(CultureInfo.InvariantCulture) +
                                       " Action=" + actionKind +
                                       " Target=" + actionMember.Name +
                                       " TargetServerId=" + actionMember.ServerObjectId.ToString(CultureInfo.InvariantCulture) +
-                                      " Skipped=yes Reason=\"" + (!canRepeatPress ? "repeat_disabled" : "press_interval") + "\"");
+                                      " Skipped=yes Reason=\"" + skipReason + "\"");
                 }
 
                 if (stopOnIncrease &&

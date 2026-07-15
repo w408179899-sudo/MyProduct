@@ -334,19 +334,36 @@ static-summon-pet
 
 清状态 + 加血端到端验证：2026-07-15 使用 `script\2` 治愈星 `Jone`，KMBox `192.168.4.188:49412 / C5440C3D`，队友 `HiApple` 对应 `F2`。当 `HiApple` 同时 `HP=3522/3903` 且 `CleanseCandidateIds=1632:L9:Debuff` 时，probe 先执行 `Action=cleanse`，按键 `F2,NumPad7`，结果 `Success=yes`。清状态候选消失后，继续执行 `Action=heal`，按 `NumPad1`，结果 `Success=yes`。最终 120 秒测试统计为 `CleansePressCount=13 / CleansePressSuccessCount=13`、`HealPressCount=9 / HealPressSuccessCount=9`、`SawDamage=yes`、`SawHealAfterDamage=yes`、`SawPhysicalCleared=yes`。
 
+精神 + 肉体 + 加血三项联测：2026-07-15 同一环境下，让 `HiApple` 同时掉血并受到精神/肉体异常。关键样本中 `HP=3620/3903`，`MentalCleanseCandidateIds=1636:L1:Debuff`，`CleanseCandidateIds=1632:L9:Debuff,1360:L9:Debuff`，probe 先执行 `Action=mental_cleanse`，按 `NumPad8`，结果 `Success=yes`。精神候选消失后，执行 `Action=cleanse`，按 `NumPad7`，结果 `Success=yes`。两个清除候选都消失且 HP 未满时，执行 `Action=heal`，按 `NumPad1`，结果 `Success=yes`。最终 180 秒统计为 `MentalCleansePressCount=9 / MentalCleansePressSuccessCount=9`、`CleansePressCount=17 / CleansePressSuccessCount=17`、`HealPressCount=18 / HealPressSuccessCount=18`。
+
 第一版正式业务顺序：
 
 ```text
-if team member has CleanseCandidate:
-  select member body by F2-F6
-  press physical cleanse key NumPad7
-else if team member has MentalCleanseCandidate:
+if team member has MentalCleanseCandidate:
   select member body by F2-F6
   press mental cleanse key NumPad8
+else if team member has CleanseCandidate:
+  select member body by F2-F6
+  press physical cleanse key NumPad7
 else if team member HP is below max:
   select member body by F2-F6
   press heal key NumPad1
 ```
+
+优先级必须严格阻断低优先级动作：
+
+- 只要存在 `MentalCleanseCandidate`，就不能降级去按 `NumPad7` 或 `NumPad1`。
+- 如果 `NumPad8` 刚按过、动作冷却未到，则等待下一轮继续尝试精神解除。
+- 只有没有精神解除候选时，才允许检查肉体解除候选。
+- 只有没有任何解除候选时，才允许加血。
+- 精神解除技能等级较低时，可能需要多次 `NumPad8` 才能解除；技能等级提升后，同样精神异常一次 `NumPad8` 即可解除。
+
+维护反应速度按快速节奏实现：
+
+- 队伍维护采样默认约 `200ms` 一次，可用 `ROADHOG_TEAM_HEAL_INTERVAL_MS` 压到 `100ms`。
+- 维护动作默认约 `300ms` 允许一次，可用 `ROADHOG_TEAM_HEAL_PRESS_INTERVAL_MS` 压到 `100ms`。
+- `ROADHOG_TEAM_TARGET_ACTION_COOLDOWN_MS` 控制同一目标同一动作的重复频率；精神异常未解除时，允许按这个冷却连续补 `NumPad8`。
+- KMBox 默认 `45ms` hold、`120ms` gap；实测稳定后可以继续通过 `ROADHOG_KMBOX_HOLD_MS` / `ROADHOG_KMBOX_GAP_MS` 下调。
 
 加血队员选中具体队友的第一版方案：
 

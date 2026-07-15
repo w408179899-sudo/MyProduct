@@ -609,9 +609,36 @@ id=9910 name=item_potion_cure_mental effect1_type=DispelDebuffMental
 维护动作优先级：
 
 ```text
-1. CleanseCandidateCount > 0       -> F2-F6 选中队友本体 -> NumPad7
-2. MentalCleanseCandidateCount > 0 -> F2-F6 选中队友本体 -> NumPad8
+1. MentalCleanseCandidateCount > 0 -> F2-F6 选中队友本体 -> NumPad8
+2. CleanseCandidateCount > 0       -> F2-F6 选中队友本体 -> NumPad7
 3. HP 未满                         -> F2-F6 选中队友本体 -> NumPad1
+```
+
+这是严格优先级，不是“谁当前可按就按谁”：
+
+```text
+只要 MentalCleanseCandidateCount > 0，就不能降级去按 NumPad7 或 NumPad1。
+如果 NumPad8 刚按过、动作冷却未到，则等待下一轮继续尝试 NumPad8。
+
+只要 CleanseCandidateCount > 0 且没有精神解除候选，就不能降级去按 NumPad1。
+如果 NumPad7 刚按过、动作冷却未到，则等待下一轮继续尝试 NumPad7。
+```
+
+精神解除技能等级会影响实际解除结果：
+
+```text
+如果精神解除技能等级低于异常等级，可能需要连续按两次 NumPad8。
+技能等级提升后，同样精神异常一次 NumPad8 即可解除。
+这不改变业务优先级；精神异常存在期间仍然持续尝试 NumPad8，不降级按 NumPad7。
+```
+
+响应速度第一版按“快速维护”处理：
+
+```text
+队伍维护采样默认约 200ms 一次，允许通过 ROADHOG_TEAM_HEAL_INTERVAL_MS 压到 100ms。
+维护动作默认约 300ms 允许一次，允许通过 ROADHOG_TEAM_HEAL_PRESS_INTERVAL_MS 继续压到 100ms。
+目标动作冷却默认跟随维护动作间隔；精神异常仍存在时，可以按该冷却连续补 NumPad8。
+KMBox 默认按键保持约 45ms，按键间隔约 120ms，可按测试稳定性继续下调。
 ```
 
 ### 清状态 + 加血端到端验证
@@ -674,7 +701,74 @@ HealPressCount=9
 HealPressSuccessCount=9
 ```
 
-结论：加血维护队员的第一版核心闭环成立。读取队员状态后，先按 `CleanseCandidate` 选择队友并释放 `NumPad7`；清状态候选消失后，如果 HP 未满，再对同一目标释放 `NumPad1`。
+结论：加血维护队员的第一版核心闭环成立。读取队员状态后，优先按 `MentalCleanseCandidate` 选择队友并释放 `NumPad8`；没有精神解除候选时，再按 `CleanseCandidate` 选择队友并释放 `NumPad7`；清状态候选消失后，如果 HP 未满，再对同一目标释放 `NumPad1`。
+
+### 精神 + 肉体 + 加血三项联测
+
+验证时间：2026-07-15。
+
+测试环境：
+
+```text
+运行根目录: C:\Users\GoldGiven\Desktop\script\2
+VMM: fpga://devindex=2
+PID: 9788
+本地角色: Jone，治愈星
+目标队友: HiApple，F2
+KMBox: 192.168.4.188:49412 / C5440C3D
+精神解除键: NumPad8
+肉体解除键: NumPad7
+治疗键: NumPad1
+```
+
+关键样本：
+
+```text
+sample=17
+HP=3620/3903
+NegativeIds=1636:L1:Debuff,1632:L9:Debuff,1360:L9:Debuff
+MentalCleanseCandidateIds=1636:L1:Debuff
+CleanseCandidateIds=1632:L9:Debuff,1360:L9:Debuff
+Action=mental_cleanse
+ActionKey=NumPad8
+Success=yes
+
+sample=25
+MentalCleanseCandidateIds=None
+CleanseCandidateIds=1632:L9:Debuff,1360:L9:Debuff
+Action=cleanse
+ActionKey=NumPad7
+Success=yes
+
+sample=29
+CleanseCandidateIds=None
+MentalCleanseCandidateIds=None
+HP=3131/3903
+Action=heal
+ActionKey=NumPad1
+Success=yes
+```
+
+最终摘要：
+
+```text
+SawDamage=yes
+SawHealAfterDamage=yes
+SawPhysicalAbnormal=yes
+SawPhysicalCleared=yes
+SawMentalCleanseCandidate=yes
+SawMentalCleanseCleared=yes
+AutoPressCount=44
+AutoPressSuccessCount=44
+MentalCleansePressCount=9
+MentalCleansePressSuccessCount=9
+CleansePressCount=17
+CleansePressSuccessCount=17
+HealPressCount=18
+HealPressSuccessCount=18
+```
+
+结论：三项联测验证通过。正式优先级应保持为 `精神解除 -> 肉体解除 -> 加血`。后续修正：优先级必须严格阻断低优先级动作，精神异常存在时即使 `NumPad8` 暂时处于动作冷却，也不能先按 `NumPad7`。精神解除技能等级较低时，可能需要多次 `NumPad8` 才能解除；这是技能效果问题，不是优先级问题。
 
 读取时应把数量 clamp 到 `0..112`，避免异常数据导致越界。
 
