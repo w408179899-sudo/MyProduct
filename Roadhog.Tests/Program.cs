@@ -46,6 +46,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("shared path store saves loads and deletes path files", TestSharedPathStoreRoundTripAsync),
     ("script profile store saves loads and deletes profile files", TestScriptProfileStoreRoundTripAsync),
     ("runtime player read uses account scoped context", TestRuntimePlayerReadUsesAccountScopeAsync),
+    ("runtime path recording player read bypasses memory cache", TestRuntimePathRecordingPlayerReadBypassesMemoryCacheAsync),
     ("runtime skill read uses saved account scope when idle", TestRuntimeSkillReadUsesSavedAccountScopeWhenIdleAsync),
     ("runtime skill read maps saved hardware key to indexed fpga device", TestRuntimeSkillReadMapsSavedHardwareKeyToIndexedFpgaDeviceAsync),
     ("account start preserves configured indexed fpga device", TestAccountStartPreservesConfiguredIndexedFpgaDeviceAsync),
@@ -299,6 +300,22 @@ static Task TestPathRecorderMinimumDistanceAsync()
     AssertFalse(!atCustomMinimum.Success, "point at configured minimum below five meters must be accepted");
     AssertEqual(2, customBuffer.Count, "custom minimum accepted point count");
 
+    var denseBuffer = new PathRecordingBuffer();
+    denseBuffer.TryAdd(new Vector3Snapshot(0, 0, 0), now);
+    var belowDenseMinimum = denseBuffer.TryAdd(new Vector3Snapshot(0.29F, 0, 0), now.AddMilliseconds(100), 0.3D);
+    AssertFalse(belowDenseMinimum.Success, "point below 0.3 meter configured minimum must be skipped");
+    var atDenseMinimum = denseBuffer.TryAdd(new Vector3Snapshot(0.3F, 0, 0), now.AddMilliseconds(200), 0.3D);
+    AssertFalse(!atDenseMinimum.Success, "point at 0.3 meter configured minimum must be accepted");
+    AssertEqual(2, denseBuffer.Count, "dense minimum accepted point count");
+
+    var interpolatedBuffer = new PathRecordingBuffer();
+    interpolatedBuffer.TryAddDense(new Vector3Snapshot(0, 0, 0), now, 0.3D);
+    var interpolated = interpolatedBuffer.TryAddDense(new Vector3Snapshot(1.2F, 0, 0), now.AddMilliseconds(400), 0.3D);
+    AssertFalse(!interpolated.Success, "dense recording should accept a long segment");
+    AssertEqual(5, interpolatedBuffer.Count, "dense recording should insert intermediate points");
+    AssertEqual(0.3D, Math.Round(interpolatedBuffer.Points[1].SegmentDistance, 2), "first dense segment distance");
+    AssertEqual(1.2D, Math.Round(interpolatedBuffer.TotalDistance, 2), "dense recording total distance");
+
     return Task.CompletedTask;
 }
 
@@ -419,6 +436,45 @@ static async Task TestRuntimePlayerReadUsesAccountScopeAsync()
     AssertEqual(712, gameApi.LastPlayerContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastPlayerContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastPlayerContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
+}
+
+static async Task TestRuntimePathRecordingPlayerReadBypassesMemoryCacheAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    accounts.MarkStarting(new AccountConfig
+    {
+        AccountName = "record-scope",
+        ProcessId = 713,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga"
+    });
+
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            10,
+            11,
+            "Record Character",
+            100,
+            100,
+            50,
+            50,
+            0,
+            new Vector3Snapshot(1, 2, 3),
+            DateTimeOffset.Now)
+    };
+    var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
+
+    var normalResult = await runtime.ReadPlayerAsync("record-scope").ConfigureAwait(false);
+
+    AssertFalse(!normalResult.Success, "normal player read should succeed");
+    AssertFalse(gameApi.LastPlayerContext?.BypassMemoryCache ?? true, "normal player read should use default VMM cache");
+
+    var recordingResult = await runtime.ReadPlayerForPathRecordingAsync("record-scope").ConfigureAwait(false);
+
+    AssertFalse(!recordingResult.Success, "path recording player read should succeed");
+    AssertFalse(!(gameApi.LastPlayerContext?.BypassMemoryCache ?? false), "path recording player read should bypass VMM cache");
 }
 
 static async Task TestRuntimeSkillReadUsesSavedAccountScopeWhenIdleAsync()
@@ -4791,6 +4847,7 @@ static async Task TestPathCombatUsesConfiguredPathFollowPrecisionAsync()
         AssertFalse(!state.PathCombat.Active, "path combat should start with configured path");
         AssertEqual(1, state.PathCombat.PointIndex, "configured precision should treat first waypoint as reached");
         AssertFalse(!keyboard.KeyDowns.Contains("W"), "path combat should walk toward the next waypoint");
+        AssertFalse(!(gameApi.LastPlayerContext?.BypassMemoryCache ?? false), "path follow player read should bypass VMM cache before holding W");
         AssertFalse(!logger.Entries.Any(entry =>
                 entry.EventName == "stationary_combat.path_combat.point_reached" &&
                 Convert.ToInt32(entry.Fields["pointIndex"]) == 0),

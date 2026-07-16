@@ -21,6 +21,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
 {
     private static readonly TimeSpan VmmReconnectDelay = TimeSpan.FromSeconds(5);
     private const int PlayerReadFailuresBeforeReconnect = 3;
+    private const uint VmmReadFlagNoCache = 0x00000001;
 
     private const ulong EntitySystemPointerRva = 0x904690;
     private const ulong ServerObjectTreeRva = 0xD21740;
@@ -900,7 +901,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
                 return OperationResult<PlayerSnapshot>.Fail("Module not found: " + moduleName);
             }
 
-            if (!TryReadLocalPlayer(process, gameBase, out var snapshot, out var readError))
+            if (!TryReadLocalPlayer(process, gameBase, context.BypassMemoryCache, out var snapshot, out var readError))
             {
                 return OperationResult<PlayerSnapshot>.Fail(readError);
             }
@@ -917,7 +918,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
                 ["maxHp"] = snapshot.MaxHp,
                 ["mp"] = snapshot.CurrentMp,
                 ["maxMp"] = snapshot.MaxMp,
-                ["hasPosition"] = snapshot.Position is not null
+                ["hasPosition"] = snapshot.Position is not null,
+                ["bypassMemoryCache"] = context.BypassMemoryCache
             });
 
             return OperationResult<PlayerSnapshot>.Ok(snapshot);
@@ -3500,6 +3502,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
     private static bool TryReadLocalPlayer(
         VmmProcess process,
         ulong gameBase,
+        bool bypassMemoryCache,
         out PlayerSnapshot snapshot,
         out string error)
     {
@@ -3532,7 +3535,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
             return false;
         }
 
-        if (!TryReadEntityPosition(process, localEntity, out var x, out var y, out var z))
+        if (!TryReadEntityPosition(process, localEntity, out var x, out var y, out var z, bypassMemoryCache))
         {
             error = "failed to read local entity position at CEntity+0x" + EntityWorldPositionOffset.ToString("X");
             return false;
@@ -4852,13 +4855,19 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         return false;
     }
 
-    private static bool TryReadEntityPosition(VmmProcess process, ulong entity, out float x, out float y, out float z)
+    private static bool TryReadEntityPosition(
+        VmmProcess process,
+        ulong entity,
+        out float x,
+        out float y,
+        out float z,
+        bool bypassMemoryCache = false)
     {
         x = 0;
         y = 0;
         z = 0;
 
-        if (!TryReadUInt32(process, entity + EntityPositionFlagsOffset, out var flags))
+        if (!TryReadUInt32(process, entity + EntityPositionFlagsOffset, out var flags, bypassMemoryCache))
         {
             return false;
         }
@@ -4867,9 +4876,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
             ? EntityLocalPositionOffset
             : EntityWorldPositionOffset;
 
-        return TryReadSingle(process, entity + positionOffset, out x) &&
-               TryReadSingle(process, entity + positionOffset + 4, out y) &&
-               TryReadSingle(process, entity + positionOffset + 8, out z);
+        return TryReadSingle(process, entity + positionOffset, out x, bypassMemoryCache) &&
+               TryReadSingle(process, entity + positionOffset + 4, out y, bypassMemoryCache) &&
+               TryReadSingle(process, entity + positionOffset + 8, out z, bypassMemoryCache);
     }
 
     private static bool TryResolveActorFromEntity(
@@ -5744,6 +5753,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         return results;
     }
 
+    private static byte[] MemRead(VmmProcess process, ulong address, uint count, bool bypassMemoryCache = false)
+    {
+        return bypassMemoryCache
+            ? process.MemRead(address, count, VmmReadFlagNoCache)
+            : process.MemRead(address, count);
+    }
+
     private static bool TryReadByte(VmmProcess process, ulong address, out byte value)
     {
         value = 0;
@@ -6079,12 +6095,16 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         }
     }
 
-    private static bool TryReadSingle(VmmProcess process, ulong address, out float value)
+    private static bool TryReadSingle(
+        VmmProcess process,
+        ulong address,
+        out float value,
+        bool bypassMemoryCache = false)
     {
         value = 0;
         try
         {
-            var buffer = process.MemRead(address, 4);
+            var buffer = MemRead(process, address, 4, bypassMemoryCache);
             if (buffer is null || buffer.Length < 4)
             {
                 return false;
@@ -6119,12 +6139,16 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         }
     }
 
-    private static bool TryReadUInt32(VmmProcess process, ulong address, out uint value)
+    private static bool TryReadUInt32(
+        VmmProcess process,
+        ulong address,
+        out uint value,
+        bool bypassMemoryCache = false)
     {
         value = 0;
         try
         {
-            var buffer = process.MemRead(address, 4);
+            var buffer = MemRead(process, address, 4, bypassMemoryCache);
             if (buffer is null || buffer.Length < 4)
             {
                 return false;

@@ -5060,6 +5060,12 @@ public sealed class StationaryCombatController
         Vector3Snapshot target,
         double reachDistance)
     {
+        var freshPlayerResult = await ReadPathFollowPlayerAsync(context).ConfigureAwait(false);
+        if (freshPlayerResult.Success && freshPlayerResult.Value?.Position is not null)
+        {
+            player = freshPlayerResult.Value;
+        }
+
         if (player.Position is null)
         {
             return;
@@ -5082,6 +5088,15 @@ public sealed class StationaryCombatController
         }
         else
         {
+            if (snapshot.DistanceToTarget <= reachDistance)
+            {
+                TryMarkPathFollowArrivedNow(poller, out _, out _);
+                await StopMovementAsync(context, state).ConfigureAwait(false);
+                LogPathAction(context, state, "arrived", snapshot, 0, 0);
+                StopPathFollowPoller(state);
+                return;
+            }
+
             var restartMoveForLargeYaw = ShouldRestartMoveForYaw(state.IsMovingForward, snapshot.YawError, options.RestartYawThresholdDegrees);
             if (restartMoveForLargeYaw)
             {
@@ -5924,6 +5939,13 @@ public sealed class StationaryCombatController
             : context.GameApi.ReadPlayerAsync(context.StopToken);
     }
 
+    private static Task<OperationResult<PlayerSnapshot>> ReadPathFollowPlayerAsync(AccountWorkerContext context)
+    {
+        return context.GameApi is IRoadhogScopedGameApi scopedApi
+            ? scopedApi.ReadPlayerAsync(CreateReadContext(context, bypassMemoryCache: true), context.StopToken)
+            : context.GameApi.ReadPlayerAsync(context.StopToken);
+    }
+
     private static async Task RefreshLocalCombatSideAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
@@ -5975,13 +5997,16 @@ public sealed class StationaryCombatController
             : context.GameApi.ReadWorldObjectsAsync(context.StopToken);
     }
 
-    private static GameApiReadContext CreateReadContext(AccountWorkerContext context)
+    private static GameApiReadContext CreateReadContext(
+        AccountWorkerContext context,
+        bool bypassMemoryCache = false)
     {
         return new GameApiReadContext(
             context.Config.AccountName,
             context.Config.ProcessId,
             context.Config.TargetProcessName,
-            context.Config.VmmDeviceName);
+            context.Config.VmmDeviceName,
+            bypassMemoryCache);
     }
 
     private async Task<CameraTurnSnapshot?> ReadTurnSnapshotAsync(
@@ -6159,7 +6184,7 @@ public sealed class StationaryCombatController
         var interval = TimeSpan.FromMilliseconds(ReadPathFollowTickMs());
         while (!poller.Cancellation.IsCancellationRequested)
         {
-            var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
+            var playerResult = await ReadPathFollowPlayerAsync(context).ConfigureAwait(false);
             lock (poller.SyncRoot)
             {
                 if (poller.StopRequested)
@@ -6904,7 +6929,7 @@ public sealed class StationaryCombatController
 
     private static int ReadPathFollowTickMs()
     {
-        return ClampInt(ReadRawIntFromEnv("AION_PATH_FOLLOW_TICK_MS", 10), 1, 2000);
+        return ClampInt(ReadRawIntFromEnv("AION_PATH_FOLLOW_TICK_MS", 50), 1, 2000);
     }
 
     private static int ReadDeathRecoveryTickMs()

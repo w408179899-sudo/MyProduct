@@ -10,7 +10,7 @@ public sealed class PathRecordingBuffer
 {
     public const double MinimumDistanceMeters = PathScriptSettings.DefaultRecordingMinimumDistance;
 
-    public const double MinimumAllowedDistanceMeters = 0.5D;
+    public const double MinimumAllowedDistanceMeters = 0.3D;
 
     public const double MaximumAllowedDistanceMeters = 100.0D;
 
@@ -62,6 +62,64 @@ public sealed class PathRecordingBuffer
         var point = CreatePoint(position, recordedAt);
         _points.Add(point);
         return OperationResult<SharedPathPoint>.Ok(point.Clone());
+    }
+
+    public OperationResult<SharedPathPoint> TryAddDense(
+        Vector3Snapshot position,
+        DateTimeOffset recordedAt,
+        double minimumDistanceMeters = MinimumDistanceMeters)
+    {
+        minimumDistanceMeters = Math.Clamp(
+            minimumDistanceMeters,
+            MinimumAllowedDistanceMeters,
+            MaximumAllowedDistanceMeters);
+
+        if (_points.Count == 0)
+        {
+            var first = CreatePoint(position, recordedAt);
+            _points.Add(first);
+            return OperationResult<SharedPathPoint>.Ok(first.Clone());
+        }
+
+        var previous = _points[^1];
+        var distance = Distance(previous, position);
+        if (distance < minimumDistanceMeters)
+        {
+            return OperationResult<SharedPathPoint>.Fail(
+                "Path point skipped because distance " +
+                Format(distance, 2) +
+                "m is below " +
+                Format(minimumDistanceMeters, 2) +
+                "m.");
+        }
+
+        var rawSteps = distance / minimumDistanceMeters;
+        var roundedSteps = Math.Round(rawSteps);
+        var steps = Math.Max(
+            1,
+            (int)(Math.Abs(rawSteps - roundedSteps) < 1e-6D
+                ? roundedSteps
+                : Math.Ceiling(rawSteps)));
+        var startTime = previous.RecordedAt;
+        var elapsedTicks = recordedAt > startTime
+            ? recordedAt.Ticks - startTime.Ticks
+            : 0L;
+
+        for (var i = 1; i <= steps; i++)
+        {
+            var ratio = (double)i / steps;
+            var interpolatedPosition = new Vector3Snapshot(
+                (float)(previous.X + (position.X - previous.X) * ratio),
+                (float)(previous.Y + (position.Y - previous.Y) * ratio),
+                (float)(previous.Z + (position.Z - previous.Z) * ratio));
+            var interpolatedAt = elapsedTicks > 0
+                ? new DateTimeOffset(startTime.Ticks + (long)Math.Round(elapsedTicks * ratio), startTime.Offset)
+                : recordedAt;
+
+            _points.Add(CreatePoint(interpolatedPosition, interpolatedAt));
+        }
+
+        return OperationResult<SharedPathPoint>.Ok(_points[^1].Clone());
     }
 
     public OperationResult RemoveLast()

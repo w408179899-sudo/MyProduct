@@ -284,6 +284,36 @@ public sealed class RoadhogRuntime
         return result;
     }
 
+    public async Task<OperationResult<PlayerSnapshot>> ReadPlayerForPathRecordingAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ReadPlayerSnapshotAsync(
+            accountName,
+            cancellationToken,
+            bypassMemoryCache: true).ConfigureAwait(false);
+        if (result.Success)
+        {
+            _logger.Info("path_record.player_refresh.ok", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["hasPosition"] = result.Value?.Position is not null,
+                ["bypassMemoryCache"] = true
+            });
+        }
+        else
+        {
+            _logger.Warn("path_record.player_refresh.failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["error"] = result.Error,
+                ["bypassMemoryCache"] = true
+            });
+        }
+
+        return result;
+    }
+
 #if DEBUG
     public async Task<OperationResult<RoadhogApiProbeResult>> RunApiProbeAsync(
         string? accountName = null,
@@ -1470,12 +1500,13 @@ public sealed class RoadhogRuntime
 
     private Task<OperationResult<PlayerSnapshot>> ReadPlayerSnapshotAsync(
         string? accountName,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool bypassMemoryCache = false)
     {
         if (_gameApi is IRoadhogScopedGameApi scopedApi &&
             !string.IsNullOrWhiteSpace(accountName))
         {
-            return scopedApi.ReadPlayerAsync(CreateReadContext(accountName), cancellationToken);
+            return scopedApi.ReadPlayerAsync(CreateReadContext(accountName, bypassMemoryCache), cancellationToken);
         }
 
         return _gameApi.ReadPlayerAsync(cancellationToken);
@@ -1542,7 +1573,7 @@ public sealed class RoadhogRuntime
     }
 #endif
 
-    private GameApiReadContext CreateReadContext(string accountName)
+    private GameApiReadContext CreateReadContext(string accountName, bool bypassMemoryCache = false)
     {
         var account = Accounts.Snapshot()
             .FirstOrDefault(item => string.Equals(item.AccountName, accountName, StringComparison.OrdinalIgnoreCase));

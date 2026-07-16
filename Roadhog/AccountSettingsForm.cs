@@ -12,6 +12,7 @@ namespace Roadhog
     {
         private const string ManualSkillMappingRowDragFormat = "Roadhog.ManualSkillMappingRow";
         private const double CleanupNpcSearchRadiusMeters = 10.0D;
+        private const int PathRecordTimerIntervalMs = 100;
 
         private readonly string _account;
         private readonly RoadhogRuntime _runtime;
@@ -20,7 +21,7 @@ namespace Roadhog
         private readonly IScriptProfileStore _profileStore;
         private readonly Dictionary<SharedPathKind, PathEditorControls> pathEditors = new();
         private readonly Dictionary<SharedPathKind, Label> pathOverviewLabels = new();
-        private readonly System.Windows.Forms.Timer pathRecordTimer = new() { Interval = 250 };
+        private readonly System.Windows.Forms.Timer pathRecordTimer = new() { Interval = PathRecordTimerIntervalMs };
         private IReadOnlyList<SharedPathSummary> currentPathSummaries = Array.Empty<SharedPathSummary>();
         private IReadOnlyList<ScriptProfileSummary> currentProfileSummaries = Array.Empty<ScriptProfileSummary>();
         private SharedPathKind? recordingPathKind;
@@ -1329,7 +1330,7 @@ namespace Roadhog
             var loopCheckBox = AddCheckBox(pathAdvanced.Content, "循环路径", 6, 12, 92, true);
             var reverseCheckBox = AddCheckBox(pathAdvanced.Content, "到终点反向", 102, 12, 106, false);
             var deathStopCheckBox = AddCheckBox(pathAdvanced.Content, "死亡停止路径", 206, 12, 130, true);
-            AddLabel(pathAdvanced.Content, "自动录制每 250ms 读取一次", 346, 13, 240, 24);
+            AddLabel(pathAdvanced.Content, $"自动录制每 {PathRecordTimerIntervalMs}ms 读取一次", 346, 13, 240, 24);
             if (kind == SharedPathKind.Revive)
             {
                 loopPathCheckBox = loopCheckBox;
@@ -1536,7 +1537,7 @@ namespace Roadhog
 
         private async void AddManualPathPoint(PathEditorControls editor)
         {
-            await AddCurrentPlayerPointAsync(editor, "手动录点", showSkipped: true).ConfigureAwait(true);
+            await AddCurrentPlayerPointAsync(editor, "手动录点", showSkipped: true, dense: false).ConfigureAwait(true);
         }
 
         private void StartPathRecording(PathEditorControls editor)
@@ -1550,7 +1551,7 @@ namespace Roadhog
             }
 
             recordingPathKind = editor.Kind;
-            pathRecordTimer.Interval = 250;
+            pathRecordTimer.Interval = PathRecordTimerIntervalMs;
             pathRecordTimer.Start();
             SetPathStatus(editor, "自动录制中", false);
         }
@@ -1579,7 +1580,7 @@ namespace Roadhog
             pathRecordReadInFlight = true;
             try
             {
-                await AddCurrentPlayerPointAsync(editor, "自动录点", showSkipped: false).ConfigureAwait(true);
+                await AddCurrentPlayerPointAsync(editor, "自动录点", showSkipped: false, dense: true).ConfigureAwait(true);
             }
             finally
             {
@@ -1587,9 +1588,11 @@ namespace Roadhog
             }
         }
 
-        private async Task AddCurrentPlayerPointAsync(PathEditorControls editor, string reason, bool showSkipped)
+        private async Task AddCurrentPlayerPointAsync(PathEditorControls editor, string reason, bool showSkipped, bool dense)
         {
-            var result = await _runtime.ReadPlayerAsync(_account).ConfigureAwait(true);
+            var result = dense
+                ? await _runtime.ReadPlayerForPathRecordingAsync(_account).ConfigureAwait(true)
+                : await _runtime.ReadPlayerAsync(_account).ConfigureAwait(true);
             if (!result.Success || result.Value is null)
             {
                 SetPathStatus(editor, result.Error ?? "读取玩家坐标失败", true);
@@ -1607,7 +1610,9 @@ namespace Roadhog
                 PathScriptSettings.DefaultRecordingMinimumDistance,
                 PathRecordingBuffer.MinimumAllowedDistanceMeters,
                 PathRecordingBuffer.MaximumAllowedDistanceMeters);
-            var addResult = editor.Buffer.TryAdd(position, result.Value.CapturedAt, minimumDistanceMeters);
+            var addResult = dense
+                ? editor.Buffer.TryAddDense(position, result.Value.CapturedAt, minimumDistanceMeters)
+                : editor.Buffer.TryAdd(position, result.Value.CapturedAt, minimumDistanceMeters);
             if (!addResult.Success)
             {
                 editor.SkippedCount++;
