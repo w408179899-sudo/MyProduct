@@ -22,6 +22,12 @@ using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
 
+if (TeamMonitorLiveProbe.ShouldRun(args))
+{
+    Environment.ExitCode = TeamMonitorLiveProbe.RunAsync(args).GetAwaiter().GetResult();
+    return;
+}
+
 if (PartyMemberLiveProbe.ShouldRun(args))
 {
     Environment.ExitCode = PartyMemberLiveProbe.Run(args);
@@ -55,6 +61,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime world object read uses account scoped context", TestRuntimeWorldObjectReadUsesAccountScopeAsync),
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
+    ("runtime team snapshot uses account scoped context", TestRuntimeTeamSnapshotUsesAccountScopeAsync),
     ("runtime locked target abnormal read uses account scoped context", TestRuntimeLockedTargetAbnormalReadUsesAccountScopeAsync),
 #if DEBUG
     ("runtime api probe covers vmm read paths", TestRuntimeApiProbeCoversVmmReadPathsAsync),
@@ -828,6 +835,106 @@ static async Task TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync()
     AssertEqual(712, gameApi.LastSummonedPetRosterContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastSummonedPetRosterContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastSummonedPetRosterContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
+}
+
+static async Task TestRuntimeTeamSnapshotUsesAccountScopeAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    accounts.MarkStarting(new AccountConfig
+    {
+        AccountName = "account-scope",
+        ProcessId = 712,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga"
+    });
+
+    var capturedAt = DateTimeOffset.Now;
+    var localServerObjectId = 1711370025U;
+    var partyServerObjectId = 1711370100U;
+    var partyPet = new OwnedSummonedPetSnapshot(
+        SummonedPetOwnerKind.PartyMember,
+        partyServerObjectId,
+        "KiraHa",
+        "primary",
+        new SummonedPetSnapshot(
+            true,
+            65510,
+            2160000010,
+            46,
+            SummonedPetSnapshot.ActorObjectType,
+            201019,
+            "Earth Spirit",
+            "Dark_Summon_EarthElemental_G3",
+            "Summon_Pet",
+            "Pet_Dark",
+            42,
+            5683,
+            5740,
+            99,
+            new Vector3Snapshot(4, 5, 6),
+            5.5,
+            localServerObjectId,
+            capturedAt,
+            0,
+            true,
+            "owner+static-summon-pet"),
+        0,
+        Array.Empty<AbnormalStatusEntrySnapshot>(),
+        OwnerClassId: AionClassId.Spiritmaster,
+        OwnerClassName: "Spiritmaster");
+
+    var gameApi = new FakeGameApi
+    {
+        Party = new PartySnapshot(
+            1141852,
+            0x3F,
+            3,
+            localServerObjectId,
+            localServerObjectId,
+            100,
+            "HiApple",
+            new Vector3Snapshot(1, 2, 3),
+            0,
+            3,
+            capturedAt,
+            new[]
+            {
+                CreatePartyMemberSnapshot(localServerObjectId, "HiApple", true, true, 0.0),
+                CreatePartyMemberSnapshot(partyServerObjectId, "KiraHa", false, false, 2.4),
+                CreatePartyMemberSnapshot(1711370200, "Jone", false, false, 2.8)
+            }),
+        SummonedPetRoster = new SummonedPetRosterSnapshot(
+            localServerObjectId,
+            0,
+            capturedAt,
+            new OwnedSummonedPetSnapshot(
+                SummonedPetOwnerKind.LocalPlayer,
+                localServerObjectId,
+                "HiApple",
+                string.Empty,
+                SummonedPetSnapshot.NotSummoned(localServerObjectId, capturedAt),
+                0,
+                Array.Empty<AbnormalStatusEntrySnapshot>()),
+            new[] { partyPet },
+            new[] { partyServerObjectId, 1711370200U })
+    };
+    var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
+
+    var result = await runtime.ReadTeamSnapshotAsync("account-scope").ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "runtime team snapshot read should succeed");
+    var snapshot = result.Value ?? throw new InvalidOperationException("team snapshot was null");
+    AssertEqual(3, snapshot.Members.Count, "team member count");
+    AssertEqual(1, snapshot.Members[0].FunctionKeyNumber, "self function key");
+    AssertEqual(2, snapshot.Members[1].FunctionKeyNumber, "first teammate function key");
+    AssertEqual(3, snapshot.Members[2].FunctionKeyNumber, "second teammate function key");
+    AssertEqual(partyPet.Pet.ServerObjectId, snapshot.Members[1].SummonedPet?.Pet.ServerObjectId ?? 0, "party member pet");
+    AssertFalse(!snapshot.Party.LocalIsLeader, "local should be leader");
+    AssertEqual(712, gameApi.LastPartyContext?.ProcessId ?? 0, "party scoped process id");
+    AssertEqual(712, gameApi.LastSummonedPetRosterContext?.ProcessId ?? 0, "pet roster scoped process id");
+    AssertEqual("Aion.bin", gameApi.LastPartyContext?.TargetProcessName ?? string.Empty, "party scoped process name");
+    AssertEqual("fpga", gameApi.LastPartyContext?.VmmDeviceName ?? string.Empty, "party scoped vmm device");
 }
 
 static async Task TestRuntimeLockedTargetAbnormalReadUsesAccountScopeAsync()
@@ -11802,6 +11909,58 @@ static PlayerSnapshot CreateSpiritmasterPlayer(ushort currentDp = 0)
         CharacterClassId: AionClassId.Spiritmaster);
 }
 
+static PartyMemberSnapshot CreatePartyMemberSnapshot(
+    uint serverObjectId,
+    string name,
+    bool isSelf,
+    bool isLeader,
+    double distanceToLocal)
+{
+    return new PartyMemberSnapshot(
+        "primary",
+        isSelf ? 0 : 1,
+        0,
+        0,
+        0,
+        serverObjectId,
+        name,
+        (byte)AionClassId.Spiritmaster,
+        AionClassId.Spiritmaster,
+        "Spiritmaster",
+        42,
+        100,
+        100,
+        80,
+        100,
+        0,
+        0,
+        0,
+        0,
+        new Vector3Snapshot(),
+        0,
+        0,
+        0,
+        0,
+        0,
+        false,
+        0,
+        0,
+        Array.Empty<AbnormalStatusEntrySnapshot>(),
+        isSelf,
+        isLeader,
+        true,
+        100,
+        0,
+        0,
+        name,
+        0,
+        new Vector3Snapshot((float)distanceToLocal, 0, 0),
+        distanceToLocal,
+        distanceToLocal <= 50.0
+            ? PartyMemberVisibilityState.ScreenVisible
+            : PartyMemberVisibilityState.LoadedOutOfRange);
+}
+
 static SummonedPetRosterSnapshot CreateLocalPetRoster(
     bool isSummoned,
     byte hpPercent = 100,
@@ -12699,7 +12858,7 @@ sealed class InMemoryScriptProfileStore : IScriptProfileStore
     }
 }
 
-sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
+sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
@@ -12741,6 +12900,9 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
     public SummonedPetRosterSnapshot SummonedPetRoster { get; set; } =
         SummonedPetRosterSnapshot.Empty(0, DateTimeOffset.Now);
 
+    public PartySnapshot Party { get; set; } =
+        PartySnapshot.Empty(DateTimeOffset.Now);
+
     public IReadOnlyList<uint>? LastRequestedSkillIds { get; private set; }
 
     public GameApiReadContext? LastPlayerContext { get; private set; }
@@ -12758,6 +12920,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
     public GameApiReadContext? LastSummonedPetContext { get; private set; }
 
     public GameApiReadContext? LastSummonedPetRosterContext { get; private set; }
+
+    public GameApiReadContext? LastPartyContext { get; private set; }
 
     public GameApiReadContext? LastLockedTargetContext { get; private set; }
 
@@ -12870,6 +13034,19 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInve
     {
         LastSummonedPetRosterContext = context;
         return ReadSummonedPetRosterAsync(cancellationToken);
+    }
+
+    public Task<OperationResult<PartySnapshot>> ReadPartyAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(OperationResult<PartySnapshot>.Ok(Party));
+    }
+
+    public Task<OperationResult<PartySnapshot>> ReadPartyAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        LastPartyContext = context;
+        return ReadPartyAsync(cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)

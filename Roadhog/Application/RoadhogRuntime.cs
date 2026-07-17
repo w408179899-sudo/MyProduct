@@ -1,6 +1,7 @@
 using Roadhog.Application.Input;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.StationaryCombat;
+using Roadhog.Application.Team;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Api;
 using Roadhog.Core.Accounts;
@@ -207,6 +208,17 @@ public sealed class RoadhogRuntime
         }
 
         return result;
+    }
+
+    public Task<OperationResult<TeamSnapshot>> ReadTeamSnapshotAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var monitor = new TeamMonitor(_gameApi, _logger);
+        var context = string.IsNullOrWhiteSpace(accountName)
+            ? null
+            : CreateReadContext(accountName);
+        return monitor.ReadSnapshotAsync(context, cancellationToken);
     }
 
     public async Task<OperationResult<IReadOnlyList<SkillSnapshot>>> RefreshSkillsAsync(

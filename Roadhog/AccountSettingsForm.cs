@@ -103,6 +103,38 @@ namespace Roadhog
         private ListBox? bagCleanupExcludedItemListBox;
         private Label? bagCleanupInventoryStatusLabel;
         private readonly Dictionary<string, BagCleanupRuleControls> bagCleanupRuleControls = new(StringComparer.OrdinalIgnoreCase);
+        private RoundedComboBox? teamRoleCombo;
+        private Panel? teamLeaderPanel;
+        private Panel? teamOutputPanel;
+        private Panel? teamSupportPanel;
+        private RoundedCheckBox? teamLeaderEnabledCheckBox;
+        private RoundedCheckBox? teamLeaderDungeonModeCheckBox;
+        private RoundedCheckBox? teamLeaderAllowLootCheckBox;
+        private RoundedCheckBox? teamLeaderAllowSelfDefenseCheckBox;
+        private RoundedCheckBox? teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox;
+        private RoundedCheckBox? teamOutputEnabledCheckBox;
+        private RoundedCheckBox? teamOutputDungeonModeCheckBox;
+        private RoundedCheckBox? teamOutputAllowLootCheckBox;
+        private RoundedCheckBox? teamOutputAllowSelfDefenseCheckBox;
+        private RoundedCheckBox? teamOutputFollowLeaderCheckBox;
+        private RoundedCheckBox? teamOutputOnlyAttackLeaderMarkedTargetCheckBox;
+        private RoundedCheckBox? teamOutputStopWhenLeaderHasNoTargetCheckBox;
+        private RoundedCheckBox? teamOutputStopWhenLeaderDeadCheckBox;
+        private RoundedTextBox? teamOutputLeaderDistanceTextBox;
+        private RoundedCheckBox? teamSupportEnabledCheckBox;
+        private RoundedCheckBox? teamSupportDungeonModeCheckBox;
+        private RoundedCheckBox? teamSupportAllowLootCheckBox;
+        private RoundedCheckBox? teamSupportJoinCombatCheckBox;
+        private RoundedCheckBox? teamSupportMentalCleanseCheckBox;
+        private RoundedCheckBox? teamSupportPhysicalCleanseCheckBox;
+        private RoundedCheckBox? teamSupportAllowSelfDefenseCheckBox;
+        private RoundedCheckBox? teamSupportStopWhenLeaderDeadCheckBox;
+        private RoundedTextBox? teamSupportLeaderDistanceTextBox;
+        private FlowLayoutPanel? teamHealSkillRuleList;
+        private Label? teamHealSkillEmptyLabel;
+        private Button? teamMentalCleanseKeyButton;
+        private Button? teamPhysicalCleanseKeyButton;
+        private Button? teamGroupCleanseKeyButton;
         private RadioButton? skillAutoModeRadio;
         private RadioButton? skillManualModeRadio;
         private RadioButton? skillSystemModeRadio;
@@ -337,6 +369,7 @@ namespace Roadhog
                 FormatBagCleanupItemCoordinateMode(settings.Maintenance.BagCleanupItemCoordinateMode));
             ApplyBagCleanupRules(settings.Maintenance.BagCleanupRules);
             PopulateBagCleanupExcludedItemList(settings.Maintenance.BagCleanupExcludedItemNames);
+            ApplyTeamSettings(settings.Team ?? new TeamScriptSettings());
             SetChecked(openingAttackKeyCheckBox, settings.SemiAuto.AttackKeyLoopEnabled);
             SetChecked(conditionSkillPreemptsChainCheckBox, settings.SemiAuto.ConditionSkillPreemptsChain);
             SetText(chainWindowPerLinkTextBox, settings.SemiAuto.ChainWindowPerLinkMs.ToString());
@@ -560,6 +593,7 @@ namespace Roadhog
                     BagCleanupRules = CaptureBagCleanupRules(),
                     BagCleanupExcludedItemNames = CaptureBagCleanupExcludedItemList()
                 },
+                Team = CaptureTeamSettings(),
                 Skills = new SkillScriptSettings
                 {
                     Mode = CaptureSkillConfigurationMode(),
@@ -2078,6 +2112,12 @@ namespace Roadhog
             var refreshInventoryButton = AddButton(page, "刷新背包", 542, 50, 96, 30);
             refreshInventoryButton.Click += async (_, _) =>
                 await RefreshBagCleanupInventoryAsync(refreshInventoryButton).ConfigureAwait(true);
+            var testInventoryWindowButton = AddButton(page, "测试背包归位", 678, 50, 156, 30);
+            testInventoryWindowButton.Click += async (_, _) =>
+                await TestBagCleanupInventoryWindowNormalizeAsync(testInventoryWindowButton).ConfigureAwait(true);
+            var testSellRegisterButton = AddButton(page, "测试登记出售", 678, 84, 156, 30);
+            testSellRegisterButton.Click += async (_, _) =>
+                await TestBagCleanupSellRegisterAsync(testSellRegisterButton).ConfigureAwait(true);
 
             AddLabel(page, "当前背包", 430, 92, 82, 24, _textGreen, FontStyle.Bold);
             bagCleanupInventoryCombo = AddCombo(page, 430, 118, 248, 28);
@@ -2101,47 +2141,50 @@ namespace Roadhog
             tab.Controls.Add(page);
 
             AddLabel(page, "组队模式", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
-            var teamRoleCombo = AddCombo(page, 24, 52, 190, 28, "队长", "输出", "治疗");
+            teamRoleCombo = AddCombo(page, 24, 52, 190, 28, "队长", "输出", "治疗");
             teamRoleCombo.Name = "teamRoleCombo";
 
             var leaderPanel = CreateTeamRolePanel(page);
+            teamLeaderPanel = leaderPanel;
             AddLabel(leaderPanel, "队长开关", 4, 0, 90, 24, _textGreen, FontStyle.Bold);
-            AddCheckBox(leaderPanel, "启用组队", 24, 30, 92, false);
-            AddCheckBox(leaderPanel, "刷本模式", 132, 30, 92, false);
-            AddCheckBox(leaderPanel, "允许拾取", 240, 30, 92, false);
-            AddCheckBox(leaderPanel, "允许自卫", 348, 30, 92, true);
-            AddCheckBox(leaderPanel, "队员掉线停止推进", 24, 62, 170, false);
+            teamLeaderEnabledCheckBox = AddCheckBox(leaderPanel, "启用组队", 24, 30, 92, false);
+            teamLeaderDungeonModeCheckBox = AddCheckBox(leaderPanel, "刷本模式", 132, 30, 92, false);
+            teamLeaderAllowLootCheckBox = AddCheckBox(leaderPanel, "允许拾取", 240, 30, 92, false);
+            teamLeaderAllowSelfDefenseCheckBox = AddCheckBox(leaderPanel, "允许自卫", 348, 30, 92, true);
+            teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox = AddCheckBox(leaderPanel, "队员掉线停止推进", 24, 62, 170, false);
 
             var dpsPanel = CreateTeamRolePanel(page);
+            teamOutputPanel = dpsPanel;
             AddLabel(dpsPanel, "输出队员开关", 4, 0, 110, 24, _textGreen, FontStyle.Bold);
-            AddCheckBox(dpsPanel, "启用组队", 24, 30, 92, false);
-            AddCheckBox(dpsPanel, "刷本模式", 132, 30, 92, false);
-            AddCheckBox(dpsPanel, "允许拾取", 240, 30, 92, false);
-            AddCheckBox(dpsPanel, "允许自卫", 348, 30, 92, true);
-            AddCheckBox(dpsPanel, "跟随队长", 24, 62, 92, true);
-            AddCheckBox(dpsPanel, "只打队长标记", 132, 62, 130, true);
-            AddCheckBox(dpsPanel, "队长无目标停手", 278, 62, 150, true);
-            AddCheckBox(dpsPanel, "队长死亡停手", 444, 62, 130, true);
+            teamOutputEnabledCheckBox = AddCheckBox(dpsPanel, "启用组队", 24, 30, 92, false);
+            teamOutputDungeonModeCheckBox = AddCheckBox(dpsPanel, "刷本模式", 132, 30, 92, false);
+            teamOutputAllowLootCheckBox = AddCheckBox(dpsPanel, "允许拾取", 240, 30, 92, false);
+            teamOutputAllowSelfDefenseCheckBox = AddCheckBox(dpsPanel, "允许自卫", 348, 30, 92, true);
+            teamOutputFollowLeaderCheckBox = AddCheckBox(dpsPanel, "跟随队长", 24, 62, 92, true);
+            teamOutputOnlyAttackLeaderMarkedTargetCheckBox = AddCheckBox(dpsPanel, "只打队长标记", 132, 62, 130, true);
+            teamOutputStopWhenLeaderHasNoTargetCheckBox = AddCheckBox(dpsPanel, "队长无目标停手", 278, 62, 150, true);
+            teamOutputStopWhenLeaderDeadCheckBox = AddCheckBox(dpsPanel, "队长死亡停手", 444, 62, 130, true);
             AddLabel(dpsPanel, "和队长距离", 24, 94, 90, 24, _textGreen, FontStyle.Bold);
-            AddTextBox(dpsPanel, "12.0", 116, 92, 72, 28);
+            teamOutputLeaderDistanceTextBox = AddTextBox(dpsPanel, "12.0", 116, 92, 72, 28);
             AddLabel(dpsPanel, "m", 194, 94, 24, 24, _textGreen, FontStyle.Bold);
 
             var supportPanel = CreateTeamRolePanel(page);
+            teamSupportPanel = supportPanel;
             AddLabel(supportPanel, "治疗队员开关", 4, 0, 110, 24, _textGreen, FontStyle.Bold);
-            AddCheckBox(supportPanel, "启用组队", 24, 30, 92, false);
-            AddCheckBox(supportPanel, "刷本模式", 132, 30, 92, false);
-            AddCheckBox(supportPanel, "允许拾取", 240, 30, 92, false);
-            AddCheckBox(supportPanel, "加入打怪", 348, 30, 92, false);
-            AddCheckBox(supportPanel, "精神解除", 24, 62, 92, true);
-            AddCheckBox(supportPanel, "肉体解除", 132, 62, 92, true);
-            AddCheckBox(supportPanel, "允许自卫", 240, 62, 92, false);
-            AddCheckBox(supportPanel, "队长死亡停手", 386, 62, 130, true);
+            teamSupportEnabledCheckBox = AddCheckBox(supportPanel, "启用组队", 24, 30, 92, false);
+            teamSupportDungeonModeCheckBox = AddCheckBox(supportPanel, "刷本模式", 132, 30, 92, false);
+            teamSupportAllowLootCheckBox = AddCheckBox(supportPanel, "允许拾取", 240, 30, 92, false);
+            teamSupportJoinCombatCheckBox = AddCheckBox(supportPanel, "加入打怪", 348, 30, 92, false);
+            teamSupportMentalCleanseCheckBox = AddCheckBox(supportPanel, "精神解除", 24, 62, 92, true);
+            teamSupportPhysicalCleanseCheckBox = AddCheckBox(supportPanel, "肉体解除", 132, 62, 92, true);
+            teamSupportAllowSelfDefenseCheckBox = AddCheckBox(supportPanel, "允许自卫", 240, 62, 92, false);
+            teamSupportStopWhenLeaderDeadCheckBox = AddCheckBox(supportPanel, "队长死亡停手", 386, 62, 130, true);
             AddLabel(supportPanel, "和队长距离", 24, 94, 90, 24, _textGreen, FontStyle.Bold);
-            AddTextBox(supportPanel, "12.0", 116, 92, 72, 28);
+            teamSupportLeaderDistanceTextBox = AddTextBox(supportPanel, "12.0", 116, 92, 72, 28);
             AddLabel(supportPanel, "m", 194, 94, 24, 24, _textGreen, FontStyle.Bold);
             AddLabel(supportPanel, "加血技能", 24, 132, 70, 24, _textGreen, FontStyle.Bold);
-            var teamHealSkillRuleList = CreateMaintenanceRuleList(supportPanel, 24, 166, 790, 82);
-            var teamHealSkillEmptyLabel = AddLabel(supportPanel, "暂无加血技能", 24, 166, 140, 24);
+            teamHealSkillRuleList = CreateMaintenanceRuleList(supportPanel, 24, 166, 790, 82);
+            teamHealSkillEmptyLabel = AddLabel(supportPanel, "暂无加血技能", 24, 166, 140, 24);
             teamHealSkillEmptyLabel.BringToFront();
             AddButton(
                 supportPanel,
@@ -2160,15 +2203,14 @@ namespace Roadhog
 
             AddLabel(supportPanel, "解状态按键", 24, 266, 90, 24, _textGreen, FontStyle.Bold);
             AddLabel(supportPanel, "精神解除", 24, 300, 70, 24, _textGreen, FontStyle.Bold);
-            AddTeamKeyButton(supportPanel, 94, 297, "NumPad8");
+            teamMentalCleanseKeyButton = AddTeamKeyButton(supportPanel, 94, 297, "NumPad8");
             AddLabel(supportPanel, "肉体解除", 220, 300, 70, 24, _textGreen, FontStyle.Bold);
-            AddTeamKeyButton(supportPanel, 290, 297, "NumPad7");
+            teamPhysicalCleanseKeyButton = AddTeamKeyButton(supportPanel, 290, 297, "NumPad7");
             AddLabel(supportPanel, "群体解除", 416, 300, 70, 24, _textGreen, FontStyle.Bold);
-            AddTeamKeyButton(supportPanel, 486, 297, string.Empty);
+            teamGroupCleanseKeyButton = AddTeamKeyButton(supportPanel, 486, 297, string.Empty);
 
-            teamRoleCombo.SelectedIndexChanged += (_, _) =>
-                UpdateTeamRolePanelVisibility(teamRoleCombo, leaderPanel, dpsPanel, supportPanel);
-            UpdateTeamRolePanelVisibility(teamRoleCombo, leaderPanel, dpsPanel, supportPanel);
+            teamRoleCombo.SelectedIndexChanged += (_, _) => RefreshTeamRolePanelVisibility();
+            RefreshTeamRolePanelVisibility();
 
             return tab;
         }
@@ -2194,7 +2236,7 @@ namespace Roadhog
             uint skillId = 0,
             string skillName = "",
             MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
-            string targetType = "单体")
+            TeamHealSkillTargetType targetType = TeamHealSkillTargetType.Single)
         {
             if (list is null)
             {
@@ -2221,13 +2263,14 @@ namespace Roadhog
                 TextAlign = ContentAlignment.MiddleLeft
             });
 
-            AddTextBox(
+            var belowTextBox = AddTextBox(
                 row,
                 Math.Clamp(belowPercent, 0, 100).ToString(CultureInfo.InvariantCulture),
                 36,
                 1,
                 54,
                 28);
+            belowTextBox.Name = "teamHealRuleBelowTextBox";
 
             row.Controls.Add(new Label
             {
@@ -2247,7 +2290,7 @@ namespace Roadhog
 
             var targetTypeCombo = AddCombo(row, 212, 1, 76, 28, "单体", "群体");
             targetTypeCombo.Name = "teamHealRuleTargetTypeCombo";
-            if (string.Equals(targetType, "群体", StringComparison.Ordinal))
+            if (targetType == TeamHealSkillTargetType.Group)
             {
                 targetTypeCombo.SelectedIndex = 1;
             }
@@ -2280,7 +2323,8 @@ namespace Roadhog
                 TextAlign = ContentAlignment.MiddleLeft
             });
 
-            AddTeamKeyButton(row, 594, 0, key);
+            var keyButton = AddTeamKeyButton(row, 594, 0, key);
+            keyButton.Name = "teamHealRuleKeyButton";
             var deleteButton = AddButton(row, "删除", 706, 0, 58, 30);
             deleteButton.Click += (_, _) =>
             {
@@ -2307,6 +2351,208 @@ namespace Roadhog
             };
 
             return keyButton;
+        }
+
+        private void RefreshTeamRolePanelVisibility()
+        {
+            if (teamRoleCombo is null ||
+                teamLeaderPanel is null ||
+                teamOutputPanel is null ||
+                teamSupportPanel is null)
+            {
+                return;
+            }
+
+            UpdateTeamRolePanelVisibility(teamRoleCombo, teamLeaderPanel, teamOutputPanel, teamSupportPanel);
+        }
+
+        private void ApplyTeamSettings(TeamScriptSettings? settings)
+        {
+            var team = (settings ?? new TeamScriptSettings()).Clone();
+            SetComboText(teamRoleCombo, FormatTeamRole(team.Role));
+
+            var leader = team.Leader ?? new TeamLeaderScriptSettings();
+            SetChecked(teamLeaderEnabledCheckBox, leader.Enabled);
+            SetChecked(teamLeaderDungeonModeCheckBox, leader.DungeonMode);
+            SetChecked(teamLeaderAllowLootCheckBox, leader.AllowLoot);
+            SetChecked(teamLeaderAllowSelfDefenseCheckBox, leader.AllowSelfDefense);
+            SetChecked(
+                teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox,
+                leader.StopAdvanceWhenMemberDisconnected);
+
+            var output = team.Output ?? new TeamOutputScriptSettings();
+            SetChecked(teamOutputEnabledCheckBox, output.Enabled);
+            SetChecked(teamOutputDungeonModeCheckBox, output.DungeonMode);
+            SetChecked(teamOutputAllowLootCheckBox, output.AllowLoot);
+            SetChecked(teamOutputAllowSelfDefenseCheckBox, output.AllowSelfDefense);
+            SetChecked(teamOutputFollowLeaderCheckBox, output.FollowLeader);
+            SetChecked(teamOutputOnlyAttackLeaderMarkedTargetCheckBox, output.OnlyAttackLeaderMarkedTarget);
+            SetChecked(teamOutputStopWhenLeaderHasNoTargetCheckBox, output.StopWhenLeaderHasNoTarget);
+            SetChecked(teamOutputStopWhenLeaderDeadCheckBox, output.StopWhenLeaderDead);
+            SetText(
+                teamOutputLeaderDistanceTextBox,
+                output.LeaderDistanceMeters.ToString("0.###", CultureInfo.InvariantCulture));
+
+            var support = team.Support ?? new TeamSupportScriptSettings();
+            SetChecked(teamSupportEnabledCheckBox, support.Enabled);
+            SetChecked(teamSupportDungeonModeCheckBox, support.DungeonMode);
+            SetChecked(teamSupportAllowLootCheckBox, support.AllowLoot);
+            SetChecked(teamSupportJoinCombatCheckBox, support.JoinCombat);
+            SetChecked(teamSupportMentalCleanseCheckBox, support.MentalCleanseEnabled);
+            SetChecked(teamSupportPhysicalCleanseCheckBox, support.PhysicalCleanseEnabled);
+            SetChecked(teamSupportAllowSelfDefenseCheckBox, support.AllowSelfDefense);
+            SetChecked(teamSupportStopWhenLeaderDeadCheckBox, support.StopWhenLeaderDead);
+            SetText(
+                teamSupportLeaderDistanceTextBox,
+                support.LeaderDistanceMeters.ToString("0.###", CultureInfo.InvariantCulture));
+            PopulateTeamHealSkillRules(teamHealSkillRuleList, teamHealSkillEmptyLabel, support.HealSkillRules);
+            SetKeyButton(teamMentalCleanseKeyButton, support.MentalCleanseKey);
+            SetKeyButton(teamPhysicalCleanseKeyButton, support.PhysicalCleanseKey);
+            SetKeyButton(teamGroupCleanseKeyButton, support.GroupCleanseKey);
+
+            RefreshTeamRolePanelVisibility();
+        }
+
+        private TeamScriptSettings CaptureTeamSettings()
+        {
+            return new TeamScriptSettings
+            {
+                Role = ParseTeamRole(teamRoleCombo?.Text),
+                Leader = new TeamLeaderScriptSettings
+                {
+                    Enabled = teamLeaderEnabledCheckBox?.Checked ?? false,
+                    DungeonMode = teamLeaderDungeonModeCheckBox?.Checked ?? false,
+                    AllowLoot = teamLeaderAllowLootCheckBox?.Checked ?? false,
+                    AllowSelfDefense = teamLeaderAllowSelfDefenseCheckBox?.Checked ?? true,
+                    StopAdvanceWhenMemberDisconnected =
+                        teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox?.Checked ?? false
+                },
+                Output = new TeamOutputScriptSettings
+                {
+                    Enabled = teamOutputEnabledCheckBox?.Checked ?? false,
+                    DungeonMode = teamOutputDungeonModeCheckBox?.Checked ?? false,
+                    AllowLoot = teamOutputAllowLootCheckBox?.Checked ?? false,
+                    AllowSelfDefense = teamOutputAllowSelfDefenseCheckBox?.Checked ?? true,
+                    FollowLeader = teamOutputFollowLeaderCheckBox?.Checked ?? true,
+                    OnlyAttackLeaderMarkedTarget =
+                        teamOutputOnlyAttackLeaderMarkedTargetCheckBox?.Checked ?? true,
+                    StopWhenLeaderHasNoTarget =
+                        teamOutputStopWhenLeaderHasNoTargetCheckBox?.Checked ?? true,
+                    StopWhenLeaderDead = teamOutputStopWhenLeaderDeadCheckBox?.Checked ?? true,
+                    LeaderDistanceMeters = ReadDouble(teamOutputLeaderDistanceTextBox, 12.0D, 0.0D, 100.0D)
+                },
+                Support = new TeamSupportScriptSettings
+                {
+                    Enabled = teamSupportEnabledCheckBox?.Checked ?? false,
+                    DungeonMode = teamSupportDungeonModeCheckBox?.Checked ?? false,
+                    AllowLoot = teamSupportAllowLootCheckBox?.Checked ?? false,
+                    JoinCombat = teamSupportJoinCombatCheckBox?.Checked ?? false,
+                    MentalCleanseEnabled = teamSupportMentalCleanseCheckBox?.Checked ?? true,
+                    PhysicalCleanseEnabled = teamSupportPhysicalCleanseCheckBox?.Checked ?? true,
+                    AllowSelfDefense = teamSupportAllowSelfDefenseCheckBox?.Checked ?? false,
+                    StopWhenLeaderDead = teamSupportStopWhenLeaderDeadCheckBox?.Checked ?? true,
+                    LeaderDistanceMeters = ReadDouble(teamSupportLeaderDistanceTextBox, 12.0D, 0.0D, 100.0D),
+                    HealSkillRules = CaptureTeamHealSkillRules(teamHealSkillRuleList),
+                    MentalCleanseKey = teamMentalCleanseKeyButton?.Tag as string ?? string.Empty,
+                    PhysicalCleanseKey = teamPhysicalCleanseKeyButton?.Tag as string ?? string.Empty,
+                    GroupCleanseKey = teamGroupCleanseKeyButton?.Tag as string ?? string.Empty
+                }
+            };
+        }
+
+        private void PopulateTeamHealSkillRules(
+            FlowLayoutPanel? list,
+            Label? emptyLabel,
+            IEnumerable<TeamHealSkillRuleConfig>? rules)
+        {
+            if (list is null)
+            {
+                return;
+            }
+
+            list.Controls.Clear();
+            foreach (var rule in rules ?? Array.Empty<TeamHealSkillRuleConfig>())
+            {
+                AddTeamHealSkillRuleRow(
+                    list,
+                    emptyLabel,
+                    rule.BelowPercent,
+                    rule.Key,
+                    rule.SkillId,
+                    rule.SkillName,
+                    rule.RunTiming,
+                    rule.TargetType);
+            }
+
+            RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+        }
+
+        private static List<TeamHealSkillRuleConfig> CaptureTeamHealSkillRules(FlowLayoutPanel? list)
+        {
+            if (list is null)
+            {
+                return new List<TeamHealSkillRuleConfig>();
+            }
+
+            return list.Controls
+                .OfType<Panel>()
+                .Select(row =>
+                {
+                    var belowTextBox = row.Controls
+                        .OfType<RoundedTextBox>()
+                        .FirstOrDefault(textBox => string.Equals(textBox.Name, "teamHealRuleBelowTextBox", StringComparison.Ordinal));
+                    var timingCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "teamHealRuleTimingCombo", StringComparison.Ordinal));
+                    var targetTypeCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "teamHealRuleTargetTypeCombo", StringComparison.Ordinal));
+                    var skillCombo = row.Controls
+                        .OfType<RoundedComboBox>()
+                        .FirstOrDefault(combo => string.Equals(combo.Name, "maintenanceRuleSkillCombo", StringComparison.Ordinal));
+                    var keyButton = row.Controls
+                        .OfType<Button>()
+                        .FirstOrDefault(button => string.Equals(button.Name, "teamHealRuleKeyButton", StringComparison.Ordinal));
+                    var selectedSkill = GetSelectedMaintenanceSkill(skillCombo);
+
+                    return new TeamHealSkillRuleConfig
+                    {
+                        BelowPercent = ReadPercent(belowTextBox, 80),
+                        RunTiming = GetSelectedMaintenanceRunTiming(timingCombo),
+                        TargetType = ParseTeamHealSkillTargetType(targetTypeCombo?.Text),
+                        SkillId = selectedSkill.SkillId,
+                        SkillName = selectedSkill.SkillName,
+                        Key = keyButton?.Tag as string ?? string.Empty
+                    };
+                })
+                .ToList();
+        }
+
+        private static string FormatTeamRole(TeamRole role)
+        {
+            return role switch
+            {
+                TeamRole.Output => "输出",
+                TeamRole.Support => "治疗",
+                _ => "队长"
+            };
+        }
+
+        private static TeamRole ParseTeamRole(string? value)
+        {
+            return value?.Trim() switch
+            {
+                "输出" => TeamRole.Output,
+                "治疗" => TeamRole.Support,
+                _ => TeamRole.Leader
+            };
+        }
+
+        private static TeamHealSkillTargetType ParseTeamHealSkillTargetType(string? value)
+        {
+            return string.Equals(value?.Trim(), "群体", StringComparison.Ordinal)
+                ? TeamHealSkillTargetType.Group
+                : TeamHealSkillTargetType.Single;
         }
 
         private static void UpdateTeamRolePanelVisibility(
@@ -3143,6 +3389,7 @@ namespace Roadhog
             RefreshMaintenanceSkillCombos(mpMaintenanceRuleList);
             RefreshMaintenanceSkillCombos(statusMaintenanceRuleList);
             RefreshMaintenanceSkillCombos(dpMaintenanceRuleList);
+            RefreshMaintenanceSkillCombos(teamHealSkillRuleList);
         }
 
         private void RefreshMaintenanceSkillCombos(FlowLayoutPanel? list)

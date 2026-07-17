@@ -14,6 +14,8 @@ public sealed class ScriptSettings
 
     public MaintenanceScriptSettings Maintenance { get; set; } = new();
 
+    public TeamScriptSettings Team { get; set; } = new();
+
     public SkillScriptSettings Skills { get; set; } = new();
 
     public SemiAutoScriptSettings SemiAuto { get; set; } = new();
@@ -28,6 +30,7 @@ public sealed class ScriptSettings
             Combat = (Combat ?? new CombatScriptSettings()).Clone(),
             Paths = (Paths ?? new PathScriptSettings()).Clone(),
             Maintenance = (Maintenance ?? new MaintenanceScriptSettings()).Clone(),
+            Team = (Team ?? new TeamScriptSettings()).Clone(),
             Skills = (Skills ?? new SkillScriptSettings()).Clone(),
             SemiAuto = (SemiAuto ?? new SemiAutoScriptSettings()).Clone()
         };
@@ -186,6 +189,180 @@ public sealed class PathScriptSettings
             DeathStopPath = DeathStopPath
         };
     }
+}
+
+public sealed class TeamScriptSettings
+{
+    public TeamRole Role { get; set; } = TeamRole.Leader;
+
+    public TeamLeaderScriptSettings Leader { get; set; } = new();
+
+    public TeamOutputScriptSettings Output { get; set; } = new();
+
+    public TeamSupportScriptSettings Support { get; set; } = new();
+
+    public TeamScriptSettings Clone()
+    {
+        return new TeamScriptSettings
+        {
+            Role = Role,
+            Leader = (Leader ?? new TeamLeaderScriptSettings()).Clone(),
+            Output = (Output ?? new TeamOutputScriptSettings()).Clone(),
+            Support = (Support ?? new TeamSupportScriptSettings()).Clone()
+        };
+    }
+}
+
+public enum TeamRole
+{
+    Leader,
+    Output,
+    Support
+}
+
+public sealed class TeamLeaderScriptSettings
+{
+    public bool Enabled { get; set; }
+
+    public bool DungeonMode { get; set; }
+
+    public bool AllowLoot { get; set; }
+
+    public bool AllowSelfDefense { get; set; } = true;
+
+    public bool StopAdvanceWhenMemberDisconnected { get; set; }
+
+    public TeamLeaderScriptSettings Clone()
+    {
+        return new TeamLeaderScriptSettings
+        {
+            Enabled = Enabled,
+            DungeonMode = DungeonMode,
+            AllowLoot = AllowLoot,
+            AllowSelfDefense = AllowSelfDefense,
+            StopAdvanceWhenMemberDisconnected = StopAdvanceWhenMemberDisconnected
+        };
+    }
+}
+
+public sealed class TeamOutputScriptSettings
+{
+    public bool Enabled { get; set; }
+
+    public bool DungeonMode { get; set; }
+
+    public bool AllowLoot { get; set; }
+
+    public bool AllowSelfDefense { get; set; } = true;
+
+    public bool FollowLeader { get; set; } = true;
+
+    public bool OnlyAttackLeaderMarkedTarget { get; set; } = true;
+
+    public bool StopWhenLeaderHasNoTarget { get; set; } = true;
+
+    public bool StopWhenLeaderDead { get; set; } = true;
+
+    public double LeaderDistanceMeters { get; set; } = 12.0D;
+
+    public TeamOutputScriptSettings Clone()
+    {
+        return new TeamOutputScriptSettings
+        {
+            Enabled = Enabled,
+            DungeonMode = DungeonMode,
+            AllowLoot = AllowLoot,
+            AllowSelfDefense = AllowSelfDefense,
+            FollowLeader = FollowLeader,
+            OnlyAttackLeaderMarkedTarget = OnlyAttackLeaderMarkedTarget,
+            StopWhenLeaderHasNoTarget = StopWhenLeaderHasNoTarget,
+            StopWhenLeaderDead = StopWhenLeaderDead,
+            LeaderDistanceMeters = LeaderDistanceMeters
+        };
+    }
+}
+
+public sealed class TeamSupportScriptSettings
+{
+    public bool Enabled { get; set; }
+
+    public bool DungeonMode { get; set; }
+
+    public bool AllowLoot { get; set; }
+
+    public bool JoinCombat { get; set; }
+
+    public bool MentalCleanseEnabled { get; set; } = true;
+
+    public bool PhysicalCleanseEnabled { get; set; } = true;
+
+    public bool AllowSelfDefense { get; set; }
+
+    public bool StopWhenLeaderDead { get; set; } = true;
+
+    public double LeaderDistanceMeters { get; set; } = 12.0D;
+
+    public List<TeamHealSkillRuleConfig> HealSkillRules { get; set; } = new();
+
+    public string MentalCleanseKey { get; set; } = "NumPad8";
+
+    public string PhysicalCleanseKey { get; set; } = "NumPad7";
+
+    public string GroupCleanseKey { get; set; } = string.Empty;
+
+    public TeamSupportScriptSettings Clone()
+    {
+        return new TeamSupportScriptSettings
+        {
+            Enabled = Enabled,
+            DungeonMode = DungeonMode,
+            AllowLoot = AllowLoot,
+            JoinCombat = JoinCombat,
+            MentalCleanseEnabled = MentalCleanseEnabled,
+            PhysicalCleanseEnabled = PhysicalCleanseEnabled,
+            AllowSelfDefense = AllowSelfDefense,
+            StopWhenLeaderDead = StopWhenLeaderDead,
+            LeaderDistanceMeters = LeaderDistanceMeters,
+            HealSkillRules = HealSkillRules?.Select(rule => rule.Clone()).ToList() ?? new List<TeamHealSkillRuleConfig>(),
+            MentalCleanseKey = MentalCleanseKey ?? string.Empty,
+            PhysicalCleanseKey = PhysicalCleanseKey ?? string.Empty,
+            GroupCleanseKey = GroupCleanseKey ?? string.Empty
+        };
+    }
+}
+
+public sealed class TeamHealSkillRuleConfig
+{
+    public int BelowPercent { get; set; } = 80;
+
+    public MaintenanceRuleRunTiming RunTiming { get; set; } = MaintenanceRuleRunTiming.Always;
+
+    public TeamHealSkillTargetType TargetType { get; set; } = TeamHealSkillTargetType.Single;
+
+    public string Key { get; set; } = "NumPad1";
+
+    public uint SkillId { get; set; }
+
+    public string SkillName { get; set; } = string.Empty;
+
+    public TeamHealSkillRuleConfig Clone()
+    {
+        return new TeamHealSkillRuleConfig
+        {
+            BelowPercent = BelowPercent,
+            RunTiming = RunTiming,
+            TargetType = TargetType,
+            Key = Key ?? string.Empty,
+            SkillId = SkillId,
+            SkillName = SkillName ?? string.Empty
+        };
+    }
+}
+
+public enum TeamHealSkillTargetType
+{
+    Single,
+    Group
 }
 
 public sealed class MaintenanceScriptSettings

@@ -14,7 +14,7 @@ using Vmmsharp;
 
 namespace Roadhog.Infrastructure.Vmm;
 
-public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
+public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, IInventoryWindowGameApi, IInventoryMoneyGameApi, IInventoryCapacityGameApi
 #if DEBUG
     , IRoadhogApiAddressProbe
 #endif
@@ -34,7 +34,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
 
     private const ulong EntitySystemPointerRva = 0x904690;
     private const ulong ServerObjectTreeRva = 0xD21740;
+    private const ulong PartyIdRva = 0xD1BAB8;
+    private const ulong PartyFlagsRva = 0xD1BABC;
+    private const ulong PartyLeaderServerObjectIdRva = 0xD1BAC0;
     private const ulong PrimaryPartyListRva = 0xD1BAE8;
+    private const ulong PrimaryPartyCountRva = 0xD1BAF0;
     private const ulong SecondaryPartyListRva = 0xD1BB50;
     private const ulong LocalEntityIdRva = 0xD21798;
     private const ulong LocalMaxHpRva = 0xD267DC;
@@ -103,7 +107,32 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
     private const ulong ActorLootableFlagOffset = 0x11E0;
     private const ulong AbnormalStatusEntrySize = 0x12;
     private const int MaxActorAbnormalStatusEntries = 512;
+    private const ulong PartyMemberPartySlotOffset = 0x00;
     private const ulong PartyMemberServerObjectIdOffset = 0x04;
+    private const ulong PartyMemberMaxHpOffset = 0x08;
+    private const ulong PartyMemberCurrentHpOffset = 0x0C;
+    private const ulong PartyMemberMaxMpOffset = 0x10;
+    private const ulong PartyMemberCurrentMpOffset = 0x14;
+    private const ulong PartyMemberMaxFlightTimeOffset = 0x18;
+    private const ulong PartyMemberCurrentFlightTimeOffset = 0x1C;
+    private const ulong PartyMemberAreaField0Offset = 0x20;
+    private const ulong PartyMemberAreaField1Offset = 0x24;
+    private const ulong PartyMemberCachedXOffset = 0x28;
+    private const ulong PartyMemberCachedYOffset = 0x2C;
+    private const ulong PartyMemberCachedZOffset = 0x30;
+    private const ulong PartyMemberClassIdOffset = 0x34;
+    private const ulong PartyMemberLevelOffset = 0x36;
+    private const ulong PartyMemberDataFlagsOffset = 0x37;
+    private const ulong PartyMemberFlightAreaFlagOffset = 0x38;
+    private const ulong PartyMemberFlightFlagsOffset = 0x39;
+    private const ulong PartyMemberRuntimeStateOffset = 0x3A;
+    private const ulong PartyMemberNameOffset = 0x3B;
+    private const ulong PartyMemberControlStatusMaskOffset = 0x6F;
+    private const byte PartyMemberHasAbnormalBlockFlag = 0x08;
+    private const ulong PartyMemberAbnormalCountOffset = 0x77;
+    private const ulong PartyMemberAbnormalEntriesOffset = 0x79;
+    private const ulong PartyMemberUpdateTimeOffset = 0x859;
+    private const int PartyMemberMaxAbnormalCount = 112;
 
     private const ulong SkillItemSkillIdOffset = 0x08;
     private const ulong SkillItemField0COffset = 0x0C;
@@ -232,6 +261,19 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadSummonedPetRosterCore(context), cancellationToken);
+    }
+
+    public Task<OperationResult<PartySnapshot>> ReadPartyAsync(CancellationToken cancellationToken = default)
+    {
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadPartyAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<PartySnapshot>> ReadPartyAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadPartyCore(context), cancellationToken);
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
@@ -1071,6 +1113,52 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         {
             _logger.Error("vmm.summoned_pet_roster.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<SummonedPetRosterSnapshot>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<PartySnapshot> ReadPartyCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<PartySnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<PartySnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                if (!TryReadPartySnapshot(process, gameBase, out var snapshot, out var readError))
+                {
+                    return OperationResult<PartySnapshot>.Fail(readError);
+                }
+
+                _logger.Info("vmm.party.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["partyId"] = snapshot.PartyId,
+                    ["memberCount"] = snapshot.Members.Count,
+                    ["localServerObjectId"] = snapshot.LocalServerObjectId,
+                    ["leaderServerObjectId"] = snapshot.LeaderServerObjectId,
+                    ["localIsLeader"] = snapshot.LocalIsLeader,
+                    ["visiblePlayerActorCount"] = snapshot.VisiblePlayerActorCount
+                });
+
+                return OperationResult<PartySnapshot>.Ok(snapshot);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.party.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<PartySnapshot>.Fail(ex.Message);
         }
     }
 
@@ -3862,6 +3950,507 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         return true;
     }
 
+    private static bool TryReadPartySnapshot(
+        VmmProcess process,
+        ulong gameBase,
+        out PartySnapshot snapshot,
+        out string error)
+    {
+        var capturedAt = DateTimeOffset.Now;
+        snapshot = PartySnapshot.Empty(capturedAt);
+        error = string.Empty;
+
+        if (!TryReadPartyMemberSnapshots(process, gameBase, out var members, out var memberReadError))
+        {
+            error = memberReadError;
+            return false;
+        }
+
+        TryReadUInt32(process, gameBase + PartyIdRva, out var partyId);
+        TryReadUInt32(process, gameBase + PartyFlagsRva, out var partyFlags);
+        TryReadUInt32(process, gameBase + PartyLeaderServerObjectIdRva, out var leaderServerObjectId);
+        TryReadUInt64(process, gameBase + PrimaryPartyCountRva, out var primaryPartyCount);
+
+        var liveActorReadError = string.Empty;
+        var localServerObjectId = 0U;
+        var localEntityId = (ushort)0;
+        var localName = string.Empty;
+        var localPosition = default(Vector3Snapshot?);
+        var localTargetServerObjectId = 0U;
+        var visiblePlayerActorCount = 0;
+
+        if (TryReadPartyLiveContext(process, gameBase, out var liveContext, out liveActorReadError))
+        {
+            localServerObjectId = liveContext.LocalServerObjectId;
+            localEntityId = liveContext.LocalEntityId;
+            localName = liveContext.LocalName;
+            localPosition = liveContext.LocalPosition;
+            localTargetServerObjectId = liveContext.LocalTargetServerObjectId;
+            visiblePlayerActorCount = liveContext.VisiblePlayerActorsByServerObjectId.Count;
+            members = ApplyPartyMemberLiveContext(members, leaderServerObjectId, liveContext);
+        }
+        else
+        {
+            members = ApplyPartyLeaderOnly(members, leaderServerObjectId);
+        }
+
+        snapshot = new PartySnapshot(
+            partyId,
+            partyFlags,
+            primaryPartyCount,
+            leaderServerObjectId,
+            localServerObjectId,
+            localEntityId,
+            localName,
+            localPosition,
+            localTargetServerObjectId,
+            visiblePlayerActorCount,
+            capturedAt,
+            members,
+            memberReadError,
+            liveActorReadError);
+        return true;
+    }
+
+    private static bool TryReadPartyMemberSnapshots(
+        VmmProcess process,
+        ulong gameBase,
+        out IReadOnlyList<PartyMemberSnapshot> snapshots,
+        out string error)
+    {
+        var result = new List<PartyMemberSnapshot>();
+        var seen = new HashSet<uint>();
+        var errors = new List<string>();
+
+        if (!ReadPartyMemberSnapshotList(process, gameBase + PrimaryPartyListRva, "primary", result, seen, out var primaryError))
+        {
+            errors.Add(primaryError);
+        }
+
+        if (!ReadPartyMemberSnapshotList(process, gameBase + SecondaryPartyListRva, "secondary", result, seen, out var secondaryError))
+        {
+            errors.Add(secondaryError);
+        }
+
+        snapshots = result;
+        error = errors.Count == 0 ? string.Empty : string.Join("; ", errors);
+        return result.Count > 0 || errors.Count < 2;
+    }
+
+    private static bool ReadPartyMemberSnapshotList(
+        VmmProcess process,
+        ulong listGlobalAddress,
+        string listName,
+        List<PartyMemberSnapshot> snapshots,
+        HashSet<uint> seenServerObjectIds,
+        out string error)
+    {
+        error = string.Empty;
+
+        if (!TryReadPointer(process, listGlobalAddress, out var head) || head == 0)
+        {
+            error = "failed to read " + listName + " party list head at 0x" + listGlobalAddress.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, head + ListNodeNextOffset, out var node))
+        {
+            error = "failed to read " + listName + " party list first node";
+            return false;
+        }
+
+        var listIndex = 0;
+        var visited = new HashSet<ulong>();
+        for (var guard = 0; node != 0 && node != head && guard < 256; guard++)
+        {
+            if (!visited.Add(node))
+            {
+                break;
+            }
+
+            if (TryReadPointer(process, node + ListNodeValueOffset, out var member) &&
+                member != 0 &&
+                TryReadPartyMemberSnapshot(process, member, node, listName, listIndex, out var snapshot) &&
+                (snapshot.ServerObjectId == 0 || seenServerObjectIds.Add(snapshot.ServerObjectId)))
+            {
+                snapshots.Add(snapshot);
+            }
+
+            listIndex++;
+
+            if (!TryReadPointer(process, node + ListNodeNextOffset, out var next) || next == node)
+            {
+                break;
+            }
+
+            node = next;
+        }
+
+        return true;
+    }
+
+    private static bool TryReadPartyMemberSnapshot(
+        VmmProcess process,
+        ulong member,
+        ulong node,
+        string listName,
+        int listIndex,
+        out PartyMemberSnapshot snapshot)
+    {
+        snapshot = CreateEmptyPartyMemberSnapshot(listName, listIndex, node, member);
+        if (!IsLikelyUserPointer(member))
+        {
+            return false;
+        }
+
+        TryReadUInt32(process, member + PartyMemberPartySlotOffset, out var partySlot);
+        TryReadUInt32(process, member + PartyMemberServerObjectIdOffset, out var serverObjectId);
+        TryReadUInt32(process, member + PartyMemberMaxHpOffset, out var maxHp);
+        TryReadUInt32(process, member + PartyMemberCurrentHpOffset, out var currentHp);
+        TryReadUInt32(process, member + PartyMemberMaxMpOffset, out var maxMp);
+        TryReadUInt32(process, member + PartyMemberCurrentMpOffset, out var currentMp);
+        TryReadUInt32(process, member + PartyMemberMaxFlightTimeOffset, out var maxFlightTime);
+        TryReadUInt32(process, member + PartyMemberCurrentFlightTimeOffset, out var currentFlightTime);
+        TryReadUInt32(process, member + PartyMemberAreaField0Offset, out var areaField0);
+        TryReadUInt32(process, member + PartyMemberAreaField1Offset, out var areaField1);
+        TryReadSingle(process, member + PartyMemberCachedXOffset, out var cachedX);
+        TryReadSingle(process, member + PartyMemberCachedYOffset, out var cachedY);
+        TryReadSingle(process, member + PartyMemberCachedZOffset, out var cachedZ);
+        TryReadByte(process, member + PartyMemberClassIdOffset, out var classId);
+        TryReadByte(process, member + PartyMemberLevelOffset, out var level);
+        TryReadByte(process, member + PartyMemberDataFlagsOffset, out var dataFlags);
+        TryReadByte(process, member + PartyMemberFlightAreaFlagOffset, out var flightAreaFlag);
+        TryReadByte(process, member + PartyMemberFlightFlagsOffset, out var flightFlags);
+        TryReadByte(process, member + PartyMemberRuntimeStateOffset, out var runtimeState);
+        TryReadUtf16String(process, member + PartyMemberNameOffset, 26, out var name);
+        TryReadUInt64(process, member + PartyMemberControlStatusMaskOffset, out var controlStatusMask);
+        TryReadInt16(process, member + PartyMemberAbnormalCountOffset, out var rawAbnormalCount);
+        TryReadUInt32(process, member + PartyMemberUpdateTimeOffset, out var updateTime);
+
+        var hasAbnormalBlock = (dataFlags & PartyMemberHasAbnormalBlockFlag) != 0;
+        var count = rawAbnormalCount;
+        if (count < 0)
+        {
+            count = 0;
+        }
+        else if (count > PartyMemberMaxAbnormalCount)
+        {
+            count = PartyMemberMaxAbnormalCount;
+        }
+
+        var entries = new List<AbnormalStatusEntrySnapshot>();
+        var entriesAddress = member + PartyMemberAbnormalEntriesOffset;
+        for (var i = 0; i < count; i++)
+        {
+            if (TryReadPartyMemberAbnormalStatusEntry(process, entriesAddress + (ulong)i * AbnormalStatusEntrySize, out var entry))
+            {
+                entries.Add(entry);
+            }
+        }
+
+        AionClassId? resolvedClass = null;
+        var className = string.Empty;
+        if (AionClassCatalog.TryFromRaw(classId, out var knownClass))
+        {
+            resolvedClass = knownClass;
+            className = AionClassCatalog.GetChineseName(knownClass);
+        }
+
+        snapshot = new PartyMemberSnapshot(
+            listName,
+            listIndex,
+            node,
+            member,
+            partySlot,
+            serverObjectId,
+            name,
+            classId,
+            resolvedClass,
+            className,
+            level,
+            currentHp,
+            maxHp,
+            currentMp,
+            maxMp,
+            currentFlightTime,
+            maxFlightTime,
+            areaField0,
+            areaField1,
+            new Vector3Snapshot(cachedX, cachedY, cachedZ),
+            dataFlags,
+            flightAreaFlag,
+            flightFlags,
+            runtimeState,
+            controlStatusMask,
+            hasAbnormalBlock,
+            rawAbnormalCount,
+            updateTime,
+            entries,
+            false,
+            false,
+            false,
+            0,
+            0,
+            0,
+            string.Empty,
+            0,
+            null,
+            null,
+            PartyMemberVisibilityState.Unknown);
+
+        return snapshot.ServerObjectId != 0 ||
+               !string.IsNullOrWhiteSpace(snapshot.Name) ||
+               snapshot.MaxHp != 0 ||
+               snapshot.MaxMp != 0 ||
+               snapshot.RawAbnormalCount != 0 ||
+               snapshot.HasAbnormalBlock;
+    }
+
+    private static PartyMemberSnapshot CreateEmptyPartyMemberSnapshot(
+        string listName,
+        int listIndex,
+        ulong node,
+        ulong member)
+    {
+        return new PartyMemberSnapshot(
+            listName,
+            listIndex,
+            node,
+            member,
+            0,
+            0,
+            string.Empty,
+            0,
+            null,
+            string.Empty,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            new Vector3Snapshot(),
+            0,
+            0,
+            0,
+            0,
+            0,
+            false,
+            0,
+            0,
+            Array.Empty<AbnormalStatusEntrySnapshot>(),
+            false,
+            false,
+            false,
+            0,
+            0,
+            0,
+            string.Empty,
+            0,
+            null,
+            null,
+            PartyMemberVisibilityState.Unknown);
+    }
+
+    private static bool TryReadPartyMemberAbnormalStatusEntry(
+        VmmProcess process,
+        ulong address,
+        out AbnormalStatusEntrySnapshot entry)
+    {
+        entry = new AbnormalStatusEntrySnapshot(0, 0, 0, 0, 0, address);
+        if (!TryReadUInt32(process, address + 0x00, out var field00) ||
+            !TryReadUInt32(process, address + 0x04, out var abnormalId) ||
+            !TryReadUInt32(process, address + 0x08, out var category))
+        {
+            return false;
+        }
+
+        TryReadUInt32(process, address + 0x0C, out var rawTimeOrSource);
+        TryReadUInt16(process, address + 0x10, out var levelOrStack);
+        entry = new AbnormalStatusEntrySnapshot(
+            field00,
+            abnormalId,
+            category,
+            unchecked((int)rawTimeOrSource),
+            levelOrStack,
+            address);
+        return true;
+    }
+
+    private static bool TryReadPartyLiveContext(
+        VmmProcess process,
+        ulong gameBase,
+        out PartyLiveContext context,
+        out string error)
+    {
+        context = new PartyLiveContext();
+        error = string.Empty;
+
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        {
+            error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        {
+            error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
+            return false;
+        }
+
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        {
+            error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
+            return false;
+        }
+
+        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity))
+        {
+            error = "local entity id " + localEntityId.ToString(CultureInfo.InvariantCulture) + " was not found in EntitySystem tree";
+            return false;
+        }
+
+        if (!TryResolveActorFromEntity(process, localEntity, 0, out var localActor) ||
+            localActor.ServerObjectId == 0)
+        {
+            error = "failed to resolve local actor/server object id";
+            return false;
+        }
+
+        context.LocalEntityId = localEntityId;
+        context.LocalEntityAddress = localEntity;
+        context.LocalActorAddress = localActor.Actor;
+        context.LocalServerObjectId = localActor.ServerObjectId;
+        context.LocalTargetServerObjectId = localActor.TargetServerObjectId;
+        context.LocalName = localActor.Name;
+
+        if (TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ) &&
+            IsReasonablePosition(localX, localY, localZ))
+        {
+            context.LocalPosition = new Vector3Snapshot(localX, localY, localZ);
+        }
+
+        if (!TryReadVisibleActorInfos(process, gameBase, entityTreeHeader, localEntityId, out var visibleActors, out error))
+        {
+            return false;
+        }
+
+        foreach (var actor in visibleActors)
+        {
+            if (actor.Actor.ObjectType != ActorPlayerObjectType || actor.Actor.ServerObjectId == 0)
+            {
+                continue;
+            }
+
+            var livePosition = default(Vector3Snapshot?);
+            if (TryReadEntityPosition(process, actor.Entity, out var x, out var y, out var z) &&
+                IsReasonablePosition(x, y, z))
+            {
+                livePosition = new Vector3Snapshot(x, y, z);
+            }
+
+            context.VisiblePlayerActorsByServerObjectId[actor.Actor.ServerObjectId] = new PartyLiveActorInfo(
+                actor.EntityId,
+                actor.Entity,
+                actor.Actor.Actor,
+                actor.Actor.Name,
+                actor.Actor.TargetServerObjectId,
+                livePosition);
+        }
+
+        return true;
+    }
+
+    private static IReadOnlyList<PartyMemberSnapshot> ApplyPartyLeaderOnly(
+        IReadOnlyList<PartyMemberSnapshot> members,
+        uint leaderServerObjectId)
+    {
+        return members
+            .Select(member => member with
+            {
+                IsLeader = leaderServerObjectId != 0 && member.ServerObjectId == leaderServerObjectId
+            })
+            .ToArray();
+    }
+
+    private static IReadOnlyList<PartyMemberSnapshot> ApplyPartyMemberLiveContext(
+        IReadOnlyList<PartyMemberSnapshot> members,
+        uint leaderServerObjectId,
+        PartyLiveContext context)
+    {
+        var result = new List<PartyMemberSnapshot>(members.Count);
+        foreach (var member in members)
+        {
+            var isSelf = member.ServerObjectId != 0 &&
+                         member.ServerObjectId == context.LocalServerObjectId;
+            var isLeader = leaderServerObjectId != 0 &&
+                           member.ServerObjectId == leaderServerObjectId;
+            var visibility = PartyMemberVisibilityState.NotLoaded;
+            var hasLiveActor = false;
+            var liveEntityId = (ushort)0;
+            var liveEntityAddress = 0UL;
+            var liveActorAddress = 0UL;
+            var liveActorName = string.Empty;
+            var liveTargetServerObjectId = 0U;
+            var livePosition = default(Vector3Snapshot?);
+            var distanceToLocal = default(double?);
+
+            if (member.ServerObjectId != 0 &&
+                context.VisiblePlayerActorsByServerObjectId.TryGetValue(member.ServerObjectId, out var actor))
+            {
+                hasLiveActor = true;
+                liveEntityId = actor.EntityId;
+                liveEntityAddress = actor.EntityAddress;
+                liveActorAddress = actor.ActorAddress;
+                liveActorName = actor.ActorName;
+                liveTargetServerObjectId = actor.TargetServerObjectId;
+
+                if (actor.Position is { } position)
+                {
+                    livePosition = position;
+                    if (context.LocalPosition is { } localPosition)
+                    {
+                        var dx = position.X - localPosition.X;
+                        var dy = position.Y - localPosition.Y;
+                        var dz = position.Z - localPosition.Z;
+                        distanceToLocal = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                        visibility = distanceToLocal <= 50.0D
+                            ? PartyMemberVisibilityState.ScreenVisible
+                            : PartyMemberVisibilityState.LoadedOutOfRange;
+                    }
+                    else
+                    {
+                        visibility = PartyMemberVisibilityState.LoadedDistanceUnknown;
+                    }
+                }
+                else
+                {
+                    visibility = PartyMemberVisibilityState.LoadedPositionUnknown;
+                }
+            }
+
+            result.Add(member with
+            {
+                IsSelf = isSelf,
+                IsLeader = isLeader,
+                HasLiveActor = hasLiveActor,
+                LiveEntityId = liveEntityId,
+                LiveEntityAddress = liveEntityAddress,
+                LiveActorAddress = liveActorAddress,
+                LiveActorName = liveActorName,
+                LiveTargetServerObjectId = liveTargetServerObjectId,
+                LivePosition = livePosition,
+                DistanceToLocalPlayer = distanceToLocal,
+                VisibilityState = visibility
+            });
+        }
+
+        return result;
+    }
+
     private static bool TryReadCameraAngles(
         VmmProcess process,
         ulong gameBase,
@@ -6387,6 +6976,33 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
         string ListName,
         ulong MemberAddress,
         uint ServerObjectId);
+
+    private sealed class PartyLiveContext
+    {
+        public ushort LocalEntityId { get; set; }
+
+        public ulong LocalEntityAddress { get; set; }
+
+        public ulong LocalActorAddress { get; set; }
+
+        public uint LocalServerObjectId { get; set; }
+
+        public uint LocalTargetServerObjectId { get; set; }
+
+        public string LocalName { get; set; } = string.Empty;
+
+        public Vector3Snapshot? LocalPosition { get; set; }
+
+        public Dictionary<uint, PartyLiveActorInfo> VisiblePlayerActorsByServerObjectId { get; } = new();
+    }
+
+    private sealed record PartyLiveActorInfo(
+        ushort EntityId,
+        ulong EntityAddress,
+        ulong ActorAddress,
+        string ActorName,
+        uint TargetServerObjectId,
+        Vector3Snapshot? Position);
 
     private struct InventoryItemInfo
     {
