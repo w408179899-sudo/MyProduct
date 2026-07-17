@@ -13,6 +13,11 @@ public sealed class TeamSupportController
     private static readonly TimeSpan TeamSupportTickDelay = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan SelectConfirmDelay = TimeSpan.FromMilliseconds(25);
+    private static readonly TimeSpan TeamBuffRetryInterval = TimeSpan.FromSeconds(2);
+    private const string LeaderAssistKey = "C";
+    private const string LifeBlessingName = "\u751F\u547D\u7684\u795D\u798F";
+    private const string ProtectionBlessingName = "\u4FDD\u62A4\u795D\u798F";
+    private const string ProtectionBlessingNameWithParticle = "\u4FDD\u62A4\u7684\u795D\u798F";
 
     private readonly IKeyboardInput _keyboard;
     private TeamAbnormalStatusCatalog? _abnormalStatusCatalog;
@@ -57,7 +62,7 @@ public sealed class TeamSupportController
         }
 
         var snapshot = snapshotResult.Value;
-        var action = await SelectActionAsync(context, support, snapshot).ConfigureAwait(false);
+        var action = await SelectActionAsync(context, state, support, snapshot).ConfigureAwait(false);
         if (action is not null)
         {
             await ExecuteActionAsync(context, state, action).ConfigureAwait(false);
@@ -67,6 +72,12 @@ public sealed class TeamSupportController
         var leaderDeadStop =
             support.StopWhenLeaderDead &&
             snapshot.LeaderMember?.PartyMember.IsDead == true;
+        if (!support.JoinCombat || leaderDeadStop)
+        {
+            await SelectLeaderAndAssistAsync(context, state, snapshot).ConfigureAwait(false);
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
         return !support.JoinCombat || leaderDeadStop
             ? TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay)
             : TeamSupportTickResult.Continue(TeamSupportTickDelay);
@@ -74,6 +85,7 @@ public sealed class TeamSupportController
 
     private async Task<TeamSupportAction?> SelectActionAsync(
         AccountWorkerContext context,
+        TeamSupportState state,
         TeamSupportScriptSettings support,
         TeamSnapshot snapshot)
     {
@@ -120,7 +132,8 @@ public sealed class TeamSupportController
         var healRules = (support.HealSkillRules ?? new List<TeamHealSkillRuleConfig>())
             .Where(rule => !string.IsNullOrWhiteSpace(rule.Key))
             .ToArray();
-        if (healRules.Length == 0)
+        var teamBuffRules = GetTeamBuffRules(context.Config.ScriptSettings?.Maintenance?.StatusMaintenanceRules);
+        if (healRules.Length == 0 && teamBuffRules.Count == 0)
         {
             return null;
         }
@@ -129,32 +142,34 @@ public sealed class TeamSupportController
         var allowedRules = healRules
             .Where(rule => IsRuleAllowed(rule, timing))
             .ToArray();
-        if (allowedRules.Length == 0)
-        {
-            return null;
-        }
 
-        var healCandidate = members
-            .Where(member => member.PartyMember.HasKnownHealth && member.PartyMember.IsAlive)
-            .Select(member => new
+        if (allowedRules.Length > 0)
+        {
+            var healCandidate = members
+                .Where(member => member.PartyMember.HasKnownHealth && member.PartyMember.IsAlive)
+                .Select(member => new
+                {
+                    Member = member,
+                    HpPercent = member.PartyMember.HpPercent,
+                    Rule = SelectHealRule(member.PartyMember.HpPercent, allowedRules)
+                })
+                .Where(candidate => candidate.Rule is not null)
+                .OrderBy(candidate => candidate.HpPercent)
+                .ThenBy(candidate => candidate.Member.FunctionKeyNumber)
+                .FirstOrDefault();
+
+            if (healCandidate?.Rule is not null)
             {
-                Member = member,
-                HpPercent = member.PartyMember.HpPercent,
-                Rule = SelectHealRule(member.PartyMember.HpPercent, allowedRules)
-            })
-            .Where(candidate => candidate.Rule is not null)
-            .OrderBy(candidate => candidate.HpPercent)
-            .ThenBy(candidate => candidate.Member.FunctionKeyNumber)
-            .FirstOrDefault();
-
-        if (healCandidate?.Rule is null)
-        {
-            return null;
+                return healCandidate.Rule.TargetType == TeamHealSkillTargetType.Group
+                    ? TeamSupportAction.GroupHeal(healCandidate.Rule, healCandidate.Member)
+                    : TeamSupportAction.TargetedHeal(healCandidate.Member, healCandidate.Rule);
+            }
         }
 
-        return healCandidate.Rule.TargetType == TeamHealSkillTargetType.Group
-            ? TeamSupportAction.GroupHeal(healCandidate.Rule, healCandidate.Member)
-            : TeamSupportAction.TargetedHeal(healCandidate.Member, healCandidate.Rule);
+        var allowedBuffRules = teamBuffRules
+            .Where(rule => IsRuleAllowed(rule, timing))
+            .ToArray();
+        return SelectTeamBuffAction(members, allowedBuffRules, state);
     }
 
     private async Task<bool> ExecuteActionAsync(
@@ -192,6 +207,60 @@ public sealed class TeamSupportController
         }
 
         state.LastActionAt = DateTimeOffset.Now;
+        if (action.Kind == TeamSupportActionKind.TeamBuff &&
+            action.Target is not null &&
+            action.StatusRule is not null)
+        {
+            state.RememberTeamBuffPress(
+                action.Target.ServerObjectId,
+                ResolveTeamBuffAbnormalStatusId(action.StatusRule),
+                key,
+                DateTimeOffset.Now);
+        }
+
+        return true;
+    }
+
+    private async Task<bool> SelectLeaderAndAssistAsync(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        TeamSnapshot snapshot)
+    {
+        var leader = snapshot.LeaderMember;
+        if (leader is null || leader.IsSelf)
+        {
+            return false;
+        }
+
+        if (!await EnsureMemberBodySelectedAsync(context, state, leader).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        var result = await _keyboard
+            .PressKeyAsync(LeaderAssistKey, ResolveKeyHold(context), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            state.LastInputWarningAt = DateTimeOffset.Now;
+            context.Logger.Warn("team_support.leader_assist_key.failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["key"] = LeaderAssistKey,
+                ["error"] = result.Error
+            });
+            return false;
+        }
+
+        state.LastActionAt = DateTimeOffset.Now;
+        context.Logger.Info("team_support.leader_assist.pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["leader"] = leader.Name,
+            ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["functionKey"] = FormatFunctionKey(leader),
+            ["key"] = LeaderAssistKey
+        });
         return true;
     }
 
@@ -366,12 +435,97 @@ public sealed class TeamSupportController
             .FirstOrDefault();
     }
 
+    private static TeamSupportAction? SelectTeamBuffAction(
+        IReadOnlyList<TeamMemberSnapshot> members,
+        IReadOnlyList<StatusMaintenanceRuleConfig> rules,
+        TeamSupportState state)
+    {
+        if (rules.Count == 0)
+        {
+            return null;
+        }
+
+        var now = DateTimeOffset.Now;
+        foreach (var member in members
+                     .OrderBy(member => member.IsSelf ? 1 : 0)
+                     .ThenBy(member => member.FunctionKeyNumber))
+        {
+            foreach (var rule in rules)
+            {
+                var abnormalStatusId = ResolveTeamBuffAbnormalStatusId(rule);
+                if (abnormalStatusId == 0 ||
+                    HasTeamBuffStatus(member, abnormalStatusId) ||
+                    !state.ShouldPressTeamBuff(
+                        member.ServerObjectId,
+                        abnormalStatusId,
+                        rule.Key,
+                        now,
+                        TeamBuffRetryInterval))
+                {
+                    continue;
+                }
+
+                return TeamSupportAction.TargetedBuff(member, rule);
+            }
+        }
+
+        return null;
+    }
+
     private static bool IsRuleAllowed(
         TeamHealSkillRuleConfig rule,
         MaintenanceRuleRunTiming timing)
     {
         return rule.RunTiming == MaintenanceRuleRunTiming.Always ||
                rule.RunTiming == timing;
+    }
+
+    private static bool IsRuleAllowed(
+        StatusMaintenanceRuleConfig rule,
+        MaintenanceRuleRunTiming timing)
+    {
+        return rule.RunTiming == MaintenanceRuleRunTiming.Always ||
+               rule.RunTiming == timing;
+    }
+
+    private static IReadOnlyList<StatusMaintenanceRuleConfig> GetTeamBuffRules(
+        IEnumerable<StatusMaintenanceRuleConfig>? rules)
+    {
+        return (rules ?? Array.Empty<StatusMaintenanceRuleConfig>())
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
+                           ResolveTeamBuffAbnormalStatusId(rule) != 0 &&
+                           IsWhitelistedTeamBuffRule(rule))
+            .ToArray();
+    }
+
+    private static bool IsWhitelistedTeamBuffRule(StatusMaintenanceRuleConfig rule)
+    {
+        var skillName = NormalizeStatusRuleName(rule.SkillName);
+        return skillName.Contains(LifeBlessingName, StringComparison.Ordinal) ||
+               skillName.Contains(ProtectionBlessingName, StringComparison.Ordinal) ||
+               skillName.Contains(ProtectionBlessingNameWithParticle, StringComparison.Ordinal);
+    }
+
+    private static string NormalizeStatusRuleName(string? name)
+    {
+        return string.IsNullOrWhiteSpace(name)
+            ? string.Empty
+            : name.Trim()
+                .Replace(" ", string.Empty, StringComparison.Ordinal)
+                .Replace("\u3000", string.Empty, StringComparison.Ordinal);
+    }
+
+    private static uint ResolveTeamBuffAbnormalStatusId(StatusMaintenanceRuleConfig rule)
+    {
+        return rule.AbnormalStatusId != 0
+            ? rule.AbnormalStatusId
+            : rule.SkillId;
+    }
+
+    private static bool HasTeamBuffStatus(TeamMemberSnapshot member, uint abnormalStatusId)
+    {
+        return abnormalStatusId != 0 &&
+               member.PartyMember.AbnormalStatuses.Any(entry => entry.AbnormalId == abnormalStatusId);
     }
 
     private static bool IsSelectedMemberBody(
@@ -398,8 +552,11 @@ public sealed class TeamSupportController
             ["member"] = action.Target?.Name ?? action.TriggerMember?.Name,
             ["memberServerObjectId"] = action.Target?.ServerObjectId ?? action.TriggerMember?.ServerObjectId,
             ["candidateCount"] = action.CandidateCount,
-            ["skillId"] = action.HealRule?.SkillId,
-            ["skillName"] = action.HealRule?.SkillName
+            ["skillId"] = action.HealRule?.SkillId ?? action.StatusRule?.SkillId,
+            ["skillName"] = action.HealRule?.SkillName ?? action.StatusRule?.SkillName,
+            ["abnormalStatusId"] = action.StatusRule is null
+                ? null
+                : ResolveTeamBuffAbnormalStatusId(action.StatusRule)
         };
 
         if (result.Success)
@@ -497,7 +654,8 @@ public sealed class TeamSupportController
         string Key,
         int CandidateCount,
         TeamHealSkillRuleConfig? HealRule = null,
-        TeamMemberSnapshot? TriggerMember = null)
+        TeamMemberSnapshot? TriggerMember = null,
+        StatusMaintenanceRuleConfig? StatusRule = null)
     {
         public static TeamSupportAction Targeted(
             TeamSupportActionKind kind,
@@ -522,6 +680,13 @@ public sealed class TeamSupportController
             return new TeamSupportAction(TeamSupportActionKind.GroupHeal, null, rule.Key, 1, rule, triggerMember);
         }
 
+        public static TeamSupportAction TargetedBuff(
+            TeamMemberSnapshot target,
+            StatusMaintenanceRuleConfig rule)
+        {
+            return new TeamSupportAction(TeamSupportActionKind.TeamBuff, target, rule.Key, 1, null, target, rule);
+        }
+
         public static TeamSupportAction GroupCleanse(string key)
         {
             return new TeamSupportAction(TeamSupportActionKind.GroupCleanse, null, key, 0);
@@ -534,6 +699,7 @@ public sealed class TeamSupportController
         PhysicalCleanse,
         GroupCleanse,
         Heal,
-        GroupHeal
+        GroupHeal,
+        TeamBuff
     }
 }

@@ -144,6 +144,7 @@ public sealed class RoadhogServices : IDisposable
         var semiAutoController = new SemiAutoCombatController(keyboardInput);
         var stationaryCombatController = new StationaryCombatController(keyboardInput, semiAutoController, sharedPathStore);
         var teamSupportController = new TeamSupportController(keyboardInput);
+        var teamOutputController = new TeamOutputController(keyboardInput);
         var workerOptions = new AccountWorkerOptions
         {
             TickInterval = options.AccountWorkerTickInterval,
@@ -156,7 +157,7 @@ public sealed class RoadhogServices : IDisposable
             accounts,
             hardwareResolver,
             processResolver,
-            new DefaultAccountWorkerLoop(keyboardInput, semiAutoController, stationaryCombatController, teamSupportController),
+            new DefaultAccountWorkerLoop(keyboardInput, semiAutoController, stationaryCombatController, teamSupportController, teamOutputController),
             workerOptions);
         var runtime = new RoadhogRuntime(
             gameApi,

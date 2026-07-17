@@ -12,17 +12,20 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
     private readonly SemiAutoCombatController _semiAuto;
     private readonly StationaryCombatController _stationaryCombat;
     private readonly TeamSupportController? _teamSupport;
+    private readonly TeamOutputController? _teamOutput;
 
     public DefaultAccountWorkerLoop(
         IKeyboardInput keyboard,
         SemiAutoCombatController semiAuto,
         StationaryCombatController stationaryCombat,
-        TeamSupportController? teamSupport = null)
+        TeamSupportController? teamSupport = null,
+        TeamOutputController? teamOutput = null)
     {
         _keyboard = keyboard;
         _semiAuto = semiAuto;
         _stationaryCombat = stationaryCombat;
         _teamSupport = teamSupport;
+        _teamOutput = teamOutput;
     }
 
     public async Task RunAsync(AccountWorkerContext context)
@@ -46,6 +49,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         var semiAutoState = new SemiAutoCombatState();
         var stationaryCombatState = new StationaryCombatState();
         var teamSupportState = new TeamSupportState();
+        var teamOutputState = new TeamOutputState();
         context.Logger.Info("semi_auto.plan.loaded", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -110,6 +114,14 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         delay = supportResult.Delay;
                         normalWorkBlocked = supportResult.ShouldSkipNormalWork;
                     }
+                    else if (_teamOutput is not null && IsTeamOutputEnabled(scriptSettings))
+                    {
+                        var outputResult = await _teamOutput
+                            .TickAsync(context, teamOutputState)
+                            .ConfigureAwait(false);
+                        delay = outputResult.Delay;
+                        normalWorkBlocked = outputResult.ShouldSkipNormalWork;
+                    }
 
                     if (!normalWorkBlocked && mainMode == AccountMainMode.SemiAuto)
                     {
@@ -155,6 +167,12 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
     {
         return scriptSettings.Team.Role == TeamRole.Support &&
                (scriptSettings.Team.Support?.Enabled ?? false);
+    }
+
+    private static bool IsTeamOutputEnabled(ScriptSettings scriptSettings)
+    {
+        return scriptSettings.Team.Role == TeamRole.Output &&
+               (scriptSettings.Team.Output?.Enabled ?? false);
     }
 
     private async Task ReleaseStartupMovementAsync(AccountWorkerContext context)
