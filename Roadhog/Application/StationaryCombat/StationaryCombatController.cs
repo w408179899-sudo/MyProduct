@@ -2595,6 +2595,34 @@ public sealed class StationaryCombatController
         }
 
         var target = targetResult.Value;
+        if (!state.IsCurrentTarget(target))
+        {
+            if (IsTargetTimedOut(state, now))
+            {
+                return await IgnoreCurrentTargetAsync(
+                        context,
+                        semiAutoState,
+                        state,
+                        state.CurrentTargetEntityId,
+                        state.CurrentTargetServerObjectId,
+                        string.Empty,
+                        "not_locked")
+                    .ConfigureAwait(false);
+            }
+
+            return await ReacquireCurrentFightTargetAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    home,
+                    radius,
+                    playerDistanceFromHome,
+                    targetResult,
+                    "target_mismatch")
+                .ConfigureAwait(false);
+        }
+
         if (!target.IsMonsterAlive)
         {
             MarkStationaryKillIfNeeded(context, target, "locked_target_dead");
@@ -2624,34 +2652,6 @@ public sealed class StationaryCombatController
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
-        }
-
-        if (!state.IsCurrentTarget(target))
-        {
-            if (IsTargetTimedOut(state, now))
-            {
-                return await IgnoreCurrentTargetAsync(
-                        context,
-                        semiAutoState,
-                        state,
-                        state.CurrentTargetEntityId,
-                        state.CurrentTargetServerObjectId,
-                        string.Empty,
-                        "not_locked")
-                    .ConfigureAwait(false);
-            }
-
-            return await ReacquireCurrentFightTargetAsync(
-                    context,
-                    plan,
-                    semiAutoState,
-                    state,
-                    home,
-                    radius,
-                    playerDistanceFromHome,
-                    targetResult,
-                    "target_mismatch")
-                .ConfigureAwait(false);
         }
 
         state.SetCurrentTarget(target);

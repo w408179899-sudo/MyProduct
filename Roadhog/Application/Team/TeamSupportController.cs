@@ -17,6 +17,7 @@ public sealed class TeamSupportController
     private static readonly TimeSpan TeamBuffRetryInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan AssistTargetInitialConfirmDelay = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan AssistTargetConfirmRetryDelay = TimeSpan.FromMilliseconds(80);
+    private static readonly IReadOnlySet<uint> EmptyProtectedServerObjectIds = new HashSet<uint>();
     private const int AssistTargetConfirmPolls = 3;
     private const string LeaderAssistKey = "C";
     private const string AssistTargetKey = "Oem3";
@@ -79,9 +80,28 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
-        var leaderInGroupRange = TeamLeaderRuntimePolicy.IsLeaderInGroupRange(
+        if (support.AllowSelfDefense)
+        {
+            var selfDefenseResult = await TryHandleSelfDefenseAsync(
+                    context,
+                    state,
+                    snapshot,
+                    combatState)
+                .ConfigureAwait(false);
+            if (selfDefenseResult is not null)
+            {
+                return selfDefenseResult;
+            }
+        }
+
+        var leaderInGroupRange = TeamLeaderRuntimePolicy.UpdateLeaderGroupState(
             leader,
-            groupDistanceMeters);
+            groupDistanceMeters,
+            state.LeaderGroupActive);
+        state.LeaderGroupActive = leaderInGroupRange;
+        var activeGroupDistanceMeters = leaderInGroupRange
+            ? TeamLeaderRuntimePolicy.ResolveLeaderGroupExitDistanceMeters(groupDistanceMeters)
+            : groupDistanceMeters;
         if (!leaderInGroupRange)
         {
             LogFollowDecision(
@@ -90,6 +110,8 @@ public sealed class TeamSupportController
                 "leader_out_of_range",
                 leader,
                 groupDistanceMeters,
+                activeGroupDistanceMeters,
+                state.LeaderGroupActive,
                 support.JoinCombat,
                 combatState);
             return TeamSupportTickResult.Continue(TeamSupportTickDelay);
@@ -103,6 +125,8 @@ public sealed class TeamSupportController
                 "active_combat_target",
                 leader,
                 groupDistanceMeters,
+                activeGroupDistanceMeters,
+                state.LeaderGroupActive,
                 support.JoinCombat,
                 combatState);
             return TeamSupportTickResult.Continue(TeamSupportTickDelay);
@@ -113,7 +137,7 @@ public sealed class TeamSupportController
                 state,
                 support,
                 snapshot,
-                groupDistanceMeters,
+                activeGroupDistanceMeters,
                 combatState)
             .ConfigureAwait(false);
         if (action is not null)
@@ -128,7 +152,75 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
-        return await SelectLeaderTargetForCombatAsync(context, state, snapshot, leader, combatState).ConfigureAwait(false);
+        return await SelectLeaderTargetForCombatAsync(context, state, snapshot, support, leader, combatState).ConfigureAwait(false);
+    }
+
+    private async Task<TeamSupportTickResult?> TryHandleSelfDefenseAsync(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        TeamSnapshot snapshot,
+        StationaryCombatState? combatState)
+    {
+        if (TeamLeaderRuntimePolicy.HasActiveCombatTarget(combatState))
+        {
+            return null;
+        }
+
+        var protectedServerObjectIds = GetLocalProtectedServerObjectIds(snapshot);
+        if (protectedServerObjectIds.Count == 0)
+        {
+            return null;
+        }
+
+        var worldResult = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+        if (!worldResult.Success || worldResult.Value is null)
+        {
+            if (ShouldLog(state.LastSelfDefenseWarningAt))
+            {
+                state.LastSelfDefenseWarningAt = DateTimeOffset.Now;
+                context.Logger.Warn("team_support.self_defense.world_objects.failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["error"] = worldResult.Error
+                });
+            }
+
+            return null;
+        }
+
+        var threat = worldResult.Value
+            .Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .Where(target =>
+                target.TargetServerObjectId != 0 &&
+                protectedServerObjectIds.Contains(target.TargetServerObjectId))
+            .OrderBy(target => target.DistanceToLocalPlayer ?? double.MaxValue)
+            .ThenBy(target => target.ServerObjectId)
+            .ThenBy(target => target.EntityId)
+            .FirstOrDefault();
+        if (threat is null)
+        {
+            return null;
+        }
+
+        var combatAdopted = TeamCombatTargetAdopter.TryAdoptSelfDefenseTarget(combatState, threat);
+        if (ShouldLog(state.LastSelfDefenseLogAt))
+        {
+            state.LastSelfDefenseLogAt = DateTimeOffset.Now;
+            context.Logger.Info("team_support.self_defense.threat_accepted", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = threat.EntityId,
+                ["targetServerObjectId"] = threat.ServerObjectId,
+                ["targetName"] = threat.Name,
+                ["targetingServerObjectId"] = threat.TargetServerObjectId,
+                ["selfDefenseServerObjectIds"] = string.Join(",", protectedServerObjectIds),
+                ["combatAdopted"] = combatAdopted
+            });
+        }
+
+        return combatAdopted
+            ? TeamSupportTickResult.Continue(TeamSupportTickDelay)
+            : null;
     }
 
     private async Task<TeamSupportAction?> SelectActionAsync(
@@ -330,6 +422,7 @@ public sealed class TeamSupportController
         AccountWorkerContext context,
         TeamSupportState state,
         TeamSnapshot snapshot,
+        TeamSupportScriptSettings support,
         TeamMemberSnapshot? leader,
         StationaryCombatState? combatState)
     {
@@ -363,11 +456,16 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
+        var selfDefenseServerObjectIds = support.AllowSelfDefense
+            ? GetLocalProtectedServerObjectIds(snapshot)
+            : EmptyProtectedServerObjectIds;
+
         var currentTargetResult = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
         if (TeamLeaderTargetValidator.IsLeaderAttackTarget(
                 currentTargetResult,
                 leader,
                 leaderTargetServerObjectId,
+                selfDefenseServerObjectIds,
                 out _))
         {
             return AcceptLeaderAttackTarget(
@@ -417,7 +515,8 @@ public sealed class TeamSupportController
         var verification = await VerifyLeaderAttackTargetAfterAssistAsync(
                 context,
                 leader,
-                leaderTargetServerObjectId)
+                leaderTargetServerObjectId,
+                selfDefenseServerObjectIds)
             .ConfigureAwait(false);
         if (!verification.Accepted)
         {
@@ -427,7 +526,8 @@ public sealed class TeamSupportController
                 verification.LockedTargetResult.Value,
                 leader,
                 leaderTargetServerObjectId,
-                verification.RejectReason);
+                verification.RejectReason,
+                selfDefenseServerObjectIds);
             await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
@@ -473,7 +573,8 @@ public sealed class TeamSupportController
     private async Task<AssistTargetVerification> VerifyLeaderAttackTargetAfterAssistAsync(
         AccountWorkerContext context,
         TeamMemberSnapshot leader,
-        uint leaderTargetServerObjectId)
+        uint leaderTargetServerObjectId,
+        IReadOnlySet<uint> selfDefenseServerObjectIds)
     {
         var lastResult = OperationResult<LockedTargetSnapshot>.Fail("target_not_read");
         var lastRejectReason = "target_not_read";
@@ -490,6 +591,7 @@ public sealed class TeamSupportController
                     lastResult,
                     leader,
                     leaderTargetServerObjectId,
+                    selfDefenseServerObjectIds,
                     out lastRejectReason))
             {
                 return new AssistTargetVerification(lastResult, true, string.Empty, poll);
@@ -787,13 +889,39 @@ public sealed class TeamSupportController
                result.Value.ServerObjectId == member.ServerObjectId;
     }
 
+    private static IReadOnlySet<uint> GetLocalProtectedServerObjectIds(TeamSnapshot snapshot)
+    {
+        var ids = new HashSet<uint>();
+        var local = snapshot.LocalMember;
+        if (local is null || !local.PartyMember.IsAlive)
+        {
+            return ids;
+        }
+
+        if (local.ServerObjectId != 0)
+        {
+            ids.Add(local.ServerObjectId);
+        }
+
+        var pet = local.SummonedPet?.Pet;
+        if (local.PartyMember.Class == AionClassId.Spiritmaster &&
+            pet?.IsAlive == true &&
+            pet.ServerObjectId != 0)
+        {
+            ids.Add(pet.ServerObjectId);
+        }
+
+        return ids;
+    }
+
     private static void LogTargetRejected(
         AccountWorkerContext context,
         TeamSupportState state,
         LockedTargetSnapshot? target,
         TeamMemberSnapshot leader,
         uint leaderTargetServerObjectId,
-        string rejectReason)
+        string rejectReason,
+        IReadOnlySet<uint> selfDefenseServerObjectIds)
     {
         if (!ShouldLog(state.LastTargetRejectLogAt))
         {
@@ -807,13 +935,21 @@ public sealed class TeamSupportController
             ["reason"] = rejectReason,
             ["leader"] = leader.Name,
             ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["leaderClassId"] = leader.PartyMember.ClassId,
+            ["leaderClass"] = leader.PartyMember.ClassName,
+            ["leaderPetServerObjectId"] = leader.SummonedPet?.Pet.ServerObjectId,
+            ["leaderPetSummoned"] = leader.SummonedPet?.Pet.IsSummoned,
+            ["leaderPetOwnerClass"] = leader.SummonedPet?.OwnerClassName,
             ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
             ["targetName"] = target?.Name,
             ["targetServerObjectId"] = target?.ServerObjectId,
             ["targetObjectType"] = target?.ObjectType,
             ["targetCurrentHp"] = target?.CurrentHp,
             ["targetMaxHp"] = target?.MaxHp,
-            ["targetTargetServerObjectId"] = target?.TargetServerObjectId
+            ["targetTargetServerObjectId"] = target?.TargetServerObjectId,
+            ["selfDefenseServerObjectIds"] = selfDefenseServerObjectIds.Count == 0
+                ? string.Empty
+                : string.Join(",", selfDefenseServerObjectIds)
         });
     }
 
@@ -850,6 +986,8 @@ public sealed class TeamSupportController
         string reason,
         TeamMemberSnapshot? leader,
         double groupDistanceMeters,
+        double groupExitDistanceMeters,
+        bool leaderGroupActive,
         bool joinCombat,
         StationaryCombatState? combatState)
     {
@@ -867,6 +1005,8 @@ public sealed class TeamSupportController
             ["leaderServerObjectId"] = leader.ServerObjectId,
             ["leaderDistanceToLocal"] = leader.PartyMember.DistanceToLocalPlayer,
             ["groupDistanceMeters"] = groupDistanceMeters,
+            ["groupExitDistanceMeters"] = groupExitDistanceMeters,
+            ["leaderGroupActive"] = leaderGroupActive,
             ["joinCombat"] = joinCombat,
             ["leaderDead"] = leader.PartyMember.IsDead,
             ["leaderScreenVisible"] = leader.IsScreenVisible,

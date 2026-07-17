@@ -45,6 +45,21 @@ internal static class TeamLeaderTargetValidator
         uint leaderTargetServerObjectId,
         out string rejectReason)
     {
+        return IsLeaderAttackTarget(
+            result,
+            leader,
+            leaderTargetServerObjectId,
+            null,
+            out rejectReason);
+    }
+
+    public static bool IsLeaderAttackTarget(
+        OperationResult<LockedTargetSnapshot> result,
+        TeamMemberSnapshot leader,
+        uint leaderTargetServerObjectId,
+        IReadOnlySet<uint>? extraProtectedServerObjectIds,
+        out string rejectReason)
+    {
         if (!result.Success || result.Value is null)
         {
             rejectReason = "target_read_failed";
@@ -70,7 +85,8 @@ internal static class TeamLeaderTargetValidator
             return false;
         }
 
-        if (!IsTargetingLeaderSide(target, leader))
+        if (!IsTargetingLeaderSide(target, leader) &&
+            !IsTargetingProtectedSide(target, extraProtectedServerObjectIds))
         {
             rejectReason = "not_targeting_leader_side";
             return false;
@@ -94,14 +110,18 @@ internal static class TeamLeaderTargetValidator
             return true;
         }
 
-        if (leader.PartyMember.Class != AionClassId.Spiritmaster)
-        {
-            return false;
-        }
-
         var pet = leader.SummonedPet?.Pet;
         return pet?.IsSummoned == true &&
                pet.ServerObjectId != 0 &&
                target.TargetServerObjectId == pet.ServerObjectId;
+    }
+
+    private static bool IsTargetingProtectedSide(
+        LockedTargetSnapshot target,
+        IReadOnlySet<uint>? protectedServerObjectIds)
+    {
+        return target.TargetServerObjectId != 0 &&
+               protectedServerObjectIds is { Count: > 0 } &&
+               protectedServerObjectIds.Contains(target.TargetServerObjectId);
     }
 }

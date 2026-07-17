@@ -5,6 +5,8 @@ namespace Roadhog.Application.Team;
 
 internal static class TeamLeaderRuntimePolicy
 {
+    public const double LeaderGroupExitDistanceMeters = 50.0D;
+
     public static bool IsLeaderInGroupRange(
         TeamMemberSnapshot? leader,
         double configuredDistanceMeters)
@@ -18,6 +20,31 @@ internal static class TeamLeaderRuntimePolicy
         }
 
         return distanceToLocal <= Math.Max(0.0D, configuredDistanceMeters);
+    }
+
+    public static bool UpdateLeaderGroupState(
+        TeamMemberSnapshot? leader,
+        double configuredEnterDistanceMeters,
+        bool wasInGroup)
+    {
+        if (leader is null ||
+            leader.IsSelf ||
+            leader.PartyMember.IsDead ||
+            leader.PartyMember.DistanceToLocalPlayer is not { } distanceToLocal)
+        {
+            return false;
+        }
+
+        var enterDistanceMeters = Math.Max(0.0D, configuredEnterDistanceMeters);
+        var exitDistanceMeters = ResolveLeaderGroupExitDistanceMeters(enterDistanceMeters);
+        return wasInGroup
+            ? distanceToLocal <= exitDistanceMeters
+            : distanceToLocal <= enterDistanceMeters;
+    }
+
+    public static double ResolveLeaderGroupExitDistanceMeters(double configuredEnterDistanceMeters)
+    {
+        return Math.Max(Math.Max(0.0D, configuredEnterDistanceMeters), LeaderGroupExitDistanceMeters);
     }
 
     public static bool HasActiveCombatTarget(StationaryCombatState? combatState)

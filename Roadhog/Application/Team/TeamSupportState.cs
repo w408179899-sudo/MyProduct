@@ -12,9 +12,15 @@ public sealed class TeamSupportState
 
     public DateTimeOffset LastTargetRejectLogAt { get; set; } = DateTimeOffset.MinValue;
 
+    public DateTimeOffset LastSelfDefenseWarningAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastSelfDefenseLogAt { get; set; } = DateTimeOffset.MinValue;
+
     public DateTimeOffset LastFollowDecisionLogAt { get; set; } = DateTimeOffset.MinValue;
 
     public DateTimeOffset LastActionAt { get; set; } = DateTimeOffset.MinValue;
+
+    public bool LeaderGroupActive { get; set; }
 
     public bool ShouldPressTeamBuff(
         uint memberServerObjectId,

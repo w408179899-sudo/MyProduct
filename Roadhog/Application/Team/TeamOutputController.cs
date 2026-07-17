@@ -78,9 +78,14 @@ public sealed class TeamOutputController
         }
 
         var groupDistanceMeters = team.GroupDistanceMeters;
-        var leaderInGroupRange = TeamLeaderRuntimePolicy.IsLeaderInGroupRange(
+        var leaderInGroupRange = TeamLeaderRuntimePolicy.UpdateLeaderGroupState(
             leader,
-            groupDistanceMeters);
+            groupDistanceMeters,
+            state.LeaderGroupActive);
+        state.LeaderGroupActive = leaderInGroupRange;
+        var activeGroupDistanceMeters = leaderInGroupRange
+            ? TeamLeaderRuntimePolicy.ResolveLeaderGroupExitDistanceMeters(groupDistanceMeters)
+            : groupDistanceMeters;
         if (!leaderInGroupRange)
         {
             LogFollowDecision(
@@ -89,6 +94,8 @@ public sealed class TeamOutputController
                 "leader_out_of_range",
                 leader,
                 groupDistanceMeters,
+                activeGroupDistanceMeters,
+                state.LeaderGroupActive,
                 combatState);
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
@@ -101,6 +108,8 @@ public sealed class TeamOutputController
                 "active_combat_target",
                 leader,
                 groupDistanceMeters,
+                activeGroupDistanceMeters,
+                state.LeaderGroupActive,
                 combatState);
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
@@ -458,6 +467,11 @@ public sealed class TeamOutputController
             ["reason"] = rejectReason,
             ["leader"] = leader.Name,
             ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["leaderClassId"] = leader.PartyMember.ClassId,
+            ["leaderClass"] = leader.PartyMember.ClassName,
+            ["leaderPetServerObjectId"] = leader.SummonedPet?.Pet.ServerObjectId,
+            ["leaderPetSummoned"] = leader.SummonedPet?.Pet.IsSummoned,
+            ["leaderPetOwnerClass"] = leader.SummonedPet?.OwnerClassName,
             ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
             ["targetName"] = target?.Name,
             ["targetServerObjectId"] = target?.ServerObjectId,
@@ -501,6 +515,8 @@ public sealed class TeamOutputController
         string reason,
         TeamMemberSnapshot leader,
         double groupDistanceMeters,
+        double groupExitDistanceMeters,
+        bool leaderGroupActive,
         StationaryCombatState? combatState)
     {
         if (!ShouldLog(state.LastFollowDecisionLogAt))
@@ -517,6 +533,8 @@ public sealed class TeamOutputController
             ["leaderServerObjectId"] = leader.ServerObjectId,
             ["leaderDistanceToLocal"] = leader.PartyMember.DistanceToLocalPlayer,
             ["groupDistanceMeters"] = groupDistanceMeters,
+            ["groupExitDistanceMeters"] = groupExitDistanceMeters,
+            ["leaderGroupActive"] = leaderGroupActive,
             ["leaderDead"] = leader.PartyMember.IsDead,
             ["leaderScreenVisible"] = leader.IsScreenVisible,
             ["leaderTargetServerObjectId"] = leader.PartyMember.LiveTargetServerObjectId,
