@@ -176,9 +176,12 @@ namespace Roadhog
             settingsTabs.TabPages.Add(CreateSkillTab());
             settingsTabs.TabPages.Add(CreateFilterTab());
             settingsTabs.TabPages.Add(CreateBagCleanupTab());
+            settingsTabs.TabPages.Add(CreateTeamTab());
 
             Controls.Add(settingsTabs);
-            AddButton(this, "保存配置", 500, 3, 150, 30, SaveSettingsButton_Click).BringToFront();
+            var saveButton = AddButton(this, "保存配置", ClientSize.Width - 160, 3, 150, 30, SaveSettingsButton_Click);
+            saveButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            saveButton.BringToFront();
             LoadSavedSettings();
         }
 
@@ -2089,6 +2092,233 @@ namespace Roadhog
             AddButton(page, "清空", 688, 254, 80, 30, (_, _) => ClearBagCleanupExcludedItemList());
 
             return tab;
+        }
+
+        private TabPage CreateTeamTab()
+        {
+            var tab = CreateBaseTab("组队");
+            var page = CreatePagePanel();
+            tab.Controls.Add(page);
+
+            AddLabel(page, "组队模式", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
+            var teamRoleCombo = AddCombo(page, 24, 52, 190, 28, "队长", "输出", "治疗");
+            teamRoleCombo.Name = "teamRoleCombo";
+
+            var leaderPanel = CreateTeamRolePanel(page);
+            AddLabel(leaderPanel, "队长开关", 4, 0, 90, 24, _textGreen, FontStyle.Bold);
+            AddCheckBox(leaderPanel, "启用组队", 24, 30, 92, false);
+            AddCheckBox(leaderPanel, "刷本模式", 132, 30, 92, false);
+            AddCheckBox(leaderPanel, "允许拾取", 240, 30, 92, false);
+            AddCheckBox(leaderPanel, "允许自卫", 348, 30, 92, true);
+            AddCheckBox(leaderPanel, "队员掉线停止推进", 24, 62, 170, false);
+
+            var dpsPanel = CreateTeamRolePanel(page);
+            AddLabel(dpsPanel, "输出队员开关", 4, 0, 110, 24, _textGreen, FontStyle.Bold);
+            AddCheckBox(dpsPanel, "启用组队", 24, 30, 92, false);
+            AddCheckBox(dpsPanel, "刷本模式", 132, 30, 92, false);
+            AddCheckBox(dpsPanel, "允许拾取", 240, 30, 92, false);
+            AddCheckBox(dpsPanel, "允许自卫", 348, 30, 92, true);
+            AddCheckBox(dpsPanel, "跟随队长", 24, 62, 92, true);
+            AddCheckBox(dpsPanel, "只打队长标记", 132, 62, 130, true);
+            AddCheckBox(dpsPanel, "队长无目标停手", 278, 62, 150, true);
+            AddCheckBox(dpsPanel, "队长死亡停手", 444, 62, 130, true);
+            AddLabel(dpsPanel, "和队长距离", 24, 94, 90, 24, _textGreen, FontStyle.Bold);
+            AddTextBox(dpsPanel, "12.0", 116, 92, 72, 28);
+            AddLabel(dpsPanel, "m", 194, 94, 24, 24, _textGreen, FontStyle.Bold);
+
+            var supportPanel = CreateTeamRolePanel(page);
+            AddLabel(supportPanel, "治疗队员开关", 4, 0, 110, 24, _textGreen, FontStyle.Bold);
+            AddCheckBox(supportPanel, "启用组队", 24, 30, 92, false);
+            AddCheckBox(supportPanel, "刷本模式", 132, 30, 92, false);
+            AddCheckBox(supportPanel, "允许拾取", 240, 30, 92, false);
+            AddCheckBox(supportPanel, "加入打怪", 348, 30, 92, false);
+            AddCheckBox(supportPanel, "精神解除", 24, 62, 92, true);
+            AddCheckBox(supportPanel, "肉体解除", 132, 62, 92, true);
+            AddCheckBox(supportPanel, "允许自卫", 240, 62, 92, false);
+            AddCheckBox(supportPanel, "队长死亡停手", 386, 62, 130, true);
+            AddLabel(supportPanel, "和队长距离", 24, 94, 90, 24, _textGreen, FontStyle.Bold);
+            AddTextBox(supportPanel, "12.0", 116, 92, 72, 28);
+            AddLabel(supportPanel, "m", 194, 94, 24, 24, _textGreen, FontStyle.Bold);
+            AddLabel(supportPanel, "加血技能", 24, 132, 70, 24, _textGreen, FontStyle.Bold);
+            var teamHealSkillRuleList = CreateMaintenanceRuleList(supportPanel, 24, 166, 790, 82);
+            var teamHealSkillEmptyLabel = AddLabel(supportPanel, "暂无加血技能", 24, 166, 140, 24);
+            teamHealSkillEmptyLabel.BringToFront();
+            AddButton(
+                supportPanel,
+                "新增加血技能",
+                94,
+                128,
+                120,
+                30,
+                (_, _) => AddTeamHealSkillRuleRow(teamHealSkillRuleList, teamHealSkillEmptyLabel));
+            var refreshTeamHealSkillsButton = AddButton(supportPanel, "刷新技能", 222, 128, 90, 30);
+            refreshTeamHealSkillsButton.Click += async (_, _) =>
+            {
+                await RefreshCurrentSkillsAsync(refreshTeamHealSkillsButton, availableTree: null, systemTree: null).ConfigureAwait(true);
+                RefreshMaintenanceSkillCombos(teamHealSkillRuleList);
+            };
+
+            AddLabel(supportPanel, "解状态按键", 24, 266, 90, 24, _textGreen, FontStyle.Bold);
+            AddLabel(supportPanel, "精神解除", 24, 300, 70, 24, _textGreen, FontStyle.Bold);
+            AddTeamKeyButton(supportPanel, 94, 297, "NumPad8");
+            AddLabel(supportPanel, "肉体解除", 220, 300, 70, 24, _textGreen, FontStyle.Bold);
+            AddTeamKeyButton(supportPanel, 290, 297, "NumPad7");
+            AddLabel(supportPanel, "群体解除", 416, 300, 70, 24, _textGreen, FontStyle.Bold);
+            AddTeamKeyButton(supportPanel, 486, 297, string.Empty);
+
+            teamRoleCombo.SelectedIndexChanged += (_, _) =>
+                UpdateTeamRolePanelVisibility(teamRoleCombo, leaderPanel, dpsPanel, supportPanel);
+            UpdateTeamRolePanelVisibility(teamRoleCombo, leaderPanel, dpsPanel, supportPanel);
+
+            return tab;
+        }
+
+        private Panel CreateTeamRolePanel(Control parent)
+        {
+            var panel = new Panel
+            {
+                BackColor = _pageBackground,
+                Location = new Point(0, 96),
+                Size = new Size(830, 360)
+            };
+
+            parent.Controls.Add(panel);
+            return panel;
+        }
+
+        private void AddTeamHealSkillRuleRow(
+            FlowLayoutPanel? list,
+            Label? emptyLabel,
+            int belowPercent = 80,
+            string key = "NumPad1",
+            uint skillId = 0,
+            string skillName = "",
+            MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
+            string targetType = "单体")
+        {
+            if (list is null)
+            {
+                return;
+            }
+
+            var row = new Panel
+            {
+                BackColor = _pageBackground,
+                BorderStyle = BorderStyle.None,
+                Margin = new Padding(0, 0, 0, 7),
+                Size = new Size(764, 31)
+            };
+
+            row.Controls.Add(new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                Font = new Font("Microsoft YaHei UI", 9F),
+                ForeColor = _textGreen,
+                Location = new Point(0, 3),
+                Size = new Size(34, 24),
+                Text = "低于",
+                TextAlign = ContentAlignment.MiddleLeft
+            });
+
+            AddTextBox(
+                row,
+                Math.Clamp(belowPercent, 0, 100).ToString(CultureInfo.InvariantCulture),
+                36,
+                1,
+                54,
+                28);
+
+            row.Controls.Add(new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                Font = new Font("Microsoft YaHei UI", 9F),
+                ForeColor = _textGreen,
+                Location = new Point(94, 3),
+                Size = new Size(18, 24),
+                Text = "%",
+                TextAlign = ContentAlignment.MiddleLeft
+            });
+
+            var timingCombo = AddCombo(row, 116, 1, 90, 28);
+            timingCombo.Name = "teamHealRuleTimingCombo";
+            PopulateMaintenanceTimingCombo(timingCombo, runTiming);
+
+            var targetTypeCombo = AddCombo(row, 212, 1, 76, 28, "单体", "群体");
+            targetTypeCombo.Name = "teamHealRuleTargetTypeCombo";
+            if (string.Equals(targetType, "群体", StringComparison.Ordinal))
+            {
+                targetTypeCombo.SelectedIndex = 1;
+            }
+
+            row.Controls.Add(new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                Font = new Font("Microsoft YaHei UI", 9F),
+                ForeColor = _textGreen,
+                Location = new Point(296, 3),
+                Size = new Size(34, 24),
+                Text = "技能",
+                TextAlign = ContentAlignment.MiddleLeft
+            });
+
+            var skillCombo = AddCombo(row, 332, 1, 220, 28);
+            skillCombo.Name = "maintenanceRuleSkillCombo";
+            PopulateMaintenanceSkillCombo(skillCombo, skillId, skillName);
+
+            row.Controls.Add(new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                Font = new Font("Microsoft YaHei UI", 9F),
+                ForeColor = _textGreen,
+                Location = new Point(560, 3),
+                Size = new Size(34, 24),
+                Text = "按键",
+                TextAlign = ContentAlignment.MiddleLeft
+            });
+
+            AddTeamKeyButton(row, 594, 0, key);
+            var deleteButton = AddButton(row, "删除", 706, 0, 58, 30);
+            deleteButton.Click += (_, _) =>
+            {
+                list.Controls.Remove(row);
+                row.Dispose();
+                RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+            };
+
+            list.Controls.Add(row);
+            RefreshMaintenanceRuleEmptyLabel(list, emptyLabel);
+        }
+
+        private Button AddTeamKeyButton(Control parent, int x, int y, string key)
+        {
+            var keyButton = AddButton(parent, "选择按键", x, y, 104, 30);
+            SetKeyButton(keyButton, key);
+            keyButton.Click += (_, _) =>
+            {
+                var selectedKey = ShowKeyboardPicker(keyButton.Tag as string);
+                if (!string.IsNullOrWhiteSpace(selectedKey))
+                {
+                    SetKeyButton(keyButton, selectedKey);
+                }
+            };
+
+            return keyButton;
+        }
+
+        private static void UpdateTeamRolePanelVisibility(
+            Control teamRoleCombo,
+            Control leaderPanel,
+            Control dpsPanel,
+            Control supportPanel)
+        {
+            var role = teamRoleCombo.Text.Trim();
+            leaderPanel.Visible = string.Equals(role, "队长", StringComparison.Ordinal);
+            dpsPanel.Visible = string.Equals(role, "输出", StringComparison.Ordinal);
+            supportPanel.Visible = string.Equals(role, "治疗", StringComparison.Ordinal);
         }
 
         private static BagCleanupRuleConfig GetDefaultBagCleanupRule(string key)
