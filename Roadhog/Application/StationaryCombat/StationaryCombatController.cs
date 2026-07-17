@@ -2652,6 +2652,15 @@ public sealed class StationaryCombatController
             state.ClearTarget();
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
+            await RunPostCombatMaintenanceRoundAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player,
+                    killedTarget: target,
+                    logEventPrefix: "stationary_combat")
+                .ConfigureAwait(false);
             return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
         }
 
@@ -3059,10 +3068,15 @@ public sealed class StationaryCombatController
         SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
-        PlayerSnapshot player)
+        PlayerSnapshot player,
+        LockedTargetSnapshot? killedTarget = null,
+        string logEventPrefix = "stationary_combat.loot")
     {
         var handledAny = false;
         var currentPlayer = player;
+        var targetEntityId = killedTarget?.TargetEntityId ?? state.LootAfterKill.KilledTargetEntityId;
+        var targetServerObjectId = killedTarget?.ServerObjectId ?? state.LootAfterKill.KilledTargetServerObjectId;
+        var targetName = killedTarget?.Name ?? state.LootAfterKill.KilledTargetName;
         for (var iteration = 1; iteration <= DefaultPostCombatMaintenanceRoundLimit; iteration++)
         {
             var handled = await _semiAuto
@@ -3089,23 +3103,23 @@ public sealed class StationaryCombatController
             }
 
             handledAny = true;
-            context.Logger.Info("stationary_combat.loot.post_combat_maintenance", new Dictionary<string, object?>
+            context.Logger.Info(logEventPrefix + ".post_combat_maintenance", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
-                ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
-                ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
-                ["targetName"] = state.LootAfterKill.KilledTargetName,
+                ["targetEntityId"] = targetEntityId,
+                ["targetServerObjectId"] = targetServerObjectId,
+                ["targetName"] = targetName,
                 ["iteration"] = iteration
             });
 
             if (iteration == DefaultPostCombatMaintenanceRoundLimit)
             {
-                context.Logger.Warn("stationary_combat.loot.post_combat_maintenance_limit", new Dictionary<string, object?>
+                context.Logger.Warn(logEventPrefix + ".post_combat_maintenance_limit", new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
-                    ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
-                    ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
-                    ["targetName"] = state.LootAfterKill.KilledTargetName,
+                    ["targetEntityId"] = targetEntityId,
+                    ["targetServerObjectId"] = targetServerObjectId,
+                    ["targetName"] = targetName,
                     ["limit"] = DefaultPostCombatMaintenanceRoundLimit
                 });
                 break;
@@ -3114,12 +3128,12 @@ public sealed class StationaryCombatController
             var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
             if (!playerResult.Success || playerResult.Value is null)
             {
-                context.Logger.Warn("stationary_combat.loot.post_combat_maintenance_player_failed", new Dictionary<string, object?>
+                context.Logger.Warn(logEventPrefix + ".post_combat_maintenance_player_failed", new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
-                    ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
-                    ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
-                    ["targetName"] = state.LootAfterKill.KilledTargetName,
+                    ["targetEntityId"] = targetEntityId,
+                    ["targetServerObjectId"] = targetServerObjectId,
+                    ["targetName"] = targetName,
                     ["iteration"] = iteration,
                     ["error"] = playerResult.Error
                 });
@@ -3129,12 +3143,12 @@ public sealed class StationaryCombatController
             currentPlayer = playerResult.Value;
             if (currentPlayer.IsDead)
             {
-                context.Logger.Warn("stationary_combat.loot.post_combat_maintenance_player_dead", new Dictionary<string, object?>
+                context.Logger.Warn(logEventPrefix + ".post_combat_maintenance_player_dead", new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
-                    ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
-                    ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
-                    ["targetName"] = state.LootAfterKill.KilledTargetName,
+                    ["targetEntityId"] = targetEntityId,
+                    ["targetServerObjectId"] = targetServerObjectId,
+                    ["targetName"] = targetName,
                     ["iteration"] = iteration
                 });
                 break;

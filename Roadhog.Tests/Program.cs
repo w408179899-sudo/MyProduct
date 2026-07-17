@@ -210,6 +210,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat waits after kill before loot key", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
     ("stationary combat waits near corpse after loot key", TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync),
     ("stationary combat runs after-combat maintenance after loot", TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync),
+    ("stationary combat runs after-combat maintenance without loot", TestStationaryCombatRunsAfterCombatMaintenanceWithoutLootAsync),
     ("stationary combat runs after-combat maintenance round", TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync),
     ("stationary combat returns from bag cleanup through revive path before finishing loot", TestStationaryCombatReturnsFromBagCleanupThroughRevivePathBeforeFinishingLootAsync),
     ("stationary combat postpones after-combat maintenance while pet is targeted", TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsTargetedAsync),
@@ -9825,6 +9826,79 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync()
         Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
         Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
     }
+}
+
+static async Task TestStationaryCombatRunsAfterCombatMaintenanceWithoutLootAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        EnableLoot = false,
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        Key = "NumPad1",
+        SkillId = 1,
+        SkillName = "精神力恢复 II",
+        RunTiming = MaintenanceRuleRunTiming.AfterCombat
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 50, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 100,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 4430,
+        TargetPosition = new Vector3Snapshot(2.5f, 0, 0),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0
+        })
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "NumPad1", StringComparison.Ordinal))
+        {
+            gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = ActiveCooldownEnd()
+            });
+        }
+    };
+
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CandidateEntityId = 100
+    };
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, state)
+        .ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad1" }, keyboard.Keys, "after-combat mp maintenance should run when loot is disabled");
+    AssertFalse(state.Fighting, "fight state should clear after dead target");
+    AssertFalse(state.LootAfterKill.Active, "loot state should stay inactive when loot is disabled");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "stationary_combat.post_combat_maintenance"),
+        "non-loot post-combat maintenance should be logged");
 }
 
 static async Task TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync()
