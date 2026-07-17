@@ -15,7 +15,8 @@ public sealed class TeamSupportController
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan SelectConfirmDelay = TimeSpan.FromMilliseconds(25);
     private static readonly TimeSpan TeamBuffRetryInterval = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan AssistTargetConfirmDelay = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan AssistTargetInitialConfirmDelay = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan AssistTargetConfirmRetryDelay = TimeSpan.FromMilliseconds(80);
     private const int AssistTargetConfirmPolls = 3;
     private const string LeaderAssistKey = "C";
     private const string AssistTargetKey = "Oem3";
@@ -127,7 +128,7 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
-        return await SelectLeaderTargetForCombatAsync(context, state, leader, combatState).ConfigureAwait(false);
+        return await SelectLeaderTargetForCombatAsync(context, state, snapshot, leader, combatState).ConfigureAwait(false);
     }
 
     private async Task<TeamSupportAction?> SelectActionAsync(
@@ -328,6 +329,7 @@ public sealed class TeamSupportController
     private async Task<TeamSupportTickResult> SelectLeaderTargetForCombatAsync(
         AccountWorkerContext context,
         TeamSupportState state,
+        TeamSnapshot snapshot,
         TeamMemberSnapshot? leader,
         StationaryCombatState? combatState)
     {
@@ -336,13 +338,49 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
-        if (!await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false))
+        var leaderTargetServerObjectId = leader.PartyMember.LiveTargetServerObjectId;
+        if (!leader.IsScreenVisible || leaderTargetServerObjectId == 0)
         {
+            await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
-        var leaderTargetServerObjectId = leader.PartyMember.LiveTargetServerObjectId;
-        if (!leader.IsScreenVisible || leaderTargetServerObjectId == 0)
+        if (TeamLeaderTargetValidator.IsKnownTeamSideTarget(
+                snapshot,
+                leaderTargetServerObjectId,
+                out var knownTargetKind,
+                out var knownTargetName))
+        {
+            await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
+            LogLeaderTargetSkipped(
+                context,
+                state,
+                leader,
+                leaderTargetServerObjectId,
+                "known_team_side_target",
+                knownTargetKind,
+                knownTargetName);
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        var currentTargetResult = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
+        if (TeamLeaderTargetValidator.IsLeaderAttackTarget(
+                currentTargetResult,
+                leader,
+                leaderTargetServerObjectId,
+                out _))
+        {
+            return AcceptLeaderAttackTarget(
+                context,
+                leader,
+                leaderTargetServerObjectId,
+                currentTargetResult,
+                combatState,
+                "already_locked",
+                0);
+        }
+
+        if (!await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false))
         {
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
@@ -394,19 +432,39 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
+        return AcceptLeaderAttackTarget(
+            context,
+            leader,
+            leaderTargetServerObjectId,
+            verification.LockedTargetResult,
+            combatState,
+            "assist_key",
+            verification.PollCount);
+    }
+
+    private static TeamSupportTickResult AcceptLeaderAttackTarget(
+        AccountWorkerContext context,
+        TeamMemberSnapshot leader,
+        uint leaderTargetServerObjectId,
+        OperationResult<LockedTargetSnapshot> lockedTargetResult,
+        StationaryCombatState? combatState,
+        string source,
+        int pollCount)
+    {
         var combatAdopted = TeamCombatTargetAdopter.TryAdoptLeaderAttackTarget(
             combatState,
-            verification.LockedTargetResult.Value);
+            lockedTargetResult.Value);
         context.Logger.Info("team_support.target.accepted", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["leader"] = leader.Name,
             ["leaderServerObjectId"] = leader.ServerObjectId,
             ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
-            ["targetName"] = verification.LockedTargetResult.Value?.Name,
-            ["targetServerObjectId"] = verification.LockedTargetResult.Value?.ServerObjectId,
-            ["targetTargetServerObjectId"] = verification.LockedTargetResult.Value?.TargetServerObjectId,
-            ["confirmPollCount"] = verification.PollCount,
+            ["targetName"] = lockedTargetResult.Value?.Name,
+            ["targetServerObjectId"] = lockedTargetResult.Value?.ServerObjectId,
+            ["targetTargetServerObjectId"] = lockedTargetResult.Value?.TargetServerObjectId,
+            ["source"] = source,
+            ["confirmPollCount"] = pollCount,
             ["combatAdopted"] = combatAdopted
         });
         return TeamSupportTickResult.Continue(TeamSupportTickDelay);
@@ -419,14 +477,15 @@ public sealed class TeamSupportController
     {
         var lastResult = OperationResult<LockedTargetSnapshot>.Fail("target_not_read");
         var lastRejectReason = "target_not_read";
+        await Task.Delay(AssistTargetInitialConfirmDelay, context.StopToken).ConfigureAwait(false);
         for (var poll = 1; poll <= AssistTargetConfirmPolls; poll++)
         {
             if (poll > 1)
             {
-                await Task.Delay(AssistTargetConfirmDelay, context.StopToken).ConfigureAwait(false);
+                await Task.Delay(AssistTargetConfirmRetryDelay, context.StopToken).ConfigureAwait(false);
             }
 
-            lastResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+            lastResult = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
             if (TeamLeaderTargetValidator.IsLeaderAttackTarget(
                     lastResult,
                     leader,
@@ -459,7 +518,7 @@ public sealed class TeamSupportController
             return MemberSelectionResult.NotSelected;
         }
 
-        var current = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        var current = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
         if (IsSelectedMemberBody(current, member))
         {
             context.Logger.Info("team_support.target_selected", new Dictionary<string, object?>
@@ -503,7 +562,7 @@ public sealed class TeamSupportController
             }
 
             await Task.Delay(SelectConfirmDelay, context.StopToken).ConfigureAwait(false);
-            current = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+            current = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
             if (IsSelectedMemberBody(current, member))
             {
                 context.Logger.Info("team_support.target_selected", new Dictionary<string, object?>
@@ -758,6 +817,33 @@ public sealed class TeamSupportController
         });
     }
 
+    private static void LogLeaderTargetSkipped(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        TeamMemberSnapshot leader,
+        uint leaderTargetServerObjectId,
+        string reason,
+        string targetKind,
+        string targetName)
+    {
+        if (!ShouldLog(state.LastTargetRejectLogAt))
+        {
+            return;
+        }
+
+        state.LastTargetRejectLogAt = DateTimeOffset.Now;
+        context.Logger.Info("team_support.leader_target.skipped", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["leader"] = leader.Name,
+            ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
+            ["targetKind"] = targetKind,
+            ["targetName"] = targetName
+        });
+    }
+
     private static void LogFollowDecision(
         AccountWorkerContext context,
         TeamSupportState state,
@@ -872,10 +958,12 @@ public sealed class TeamSupportController
         return DateTimeOffset.Now - lastLogAt >= WarningLogInterval;
     }
 
-    private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(AccountWorkerContext context)
+    private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(
+        AccountWorkerContext context,
+        bool bypassMemoryCache = false)
     {
         return context.GameApi is IRoadhogScopedGameApi scopedApi
-            ? scopedApi.ReadLockedTargetAsync(CreateReadContext(context), context.StopToken)
+            ? scopedApi.ReadLockedTargetAsync(CreateReadContext(context, bypassMemoryCache), context.StopToken)
             : context.GameApi.ReadLockedTargetAsync(context.StopToken);
     }
 
@@ -886,13 +974,16 @@ public sealed class TeamSupportController
             : context.GameApi.ReadWorldObjectsAsync(context.StopToken);
     }
 
-    private static GameApiReadContext CreateReadContext(AccountWorkerContext context)
+    private static GameApiReadContext CreateReadContext(
+        AccountWorkerContext context,
+        bool bypassMemoryCache = false)
     {
         return new GameApiReadContext(
             context.Config.AccountName,
             context.Config.ProcessId,
             context.Config.TargetProcessName,
-            context.Config.VmmDeviceName);
+            context.Config.VmmDeviceName,
+            bypassMemoryCache);
     }
 
     private sealed record TeamSupportStatusCandidate(

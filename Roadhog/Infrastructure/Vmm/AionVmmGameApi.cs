@@ -741,7 +741,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     return OperationResult<LockedTargetSnapshot>.Fail("Module not found: " + moduleName);
                 }
 
-                if (!TryReadLockedTarget(process, gameBase, out var target, out var readError))
+                if (!TryReadLockedTarget(process, gameBase, context.BypassMemoryCache, out var target, out var readError))
                 {
                     return OperationResult<LockedTargetSnapshot>.Fail(readError);
                 }
@@ -761,6 +761,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     ["hp"] = snapshot.CurrentHp,
                     ["maxHp"] = snapshot.MaxHp,
                     ["isMonsterAlive"] = snapshot.IsMonsterAlive,
+                    ["bypassMemoryCache"] = context.BypassMemoryCache,
                     ["actorAddress"] = target.Actor?.Actor.ToString("X") ?? string.Empty,
                     ["actorResolveSource"] = target.Actor?.ResolveSource ?? string.Empty
                 });
@@ -794,7 +795,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     return OperationResult<LockedTargetAbnormalStatusSnapshot>.Fail("Module not found: " + moduleName);
                 }
 
-                if (!TryReadLockedTarget(process, gameBase, out var target, out var readError))
+                if (!TryReadLockedTarget(process, gameBase, context.BypassMemoryCache, out var target, out var readError))
                 {
                     return OperationResult<LockedTargetAbnormalStatusSnapshot>.Fail(readError);
                 }
@@ -3646,13 +3647,14 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private static bool TryReadLockedTarget(
         VmmProcess process,
         ulong gameBase,
+        bool bypassMemoryCache,
         out LockedTargetInfo info,
         out string error)
     {
         info = new LockedTargetInfo();
         error = string.Empty;
 
-        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out info.TargetEntityId))
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out info.TargetEntityId, bypassMemoryCache))
         {
             error = "failed to read current target entity id at Game.dll+0x" + (LocalEntityIdRva + 2).ToString("X");
             return false;
@@ -3663,40 +3665,40 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return true;
         }
 
-        if (TryFindServerObjectByEntityId(process, gameBase, info.TargetEntityId, out var serverObjectId, out _))
+        if (TryFindServerObjectByEntityId(process, gameBase, info.TargetEntityId, out var serverObjectId, out _, bypassMemoryCache))
         {
             info.ServerObjectId = serverObjectId;
         }
 
-        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem, bypassMemoryCache))
         {
             error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
             return false;
         }
 
-        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader, bypassMemoryCache))
         {
             error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
             return false;
         }
 
-        if (!TryFindEntityById(process, entityTreeHeader, info.TargetEntityId, out info.Entity))
+        if (!TryFindEntityById(process, entityTreeHeader, info.TargetEntityId, out info.Entity, bypassMemoryCache))
         {
             error = "target entity id " + info.TargetEntityId + " was not found in EntitySystem tree";
             return false;
         }
 
-        TryReadUInt16(process, info.Entity + EntityTypeOffset, out info.EntityType);
+        TryReadUInt16(process, info.Entity + EntityTypeOffset, out info.EntityType, bypassMemoryCache);
 
-        if (TryReadEntityPosition(process, info.Entity, out var x, out var y, out var z))
+        if (TryReadEntityPosition(process, info.Entity, out var x, out var y, out var z, bypassMemoryCache))
         {
             info.Position = new Vector3Snapshot(x, y, z);
         }
 
-        if (TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) &&
-            TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity))
+        if (TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId, bypassMemoryCache) &&
+            TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity, bypassMemoryCache))
         {
-            if (TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ) &&
+            if (TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ, bypassMemoryCache) &&
                 info.Position is { } targetPosition)
             {
                 var dx = targetPosition.X - localX;
@@ -3705,13 +3707,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 info.DistanceToLocalPlayer = Math.Sqrt(dx * dx + dy * dy + dz * dz);
             }
 
-            if (TryResolveActorFromEntity(process, localEntity, 0, out var localActor))
+            if (TryResolveActorFromEntity(process, localEntity, 0, out var localActor, bypassMemoryCache))
             {
                 info.LocalServerObjectId = localActor.ServerObjectId;
             }
         }
 
-        if (TryResolveActorFromEntity(process, info.Entity, info.ServerObjectId, out var actor))
+        if (TryResolveActorFromEntity(process, info.Entity, info.ServerObjectId, out var actor, bypassMemoryCache))
         {
             info.Actor = actor;
         }
@@ -5528,7 +5530,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return true;
     }
 
-    private static bool TryFindEntityById(VmmProcess process, ulong header, ushort entityId, out ulong entity)
+    private static bool TryFindEntityById(
+        VmmProcess process,
+        ulong header,
+        ushort entityId,
+        out ulong entity,
+        bool bypassMemoryCache = false)
     {
         entity = 0;
         if (header == 0 || entityId == 0)
@@ -5536,40 +5543,40 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return false;
         }
 
-        if (!TryReadPointer(process, header + NodeParentOffset, out var node))
+        if (!TryReadPointer(process, header + NodeParentOffset, out var node, bypassMemoryCache))
         {
             return false;
         }
 
         for (var guard = 0; node != 0 && node != header && guard < 65536; guard++)
         {
-            if (IsNilNode(process, node, header))
+            if (IsNilNode(process, node, header, bypassMemoryCache))
             {
                 return false;
             }
 
-            if (!TryReadUInt16(process, node + NodeIdOffset, out var nodeId))
+            if (!TryReadUInt16(process, node + NodeIdOffset, out var nodeId, bypassMemoryCache))
             {
                 return false;
             }
 
             if (entityId < nodeId)
             {
-                if (!TryReadPointer(process, node + NodeLeftOffset, out node))
+                if (!TryReadPointer(process, node + NodeLeftOffset, out node, bypassMemoryCache))
                 {
                     return false;
                 }
             }
             else if (entityId > nodeId)
             {
-                if (!TryReadPointer(process, node + NodeRightOffset, out node))
+                if (!TryReadPointer(process, node + NodeRightOffset, out node, bypassMemoryCache))
                 {
                     return false;
                 }
             }
             else
             {
-                return TryReadPointer(process, node + NodeEntityOffset, out entity);
+                return TryReadPointer(process, node + NodeEntityOffset, out entity, bypassMemoryCache);
             }
         }
 
@@ -5606,11 +5613,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         VmmProcess process,
         ulong entity,
         uint expectedServerObjectId,
-        out ActorInfo actor)
+        out ActorInfo actor,
+        bool bypassMemoryCache = false)
     {
         actor = new ActorInfo();
 
-        if (TryResolveProxyManagerFromEntityVfunc(process, entity, out var proxyManager, out var proxyOffset) &&
+        if (TryResolveProxyManagerFromEntityVfunc(process, entity, out var proxyManager, out var proxyOffset, bypassMemoryCache) &&
             TryFindActorCandidateInPointerRegion(
                 process,
                 proxyManager,
@@ -5618,7 +5626,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 entity,
                 expectedServerObjectId,
                 "proxyManager(vfunc_0xB8, entity+0x" + proxyOffset.ToString("X") + ")",
-                out actor))
+                out actor,
+                bypassMemoryCache))
         {
             return true;
         }
@@ -5630,14 +5639,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             entity,
             expectedServerObjectId,
             "CEntity direct scan",
-            out actor))
+            out actor,
+            bypassMemoryCache))
         {
             return true;
         }
 
         for (ulong offset = 0; offset < 0x800; offset += 8)
         {
-            if (!TryReadPointer(process, entity + offset, out var pointer))
+            if (!TryReadPointer(process, entity + offset, out var pointer, bypassMemoryCache))
             {
                 continue;
             }
@@ -5649,7 +5659,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 entity,
                 expectedServerObjectId,
                 "CEntity+0x" + offset.ToString("X") + " nested scan",
-                out actor))
+                out actor,
+                bypassMemoryCache))
             {
                 return true;
             }
@@ -5662,14 +5673,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         VmmProcess process,
         ulong entity,
         out ulong proxyManager,
-        out ulong proxyOffset)
+        out ulong proxyOffset,
+        bool bypassMemoryCache = false)
     {
         proxyManager = 0;
         proxyOffset = 0;
 
-        if (!TryReadPointer(process, entity, out var vtable) ||
-            !TryReadPointer(process, vtable + EntityProxyManagerVfuncOffset, out var function) ||
-            !TryReadBytes(process, function, 16, out var code))
+        if (!TryReadPointer(process, entity, out var vtable, bypassMemoryCache) ||
+            !TryReadPointer(process, vtable + EntityProxyManagerVfuncOffset, out var function, bypassMemoryCache) ||
+            !TryReadBytes(process, function, 16, out var code, bypassMemoryCache))
         {
             return false;
         }
@@ -5693,7 +5705,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return false;
         }
 
-        return TryReadPointer(process, entity + proxyOffset, out proxyManager);
+        return TryReadPointer(process, entity + proxyOffset, out proxyManager, bypassMemoryCache);
     }
 
     private static bool TryFindActorCandidateInPointerRegion(
@@ -5703,7 +5715,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         ulong expectedEntity,
         uint expectedServerObjectId,
         string source,
-        out ActorInfo actor)
+        out ActorInfo actor,
+        bool bypassMemoryCache = false)
     {
         actor = new ActorInfo();
         var bestScore = -1;
@@ -5715,7 +5728,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
         for (ulong offset = 0; offset < regionSize; offset += 8)
         {
-            if (TryReadPointer(process, region + offset, out var candidate) &&
+            if (TryReadPointer(process, region + offset, out var candidate, bypassMemoryCache) &&
                 TryReadActorInfo(
                     process,
                     candidate,
@@ -5723,7 +5736,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     expectedServerObjectId,
                     source + "+0x" + offset.ToString("X"),
                     out var candidateInfo,
-                    out var score) &&
+                    out var score,
+                    bypassMemoryCache) &&
                 score > bestScore)
             {
                 bestScore = score;
@@ -5741,7 +5755,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         uint expectedServerObjectId,
         string source,
         out ActorInfo actor,
-        out int score)
+        out int score,
+        bool bypassMemoryCache = false)
     {
         actor = new ActorInfo();
         score = 0;
@@ -5751,9 +5766,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return false;
         }
 
-        if (!TryReadPointer(process, actorAddress + ActorEntityOffset, out var actorEntity) ||
-            !TryReadUInt32(process, actorAddress + ActorObjectTypeOffset, out var objectType) ||
-            !TryReadUInt32(process, actorAddress + ActorServerObjectIdOffset, out var serverObjectId))
+        if (!TryReadPointer(process, actorAddress + ActorEntityOffset, out var actorEntity, bypassMemoryCache) ||
+            !TryReadUInt32(process, actorAddress + ActorObjectTypeOffset, out var objectType, bypassMemoryCache) ||
+            !TryReadUInt32(process, actorAddress + ActorServerObjectIdOffset, out var serverObjectId, bypassMemoryCache))
         {
             return false;
         }
@@ -5787,14 +5802,14 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         actor.ServerObjectId = serverObjectId;
         actor.ResolveSource = source;
 
-        TryReadUInt32(process, actorAddress + ActorNpcTemplateIdOffset, out actor.NpcTemplateId);
-        TryReadUInt16(process, actorAddress + ActorLevelOffset, out actor.Level);
+        TryReadUInt32(process, actorAddress + ActorNpcTemplateIdOffset, out actor.NpcTemplateId, bypassMemoryCache);
+        TryReadUInt16(process, actorAddress + ActorLevelOffset, out actor.Level, bypassMemoryCache);
         TryReadByte(process, actorAddress + ActorHpPercentOffset, out actor.HpPercent);
-        TryReadUInt32(process, actorAddress + ActorTargetServerObjectIdOffset, out actor.TargetServerObjectId);
-        TryReadUInt32(process, actorAddress + ActorMaxHpOffset, out actor.MaxHp);
-        TryReadUInt32(process, actorAddress + ActorCurrentHpOffset, out actor.CurrentHp);
+        TryReadUInt32(process, actorAddress + ActorTargetServerObjectIdOffset, out actor.TargetServerObjectId, bypassMemoryCache);
+        TryReadUInt32(process, actorAddress + ActorMaxHpOffset, out actor.MaxHp, bypassMemoryCache);
+        TryReadUInt32(process, actorAddress + ActorCurrentHpOffset, out actor.CurrentHp, bypassMemoryCache);
 
-        if (TryReadUtf16String(process, actorAddress + ActorNameOffset, 64, out var name))
+        if (TryReadUtf16String(process, actorAddress + ActorNameOffset, 64, out var name, bypassMemoryCache))
         {
             actor.Name = name;
             if (!string.IsNullOrWhiteSpace(name))
@@ -5811,41 +5826,42 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         ulong gameBase,
         ushort entityId,
         out uint serverObjectId,
-        out ulong serverTreeHeader)
+        out ulong serverTreeHeader,
+        bool bypassMemoryCache = false)
     {
         serverObjectId = 0;
         serverTreeHeader = 0;
 
         if (entityId == 0 ||
-            !TryReadPointer(process, gameBase + ServerObjectTreeRva, out serverTreeHeader) ||
+            !TryReadPointer(process, gameBase + ServerObjectTreeRva, out serverTreeHeader, bypassMemoryCache) ||
             serverTreeHeader == 0)
         {
             return false;
         }
 
-        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node))
+        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node, bypassMemoryCache))
         {
             return false;
         }
 
         for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
         {
-            if (IsNilNode(process, node, serverTreeHeader))
+            if (IsNilNode(process, node, serverTreeHeader, bypassMemoryCache))
             {
                 return false;
             }
 
-            if (!TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var nodeEntityId))
+            if (!TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var nodeEntityId, bypassMemoryCache))
             {
                 return false;
             }
 
             if (nodeEntityId == entityId)
             {
-                return TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out serverObjectId);
+                return TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out serverObjectId, bypassMemoryCache);
             }
 
-            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next) || next == node)
+            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next, bypassMemoryCache) || next == node)
             {
                 return false;
             }
@@ -5856,25 +5872,30 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return false;
     }
 
-    private static bool TryGetNextTreeNode(VmmProcess process, ulong header, ulong node, out ulong next)
+    private static bool TryGetNextTreeNode(
+        VmmProcess process,
+        ulong header,
+        ulong node,
+        out ulong next,
+        bool bypassMemoryCache = false)
     {
         next = 0;
-        if (!TryReadPointer(process, node + NodeRightOffset, out var right))
+        if (!TryReadPointer(process, node + NodeRightOffset, out var right, bypassMemoryCache))
         {
             return false;
         }
 
-        if (!IsNilNode(process, right, header))
+        if (!IsNilNode(process, right, header, bypassMemoryCache))
         {
             var current = right;
             for (var guard = 0; guard < 1024; guard++)
             {
-                if (!TryReadPointer(process, current + NodeLeftOffset, out var left))
+                if (!TryReadPointer(process, current + NodeLeftOffset, out var left, bypassMemoryCache))
                 {
                     return false;
                 }
 
-                if (IsNilNode(process, left, header))
+                if (IsNilNode(process, left, header, bypassMemoryCache))
                 {
                     next = current;
                     return true;
@@ -5886,14 +5907,14 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return false;
         }
 
-        if (!TryReadPointer(process, node + NodeParentOffset, out var parent))
+        if (!TryReadPointer(process, node + NodeParentOffset, out var parent, bypassMemoryCache))
         {
             return false;
         }
 
-        for (var guard = 0; !IsNilNode(process, parent, header) && guard < 1024; guard++)
+        for (var guard = 0; !IsNilNode(process, parent, header, bypassMemoryCache) && guard < 1024; guard++)
         {
-            if (!TryReadPointer(process, parent + NodeRightOffset, out var parentRight))
+            if (!TryReadPointer(process, parent + NodeRightOffset, out var parentRight, bypassMemoryCache))
             {
                 return false;
             }
@@ -5904,7 +5925,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             }
 
             node = parent;
-            if (!TryReadPointer(process, parent + NodeParentOffset, out parent))
+            if (!TryReadPointer(process, parent + NodeParentOffset, out parent, bypassMemoryCache))
             {
                 return false;
             }
@@ -5914,14 +5935,18 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return true;
     }
 
-    private static bool IsNilNode(VmmProcess process, ulong node, ulong header)
+    private static bool IsNilNode(
+        VmmProcess process,
+        ulong node,
+        ulong header,
+        bool bypassMemoryCache = false)
     {
         if (node == 0 || node == header)
         {
             return true;
         }
 
-        return !TryReadByte(process, node + NodeIsNilOffset, out var isNil) || isNil != 0;
+        return !TryReadByte(process, node + NodeIsNilOffset, out var isNil, bypassMemoryCache) || isNil != 0;
     }
 
     private bool TryFindInventoryWindowCandidate(
@@ -6481,12 +6506,16 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             : process.MemRead(address, count);
     }
 
-    private static bool TryReadByte(VmmProcess process, ulong address, out byte value)
+    private static bool TryReadByte(
+        VmmProcess process,
+        ulong address,
+        out byte value,
+        bool bypassMemoryCache = false)
     {
         value = 0;
         try
         {
-            var buffer = process.MemRead(address, 1);
+            var buffer = MemRead(process, address, 1, bypassMemoryCache);
             if (buffer is null || buffer.Length < 1)
             {
                 return false;
@@ -6501,12 +6530,17 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         }
     }
 
-    private static bool TryReadBytes(VmmProcess process, ulong address, int count, out byte[] value)
+    private static bool TryReadBytes(
+        VmmProcess process,
+        ulong address,
+        int count,
+        out byte[] value,
+        bool bypassMemoryCache = false)
     {
         value = Array.Empty<byte>();
         try
         {
-            var buffer = process.MemRead(address, (uint)count);
+            var buffer = MemRead(process, address, (uint)count, bypassMemoryCache);
             if (buffer is null || buffer.Length < count)
             {
                 return false;
@@ -6749,7 +6783,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         }
     }
 
-    private static bool TryReadUtf16String(VmmProcess process, ulong address, int maxChars, out string value)
+    private static bool TryReadUtf16String(
+        VmmProcess process,
+        ulong address,
+        int maxChars,
+        out string value,
+        bool bypassMemoryCache = false)
     {
         value = string.Empty;
         if (maxChars <= 0)
@@ -6757,7 +6796,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             return true;
         }
 
-        if (!TryReadBytes(process, address, maxChars * 2, out var buffer))
+        if (!TryReadBytes(process, address, maxChars * 2, out var buffer, bypassMemoryCache))
         {
             return false;
         }
@@ -6776,12 +6815,16 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return true;
     }
 
-    private static bool TryReadUInt16(VmmProcess process, ulong address, out ushort value)
+    private static bool TryReadUInt16(
+        VmmProcess process,
+        ulong address,
+        out ushort value,
+        bool bypassMemoryCache = false)
     {
         value = 0;
         try
         {
-            var buffer = process.MemRead(address, 2);
+            var buffer = MemRead(process, address, 2, bypassMemoryCache);
             if (buffer is null || buffer.Length < 2)
             {
                 return false;
@@ -6884,12 +6927,16 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         }
     }
 
-    private static bool TryReadUInt64(VmmProcess process, ulong address, out ulong value)
+    private static bool TryReadUInt64(
+        VmmProcess process,
+        ulong address,
+        out ulong value,
+        bool bypassMemoryCache = false)
     {
         value = 0;
         try
         {
-            var buffer = process.MemRead(address, 8);
+            var buffer = MemRead(process, address, 8, bypassMemoryCache);
             if (buffer is null || buffer.Length < 8)
             {
                 return false;
@@ -6904,16 +6951,20 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         }
     }
 
-    private static bool TryReadPointer(VmmProcess process, ulong address, out ulong value)
+    private static bool TryReadPointer(
+        VmmProcess process,
+        ulong address,
+        out ulong value,
+        bool bypassMemoryCache = false)
     {
         value = 0;
-        if (TryReadUInt64(process, address, out var v64) && IsLikelyUserPointer(v64))
+        if (TryReadUInt64(process, address, out var v64, bypassMemoryCache) && IsLikelyUserPointer(v64))
         {
             value = v64;
             return true;
         }
 
-        if (TryReadUInt32(process, address, out var v32) && v32 != 0)
+        if (TryReadUInt32(process, address, out var v32, bypassMemoryCache) && v32 != 0)
         {
             value = v32;
             return true;

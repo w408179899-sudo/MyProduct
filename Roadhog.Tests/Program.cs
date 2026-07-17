@@ -81,8 +81,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support join combat defers follow while fighting", TestTeamSupportJoinCombatDefersFollowWhileFightingAsync),
     ("team support join combat selects leader target inside group range", TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAsync),
     ("team support join combat waits after assist target key", TestTeamSupportJoinCombatWaitsAfterAssistTargetKeyAsync),
+    ("team support join combat accepts already locked leader target", TestTeamSupportJoinCombatAcceptsAlreadyLockedLeaderTargetAsync),
+    ("team support join combat skips party member leader target", TestTeamSupportJoinCombatSkipsPartyMemberLeaderTargetAsync),
     ("team output assists only leader attacked monster", TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync),
     ("team output rejects non monster leader target", TestTeamOutputRejectsNonMonsterLeaderTargetAsync),
+    ("team output accepts already locked leader target", TestTeamOutputAcceptsAlreadyLockedLeaderTargetAsync),
+    ("team output skips party member leader target", TestTeamOutputSkipsPartyMemberLeaderTargetAsync),
     ("team output accepts monster targeting spiritmaster leader pet", TestTeamOutputAcceptsMonsterTargetingSpiritmasterLeaderPetAsync),
     ("team output assists already selected leader", TestTeamOutputAssistsAlreadySelectedLeaderAsync),
     ("team output falls back outside group range", TestTeamOutputFallsBackOutsideGroupRangeAsync),
@@ -1652,6 +1656,9 @@ static async Task TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAs
     AssertFalse(result.ShouldSkipNormalWork, "accepted leader target should allow support to enter normal combat");
     AssertSequence(new[] { "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "support join combat should follow leader then assist target");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "support join combat should hand target to normal combat");
+    AssertFalse(
+        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
+        "support assist target verification should bypass VMM cache");
 }
 
 static async Task TestTeamSupportJoinCombatWaitsAfterAssistTargetKeyAsync()
@@ -1704,6 +1711,93 @@ static async Task TestTeamSupportJoinCombatWaitsAfterAssistTargetKeyAsync()
     AssertFalse(result.ShouldSkipNormalWork, "delayed assist target confirmation should still allow combat");
     AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Oem3", StringComparison.Ordinal)), "assist target key should be pressed once");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "support should adopt target after confirm poll");
+    AssertFalse(
+        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
+        "support delayed assist confirmation should bypass VMM cache");
+}
+
+static async Task TestTeamSupportJoinCombatAcceptsAlreadyLockedLeaderTargetAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint targetServerObjectId = 5000;
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0) with
+    {
+        Class = AionClassId.Chanter,
+        ClassId = (byte)AionClassId.Chanter,
+        ClassName = "Chanter"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Guardian", false, true, 10.0) with
+    {
+        LiveTargetServerObjectId = targetServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    SetFakeLockedTarget(
+        gameApi,
+        targetServerObjectId,
+        LockedTargetSnapshot.MonsterObjectType,
+        leader.ServerObjectId,
+        100);
+
+    var settings = CreateTeamSupportSettings();
+    settings.Team.GroupDistanceMeters = 20.0D;
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.LeaderDistanceMeters = 5.0D;
+    var combatState = new StationaryCombatState();
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var result = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "already locked leader target should enter normal combat");
+    AssertEqual(0, keyboard.Keys.Count, "already locked leader target should not switch back to leader or press assist key");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "support should adopt already locked leader target");
+    AssertFalse(
+        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
+        "support already-locked target check should bypass VMM cache");
+}
+
+static async Task TestTeamSupportJoinCombatSkipsPartyMemberLeaderTargetAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0) with
+    {
+        Class = AionClassId.Chanter,
+        ClassId = (byte)AionClassId.Chanter,
+        ClassName = "Chanter"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Guardian", false, true, 10.0) with
+    {
+        LiveTargetServerObjectId = self.ServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+        }
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.Team.GroupDistanceMeters = 20.0D;
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.LeaderDistanceMeters = 5.0D;
+    var combatState = new StationaryCombatState();
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var result = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "party-member leader target should keep support in follow tick");
+    AssertSequence(new[] { "F2", "C" }, keyboard.Keys.ToArray(), "support should follow leader without assisting a party-member target");
+    AssertFalse(combatState.Fighting, "party-member leader target should not enter combat");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "team_support.leader_target.skipped" &&
+            string.Equals(entry.Fields["reason"]?.ToString(), "known_team_side_target", StringComparison.Ordinal)),
+        "support should log known team-side target skip");
 }
 
 static async Task TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync()
@@ -1743,6 +1837,9 @@ static async Task TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync()
     AssertFalse(result.ShouldSkipNormalWork, "valid leader target should allow normal combat work");
     AssertSequence(new[] { "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "output assist key sequence");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output should hand leader target to normal combat");
+    AssertFalse(
+        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
+        "output assist target verification should bypass VMM cache");
 }
 
 static async Task TestTeamOutputRejectsNonMonsterLeaderTargetAsync()
@@ -1775,6 +1872,72 @@ static async Task TestTeamOutputRejectsNonMonsterLeaderTargetAsync()
 
     AssertFalse(!result.ShouldSkipNormalWork, "non-monster leader target should block normal combat work");
     AssertSequence(new[] { "F2", "C", "Oem3", "F2", "C" }, keyboard.Keys.ToArray(), "output should return to leader follow after reject");
+}
+
+static async Task TestTeamOutputAcceptsAlreadyLockedLeaderTargetAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint targetServerObjectId = 5000;
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        LiveTargetServerObjectId = targetServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    SetFakeLockedTarget(
+        gameApi,
+        targetServerObjectId,
+        LockedTargetSnapshot.MonsterObjectType,
+        leader.ServerObjectId,
+        100);
+
+    var combatState = new StationaryCombatState();
+    var controller = new TeamOutputController(keyboard);
+    var result = await controller
+        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "already locked leader target should allow normal combat work");
+    AssertEqual(0, keyboard.Keys.Count, "already locked leader target should not switch back to leader or press assist key");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output should adopt already locked leader target");
+    AssertFalse(
+        !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
+        "output already-locked target check should bypass VMM cache");
+}
+
+static async Task TestTeamOutputSkipsPartyMemberLeaderTargetAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        LiveTargetServerObjectId = self.ServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+        }
+    };
+
+    var combatState = new StationaryCombatState();
+    var controller = new TeamOutputController(keyboard);
+    var result = await controller
+        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "party-member leader target should block output normal combat when stop is enabled");
+    AssertSequence(new[] { "F2", "C" }, keyboard.Keys.ToArray(), "output should follow leader without assisting a party-member target");
+    AssertFalse(combatState.Fighting, "party-member leader target should not enter combat");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "team_output.leader_target.skipped" &&
+            string.Equals(entry.Fields["reason"]?.ToString(), "known_team_side_target", StringComparison.Ordinal)),
+        "output should log known team-side target skip");
 }
 
 static async Task TestTeamOutputAcceptsMonsterTargetingSpiritmasterLeaderPetAsync()

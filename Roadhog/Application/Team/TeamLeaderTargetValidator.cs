@@ -5,6 +5,40 @@ namespace Roadhog.Application.Team;
 
 internal static class TeamLeaderTargetValidator
 {
+    public static bool IsKnownTeamSideTarget(
+        TeamSnapshot snapshot,
+        uint serverObjectId,
+        out string targetKind,
+        out string targetName)
+    {
+        targetKind = string.Empty;
+        targetName = string.Empty;
+        if (serverObjectId == 0)
+        {
+            return false;
+        }
+
+        foreach (var member in snapshot.Members)
+        {
+            if (member.ServerObjectId == serverObjectId)
+            {
+                targetKind = member.IsLeader ? "leader" : "member";
+                targetName = member.Name;
+                return true;
+            }
+
+            var pet = member.SummonedPet?.Pet;
+            if (pet?.IsSummoned == true && pet.ServerObjectId == serverObjectId)
+            {
+                targetKind = "pet";
+                targetName = string.IsNullOrWhiteSpace(pet.Name) ? member.Name : pet.Name;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static bool IsLeaderAttackTarget(
         OperationResult<LockedTargetSnapshot> result,
         TeamMemberSnapshot leader,
