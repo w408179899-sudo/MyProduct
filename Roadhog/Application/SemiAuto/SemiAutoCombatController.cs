@@ -1285,20 +1285,7 @@ public sealed class SemiAutoCombatController
                 continue;
             }
 
-            var isOneShotStatusMaintenance = IsOneShotStatusMaintenanceRule(rule, maintenanceSkill);
-            var oneShotSkillName = maintenanceSkill?.Name ?? maintenanceSkill?.DisplayBaseName ?? rule.SkillName;
-            if (isOneShotStatusMaintenance &&
-                state.WasOneShotStatusMaintenancePressed(skillId, oneShotSkillName, rule.Key))
-            {
-                LogStatusMaintenanceOneShotSkipped(
-                    context,
-                    state,
-                    rule,
-                    resource,
-                    skillId,
-                    oneShotSkillName);
-                continue;
-            }
+            var isChantStatusMaintenance = IsChantStatusMaintenanceRule(rule, maintenanceSkill);
 
             var now = DateTimeOffset.Now;
             if (!state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
@@ -1316,7 +1303,7 @@ public sealed class SemiAutoCombatController
                     abnormalResult.Value,
                     beforeMaintenanceKeyPress,
                     maintenanceSkill,
-                    isOneShotStatusMaintenance)
+                    isChantStatusMaintenance)
                 .ConfigureAwait(false);
         }
 
@@ -1537,7 +1524,7 @@ public sealed class SemiAutoCombatController
         PlayerAbnormalStatusSnapshot beforeStatuses,
         Func<Task>? beforeMaintenanceKeyPress,
         SkillSnapshot? maintenanceSkill,
-        bool isOneShotStatusMaintenance)
+        bool isChantStatusMaintenance)
     {
         if (beforeMaintenanceKeyPress is not null)
         {
@@ -1573,10 +1560,6 @@ public sealed class SemiAutoCombatController
         state.MarkMaintenanceKeyAttempted(rule.Key, startedAt);
         var skillId = ResolveStatusMaintenanceSkillId(rule, maintenanceSkill);
         var skillName = maintenanceSkill?.Name ?? maintenanceSkill?.DisplayBaseName ?? rule.SkillName;
-        if (isOneShotStatusMaintenance)
-        {
-            state.MarkOneShotStatusMaintenancePressed(skillId, skillName, rule.Key);
-        }
 
         var deadline = startedAt + MaintenanceConfirmWindow;
         var polls = 0;
@@ -1609,7 +1592,8 @@ public sealed class SemiAutoCombatController
                         ["skillId"] = skillId,
                         ["skillName"] = skillName,
                         ["abnormalStatusId"] = confirmedAbnormalId,
-                        ["oneShot"] = isOneShotStatusMaintenance,
+                        ["oneShot"] = isChantStatusMaintenance,
+                        ["chant"] = isChantStatusMaintenance,
                         ["polls"] = polls,
                         ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
                         ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds)
@@ -1643,7 +1627,8 @@ public sealed class SemiAutoCombatController
             ["skillId"] = skillId,
             ["skillName"] = skillName,
             ["configuredAbnormalStatusId"] = rule.AbnormalStatusId,
-            ["oneShot"] = isOneShotStatusMaintenance,
+            ["oneShot"] = isChantStatusMaintenance,
+            ["chant"] = isChantStatusMaintenance,
             ["polls"] = polls,
             ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
             ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAtUnconfirmed - startedAt).TotalMilliseconds)
@@ -3305,7 +3290,7 @@ public sealed class SemiAutoCombatController
                (includeAlwaysRules && rule.RunTiming == MaintenanceRuleRunTiming.Always);
     }
 
-    private static bool IsOneShotStatusMaintenanceRule(
+    private static bool IsChantStatusMaintenanceRule(
         StatusMaintenanceRuleConfig rule,
         SkillSnapshot? skill)
     {
@@ -3737,33 +3722,6 @@ public sealed class SemiAutoCombatController
             ["skillName"] = rule.SkillName,
             ["abnormalStatusId"] = rule.AbnormalStatusId,
             ["error"] = error
-        });
-    }
-
-    private static void LogStatusMaintenanceOneShotSkipped(
-        AccountWorkerContext context,
-        SemiAutoCombatState state,
-        StatusMaintenanceRuleConfig rule,
-        string resource,
-        uint skillId,
-        string? skillName)
-    {
-        var now = DateTimeOffset.Now;
-        if (!ShouldLog(state.LastMaintenanceWarningAt, now))
-        {
-            return;
-        }
-
-        state.LastMaintenanceWarningAt = now;
-        context.Logger.Info("semi_auto.maintenance.status_one_shot_skipped", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["resource"] = resource,
-            ["key"] = rule.Key,
-            ["skillId"] = skillId,
-            ["skillName"] = skillName,
-            ["configuredSkillName"] = rule.SkillName,
-            ["abnormalStatusId"] = rule.AbnormalStatusId
         });
     }
 

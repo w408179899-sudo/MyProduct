@@ -242,7 +242,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("dp maintenance presses configured key at required dp", TestDpMaintenancePressesConfiguredKeyAtRequiredDpAsync),
     ("dp maintenance selected cooling skill skips key", TestDpMaintenanceSelectedCoolingSkillSkipsKeyAsync),
     ("status maintenance presses missing buff and learns abnormal id", TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsync),
-    ("status maintenance chant runs once", TestStatusMaintenanceChantRunsOnceAsync),
+    ("status maintenance chant follows active status", TestStatusMaintenanceChantFollowsActiveStatusAsync),
     ("status maintenance skips active category zero buff", TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync),
     ("status maintenance in-combat rule skips without target", TestStatusMaintenanceInCombatRuleSkipsWithoutTargetAsync),
     ("status maintenance cooldown does not recalibrate combat clock", TestStatusMaintenanceCooldownDoesNotRecalibrateCombatClockAsync),
@@ -12042,7 +12042,7 @@ static async Task TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsyn
     AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad2"), "learned active status should block repeat press");
 }
 
-static async Task TestStatusMaintenanceChantRunsOnceAsync()
+static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
 {
     var settings = CreateScriptSettings();
     settings.Maintenance.SitMaintenanceEnabled = false;
@@ -12093,16 +12093,21 @@ static async Task TestStatusMaintenanceChantRunsOnceAsync()
     AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "chant status maintenance should press once");
     var pressedEntry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed");
     AssertFalse(pressedEntry is null, "chant status maintenance should log the first key press");
-    AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["oneShot"]), "chant maintenance should be logged as one-shot");
+    AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["oneShot"]), "chant maintenance should keep legacy one-shot log flag");
+    AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["chant"]), "chant maintenance should be logged as chant");
 
     keyboard.Keys.Clear();
-    gameApi.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1);
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
 
-    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "chant status maintenance should not repeat after the first press");
-    AssertFalse(
-        !logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.status_one_shot_skipped"),
-        "second chant maintenance pass should log one-shot skip");
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "active chant status should block repeat press");
+
+    var retryState = new SemiAutoCombatState();
+    retryState.RememberStatusMaintenanceAbnormalId(8200, 8232);
+    keyboard.Keys.Clear();
+    gameApi.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1);
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), retryState, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "missing learned chant status should allow another maintenance press");
 }
 
 static async Task TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync()
