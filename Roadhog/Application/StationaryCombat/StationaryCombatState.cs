@@ -37,6 +37,10 @@ public sealed class StationaryCombatState
 
     public bool CurrentTargetBypassesHomeLeash { get; set; }
 
+    public ushort TeamLeaderProtectionTargetEntityId { get; private set; }
+
+    public uint TeamLeaderProtectionTargetServerObjectId { get; private set; }
+
     public uint LocalCombatSideServerObjectId { get; set; }
 
     public uint LocalCombatSidePetServerObjectId { get; set; }
@@ -143,6 +147,7 @@ public sealed class StationaryCombatState
         CurrentTargetIsMaintenanceDefense = false;
         CurrentTargetIsRevivePathClear = false;
         CurrentTargetBypassesHomeLeash = false;
+        ClearTeamLeaderProtectionTarget();
         CandidateEntityId = 0;
         CandidateServerObjectId = 0;
         FacedCandidateEntityId = 0;
@@ -251,6 +256,36 @@ public sealed class StationaryCombatState
 
         CurrentTargetEntityId = entityId;
         CurrentTargetServerObjectId = serverObjectId;
+    }
+
+    public void MarkTeamLeaderProtectionTarget(WorldObjectSnapshot target)
+    {
+        TeamLeaderProtectionTargetEntityId = target.EntityId;
+        TeamLeaderProtectionTargetServerObjectId = target.ServerObjectId;
+    }
+
+    public void ClearTeamLeaderProtectionTarget()
+    {
+        TeamLeaderProtectionTargetEntityId = 0;
+        TeamLeaderProtectionTargetServerObjectId = 0;
+    }
+
+    public bool IsTeamLeaderProtectionTarget(WorldObjectSnapshot target)
+    {
+        return IsSameTarget(
+            TeamLeaderProtectionTargetEntityId,
+            TeamLeaderProtectionTargetServerObjectId,
+            target.EntityId,
+            target.ServerObjectId);
+    }
+
+    public bool IsTeamLeaderProtectionTarget(LockedTargetSnapshot target)
+    {
+        return IsSameTarget(
+            TeamLeaderProtectionTargetEntityId,
+            TeamLeaderProtectionTargetServerObjectId,
+            target.TargetEntityId,
+            target.ServerObjectId);
     }
 
     public void TrackCurrentTargetDamageObservation(LockedTargetSnapshot target, DateTimeOffset now)

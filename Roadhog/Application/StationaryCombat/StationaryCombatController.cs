@@ -1,6 +1,7 @@
 using Roadhog.Application.Input;
 using Roadhog.Application.BagCleanup;
 using Roadhog.Application.SemiAuto;
+using Roadhog.Application.Team;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
@@ -278,6 +279,12 @@ public sealed class StationaryCombatController
         }
 
         var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
+        if (state.IsTeamLeaderProtectionTarget(target))
+        {
+            state.CurrentTargetIsMaintenanceDefense = true;
+            state.CurrentTargetBypassesHomeLeash = true;
+        }
+
         var targetPosition = target.Position.Value;
         var targetDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(targetPosition, home);
         var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
@@ -304,7 +311,9 @@ public sealed class StationaryCombatController
             });
         }
 
-        if (!IsTargetingLocalSide(target, state) && targetDistanceFromHome > radius)
+        if (!IsTargetingLocalSide(target, state) &&
+            !state.IsTeamLeaderProtectionTarget(target) &&
+            targetDistanceFromHome > radius)
         {
             await StopMovementAsync(context, state).ConfigureAwait(false);
             state.ClearTarget();
@@ -1924,7 +1933,12 @@ public sealed class StationaryCombatController
         var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
         state.PathCombat.MarkCurrentTargetAnchor(playerPosition);
         state.CurrentTargetIsRevivePathClear = false;
-        state.CurrentTargetBypassesHomeLeash = false;
+        state.CurrentTargetBypassesHomeLeash = state.IsTeamLeaderProtectionTarget(target);
+        if (state.IsTeamLeaderProtectionTarget(target))
+        {
+            state.CurrentTargetIsMaintenanceDefense = true;
+        }
+
         var targetPosition = target.Position.Value;
         var targetDistanceFromAnchor = StationaryCombatTargetSelector.HorizontalDistance(targetPosition, playerPosition);
         var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
@@ -1953,7 +1967,9 @@ public sealed class StationaryCombatController
             });
         }
 
-        if (!IsTargetingLocalSide(target, state) && targetDistanceFromAnchor > radius)
+        if (!IsTargetingLocalSide(target, state) &&
+            !state.IsTeamLeaderProtectionTarget(target) &&
+            targetDistanceFromAnchor > radius)
         {
             await StopMovementAsync(context, state).ConfigureAwait(false);
             state.ClearTarget();
@@ -2428,7 +2444,12 @@ public sealed class StationaryCombatController
 
         var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
         state.CurrentTargetIsRevivePathClear = isRevivePathClearTarget;
-        state.CurrentTargetBypassesHomeLeash = isRevivePathClearTarget;
+        state.CurrentTargetBypassesHomeLeash = isRevivePathClearTarget || state.IsTeamLeaderProtectionTarget(target);
+        if (state.IsTeamLeaderProtectionTarget(target))
+        {
+            state.CurrentTargetIsMaintenanceDefense = true;
+        }
+
         var targetPosition = target.Position.Value;
         var targetDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(targetPosition, home);
         var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
@@ -2634,7 +2655,8 @@ public sealed class StationaryCombatController
         }
 
         state.SetCurrentTarget(target);
-        if (IsTargetingLocalSide(target, state))
+        if (IsTargetingLocalSide(target, state) ||
+            state.IsTeamLeaderProtectionTarget(target))
         {
             state.CurrentTargetIsMaintenanceDefense = true;
         }
@@ -3646,7 +3668,8 @@ public sealed class StationaryCombatController
             return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
         }
 
-        if (IsTargetingLocalSide(target, state))
+        if (IsTargetingLocalSide(target, state) ||
+            state.IsTeamLeaderProtectionTarget(target))
         {
             state.CurrentTargetIsMaintenanceDefense = true;
         }
@@ -4293,7 +4316,10 @@ public sealed class StationaryCombatController
             ? lockedTarget.TargetEntityId
             : acquiredTarget.EntityId;
         state.SetCurrentTarget(acquiredEntityId, acquiredServerObjectId);
-        state.CurrentTargetIsMaintenanceDefense = IsTargetingLocalSide(acquiredTarget, state);
+        var isTeamLeaderProtectionTarget = state.IsTeamLeaderProtectionTarget(acquiredTarget) ||
+                                           state.IsTeamLeaderProtectionTarget(lockedTarget);
+        state.CurrentTargetIsMaintenanceDefense = IsTargetingLocalSide(acquiredTarget, state) ||
+                                                  isTeamLeaderProtectionTarget;
         state.MarkCandidate(acquiredTarget, DateTimeOffset.Now);
         state.ClearPendingTabVerification();
         await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -4302,7 +4328,8 @@ public sealed class StationaryCombatController
             ? lockedTarget.TargetServerObjectId
             : acquiredTarget.TargetServerObjectId;
         var effectiveTargetingMe = IsTargetingLocalSide(lockedTarget, state) ||
-                                   IsTargetingLocalSide(acquiredTarget, state);
+                                   IsTargetingLocalSide(acquiredTarget, state) ||
+                                   isTeamLeaderProtectionTarget;
         var effectiveLockedTarget = lockedTarget with
         {
             ServerObjectId = lockedTarget.ServerObjectId != 0 ? lockedTarget.ServerObjectId : acquiredServerObjectId,
@@ -4840,7 +4867,33 @@ public sealed class StationaryCombatController
         bool forceRefresh)
     {
         var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
-        return objects
+        var teamThreat = await SelectTeamLeaderProtectionTargetAsync(
+                context,
+                state,
+                objects,
+                playerPosition)
+            .ConfigureAwait(false);
+        if (teamThreat is not null)
+        {
+            state.MarkTeamLeaderProtectionTarget(teamThreat.Target);
+            LogActionThrottled(context, state, "stationary_combat.team_leader.protection_target_selected", "target:" + TargetActionKey(teamThreat.Target.EntityId, teamThreat.Target.ServerObjectId), new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = teamThreat.Target.EntityId,
+                ["targetServerObjectId"] = teamThreat.Target.ServerObjectId,
+                ["targetName"] = teamThreat.Target.Name,
+                ["targetingServerObjectId"] = teamThreat.Target.TargetServerObjectId,
+                ["protectedMember"] = teamThreat.ProtectedMember.Name,
+                ["protectedMemberServerObjectId"] = teamThreat.ProtectedMember.ServerObjectId,
+                ["protectedServerObjectId"] = teamThreat.ProtectedServerObjectId,
+                ["protectedObjectIsPet"] = teamThreat.ProtectedObjectIsPet,
+                ["protectedClass"] = teamThreat.ProtectedMember.PartyMember.ClassName,
+                ["priority"] = teamThreat.Priority
+            }, TimeSpan.FromMilliseconds(500));
+            return teamThreat.Target;
+        }
+
+        var localSideThreat = objects
             .Where(target => IsTargetingLocalSide(target, state))
             .Where(StationaryCombatTargetSelector.IsSelectableMonster)
             .Where(target => target.Position is not null)
@@ -4848,6 +4901,46 @@ public sealed class StationaryCombatController
             .ThenBy(target => target.ServerObjectId)
             .ThenBy(target => target.EntityId)
             .FirstOrDefault();
+        if (localSideThreat is not null)
+        {
+            state.ClearTeamLeaderProtectionTarget();
+        }
+
+        return localSideThreat;
+    }
+
+    private async Task<TeamLeaderProtectionThreat?> SelectTeamLeaderProtectionTargetAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        IReadOnlyList<WorldObjectSnapshot> objects,
+        Vector3Snapshot playerPosition)
+    {
+        var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
+        var leader = team.Leader ?? new TeamLeaderScriptSettings();
+        if (team.Role != TeamRole.Leader || !leader.Enabled)
+        {
+            return null;
+        }
+
+        var monitor = new TeamMonitor(context.GameApi, context.Logger);
+        var snapshotResult = await monitor
+            .ReadSnapshotAsync(CreateReadContext(context), context.StopToken)
+            .ConfigureAwait(false);
+        if (!snapshotResult.Success || snapshotResult.Value is null)
+        {
+            LogActionThrottled(context, state, "stationary_combat.team_leader.snapshot.failed", "snapshot", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["error"] = snapshotResult.Error
+            }, TimeSpan.FromSeconds(3));
+            return null;
+        }
+
+        return TeamLeaderProtectionSelector.SelectThreat(
+            snapshotResult.Value,
+            objects,
+            playerPosition,
+            team.GroupDistanceMeters);
     }
 
     private async Task<WorldObjectSnapshot?> SelectRevivePathAggressiveClearTargetAsync(

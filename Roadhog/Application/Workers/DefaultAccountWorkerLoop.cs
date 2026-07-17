@@ -109,7 +109,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     if (_teamSupport is not null && IsTeamSupportEnabled(scriptSettings))
                     {
                         var supportResult = await _teamSupport
-                            .TickAsync(context, teamSupportState)
+                            .TickAsync(context, teamSupportState, stationaryCombatState)
                             .ConfigureAwait(false);
                         delay = supportResult.Delay;
                         normalWorkBlocked = supportResult.ShouldSkipNormalWork;
@@ -117,7 +117,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                     else if (_teamOutput is not null && IsTeamOutputEnabled(scriptSettings))
                     {
                         var outputResult = await _teamOutput
-                            .TickAsync(context, teamOutputState)
+                            .TickAsync(context, teamOutputState, stationaryCombatState)
                             .ConfigureAwait(false);
                         delay = outputResult.Delay;
                         normalWorkBlocked = outputResult.ShouldSkipNormalWork;

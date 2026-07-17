@@ -112,6 +112,7 @@ namespace Roadhog
         private RoundedCheckBox? teamLeaderAllowLootCheckBox;
         private RoundedCheckBox? teamLeaderAllowSelfDefenseCheckBox;
         private RoundedCheckBox? teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox;
+        private RoundedTextBox? teamGroupDistanceTextBox;
         private RoundedCheckBox? teamOutputEnabledCheckBox;
         private RoundedCheckBox? teamOutputDungeonModeCheckBox;
         private RoundedCheckBox? teamOutputAllowLootCheckBox;
@@ -2143,6 +2144,10 @@ namespace Roadhog
             AddLabel(page, "组队模式", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
             teamRoleCombo = AddCombo(page, 24, 52, 190, 28, "队长", "输出", "治疗");
             teamRoleCombo.Name = "teamRoleCombo";
+            AddLabel(page, "抱团距离", 240, 52, 90, 24, _textGreen, FontStyle.Bold);
+            teamGroupDistanceTextBox = AddTextBox(page, "20.0", 330, 50, 72, 28);
+            teamGroupDistanceTextBox.Name = "teamGroupDistanceTextBox";
+            AddLabel(page, "m", 408, 52, 24, 24, _textGreen, FontStyle.Bold);
 
             var leaderPanel = CreateTeamRolePanel(page);
             teamLeaderPanel = leaderPanel;
@@ -2370,6 +2375,9 @@ namespace Roadhog
         {
             var team = (settings ?? new TeamScriptSettings()).Clone();
             SetComboText(teamRoleCombo, FormatTeamRole(team.Role));
+            SetText(
+                teamGroupDistanceTextBox,
+                team.GroupDistanceMeters.ToString("0.###", CultureInfo.InvariantCulture));
 
             var leader = team.Leader ?? new TeamLeaderScriptSettings();
             SetChecked(teamLeaderEnabledCheckBox, leader.Enabled);
@@ -2379,7 +2387,6 @@ namespace Roadhog
             SetChecked(
                 teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox,
                 leader.StopAdvanceWhenMemberDisconnected);
-
             var output = team.Output ?? new TeamOutputScriptSettings();
             SetChecked(teamOutputEnabledCheckBox, output.Enabled);
             SetChecked(teamOutputDungeonModeCheckBox, output.DungeonMode);
@@ -2418,6 +2425,7 @@ namespace Roadhog
             return new TeamScriptSettings
             {
                 Role = ParseTeamRole(teamRoleCombo?.Text),
+                GroupDistanceMeters = ReadDouble(teamGroupDistanceTextBox, 20.0D, 0.0D, 100.0D),
                 Leader = new TeamLeaderScriptSettings
                 {
                     Enabled = teamLeaderEnabledCheckBox?.Checked ?? false,

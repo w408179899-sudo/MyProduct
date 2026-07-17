@@ -1,4 +1,5 @@
 using Roadhog.Application.Workers;
+using Roadhog.Application.StationaryCombat;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
 using Roadhog.Core.Common;
@@ -24,7 +25,8 @@ public sealed class TeamOutputController
 
     public async Task<TeamOutputTickResult> TickAsync(
         AccountWorkerContext context,
-        TeamOutputState state)
+        TeamOutputState state,
+        StationaryCombatState? combatState = null)
     {
         var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
         var output = team.Output ?? new TeamOutputScriptSettings();
@@ -60,10 +62,46 @@ public sealed class TeamOutputController
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
 
+        if (output.AllowSelfDefense &&
+            await HasSelfDefenseThreatAsync(context, state, snapshot).ConfigureAwait(false))
+        {
+            return TeamOutputTickResult.Continue(TeamOutputTickDelay);
+        }
+
         if (output.StopWhenLeaderDead && leader.PartyMember.IsDead)
         {
             await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
             return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
+        }
+
+        var groupDistanceMeters = team.GroupDistanceMeters;
+        var leaderInGroupRange = TeamLeaderRuntimePolicy.IsLeaderInGroupRange(
+            leader,
+            groupDistanceMeters);
+        if (!leaderInGroupRange)
+        {
+            LogFollowDecision(
+                context,
+                state,
+                "leader_out_of_range",
+                leader,
+                groupDistanceMeters,
+                combatState);
+            return output.StopWhenLeaderHasNoTarget
+                ? TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay)
+                : TeamOutputTickResult.Continue(TeamOutputTickDelay);
+        }
+
+        if (TeamLeaderRuntimePolicy.HasActiveCombatTarget(combatState))
+        {
+            LogFollowDecision(
+                context,
+                state,
+                "active_combat_target",
+                leader,
+                groupDistanceMeters,
+                combatState);
+            return TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
 
         if (!leader.IsScreenVisible || leader.PartyMember.LiveTargetServerObjectId == 0)
@@ -91,7 +129,7 @@ public sealed class TeamOutputController
 
         state.LastActionAt = DateTimeOffset.Now;
         var lockedTargetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (!IsLeaderAttackTarget(lockedTargetResult, leader, leaderTargetServerObjectId, out var rejectReason))
+        if (!TeamLeaderTargetValidator.IsLeaderAttackTarget(lockedTargetResult, leader, leaderTargetServerObjectId, out var rejectReason))
         {
             LogTargetRejected(context, state, lockedTargetResult.Value, leader, leaderTargetServerObjectId, rejectReason);
             await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
@@ -194,65 +232,82 @@ public sealed class TeamOutputController
         return false;
     }
 
-    private static bool IsLeaderAttackTarget(
-        OperationResult<LockedTargetSnapshot> result,
-        TeamMemberSnapshot leader,
-        uint leaderTargetServerObjectId,
-        out string rejectReason)
+    private async Task<bool> HasSelfDefenseThreatAsync(
+        AccountWorkerContext context,
+        TeamOutputState state,
+        TeamSnapshot snapshot)
     {
-        if (!result.Success || result.Value is null)
+        var protectedServerObjectIds = GetLocalProtectedServerObjectIds(snapshot);
+        if (protectedServerObjectIds.Count == 0)
         {
-            rejectReason = "target_read_failed";
             return false;
         }
 
-        var target = result.Value;
-        if (leaderTargetServerObjectId == 0)
+        var worldResult = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
+        if (!worldResult.Success || worldResult.Value is null)
         {
-            rejectReason = "leader_target_unknown";
+            if (ShouldLog(state.LastSelfDefenseWarningAt))
+            {
+                state.LastSelfDefenseWarningAt = DateTimeOffset.Now;
+                context.Logger.Warn("team_output.self_defense.world_objects.failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["error"] = worldResult.Error
+                });
+            }
+
             return false;
         }
 
-        if (target.ServerObjectId == 0 || target.ServerObjectId != leaderTargetServerObjectId)
+        var threat = worldResult.Value
+            .Where(StationaryCombatTargetSelector.IsSelectableMonster)
+            .FirstOrDefault(target =>
+                target.TargetServerObjectId != 0 &&
+                protectedServerObjectIds.Contains(target.TargetServerObjectId));
+        if (threat is null)
         {
-            rejectReason = "target_mismatch";
             return false;
         }
 
-        if (!target.IsMonsterAlive)
+        if (ShouldLog(state.LastSelfDefenseLogAt))
         {
-            rejectReason = "not_alive_monster";
-            return false;
+            state.LastSelfDefenseLogAt = DateTimeOffset.Now;
+            context.Logger.Info("team_output.self_defense.threat_detected", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["targetEntityId"] = threat.EntityId,
+                ["targetServerObjectId"] = threat.ServerObjectId,
+                ["targetName"] = threat.Name,
+                ["targetingServerObjectId"] = threat.TargetServerObjectId
+            });
         }
 
-        if (!IsTargetingLeaderSide(target, leader))
-        {
-            rejectReason = "not_targeting_leader_side";
-            return false;
-        }
-
-        rejectReason = string.Empty;
         return true;
     }
 
-    private static bool IsTargetingLeaderSide(
-        LockedTargetSnapshot target,
-        TeamMemberSnapshot leader)
+    private static HashSet<uint> GetLocalProtectedServerObjectIds(TeamSnapshot snapshot)
     {
-        if (target.TargetServerObjectId == 0)
+        var ids = new HashSet<uint>();
+        var local = snapshot.LocalMember;
+        if (local is null || !local.PartyMember.IsAlive)
         {
-            return false;
+            return ids;
         }
 
-        if (target.TargetServerObjectId == leader.ServerObjectId)
+        if (local.ServerObjectId != 0)
         {
-            return true;
+            ids.Add(local.ServerObjectId);
         }
 
-        var pet = leader.SummonedPet?.Pet;
-        return pet?.IsSummoned == true &&
-               pet.ServerObjectId != 0 &&
-               target.TargetServerObjectId == pet.ServerObjectId;
+        var pet = local.SummonedPet?.Pet;
+        if (local.PartyMember.Class == AionClassId.Spiritmaster &&
+            pet?.IsAlive == true &&
+            pet.ServerObjectId != 0)
+        {
+            ids.Add(pet.ServerObjectId);
+        }
+
+        return ids;
     }
 
     private static bool IsSelectedMemberBody(
@@ -292,6 +347,39 @@ public sealed class TeamOutputController
             ["targetCurrentHp"] = target?.CurrentHp,
             ["targetMaxHp"] = target?.MaxHp,
             ["targetTargetServerObjectId"] = target?.TargetServerObjectId
+        });
+    }
+
+    private static void LogFollowDecision(
+        AccountWorkerContext context,
+        TeamOutputState state,
+        string reason,
+        TeamMemberSnapshot leader,
+        double groupDistanceMeters,
+        StationaryCombatState? combatState)
+    {
+        if (!ShouldLog(state.LastFollowDecisionLogAt))
+        {
+            return;
+        }
+
+        state.LastFollowDecisionLogAt = DateTimeOffset.Now;
+        context.Logger.Info("team_output.follow.deferred", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["leader"] = leader.Name,
+            ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["leaderDistanceToLocal"] = leader.PartyMember.DistanceToLocalPlayer,
+            ["groupDistanceMeters"] = groupDistanceMeters,
+            ["leaderDead"] = leader.PartyMember.IsDead,
+            ["leaderScreenVisible"] = leader.IsScreenVisible,
+            ["leaderTargetServerObjectId"] = leader.PartyMember.LiveTargetServerObjectId,
+            ["combatFighting"] = combatState?.Fighting,
+            ["candidateEntityId"] = combatState?.CandidateEntityId,
+            ["candidateServerObjectId"] = combatState?.CandidateServerObjectId,
+            ["currentTargetEntityId"] = combatState?.CurrentTargetEntityId,
+            ["currentTargetServerObjectId"] = combatState?.CurrentTargetServerObjectId
         });
     }
 
@@ -339,6 +427,13 @@ public sealed class TeamOutputController
         return context.GameApi is IRoadhogScopedGameApi scopedApi
             ? scopedApi.ReadLockedTargetAsync(CreateReadContext(context), context.StopToken)
             : context.GameApi.ReadLockedTargetAsync(context.StopToken);
+    }
+
+    private static Task<OperationResult<IReadOnlyList<WorldObjectSnapshot>>> ReadWorldObjectsAsync(AccountWorkerContext context)
+    {
+        return context.GameApi is IRoadhogScopedGameApi scopedApi
+            ? scopedApi.ReadWorldObjectsAsync(CreateReadContext(context), context.StopToken)
+            : context.GameApi.ReadWorldObjectsAsync(context.StopToken);
     }
 
     private static GameApiReadContext CreateReadContext(AccountWorkerContext context)

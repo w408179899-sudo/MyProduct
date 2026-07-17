@@ -1,4 +1,5 @@
 using Roadhog.Application.Workers;
+using Roadhog.Application.StationaryCombat;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
 using Roadhog.Core.Common;
@@ -15,6 +16,7 @@ public sealed class TeamSupportController
     private static readonly TimeSpan SelectConfirmDelay = TimeSpan.FromMilliseconds(25);
     private static readonly TimeSpan TeamBuffRetryInterval = TimeSpan.FromSeconds(2);
     private const string LeaderAssistKey = "C";
+    private const string AssistTargetKey = "Oem3";
     private const string LifeBlessingName = "\u751F\u547D\u7684\u795D\u798F";
     private const string ProtectionBlessingName = "\u4FDD\u62A4\u795D\u798F";
     private const string ProtectionBlessingNameWithParticle = "\u4FDD\u62A4\u7684\u795D\u798F";
@@ -32,7 +34,8 @@ public sealed class TeamSupportController
 
     public async Task<TeamSupportTickResult> TickAsync(
         AccountWorkerContext context,
-        TeamSupportState state)
+        TeamSupportState state,
+        StationaryCombatState? combatState = null)
     {
         var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
         var support = team.Support ?? new TeamSupportScriptSettings();
@@ -69,18 +72,55 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
+        var leader = snapshot.LeaderMember;
         var leaderDeadStop =
             support.StopWhenLeaderDead &&
-            snapshot.LeaderMember?.PartyMember.IsDead == true;
-        if (!support.JoinCombat || leaderDeadStop)
+            leader?.PartyMember.IsDead == true;
+        if (leaderDeadStop)
         {
             await SelectLeaderAndAssistAsync(context, state, snapshot).ConfigureAwait(false);
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
-        return !support.JoinCombat || leaderDeadStop
-            ? TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay)
-            : TeamSupportTickResult.Continue(TeamSupportTickDelay);
+        var groupDistanceMeters = team.GroupDistanceMeters;
+        var leaderInGroupRange = TeamLeaderRuntimePolicy.IsLeaderInGroupRange(
+            leader,
+            groupDistanceMeters);
+        if (!leaderInGroupRange)
+        {
+            LogFollowDecision(
+                context,
+                state,
+                "leader_out_of_range",
+                leader,
+                groupDistanceMeters,
+                support.JoinCombat,
+                combatState);
+            return support.JoinCombat
+                ? TeamSupportTickResult.Continue(TeamSupportTickDelay)
+                : TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        if (TeamLeaderRuntimePolicy.HasActiveCombatTarget(combatState))
+        {
+            LogFollowDecision(
+                context,
+                state,
+                "active_combat_target",
+                leader,
+                groupDistanceMeters,
+                support.JoinCombat,
+                combatState);
+            return TeamSupportTickResult.Continue(TeamSupportTickDelay);
+        }
+
+        if (!support.JoinCombat)
+        {
+            await SelectLeaderAndAssistAsync(context, state, snapshot).ConfigureAwait(false);
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        return await SelectLeaderTargetForCombatAsync(context, state, leader).ConfigureAwait(false);
     }
 
     private async Task<TeamSupportAction?> SelectActionAsync(
@@ -227,6 +267,14 @@ public sealed class TeamSupportController
         TeamSnapshot snapshot)
     {
         var leader = snapshot.LeaderMember;
+        return await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
+    }
+
+    private async Task<bool> SelectLeaderAndAssistAsync(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        TeamMemberSnapshot? leader)
+    {
         if (leader is null || leader.IsSelf)
         {
             return false;
@@ -262,6 +310,72 @@ public sealed class TeamSupportController
             ["key"] = LeaderAssistKey
         });
         return true;
+    }
+
+    private async Task<TeamSupportTickResult> SelectLeaderTargetForCombatAsync(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        TeamMemberSnapshot? leader)
+    {
+        if (leader is null || leader.IsSelf)
+        {
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        if (!await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false))
+        {
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        var leaderTargetServerObjectId = leader.PartyMember.LiveTargetServerObjectId;
+        if (!leader.IsScreenVisible || leaderTargetServerObjectId == 0)
+        {
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        var assistResult = await _keyboard
+            .PressKeyAsync(AssistTargetKey, ResolveKeyHold(context), context.StopToken)
+            .ConfigureAwait(false);
+        if (!assistResult.Success)
+        {
+            if (ShouldLog(state.LastInputWarningAt))
+            {
+                state.LastInputWarningAt = DateTimeOffset.Now;
+                context.Logger.Warn("team_support.assist_target_key.failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["key"] = AssistTargetKey,
+                    ["error"] = assistResult.Error
+                });
+            }
+
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        state.LastActionAt = DateTimeOffset.Now;
+        var lockedTargetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        if (!TeamLeaderTargetValidator.IsLeaderAttackTarget(
+                lockedTargetResult,
+                leader,
+                leaderTargetServerObjectId,
+                out var rejectReason))
+        {
+            LogTargetRejected(context, state, lockedTargetResult.Value, leader, leaderTargetServerObjectId, rejectReason);
+            await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        context.Logger.Info("team_support.target.accepted", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["leader"] = leader.Name,
+            ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
+            ["targetName"] = lockedTargetResult.Value?.Name,
+            ["targetServerObjectId"] = lockedTargetResult.Value?.ServerObjectId,
+            ["targetTargetServerObjectId"] = lockedTargetResult.Value?.TargetServerObjectId
+        });
+        return TeamSupportTickResult.Continue(TeamSupportTickDelay);
     }
 
     private TeamAbnormalStatusCatalog AbnormalStatusCatalog
@@ -536,6 +650,71 @@ public sealed class TeamSupportController
                result.Value is not null &&
                result.Value.ServerObjectId != 0 &&
                result.Value.ServerObjectId == member.ServerObjectId;
+    }
+
+    private static void LogTargetRejected(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        LockedTargetSnapshot? target,
+        TeamMemberSnapshot leader,
+        uint leaderTargetServerObjectId,
+        string rejectReason)
+    {
+        if (!ShouldLog(state.LastTargetRejectLogAt))
+        {
+            return;
+        }
+
+        state.LastTargetRejectLogAt = DateTimeOffset.Now;
+        context.Logger.Info("team_support.target.rejected", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = rejectReason,
+            ["leader"] = leader.Name,
+            ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
+            ["targetName"] = target?.Name,
+            ["targetServerObjectId"] = target?.ServerObjectId,
+            ["targetObjectType"] = target?.ObjectType,
+            ["targetCurrentHp"] = target?.CurrentHp,
+            ["targetMaxHp"] = target?.MaxHp,
+            ["targetTargetServerObjectId"] = target?.TargetServerObjectId
+        });
+    }
+
+    private static void LogFollowDecision(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        string reason,
+        TeamMemberSnapshot? leader,
+        double groupDistanceMeters,
+        bool joinCombat,
+        StationaryCombatState? combatState)
+    {
+        if (leader is null || !ShouldLog(state.LastFollowDecisionLogAt))
+        {
+            return;
+        }
+
+        state.LastFollowDecisionLogAt = DateTimeOffset.Now;
+        context.Logger.Info("team_support.follow.deferred", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["leader"] = leader.Name,
+            ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["leaderDistanceToLocal"] = leader.PartyMember.DistanceToLocalPlayer,
+            ["groupDistanceMeters"] = groupDistanceMeters,
+            ["joinCombat"] = joinCombat,
+            ["leaderDead"] = leader.PartyMember.IsDead,
+            ["leaderScreenVisible"] = leader.IsScreenVisible,
+            ["leaderTargetServerObjectId"] = leader.PartyMember.LiveTargetServerObjectId,
+            ["combatFighting"] = combatState?.Fighting,
+            ["candidateEntityId"] = combatState?.CandidateEntityId,
+            ["candidateServerObjectId"] = combatState?.CandidateServerObjectId,
+            ["currentTargetEntityId"] = combatState?.CurrentTargetEntityId,
+            ["currentTargetServerObjectId"] = combatState?.CurrentTargetServerObjectId
+        });
     }
 
     private static void LogActionPress(

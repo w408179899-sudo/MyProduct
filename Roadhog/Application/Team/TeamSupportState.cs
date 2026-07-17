@@ -10,6 +10,10 @@ public sealed class TeamSupportState
 
     public DateTimeOffset LastInputWarningAt { get; set; } = DateTimeOffset.MinValue;
 
+    public DateTimeOffset LastTargetRejectLogAt { get; set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastFollowDecisionLogAt { get; set; } = DateTimeOffset.MinValue;
+
     public DateTimeOffset LastActionAt { get; set; } = DateTimeOffset.MinValue;
 
     public bool ShouldPressTeamBuff(

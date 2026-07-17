@@ -195,6 +195,8 @@ public sealed class TeamScriptSettings
 {
     public TeamRole Role { get; set; } = TeamRole.Leader;
 
+    public double GroupDistanceMeters { get; set; } = 20.0D;
+
     public TeamLeaderScriptSettings Leader { get; set; } = new();
 
     public TeamOutputScriptSettings Output { get; set; } = new();
@@ -206,6 +208,7 @@ public sealed class TeamScriptSettings
         return new TeamScriptSettings
         {
             Role = Role,
+            GroupDistanceMeters = GroupDistanceMeters,
             Leader = (Leader ?? new TeamLeaderScriptSettings()).Clone(),
             Output = (Output ?? new TeamOutputScriptSettings()).Clone(),
             Support = (Support ?? new TeamSupportScriptSettings()).Clone()
