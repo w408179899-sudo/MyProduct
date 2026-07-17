@@ -15,10 +15,13 @@ public sealed class RoadhogServiceOptions
     public const string ProfileLibraryDirectoryEnvironmentVariable = "ROADHOG_PROFILE_LIBRARY_DIRECTORY";
     public const string KmBoxNetConfigPathEnvironmentVariable = "ROADHOG_KMBOX_NET_CONFIG_PATH";
     public const string LogDirectoryEnvironmentVariable = "ROADHOG_LOG_DIRECTORY";
+    public const string EnableLoggingEnvironmentVariable = "ROADHOG_ENABLE_LOGGING";
 
     public bool UseToolTestBridge { get; set; }
 
     public bool UseMockGameApi { get; set; }
+
+    public bool EnableLogging { get; set; } = true;
 
     public string AccountConfigPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "config", "accounts.json");
 
@@ -79,6 +82,7 @@ public sealed class RoadhogServiceOptions
         ProfileLibraryDirectory = ReadPathFromEnvironment(ProfileLibraryDirectoryEnvironmentVariable) ?? ProfileLibraryDirectory;
         KmBoxNetConfigPath = ReadPathFromEnvironment(KmBoxNetConfigPathEnvironmentVariable) ?? KmBoxNetConfigPath;
         LogDirectory = ReadPathFromEnvironment(LogDirectoryEnvironmentVariable) ?? LogDirectory;
+        EnableLogging = ReadBoolFromEnvironment(EnableLoggingEnvironmentVariable) ?? EnableLogging;
     }
 
     private static string ResolveRoadhogProjectDirectory()
@@ -123,5 +127,27 @@ public sealed class RoadhogServiceOptions
         }
 
         return Path.GetFullPath(Environment.ExpandEnvironmentVariables(value.Trim()));
+    }
+
+    private static bool? ReadBoolFromEnvironment(string variableName)
+    {
+        var value = Environment.GetEnvironmentVariable(variableName);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        if (bool.TryParse(trimmed, out var parsed))
+        {
+            return parsed;
+        }
+
+        return trimmed.ToLowerInvariant() switch
+        {
+            "1" or "yes" or "y" or "on" or "enabled" => true,
+            "0" or "no" or "n" or "off" or "disabled" => false,
+            _ => null
+        };
     }
 }

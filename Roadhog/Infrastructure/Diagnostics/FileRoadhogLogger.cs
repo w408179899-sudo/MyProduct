@@ -9,6 +9,7 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
     public const long DefaultMaxLogFileBytes = 1024L * 1024L;
 
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+    private static readonly TimeSpan LogRetention = TimeSpan.FromDays(1);
     private static readonly TimeSpan NoisyInfoSampleInterval = TimeSpan.FromSeconds(5);
     private static readonly HashSet<string> NoisyInfoEvents = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -30,6 +31,7 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
     private string? _currentLogPath;
     private string? _currentDateStamp;
     private string? _latestSourceLogPath;
+    private bool _expiredLogCleanupAttempted;
 
     public FileRoadhogLogger(string logDirectory, long maxLogFileBytes = DefaultMaxLogFileBytes)
     {
@@ -86,6 +88,7 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
                     error);
                 var line = JsonSerializer.Serialize(entry) + Environment.NewLine;
                 Directory.CreateDirectory(_logDirectory);
+                DeleteExpiredLogFiles(now);
                 var lineBytes = Utf8NoBom.GetByteCount(line);
                 var logPath = ResolveCurrentLogPath(now, lineBytes);
                 File.AppendAllText(logPath, line, Utf8NoBom);
@@ -95,6 +98,38 @@ public sealed class FileRoadhogLogger : IRoadhogLogger
         catch
         {
             // Logging must never break the worker loop.
+        }
+    }
+
+    private void DeleteExpiredLogFiles(DateTimeOffset now)
+    {
+        if (_expiredLogCleanupAttempted)
+        {
+            return;
+        }
+
+        _expiredLogCleanupAttempted = true;
+        var cutoffUtc = now.UtcDateTime - LogRetention;
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(_logDirectory, "*.log"))
+            {
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(path) < cutoffUtc)
+                    {
+                        File.Delete(path);
+                    }
+                }
+                catch
+                {
+                    // Log cleanup is best-effort and must not block runtime logging.
+                }
+            }
+        }
+        catch
+        {
+            // Log cleanup is best-effort and must not block runtime logging.
         }
     }
 

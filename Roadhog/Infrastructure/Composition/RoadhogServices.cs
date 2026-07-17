@@ -103,10 +103,9 @@ public sealed class RoadhogServices : IDisposable
         }
         var effectiveKmBoxConfig = KmBoxNetDeviceConfig.FromOptions(options.KmBoxNetInput);
 
-        var memoryLogger = new InMemoryRoadhogLogger();
-        var logger = new CompositeRoadhogLogger(
-            memoryLogger,
-            new FileRoadhogLogger(options.LogDirectory));
+        IRoadhogLogger logger = options.EnableLogging
+            ? new FileRoadhogLogger(options.LogDirectory)
+            : NoOpRoadhogLogger.Instance;
         logger.Info("roadhog.services.created", new Dictionary<string, object?>
         {
             ["logDirectory"] = options.LogDirectory,
@@ -117,6 +116,7 @@ public sealed class RoadhogServices : IDisposable
             ["inputBackend"] = "KmBoxNet",
             ["keyboardInput"] = "KMBox Net",
             ["keyboardEndpoint"] = options.KmBoxNetInput.EndpointText(),
+            ["enableLogging"] = options.EnableLogging,
             ["useMockGameApi"] = options.UseMockGameApi,
             ["useToolTestBridge"] = options.UseToolTestBridge
         });

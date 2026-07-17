@@ -69,7 +69,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("aion class catalog maps old twelve classes", TestAionClassCatalogAsync),
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
     ("runtime kill efficiency tracks kill intervals", TestRuntimeKillEfficiencyTracksKillIntervalsAsync),
+    ("service options enable logging by default", TestRoadhogServiceOptionsEnableLoggingByDefaultAsync),
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
+    ("file logger deletes expired log files", TestFileLoggerDeletesExpiredLogFilesAsync),
     ("file logger samples noisy vmm reads", TestFileLoggerSamplesNoisyVmmReadsAsync),
     ("input key map preserves Roadhog supported HID codes", TestInputKeyMapAsync),
     ("runtime test move uses configured screen point", TestRuntimeTestMoveUsesScreenPointAsync),
@@ -1220,6 +1222,40 @@ static Task TestFileLoggerRotatesWhenMaxSizeIsReachedAsync()
         AssertFalse(
             !archiveLogs.Any(path => Path.GetFileName(path).Count(ch => ch == '-') >= 2),
             "rotated archive log should include a timestamp suffix");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+
+    return Task.CompletedTask;
+}
+
+static Task TestRoadhogServiceOptionsEnableLoggingByDefaultAsync()
+{
+    var options = new RoadhogServiceOptions();
+    AssertFalse(!options.EnableLogging, "logging should be enabled by default for all build configurations");
+    return Task.CompletedTask;
+}
+
+static Task TestFileLoggerDeletesExpiredLogFilesAsync()
+{
+    var directory = CreateTempDirectory("roadhog-logs-");
+    try
+    {
+        var expiredPath = Path.Combine(directory, "roadhog-20260101.log");
+        var recentPath = Path.Combine(directory, "roadhog-20260102.log");
+        File.WriteAllText(expiredPath, "expired");
+        File.WriteAllText(recentPath, "recent");
+        File.SetLastWriteTimeUtc(expiredPath, DateTime.UtcNow.AddDays(-2));
+        File.SetLastWriteTimeUtc(recentPath, DateTime.UtcNow.AddHours(-2));
+
+        var logger = new FileRoadhogLogger(directory);
+        logger.Info("test.log_cleanup");
+
+        AssertFalse(File.Exists(expiredPath), "expired log file should be deleted");
+        AssertFalse(!File.Exists(recentPath), "recent log file should be preserved");
+        AssertFalse(!File.Exists(Path.Combine(directory, "latest.log")), "latest.log should still be written");
     }
     finally
     {
