@@ -13,6 +13,8 @@ public sealed class TeamOutputController
     private static readonly TimeSpan TeamOutputTickDelay = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan SelectConfirmDelay = TimeSpan.FromMilliseconds(25);
+    private static readonly TimeSpan AssistTargetConfirmDelay = TimeSpan.FromMilliseconds(50);
+    private const int AssistTargetConfirmPolls = 3;
     private const string LeaderAssistKey = "C";
     private const string AssistTargetKey = "Oem3";
 
@@ -126,25 +128,77 @@ public sealed class TeamOutputController
         }
 
         state.LastActionAt = DateTimeOffset.Now;
-        var lockedTargetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (!TeamLeaderTargetValidator.IsLeaderAttackTarget(lockedTargetResult, leader, leaderTargetServerObjectId, out var rejectReason))
+        context.Logger.Info("team_output.assist_target.pressed", new Dictionary<string, object?>
         {
-            LogTargetRejected(context, state, lockedTargetResult.Value, leader, leaderTargetServerObjectId, rejectReason);
+            ["account"] = context.Config.AccountName,
+            ["leader"] = leader.Name,
+            ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
+            ["key"] = AssistTargetKey
+        });
+
+        var verification = await VerifyLeaderAttackTargetAfterAssistAsync(
+                context,
+                leader,
+                leaderTargetServerObjectId)
+            .ConfigureAwait(false);
+        if (!verification.Accepted)
+        {
+            LogTargetRejected(
+                context,
+                state,
+                verification.LockedTargetResult.Value,
+                leader,
+                leaderTargetServerObjectId,
+                verification.RejectReason);
             await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
             return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
 
+        var combatAdopted = TeamCombatTargetAdopter.TryAdoptLeaderAttackTarget(
+            combatState,
+            verification.LockedTargetResult.Value);
         context.Logger.Info("team_output.target.accepted", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["leader"] = leader.Name,
             ["leaderServerObjectId"] = leader.ServerObjectId,
             ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
-            ["targetName"] = lockedTargetResult.Value?.Name,
-            ["targetServerObjectId"] = lockedTargetResult.Value?.ServerObjectId,
-            ["targetTargetServerObjectId"] = lockedTargetResult.Value?.TargetServerObjectId
+            ["targetName"] = verification.LockedTargetResult.Value?.Name,
+            ["targetServerObjectId"] = verification.LockedTargetResult.Value?.ServerObjectId,
+            ["targetTargetServerObjectId"] = verification.LockedTargetResult.Value?.TargetServerObjectId,
+            ["confirmPollCount"] = verification.PollCount,
+            ["combatAdopted"] = combatAdopted
         });
         return TeamOutputTickResult.Continue(TeamOutputTickDelay);
+    }
+
+    private async Task<AssistTargetVerification> VerifyLeaderAttackTargetAfterAssistAsync(
+        AccountWorkerContext context,
+        TeamMemberSnapshot leader,
+        uint leaderTargetServerObjectId)
+    {
+        var lastResult = OperationResult<LockedTargetSnapshot>.Fail("target_not_read");
+        var lastRejectReason = "target_not_read";
+        for (var poll = 1; poll <= AssistTargetConfirmPolls; poll++)
+        {
+            if (poll > 1)
+            {
+                await Task.Delay(AssistTargetConfirmDelay, context.StopToken).ConfigureAwait(false);
+            }
+
+            lastResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+            if (TeamLeaderTargetValidator.IsLeaderAttackTarget(
+                    lastResult,
+                    leader,
+                    leaderTargetServerObjectId,
+                    out lastRejectReason))
+            {
+                return new AssistTargetVerification(lastResult, true, string.Empty, poll);
+            }
+        }
+
+        return new AssistTargetVerification(lastResult, false, lastRejectReason, AssistTargetConfirmPolls);
     }
 
     private async Task<bool> SelectLeaderAndAssistAsync(
@@ -152,15 +206,15 @@ public sealed class TeamOutputController
         TeamOutputState state,
         TeamMemberSnapshot leader)
     {
-        var selection = await EnsureMemberBodySelectedAsync(context, state, leader).ConfigureAwait(false);
-        if (!selection.Selected)
+        if (!leader.IsLeader)
         {
             return false;
         }
 
-        if (selection.AlreadySelected)
+        var selection = await EnsureMemberBodySelectedAsync(context, state, leader).ConfigureAwait(false);
+        if (!selection.Selected)
         {
-            return true;
+            return false;
         }
 
         var result = await _keyboard
@@ -320,6 +374,7 @@ public sealed class TeamOutputController
     {
         return result.Success &&
                result.Value is not null &&
+               result.Value.ObjectType == LockedTargetSnapshot.PlayerObjectType &&
                result.Value.ServerObjectId != 0 &&
                result.Value.ServerObjectId == member.ServerObjectId;
     }
@@ -459,4 +514,10 @@ public sealed class TeamOutputController
 
         public static MemberSelectionResult SelectedByInputResult => new(true, false);
     }
+
+    private readonly record struct AssistTargetVerification(
+        OperationResult<LockedTargetSnapshot> LockedTargetResult,
+        bool Accepted,
+        string RejectReason,
+        int PollCount);
 }

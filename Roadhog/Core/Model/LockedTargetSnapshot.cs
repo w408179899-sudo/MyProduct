@@ -15,6 +15,7 @@ public sealed record LockedTargetSnapshot(
     bool IsTargetingLocalPlayer = false,
     uint LocalServerObjectId = 0)
 {
+    public const uint PlayerObjectType = 1;
     public const uint MonsterObjectType = 2;
 
     public bool HasTarget => TargetEntityId != 0;

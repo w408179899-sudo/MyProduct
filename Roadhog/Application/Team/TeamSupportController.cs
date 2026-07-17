@@ -15,6 +15,8 @@ public sealed class TeamSupportController
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan SelectConfirmDelay = TimeSpan.FromMilliseconds(25);
     private static readonly TimeSpan TeamBuffRetryInterval = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan AssistTargetConfirmDelay = TimeSpan.FromMilliseconds(50);
+    private const int AssistTargetConfirmPolls = 3;
     private const string LeaderAssistKey = "C";
     private const string AssistTargetKey = "Oem3";
     private const string LifeBlessingName = "\u751F\u547D\u7684\u795D\u798F";
@@ -92,6 +94,19 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.Continue(TeamSupportTickDelay);
         }
 
+        if (TeamLeaderRuntimePolicy.HasActiveCombatTarget(combatState))
+        {
+            LogFollowDecision(
+                context,
+                state,
+                "active_combat_target",
+                leader,
+                groupDistanceMeters,
+                support.JoinCombat,
+                combatState);
+            return TeamSupportTickResult.Continue(TeamSupportTickDelay);
+        }
+
         var action = await SelectActionAsync(
                 context,
                 state,
@@ -106,26 +121,13 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
-        if (TeamLeaderRuntimePolicy.HasActiveCombatTarget(combatState))
-        {
-            LogFollowDecision(
-                context,
-                state,
-                "active_combat_target",
-                leader,
-                groupDistanceMeters,
-                support.JoinCombat,
-                combatState);
-            return TeamSupportTickResult.Continue(TeamSupportTickDelay);
-        }
-
         if (!support.JoinCombat)
         {
             await SelectLeaderAndAssistAsync(context, state, snapshot).ConfigureAwait(false);
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
-        return await SelectLeaderTargetForCombatAsync(context, state, leader).ConfigureAwait(false);
+        return await SelectLeaderTargetForCombatAsync(context, state, leader, combatState).ConfigureAwait(false);
     }
 
     private async Task<TeamSupportAction?> SelectActionAsync(
@@ -285,7 +287,7 @@ public sealed class TeamSupportController
         TeamSupportState state,
         TeamMemberSnapshot? leader)
     {
-        if (leader is null || leader.IsSelf)
+        if (leader is null || leader.IsSelf || !leader.IsLeader)
         {
             return false;
         }
@@ -294,11 +296,6 @@ public sealed class TeamSupportController
         if (!selection.Selected)
         {
             return false;
-        }
-
-        if (selection.AlreadySelected)
-        {
-            return true;
         }
 
         var result = await _keyboard
@@ -331,7 +328,8 @@ public sealed class TeamSupportController
     private async Task<TeamSupportTickResult> SelectLeaderTargetForCombatAsync(
         AccountWorkerContext context,
         TeamSupportState state,
-        TeamMemberSnapshot? leader)
+        TeamMemberSnapshot? leader,
+        StationaryCombatState? combatState)
     {
         if (leader is null || leader.IsSelf)
         {
@@ -369,29 +367,77 @@ public sealed class TeamSupportController
         }
 
         state.LastActionAt = DateTimeOffset.Now;
-        var lockedTargetResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
-        if (!TeamLeaderTargetValidator.IsLeaderAttackTarget(
-                lockedTargetResult,
+        context.Logger.Info("team_support.assist_target.pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["leader"] = leader.Name,
+            ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
+            ["key"] = AssistTargetKey
+        });
+
+        var verification = await VerifyLeaderAttackTargetAfterAssistAsync(
+                context,
+                leader,
+                leaderTargetServerObjectId)
+            .ConfigureAwait(false);
+        if (!verification.Accepted)
+        {
+            LogTargetRejected(
+                context,
+                state,
+                verification.LockedTargetResult.Value,
                 leader,
                 leaderTargetServerObjectId,
-                out var rejectReason))
-        {
-            LogTargetRejected(context, state, lockedTargetResult.Value, leader, leaderTargetServerObjectId, rejectReason);
+                verification.RejectReason);
             await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
+        var combatAdopted = TeamCombatTargetAdopter.TryAdoptLeaderAttackTarget(
+            combatState,
+            verification.LockedTargetResult.Value);
         context.Logger.Info("team_support.target.accepted", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
             ["leader"] = leader.Name,
             ["leaderServerObjectId"] = leader.ServerObjectId,
             ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
-            ["targetName"] = lockedTargetResult.Value?.Name,
-            ["targetServerObjectId"] = lockedTargetResult.Value?.ServerObjectId,
-            ["targetTargetServerObjectId"] = lockedTargetResult.Value?.TargetServerObjectId
+            ["targetName"] = verification.LockedTargetResult.Value?.Name,
+            ["targetServerObjectId"] = verification.LockedTargetResult.Value?.ServerObjectId,
+            ["targetTargetServerObjectId"] = verification.LockedTargetResult.Value?.TargetServerObjectId,
+            ["confirmPollCount"] = verification.PollCount,
+            ["combatAdopted"] = combatAdopted
         });
         return TeamSupportTickResult.Continue(TeamSupportTickDelay);
+    }
+
+    private async Task<AssistTargetVerification> VerifyLeaderAttackTargetAfterAssistAsync(
+        AccountWorkerContext context,
+        TeamMemberSnapshot leader,
+        uint leaderTargetServerObjectId)
+    {
+        var lastResult = OperationResult<LockedTargetSnapshot>.Fail("target_not_read");
+        var lastRejectReason = "target_not_read";
+        for (var poll = 1; poll <= AssistTargetConfirmPolls; poll++)
+        {
+            if (poll > 1)
+            {
+                await Task.Delay(AssistTargetConfirmDelay, context.StopToken).ConfigureAwait(false);
+            }
+
+            lastResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+            if (TeamLeaderTargetValidator.IsLeaderAttackTarget(
+                    lastResult,
+                    leader,
+                    leaderTargetServerObjectId,
+                    out lastRejectReason))
+            {
+                return new AssistTargetVerification(lastResult, true, string.Empty, poll);
+            }
+        }
+
+        return new AssistTargetVerification(lastResult, false, lastRejectReason, AssistTargetConfirmPolls);
     }
 
     private TeamAbnormalStatusCatalog AbnormalStatusCatalog
@@ -677,6 +723,7 @@ public sealed class TeamSupportController
     {
         return result.Success &&
                result.Value is not null &&
+               result.Value.ObjectType == LockedTargetSnapshot.PlayerObjectType &&
                result.Value.ServerObjectId != 0 &&
                result.Value.ServerObjectId == member.ServerObjectId;
     }
@@ -911,6 +958,12 @@ public sealed class TeamSupportController
 
         public static MemberSelectionResult SelectedByInputResult => new(true, false);
     }
+
+    private readonly record struct AssistTargetVerification(
+        OperationResult<LockedTargetSnapshot> LockedTargetResult,
+        bool Accepted,
+        string RejectReason,
+        int PollCount);
 
     private enum TeamSupportActionKind
     {

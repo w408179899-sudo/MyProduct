@@ -69,7 +69,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support retries function key until spiritmaster body selected", TestTeamSupportRetriesFunctionKeyUntilSpiritmasterBodySelectedAsync),
     ("team support uses group cleanse when multiple members need cleanse", TestTeamSupportUsesGroupCleanseWhenMultipleMembersNeedCleanseAsync),
     ("team support uses group heal without target select", TestTeamSupportUsesGroupHealWithoutTargetSelectAsync),
+    ("team support defers heal while fighting", TestTeamSupportDefersHealWhileFightingAsync),
     ("team support applies whitelisted maintenance buff", TestTeamSupportAppliesWhitelistedMaintenanceBuffAsync),
+    ("team support defers team buff while fighting", TestTeamSupportDefersTeamBuffWhileFightingAsync),
     ("team support postpones after-combat buff while loot active", TestTeamSupportPostponesAfterCombatBuffWhileLootActiveAsync),
     ("team support skips non whitelist maintenance buff", TestTeamSupportSkipsNonWhitelistMaintenanceBuffAsync),
     ("team support skips active whitelist maintenance buff", TestTeamSupportSkipsActiveWhitelistMaintenanceBuffAsync),
@@ -78,6 +80,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support join combat continues while leader outside group range", TestTeamSupportJoinCombatContinuesWhileLeaderOutsideGroupRangeAsync),
     ("team support join combat defers follow while fighting", TestTeamSupportJoinCombatDefersFollowWhileFightingAsync),
     ("team support join combat selects leader target inside group range", TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAsync),
+    ("team support join combat waits after assist target key", TestTeamSupportJoinCombatWaitsAfterAssistTargetKeyAsync),
     ("team output assists only leader attacked monster", TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync),
     ("team output rejects non monster leader target", TestTeamOutputRejectsNonMonsterLeaderTargetAsync),
     ("team output accepts monster targeting spiritmaster leader pet", TestTeamOutputAcceptsMonsterTargetingSpiritmasterLeaderPetAsync),
@@ -1198,6 +1201,47 @@ static async Task TestTeamSupportUsesGroupHealWithoutTargetSelectAsync()
     AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "group heal should press the configured key without F-key targeting");
 }
 
+static async Task TestTeamSupportDefersHealWhileFightingAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0) with
+    {
+        Class = AionClassId.Cleric,
+        ClassId = (byte)AionClassId.Cleric,
+        ClassName = "Cleric",
+        CurrentHp = 50,
+        MaxHp = 100
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 100,
+        MaxHp = 100
+    };
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000
+    };
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+
+    var result = await controller
+        .TickAsync(CreateContext(CreateTeamSupportSettings(), CreateTeamSupportGameApi(self, leader), logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "active combat should keep ordinary combat running before team heal");
+    AssertEqual(0, keyboard.Keys.Count, "active combat should not be interrupted by team heal target selection");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "team_support.action_pressed"),
+        "deferred team heal should not log an action press");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "team_support.follow.deferred" &&
+            string.Equals(entry.Fields["reason"]?.ToString(), "active_combat_target", StringComparison.Ordinal)),
+        "active combat defer reason should be logged");
+}
+
 static async Task TestTeamSupportAppliesWhitelistedMaintenanceBuffAsync()
 {
     var keyboard = new RecordingKeyboardInput();
@@ -1242,6 +1286,51 @@ static async Task TestTeamSupportAppliesWhitelistedMaintenanceBuffAsync()
     AssertFalse(entry is null, "team buff should log action press");
     AssertEqual("TeamBuff", entry!.Fields["action"]?.ToString() ?? string.Empty, "team buff action kind");
     AssertEqual(lifeBlessingStatusId, Convert.ToUInt32(entry.Fields["abnormalStatusId"]), "team buff abnormal id");
+}
+
+static async Task TestTeamSupportDefersTeamBuffWhileFightingAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint lifeBlessingStatusId = 8106;
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0) with
+    {
+        Class = AionClassId.Cleric,
+        ClassId = (byte)AionClassId.Cleric,
+        ClassName = "Cleric"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 100,
+        MaxHp = 100,
+        AbnormalStatuses = Array.Empty<AbnormalStatusEntrySnapshot>()
+    };
+    var settings = CreateTeamSupportSettings();
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad4",
+        SkillId = 9106,
+        SkillName = "\u751F\u547D\u7684\u795D\u798F VI",
+        AbnormalStatusId = lifeBlessingStatusId,
+        RunTiming = MaintenanceRuleRunTiming.Always
+    });
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000
+    };
+
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var result = await controller
+        .TickAsync(CreateContext(settings, CreateTeamSupportGameApi(self, leader), logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "active combat should finish before team buff maintenance");
+    AssertEqual(0, keyboard.Keys.Count, "active combat should not be interrupted by team buff target selection");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "team_support.action_pressed"),
+        "deferred team buff should not log an action press");
 }
 
 static async Task TestTeamSupportPostponesAfterCombatBuffWhileLootActiveAsync()
@@ -1432,7 +1521,7 @@ static async Task TestTeamSupportThrottlesMissingWhitelistBuffRetryAsync()
     keyboard.Keys.Clear();
     await controller.TickAsync(context, state).ConfigureAwait(false);
 
-    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "recent missing whitelist buff retry should not switch when leader is already selected");
+    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "recent missing whitelist buff retry should keep leader selected and press follow");
     AssertFalse(keyboard.Keys.Contains("NumPad4"), "recent whitelist buff retry must not repeat immediately");
 }
 
@@ -1459,7 +1548,7 @@ static async Task TestTeamSupportKeepsAlreadySelectedLeaderAsync()
         .ConfigureAwait(false);
 
     AssertFalse(!result.ShouldSkipNormalWork, "support should still own the idle follow tick");
-    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "already selected leader should not press follow key again");
+    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "already selected leader should press follow without another F-key");
 }
 
 static async Task TestTeamSupportJoinCombatContinuesWhileLeaderOutsideGroupRangeAsync()
@@ -1554,13 +1643,67 @@ static async Task TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAs
     settings.Team.GroupDistanceMeters = 20.0D;
     settings.Team.Support!.JoinCombat = true;
     settings.Team.Support.LeaderDistanceMeters = 5.0D;
+    var combatState = new StationaryCombatState();
     var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
     var result = await controller
-        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState())
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
         .ConfigureAwait(false);
 
     AssertFalse(result.ShouldSkipNormalWork, "accepted leader target should allow support to enter normal combat");
     AssertSequence(new[] { "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "support join combat should follow leader then assist target");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "support join combat should hand target to normal combat");
+}
+
+static async Task TestTeamSupportJoinCombatWaitsAfterAssistTargetKeyAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint targetServerObjectId = 5000;
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0) with
+    {
+        Class = AionClassId.Chanter,
+        ClassId = (byte)AionClassId.Chanter,
+        ClassName = "Chanter"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Guardian", false, true, 10.0) with
+    {
+        LiveTargetServerObjectId = targetServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+        }
+        else if (string.Equals(key, "Oem3", StringComparison.Ordinal))
+        {
+            gameApi.LockedTargetReadResults.Enqueue(CreateFakeLockedTargetResult(
+                leader.ServerObjectId,
+                LockedTargetSnapshot.PlayerObjectType,
+                targetServerObjectId,
+                0));
+            gameApi.LockedTargetReadResults.Enqueue(CreateFakeLockedTargetResult(
+                targetServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                leader.ServerObjectId,
+                100));
+        }
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.Team.GroupDistanceMeters = 20.0D;
+    settings.Team.Support!.JoinCombat = true;
+    settings.Team.Support.LeaderDistanceMeters = 5.0D;
+    var combatState = new StationaryCombatState();
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var result = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "delayed assist target confirmation should still allow combat");
+    AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Oem3", StringComparison.Ordinal)), "assist target key should be pressed once");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "support should adopt target after confirm poll");
 }
 
 static async Task TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync()
@@ -1591,13 +1734,15 @@ static async Task TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync()
         }
     };
 
+    var combatState = new StationaryCombatState();
     var controller = new TeamOutputController(keyboard);
     var result = await controller
-        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState())
+        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState(), combatState)
         .ConfigureAwait(false);
 
     AssertFalse(result.ShouldSkipNormalWork, "valid leader target should allow normal combat work");
     AssertSequence(new[] { "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "output assist key sequence");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output should hand leader target to normal combat");
 }
 
 static async Task TestTeamOutputRejectsNonMonsterLeaderTargetAsync()
@@ -1673,13 +1818,15 @@ static async Task TestTeamOutputAcceptsMonsterTargetingSpiritmasterLeaderPetAsyn
         }
     };
 
+    var combatState = new StationaryCombatState();
     var controller = new TeamOutputController(keyboard);
     var result = await controller
-        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState())
+        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState(), combatState)
         .ConfigureAwait(false);
 
     AssertFalse(result.ShouldSkipNormalWork, "monster targeting leader pet should allow output combat");
     AssertSequence(new[] { "F2", "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "spiritmaster leader body should be confirmed before assist");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output should adopt monster targeting spiritmaster pet");
 }
 
 static async Task TestTeamOutputAssistsAlreadySelectedLeaderAsync()
@@ -1707,13 +1854,15 @@ static async Task TestTeamOutputAssistsAlreadySelectedLeaderAsync()
         }
     };
 
+    var combatState = new StationaryCombatState();
     var controller = new TeamOutputController(keyboard);
     var result = await controller
-        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState())
+        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState(), combatState)
         .ConfigureAwait(false);
 
     AssertFalse(result.ShouldSkipNormalWork, "already selected leader target should allow normal combat work");
-    AssertSequence(new[] { "Oem3" }, keyboard.Keys.ToArray(), "already selected leader should not press F-key or follow key again");
+    AssertSequence(new[] { "C", "Oem3" }, keyboard.Keys.ToArray(), "already selected leader should press follow without another F-key before assist");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "already selected leader assist should adopt target");
 }
 
 static async Task TestTeamOutputFallsBackOutsideGroupRangeAsync()
@@ -14152,6 +14301,40 @@ static void SetFakeLockedTarget(
     gameApi.TargetMaxHp = currentHp == 0 ? 0u : 100u;
 }
 
+static OperationResult<LockedTargetSnapshot> CreateFakeLockedTargetResult(
+    uint serverObjectId,
+    uint objectType,
+    uint targetServerObjectId,
+    uint currentHp)
+{
+    return OperationResult<LockedTargetSnapshot>.Ok(new LockedTargetSnapshot(
+        serverObjectId == 0 ? (ushort)0 : (ushort)100,
+        serverObjectId,
+        0,
+        objectType,
+        "Target",
+        currentHp,
+        currentHp == 0 ? 0u : 100u,
+        null,
+        null,
+        DateTimeOffset.Now,
+        targetServerObjectId,
+        false,
+        0));
+}
+
+static void AssertLeaderTargetAdopted(
+    StationaryCombatState combatState,
+    uint targetServerObjectId,
+    string label)
+{
+    AssertFalse(!combatState.Fighting, label + " fighting");
+    AssertEqual(targetServerObjectId, combatState.CurrentTargetServerObjectId, label + " current target server id");
+    AssertEqual(targetServerObjectId, combatState.CandidateServerObjectId, label + " candidate server id");
+    AssertFalse(!combatState.CurrentTargetIsMaintenanceDefense, label + " maintenance defense flag");
+    AssertFalse(!combatState.CurrentTargetBypassesHomeLeash, label + " bypass home leash flag");
+}
+
 static async Task WaitUntilAsync(Func<bool> predicate, string label)
 {
     var deadline = DateTimeOffset.Now + TimeSpan.FromSeconds(2);
@@ -14672,6 +14855,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
 
     public bool TargetIsTargetingLocalPlayer { get; set; } = true;
 
+    public Queue<OperationResult<LockedTargetSnapshot>> LockedTargetReadResults { get; } = new();
+
     public LockedTargetAbnormalStatusSnapshot? LockedTargetAbnormalStatuses { get; set; }
 
     public IReadOnlyList<WorldObjectSnapshot> WorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
@@ -14759,11 +14944,17 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(CancellationToken cancellationToken = default)
     {
+        if (LockedTargetReadResults.Count > 0)
+        {
+            return Task.FromResult(LockedTargetReadResults.Dequeue());
+        }
+
+        var objectType = ResolveLockedTargetObjectType();
         return Task.FromResult(OperationResult<LockedTargetSnapshot>.Ok(new LockedTargetSnapshot(
             TargetEntityId,
             TargetOwnServerObjectId != 0 ? TargetOwnServerObjectId : TargetEntityId,
             0,
-            TargetObjectType,
+            objectType,
             TargetName,
             TargetCurrentHp,
             TargetMaxHp,
@@ -14786,12 +14977,13 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
     public Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
         CancellationToken cancellationToken = default)
     {
+        var objectType = ResolveLockedTargetObjectType();
         var snapshot = LockedTargetAbnormalStatuses ?? new LockedTargetAbnormalStatusSnapshot(
             new LockedTargetSnapshot(
                 TargetEntityId,
                 TargetOwnServerObjectId != 0 ? TargetOwnServerObjectId : TargetEntityId,
                 0,
-                TargetObjectType,
+                objectType,
                 TargetName,
                 TargetCurrentHp,
                 TargetMaxHp,
@@ -14806,6 +14998,18 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
             DateTimeOffset.Now);
 
         return Task.FromResult(OperationResult<LockedTargetAbnormalStatusSnapshot>.Ok(snapshot));
+    }
+
+    private uint ResolveLockedTargetObjectType()
+    {
+        if (TargetObjectType != 0 ||
+            TargetOwnServerObjectId == 0 ||
+            Party.Members.All(member => member.ServerObjectId != TargetOwnServerObjectId))
+        {
+            return TargetObjectType;
+        }
+
+        return LockedTargetSnapshot.PlayerObjectType;
     }
 
     public Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(
