@@ -65,13 +65,7 @@ public sealed class TeamSupportController
         }
 
         var snapshot = snapshotResult.Value;
-        var action = await SelectActionAsync(context, state, support, snapshot).ConfigureAwait(false);
-        if (action is not null)
-        {
-            await ExecuteActionAsync(context, state, action).ConfigureAwait(false);
-            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
-        }
-
+        var groupDistanceMeters = team.GroupDistanceMeters;
         var leader = snapshot.LeaderMember;
         var leaderDeadStop =
             support.StopWhenLeaderDead &&
@@ -82,7 +76,6 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
-        var groupDistanceMeters = team.GroupDistanceMeters;
         var leaderInGroupRange = TeamLeaderRuntimePolicy.IsLeaderInGroupRange(
             leader,
             groupDistanceMeters);
@@ -96,9 +89,21 @@ public sealed class TeamSupportController
                 groupDistanceMeters,
                 support.JoinCombat,
                 combatState);
-            return support.JoinCombat
-                ? TeamSupportTickResult.Continue(TeamSupportTickDelay)
-                : TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+            return TeamSupportTickResult.Continue(TeamSupportTickDelay);
+        }
+
+        var action = await SelectActionAsync(
+                context,
+                state,
+                support,
+                snapshot,
+                groupDistanceMeters,
+                combatState)
+            .ConfigureAwait(false);
+        if (action is not null)
+        {
+            await ExecuteActionAsync(context, state, action).ConfigureAwait(false);
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
         if (TeamLeaderRuntimePolicy.HasActiveCombatTarget(combatState))
@@ -127,9 +132,11 @@ public sealed class TeamSupportController
         AccountWorkerContext context,
         TeamSupportState state,
         TeamSupportScriptSettings support,
-        TeamSnapshot snapshot)
+        TeamSnapshot snapshot,
+        double groupDistanceMeters,
+        StationaryCombatState? combatState)
     {
-        var members = GetMaintenanceMembers(snapshot);
+        var members = GetMaintenanceMembers(snapshot, groupDistanceMeters);
         var statusMembers = members
             .Select(member => new TeamSupportStatusCandidate(
                 member,
@@ -178,7 +185,7 @@ public sealed class TeamSupportController
             return null;
         }
 
-        var timing = await ResolveCurrentRunTimingAsync(context, snapshot).ConfigureAwait(false);
+        var timing = await ResolveCurrentRunTimingAsync(context, snapshot, combatState).ConfigureAwait(false);
         var allowedRules = healRules
             .Where(rule => IsRuleAllowed(rule, timing))
             .ToArray();
@@ -217,17 +224,20 @@ public sealed class TeamSupportController
         TeamSupportState state,
         TeamSupportAction action)
     {
-        if (action.Target is not null &&
-            !await EnsureMemberBodySelectedAsync(context, state, action.Target).ConfigureAwait(false))
+        if (action.Target is not null)
         {
-            context.Logger.Warn("team_support.target_select.failed", new Dictionary<string, object?>
+            var selection = await EnsureMemberBodySelectedAsync(context, state, action.Target).ConfigureAwait(false);
+            if (!selection.Selected)
             {
-                ["account"] = context.Config.AccountName,
-                ["member"] = action.Target.Name,
-                ["memberServerObjectId"] = action.Target.ServerObjectId,
-                ["functionKey"] = FormatFunctionKey(action.Target)
-            });
-            return false;
+                context.Logger.Warn("team_support.target_select.failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["member"] = action.Target.Name,
+                    ["memberServerObjectId"] = action.Target.ServerObjectId,
+                    ["functionKey"] = FormatFunctionKey(action.Target)
+                });
+                return false;
+            }
         }
 
         var key = NormalizeKey(action.Key);
@@ -280,9 +290,15 @@ public sealed class TeamSupportController
             return false;
         }
 
-        if (!await EnsureMemberBodySelectedAsync(context, state, leader).ConfigureAwait(false))
+        var selection = await EnsureMemberBodySelectedAsync(context, state, leader).ConfigureAwait(false);
+        if (!selection.Selected)
         {
             return false;
+        }
+
+        if (selection.AlreadySelected)
+        {
+            return true;
         }
 
         var result = await _keyboard
@@ -387,14 +403,14 @@ public sealed class TeamSupportController
         }
     }
 
-    private async Task<bool> EnsureMemberBodySelectedAsync(
+    private async Task<MemberSelectionResult> EnsureMemberBodySelectedAsync(
         AccountWorkerContext context,
         TeamSupportState state,
         TeamMemberSnapshot member)
     {
         if (member.ServerObjectId == 0)
         {
-            return false;
+            return MemberSelectionResult.NotSelected;
         }
 
         var current = await ReadLockedTargetAsync(context).ConfigureAwait(false);
@@ -408,13 +424,13 @@ public sealed class TeamSupportController
                 ["functionKey"] = FormatFunctionKey(member),
                 ["alreadySelected"] = true
             });
-            return true;
+            return MemberSelectionResult.AlreadySelectedResult;
         }
 
         var functionKey = FormatFunctionKey(member);
         if (string.IsNullOrWhiteSpace(functionKey))
         {
-            return false;
+            return MemberSelectionResult.NotSelected;
         }
 
         for (var attempt = 1; attempt <= 3; attempt++)
@@ -437,7 +453,7 @@ public sealed class TeamSupportController
                     });
                 }
 
-                return false;
+                return MemberSelectionResult.NotSelected;
             }
 
             await Task.Delay(SelectConfirmDelay, context.StopToken).ConfigureAwait(false);
@@ -453,17 +469,23 @@ public sealed class TeamSupportController
                     ["alreadySelected"] = false,
                     ["attempt"] = attempt
                 });
-                return true;
+                return MemberSelectionResult.SelectedByInputResult;
             }
         }
 
-        return false;
+        return MemberSelectionResult.NotSelected;
     }
 
     private async Task<MaintenanceRuleRunTiming> ResolveCurrentRunTimingAsync(
         AccountWorkerContext context,
-        TeamSnapshot snapshot)
+        TeamSnapshot snapshot,
+        StationaryCombatState? combatState)
     {
+        if (TeamLeaderRuntimePolicy.HasActiveCombatTarget(combatState))
+        {
+            return MaintenanceRuleRunTiming.InCombat;
+        }
+
         var ids = new HashSet<uint>();
         foreach (var member in snapshot.Members)
         {
@@ -530,10 +552,17 @@ public sealed class TeamSupportController
         return count;
     }
 
-    private static IReadOnlyList<TeamMemberSnapshot> GetMaintenanceMembers(TeamSnapshot snapshot)
+    private static IReadOnlyList<TeamMemberSnapshot> GetMaintenanceMembers(
+        TeamSnapshot snapshot,
+        double groupDistanceMeters)
     {
+        var groupDistance = Math.Max(0.0D, groupDistanceMeters);
         return snapshot.Members
             .Where(member => member.ServerObjectId != 0 && member.PartyMember.IsAlive)
+            .Where(member =>
+                member.IsSelf ||
+                member.PartyMember.DistanceToLocalPlayer is { } distanceToLocal &&
+                distanceToLocal <= groupDistance)
             .OrderBy(member => member.FunctionKeyNumber)
             .ToArray();
     }
@@ -870,6 +899,17 @@ public sealed class TeamSupportController
         {
             return new TeamSupportAction(TeamSupportActionKind.GroupCleanse, null, key, 0);
         }
+    }
+
+    private readonly record struct MemberSelectionResult(
+        bool Selected,
+        bool AlreadySelected)
+    {
+        public static MemberSelectionResult NotSelected => new(false, false);
+
+        public static MemberSelectionResult AlreadySelectedResult => new(true, true);
+
+        public static MemberSelectionResult SelectedByInputResult => new(true, false);
     }
 
     private enum TeamSupportActionKind

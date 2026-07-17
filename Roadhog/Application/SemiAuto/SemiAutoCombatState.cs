@@ -14,6 +14,7 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<uint, uint> knownCooldownEndTimes = new();
     private readonly Dictionary<uint, DateTimeOffset> uncalibratedUnknownSuppressUntil = new();
     private readonly Dictionary<string, DateTimeOffset> maintenanceKeyPressedAt = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> oneShotStatusMaintenancePressed = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, uint> statusMaintenanceAbnormalIds = new();
     private readonly Dictionary<uint, uint> spiritmasterDotAbnormalIds = new();
     private readonly Dictionary<uint, uint> spiritmasterPetBuffAbnormalIds = new();
@@ -212,6 +213,28 @@ public sealed class SemiAutoCombatState
         }
     }
 
+    public bool WasOneShotStatusMaintenancePressed(
+        uint skillId,
+        string? skillName,
+        string? key)
+    {
+        var identity = BuildOneShotStatusMaintenanceIdentity(skillId, skillName, key);
+        return !string.IsNullOrWhiteSpace(identity) &&
+               oneShotStatusMaintenancePressed.Contains(identity);
+    }
+
+    public void MarkOneShotStatusMaintenancePressed(
+        uint skillId,
+        string? skillName,
+        string? key)
+    {
+        var identity = BuildOneShotStatusMaintenanceIdentity(skillId, skillName, key);
+        if (!string.IsNullOrWhiteSpace(identity))
+        {
+            oneShotStatusMaintenancePressed.Add(identity);
+        }
+    }
+
     public bool ShouldAttemptSpiritmasterSummon(DateTimeOffset now, TimeSpan interval)
     {
         return lastSpiritmasterSummonAttemptAt == DateTimeOffset.MinValue ||
@@ -256,6 +279,26 @@ public sealed class SemiAutoCombatState
         {
             statusMaintenanceAbnormalIds[skillId] = abnormalId;
         }
+    }
+
+    private static string BuildOneShotStatusMaintenanceIdentity(
+        uint skillId,
+        string? skillName,
+        string? key)
+    {
+        if (skillId != 0)
+        {
+            return "skill:" + skillId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(skillName))
+        {
+            return "name:" + skillName.Trim();
+        }
+
+        return string.IsNullOrWhiteSpace(key)
+            ? string.Empty
+            : "key:" + key.Trim();
     }
 
     public bool TryGetSpiritmasterDotAbnormalId(uint skillId, out uint abnormalId)

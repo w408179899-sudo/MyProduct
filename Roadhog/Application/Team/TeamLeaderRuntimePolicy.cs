@@ -23,7 +23,8 @@ internal static class TeamLeaderRuntimePolicy
     public static bool HasActiveCombatTarget(StationaryCombatState? combatState)
     {
         return combatState is not null &&
-               (combatState.Fighting ||
+               (combatState.LootAfterKill.Active ||
+                combatState.Fighting ||
                 combatState.CurrentTargetEntityId != 0 ||
                 combatState.CurrentTargetServerObjectId != 0 ||
                 combatState.CandidateEntityId != 0 ||

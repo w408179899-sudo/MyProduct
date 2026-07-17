@@ -65,19 +65,24 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime team snapshot uses account scoped context", TestRuntimeTeamSnapshotUsesAccountScopeAsync),
     ("team support prioritizes mental physical then heal", TestTeamSupportPrioritizesMentalPhysicalThenHealAsync),
     ("team support ignores positive physical-category status", TestTeamSupportIgnoresPositivePhysicalCategoryStatusAsync),
+    ("team support skips maintenance outside group distance", TestTeamSupportSkipsMaintenanceOutsideGroupDistanceAsync),
     ("team support retries function key until spiritmaster body selected", TestTeamSupportRetriesFunctionKeyUntilSpiritmasterBodySelectedAsync),
     ("team support uses group cleanse when multiple members need cleanse", TestTeamSupportUsesGroupCleanseWhenMultipleMembersNeedCleanseAsync),
     ("team support uses group heal without target select", TestTeamSupportUsesGroupHealWithoutTargetSelectAsync),
     ("team support applies whitelisted maintenance buff", TestTeamSupportAppliesWhitelistedMaintenanceBuffAsync),
+    ("team support postpones after-combat buff while loot active", TestTeamSupportPostponesAfterCombatBuffWhileLootActiveAsync),
     ("team support skips non whitelist maintenance buff", TestTeamSupportSkipsNonWhitelistMaintenanceBuffAsync),
     ("team support skips active whitelist maintenance buff", TestTeamSupportSkipsActiveWhitelistMaintenanceBuffAsync),
     ("team support throttles missing whitelist buff retry", TestTeamSupportThrottlesMissingWhitelistBuffRetryAsync),
+    ("team support keeps already selected leader", TestTeamSupportKeepsAlreadySelectedLeaderAsync),
     ("team support join combat continues while leader outside group range", TestTeamSupportJoinCombatContinuesWhileLeaderOutsideGroupRangeAsync),
     ("team support join combat defers follow while fighting", TestTeamSupportJoinCombatDefersFollowWhileFightingAsync),
     ("team support join combat selects leader target inside group range", TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAsync),
     ("team output assists only leader attacked monster", TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync),
     ("team output rejects non monster leader target", TestTeamOutputRejectsNonMonsterLeaderTargetAsync),
     ("team output accepts monster targeting spiritmaster leader pet", TestTeamOutputAcceptsMonsterTargetingSpiritmasterLeaderPetAsync),
+    ("team output assists already selected leader", TestTeamOutputAssistsAlreadySelectedLeaderAsync),
+    ("team output falls back outside group range", TestTeamOutputFallsBackOutsideGroupRangeAsync),
     ("team output continues when leader invisible stop disabled", TestTeamOutputContinuesWhenLeaderInvisibleStopDisabledAsync),
     ("team output stops when leader dead", TestTeamOutputStopsWhenLeaderDeadAsync),
     ("team output defers follow while fighting", TestTeamOutputDefersFollowWhileFightingAsync),
@@ -237,6 +242,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("dp maintenance presses configured key at required dp", TestDpMaintenancePressesConfiguredKeyAtRequiredDpAsync),
     ("dp maintenance selected cooling skill skips key", TestDpMaintenanceSelectedCoolingSkillSkipsKeyAsync),
     ("status maintenance presses missing buff and learns abnormal id", TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsync),
+    ("status maintenance chant runs once", TestStatusMaintenanceChantRunsOnceAsync),
     ("status maintenance skips active category zero buff", TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync),
     ("status maintenance in-combat rule skips without target", TestStatusMaintenanceInCombatRuleSkipsWithoutTargetAsync),
     ("status maintenance cooldown does not recalibrate combat clock", TestStatusMaintenanceCooldownDoesNotRecalibrateCombatClockAsync),
@@ -1058,6 +1064,35 @@ static async Task TestTeamSupportIgnoresPositivePhysicalCategoryStatusAsync()
     AssertFalse(keyboard.Keys.Contains("NumPad7"), "positive category-2 status must not press cleanse");
 }
 
+static async Task TestTeamSupportSkipsMaintenanceOutsideGroupDistanceAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0) with
+    {
+        Class = AionClassId.Cleric,
+        ClassId = (byte)AionClassId.Cleric,
+        ClassName = "Cleric",
+        CurrentHp = 50,
+        MaxHp = 100
+    };
+    var farLeader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 30.0) with
+    {
+        CurrentHp = 100,
+        MaxHp = 100
+    };
+    var settings = CreateTeamSupportSettings();
+    settings.Team.GroupDistanceMeters = 20.0D;
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+
+    var result = await controller
+        .TickAsync(CreateContext(settings, CreateTeamSupportGameApi(self, farLeader), logger), new TeamSupportState())
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "leader outside group range should fall back to ordinary work");
+    AssertEqual(0, keyboard.Keys.Count, "support maintenance should not heal self before the leader is inside group range");
+}
+
 static async Task TestTeamSupportRetriesFunctionKeyUntilSpiritmasterBodySelectedAsync()
 {
     var keyboard = new RecordingKeyboardInput();
@@ -1209,6 +1244,62 @@ static async Task TestTeamSupportAppliesWhitelistedMaintenanceBuffAsync()
     AssertEqual(lifeBlessingStatusId, Convert.ToUInt32(entry.Fields["abnormalStatusId"]), "team buff abnormal id");
 }
 
+static async Task TestTeamSupportPostponesAfterCombatBuffWhileLootActiveAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint lifeBlessingStatusId = 8105;
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0) with
+    {
+        Class = AionClassId.Cleric,
+        ClassId = (byte)AionClassId.Cleric,
+        ClassName = "Cleric"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 100,
+        MaxHp = 100,
+        AbnormalStatuses = Array.Empty<AbnormalStatusEntrySnapshot>()
+    };
+    var settings = CreateTeamSupportSettings();
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad4",
+        SkillId = 9105,
+        SkillName = "\u751F\u547D\u7684\u795D\u798F V",
+        AbnormalStatusId = lifeBlessingStatusId,
+        RunTiming = MaintenanceRuleRunTiming.AfterCombat
+    });
+    var combatState = new StationaryCombatState();
+    combatState.StartLootAfterKill(
+        new LockedTargetSnapshot(
+            100,
+            100,
+            0,
+            LockedTargetSnapshot.MonsterObjectType,
+            "Monster",
+            0,
+            100,
+            new Vector3Snapshot(1, 0, 0),
+            null,
+            DateTimeOffset.Now,
+            5000,
+            true,
+            self.ServerObjectId),
+        DateTimeOffset.Now);
+
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var result = await controller
+        .TickAsync(CreateContext(settings, CreateTeamSupportGameApi(self, leader), logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "loot-active combat workflow should continue before team after-combat buff");
+    AssertEqual(0, keyboard.Keys.Count, "team after-combat buff should not run before loot workflow finishes");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "team_support.action_pressed"),
+        "postponed team buff should not log an action press");
+}
+
 static async Task TestTeamSupportSkipsNonWhitelistMaintenanceBuffAsync()
 {
     var keyboard = new RecordingKeyboardInput();
@@ -1341,8 +1432,34 @@ static async Task TestTeamSupportThrottlesMissingWhitelistBuffRetryAsync()
     keyboard.Keys.Clear();
     await controller.TickAsync(context, state).ConfigureAwait(false);
 
-    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "recent missing whitelist buff retry should throttle and only keep leader assist");
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "recent missing whitelist buff retry should not switch when leader is already selected");
     AssertFalse(keyboard.Keys.Contains("NumPad4"), "recent whitelist buff retry must not repeat immediately");
+}
+
+static async Task TestTeamSupportKeepsAlreadySelectedLeaderAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0) with
+    {
+        Class = AionClassId.Chanter,
+        ClassId = (byte)AionClassId.Chanter,
+        ClassName = "Chanter"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Guardian", false, true, 10.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+
+    var settings = CreateTeamSupportSettings();
+    settings.Team.GroupDistanceMeters = 20.0D;
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+
+    var result = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState())
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "support should still own the idle follow tick");
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "already selected leader should not press follow key again");
 }
 
 static async Task TestTeamSupportJoinCombatContinuesWhileLeaderOutsideGroupRangeAsync()
@@ -1563,6 +1680,62 @@ static async Task TestTeamOutputAcceptsMonsterTargetingSpiritmasterLeaderPetAsyn
 
     AssertFalse(result.ShouldSkipNormalWork, "monster targeting leader pet should allow output combat");
     AssertSequence(new[] { "F2", "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "spiritmaster leader body should be confirmed before assist");
+}
+
+static async Task TestTeamOutputAssistsAlreadySelectedLeaderAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint targetServerObjectId = 5000;
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        LiveTargetServerObjectId = targetServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "Oem3", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(
+                gameApi,
+                targetServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                leader.ServerObjectId,
+                100);
+        }
+    };
+
+    var controller = new TeamOutputController(keyboard);
+    var result = await controller
+        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState())
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "already selected leader target should allow normal combat work");
+    AssertSequence(new[] { "Oem3" }, keyboard.Keys.ToArray(), "already selected leader should not press F-key or follow key again");
+}
+
+static async Task TestTeamOutputFallsBackOutsideGroupRangeAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint targetServerObjectId = 5000;
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 60.0) with
+    {
+        LiveTargetServerObjectId = targetServerObjectId
+    };
+    var settings = CreateTeamOutputSettings();
+    settings.Team.GroupDistanceMeters = 20.0D;
+    var controller = new TeamOutputController(keyboard);
+
+    var result = await controller
+        .TickAsync(CreateContext(settings, CreateTeamSupportGameApi(self, leader), logger), new TeamOutputState())
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "leader outside group range should fall back to ordinary work");
+    AssertEqual(0, keyboard.Keys.Count, "leader outside group range should not press follow or assist keys");
 }
 
 static async Task TestTeamOutputContinuesWhenLeaderInvisibleStopDisabledAsync()
@@ -11867,6 +12040,69 @@ static async Task TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsyn
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
 
     AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad2"), "learned active status should block repeat press");
+}
+
+static async Task TestStatusMaintenanceChantRunsOnceAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad2",
+        SkillId = 8200,
+        SkillName = "\u75BE\u98CE\u771F\u8A00 I",
+        RunTiming = MaintenanceRuleRunTiming.Always
+    });
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1),
+        Skills = new[]
+        {
+            new SkillSnapshot(
+                8200,
+                "\u75BE\u98CE\u771F\u8A00 I",
+                1,
+                1,
+                "\u75BE\u98CE\u771F\u8A00",
+                1,
+                false,
+                5_000,
+                0,
+                XmlSkillCategory: "Chant")
+        }
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "NumPad2", StringComparison.Ordinal))
+        {
+            gameApi.PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+                1,
+                DateTimeOffset.Now,
+                1,
+                new[] { Abnormal(8232, PlayerAbnormalStatusSnapshot.BuffCategory) });
+        }
+    };
+
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "chant status maintenance should press once");
+    var pressedEntry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed");
+    AssertFalse(pressedEntry is null, "chant status maintenance should log the first key press");
+    AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["oneShot"]), "chant maintenance should be logged as one-shot");
+
+    keyboard.Keys.Clear();
+    gameApi.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1);
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "chant status maintenance should not repeat after the first press");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.status_one_shot_skipped"),
+        "second chant maintenance pass should log one-shot skip");
 }
 
 static async Task TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync()

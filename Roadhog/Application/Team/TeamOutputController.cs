@@ -87,9 +87,7 @@ public sealed class TeamOutputController
                 leader,
                 groupDistanceMeters,
                 combatState);
-            return output.StopWhenLeaderHasNoTarget
-                ? TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay)
-                : TeamOutputTickResult.Continue(TeamOutputTickDelay);
+            return TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
 
         if (TeamLeaderRuntimePolicy.HasActiveCombatTarget(combatState))
@@ -154,9 +152,15 @@ public sealed class TeamOutputController
         TeamOutputState state,
         TeamMemberSnapshot leader)
     {
-        if (!await EnsureMemberBodySelectedAsync(context, state, leader).ConfigureAwait(false))
+        var selection = await EnsureMemberBodySelectedAsync(context, state, leader).ConfigureAwait(false);
+        if (!selection.Selected)
         {
             return false;
+        }
+
+        if (selection.AlreadySelected)
+        {
+            return true;
         }
 
         var result = await _keyboard
@@ -180,26 +184,26 @@ public sealed class TeamOutputController
         return true;
     }
 
-    private async Task<bool> EnsureMemberBodySelectedAsync(
+    private async Task<MemberSelectionResult> EnsureMemberBodySelectedAsync(
         AccountWorkerContext context,
         TeamOutputState state,
         TeamMemberSnapshot member)
     {
         if (member.ServerObjectId == 0)
         {
-            return false;
+            return MemberSelectionResult.NotSelected;
         }
 
         var current = await ReadLockedTargetAsync(context).ConfigureAwait(false);
         if (IsSelectedMemberBody(current, member))
         {
-            return true;
+            return MemberSelectionResult.AlreadySelectedResult;
         }
 
         var functionKey = FormatFunctionKey(member);
         if (string.IsNullOrWhiteSpace(functionKey))
         {
-            return false;
+            return MemberSelectionResult.NotSelected;
         }
 
         for (var attempt = 1; attempt <= 3; attempt++)
@@ -210,7 +214,7 @@ public sealed class TeamOutputController
             if (!pressResult.Success)
             {
                 LogInputFailure(context, state, "team_output.select_key.failed", functionKey, pressResult);
-                return false;
+                return MemberSelectionResult.NotSelected;
             }
 
             await Task.Delay(SelectConfirmDelay, context.StopToken).ConfigureAwait(false);
@@ -225,11 +229,11 @@ public sealed class TeamOutputController
                     ["functionKey"] = functionKey,
                     ["attempt"] = attempt
                 });
-                return true;
+                return MemberSelectionResult.SelectedByInputResult;
             }
         }
 
-        return false;
+        return MemberSelectionResult.NotSelected;
     }
 
     private async Task<bool> HasSelfDefenseThreatAsync(
@@ -443,5 +447,16 @@ public sealed class TeamOutputController
             context.Config.ProcessId,
             context.Config.TargetProcessName,
             context.Config.VmmDeviceName);
+    }
+
+    private readonly record struct MemberSelectionResult(
+        bool Selected,
+        bool AlreadySelected)
+    {
+        public static MemberSelectionResult NotSelected => new(false, false);
+
+        public static MemberSelectionResult AlreadySelectedResult => new(true, true);
+
+        public static MemberSelectionResult SelectedByInputResult => new(true, false);
     }
 }

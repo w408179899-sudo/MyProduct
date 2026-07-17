@@ -1596,17 +1596,19 @@ public sealed class RoadhogRuntime
                 account.AccountName,
                 account.ProcessId,
                 account.TargetProcessName,
-                account.VmmDeviceName);
+                account.VmmDeviceName,
+                bypassMemoryCache);
         }
 
         var config = LoadSavedAccountConfig(accountName);
         return config is null
-            ? new GameApiReadContext(accountName, 0, string.Empty, string.Empty)
+            ? new GameApiReadContext(accountName, 0, string.Empty, string.Empty, bypassMemoryCache)
             : new GameApiReadContext(
                 config.AccountName,
                 config.ProcessId,
                 config.TargetProcessName,
-                config.VmmDeviceName);
+                config.VmmDeviceName,
+                bypassMemoryCache);
     }
 
     private AccountConfig? LoadSavedAccountConfig(string accountName)

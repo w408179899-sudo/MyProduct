@@ -563,6 +563,56 @@ public sealed class SemiAutoCombatController
                 .ConfigureAwait(false);
         }
 
+        var hpRecovered = IsPercentAtOrAbove(player.CurrentHp, player.MaxHp, hpRecoverToPercent);
+        var mpRecovered = player.MaxMp == 0 ||
+                          IsPercentAtOrAbove(player.CurrentMp, player.MaxMp, mpRecoverToPercent);
+        if (hpRecovered && mpRecovered)
+        {
+            return false;
+        }
+
+        if (maintenance.SitMaintenanceEnabled)
+        {
+            if (await ShouldWaitForHarmfulAbnormalBeforeSitAsync(context, state, player, "revive_rest_enter").ConfigureAwait(false))
+            {
+                return true;
+            }
+
+            if (beforeMaintenanceKeyPress is not null)
+            {
+                await beforeMaintenanceKeyPress().ConfigureAwait(false);
+            }
+
+            var result = await _keyboard
+                .PressKeyAsync(RestEnterKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
+                .ConfigureAwait(false);
+            if (!result.Success)
+            {
+                LogMaintenanceKeyFailure(context, state, RestEnterKey, "revive_rest_enter", result.Error);
+                return false;
+            }
+
+            var enteredAt = DateTimeOffset.Now;
+            state.MarkMaintenanceKeyAttempted(RestEnterKey, enteredAt);
+            state.StartMaintenanceRest(forHp: !hpRecovered, forMp: player.MaxMp > 0 && !mpRecovered);
+            context.Logger.Info("semi_auto.maintenance.revive_rest_enter", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["key"] = RestEnterKey,
+                ["forHp"] = !hpRecovered,
+                ["forMp"] = player.MaxMp > 0 && !mpRecovered,
+                ["hp"] = player.CurrentHp,
+                ["maxHp"] = player.MaxHp,
+                ["hpPercent"] = Math.Round(player.HpPercent, 1),
+                ["hpRecoverToPercent"] = hpRecoverToPercent,
+                ["mp"] = player.CurrentMp,
+                ["maxMp"] = player.MaxMp,
+                ["mpPercent"] = Math.Round(player.MpPercent, 1),
+                ["mpRecoverToPercent"] = mpRecoverToPercent
+            });
+            return true;
+        }
+
         if (await TryPressStatusMaintenanceRuleAsync(
                 context,
                 state,
@@ -626,57 +676,7 @@ public sealed class SemiAutoCombatController
             return true;
         }
 
-        var hpRecovered = IsPercentAtOrAbove(player.CurrentHp, player.MaxHp, hpRecoverToPercent);
-        var mpRecovered = player.MaxMp == 0 ||
-                          IsPercentAtOrAbove(player.CurrentMp, player.MaxMp, mpRecoverToPercent);
-        if (hpRecovered && mpRecovered)
-        {
-            return false;
-        }
-
-        if (!maintenance.SitMaintenanceEnabled)
-        {
-            return false;
-        }
-
-        if (await ShouldWaitForHarmfulAbnormalBeforeSitAsync(context, state, player, "revive_rest_enter").ConfigureAwait(false))
-        {
-            return true;
-        }
-
-        if (beforeMaintenanceKeyPress is not null)
-        {
-            await beforeMaintenanceKeyPress().ConfigureAwait(false);
-        }
-
-        var result = await _keyboard
-            .PressKeyAsync(RestEnterKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
-            .ConfigureAwait(false);
-        if (!result.Success)
-        {
-            LogMaintenanceKeyFailure(context, state, RestEnterKey, "revive_rest_enter", result.Error);
-            return false;
-        }
-
-        var enteredAt = DateTimeOffset.Now;
-        state.MarkMaintenanceKeyAttempted(RestEnterKey, enteredAt);
-        state.StartMaintenanceRest(forHp: !hpRecovered, forMp: player.MaxMp > 0 && !mpRecovered);
-        context.Logger.Info("semi_auto.maintenance.revive_rest_enter", new Dictionary<string, object?>
-        {
-            ["account"] = context.Config.AccountName,
-            ["key"] = RestEnterKey,
-            ["forHp"] = !hpRecovered,
-            ["forMp"] = player.MaxMp > 0 && !mpRecovered,
-            ["hp"] = player.CurrentHp,
-            ["maxHp"] = player.MaxHp,
-            ["hpPercent"] = Math.Round(player.HpPercent, 1),
-            ["hpRecoverToPercent"] = hpRecoverToPercent,
-            ["mp"] = player.CurrentMp,
-            ["maxMp"] = player.MaxMp,
-            ["mpPercent"] = Math.Round(player.MpPercent, 1),
-            ["mpRecoverToPercent"] = mpRecoverToPercent
-        });
-        return true;
+        return false;
     }
 
     private async Task<bool> TryHandleMaintenanceAsync(
@@ -1285,6 +1285,21 @@ public sealed class SemiAutoCombatController
                 continue;
             }
 
+            var isOneShotStatusMaintenance = IsOneShotStatusMaintenanceRule(rule, maintenanceSkill);
+            var oneShotSkillName = maintenanceSkill?.Name ?? maintenanceSkill?.DisplayBaseName ?? rule.SkillName;
+            if (isOneShotStatusMaintenance &&
+                state.WasOneShotStatusMaintenancePressed(skillId, oneShotSkillName, rule.Key))
+            {
+                LogStatusMaintenanceOneShotSkipped(
+                    context,
+                    state,
+                    rule,
+                    resource,
+                    skillId,
+                    oneShotSkillName);
+                continue;
+            }
+
             var now = DateTimeOffset.Now;
             if (!state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
             {
@@ -1300,7 +1315,8 @@ public sealed class SemiAutoCombatController
                     player,
                     abnormalResult.Value,
                     beforeMaintenanceKeyPress,
-                    maintenanceSkill)
+                    maintenanceSkill,
+                    isOneShotStatusMaintenance)
                 .ConfigureAwait(false);
         }
 
@@ -1520,7 +1536,8 @@ public sealed class SemiAutoCombatController
         PlayerSnapshot player,
         PlayerAbnormalStatusSnapshot beforeStatuses,
         Func<Task>? beforeMaintenanceKeyPress,
-        SkillSnapshot? maintenanceSkill)
+        SkillSnapshot? maintenanceSkill,
+        bool isOneShotStatusMaintenance)
     {
         if (beforeMaintenanceKeyPress is not null)
         {
@@ -1555,6 +1572,12 @@ public sealed class SemiAutoCombatController
 
         state.MarkMaintenanceKeyAttempted(rule.Key, startedAt);
         var skillId = ResolveStatusMaintenanceSkillId(rule, maintenanceSkill);
+        var skillName = maintenanceSkill?.Name ?? maintenanceSkill?.DisplayBaseName ?? rule.SkillName;
+        if (isOneShotStatusMaintenance)
+        {
+            state.MarkOneShotStatusMaintenancePressed(skillId, skillName, rule.Key);
+        }
+
         var deadline = startedAt + MaintenanceConfirmWindow;
         var polls = 0;
 
@@ -1584,8 +1607,9 @@ public sealed class SemiAutoCombatController
                         ["resource"] = resource,
                         ["key"] = rule.Key,
                         ["skillId"] = skillId,
-                        ["skillName"] = maintenanceSkill?.Name ?? rule.SkillName,
+                        ["skillName"] = skillName,
                         ["abnormalStatusId"] = confirmedAbnormalId,
+                        ["oneShot"] = isOneShotStatusMaintenance,
                         ["polls"] = polls,
                         ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
                         ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAt - startedAt).TotalMilliseconds)
@@ -1617,8 +1641,9 @@ public sealed class SemiAutoCombatController
             ["resource"] = resource,
             ["key"] = rule.Key,
             ["skillId"] = skillId,
-            ["skillName"] = maintenanceSkill?.Name ?? rule.SkillName,
+            ["skillName"] = skillName,
             ["configuredAbnormalStatusId"] = rule.AbnormalStatusId,
+            ["oneShot"] = isOneShotStatusMaintenance,
             ["polls"] = polls,
             ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
             ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAtUnconfirmed - startedAt).TotalMilliseconds)
@@ -3280,6 +3305,26 @@ public sealed class SemiAutoCombatController
                (includeAlwaysRules && rule.RunTiming == MaintenanceRuleRunTiming.Always);
     }
 
+    private static bool IsOneShotStatusMaintenanceRule(
+        StatusMaintenanceRuleConfig rule,
+        SkillSnapshot? skill)
+    {
+        return ContainsChantToken(rule.SkillName) ||
+               ContainsChantToken(skill?.Name) ||
+               ContainsChantToken(skill?.DisplayBaseName) ||
+               ContainsChantToken(skill?.XmlSkillCategory) ||
+               ContainsChantToken(skill?.XmlSkillType) ||
+               ContainsChantToken(skill?.XmlSubType) ||
+               ContainsChantToken(skill?.XmlTags);
+    }
+
+    private static bool ContainsChantToken(string? value)
+    {
+        return !string.IsNullOrWhiteSpace(value) &&
+               (value.Contains("\u771F\u8A00", StringComparison.Ordinal) ||
+                value.Contains("Chant", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static Dictionary<uint, uint> SnapshotCooldownEndTimes(IEnumerable<SkillSnapshot> skills)
     {
         var result = new Dictionary<uint, uint>();
@@ -3692,6 +3737,33 @@ public sealed class SemiAutoCombatController
             ["skillName"] = rule.SkillName,
             ["abnormalStatusId"] = rule.AbnormalStatusId,
             ["error"] = error
+        });
+    }
+
+    private static void LogStatusMaintenanceOneShotSkipped(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        StatusMaintenanceRuleConfig rule,
+        string resource,
+        uint skillId,
+        string? skillName)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastMaintenanceWarningAt, now))
+        {
+            return;
+        }
+
+        state.LastMaintenanceWarningAt = now;
+        context.Logger.Info("semi_auto.maintenance.status_one_shot_skipped", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["skillId"] = skillId,
+            ["skillName"] = skillName,
+            ["configuredSkillName"] = rule.SkillName,
+            ["abnormalStatusId"] = rule.AbnormalStatusId
         });
     }
 
