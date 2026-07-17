@@ -22,6 +22,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
     private static readonly TimeSpan VmmReconnectDelay = TimeSpan.FromSeconds(5);
     private const int PlayerReadFailuresBeforeReconnect = 3;
     private const uint VmmReadFlagNoCache = 0x00000001;
+    private const ulong VmmConfigTickPeriod = 0x2000000400000000UL;
+    private const ulong VmmConfigReadCacheTicks = 0x2000000500000000UL;
+    private const ulong VmmConfigTlbCacheTicks = 0x2000000600000000UL;
+    private const ulong VmmConfigProcCacheTicksPartial = 0x2000000700000000UL;
+    private const ulong VmmConfigProcCacheTicksTotal = 0x2000000800000000UL;
+    private const ulong TargetVmmTickPeriodMs = 50UL;
+    private const ulong TargetVmmReadCacheMs = 150UL;
+    private const ulong TargetVmmReadCacheTicks = 3UL;
+    private const ulong FallbackVmmTickPeriodMs = 100UL;
 
     private const ulong EntitySystemPointerRva = 0x904690;
     private const ulong ServerObjectTreeRva = 0xD21740;
@@ -1470,7 +1479,10 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
                 ? new[] { "-device", deviceName }
                 : new[] { "-device", deviceName, "-remote", remote };
 
-            var created = new VmmConnection(deviceName, remote, new MemProcVmm(args));
+            var vmm = new MemProcVmm(args);
+            ConfigureVmmReadCache(vmm, deviceName, remote);
+
+            var created = new VmmConnection(deviceName, remote, vmm);
             _connections[key] = created;
             _connectionRetryNotBefore.Remove(key);
             _logger.Info("vmm.connection.created", new Dictionary<string, object?>
@@ -1481,6 +1493,126 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IInventoryWindowGame
 
             return created;
         }
+    }
+
+    private void ConfigureVmmReadCache(MemProcVmm vmm, string deviceName, string remote)
+    {
+        try
+        {
+            var previousTickPeriodMs = ReadVmmConfigOrDefault(vmm, VmmConfigTickPeriod, FallbackVmmTickPeriodMs);
+            var previousTlbCacheTicks = vmm.GetConfig(VmmConfigTlbCacheTicks);
+            var previousProcCacheTicksPartial = vmm.GetConfig(VmmConfigProcCacheTicksPartial);
+            var previousProcCacheTicksTotal = vmm.GetConfig(VmmConfigProcCacheTicksTotal);
+            var tickPeriodConfigured = vmm.SetConfig(VmmConfigTickPeriod, TargetVmmTickPeriodMs);
+            var tickPeriodMs = tickPeriodConfigured ? TargetVmmTickPeriodMs : previousTickPeriodMs;
+            var readCacheTicks = tickPeriodConfigured
+                ? TargetVmmReadCacheTicks
+                : CalculateVmmCacheTicks(TargetVmmReadCacheMs, tickPeriodMs);
+            var preservedCacheOptions = tickPeriodConfigured
+                ? PreserveVmmCachePeriods(
+                    vmm,
+                    previousTickPeriodMs,
+                    tickPeriodMs,
+                    previousTlbCacheTicks,
+                    previousProcCacheTicksPartial,
+                    previousProcCacheTicksTotal)
+                : 0;
+            var configured = vmm.SetConfig(VmmConfigReadCacheTicks, readCacheTicks);
+            var fields = new Dictionary<string, object?>
+            {
+                ["device"] = deviceName,
+                ["remote"] = remote,
+                ["targetReadCacheMs"] = TargetVmmReadCacheMs,
+                ["readCacheTicks"] = readCacheTicks,
+                ["previousTickPeriodMs"] = previousTickPeriodMs,
+                ["tickPeriodMs"] = tickPeriodMs,
+                ["tickPeriodConfigured"] = tickPeriodConfigured,
+                ["effectiveReadCacheMs"] = tickPeriodMs * readCacheTicks,
+                ["preservedCacheOptions"] = preservedCacheOptions
+            };
+
+            if (configured)
+            {
+                _logger.Info("vmm.read_cache.configured", fields);
+            }
+            else
+            {
+                _logger.Warn("vmm.read_cache.configure_failed", fields);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn("vmm.read_cache.configure_failed", new Dictionary<string, object?>
+            {
+                ["device"] = deviceName,
+                ["remote"] = remote,
+                ["error"] = ex.Message
+            });
+        }
+    }
+
+    private static ulong ReadVmmConfigOrDefault(MemProcVmm vmm, ulong option, ulong fallback)
+    {
+        var value = vmm.GetConfig(option);
+        return value == 0 ? fallback : value;
+    }
+
+    private static ulong CalculateVmmCacheTicks(ulong targetMs, ulong tickPeriodMs)
+    {
+        if (tickPeriodMs == 0)
+        {
+            return 1UL;
+        }
+
+        return Math.Max(1UL, (targetMs + tickPeriodMs - 1UL) / tickPeriodMs);
+    }
+
+    private static int PreserveVmmCachePeriods(
+        MemProcVmm vmm,
+        ulong previousTickPeriodMs,
+        ulong tickPeriodMs,
+        ulong previousTlbCacheTicks,
+        ulong previousProcCacheTicksPartial,
+        ulong previousProcCacheTicksTotal)
+    {
+        var preserved = 0;
+        if (TryPreserveVmmCachePeriod(vmm, VmmConfigTlbCacheTicks, previousTlbCacheTicks, previousTickPeriodMs, tickPeriodMs))
+        {
+            preserved++;
+        }
+
+        if (TryPreserveVmmCachePeriod(vmm, VmmConfigProcCacheTicksPartial, previousProcCacheTicksPartial, previousTickPeriodMs, tickPeriodMs))
+        {
+            preserved++;
+        }
+
+        if (TryPreserveVmmCachePeriod(vmm, VmmConfigProcCacheTicksTotal, previousProcCacheTicksTotal, previousTickPeriodMs, tickPeriodMs))
+        {
+            preserved++;
+        }
+
+        return preserved;
+    }
+
+    private static bool TryPreserveVmmCachePeriod(
+        MemProcVmm vmm,
+        ulong option,
+        ulong previousTicks,
+        ulong previousTickPeriodMs,
+        ulong tickPeriodMs)
+    {
+        if (previousTicks == 0 ||
+            previousTickPeriodMs == 0 ||
+            tickPeriodMs == 0 ||
+            previousTickPeriodMs == tickPeriodMs)
+        {
+            return false;
+        }
+
+        var adjustedTicks = Math.Max(
+            1UL,
+            (ulong)Math.Ceiling(previousTicks * (double)previousTickPeriodMs / tickPeriodMs));
+        return vmm.SetConfig(option, adjustedTicks);
     }
 
     private void ResetConnection(string? contextVmmDeviceName, string accountName, string reason, string? error)
