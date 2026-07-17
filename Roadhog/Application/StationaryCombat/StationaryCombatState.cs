@@ -75,6 +75,12 @@ public sealed class StationaryCombatState
 
     public bool CurrentTargetDamageObserved { get; private set; }
 
+    public ushort MissingCurrentTargetEntityId { get; private set; }
+
+    public uint MissingCurrentTargetServerObjectId { get; private set; }
+
+    public DateTimeOffset MissingCurrentTargetSince { get; private set; } = DateTimeOffset.MinValue;
+
     public ushort PendingTabCandidateEntityId { get; private set; }
 
     public uint PendingTabCandidateServerObjectId { get; private set; }
@@ -155,6 +161,7 @@ public sealed class StationaryCombatState
         PathCombat.ClearCurrentTargetAnchor();
         ResetCombatApproachStuckTracking();
         ResetCurrentTargetDamageObservation();
+        ResetCurrentTargetMissing();
         ClearPendingTabVerification();
         ClearWrongLockNudge();
     }
@@ -331,6 +338,26 @@ public sealed class StationaryCombatState
         CurrentTargetDamageBaselineHp = 0;
         CurrentTargetDamageObservedAt = DateTimeOffset.MinValue;
         CurrentTargetDamageObserved = false;
+    }
+
+    public DateTimeOffset MarkCurrentTargetMissing(ushort entityId, uint serverObjectId, DateTimeOffset now)
+    {
+        if (!IsSameTarget(MissingCurrentTargetEntityId, MissingCurrentTargetServerObjectId, entityId, serverObjectId) ||
+            MissingCurrentTargetSince == DateTimeOffset.MinValue)
+        {
+            MissingCurrentTargetEntityId = entityId;
+            MissingCurrentTargetServerObjectId = serverObjectId;
+            MissingCurrentTargetSince = now;
+        }
+
+        return MissingCurrentTargetSince;
+    }
+
+    public void ResetCurrentTargetMissing()
+    {
+        MissingCurrentTargetEntityId = 0;
+        MissingCurrentTargetServerObjectId = 0;
+        MissingCurrentTargetSince = DateTimeOffset.MinValue;
     }
 
     public bool IsCurrentTarget(LockedTargetSnapshot target)

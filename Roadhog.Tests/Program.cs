@@ -196,8 +196,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat defense can select ignored local target", TestStationaryCombatDefenseCanSelectIgnoredLocalTargetAsync),
     ("stationary combat keeps fight when locked target server id matches", TestStationaryCombatKeepsFightWhenLockedServerIdMatchesAsync),
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
+    ("stationary combat clears missing current fight target quickly", TestStationaryCombatClearsMissingCurrentFightTargetQuicklyAsync),
     ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
     ("stationary combat switches away from target claimed by other", TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync),
+    ("stationary combat treats self targeting monster as unclaimed", TestStationaryCombatTreatsSelfTargetingMonsterAsUnclaimedAsync),
     ("stationary combat keeps previously engaged target while it self targets", TestStationaryCombatKeepsPreviouslyEngagedTargetWhileSelfTargetingAsync),
     ("stationary combat keeps current target that previously targeted player", TestStationaryCombatKeepsCurrentTargetThatPreviouslyTargetedPlayerAsync),
     ("stationary combat keeps spiritmaster pet targeted fight", TestStationaryCombatKeepsSpiritmasterPetTargetedFightAsync),
@@ -8792,6 +8794,95 @@ static async Task TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsy
     }
 }
 
+static async Task TestStationaryCombatClearsMissingCurrentFightTargetQuicklyAsync()
+{
+    var previousMissingTimeout = Environment.GetEnvironmentVariable("ROADHOG_MISSING_FIGHT_TARGET_TIMEOUT_MS");
+    try
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_MISSING_FIGHT_TARGET_TIMEOUT_MS", "1");
+
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetOwnServerObjectId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CurrentTargetServerObjectId = 100,
+            CandidateEntityId = 100,
+            CandidateServerObjectId = 100
+        };
+        state.MarkCandidate(100, 100, DateTimeOffset.Now);
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.Fighting, "first missing target tick should keep fight state briefly");
+        AssertEqual((ushort)100, state.CurrentTargetEntityId, "first missing target tick should keep current target");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.reacquire_wait" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "target_mismatch_target_missing", StringComparison.Ordinal)),
+            "first missing target tick should log reacquire wait");
+
+        await Task.Delay(5).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(state.Fighting, "missing target timeout should clear fight state");
+        AssertEqual((ushort)0, state.CurrentTargetEntityId, "missing target timeout should clear current target");
+        AssertFalse(state.IsTargetIgnored(100, 100), "missing target timeout should not permanently ignore the target");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.lost" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "target_mismatch_target_missing", StringComparison.Ordinal)),
+            "missing target timeout should log target lost");
+
+        gameApi.WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(101, 101, "next", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000)
+        };
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertEqual((ushort)101, state.CandidateEntityId, "next tick should select a new target after missing target clears");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_MISSING_FIGHT_TARGET_TIMEOUT_MS", previousMissingTimeout);
+    }
+}
+
 static async Task TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync()
 {
     var settings = CreateScriptSettings();
@@ -8934,6 +9025,78 @@ static async Task TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync(
     await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
 
     AssertEqual((ushort)101, state.CandidateEntityId, "next tick should switch to the next unclaimed target");
+}
+
+static async Task TestStationaryCombatTreatsSelfTargetingMonsterAsUnclaimedAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+    settings.SemiAuto.AttackKeyLoopEnabled = false;
+
+    var targetServerObjectId = 100u;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = targetServerObjectId,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = targetServerObjectId,
+        LocalServerObjectId = 1,
+        TargetIsTargetingLocalPlayer = false,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, targetServerObjectId, "self-targeting", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000, targetServerObjectId, false),
+            new WorldObjectSnapshot(101, 101, "next", "monster", new Vector3Snapshot(12, 0, 0), 12, 1000, 1000)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = targetServerObjectId,
+        CandidateEntityId = 100,
+        CandidateServerObjectId = targetServerObjectId
+    };
+    state.MarkCandidate(100, targetServerObjectId, DateTimeOffset.Now);
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(!state.Fighting, "self-targeting monster should stay in combat");
+    AssertEqual((ushort)100, state.CurrentTargetEntityId, "current self-targeting monster should remain selected");
+    AssertFalse(state.IsTargetIgnored(100, targetServerObjectId), "self-targeting monster should not be ignored as claimed");
+    AssertFalse(!keyboard.Keys.Contains("D2"), "self-targeting monster should continue skill release");
+    AssertFalse(logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.target.ignored" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_owned_by_other", StringComparison.Ordinal)),
+        "self-targeting monster should not log claimed-target ignore");
 }
 
 static async Task TestStationaryCombatKeepsPreviouslyEngagedTargetWhileSelfTargetingAsync()

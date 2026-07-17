@@ -20,6 +20,7 @@ public sealed class StationaryCombatController
     private static readonly TimeSpan IdleDelay = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan DeathRevivePreClickPause = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan TargetTimeout = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan DefaultMissingFightTargetTimeout = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan NoKillTownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan DefaultNoKillTimeout = TimeSpan.FromMinutes(20);
     private static readonly TimeSpan DefaultNoKillTownReturnSettleDelay = TimeSpan.FromSeconds(8);
@@ -2655,6 +2656,7 @@ public sealed class StationaryCombatController
         }
 
         state.SetCurrentTarget(target);
+        state.ResetCurrentTargetMissing();
         if (IsTargetingLocalSide(target, state) ||
             state.IsTeamLeaderProtectionTarget(target))
         {
@@ -3518,6 +3520,12 @@ public sealed class StationaryCombatController
         return string.Equals(loot.KilledTargetName, locked.Name, StringComparison.Ordinal);
     }
 
+    private static bool IsLockedTargetEmpty(OperationResult<LockedTargetSnapshot> lockedResult)
+    {
+        return lockedResult.Success &&
+               (lockedResult.Value is null || !lockedResult.Value.HasTarget);
+    }
+
     private static bool ShouldStartLootAfterKill(
         AccountWorkerContext context,
         LockedTargetSnapshot target)
@@ -3618,6 +3626,22 @@ public sealed class StationaryCombatController
 
         if (target is null)
         {
+            var missingDelay = await TryClearMissingCurrentFightTargetAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    targetEntityId,
+                    targetServerObjectId,
+                    playerDistanceFromHome,
+                    radius,
+                    lockedResult,
+                    reason)
+                .ConfigureAwait(false);
+            if (missingDelay is not null)
+            {
+                return missingDelay.Value;
+            }
+
             return await WaitForCurrentFightTargetAsync(
                     context,
                     semiAutoState,
@@ -3632,6 +3656,7 @@ public sealed class StationaryCombatController
                 .ConfigureAwait(false);
         }
 
+        state.ResetCurrentTargetMissing();
         if (!target.IsAlive)
         {
             var killedSnapshot = new LockedTargetSnapshot(
@@ -3693,6 +3718,7 @@ public sealed class StationaryCombatController
 
         if (!IsCurrentFightTargetStillSelectable(target, home, radius, state.CurrentTargetIsMaintenanceDefense, state))
         {
+            state.ResetCurrentTargetMissing();
             return await WaitForCurrentFightTargetAsync(
                     context,
                     semiAutoState,
@@ -3735,6 +3761,55 @@ public sealed class StationaryCombatController
         }, TimeSpan.FromMilliseconds(500));
 
         return await TickAcquireAsync(context, plan, semiAutoState, state, target, home, radius).ConfigureAwait(false);
+    }
+
+    private async Task<TimeSpan?> TryClearMissingCurrentFightTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        ushort targetEntityId,
+        uint targetServerObjectId,
+        double playerDistanceFromHome,
+        double radius,
+        OperationResult<LockedTargetSnapshot> lockedResult,
+        string reason)
+    {
+        if (!IsLockedTargetEmpty(lockedResult))
+        {
+            state.ResetCurrentTargetMissing();
+            return null;
+        }
+
+        var now = DateTimeOffset.Now;
+        var missingSince = state.MarkCurrentTargetMissing(targetEntityId, targetServerObjectId, now);
+        var missingFor = now - missingSince;
+        var timeoutMs = ReadMissingFightTargetTimeoutMs();
+        if (missingFor < TimeSpan.FromMilliseconds(timeoutMs))
+        {
+            return null;
+        }
+
+        context.Logger.Info("stationary_combat.target.lost", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason + "_target_missing",
+            ["targetEntityId"] = targetEntityId,
+            ["serverObjectId"] = targetServerObjectId,
+            ["targetServerObjectId"] = targetServerObjectId,
+            ["lockedReadSuccess"] = lockedResult.Success,
+            ["lockedEntityId"] = lockedResult.Value?.TargetEntityId ?? 0,
+            ["lockedServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
+            ["lockedTargetServerObjectId"] = lockedResult.Value?.ServerObjectId ?? 0,
+            ["lockedTargetingServerObjectId"] = lockedResult.Value?.TargetServerObjectId ?? 0,
+            ["elapsedMs"] = (long)Math.Max(0.0D, missingFor.TotalMilliseconds),
+            ["timeoutMs"] = timeoutMs,
+            ["error"] = lockedResult.Error
+        });
+
+        state.ClearTarget();
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        return playerDistanceFromHome > radius ? MoveTickDelay : IdleDelay;
     }
 
     private async Task<TimeSpan> WaitForCurrentFightTargetAsync(
@@ -5094,12 +5169,16 @@ public sealed class StationaryCombatController
 
     private static bool IsClaimedByOther(WorldObjectSnapshot target, StationaryCombatState state)
     {
-        return target.TargetServerObjectId != 0 && !IsTargetingLocalSide(target, state);
+        return target.TargetServerObjectId != 0 &&
+               target.TargetServerObjectId != target.ServerObjectId &&
+               !IsTargetingLocalSide(target, state);
     }
 
     private static bool IsClaimedByOther(LockedTargetSnapshot target, StationaryCombatState state)
     {
-        return target.TargetServerObjectId != 0 && !IsTargetingLocalSide(target, state);
+        return target.TargetServerObjectId != 0 &&
+               target.TargetServerObjectId != target.ServerObjectId &&
+               !IsTargetingLocalSide(target, state);
     }
 
     private static bool IsTargetingLocalSide(WorldObjectSnapshot target, StationaryCombatState state)
@@ -7078,6 +7157,14 @@ public sealed class StationaryCombatController
     private static int ReadFaceTargetTimeoutMs()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_FACE_TARGET_TIMEOUT_MS", 10_000), 1, 60_000);
+    }
+
+    private static int ReadMissingFightTargetTimeoutMs()
+    {
+        return ClampInt(
+            ReadRawIntFromEnv("ROADHOG_MISSING_FIGHT_TARGET_TIMEOUT_MS", (int)DefaultMissingFightTargetTimeout.TotalMilliseconds),
+            0,
+            60_000);
     }
 
     private static TimeSpan ReadNoKillTimeout()
