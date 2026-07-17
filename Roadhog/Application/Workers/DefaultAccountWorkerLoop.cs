@@ -1,5 +1,6 @@
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
+using Roadhog.Application.Team;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Input;
 
@@ -10,15 +11,18 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
     private readonly IKeyboardInput _keyboard;
     private readonly SemiAutoCombatController _semiAuto;
     private readonly StationaryCombatController _stationaryCombat;
+    private readonly TeamSupportController? _teamSupport;
 
     public DefaultAccountWorkerLoop(
         IKeyboardInput keyboard,
         SemiAutoCombatController semiAuto,
-        StationaryCombatController stationaryCombat)
+        StationaryCombatController stationaryCombat,
+        TeamSupportController? teamSupport = null)
     {
         _keyboard = keyboard;
         _semiAuto = semiAuto;
         _stationaryCombat = stationaryCombat;
+        _teamSupport = teamSupport;
     }
 
     public async Task RunAsync(AccountWorkerContext context)
@@ -41,6 +45,7 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         var semiAutoPlan = SemiAutoSkillPlan.FromSettings(scriptSettings.Skills);
         var semiAutoState = new SemiAutoCombatState();
         var stationaryCombatState = new StationaryCombatState();
+        var teamSupportState = new TeamSupportState();
         context.Logger.Info("semi_auto.plan.loaded", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -94,32 +99,45 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 {
                     delay = context.Options.TickInterval;
                 }
-                else if (mainMode == AccountMainMode.SemiAuto)
+                else
                 {
-                    delay = await _semiAuto.TickAsync(context, semiAutoPlan, semiAutoState).ConfigureAwait(false);
-                }
-                else if (isStationaryCombat)
-                {
-                    delay = await _stationaryCombat
-                        .TickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)
-                        .ConfigureAwait(false);
-                }
-                else if (isPathCombat)
-                {
-                    delay = await _stationaryCombat
-                        .TickPathAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)
-                        .ConfigureAwait(false);
-                }
-                else if (context.Options.PollPlayerSnapshot)
-                {
-                    var result = await context.GameApi.ReadPlayerAsync(context.StopToken).ConfigureAwait(false);
-                    if (!result.Success)
+                    var normalWorkBlocked = false;
+                    if (_teamSupport is not null && IsTeamSupportEnabled(scriptSettings))
                     {
-                        context.Logger.Warn("worker.player_poll.failed", new Dictionary<string, object?>
+                        var supportResult = await _teamSupport
+                            .TickAsync(context, teamSupportState)
+                            .ConfigureAwait(false);
+                        delay = supportResult.Delay;
+                        normalWorkBlocked = supportResult.ShouldSkipNormalWork;
+                    }
+
+                    if (!normalWorkBlocked && mainMode == AccountMainMode.SemiAuto)
+                    {
+                        delay = await _semiAuto.TickAsync(context, semiAutoPlan, semiAutoState).ConfigureAwait(false);
+                    }
+                    else if (!normalWorkBlocked && isStationaryCombat)
+                    {
+                        delay = await _stationaryCombat
+                            .TickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)
+                            .ConfigureAwait(false);
+                    }
+                    else if (!normalWorkBlocked && isPathCombat)
+                    {
+                        delay = await _stationaryCombat
+                            .TickPathAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)
+                            .ConfigureAwait(false);
+                    }
+                    else if (!normalWorkBlocked && context.Options.PollPlayerSnapshot)
+                    {
+                        var result = await context.GameApi.ReadPlayerAsync(context.StopToken).ConfigureAwait(false);
+                        if (!result.Success)
                         {
-                            ["account"] = context.Config.AccountName,
-                            ["error"] = result.Error
-                        });
+                            context.Logger.Warn("worker.player_poll.failed", new Dictionary<string, object?>
+                            {
+                                ["account"] = context.Config.AccountName,
+                                ["error"] = result.Error
+                            });
+                        }
                     }
                 }
 
@@ -131,6 +149,12 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
             semiAutoState.ResetAttackKeyPressThrottle();
             await ReleaseActiveInputAsync(context, stationaryCombatState).ConfigureAwait(false);
         }
+    }
+
+    private static bool IsTeamSupportEnabled(ScriptSettings scriptSettings)
+    {
+        return scriptSettings.Team.Role == TeamRole.Support &&
+               (scriptSettings.Team.Support?.Enabled ?? false);
     }
 
     private async Task ReleaseStartupMovementAsync(AccountWorkerContext context)

@@ -4,6 +4,7 @@ using Roadhog.Application.BagCleanup;
 using Roadhog.Application.Input;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
+using Roadhog.Application.Team;
 using Roadhog.Application.Workers;
 using Roadhog.Core.Accounts;
 using Roadhog.Core.Api;
@@ -62,6 +63,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
     ("runtime team snapshot uses account scoped context", TestRuntimeTeamSnapshotUsesAccountScopeAsync),
+    ("team support prioritizes mental physical then heal", TestTeamSupportPrioritizesMentalPhysicalThenHealAsync),
+    ("team support ignores positive physical-category status", TestTeamSupportIgnoresPositivePhysicalCategoryStatusAsync),
+    ("team support retries function key until spiritmaster body selected", TestTeamSupportRetriesFunctionKeyUntilSpiritmasterBodySelectedAsync),
     ("runtime locked target abnormal read uses account scoped context", TestRuntimeLockedTargetAbnormalReadUsesAccountScopeAsync),
 #if DEBUG
     ("runtime api probe covers vmm read paths", TestRuntimeApiProbeCoversVmmReadPathsAsync),
@@ -937,6 +941,133 @@ static async Task TestRuntimeTeamSnapshotUsesAccountScopeAsync()
     AssertEqual(712, gameApi.LastSummonedPetRosterContext?.ProcessId ?? 0, "pet roster scoped process id");
     AssertEqual("Aion.bin", gameApi.LastPartyContext?.TargetProcessName ?? string.Empty, "party scoped process name");
     AssertEqual("fpga", gameApi.LastPartyContext?.VmmDeviceName ?? string.Empty, "party scoped vmm device");
+}
+
+static async Task TestTeamSupportPrioritizesMentalPhysicalThenHealAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0) with
+    {
+        Class = AionClassId.Cleric,
+        ClassId = (byte)AionClassId.Cleric,
+        ClassName = "Cleric"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 50,
+        MaxHp = 100,
+        AbnormalStatuses = new[]
+        {
+            Abnormal(1636, 0),
+            Abnormal(1632, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory)
+        }
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            gameApi.TargetOwnServerObjectId = leader.ServerObjectId;
+        }
+    };
+
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var context = CreateContext(CreateTeamSupportSettings(), gameApi, logger);
+    var state = new TeamSupportState();
+
+    var mentalResult = await controller.TickAsync(context, state).ConfigureAwait(false);
+    AssertFalse(!mentalResult.ShouldSkipNormalWork, "mental cleanse should consume the team support tick");
+    AssertSequence(new[] { "F2", "NumPad8" }, keyboard.Keys.ToArray(), "mental cleanse key order");
+
+    keyboard.Keys.Clear();
+    gameApi.Party = CreateTeamSupportParty(self, leader with
+    {
+        AbnormalStatuses = new[] { Abnormal(1632, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory) }
+    });
+
+    await controller.TickAsync(context, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad7" }, keyboard.Keys.ToArray(), "physical cleanse should run after mental clears");
+
+    keyboard.Keys.Clear();
+    gameApi.Party = CreateTeamSupportParty(self, leader with
+    {
+        CurrentHp = 50,
+        MaxHp = 100,
+        AbnormalStatuses = Array.Empty<AbnormalStatusEntrySnapshot>()
+    });
+
+    await controller.TickAsync(context, state).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad1" }, keyboard.Keys.ToArray(), "heal should run after cleanse candidates clear");
+}
+
+static async Task TestTeamSupportIgnoresPositivePhysicalCategoryStatusAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0) with
+    {
+        Class = AionClassId.Cleric,
+        ClassId = (byte)AionClassId.Cleric,
+        ClassName = "Cleric"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 100,
+        MaxHp = 100,
+        AbnormalStatuses = new[] { Abnormal(8232, PlayerAbnormalStatusSnapshot.PhysicalDebuffCategory) }
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var context = CreateContext(CreateTeamSupportSettings(), gameApi, logger);
+
+    await controller.TickAsync(context, new TeamSupportState()).ConfigureAwait(false);
+
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "positive category-2 status must not press cleanse");
+}
+
+static async Task TestTeamSupportRetriesFunctionKeyUntilSpiritmasterBodySelectedAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint petServerObjectId = 3000;
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0) with
+    {
+        Class = AionClassId.Cleric,
+        ClassId = (byte)AionClassId.Cleric,
+        ClassName = "Cleric"
+    };
+    var spiritmaster = CreatePartyMemberSnapshot(2000, "Spirit", false, true, 4.0) with
+    {
+        CurrentHp = 40,
+        MaxHp = 100,
+        Class = AionClassId.Spiritmaster,
+        ClassId = (byte)AionClassId.Spiritmaster,
+        ClassName = "Spiritmaster"
+    };
+    var gameApi = CreateTeamSupportGameApi(self, spiritmaster);
+    gameApi.SummonedPetRoster = CreateTeamSupportRoster(self.ServerObjectId, spiritmaster, petServerObjectId);
+
+    var f2PressCount = 0;
+    keyboard.AfterPress = key =>
+    {
+        if (!string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        f2PressCount++;
+        gameApi.TargetOwnServerObjectId = f2PressCount == 1
+            ? petServerObjectId
+            : spiritmaster.ServerObjectId;
+    };
+
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var context = CreateContext(CreateTeamSupportSettings(), gameApi, logger);
+
+    await controller.TickAsync(context, new TeamSupportState()).ConfigureAwait(false);
+
+    AssertSequence(new[] { "F2", "F2", "NumPad1" }, keyboard.Keys.ToArray(), "spiritmaster party key should retry until body is selected");
 }
 
 static async Task TestRuntimeLockedTargetAbnormalReadUsesAccountScopeAsync()
@@ -12478,6 +12609,174 @@ static AccountWorkerContext CreateContext(
         runtimeStates ?? new AccountRuntimeManager(logger),
         options ?? new AccountWorkerOptions(),
         stopToken);
+}
+
+static ScriptSettings CreateTeamSupportSettings()
+{
+    return new ScriptSettings
+    {
+        MainMode = AccountMainMode.SemiAuto,
+        Team = new TeamScriptSettings
+        {
+            Role = TeamRole.Support,
+            Support = new TeamSupportScriptSettings
+            {
+                Enabled = true,
+                JoinCombat = false,
+                MentalCleanseEnabled = true,
+                PhysicalCleanseEnabled = true,
+                MentalCleanseKey = "NumPad8",
+                PhysicalCleanseKey = "NumPad7",
+                HealSkillRules = new List<TeamHealSkillRuleConfig>
+                {
+                    new()
+                    {
+                        BelowPercent = 90,
+                        Key = "NumPad1",
+                        RunTiming = MaintenanceRuleRunTiming.Always,
+                        TargetType = TeamHealSkillTargetType.Single
+                    }
+                }
+            }
+        },
+        SemiAuto = new SemiAutoScriptSettings
+        {
+            KeyHoldMs = 1
+        }
+    };
+}
+
+static TeamAbnormalStatusCatalog CreateTeamSupportAbnormalCatalog()
+{
+    return TeamAbnormalStatusCatalog.LoadedFrom(
+        "test",
+        new Dictionary<uint, TeamAbnormalStatusStaticInfo>
+        {
+            [1636] = new(
+                1636,
+                "MentalDebuff",
+                "Debuff",
+                "Enemy",
+                "DebuffMen",
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                TeamAbnormalStatusCatalog.AbnormalKindNegative),
+            [1632] = new(
+                1632,
+                "PhysicalDebuff",
+                "Debuff",
+                "Enemy",
+                "DebuffPhy",
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                TeamAbnormalStatusCatalog.AbnormalKindNegative),
+            [8232] = new(
+                8232,
+                "PositiveChant",
+                "Chant",
+                "Friend",
+                "DebuffPhy",
+                "StatUp",
+                string.Empty,
+                string.Empty,
+                string.Empty,
+                TeamAbnormalStatusCatalog.AbnormalKindPositive)
+        });
+}
+
+static FakeGameApi CreateTeamSupportGameApi(params PartyMemberSnapshot[] members)
+{
+    var localServerObjectId = members.First(member => member.IsSelf).ServerObjectId;
+    return new FakeGameApi
+    {
+        Party = CreateTeamSupportParty(members),
+        SummonedPetRoster = SummonedPetRosterSnapshot.Empty(localServerObjectId, DateTimeOffset.Now),
+        TargetEntityId = 0,
+        TargetOwnServerObjectId = 0,
+        TargetServerObjectId = 0,
+        TargetObjectType = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0
+    };
+}
+
+static PartySnapshot CreateTeamSupportParty(params PartyMemberSnapshot[] members)
+{
+    var now = DateTimeOffset.Now;
+    var self = members.First(member => member.IsSelf);
+    var leader = members.FirstOrDefault(member => member.IsLeader) ?? self;
+    return new PartySnapshot(
+        1141852,
+        0x3F,
+        (ulong)members.Length,
+        leader.ServerObjectId,
+        self.ServerObjectId,
+        self.LiveEntityId,
+        self.Name,
+        self.LivePosition,
+        0,
+        members.Length,
+        now,
+        members);
+}
+
+static SummonedPetRosterSnapshot CreateTeamSupportRoster(
+    uint localServerObjectId,
+    PartyMemberSnapshot owner,
+    uint petServerObjectId)
+{
+    var now = DateTimeOffset.Now;
+    return new SummonedPetRosterSnapshot(
+        localServerObjectId,
+        0,
+        now,
+        new OwnedSummonedPetSnapshot(
+            SummonedPetOwnerKind.LocalPlayer,
+            localServerObjectId,
+            "Healer",
+            string.Empty,
+            SummonedPetSnapshot.NotSummoned(localServerObjectId, now),
+            0,
+            Array.Empty<AbnormalStatusEntrySnapshot>()),
+        new[]
+        {
+            new OwnedSummonedPetSnapshot(
+                SummonedPetOwnerKind.PartyMember,
+                owner.ServerObjectId,
+                owner.Name,
+                "primary",
+                new SummonedPetSnapshot(
+                    true,
+                    2,
+                    petServerObjectId,
+                    0,
+                    SummonedPetSnapshot.ActorObjectType,
+                    0,
+                    "Pet",
+                    "Pet",
+                    "pet",
+                    "pet",
+                    owner.Level,
+                    100,
+                    100,
+                    100,
+                    owner.LivePosition,
+                    owner.DistanceToLocalPlayer,
+                    localServerObjectId,
+                    now,
+                    petServerObjectId,
+                    true,
+                    "test"),
+                0,
+                Array.Empty<AbnormalStatusEntrySnapshot>(),
+                OwnerClassId: owner.Class,
+                OwnerClassName: owner.ClassName)
+        },
+        new[] { owner.ServerObjectId });
 }
 
 static async Task WaitUntilAsync(Func<bool> predicate, string label)
