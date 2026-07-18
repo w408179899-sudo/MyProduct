@@ -4,6 +4,8 @@ namespace Roadhog.Core.Accounts;
 
 public static class BagCleanupItemMatcher
 {
+    private const uint SkillBookItemType = 31;
+
     public static IReadOnlyList<InventoryItemSnapshot> SelectSellRegistrationItems(
         IEnumerable<InventoryItemSnapshot> items,
         MaintenanceScriptSettings settings)
@@ -50,7 +52,7 @@ public static class BagCleanupItemMatcher
             "equipment" => IsEquipment(item),
             "manastone" => IsManastone(item),
             "scroll" => IsScroll(item, rule),
-            "book" => IsBook(item, rule),
+            "book" => IsBook(item, rule) || IsSkillBookItemType(item, rule),
             "extraction_stone" => ContainsAny(item.Name, "提炼石", "精炼石"),
             "consumable" => ContainsAny(item.Name, "药水", "仙药", "灵药"),
             _ => rule.ItemKinds.Any(kind => ContainsNormalized(item.Name, kind))
@@ -127,6 +129,12 @@ public static class BagCleanupItemMatcher
         }
 
         return ContainsAny(item.Name, "技能书");
+    }
+
+    private static bool IsSkillBookItemType(InventoryItemSnapshot item, BagCleanupRuleConfig rule)
+    {
+        return item.ItemType == SkillBookItemType &&
+               string.Equals(rule.Key, BagCleanupRuleCatalog.SkillBook, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool MatchesQuality(InventoryItemSnapshot item, string? quality)

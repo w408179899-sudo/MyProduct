@@ -136,6 +136,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup controller failure cools down instead of stopping", TestBagCleanupControllerFailureCoolsDownAsync),
     ("bag cleanup matcher groups weapon armor and accessory as equipment", TestBagCleanupMatcherGroupsEquipmentTypesAsync),
     ("bag cleanup matcher maps stigma item type", TestBagCleanupMatcherMapsStigmaItemTypeAsync),
+    ("bag cleanup matcher maps skill book item type", TestBagCleanupMatcherMapsSkillBookItemTypeAsync),
     ("window title formats character identity", TestWindowTitleFormatsCharacterIdentityAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
     ("kmbox net keyboard input accepts team keys", TestKmBoxNetKeyboardInputAcceptsTeamKeysAsync),
@@ -4947,6 +4948,31 @@ static Task TestBagCleanupMatcherMapsStigmaItemTypeAsync()
         new[] { "痊愈之闪光 I", "痊愈之闪光 I", "生命力吸收 II" },
         selected.Select(item => item.Name).ToArray(),
         "stigma cleanup should map item type 9 even when the item name does not contain stigma");
+
+    return Task.CompletedTask;
+}
+
+static Task TestBagCleanupMatcherMapsSkillBookItemTypeAsync()
+{
+    var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+    rules.First(rule => rule.Key == BagCleanupRuleCatalog.SkillBook).Enabled = true;
+    var settings = new MaintenanceScriptSettings
+    {
+        BagCleanupRules = rules
+    };
+    var items = new[]
+    {
+        new InventoryItemSnapshot(169500164, 1, "Quick Shield I", 1, 33, false, 31),
+        new InventoryItemSnapshot(164000089, 2, "Return Spellbook", 1, 34, false, 18),
+        new InventoryItemSnapshot(100100336, 3, "Green equipment", 1, 35, false, 2, 2)
+    };
+
+    var selected = BagCleanupItemMatcher.SelectSellRegistrationItems(items, settings);
+
+    AssertSequence(
+        new[] { "Quick Shield I" },
+        selected.Select(item => item.Name).ToArray(),
+        "skill book cleanup should map item type 31 even when the item name does not contain skill book");
 
     return Task.CompletedTask;
 }
