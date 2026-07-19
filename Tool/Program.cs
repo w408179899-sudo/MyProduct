@@ -153,6 +153,15 @@ namespace Tool
                         return;
                     }
 
+                    if (string.Equals(aionTestMode, "position_watch", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "positionwatch", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "player_watch", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "movement_watch", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunLocalPlayerPositionWatchTest(process, gameBase);
+                        return;
+                    }
+
                     if (string.Equals(aionTestMode, "player_offset", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "player_probe", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(aionTestMode, "player_6c8", StringComparison.OrdinalIgnoreCase))
@@ -209,6 +218,15 @@ namespace Tool
                         string.Equals(aionTestMode, "status", StringComparison.OrdinalIgnoreCase))
                     {
                         RunAbnormalStatusTest(process, gameBase);
+                        return;
+                    }
+
+                    if (string.Equals(aionTestMode, "party", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "party_member", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "party_members", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(aionTestMode, "party_probe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        RunPartyMemberProbeTest(process, gameBase);
                         return;
                     }
 
@@ -955,8 +973,27 @@ namespace Tool
         private const ulong AbnormalEntryLevelOrStackOffset = 0x10;
 
         private const ulong PartyListNodeDataOffset = 0x10;
+        private const ulong PartyMemberPartySlotOffset = 0x00;
         private const ulong PartyMemberServerObjectIdOffset = 0x04;
+        private const ulong PartyMemberMaxHpOffset = 0x08;
+        private const ulong PartyMemberCurrentHpOffset = 0x0C;
+        private const ulong PartyMemberMaxMpOffset = 0x10;
+        private const ulong PartyMemberCurrentMpOffset = 0x14;
+        private const ulong PartyMemberMaxFlightTimeOffset = 0x18;
+        private const ulong PartyMemberCurrentFlightTimeOffset = 0x1C;
+        private const ulong PartyMemberAreaField0Offset = 0x20;
+        private const ulong PartyMemberAreaField1Offset = 0x24;
+        private const ulong PartyMemberCachedXOffset = 0x28;
+        private const ulong PartyMemberCachedYOffset = 0x2C;
+        private const ulong PartyMemberCachedZOffset = 0x30;
+        private const ulong PartyMemberClassIdOffset = 0x34;
+        private const ulong PartyMemberLevelOffset = 0x36;
         private const ulong PartyMemberDataFlagsOffset = 0x37;
+        private const ulong PartyMemberFlightAreaFlagOffset = 0x38;
+        private const ulong PartyMemberFlightFlagsOffset = 0x39;
+        private const ulong PartyMemberRuntimeStateOffset = 0x3A;
+        private const ulong PartyMemberNameOffset = 0x3B;
+        private const ulong PartyMemberControlStatusMaskOffset = 0x6F;
         private const byte PartyMemberHasAbnormalBlockFlag = 0x08;
         private const ulong PartyMemberAbnormalCountOffset = 0x77;
         private const ulong PartyMemberAbnormalEntriesOffset = 0x79;
@@ -1424,6 +1461,40 @@ namespace Tool
             public byte DataFlags;
             public bool HasAbnormalBlock;
             public short RawCount;
+            public uint UpdateTime;
+            public List<AbnormalStatusEntry> Entries;
+            public int PhysicalCount;
+        }
+
+        private struct PartyMemberProbeSnapshot
+        {
+            public string ListName;
+            public int ListIndex;
+            public ulong Node;
+            public ulong Member;
+            public uint PartySlot;
+            public uint ServerObjectId;
+            public uint MaxHp;
+            public uint CurrentHp;
+            public uint MaxMp;
+            public uint CurrentMp;
+            public uint MaxFlightTime;
+            public uint CurrentFlightTime;
+            public uint AreaField0;
+            public uint AreaField1;
+            public float CachedX;
+            public float CachedY;
+            public float CachedZ;
+            public byte ClassId;
+            public byte Level;
+            public byte DataFlags;
+            public byte FlightAreaFlag;
+            public byte FlightFlags;
+            public byte RuntimeState;
+            public string Name;
+            public ulong ControlStatusMask;
+            public bool HasAbnormalBlock;
+            public short RawAbnormalCount;
             public uint UpdateTime;
             public List<AbnormalStatusEntry> Entries;
             public int PhysicalCount;
@@ -2008,6 +2079,112 @@ namespace Tool
                               lastInfo.CameraPitch.ToString("F2") + "/" +
                               lastInfo.CameraRoll.ToString("F2") + "/" +
                               lastInfo.CameraYaw.ToString("F2"));
+        }
+
+        private static void RunLocalPlayerPositionWatchTest(VmmProcess process, ulong gameBase)
+        {
+            int samples = ClampInt(ReadIntFromEnv("AION_POSITION_WATCH_COUNT", 300), 1, 100000);
+            int intervalMs = ClampInt(ReadIntFromEnv("AION_POSITION_WATCH_INTERVAL_MS", 100), 10, 10000);
+
+            Console.WriteLine("AION local player position watch.");
+            Console.WriteLine("Samples=" + samples +
+                              " IntervalMs=" + intervalMs +
+                              " Env=AION_TEST_MODE=position_watch AION_POSITION_WATCH_COUNT AION_POSITION_WATCH_INTERVAL_MS");
+            Console.WriteLine("Start moving now. This probe is read-only.");
+
+            LocalPlayerInfo previous = new LocalPlayerInfo();
+            DateTime previousAt = DateTime.MinValue;
+            bool hasPrevious = false;
+            double totalDistance = 0.0;
+            int changedSamples = 0;
+            int worldChangedSamples = 0;
+            int localChangedSamples = 0;
+            int unchangedSamples = 0;
+            int failedSamples = 0;
+
+            for (int i = 0; i < samples; i++)
+            {
+                DateTime now = DateTime.Now;
+                LocalPlayerInfo info;
+                string error;
+                bool ok = TryReadLocalPlayerInfo(process, gameBase, out info, out error) && info.HasPosition;
+                if (!ok)
+                {
+                    failedSamples++;
+                    Console.WriteLine("[" + now.ToString("HH:mm:ss.fff") + "] " +
+                                      "Sample=" + (i + 1) + "/" + samples +
+                                      " ReadFailed=" + (error ?? "position unavailable"));
+                }
+                else
+                {
+                    double deltaMs = hasPrevious ? (now - previousAt).TotalMilliseconds : 0.0;
+                    double dx = hasPrevious ? info.X - previous.X : 0.0;
+                    double dy = hasPrevious ? info.Y - previous.Y : 0.0;
+                    double dz = hasPrevious ? info.Z - previous.Z : 0.0;
+                    double distance = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+                    double worldDistance = hasPrevious && info.HasTransform && previous.HasTransform
+                        ? DistanceBetween(info.Transform.WorldPosition, previous.Transform.WorldPosition)
+                        : 0.0;
+                    double localDistance = hasPrevious && info.HasTransform && previous.HasTransform
+                        ? DistanceBetween(info.Transform.LocalPosition, previous.Transform.LocalPosition)
+                        : 0.0;
+
+                    if (hasPrevious)
+                    {
+                        totalDistance += distance;
+                        if (distance > 0.0001)
+                        {
+                            changedSamples++;
+                        }
+                        else
+                        {
+                            unchangedSamples++;
+                        }
+
+                        if (worldDistance > 0.0001)
+                        {
+                            worldChangedSamples++;
+                        }
+
+                        if (localDistance > 0.0001)
+                        {
+                            localChangedSamples++;
+                        }
+                    }
+
+                    Console.WriteLine("[" + now.ToString("HH:mm:ss.fff") + "] " +
+                                      "Sample=" + (i + 1) + "/" + samples +
+                                      " DtMs=" + deltaMs.ToString("F0") +
+                                      " StepDistance=" + distance.ToString("F4") +
+                                      " WorldStep=" + worldDistance.ToString("F4") +
+                                      " LocalStep=" + localDistance.ToString("F4") +
+                                      " TotalDistance=" + totalDistance.ToString("F4") +
+                                      " X=" + info.X.ToString("F4") +
+                                      " Y=" + info.Y.ToString("F4") +
+                                      " Z=" + info.Z.ToString("F4") +
+                                      " Offset=0x" + info.PositionOffset.ToString("X") +
+                                      " WorldPos=" + (info.HasTransform ? FormatVec3(info.Transform.WorldPosition) : "n/a") +
+                                      " LocalPos=" + (info.HasTransform ? FormatVec3(info.Transform.LocalPosition) : "n/a"));
+
+                    previous = info;
+                    previousAt = now;
+                    hasPrevious = true;
+                }
+
+                if (i + 1 < samples)
+                {
+                    Thread.Sleep(intervalMs);
+                }
+            }
+
+            Console.WriteLine("PositionWatchSummary" +
+                              " Samples=" + samples +
+                              " Changed=" + changedSamples +
+                              " WorldChanged=" + worldChangedSamples +
+                              " LocalChanged=" + localChangedSamples +
+                              " Unchanged=" + unchangedSamples +
+                              " Failed=" + failedSamples +
+                              " TotalDistance=" + totalDistance.ToString("F4"));
         }
 
         private static void RunOffsetCheckTest(VmmProcess process, ulong gameBase)
@@ -3337,6 +3514,25 @@ namespace Tool
             }
 
             Console.ReadKey(true);
+        }
+
+        private static void RunPartyMemberProbeTest(VmmProcess process, ulong gameBase)
+        {
+            bool printAllEntries = ReadBoolFromEnv("AION_PARTY_PRINT_ABNORMAL_ENTRIES", false);
+            List<PartyMemberProbeSnapshot> members;
+            string error;
+
+            Console.WriteLine("AION party member cache probe.");
+            Console.WriteLine("Reads PartyMemberRecord from primary/secondary party lists. CachedPosition is diagnostic only.");
+
+            if (TryReadPartyMemberProbeSnapshots(process, gameBase, out members, out error))
+            {
+                PrintPartyMemberProbeSnapshots(members, printAllEntries);
+            }
+            else
+            {
+                Console.WriteLine("Party member read failed: " + error);
+            }
         }
 
         private static void RunConditionProbeTest(VmmProcess process, ulong gameBase)
@@ -12486,6 +12682,169 @@ namespace Tool
                    snapshot.HasAbnormalBlock;
         }
 
+        private static bool TryReadPartyMemberProbeSnapshots(
+            VmmProcess process,
+            ulong gameBase,
+            out List<PartyMemberProbeSnapshot> snapshots,
+            out string error)
+        {
+            snapshots = new List<PartyMemberProbeSnapshot>();
+            error = null;
+
+            var seen = new HashSet<uint>();
+            string primaryError;
+            ReadPartyMemberProbeList(process, gameBase + PrimaryPartyListRva, "primary", snapshots, seen, out primaryError);
+
+            string secondaryError;
+            ReadPartyMemberProbeList(process, gameBase + SecondaryPartyListRva, "secondary", snapshots, seen, out secondaryError);
+
+            if (snapshots.Count == 0 && primaryError != null && secondaryError != null)
+            {
+                error = primaryError + "; " + secondaryError;
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool ReadPartyMemberProbeList(
+            VmmProcess process,
+            ulong listGlobalAddress,
+            string listName,
+            List<PartyMemberProbeSnapshot> snapshots,
+            HashSet<uint> seenServerObjectIds,
+            out string error)
+        {
+            error = null;
+
+            ulong head;
+            if (!TryReadPointer(process, listGlobalAddress, out head) || head == 0)
+            {
+                error = "failed to read " + listName + " party list head at " + FormatAddress(listGlobalAddress);
+                return false;
+            }
+
+            ulong node;
+            if (!TryReadPointer(process, head + ListNodeNextOffset, out node))
+            {
+                error = "failed to read " + listName + " party list first node";
+                return false;
+            }
+
+            int listIndex = 0;
+            var visited = new HashSet<ulong>();
+            for (int guard = 0; node != 0 && node != head && guard < 256; guard++)
+            {
+                if (!visited.Add(node))
+                {
+                    break;
+                }
+
+                ulong member;
+                if (TryReadPointer(process, node + PartyListNodeDataOffset, out member) && member != 0)
+                {
+                    PartyMemberProbeSnapshot snapshot;
+                    if (TryReadPartyMemberProbeSnapshot(process, member, node, listName, listIndex, out snapshot) &&
+                        (snapshot.ServerObjectId == 0 || seenServerObjectIds.Add(snapshot.ServerObjectId)))
+                    {
+                        snapshots.Add(snapshot);
+                    }
+                }
+
+                listIndex++;
+
+                ulong next;
+                if (!TryReadPointer(process, node + ListNodeNextOffset, out next) || next == node)
+                {
+                    break;
+                }
+
+                node = next;
+            }
+
+            return true;
+        }
+
+        private static bool TryReadPartyMemberProbeSnapshot(
+            VmmProcess process,
+            ulong member,
+            ulong node,
+            string listName,
+            int listIndex,
+            out PartyMemberProbeSnapshot snapshot)
+        {
+            snapshot = new PartyMemberProbeSnapshot
+            {
+                ListName = listName,
+                ListIndex = listIndex,
+                Node = node,
+                Member = member,
+                Entries = new List<AbnormalStatusEntry>()
+            };
+
+            if (!IsLikelyUserPointer(member))
+            {
+                return false;
+            }
+
+            TryReadUInt32(process, member + PartyMemberPartySlotOffset, out snapshot.PartySlot);
+            TryReadUInt32(process, member + PartyMemberServerObjectIdOffset, out snapshot.ServerObjectId);
+            TryReadUInt32(process, member + PartyMemberMaxHpOffset, out snapshot.MaxHp);
+            TryReadUInt32(process, member + PartyMemberCurrentHpOffset, out snapshot.CurrentHp);
+            TryReadUInt32(process, member + PartyMemberMaxMpOffset, out snapshot.MaxMp);
+            TryReadUInt32(process, member + PartyMemberCurrentMpOffset, out snapshot.CurrentMp);
+            TryReadUInt32(process, member + PartyMemberMaxFlightTimeOffset, out snapshot.MaxFlightTime);
+            TryReadUInt32(process, member + PartyMemberCurrentFlightTimeOffset, out snapshot.CurrentFlightTime);
+            TryReadUInt32(process, member + PartyMemberAreaField0Offset, out snapshot.AreaField0);
+            TryReadUInt32(process, member + PartyMemberAreaField1Offset, out snapshot.AreaField1);
+            TryReadSingle(process, member + PartyMemberCachedXOffset, out snapshot.CachedX);
+            TryReadSingle(process, member + PartyMemberCachedYOffset, out snapshot.CachedY);
+            TryReadSingle(process, member + PartyMemberCachedZOffset, out snapshot.CachedZ);
+            TryReadByte(process, member + PartyMemberClassIdOffset, out snapshot.ClassId);
+            TryReadByte(process, member + PartyMemberLevelOffset, out snapshot.Level);
+            TryReadByte(process, member + PartyMemberDataFlagsOffset, out snapshot.DataFlags);
+            TryReadByte(process, member + PartyMemberFlightAreaFlagOffset, out snapshot.FlightAreaFlag);
+            TryReadByte(process, member + PartyMemberFlightFlagsOffset, out snapshot.FlightFlags);
+            TryReadByte(process, member + PartyMemberRuntimeStateOffset, out snapshot.RuntimeState);
+            TryReadUtf16String(process, member + PartyMemberNameOffset, 26, out snapshot.Name);
+            TryReadUInt64(process, member + PartyMemberControlStatusMaskOffset, out snapshot.ControlStatusMask);
+
+            snapshot.HasAbnormalBlock = (snapshot.DataFlags & PartyMemberHasAbnormalBlockFlag) != 0;
+            TryReadInt16(process, member + PartyMemberAbnormalCountOffset, out snapshot.RawAbnormalCount);
+            TryReadUInt32(process, member + PartyMemberUpdateTimeOffset, out snapshot.UpdateTime);
+
+            int count = snapshot.RawAbnormalCount;
+            if (count < 0)
+            {
+                count = 0;
+            }
+            else if (count > PartyMemberMaxAbnormalCount)
+            {
+                count = PartyMemberMaxAbnormalCount;
+            }
+
+            ulong entriesAddress = member + PartyMemberAbnormalEntriesOffset;
+            for (int i = 0; i < count; i++)
+            {
+                AbnormalStatusEntry entry;
+                if (TryReadAbnormalStatusEntry(process, entriesAddress + (ulong)i * AbnormalEntrySize, out entry))
+                {
+                    snapshot.Entries.Add(entry);
+                    if (entry.DispelCategory == AbnormalCategoryPhysical)
+                    {
+                        snapshot.PhysicalCount++;
+                    }
+                }
+            }
+
+            return snapshot.ServerObjectId != 0 ||
+                   !string.IsNullOrWhiteSpace(snapshot.Name) ||
+                   snapshot.MaxHp != 0 ||
+                   snapshot.MaxMp != 0 ||
+                   snapshot.RawAbnormalCount != 0 ||
+                   snapshot.HasAbnormalBlock;
+        }
+
         private static bool TryReadInventorySnapshot(
             VmmProcess process,
             ulong gameBase,
@@ -15110,6 +15469,80 @@ namespace Tool
             }
         }
 
+        private static void PrintPartyMemberProbeSnapshots(List<PartyMemberProbeSnapshot> snapshots, bool printAllEntries)
+        {
+            Console.WriteLine("PartyMemberRecords Count=" + (snapshots == null ? 0 : snapshots.Count));
+            if (snapshots == null || snapshots.Count == 0)
+            {
+                Console.WriteLine("PartyMemberRecords=[]");
+                return;
+            }
+
+            for (int i = 0; i < snapshots.Count; i++)
+            {
+                Console.WriteLine(FormatPartyMemberProbeSnapshot(i + 1, snapshots[i]));
+                if (printAllEntries)
+                {
+                    PrintAbnormalEntries(snapshots[i].Entries, true);
+                }
+            }
+        }
+
+        private static string FormatPartyMemberProbeSnapshot(int index, PartyMemberProbeSnapshot snapshot)
+        {
+            return "Party#" + index.ToString("00") +
+                   " List=" + snapshot.ListName +
+                   " ListIndex=" + snapshot.ListIndex +
+                   " Node=" + FormatAddress(snapshot.Node) +
+                   " Member=" + FormatAddress(snapshot.Member) +
+                   " PartySlot=" + snapshot.PartySlot +
+                   " ServerId=" + snapshot.ServerObjectId +
+                   " Name=\"" + snapshot.Name + "\"" +
+                   " ClassId=" + snapshot.ClassId +
+                   " Level=" + snapshot.Level +
+                   " HP=" + snapshot.CurrentHp + "/" + snapshot.MaxHp +
+                   " HpPercent=" + FormatPercent(snapshot.CurrentHp, snapshot.MaxHp) +
+                   " Alive=" + FormatPartyAlive(snapshot) +
+                   " MP=" + snapshot.CurrentMp + "/" + snapshot.MaxMp +
+                   " MpPercent=" + FormatPercent(snapshot.CurrentMp, snapshot.MaxMp) +
+                   " FlightMs=" + snapshot.CurrentFlightTime + "/" + snapshot.MaxFlightTime +
+                   " Area=0x" + snapshot.AreaField0.ToString("X") + "/0x" + snapshot.AreaField1.ToString("X") +
+                   " CachedPositionCandidate=" + FormatPartyCachedPosition(snapshot) +
+                   " Flags=" + FormatPartyMemberFlags(snapshot) +
+                   " ControlMask=0x" + snapshot.ControlStatusMask.ToString("X") +
+                   " HasAbnormalBlock=" + (snapshot.HasAbnormalBlock ? "yes" : "no") +
+                   " RawAbnormalCount=" + snapshot.RawAbnormalCount +
+                   " EntryCount=" + (snapshot.Entries == null ? 0 : snapshot.Entries.Count) +
+                   " PhysicalCount=" + snapshot.PhysicalCount +
+                   " UpdateTime=0x" + snapshot.UpdateTime.ToString("X");
+        }
+
+        private static string FormatPartyAlive(PartyMemberProbeSnapshot snapshot)
+        {
+            if (snapshot.MaxHp == 0 && snapshot.CurrentHp == 0)
+            {
+                return "Unknown";
+            }
+
+            return snapshot.CurrentHp == 0 ? "Dead" : "Alive";
+        }
+
+        private static string FormatPartyCachedPosition(PartyMemberProbeSnapshot snapshot)
+        {
+            return "X=" + snapshot.CachedX.ToString("F2") +
+                   " Y=" + snapshot.CachedY.ToString("F2") +
+                   " Z=" + snapshot.CachedZ.ToString("F2") +
+                   " Source=PartyMemberRecordDiagnosticOnly";
+        }
+
+        private static string FormatPartyMemberFlags(PartyMemberProbeSnapshot snapshot)
+        {
+            return "Data=0x" + snapshot.DataFlags.ToString("X2") +
+                   " FlightArea=0x" + snapshot.FlightAreaFlag.ToString("X2") +
+                   " Flight=0x" + snapshot.FlightFlags.ToString("X2") +
+                   " Runtime=0x" + snapshot.RuntimeState.ToString("X2");
+        }
+
         private static List<LearnedSkillInfo> SelectHighestDisplaySkillPerName(List<LearnedSkillInfo> skills)
         {
             var selected = new Dictionary<string, LearnedSkillInfo>(StringComparer.Ordinal);
@@ -16514,6 +16947,14 @@ namespace Tool
                    "," + value.Z.ToString("F2") + ")";
         }
 
+        private static double DistanceBetween(Vec3 left, Vec3 right)
+        {
+            double dx = left.X - right.X;
+            double dy = left.Y - right.Y;
+            double dz = left.Z - right.Z;
+            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
         private static string FormatServerObjectId(LockedTargetMonsterInfo info)
         {
             return info.HasServerObjectId ? info.ServerObjectId.ToString() : "n/a";
@@ -16708,12 +17149,21 @@ namespace Tool
             return (current * 100.0 / max).ToString("F1") + "%";
         }
 
+        private const uint VmmReadFlagNoCache = 0x00000001;
+
+        private static byte[] MemRead(VmmProcess process, ulong address, uint count)
+        {
+            return ReadBoolFromEnv("AION_VMM_NOCACHE", false)
+                ? process.MemRead(address, count, VmmReadFlagNoCache)
+                : process.MemRead(address, count);
+        }
+
         private static bool TryReadByte(VmmProcess process, ulong address, out byte value)
         {
             value = 0;
             try
             {
-                var buffer = process.MemRead(address, 1);
+                var buffer = MemRead(process, address, 1);
                 if (buffer == null || buffer.Length < 1)
                 {
                     return false;
@@ -16733,7 +17183,7 @@ namespace Tool
             value = null;
             try
             {
-                var buffer = process.MemRead(address, (uint)count);
+                var buffer = MemRead(process, address, (uint)count);
                 if (buffer == null || buffer.Length < count)
                 {
                     return false;
@@ -16850,7 +17300,7 @@ namespace Tool
             value = 0;
             try
             {
-                var buffer = process.MemRead(address, 2);
+                var buffer = MemRead(process, address, 2);
                 if (buffer == null || buffer.Length < 2)
                 {
                     return false;
@@ -16870,7 +17320,7 @@ namespace Tool
             value = 0;
             try
             {
-                var buffer = process.MemRead(address, 2);
+                var buffer = MemRead(process, address, 2);
                 if (buffer == null || buffer.Length < 2)
                 {
                     return false;
@@ -16890,7 +17340,7 @@ namespace Tool
             value = 0;
             try
             {
-                var buffer = process.MemRead(address, 4);
+                var buffer = MemRead(process, address, 4);
                 if (buffer == null || buffer.Length < 4)
                 {
                     return false;
@@ -16910,7 +17360,7 @@ namespace Tool
             value = 0;
             try
             {
-                var buffer = process.MemRead(address, 8);
+                var buffer = MemRead(process, address, 8);
                 if (buffer == null || buffer.Length < 8)
                 {
                     return false;
@@ -16930,7 +17380,7 @@ namespace Tool
             value = 0;
             try
             {
-                var buffer = process.MemRead(address, 4);
+                var buffer = MemRead(process, address, 4);
                 if (buffer == null || buffer.Length < 4)
                 {
                     return false;

@@ -85,12 +85,14 @@
 | `Actor + ActorLevelOffset` | `+0x3E` | 等级；用于玩家显示和怪物/尸体元数据。 |
 | `Actor + ActorHpPercentOffset` | `+0x40` | HP 百分比；作为 actor/尸体状态的补充数据。 |
 | `Actor + ActorNameOffset` | `+0x42` | UTF-16 显示名；玩家、目标、周围怪物、尸体都读这里。 |
+| `Actor + ActorSummonOwnerServerObjectIdOffset` | `+0xFC` | 召唤物 owner server object id；用于把已加载宝宝/召唤物归属到本地角色或队伍成员。 |
 | `Actor + ActorInteractionStateOffset` | `+0x1CC` | 尸体交互状态；用于拾取诊断和尸体元数据。 |
 | `Actor + ActorMotionModeOffset` | `+0x2D0` | 动作模式；和 stance low nibble 一起判断坐地板维护状态。 |
 | `Actor + ActorTargetServerObjectIdOffset` | `+0x358` | actor 当前目标 server object id；用于判断怪物是否正在锁定本地角色。 |
 | `Actor + ActorAbnormalStatusBeginOffset` | `+0xF18` | 本地异常状态数组 begin 指针。 |
 | `Actor + ActorAbnormalStatusEndOffset` | `+0xF20` | 本地异常状态数组 end 指针。 |
 | `Actor + ActorAbnormalCategory2CountOffset` | `+0xF38` | 有害/物理类异常状态计数；坐地板前等待异常消失时使用。 |
+| `Actor + ActorCurrentSummonedPetServerObjectIdOffset` | `+0xFA0` | 角色当前召唤宝宝 server object id；当前用于本地精灵宝宝确认，扩展到非本地队员前需要 probe 验证。 |
 | `Actor + ActorMaxHpOffset` | `+0x11A0` | actor 最大 HP；用于目标生死判断和本地 HP fallback。 |
 | `Actor + ActorCurrentHpOffset` | `+0x11A4` | actor 当前 HP；用于目标生死判断和本地 HP fallback。 |
 | `Actor + ActorLootableFlagOffset` | `+0x11E0` | 尸体可拾取标记；用于优先拾取可拾取尸体。 |
