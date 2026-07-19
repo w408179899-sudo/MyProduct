@@ -42,7 +42,7 @@ public sealed class RoadhogRuntime
     private static readonly TimeSpan BagCleanupSellRegisterClickHoldDelay = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan BagCleanupSellRegisterAfterClickDelay = TimeSpan.FromMilliseconds(80);
     private static readonly int[] InventoryTitleDragXOffsets = { 160 };
-    private static readonly int[] InventoryTitleDragYOffsets = { 10, 5, 0, -5, -10, -15, -20, -25, -30 };
+    private static readonly int[] InventoryTitleDragYOffsets = { 0, -5, -10, -15, -20, -25, -30, -35, -40 };
     private const int BagSlotColumns = 9;
     private const int BagSlotsPerPage = 27;
     private const double DefaultBagSlot0CenterX = 30.0;
