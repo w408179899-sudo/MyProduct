@@ -44,6 +44,9 @@ public sealed class StationaryCombatController
     private const int DefaultPostReviveScrollCount = 30;
     private const int DefaultPostReviveScrollDelta = -1;
     private const int DefaultPostCombatMaintenanceRoundLimit = 8;
+    private const int CameraTurnRecoveryFailureThreshold = 3;
+    private const int CameraTurnRecoveryReleaseMs = 80;
+    private const int CameraTurnRecoveryWarmupMs = 80;
     private const ushort NpcEntityType = 3;
 
     private readonly IKeyboardInput _input;
@@ -5680,6 +5683,44 @@ public sealed class StationaryCombatController
         }
     }
 
+    private async Task<bool> ForceResetRightMouseAfterTurnFailuresAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        int failureCount)
+    {
+        var up = await _input.MouseUpAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
+        state.IsRightMouseDown = false;
+        await DelayAsync(TimeSpan.FromMilliseconds(CameraTurnRecoveryReleaseMs), context).ConfigureAwait(false);
+
+        var down = await _input.MouseDownAsync(RoadhogMouseButton.Right, context.StopToken).ConfigureAwait(false);
+        state.IsRightMouseDown = down.Success;
+        if (down.Success)
+        {
+            await DelayAsync(TimeSpan.FromMilliseconds(CameraTurnRecoveryWarmupMs), context).ConfigureAwait(false);
+        }
+
+        var fields = new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["consecutiveFailures"] = failureCount,
+            ["releaseMs"] = CameraTurnRecoveryReleaseMs,
+            ["warmupMs"] = CameraTurnRecoveryWarmupMs,
+            ["mouseUpSuccess"] = up.Success,
+            ["mouseDownSuccess"] = down.Success
+        };
+        if (up.Success && down.Success)
+        {
+            context.Logger.Info("stationary_combat.right_mouse.recovered", fields);
+        }
+        else
+        {
+            fields["error"] = down.Success ? up.Error : down.Error;
+            context.Logger.Warn("stationary_combat.right_mouse.recovery_failed", fields);
+        }
+
+        return down.Success;
+    }
+
     private async Task StopMovementBestEffortAsync(
         AccountWorkerContext context,
         StationaryCombatState state)
@@ -5848,6 +5889,7 @@ public sealed class StationaryCombatController
                 });
 
                 await DragCameraCombinedChunksAsync(context, dx, dy, options).ConfigureAwait(false);
+                result.MouseMoveAttempted |= dx != 0 || dy != 0;
                 result.TotalDx += dx;
                 result.TotalDy += dy;
                 await DelayAsync(TimeSpan.FromMilliseconds(options.MouseHoldAfterMoveMs), context).ConfigureAwait(false);
@@ -5864,6 +5906,7 @@ public sealed class StationaryCombatController
                     break;
                 }
 
+                result.AngleChangeObserved = true;
                 result.FinalYawError = afterSnapshot.YawError;
                 result.FinalPitchError = afterSnapshot.PitchError;
                 var verification = VerifyCameraTurn(
@@ -5896,6 +5939,24 @@ public sealed class StationaryCombatController
                 if (!verification.AnyImproved)
                 {
                     break;
+                }
+            }
+
+            if (result.Success || result.AngleChangeObserved)
+            {
+                state.ResetCameraTurnNoChange();
+            }
+            else if (result.MouseMoveAttempted)
+            {
+                var failureCount = state.MarkCameraTurnNoChange();
+                if (failureCount >= CameraTurnRecoveryFailureThreshold)
+                {
+                    mouseDownStartedHere = await ForceResetRightMouseAfterTurnFailuresAsync(
+                            context,
+                            state,
+                            failureCount)
+                        .ConfigureAwait(false);
+                    state.ResetCameraTurnNoChange();
                 }
             }
         }
@@ -7619,6 +7680,10 @@ public sealed class StationaryCombatController
     private sealed class CombinedTurnResult
     {
         public bool Success { get; set; }
+
+        public bool MouseMoveAttempted { get; set; }
+
+        public bool AngleChangeObserved { get; set; }
         public double FinalYawError { get; set; }
         public double FinalPitchError { get; set; }
         public int TotalDx { get; set; }

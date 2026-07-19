@@ -182,6 +182,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("worker ensures spiritmaster pet before normal work", TestWorkerEnsuresSpiritmasterPetBeforeNormalWorkAsync),
     ("worker waits for spiritmaster pet summon verification", TestWorkerWaitsForSpiritmasterPetSummonVerificationAsync),
     ("stationary combat faces selected target before tab", TestStationaryCombatFacesTargetBeforeTabAsync),
+    ("stationary combat resets right mouse after repeated unchanged turns", TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurnsAsync),
     ("stationary combat target pitch follows target height", TestStationaryCombatTargetPitchFollowsTargetHeightAsync),
     ("stationary combat accepts twenty five degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyFiveDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
@@ -7658,6 +7659,89 @@ static async Task TestStationaryCombatFacesTargetBeforeTabAsync()
     finally
     {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatResetsRightMouseAfterRepeatedUnchangedTurnsAsync()
+{
+    var environment = new Dictionary<string, string?>
+    {
+        ["AION_FACE_TARGET_BEARING_MODE"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE"),
+        ["AION_FACE_TARGET_SETTLE_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_SETTLE_MS"),
+        ["AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS"),
+        ["AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS"),
+        ["AION_FACE_TARGET_DRAG_STEP_DELAY_MS"] = Environment.GetEnvironmentVariable("AION_FACE_TARGET_DRAG_STEP_DELAY_MS")
+    };
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_SETTLE_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_ADAPTIVE_READ_TIMEOUT_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_DRAG_STEP_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
+            TargetEntityId = 0,
+            TargetCurrentHp = 1000,
+            TargetPosition = new Vector3Snapshot(5, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var semiAutoState = new SemiAutoCombatState();
+        var state = new StationaryCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(
+            logger.Entries.Any(entry => entry.EventName == "stationary_combat.right_mouse.recovered"),
+            "right mouse recovery should not run before the third unchanged turn");
+        AssertEqual(2, state.ConsecutiveCameraTurnNoChangeCount, "unchanged turn count before recovery");
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        var recovery = logger.Entries.SingleOrDefault(entry => entry.EventName == "stationary_combat.right_mouse.recovered");
+        AssertFalse(recovery is null, "third unchanged turn should force right mouse recovery");
+        AssertEqual(3, Convert.ToInt32(recovery!.Fields["consecutiveFailures"]), "right mouse recovery failure threshold");
+        AssertEqual(0, state.ConsecutiveCameraTurnNoChangeCount, "successful recovery should reset unchanged turn count");
+    }
+    finally
+    {
+        foreach (var pair in environment)
+        {
+            Environment.SetEnvironmentVariable(pair.Key, pair.Value);
+        }
     }
 }
 

@@ -27,6 +27,8 @@ public sealed class StationaryCombatState
 
     public bool IsRightMouseDown { get; set; }
 
+    public int ConsecutiveCameraTurnNoChangeCount { get; private set; }
+
     public ushort CurrentTargetEntityId { get; set; }
 
     public uint CurrentTargetServerObjectId { get; set; }
@@ -242,6 +244,17 @@ public sealed class StationaryCombatState
         CombatApproachLastProgressAt = DateTimeOffset.MinValue;
         LastCombatApproachJumpAt = DateTimeOffset.MinValue;
         CombatApproachJumpCount = 0;
+    }
+
+    public int MarkCameraTurnNoChange()
+    {
+        ConsecutiveCameraTurnNoChangeCount++;
+        return ConsecutiveCameraTurnNoChangeCount;
+    }
+
+    public void ResetCameraTurnNoChange()
+    {
+        ConsecutiveCameraTurnNoChangeCount = 0;
     }
 
     public void SetCurrentTarget(WorldObjectSnapshot target)
