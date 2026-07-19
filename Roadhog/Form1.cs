@@ -1302,26 +1302,7 @@ namespace Roadhog
 
         private string ResolveTopBarProcessIdText()
         {
-            var snapshot = ResolveTopBarSnapshot();
-            return snapshot is not null && snapshot.ProcessId > 0
-                ? snapshot.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                : "-";
-        }
-
-        private Core.Accounts.AccountRuntimeSnapshot? ResolveTopBarSnapshot()
-        {
-            var snapshots = _services.AccountOrchestrator.Snapshot();
-            foreach (var account in _accounts)
-            {
-                var snapshot = snapshots.FirstOrDefault(item =>
-                    string.Equals(item.AccountName, account.Account, StringComparison.OrdinalIgnoreCase));
-                if (snapshot is not null)
-                {
-                    return snapshot;
-                }
-            }
-
-            return snapshots.FirstOrDefault(item => item.ProcessId > 0) ?? snapshots.FirstOrDefault();
+            return Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         private string ResolveWindowTitleHardwareKey()
