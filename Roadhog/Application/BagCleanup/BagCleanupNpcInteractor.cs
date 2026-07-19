@@ -7,8 +7,8 @@ namespace Roadhog.Application.BagCleanup;
 public sealed class BagCleanupNpcInteractor
 {
     private static readonly TimeSpan F8HoldDuration = TimeSpan.FromMilliseconds(35);
-    private static readonly TimeSpan InteractHoldDuration = TimeSpan.FromMilliseconds(35);
-    private static readonly TimeSpan DialogOpenDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan InteractHoldDuration = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan DialogOpenDelay = TimeSpan.FromSeconds(4);
 
     private readonly IKeyboardInput _input;
 

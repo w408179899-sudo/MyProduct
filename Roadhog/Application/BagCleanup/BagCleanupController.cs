@@ -17,7 +17,7 @@ public sealed class BagCleanupController
     private static readonly TimeSpan TownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan TownReturnInterruptEscapeHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan TownReturnInterruptEscapeInterval = TimeSpan.FromMilliseconds(100);
-    private static readonly TimeSpan DefaultTownReturnSettleDelay = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan DefaultTownReturnTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DefaultSafeWaitTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan DefaultCleanupCooldown = TimeSpan.FromMinutes(25);
 
@@ -293,11 +293,6 @@ public sealed class BagCleanupController
             return interrupted;
         }
 
-        if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnSettleDelay())
-        {
-            return BagCleanupTickResult.Running("waiting_for_town_return");
-        }
-
         if (state.TownReturnStartPosition is not { } startPosition)
         {
             return RecoverableFailure(
@@ -310,6 +305,11 @@ public sealed class BagCleanupController
         var after = await BagCleanupGameApi.ReadPlayerAsync(context).ConfigureAwait(false);
         if (!after.Success || after.Value?.Position is not { } endPosition)
         {
+            if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnTimeout())
+            {
+                return BagCleanupTickResult.Running("waiting_for_town_return_position");
+            }
+
             return RecoverableFailure(
                 context,
                 state,
@@ -321,6 +321,11 @@ public sealed class BagCleanupController
         var requiredDistance = ReadTownReturnMinDistance();
         if (distance < requiredDistance)
         {
+            if (DateTimeOffset.Now - state.StepStartedAt < ReadTownReturnTimeout())
+            {
+                return BagCleanupTickResult.Running("waiting_for_town_return");
+            }
+
             return RecoverableFailure(
                 context,
                 state,
@@ -987,11 +992,11 @@ public sealed class BagCleanupController
             (int)fallback.TotalMilliseconds));
     }
 
-    private static TimeSpan ReadTownReturnSettleDelay()
+    private static TimeSpan ReadTownReturnTimeout()
     {
         return TimeSpan.FromMilliseconds(ReadIntFromEnv(
             "ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS",
-            (int)DefaultTownReturnSettleDelay.TotalMilliseconds));
+            (int)DefaultTownReturnTimeout.TotalMilliseconds));
     }
 
     private static TimeSpan ReadSafeWaitTimeout()
@@ -1008,7 +1013,7 @@ public sealed class BagCleanupController
 
     private static double ReadTownReturnMinDistance()
     {
-        return ReadDoubleFromEnv("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", 5.0D);
+        return ReadDoubleFromEnv("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", 20.0D);
     }
 
     private static int ReadIntFromEnv(string name, int fallback)

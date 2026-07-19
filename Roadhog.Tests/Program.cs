@@ -128,6 +128,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("runtime tests bag cleanup from npc through sell", TestRuntimeTestsBagCleanupFromNpcThroughSellAsync),
     ("bag cleanup controller stays inactive when disabled", TestBagCleanupControllerSkipsWhenDisabledAsync),
     ("bag cleanup controller sells configured items and returns", TestBagCleanupControllerSellsItemsAndReturnsAsync),
+    ("bag cleanup controller detects town return before timeout", TestBagCleanupControllerDetectsTownReturnBeforeTimeoutAsync),
     ("bag cleanup controller abandons town return when attacked", TestBagCleanupControllerAbandonsTownReturnWhenAttackedAsync),
     ("bag cleanup controller reverses cleanup path when follow fails", TestBagCleanupControllerReversesCleanupPathWhenFollowFailsAsync),
     ("bag cleanup controller sells more than three items in batches", TestBagCleanupControllerSellsMoreThanThreeItemsInBatchesAsync),
@@ -3907,6 +3908,79 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousMouseStep);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_ATTEMPTS", previousNpcAttempts);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", previousNpcSelectDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
+    }
+}
+
+static async Task TestBagCleanupControllerDetectsTownReturnBeforeTimeoutAsync()
+{
+    var previousTownSettle = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS");
+    var previousTownMinDistance = Environment.GetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE");
+    try
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", "30000");
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", "20");
+
+        var logger = new InMemoryRoadhogLogger();
+        var keyboard = new RecordingKeyboardInput();
+        var gameApi = new FakeGameApi
+        {
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetName = string.Empty,
+            TargetIsTargetingLocalPlayer = false,
+            InventoryCapacity = 10,
+            InventoryItems = new[]
+            {
+                new InventoryItemSnapshot(167000450, 10, "green-manastone", 1, 0, false, 24, 2),
+                new InventoryItemSnapshot(1001, 11, "filler-1", 1, 1, false, 1, 1),
+                new InventoryItemSnapshot(1002, 12, "filler-2", 1, 2, false, 1, 1),
+                new InventoryItemSnapshot(1003, 13, "filler-3", 1, 3, false, 1, 1),
+                new InventoryItemSnapshot(1004, 14, "filler-4", 1, 4, false, 1, 1),
+                new InventoryItemSnapshot(1005, 15, "filler-5", 1, 5, false, 1, 1),
+                new InventoryItemSnapshot(1006, 16, "filler-6", 1, 6, false, 1, 1)
+            }
+        };
+        var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+        rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenManastone).Enabled = true;
+        var settings = CreateScriptSettings();
+        settings.Paths.TownReturnKey = "NumPad7";
+        settings.Paths.MaintenancePathName = "cleanup-path";
+        settings.Maintenance = new MaintenanceScriptSettings
+        {
+            BagCleanupEnabled = true,
+            BagCleanupThreshold = 5,
+            BagCleanupRules = rules
+        };
+        var controller = new BagCleanupController(
+            keyboard,
+            new InMemorySharedPathStore(),
+            (context, pathName, points) => Task.FromResult(OperationResult.Ok()));
+        var state = new BagCleanupState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+        await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+        await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+
+        AssertEqual(BagCleanupStep.WaitTownReturnSettle, state.Step, "cleanup should wait after pressing town return");
+        var unchanged = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+        AssertEqual("waiting_for_town_return", unchanged.Reason, "unchanged position should keep waiting before timeout");
+
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(19, 0, 0) };
+        var belowThreshold = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+        AssertEqual("waiting_for_town_return", belowThreshold.Reason, "movement below twenty should keep waiting");
+
+        gameApi.Player = gameApi.Player with { Position = new Vector3Snapshot(20, 0, 0) };
+        var detected = await controller.TickAfterLootAsync(context, state).ConfigureAwait(false);
+        AssertEqual("town_return_settled", detected.Reason, "movement of twenty should confirm town return immediately");
+        AssertEqual(BagCleanupStep.LoadCleanupPath, state.Step, "confirmed town return should load cleanup path next");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "bag_cleanup.return.verify.ok"), "early town return should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_SETTLE_MS", previousTownSettle);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
     }
 }
