@@ -19,6 +19,7 @@ namespace Roadhog
         private readonly HashSet<string> _playerInfoRefreshInFlight = new(StringComparer.OrdinalIgnoreCase);
         private readonly System.Windows.Forms.Timer _uiRefreshTimer = new() { Interval = 1000 };
 
+        private DateTimeOffset _topBarStatusMessageExpiresAt = DateTimeOffset.MinValue;
         private bool _suppressFpgaSelectionChanged;
         private bool _suppressHardwareInputChanged;
         private int _accountRows;
@@ -33,6 +34,7 @@ namespace Roadhog
             RefreshVmmDeviceCombo();
             LoadKmBoxNetInputs();
             UpdateWindowTitle();
+            UpdateTopBarProcessId();
             RefreshMissingPlayerInfoForRows();
             _uiRefreshTimer.Tick += UiRefreshTimer_Tick;
             _uiRefreshTimer.Start();
@@ -318,6 +320,7 @@ namespace Roadhog
             RefreshFpgaDeviceCombo();
             RefreshVmmDeviceCombo();
             UpdateWindowTitle();
+            UpdateTopBarProcessId(force: true);
             RefreshMissingPlayerInfoForRows();
         }
 
@@ -798,8 +801,7 @@ namespace Roadhog
             button.Enabled = false;
             var oldText = button.Text;
             button.Text = "\u8bfb\u53d6\u4e2d...";
-            kmboxStatusLabel.ForeColor = Color.FromArgb(22, 101, 52);
-            kmboxStatusLabel.Text = "VMM " + vmmDeviceName + " \u8bfb\u53d6\u4e2d";
+            ShowTopBarStatusMessage("VMM " + vmmDeviceName + " \u8bfb\u53d6\u4e2d", Color.FromArgb(22, 101, 52), TimeSpan.FromSeconds(30));
             try
             {
                 var accountName = _accounts.FirstOrDefault()?.Account
@@ -808,8 +810,7 @@ namespace Roadhog
                 var result = await ReadPlayerForVmmDeviceAsync(accountName, vmmDeviceName).ConfigureAwait(true);
                 if (!result.Success || result.Value is null)
                 {
-                    kmboxStatusLabel.ForeColor = Color.FromArgb(166, 40, 40);
-                    kmboxStatusLabel.Text = "VMM\u8bfb\u53d6\u5931\u8d25: " + (result.Error ?? vmmDeviceName);
+                    ShowTopBarStatusMessage("VMM\u8bfb\u53d6\u5931\u8d25: " + (result.Error ?? vmmDeviceName), Color.FromArgb(166, 40, 40), TimeSpan.FromSeconds(8));
                     return;
                 }
 
@@ -818,15 +819,15 @@ namespace Roadhog
                 var characterText = string.IsNullOrWhiteSpace(player.CharacterName)
                     ? "entity=" + player.EntityId.ToString(System.Globalization.CultureInfo.InvariantCulture)
                     : player.CharacterName.Trim();
-                kmboxStatusLabel.ForeColor = Color.FromArgb(22, 101, 52);
-                kmboxStatusLabel.Text = string.IsNullOrWhiteSpace(levelClass)
+                ShowTopBarStatusMessage(string.IsNullOrWhiteSpace(levelClass)
                     ? "VMM OK " + characterText
-                    : levelClass + " " + characterText;
+                    : levelClass + " " + characterText, Color.FromArgb(22, 101, 52), TimeSpan.FromSeconds(6));
             }
             finally
             {
                 button.Text = oldText;
                 button.Enabled = true;
+                UpdateTopBarProcessId();
             }
         }
 
@@ -947,6 +948,7 @@ namespace Roadhog
             {
                 UpdateAccountRuntimeDisplay(account, updateHardwareKey: true);
                 UpdateWindowTitle();
+                UpdateTopBarProcessId(force: true);
             }
         }
 
@@ -966,6 +968,7 @@ namespace Roadhog
             {
                 UpdateAccountRuntimeDisplay(account, updateHardwareKey: false);
                 UpdateWindowTitle();
+                UpdateTopBarProcessId(force: true);
             }
         }
 
@@ -1113,6 +1116,7 @@ namespace Roadhog
             }
 
             UpdateWindowTitle();
+            UpdateTopBarProcessId();
         }
 
         private bool ShouldRefreshPlayerInfo(AccountRowModel row, Core.Accounts.AccountRuntimeSnapshot snapshot)
@@ -1275,6 +1279,49 @@ namespace Roadhog
                 ResolveWindowTitleHardwareKey(),
                 _services.KeyboardDeviceText,
                 ResolveWindowTitleCharacterName());
+        }
+
+        private void UpdateTopBarProcessId(bool force = false)
+        {
+            if (!force && DateTimeOffset.Now < _topBarStatusMessageExpiresAt)
+            {
+                return;
+            }
+
+            _topBarStatusMessageExpiresAt = DateTimeOffset.MinValue;
+            kmboxStatusLabel.ForeColor = Color.FromArgb(22, 101, 52);
+            SetTextIfChanged(kmboxStatusLabel, "PID: " + ResolveTopBarProcessIdText());
+        }
+
+        private void ShowTopBarStatusMessage(string message, Color color, TimeSpan duration)
+        {
+            _topBarStatusMessageExpiresAt = DateTimeOffset.Now + duration;
+            kmboxStatusLabel.ForeColor = color;
+            SetTextIfChanged(kmboxStatusLabel, message);
+        }
+
+        private string ResolveTopBarProcessIdText()
+        {
+            var snapshot = ResolveTopBarSnapshot();
+            return snapshot is not null && snapshot.ProcessId > 0
+                ? snapshot.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : "-";
+        }
+
+        private Core.Accounts.AccountRuntimeSnapshot? ResolveTopBarSnapshot()
+        {
+            var snapshots = _services.AccountOrchestrator.Snapshot();
+            foreach (var account in _accounts)
+            {
+                var snapshot = snapshots.FirstOrDefault(item =>
+                    string.Equals(item.AccountName, account.Account, StringComparison.OrdinalIgnoreCase));
+                if (snapshot is not null)
+                {
+                    return snapshot;
+                }
+            }
+
+            return snapshots.FirstOrDefault(item => item.ProcessId > 0) ?? snapshots.FirstOrDefault();
         }
 
         private string ResolveWindowTitleHardwareKey()
