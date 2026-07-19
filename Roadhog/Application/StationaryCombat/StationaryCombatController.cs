@@ -4944,12 +4944,163 @@ public sealed class StationaryCombatController
             candidates = candidates.Where(target => !IsClaimedByOther(target, state));
         }
 
-        return StationaryCombatTargetSelector.SelectNearest(
+        var selected = StationaryCombatTargetSelector.SelectNearest(
             candidates,
             playerPosition,
             home,
             radius,
             preferAggressiveMonsters);
+        if (selected is null)
+        {
+            LogNoTargetScan(
+                context,
+                state,
+                objects,
+                playerPosition,
+                home,
+                radius,
+                allowClaimedByOther,
+                activeMonsterNameFilters);
+        }
+
+        return selected;
+    }
+
+    private static void LogNoTargetScan(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        IReadOnlyList<WorldObjectSnapshot> objects,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double radius,
+        bool allowClaimedByOther,
+        IReadOnlyList<string> activeMonsterNameFilters)
+    {
+        var monsterObjects = objects
+            .Where(target => string.Equals(target.ObjectKind, "monster", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var aliveMonsters = monsterObjects
+            .Where(target => target.IsAlive)
+            .ToArray();
+        var selectableMonsters = aliveMonsters
+            .Where(target => target.Position is not null)
+            .ToArray();
+        var monstersWithPosition = selectableMonsters
+            .Where(target => target.Position is not null)
+            .ToArray();
+        var monstersWithoutPosition = aliveMonsters
+            .Where(target => target.Position is null)
+            .ToArray();
+        var ignored = monstersWithPosition
+            .Where(state.IsTargetIgnored)
+            .ToArray();
+        var activeFiltered = monstersWithPosition
+            .Where(target => IsActiveMonsterFiltered(target, activeMonsterNameFilters))
+            .ToArray();
+        var claimedByOther = allowClaimedByOther
+            ? Array.Empty<WorldObjectSnapshot>()
+            : monstersWithPosition
+                .Where(target => !state.IsTargetIgnored(target))
+                .Where(target => !IsActiveMonsterFiltered(target, activeMonsterNameFilters))
+                .Where(target => IsClaimedByOther(target, state))
+                .ToArray();
+        var finalCandidates = monstersWithPosition
+            .Where(target => !state.IsTargetIgnored(target))
+            .Where(target => !IsActiveMonsterFiltered(target, activeMonsterNameFilters))
+            .Where(target => allowClaimedByOther || !IsClaimedByOther(target, state))
+            .Where(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, home) <= radius)
+            .ToArray();
+        var insideHomeRadius = monstersWithPosition
+            .Where(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, home) <= radius)
+            .ToArray();
+        var insidePlayerRadius = monstersWithPosition
+            .Where(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition) <= radius)
+            .ToArray();
+        var nearestSamples = monstersWithPosition
+            .OrderBy(target => StationaryCombatTargetSelector.HorizontalDistance(target.Position!.Value, playerPosition))
+            .ThenBy(target => target.ServerObjectId)
+            .ThenBy(target => target.EntityId)
+            .Take(5)
+            .Select(target => FormatTargetScanSample(target, playerPosition, home, radius, state, activeMonsterNameFilters, allowClaimedByOther))
+            .ToArray();
+
+        LogActionThrottled(context, state, "stationary_combat.target.scan_none", "normal", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["worldObjectCount"] = objects.Count,
+            ["monsterObjectCount"] = monsterObjects.Length,
+            ["aliveMonsterCount"] = aliveMonsters.Length,
+            ["selectableMonsterCount"] = selectableMonsters.Length,
+            ["monsterWithPositionCount"] = monstersWithPosition.Length,
+            ["monsterWithoutPositionCount"] = monstersWithoutPosition.Length,
+            ["insideHomeRadiusCount"] = insideHomeRadius.Length,
+            ["insidePlayerRadiusCount"] = insidePlayerRadius.Length,
+            ["ignoredCount"] = ignored.Length,
+            ["activeFilteredCount"] = activeFiltered.Length,
+            ["claimedByOtherCount"] = claimedByOther.Length,
+            ["finalCandidateCount"] = finalCandidates.Length,
+            ["radius"] = Math.Round(radius, 2),
+            ["homeX"] = Math.Round(home.X, 2),
+            ["homeY"] = Math.Round(home.Y, 2),
+            ["playerX"] = Math.Round(playerPosition.X, 2),
+            ["playerY"] = Math.Round(playerPosition.Y, 2),
+            ["allowClaimedByOther"] = allowClaimedByOther,
+            ["activeMonsterFilters"] = string.Join(",", activeMonsterNameFilters),
+            ["nearestSamples"] = string.Join(" | ", nearestSamples)
+        }, TimeSpan.FromSeconds(1));
+    }
+
+    private static string FormatTargetScanSample(
+        WorldObjectSnapshot target,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double radius,
+        StationaryCombatState state,
+        IReadOnlyList<string> activeMonsterNameFilters,
+        bool allowClaimedByOther)
+    {
+        var playerDistance = target.Position is null
+            ? double.NaN
+            : StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, playerPosition);
+        var homeDistance = target.Position is null
+            ? double.NaN
+            : StationaryCombatTargetSelector.HorizontalDistance(target.Position.Value, home);
+        var reasons = new List<string>();
+        if (state.IsTargetIgnored(target))
+        {
+            reasons.Add("ignored");
+        }
+
+        if (IsActiveMonsterFiltered(target, activeMonsterNameFilters))
+        {
+            reasons.Add("name_filtered");
+        }
+
+        if (!allowClaimedByOther && IsClaimedByOther(target, state))
+        {
+            reasons.Add("claimed");
+        }
+
+        if (!double.IsNaN(homeDistance) && homeDistance > radius)
+        {
+            reasons.Add("outside_home");
+        }
+
+        if (reasons.Count == 0)
+        {
+            reasons.Add("candidate");
+        }
+
+        return string.Join(
+            ",",
+            target.Name,
+            "entity=" + target.EntityId,
+            "server=" + target.ServerObjectId,
+            "playerDist=" + Math.Round(playerDistance, 2),
+            "homeDist=" + Math.Round(homeDistance, 2),
+            "targetServer=" + target.TargetServerObjectId,
+            "hp=" + target.CurrentHp + "/" + target.MaxHp,
+            "reason=" + string.Join("+", reasons));
     }
 
     private async Task<WorldObjectSnapshot?> SelectMaintenanceDefenseTargetAsync(
