@@ -19,6 +19,7 @@ using Roadhog.Core.Profiles;
 using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Composition;
 using Roadhog.Infrastructure.Diagnostics;
+using Roadhog.Infrastructure.Hardware;
 using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
@@ -141,6 +142,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
     ("kmbox net keyboard input accepts team keys", TestKmBoxNetKeyboardInputAcceptsTeamKeysAsync),
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
+    ("device lease store prevents cross process device reuse", TestDeviceLeaseStorePreventsCrossProcessReuseAsync),
     ("service options use client root environment", TestRoadhogServiceOptionsUseClientRootEnvironmentAsync),
     ("services load kmbox net config before input creation", TestRoadhogServicesLoadsKmBoxNetConfigAsync),
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
@@ -5060,6 +5062,64 @@ static async Task TestKmBoxNetConfigStoreRoundTripAsync()
     {
         DeleteDirectoryIfExists(directory);
     }
+}
+
+static Task TestDeviceLeaseStorePreventsCrossProcessReuseAsync()
+{
+    var directory = CreateTempDirectory("roadhog-device-leases-");
+    try
+    {
+        var path = Path.Combine(directory, "device-leases.json");
+        var now = new DateTimeOffset(2026, 7, 19, 10, 0, 0, TimeSpan.Zero);
+        var aliveProcesses = new HashSet<int> { 101, 202 };
+        var processStarts = new Dictionary<int, DateTimeOffset>
+        {
+            [101] = now.AddMinutes(-2),
+            [202] = now.AddMinutes(-1)
+        };
+        var store = new DeviceLeaseStore(
+            path,
+            () => now,
+            (processId, processStartedAtUtc) =>
+                aliveProcesses.Contains(processId) &&
+                processStarts.TryGetValue(processId, out var expectedStart) &&
+                expectedStart == processStartedAtUtc);
+
+        var first = store.TryAcquire(101, processStarts[101], @"C:\script\1", "P0004.H0002", "fpga");
+        AssertFalse(!first.Success, "first process should acquire its devices");
+
+        var hardwareConflict = store.TryAcquire(202, processStarts[202], @"C:\script\2", "P0004.H0002", "fpga://devindex=1");
+        AssertFalse(hardwareConflict.Success, "second process should not acquire occupied hardware");
+        AssertEqual(101, hardwareConflict.Conflict?.ProcessId ?? 0, "hardware conflict owner pid");
+
+        var vmmConflict = store.TryAcquire(202, processStarts[202], @"C:\script\2", "P0004.H0003", "fpga://devindex=0");
+        AssertFalse(vmmConflict.Success, "fpga alias should conflict with indexed VMM zero");
+
+        var second = store.TryAcquire(202, processStarts[202], @"C:\script\2", "P0004.H0003", "fpga://devindex=1");
+        AssertFalse(!second.Success, "second process should acquire a different hardware and VMM pair");
+
+        var active = store.ReadActive();
+        AssertFalse(!active.Success, "active leases should load");
+        AssertEqual(2, active.Value?.Count ?? 0, "active device lease count");
+
+        aliveProcesses.Remove(101);
+        var afterExit = store.ReadActive();
+        AssertFalse(!afterExit.Success, "dead process lease cleanup should succeed");
+        AssertEqual(1, afterExit.Value?.Count ?? 0, "dead process lease should be removed");
+
+        var reclaimed = store.TryAcquire(202, processStarts[202], @"C:\script\2", "P0004.H0002", "fpga");
+        AssertFalse(!reclaimed.Success, "remaining process should reclaim devices released by a dead process");
+
+        var release = store.Release(202, processStarts[202]);
+        AssertFalse(!release.Success, "device lease release should succeed");
+        AssertEqual(0, store.ReadActive().Value?.Count ?? -1, "released lease count");
+    }
+    finally
+    {
+        DeleteDirectoryIfExists(directory);
+    }
+
+    return Task.CompletedTask;
 }
 
 static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()

@@ -18,8 +18,14 @@ namespace Roadhog
         private readonly Dictionary<string, DateTimeOffset> _lastPlayerInfoRefreshAt = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _playerInfoRefreshInFlight = new(StringComparer.OrdinalIgnoreCase);
         private readonly System.Windows.Forms.Timer _uiRefreshTimer = new() { Interval = 1000 };
+        private readonly Infrastructure.Hardware.DeviceLeaseStore _deviceLeaseStore = new();
+        private readonly DateTimeOffset _processStartedAtUtc = ResolveCurrentProcessStartTimeUtc();
 
         private DateTimeOffset _topBarStatusMessageExpiresAt = DateTimeOffset.MinValue;
+        private IReadOnlyList<Infrastructure.Hardware.DeviceLease> _otherDeviceLeases = Array.Empty<Infrastructure.Hardware.DeviceLease>();
+        private Infrastructure.Hardware.DeviceLease? _deviceLease;
+        private string _otherDeviceLeaseFingerprint = string.Empty;
+        private string _lastDeviceLeaseError = string.Empty;
         private bool _suppressFpgaSelectionChanged;
         private bool _suppressHardwareInputChanged;
         private int _accountRows;
@@ -29,6 +35,8 @@ namespace Roadhog
             InitializeComponent();
             ApplyApplicationIcon();
             RebuildAccountsFromDevices();
+            TryAcquireConfiguredDeviceLease();
+            RefreshDeviceLeaseState(refreshListsWhenChanged: false);
             BuildAccountTable();
             RefreshFpgaDeviceCombo();
             RefreshVmmDeviceCombo();
@@ -44,6 +52,7 @@ namespace Roadhog
         {
             _uiRefreshTimer.Stop();
             _uiRefreshTimer.Dispose();
+            _deviceLeaseStore.Release(Environment.ProcessId, _processStartedAtUtc);
             _services.Dispose();
             base.OnFormClosed(e);
         }
@@ -316,6 +325,8 @@ namespace Roadhog
         private void RefreshDevicesButton_Click(object? sender, EventArgs e)
         {
             RebuildAccountsFromDevices();
+            TryAcquireConfiguredDeviceLease();
+            RefreshDeviceLeaseState(refreshListsWhenChanged: false);
             BuildAccountTable();
             RefreshFpgaDeviceCombo();
             RefreshVmmDeviceCombo();
@@ -324,10 +335,12 @@ namespace Roadhog
             RefreshMissingPlayerInfoForRows();
         }
 
-        private void RefreshFpgaDeviceCombo()
+        private void RefreshFpgaDeviceCombo(string? preferredHardwareKey = null)
         {
-            var selectedHardwareKey = ResolvePreferredFpgaSelectionKey();
-            var devices = ListAvailableFpgaDevices();
+            var selectedHardwareKey = string.IsNullOrWhiteSpace(preferredHardwareKey)
+                ? ResolvePreferredFpgaSelectionKey()
+                : preferredHardwareKey.Trim();
+            var devices = ListSelectableFpgaDevices();
 
             _suppressFpgaSelectionChanged = true;
             try
@@ -420,16 +433,33 @@ namespace Roadhog
             return uniqueDevices;
         }
 
+        private IReadOnlyList<Core.Hardware.HardwareDeviceFeature> ListSelectableFpgaDevices()
+        {
+            var occupiedHardwareKeys = _otherDeviceLeases
+                .Select(lease => lease.HardwareKey.Trim())
+                .Where(key => !string.IsNullOrWhiteSpace(key))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return ListAvailableFpgaDevices()
+                .Where(device => !occupiedHardwareKeys.Contains(device.BindingKey.Trim()))
+                .ToArray();
+        }
+
         private static string FormatFpgaDeviceText(Core.Hardware.HardwareDeviceFeature device)
         {
             return FormatHardwareDisplay(device.BindingKey);
         }
 
-        private void RefreshVmmDeviceCombo()
+        private void RefreshVmmDeviceCombo(string? preferredVmmDeviceName = null)
         {
-            var selectedVmmDeviceName = ResolvePreferredVmmDeviceName();
+            var selectedVmmDeviceName = string.IsNullOrWhiteSpace(preferredVmmDeviceName)
+                ? ResolvePreferredVmmDeviceName()
+                : preferredVmmDeviceName.Trim();
             var devices = ListAvailableFpgaDevices();
-            var items = BuildVmmDeviceItems(devices, selectedVmmDeviceName);
+            var occupiedVmmDeviceNames = _otherDeviceLeases
+                .Select(lease => lease.VmmDeviceName)
+                .ToArray();
+            var items = BuildVmmDeviceItems(devices, selectedVmmDeviceName, occupiedVmmDeviceNames);
 
             vmmDeviceComboBox.Items.Clear();
             foreach (var item in items)
@@ -439,7 +469,7 @@ namespace Roadhog
 
             if (vmmDeviceComboBox.Items.Count == 0)
             {
-                vmmDeviceComboBox.Items.Add(new VmmDeviceComboItem("fpga", "fpga"));
+                vmmDeviceComboBox.Items.Add(VmmDeviceComboItem.Empty);
             }
 
             var selectedIndex = 0;
@@ -477,7 +507,8 @@ namespace Roadhog
 
         private static IReadOnlyList<VmmDeviceComboItem> BuildVmmDeviceItems(
             IReadOnlyList<Core.Hardware.HardwareDeviceFeature> devices,
-            string selectedVmmDeviceName)
+            string selectedVmmDeviceName,
+            IReadOnlyList<string> occupiedVmmDeviceNames)
         {
             var items = new List<VmmDeviceComboItem>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -504,7 +535,12 @@ namespace Roadhog
                     "fpga://devindex=" + i.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
 
-            return items;
+            var occupied = occupiedVmmDeviceNames
+                .Select(Infrastructure.Hardware.DeviceLeaseStore.CanonicalVmmDeviceName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return items
+                .Where(item => !occupied.Contains(Infrastructure.Hardware.DeviceLeaseStore.CanonicalVmmDeviceName(item.Value)))
+                .ToArray();
         }
 
         private static void AddVmmDeviceItem(
@@ -560,6 +596,164 @@ namespace Roadhog
             return string.IsNullOrWhiteSpace(vmmDeviceName)
                 ? "fpga"
                 : vmmDeviceName.Trim();
+        }
+
+        private void TryAcquireConfiguredDeviceLease()
+        {
+            var row = _accounts.FirstOrDefault();
+            if (row is null || IsAutoHardwareKey(row.HardwareKey) || string.IsNullOrWhiteSpace(row.VmmDeviceName))
+            {
+                return;
+            }
+
+            if (!TryAcquireDeviceLease(row.HardwareKey, row.VmmDeviceName, out var error))
+            {
+                ReportDeviceLeaseError(error);
+            }
+        }
+
+        private bool TryAcquireDeviceLease(string hardwareKey, string vmmDeviceName, out string error)
+        {
+            var previousLease = _deviceLease;
+            var result = _deviceLeaseStore.TryAcquire(
+                Environment.ProcessId,
+                _processStartedAtUtc,
+                ResolveLeaseClientRoot(),
+                hardwareKey,
+                vmmDeviceName);
+            if (result.Success && result.Lease is not null)
+            {
+                _deviceLease = result.Lease;
+                _lastDeviceLeaseError = string.Empty;
+                error = string.Empty;
+                return true;
+            }
+
+            _deviceLease = previousLease;
+            if (result.Conflict is not null)
+            {
+                var owner = string.IsNullOrWhiteSpace(result.Conflict.ClientRoot)
+                    ? string.Empty
+                    : " (" + result.Conflict.ClientRoot + ")";
+                error = "\u8bbe\u5907\u5df2\u88ab\u53e6\u4e00\u4e2a Roadhog.exe \u5360\u7528\uff0cPID " +
+                    result.Conflict.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture) + owner + "\u3002";
+                return false;
+            }
+
+            error = "\u8bfb\u5199\u8bbe\u5907\u5360\u7528\u8bb0\u5f55\u5931\u8d25\uff1a" + (result.Error ?? "unknown error");
+            return false;
+        }
+
+        private void RestoreDeviceLease(Infrastructure.Hardware.DeviceLease? previousLease)
+        {
+            if (previousLease is null)
+            {
+                _deviceLeaseStore.Release(Environment.ProcessId, _processStartedAtUtc);
+                _deviceLease = null;
+                return;
+            }
+
+            var result = _deviceLeaseStore.TryAcquire(
+                previousLease.ProcessId,
+                previousLease.ProcessStartedAtUtc,
+                previousLease.ClientRoot,
+                previousLease.HardwareKey,
+                previousLease.VmmDeviceName);
+            _deviceLease = result.Success ? result.Lease : null;
+        }
+
+        private void RefreshDeviceLeaseState(bool refreshListsWhenChanged)
+        {
+            if (_deviceLease is not null)
+            {
+                if (!TryAcquireDeviceLease(_deviceLease.HardwareKey, _deviceLease.VmmDeviceName, out var renewError))
+                {
+                    ReportDeviceLeaseError(renewError);
+                }
+            }
+            else
+            {
+                TryAcquireConfiguredDeviceLease();
+            }
+
+            var readResult = _deviceLeaseStore.ReadActive();
+            if (!readResult.Success || readResult.Value is null)
+            {
+                ReportDeviceLeaseError("\u8bfb\u53d6\u8bbe\u5907\u5360\u7528\u8bb0\u5f55\u5931\u8d25\uff1a" + (readResult.Error ?? "unknown error"));
+                return;
+            }
+
+            var otherLeases = readResult.Value
+                .Where(lease => lease.ProcessId != Environment.ProcessId)
+                .OrderBy(lease => lease.ProcessId)
+                .ThenBy(lease => lease.HardwareKey, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var fingerprint = string.Join(
+                "|",
+                otherLeases.Select(lease =>
+                    lease.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                    lease.HardwareKey + ":" +
+                    Infrastructure.Hardware.DeviceLeaseStore.CanonicalVmmDeviceName(lease.VmmDeviceName)));
+            var changed = !string.Equals(fingerprint, _otherDeviceLeaseFingerprint, StringComparison.Ordinal);
+            _otherDeviceLeases = otherLeases;
+            _otherDeviceLeaseFingerprint = fingerprint;
+
+            if (!changed || !refreshListsWhenChanged)
+            {
+                return;
+            }
+
+            var selectedHardwareKey = (fpgaDeviceComboBox.SelectedItem as FpgaDeviceComboItem)?.BindingKey;
+            var selectedVmmDeviceName = (vmmDeviceComboBox.SelectedItem as VmmDeviceComboItem)?.Value;
+            RefreshFpgaDeviceCombo(selectedHardwareKey);
+            RefreshVmmDeviceCombo(selectedVmmDeviceName);
+        }
+
+        private void ReportDeviceLeaseError(string error)
+        {
+            if (string.IsNullOrWhiteSpace(error) || string.Equals(error, _lastDeviceLeaseError, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastDeviceLeaseError = error;
+            _services.Logger.Warn("ui.device_lease.failed", new Dictionary<string, object?>
+            {
+                ["error"] = error,
+                ["pid"] = Environment.ProcessId,
+                ["leaseFile"] = Infrastructure.Hardware.DeviceLeaseStore.DefaultPath
+            });
+        }
+
+        private static DateTimeOffset ResolveCurrentProcessStartTimeUtc()
+        {
+            try
+            {
+                using var process = System.Diagnostics.Process.GetCurrentProcess();
+                return process.StartTime.ToUniversalTime();
+            }
+            catch
+            {
+                return DateTimeOffset.UtcNow;
+            }
+        }
+
+        private static string ResolveLeaseClientRoot()
+        {
+            var configuredRoot = Environment.GetEnvironmentVariable(
+                Infrastructure.Composition.RoadhogServiceOptions.ClientRootEnvironmentVariable);
+            if (!string.IsNullOrWhiteSpace(configuredRoot))
+            {
+                try
+                {
+                    return Path.GetFullPath(Environment.ExpandEnvironmentVariables(configuredRoot.Trim()));
+                }
+                catch
+                {
+                }
+            }
+
+            return Path.GetFullPath(AppContext.BaseDirectory);
         }
 
         private static string ResolveSavedOrDeviceVmmDeviceName(string? savedVmmDeviceName, string? deviceVmmDeviceName)
@@ -655,6 +849,10 @@ namespace Roadhog
             {
                 return Core.Common.OperationResult.Fail("\u8bf7\u5148\u9009\u62e9FPGA\u8bbe\u5907\u3002");
             }
+            if (string.IsNullOrWhiteSpace(vmmDeviceName))
+            {
+                return Core.Common.OperationResult.Fail("\u6ca1\u6709\u53ef\u7528\u7684VMM\u8bbe\u5907\u3002");
+            }
 
             var loadResult = await _services.AccountConfigStore.LoadAllAsync().ConfigureAwait(true);
             if (!loadResult.Success)
@@ -692,9 +890,16 @@ namespace Roadhog
 
             account.VmmDeviceName = vmmDeviceName;
 
+            var previousLease = _deviceLease;
+            if (!TryAcquireDeviceLease(account.HardwareKey, account.VmmDeviceName, out var leaseError))
+            {
+                return Core.Common.OperationResult.Fail(leaseError);
+            }
+
             var saveResult = await _services.AccountConfigStore.UpsertAsync(account).ConfigureAwait(true);
             if (!saveResult.Success)
             {
+                RestoreDeviceLease(previousLease);
                 return saveResult;
             }
 
@@ -712,6 +917,7 @@ namespace Roadhog
             }
 
             UpdateWindowTitle();
+            RefreshDeviceLeaseState(refreshListsWhenChanged: false);
             return Core.Common.OperationResult.Ok();
         }
 
@@ -737,6 +943,11 @@ namespace Roadhog
             if (!loadResult.Success)
             {
                 return Core.Common.OperationResult.Fail(loadResult.Error ?? "读取账号配置失败。");
+            }
+
+            if (string.IsNullOrWhiteSpace(vmmDeviceName))
+            {
+                return Core.Common.OperationResult.Fail("\u6ca1\u6709\u53ef\u7528\u7684VMM\u8bbe\u5907\u3002");
             }
 
             var account = loadResult.Value?
@@ -778,15 +989,23 @@ namespace Roadhog
                 };
             }
 
+            var previousLease = _deviceLease;
+            if (!TryAcquireDeviceLease(account.HardwareKey, account.VmmDeviceName, out var leaseError))
+            {
+                return Core.Common.OperationResult.Fail(leaseError);
+            }
+
             var saveResult = await _services.AccountConfigStore.UpsertAsync(account).ConfigureAwait(true);
             if (!saveResult.Success)
             {
+                RestoreDeviceLease(previousLease);
                 return saveResult;
             }
 
             _accounts[0] = row;
             UpdateAccountRowText(row, snapshot: null, updateHardwareKey: true);
             UpdateWindowTitle();
+            RefreshDeviceLeaseState(refreshListsWhenChanged: false);
             return Core.Common.OperationResult.Ok();
         }
 
@@ -935,6 +1154,17 @@ namespace Roadhog
             if (!buildResult.Success || buildResult.Config is null)
             {
                 MessageBox.Show(buildResult.Error, "启动失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (!IsAutoHardwareKey(buildResult.Config.HardwareKey) &&
+                !TryAcquireDeviceLease(
+                    buildResult.Config.HardwareKey,
+                    NormalizeVmmDeviceName(buildResult.Config.VmmDeviceName),
+                    out var leaseError))
+            {
+                MessageBox.Show(leaseError, "\u542f\u52a8\u5931\u8d25", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                RefreshDeviceLeaseState(refreshListsWhenChanged: true);
                 return;
             }
 
@@ -1117,6 +1347,7 @@ namespace Roadhog
 
             UpdateWindowTitle();
             UpdateTopBarProcessId();
+            RefreshDeviceLeaseState(refreshListsWhenChanged: true);
         }
 
         private bool ShouldRefreshPlayerInfo(AccountRowModel row, Core.Accounts.AccountRuntimeSnapshot snapshot)
@@ -1447,6 +1678,8 @@ namespace Roadhog
 
         private sealed record VmmDeviceComboItem(string Value, string Text)
         {
+            public static VmmDeviceComboItem Empty { get; } = new(string.Empty, "\u65e0\u53ef\u7528VMM\u8bbe\u5907");
+
             public override string ToString()
             {
                 return Text;
