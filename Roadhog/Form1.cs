@@ -8,6 +8,7 @@ namespace Roadhog
         private const int AccountRowHeight = 34;
         private const int WindowCornerRadius = 12;
         private static readonly TimeSpan PlayerInfoRefreshInterval = TimeSpan.FromSeconds(15);
+        private static readonly TimeSpan RuntimeWarningDisplayWindow = TimeSpan.FromSeconds(30);
 
         private readonly Color _primaryGreen = Color.FromArgb(22, 163, 74);
         private readonly Color _darkGreen = Color.FromArgb(21, 128, 61);
@@ -40,6 +41,7 @@ namespace Roadhog
         {
             InitializeComponent();
             InitializeLicenseStatusLabel();
+            kmboxStatusLabel.AutoEllipsis = true;
             _services.LicenseCoordinator.StateChanged += LicenseCoordinator_StateChanged;
             ApplyApplicationIcon();
             RebuildAccountsFromDevices();
@@ -1673,6 +1675,14 @@ namespace Roadhog
             }
 
             _topBarStatusMessageExpiresAt = DateTimeOffset.MinValue;
+            var warningText = ResolveRuntimeWarningText();
+            if (!string.IsNullOrWhiteSpace(warningText))
+            {
+                kmboxStatusLabel.ForeColor = Color.FromArgb(166, 40, 40);
+                SetTextIfChanged(kmboxStatusLabel, warningText);
+                return;
+            }
+
             kmboxStatusLabel.ForeColor = Color.FromArgb(22, 101, 52);
             SetTextIfChanged(kmboxStatusLabel, "PID: " + ResolveTopBarProcessIdText());
         }
@@ -1682,6 +1692,50 @@ namespace Roadhog
             _topBarStatusMessageExpiresAt = DateTimeOffset.Now + duration;
             kmboxStatusLabel.ForeColor = color;
             SetTextIfChanged(kmboxStatusLabel, message);
+        }
+
+        private string ResolveRuntimeWarningText()
+        {
+            var now = DateTimeOffset.Now;
+            var snapshots = _services.AccountOrchestrator.Snapshot();
+
+            var failed = snapshots
+                .Where(snapshot => string.Equals(snapshot.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(snapshot.LastError))
+                .OrderByDescending(snapshot => snapshot.StoppedAt ?? snapshot.UpdatedAt)
+                .FirstOrDefault();
+            if (failed is not null)
+            {
+                return TrimTopBarWarningText(
+                    "警告 " + ResolveSnapshotDisplayName(failed) + ": " +
+                    Roadhog.Application.RuntimeWarningText.FromRuntimeError(failed.LastError));
+            }
+
+            var warning = snapshots
+                .Where(snapshot => !string.Equals(snapshot.Status, "idle", StringComparison.OrdinalIgnoreCase) &&
+                    !string.IsNullOrWhiteSpace(snapshot.LastWarning) &&
+                    snapshot.LastWarningAt is not null &&
+                    now - snapshot.LastWarningAt.Value <= RuntimeWarningDisplayWindow)
+                .OrderByDescending(snapshot => snapshot.LastWarningAt ?? DateTimeOffset.MinValue)
+                .FirstOrDefault();
+            return warning is null
+                ? string.Empty
+                : TrimTopBarWarningText("警告 " + ResolveSnapshotDisplayName(warning) + ": " + warning.LastWarning);
+        }
+
+        private static string ResolveSnapshotDisplayName(Core.Accounts.AccountRuntimeSnapshot snapshot)
+        {
+            return string.IsNullOrWhiteSpace(snapshot.CharacterName)
+                ? snapshot.AccountName
+                : snapshot.CharacterName;
+        }
+
+        private static string TrimTopBarWarningText(string text)
+        {
+            const int MaxLength = 34;
+            return text.Length <= MaxLength
+                ? text
+                : text[..Math.Max(0, MaxLength - 1)] + "...";
         }
 
         private string ResolveTopBarProcessIdText()

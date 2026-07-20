@@ -50,6 +50,10 @@ public sealed class AccountRuntimeState
 
     public string? LastError { get; private set; }
 
+    public string? LastWarning { get; private set; }
+
+    public DateTimeOffset? LastWarningAt { get; private set; }
+
     public int KillCount { get; private set; }
 
     public DateTimeOffset? FirstKillAt { get; private set; }
@@ -93,6 +97,8 @@ public sealed class AccountRuntimeState
         ThreadId = null;
         StopRequested = false;
         LastError = null;
+        LastWarning = null;
+        LastWarningAt = null;
         StartedAt = null;
         StoppedAt = null;
         LastHeartbeatAt = null;
@@ -120,6 +126,34 @@ public sealed class AccountRuntimeState
         Touch();
     }
 
+    public bool MarkWarning(string? warning)
+    {
+        var normalized = warning?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return ClearWarning();
+        }
+
+        var changed = !string.Equals(LastWarning, normalized, StringComparison.Ordinal);
+        LastWarning = normalized;
+        LastWarningAt = DateTimeOffset.Now;
+        Touch();
+        return changed;
+    }
+
+    public bool ClearWarning()
+    {
+        if (LastWarning is null && LastWarningAt is null)
+        {
+            return false;
+        }
+
+        LastWarning = null;
+        LastWarningAt = null;
+        Touch();
+        return true;
+    }
+
     public void RequestStop()
     {
         StopRequested = true;
@@ -134,6 +168,8 @@ public sealed class AccountRuntimeState
         ThreadId = null;
         StopRequested = false;
         StoppedAt = DateTimeOffset.Now;
+        LastWarning = null;
+        LastWarningAt = null;
         Touch();
     }
 
@@ -144,6 +180,8 @@ public sealed class AccountRuntimeState
         ThreadId = null;
         StopRequested = false;
         StoppedAt = DateTimeOffset.Now;
+        LastWarning = null;
+        LastWarningAt = null;
         Touch();
     }
 

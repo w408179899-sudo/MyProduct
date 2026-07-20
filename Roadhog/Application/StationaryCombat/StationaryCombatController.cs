@@ -99,6 +99,9 @@ public sealed class StationaryCombatController
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             StopPathFollowPoller(state);
+            context.RuntimeStates.MarkWarning(
+                context.Config.AccountName,
+                Roadhog.Application.RuntimeWarningText.FromPlayerReadFailure(playerResult.Error));
             LogThrottled(context, state, "stationary_combat.player.failed", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -107,6 +110,7 @@ public sealed class StationaryCombatController
             return IdleDelay;
         }
 
+        context.RuntimeStates.ClearWarning(context.Config.AccountName);
         var player = playerResult.Value;
         var playerPosition = player.Position.Value;
         var playerDistanceFromHome = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home);
@@ -437,6 +441,9 @@ public sealed class StationaryCombatController
             semiAutoState.ResetAttackKeyPressThrottle();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             StopPathFollowPoller(state);
+            context.RuntimeStates.MarkWarning(
+                context.Config.AccountName,
+                Roadhog.Application.RuntimeWarningText.FromPlayerReadFailure(playerResult.Error));
             LogThrottled(context, state, "stationary_combat.path_combat.player.failed", new Dictionary<string, object?>
             {
                 ["account"] = context.Config.AccountName,
@@ -445,6 +452,7 @@ public sealed class StationaryCombatController
             return IdleDelay;
         }
 
+        context.RuntimeStates.ClearWarning(context.Config.AccountName);
         var player = playerResult.Value;
         if (player.Position is null)
         {
@@ -775,6 +783,9 @@ public sealed class StationaryCombatController
         var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
         if (!playerResult.Success || playerResult.Value is null)
         {
+            context.RuntimeStates.MarkWarning(
+                context.Config.AccountName,
+                Roadhog.Application.RuntimeWarningText.FromPlayerReadFailure(playerResult.Error));
             if (state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
             {
                 return null;
@@ -791,6 +802,7 @@ public sealed class StationaryCombatController
             return IdleDelay;
         }
 
+        context.RuntimeStates.ClearWarning(context.Config.AccountName);
         var player = playerResult.Value;
         if (player.IsDead && state.TopLevelState != StationaryCombatTopLevelState.DeathRecovery)
         {

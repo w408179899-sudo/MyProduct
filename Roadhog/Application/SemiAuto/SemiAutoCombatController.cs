@@ -705,6 +705,9 @@ public sealed class SemiAutoCombatController
         var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
         if (!playerResult.Success || playerResult.Value is null)
         {
+            context.RuntimeStates.MarkWarning(
+                context.Config.AccountName,
+                Roadhog.Application.RuntimeWarningText.FromPlayerReadFailure(playerResult.Error));
             var now = DateTimeOffset.Now;
             if (ShouldLog(state.LastMaintenanceWarningAt, now))
             {
@@ -719,6 +722,7 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
+        context.RuntimeStates.ClearWarning(context.Config.AccountName);
         return await TryHandleMaintenanceAsync(
                 context,
                 state,

@@ -122,6 +122,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("aion class catalog maps old twelve classes", TestAionClassCatalogAsync),
     ("runtime player read returns character name", TestRuntimePlayerReadReturnsCharacterNameAsync),
     ("runtime kill efficiency tracks kill intervals", TestRuntimeKillEfficiencyTracksKillIntervalsAsync),
+    ("runtime warning records and clears read failures", TestRuntimeWarningRecordsAndClearsReadFailuresAsync),
+    ("stationary combat records player read warning", TestStationaryCombatRecordsPlayerReadWarningAsync),
     ("service options enable logging by default", TestRoadhogServiceOptionsEnableLoggingByDefaultAsync),
     ("file logger rotates when max size is reached", TestFileLoggerRotatesWhenMaxSizeIsReachedAsync),
     ("file logger deletes expired log files", TestFileLoggerDeletesExpiredLogFilesAsync),
@@ -3102,6 +3104,75 @@ static Task TestRuntimeKillEfficiencyTracksKillIntervalsAsync()
     AssertEqual(secondKillAt, snapshot.LastKillAt!.Value, "last kill at");
 
     return Task.CompletedTask;
+}
+
+static Task TestRuntimeWarningRecordsAndClearsReadFailuresAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var runtimeStates = new AccountRuntimeManager(logger);
+    runtimeStates.GetOrCreate("account1");
+
+    runtimeStates.MarkWarning(
+        "account1",
+        RuntimeWarningText.FromPlayerReadFailure("Target process not found by PID: 1234"));
+
+    var warningSnapshot = runtimeStates.Snapshot().Single();
+    AssertEqual("游戏进程不存在或已退出", warningSnapshot.LastWarning ?? string.Empty, "runtime warning text");
+    AssertFalse(warningSnapshot.LastWarningAt is null, "runtime warning timestamp");
+    AssertEqual("idle", warningSnapshot.Status, "warning should not change account status");
+
+    runtimeStates.ClearWarning("account1");
+
+    var clearedSnapshot = runtimeStates.Snapshot().Single();
+    AssertEqual(string.Empty, clearedSnapshot.LastWarning ?? string.Empty, "runtime warning should clear");
+    AssertFalse(clearedSnapshot.LastWarningAt is not null, "runtime warning timestamp should clear");
+
+    return Task.CompletedTask;
+}
+
+static async Task TestStationaryCombatRecordsPlayerReadWarningAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var runtimeStates = new AccountRuntimeManager(logger);
+    runtimeStates.GetOrCreate("account1");
+    var gameApi = new FakeGameApi
+    {
+        PlayerReadFallback = OperationResult<PlayerSnapshot>.Fail("failed to read local entity id at Game.dll+0x1234")
+    };
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var context = CreateContext(settings, gameApi, logger, runtimeStates);
+
+    await controller
+        .TickAsync(context, SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), new StationaryCombatState())
+        .ConfigureAwait(false);
+
+    var warningSnapshot = runtimeStates.Snapshot().Single();
+    AssertEqual("读取不到角色，疑似掉线或未进游戏", warningSnapshot.LastWarning ?? string.Empty, "stationary player warning");
+    AssertFalse(warningSnapshot.LastWarningAt is null, "stationary player warning timestamp");
+
+    gameApi.PlayerReadFallback = OperationResult<PlayerSnapshot>.Ok(
+        gameApi.Player with { Position = new Vector3Snapshot(0, 0, 0) });
+
+    await controller
+        .TickAsync(context, SemiAutoSkillPlan.FromSettings(settings.Skills), new SemiAutoCombatState(), new StationaryCombatState())
+        .ConfigureAwait(false);
+
+    var clearedSnapshot = runtimeStates.Snapshot().Single();
+    AssertEqual(string.Empty, clearedSnapshot.LastWarning ?? string.Empty, "stationary player warning should clear");
+    AssertFalse(clearedSnapshot.LastWarningAt is not null, "stationary player warning timestamp should clear");
 }
 
 static Task TestFileLoggerRotatesWhenMaxSizeIsReachedAsync()

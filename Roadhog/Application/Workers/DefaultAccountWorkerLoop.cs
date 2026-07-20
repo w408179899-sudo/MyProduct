@@ -149,11 +149,18 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                         var result = await context.GameApi.ReadPlayerAsync(context.StopToken).ConfigureAwait(false);
                         if (!result.Success)
                         {
+                            context.RuntimeStates.MarkWarning(
+                                context.Config.AccountName,
+                                Roadhog.Application.RuntimeWarningText.FromPlayerReadFailure(result.Error));
                             context.Logger.Warn("worker.player_poll.failed", new Dictionary<string, object?>
                             {
                                 ["account"] = context.Config.AccountName,
                                 ["error"] = result.Error
                             });
+                        }
+                        else
+                        {
+                            context.RuntimeStates.ClearWarning(context.Config.AccountName);
                         }
                     }
                 }

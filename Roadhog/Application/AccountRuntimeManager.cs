@@ -93,6 +93,34 @@ public sealed class AccountRuntimeManager
         }
     }
 
+    public void MarkWarning(string accountName, string? warning)
+    {
+        lock (_syncRoot)
+        {
+            var state = GetOrCreate(accountName);
+            var changed = state.MarkWarning(warning);
+            if (changed && !string.IsNullOrWhiteSpace(state.LastWarning))
+            {
+                _logger.Warn("account.warning", new Dictionary<string, object?>
+                {
+                    ["account"] = accountName,
+                    ["warning"] = state.LastWarning
+                });
+            }
+        }
+    }
+
+    public void ClearWarning(string accountName)
+    {
+        lock (_syncRoot)
+        {
+            if (_accounts.TryGetValue(accountName, out var state))
+            {
+                state.ClearWarning();
+            }
+        }
+    }
+
     public void RequestStop(string accountName)
     {
         lock (_syncRoot)
@@ -146,6 +174,8 @@ public sealed class AccountRuntimeManager
             state.StoppedAt,
             state.LastHeartbeatAt,
             state.LastError,
+            state.LastWarning,
+            state.LastWarningAt,
             state.KillCount,
             state.FirstKillAt,
             state.LastKillAt);
