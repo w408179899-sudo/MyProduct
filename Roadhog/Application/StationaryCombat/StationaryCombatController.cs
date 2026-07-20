@@ -2590,6 +2590,7 @@ public sealed class StationaryCombatController
                     plan,
                     semiAutoState,
                     state,
+                    player,
                     home,
                     radius,
                     playerDistanceFromHome,
@@ -2619,6 +2620,7 @@ public sealed class StationaryCombatController
                     plan,
                     semiAutoState,
                     state,
+                    player,
                     home,
                     radius,
                     playerDistanceFromHome,
@@ -3606,6 +3608,7 @@ public sealed class StationaryCombatController
         SemiAutoSkillPlan plan,
         SemiAutoCombatState semiAutoState,
         StationaryCombatState state,
+        PlayerSnapshot player,
         Vector3Snapshot home,
         double radius,
         double playerDistanceFromHome,
@@ -3777,6 +3780,40 @@ public sealed class StationaryCombatController
             ["error"] = lockedResult.Error
         }, TimeSpan.FromMilliseconds(500));
 
+        if (state.CurrentTargetIsMaintenanceDefense &&
+            target.Position is { } targetPosition &&
+            player.Position is { } playerPosition)
+        {
+            var playerDistanceToTarget = StationaryCombatTargetSelector.HorizontalDistance(playerPosition, targetPosition);
+            if (state.FacedCandidateEntityId != target.EntityId)
+            {
+                var isFacingTarget = await FaceTargetStepAsync(context, state, player, targetPosition, target).ConfigureAwait(false);
+                if (!isFacingTarget)
+                {
+                    semiAutoState.ResetAttackKeyPressThrottle();
+                    return MoveTickDelay;
+                }
+
+                state.FacedCandidateEntityId = target.EntityId;
+            }
+
+            if (playerDistanceToTarget > AcquireDistance)
+            {
+                semiAutoState.ResetAttackKeyPressThrottle();
+                await PathFollowStepAsync(context, state, player, targetPosition, AcquireDistance).ConfigureAwait(false);
+                await TryJumpCombatApproachIfStuckAsync(
+                        context,
+                        state,
+                        target,
+                        playerPosition,
+                        playerDistanceToTarget,
+                        "reacquire")
+                    .ConfigureAwait(false);
+                return MoveTickDelay;
+            }
+        }
+
+        await StopMovementAsync(context, state).ConfigureAwait(false);
         return await TickAcquireAsync(context, plan, semiAutoState, state, target, home, radius).ConfigureAwait(false);
     }
 

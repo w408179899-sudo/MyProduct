@@ -26,6 +26,7 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
     private CancellationTokenSource? _heartbeatCancellation;
     private Task? _heartbeatTask;
     private DateTimeOffset? _lastVerifiedAt;
+    private bool _disposing;
     private bool _disposed;
 
     public LicenseCoordinator(
@@ -80,9 +81,15 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ThrowIfDisposed();
+            using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                _lifetimeCancellation.Token);
+            var operationToken = operationCancellation.Token;
+
             SetState(new LicenseRuntimeState(LicenseRuntimeStateKind.Checking));
 
-            var loadResult = await _credentialStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+            var loadResult = await _credentialStore.LoadAsync(operationToken).ConfigureAwait(false);
             if (!loadResult.Success)
             {
                 return SetState(new LicenseRuntimeState(
@@ -115,7 +122,7 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
                     credential,
                     deviceResult.Value,
                     _options.ClientVersion,
-                    cancellationToken)
+                    operationToken)
                 .ConfigureAwait(false);
 
             if (result.Success)
@@ -123,7 +130,7 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
                 if (!credential.Activated)
                 {
                     var saveResult = await _credentialStore
-                        .SaveAsync(credential.MarkActivated(), cancellationToken)
+                        .SaveAsync(credential.MarkActivated(), operationToken)
                         .ConfigureAwait(false);
                     if (!saveResult.Success)
                     {
@@ -139,11 +146,13 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
 
             if (result.IsTransient)
             {
+                LogLicenseRequestFailure("license.login.failed", result);
                 return SetState(new LicenseRuntimeState(
                     LicenseRuntimeStateKind.Unavailable,
                     result.ErrorCode ?? "LICENSE_SERVER_UNAVAILABLE"));
             }
 
+            LogLicenseRequestFailure("license.login.failed", result);
             var kind = ReplaceablePendingCredentialErrors.Contains(result.ErrorCode ?? string.Empty)
                 ? LicenseRuntimeStateKind.ActivationRequired
                 : LicenseRuntimeStateKind.Denied;
@@ -163,6 +172,12 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ThrowIfDisposed();
+            using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                _lifetimeCancellation.Token);
+            var operationToken = operationCancellation.Token;
+
             var normalizedCdkey = LicenseCredential.NormalizeCdkey(cdkey);
             if (!LicenseCredential.IsValidCdkey(normalizedCdkey))
             {
@@ -174,7 +189,7 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
             var stateBeforeActivation = State;
             SetState(new LicenseRuntimeState(LicenseRuntimeStateKind.Checking));
 
-            var loadResult = await _credentialStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+            var loadResult = await _credentialStore.LoadAsync(operationToken).ConfigureAwait(false);
             if (!loadResult.Success)
             {
                 return SetState(new LicenseRuntimeState(
@@ -206,7 +221,7 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
                     "LOCAL_CREDENTIAL_INVALID"));
             }
 
-            var saveResult = await _credentialStore.SaveAsync(credential, cancellationToken).ConfigureAwait(false);
+            var saveResult = await _credentialStore.SaveAsync(credential, operationToken).ConfigureAwait(false);
             if (!saveResult.Success)
             {
                 return SetState(new LicenseRuntimeState(
@@ -226,11 +241,12 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
                     credential,
                     deviceResult.Value,
                     _options.ClientVersion,
-                    cancellationToken)
+                    operationToken)
                 .ConfigureAwait(false);
 
             if (!result.Success)
             {
+                LogLicenseRequestFailure("license.activate.failed", result);
                 var kind = result.IsTransient
                     ? LicenseRuntimeStateKind.Unavailable
                     : LicenseRuntimeStateKind.ActivationRequired;
@@ -241,7 +257,7 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
 
             var activatedCredential = credential.MarkActivated();
             var activatedSaveResult = await _credentialStore
-                .SaveAsync(activatedCredential, cancellationToken)
+                .SaveAsync(activatedCredential, operationToken)
                 .ConfigureAwait(false);
             if (!activatedSaveResult.Success)
             {
@@ -261,30 +277,38 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (_disposed || _disposing)
         {
             return;
         }
 
-        _disposed = true;
+        _disposing = true;
         _lifetimeCancellation.Cancel();
         _heartbeatCancellation?.Cancel();
 
-        if (_heartbeatTask is not null)
+        await _operationGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
         {
-            try
+            if (_heartbeatTask is not null)
             {
-                await _heartbeatTask.ConfigureAwait(false);
+                try
+                {
+                    await _heartbeatTask.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
             }
-            catch (OperationCanceledException)
-            {
-            }
-        }
 
-        _heartbeatCancellation?.Dispose();
-        _lifetimeCancellation.Dispose();
-        _operationGate.Dispose();
-        _apiClient.Dispose();
+            _heartbeatCancellation?.Dispose();
+            _lifetimeCancellation.Dispose();
+            _apiClient.Dispose();
+        }
+        finally
+        {
+            _operationGate.Dispose();
+            _disposed = true;
+        }
     }
 
     private LicenseRuntimeState AcceptSession(LicenseApiResult result, string source)
@@ -417,8 +441,17 @@ public sealed class LicenseCoordinator : ILicenseRuntimeGate, IAsyncDisposable
         return state;
     }
 
+    private void LogLicenseRequestFailure(string eventName, LicenseApiResult result)
+    {
+        _logger.Warn(eventName, new Dictionary<string, object?>
+        {
+            ["errorCode"] = result.ErrorCode,
+            ["transient"] = result.IsTransient
+        });
+    }
+
     private void ThrowIfDisposed()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed || _disposing, this);
     }
 }

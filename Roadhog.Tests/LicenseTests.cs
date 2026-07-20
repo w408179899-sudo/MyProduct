@@ -65,6 +65,41 @@ internal static class LicenseTests
             "license logs must not contain plaintext CDKEY");
     }
 
+    public static async Task TestDisposeCancelsPendingInitializeAsync()
+    {
+        var credential = LicenseCredential.Create("ABCD-EFGH-JKLM-NPQR-STUV-WXYZ-2345-6789").MarkActivated();
+        var store = new RecordingCredentialStore { Credential = credential };
+        var loginEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var api = new RecordingLicenseApiClient
+        {
+            LoginHandler = async (_, _, _, cancellationToken) =>
+            {
+                loginEntered.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
+                return SuccessfulSession();
+            }
+        };
+        var logger = new InMemoryRoadhogLogger();
+        var coordinator = CreateCoordinator(api, store, logger, TimeSpan.FromHours(1));
+
+        var initializeTask = coordinator.InitializeAsync();
+        await loginEntered.Task.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+
+        await coordinator.DisposeAsync().ConfigureAwait(false);
+        try
+        {
+            await initializeTask.ConfigureAwait(false);
+            Assert(true, "pending initialize should be canceled when coordinator is disposed");
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ObjectDisposedException ex)
+        {
+            throw new InvalidOperationException("pending initialize must not release a disposed semaphore", ex);
+        }
+    }
+
     public static async Task TestHeartbeatDenialChangesRuntimeStateAsync()
     {
         var credential = LicenseCredential.Create("ABCD-EFGH-JKLM-NPQR-STUV-WXYZ-2345-6789").MarkActivated();

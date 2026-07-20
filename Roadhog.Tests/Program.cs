@@ -153,6 +153,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("service options use client root environment", TestRoadhogServiceOptionsUseClientRootEnvironmentAsync),
     ("license credential store encrypts and restores credential", LicenseTests.TestDpapiCredentialStoreRoundTripAsync),
     ("license activation persists credential before server request", LicenseTests.TestActivationPersistsCredentialBeforeRequestAsync),
+    ("license dispose cancels pending initialize", LicenseTests.TestDisposeCancelsPendingInitializeAsync),
     ("license heartbeat denial changes runtime state", LicenseTests.TestHeartbeatDenialChangesRuntimeStateAsync),
     ("license heartbeat transient failure retries then denies", LicenseTests.TestHeartbeatTransientFailureRetriesThenDeniesAsync),
     ("account orchestrator rejects unauthorized start", LicenseTests.TestAccountOrchestratorRejectsUnauthorizedStartAsync),
@@ -233,6 +234,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat postpones after-combat maintenance while pet is targeted", TestStationaryCombatPostponesAfterCombatMaintenanceWhilePetIsTargetedAsync),
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("stationary combat reacquires adopted defense target when locked on party member", TestStationaryCombatReacquiresAdoptedDefenseTargetWhenLockedOnPartyMemberAsync),
+    ("stationary combat faces adopted defense target before reacquire tab", TestStationaryCombatFacesAdoptedDefenseTargetBeforeReacquireTabAsync),
     ("stationary combat interrupts sit when targeted by monster", TestStationaryCombatInterruptsSitWhenTargetedAsync),
     ("stationary combat hp rule runs before defense target workflow", TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync),
     ("stationary combat stops movement before hp maintenance", TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync),
@@ -10688,6 +10690,7 @@ static async Task TestStationaryCombatReacquiresAdoptedDefenseTargetWhenLockedOn
         CurrentTargetServerObjectId = defenseServerObjectId,
         CandidateEntityId = defenseEntityId,
         CandidateServerObjectId = defenseServerObjectId,
+        FacedCandidateEntityId = defenseEntityId,
         CurrentTargetIsMaintenanceDefense = true,
         CurrentTargetBypassesHomeLeash = true
     };
@@ -10702,6 +10705,116 @@ static async Task TestStationaryCombatReacquiresAdoptedDefenseTargetWhenLockedOn
     AssertFalse(
         !logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.reacquire"),
         "party-member lock mismatch should log target reacquire instead of clearing");
+}
+
+static async Task TestStationaryCombatFacesAdoptedDefenseTargetBeforeReacquireTabAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+        settings.Maintenance.SitMaintenanceEnabled = false;
+
+        const ushort defenseEntityId = 200;
+        const uint defenseServerObjectId = 9000;
+        const uint wrongServerObjectId = 7000;
+        const uint localServerObjectId = 1000;
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(
+                1,
+                101,
+                "Healer",
+                100,
+                100,
+                100,
+                100,
+                0,
+                new Vector3Snapshot(0, 0, 0),
+                DateTimeOffset.Now,
+                0,
+                10,
+                0),
+            TargetEntityId = 101,
+            TargetOwnServerObjectId = wrongServerObjectId,
+            TargetServerObjectId = 0,
+            TargetObjectType = LockedTargetSnapshot.MonsterObjectType,
+            TargetCurrentHp = 1000,
+            TargetMaxHp = 1000,
+            TargetPosition = new Vector3Snapshot(40, 0, 0),
+            LocalServerObjectId = localServerObjectId,
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(
+                    defenseEntityId,
+                    defenseServerObjectId,
+                    "attacker",
+                    "monster",
+                    new Vector3Snapshot(5, 0, 0),
+                    5,
+                    1000,
+                    1000,
+                    localServerObjectId,
+                    true)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0
+            })
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = defenseEntityId,
+            CurrentTargetServerObjectId = defenseServerObjectId,
+            CandidateEntityId = defenseEntityId,
+            CandidateServerObjectId = defenseServerObjectId,
+            CurrentTargetIsMaintenanceDefense = true,
+            CurrentTargetBypassesHomeLeash = true
+        };
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!state.Fighting, "wrong lock should keep fighting adopted defense target");
+        AssertEqual(defenseServerObjectId, state.CurrentTargetServerObjectId, "adopted defense target should stay current");
+        AssertFalse(!keyboard.MouseCommands.Contains("down:Right"), "unfaced reacquire target should hold right mouse");
+        AssertFalse(
+            !keyboard.MouseCommands.Any(command => command.StartsWith("move:", StringComparison.Ordinal)),
+            "unfaced reacquire target should move mouse before tab");
+        AssertFalse(keyboard.Keys.Contains("Tab"), "unfaced reacquire target should not Tab in the same tick");
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.reacquire"),
+            "wrong lock should log current target reacquire");
+        var faceEntry = logger.Entries.LastOrDefault(entry => entry.EventName == "stationary_combat.face_target");
+        AssertFalse(faceEntry is null, "reacquire should face current defense target before tab");
+        AssertEqual(
+            defenseEntityId,
+            Convert.ToUInt16(faceEntry!.Fields["targetEntityId"]),
+            "reacquire face target should use adopted defense target");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
 }
 
 static async Task TestStationaryCombatInterruptsSitWhenTargetedAsync()

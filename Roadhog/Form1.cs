@@ -21,6 +21,7 @@ namespace Roadhog
         private readonly HashSet<string> _playerInfoRefreshInFlight = new(StringComparer.OrdinalIgnoreCase);
         private readonly System.Windows.Forms.Timer _uiRefreshTimer = new() { Interval = 1000 };
         private readonly Infrastructure.Hardware.DeviceLeaseStore _deviceLeaseStore = new();
+        private readonly CancellationTokenSource _formLifetimeCancellation = new();
         private readonly DateTimeOffset _processStartedAtUtc = ResolveCurrentProcessStartTimeUtc();
         private readonly Label _licenseStatusLabel = new();
 
@@ -32,6 +33,7 @@ namespace Roadhog
         private bool _suppressFpgaSelectionChanged;
         private bool _suppressHardwareInputChanged;
         private bool _licenseInitializationStarted;
+        private bool _formClosing;
         private int _accountRows;
 
         public Form1()
@@ -64,7 +66,14 @@ namespace Roadhog
             }
 
             _licenseInitializationStarted = true;
-            await EnsureLicenseInteractiveAsync().ConfigureAwait(true);
+            await EnsureLicenseInteractiveAsync(_formLifetimeCancellation.Token).ConfigureAwait(true);
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            _formClosing = true;
+            _formLifetimeCancellation.Cancel();
+            base.OnFormClosing(e);
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
@@ -74,6 +83,7 @@ namespace Roadhog
             _services.LicenseCoordinator.StateChanged -= LicenseCoordinator_StateChanged;
             _deviceLeaseStore.Release(Environment.ProcessId, _processStartedAtUtc);
             _services.Dispose();
+            _formLifetimeCancellation.Dispose();
             base.OnFormClosed(e);
         }
 
@@ -1170,7 +1180,7 @@ namespace Roadhog
                 return;
             }
 
-            if (!await EnsureLicenseInteractiveAsync().ConfigureAwait(true))
+            if (!await EnsureLicenseInteractiveAsync(_formLifetimeCancellation.Token).ConfigureAwait(true))
             {
                 return;
             }
@@ -1545,8 +1555,13 @@ namespace Roadhog
             _licenseStatusLabel.BringToFront();
         }
 
-        private async Task<bool> EnsureLicenseInteractiveAsync()
+        private async Task<bool> EnsureLicenseInteractiveAsync(CancellationToken cancellationToken = default)
         {
+            if (_formClosing || IsDisposed || cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+
             var state = _services.LicenseCoordinator.State;
             if (state.IsAuthorized)
             {
@@ -1557,7 +1572,18 @@ namespace Roadhog
             {
                 try
                 {
-                    state = await _services.LicenseCoordinator.InitializeAsync().ConfigureAwait(true);
+                    state = await _services.LicenseCoordinator.InitializeAsync(cancellationToken).ConfigureAwait(true);
+                }
+                catch (OperationCanceledException) when (
+                    _formClosing ||
+                    IsDisposed ||
+                    cancellationToken.IsCancellationRequested)
+                {
+                    return false;
+                }
+                catch (ObjectDisposedException) when (_formClosing || IsDisposed)
+                {
+                    return false;
                 }
                 catch (Exception ex)
                 {
@@ -1574,6 +1600,11 @@ namespace Roadhog
             if (state.IsAuthorized)
             {
                 return true;
+            }
+
+            if (_formClosing || IsDisposed || cancellationToken.IsCancellationRequested)
+            {
+                return false;
             }
 
             if (state.Kind == LicenseRuntimeStateKind.ActivationRequired)
