@@ -4,6 +4,7 @@ using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Hardware;
+using Roadhog.Core.Licensing;
 using Roadhog.Core.Processes;
 
 namespace Roadhog.Application;
@@ -18,6 +19,7 @@ public sealed class AccountOrchestrator
     private readonly ITargetProcessResolver _processResolver;
     private readonly IAccountWorkerLoop _workerLoop;
     private readonly AccountWorkerOptions _workerOptions;
+    private readonly ILicenseRuntimeGate? _licenseRuntimeGate;
     private readonly Dictionary<string, string> _hardwareOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _syncRoot = new();
 
@@ -28,7 +30,8 @@ public sealed class AccountOrchestrator
         IHardwareDeviceResolver hardwareResolver,
         ITargetProcessResolver processResolver,
         IAccountWorkerLoop workerLoop,
-        AccountWorkerOptions workerOptions)
+        AccountWorkerOptions workerOptions,
+        ILicenseRuntimeGate? licenseRuntimeGate = null)
     {
         _gameApi = gameApi;
         _logger = logger;
@@ -37,10 +40,16 @@ public sealed class AccountOrchestrator
         _processResolver = processResolver;
         _workerLoop = workerLoop;
         _workerOptions = workerOptions;
+        _licenseRuntimeGate = licenseRuntimeGate;
     }
 
     public OperationResult Start(AccountConfig config)
     {
+        if (_licenseRuntimeGate is not null && !_licenseRuntimeGate.IsAuthorized)
+        {
+            return OperationResult.Fail("Online license authorization is required.");
+        }
+
         if (!config.Enabled)
         {
             return OperationResult.Fail("Account is disabled: " + config.AccountName);

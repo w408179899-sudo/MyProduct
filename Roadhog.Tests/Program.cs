@@ -24,6 +24,12 @@ using Roadhog.Infrastructure.Input;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
 
+if (LicenseLiveProbe.ShouldRun(args))
+{
+    Environment.ExitCode = LicenseLiveProbe.RunAsync().GetAwaiter().GetResult();
+    return;
+}
+
 if (TeamMonitorLiveProbe.ShouldRun(args))
 {
     Environment.ExitCode = TeamMonitorLiveProbe.RunAsync(args).GetAwaiter().GetResult();
@@ -145,6 +151,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("kmbox net config store saves and loads endpoint", TestKmBoxNetConfigStoreRoundTripAsync),
     ("device lease store prevents cross process device reuse", TestDeviceLeaseStorePreventsCrossProcessReuseAsync),
     ("service options use client root environment", TestRoadhogServiceOptionsUseClientRootEnvironmentAsync),
+    ("license credential store encrypts and restores credential", LicenseTests.TestDpapiCredentialStoreRoundTripAsync),
+    ("license activation persists credential before server request", LicenseTests.TestActivationPersistsCredentialBeforeRequestAsync),
+    ("license heartbeat denial changes runtime state", LicenseTests.TestHeartbeatDenialChangesRuntimeStateAsync),
+    ("license heartbeat transient failure retries then denies", LicenseTests.TestHeartbeatTransientFailureRetriesThenDeniesAsync),
+    ("account orchestrator rejects unauthorized start", LicenseTests.TestAccountOrchestratorRejectsUnauthorizedStartAsync),
     ("services load kmbox net config before input creation", TestRoadhogServicesLoadsKmBoxNetConfigAsync),
     ("account config stores shared path names only", TestAccountConfigStoresSharedPathNamesOnlyAsync),
     ("account config persists bag cleanup rules", TestAccountConfigPersistsBagCleanupRulesAsync),
@@ -5207,6 +5218,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
     var previousProfileLibrary = Environment.GetEnvironmentVariable(RoadhogServiceOptions.ProfileLibraryDirectoryEnvironmentVariable);
     var previousKmBoxConfig = Environment.GetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable);
     var previousLogDirectory = Environment.GetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable);
+    var previousLicenseCredential = Environment.GetEnvironmentVariable(RoadhogServiceOptions.LicenseCredentialPathEnvironmentVariable);
     try
     {
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.ClientRootEnvironmentVariable, directory);
@@ -5216,6 +5228,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.ProfileLibraryDirectoryEnvironmentVariable, null);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable, null);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable, null);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.LicenseCredentialPathEnvironmentVariable, null);
 
         var options = RoadhogServiceOptions.FromEnvironment();
 
@@ -5223,6 +5236,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
         AssertEqual(Path.Combine(directory, "config", "paths"), options.PathLibraryDirectory, "client root path library");
         AssertEqual(Path.Combine(directory, "config", "profiles"), options.ProfileLibraryDirectory, "client root profile library");
         AssertEqual(Path.Combine(directory, "config", "kmbox-net.json"), options.KmBoxNetConfigPath, "client root kmbox config path");
+        AssertEqual(Path.Combine(directory, "config", "license.dat"), options.LicenseCredentialPath, "client root license credential path");
         AssertEqual(Path.Combine(directory, "logs"), options.LogDirectory, "client root log directory");
     }
     finally
@@ -5234,6 +5248,7 @@ static Task TestRoadhogServiceOptionsUseClientRootEnvironmentAsync()
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.ProfileLibraryDirectoryEnvironmentVariable, previousProfileLibrary);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.KmBoxNetConfigPathEnvironmentVariable, previousKmBoxConfig);
         Environment.SetEnvironmentVariable(RoadhogServiceOptions.LogDirectoryEnvironmentVariable, previousLogDirectory);
+        Environment.SetEnvironmentVariable(RoadhogServiceOptions.LicenseCredentialPathEnvironmentVariable, previousLicenseCredential);
         DeleteDirectoryIfExists(directory);
     }
 

@@ -1,3 +1,5 @@
+using Roadhog.Application.Licensing;
+
 namespace Roadhog
 {
     public partial class Form1 : Form
@@ -20,6 +22,7 @@ namespace Roadhog
         private readonly System.Windows.Forms.Timer _uiRefreshTimer = new() { Interval = 1000 };
         private readonly Infrastructure.Hardware.DeviceLeaseStore _deviceLeaseStore = new();
         private readonly DateTimeOffset _processStartedAtUtc = ResolveCurrentProcessStartTimeUtc();
+        private readonly Label _licenseStatusLabel = new();
 
         private DateTimeOffset _topBarStatusMessageExpiresAt = DateTimeOffset.MinValue;
         private IReadOnlyList<Infrastructure.Hardware.DeviceLease> _otherDeviceLeases = Array.Empty<Infrastructure.Hardware.DeviceLease>();
@@ -28,11 +31,14 @@ namespace Roadhog
         private string _lastDeviceLeaseError = string.Empty;
         private bool _suppressFpgaSelectionChanged;
         private bool _suppressHardwareInputChanged;
+        private bool _licenseInitializationStarted;
         private int _accountRows;
 
         public Form1()
         {
             InitializeComponent();
+            InitializeLicenseStatusLabel();
+            _services.LicenseCoordinator.StateChanged += LicenseCoordinator_StateChanged;
             ApplyApplicationIcon();
             RebuildAccountsFromDevices();
             TryAcquireConfiguredDeviceLease();
@@ -46,12 +52,26 @@ namespace Roadhog
             RefreshMissingPlayerInfoForRows();
             _uiRefreshTimer.Tick += UiRefreshTimer_Tick;
             _uiRefreshTimer.Start();
+            ApplyLicenseState(_services.LicenseCoordinator.State);
+        }
+
+        protected override async void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            if (_licenseInitializationStarted)
+            {
+                return;
+            }
+
+            _licenseInitializationStarted = true;
+            await EnsureLicenseInteractiveAsync().ConfigureAwait(true);
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             _uiRefreshTimer.Stop();
             _uiRefreshTimer.Dispose();
+            _services.LicenseCoordinator.StateChanged -= LicenseCoordinator_StateChanged;
             _deviceLeaseStore.Release(Environment.ProcessId, _processStartedAtUtc);
             _services.Dispose();
             base.OnFormClosed(e);
@@ -1150,6 +1170,11 @@ namespace Roadhog
                 return;
             }
 
+            if (!await EnsureLicenseInteractiveAsync().ConfigureAwait(true))
+            {
+                return;
+            }
+
             var buildResult = await TryBuildStartConfigAsync(account).ConfigureAwait(true);
             if (!buildResult.Success || buildResult.Config is null)
             {
@@ -1502,6 +1527,103 @@ namespace Roadhog
             {
                 control.Text = value;
             }
+        }
+
+        private void InitializeLicenseStatusLabel()
+        {
+            _licenseStatusLabel.AutoEllipsis = true;
+            _licenseStatusLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            _licenseStatusLabel.BackColor = Color.Transparent;
+            _licenseStatusLabel.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Bold);
+            _licenseStatusLabel.ForeColor = Color.FromArgb(75, 85, 99);
+            _licenseStatusLabel.Location = new Point(710, 50);
+            _licenseStatusLabel.Name = "licenseStatusLabel";
+            _licenseStatusLabel.Size = new Size(170, 26);
+            _licenseStatusLabel.Text = "授权：未检查";
+            _licenseStatusLabel.TextAlign = ContentAlignment.MiddleCenter;
+            topBarPanel.Controls.Add(_licenseStatusLabel);
+            _licenseStatusLabel.BringToFront();
+        }
+
+        private async Task<bool> EnsureLicenseInteractiveAsync()
+        {
+            var state = _services.LicenseCoordinator.State;
+            if (state.IsAuthorized)
+            {
+                return true;
+            }
+
+            if (state.Kind != LicenseRuntimeStateKind.ActivationRequired)
+            {
+                try
+                {
+                    state = await _services.LicenseCoordinator.InitializeAsync().ConfigureAwait(true);
+                }
+                catch (Exception ex)
+                {
+                    _services.Logger.Error("license.initialize.exception", ex);
+                    MessageBox.Show(
+                        "授权初始化失败。",
+                        "授权失败",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return false;
+                }
+            }
+
+            if (state.IsAuthorized)
+            {
+                return true;
+            }
+
+            if (state.Kind == LicenseRuntimeStateKind.ActivationRequired)
+            {
+                using var activationForm = new LicenseActivationForm(_services.LicenseCoordinator, state);
+                return activationForm.ShowDialog(this) == DialogResult.OK
+                    && _services.LicenseCoordinator.State.IsAuthorized;
+            }
+
+            MessageBox.Show(
+                LicenseUiText.Describe(state),
+                "授权失败",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return false;
+        }
+
+        private void LicenseCoordinator_StateChanged(object? sender, LicenseStateChangedEventArgs e)
+        {
+            if (IsDisposed || Disposing)
+            {
+                return;
+            }
+
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke(new Action(() => ApplyLicenseState(e.State)));
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                return;
+            }
+
+            ApplyLicenseState(e.State);
+        }
+
+        private void ApplyLicenseState(LicenseRuntimeState state)
+        {
+            SetTextIfChanged(_licenseStatusLabel, LicenseUiText.FormatStatus(state));
+            _licenseStatusLabel.ForeColor = state.Kind switch
+            {
+                LicenseRuntimeStateKind.Authorized => Color.FromArgb(22, 101, 52),
+                LicenseRuntimeStateKind.OfflineGrace => Color.FromArgb(180, 83, 9),
+                LicenseRuntimeStateKind.Checking => Color.FromArgb(75, 85, 99),
+                _ => Color.FromArgb(166, 40, 40)
+            };
+
         }
 
         private void UpdateWindowTitle()

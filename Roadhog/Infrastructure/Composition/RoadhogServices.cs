@@ -1,4 +1,5 @@
 using Roadhog.Application;
+using Roadhog.Application.Licensing;
 using Roadhog.Application.SemiAuto;
 using Roadhog.Application.StationaryCombat;
 using Roadhog.Application.Team;
@@ -13,6 +14,7 @@ using Roadhog.Infrastructure.Config;
 using Roadhog.Infrastructure.Diagnostics;
 using Roadhog.Infrastructure.Hardware;
 using Roadhog.Infrastructure.Input;
+using Roadhog.Infrastructure.Licensing;
 using Roadhog.Infrastructure.Mock;
 using Roadhog.Infrastructure.Offsets;
 using Roadhog.Core.Paths;
@@ -39,6 +41,7 @@ public sealed class RoadhogServices : IDisposable
         AccountOrchestrator accountOrchestrator,
         RoadhogRuntime runtime,
         OffsetCatalogProvider offsets,
+        LicenseCoordinator licenseCoordinator,
         IKeyboardInput keyboardInput,
         string keyboardDeviceText,
         string kmBoxNetConfigPath,
@@ -55,10 +58,12 @@ public sealed class RoadhogServices : IDisposable
         AccountOrchestrator = accountOrchestrator;
         Runtime = runtime;
         Offsets = offsets;
+        LicenseCoordinator = licenseCoordinator;
         KeyboardInput = keyboardInput;
         KeyboardDeviceText = keyboardDeviceText;
         KmBoxNetConfigPath = kmBoxNetConfigPath;
         KmBoxNetConfig = kmBoxNetConfig;
+        LicenseCoordinator.StateChanged += LicenseCoordinator_StateChanged;
     }
 
     private bool _disposed;
@@ -84,6 +89,8 @@ public sealed class RoadhogServices : IDisposable
     public RoadhogRuntime Runtime { get; }
 
     public OffsetCatalogProvider Offsets { get; }
+
+    public LicenseCoordinator LicenseCoordinator { get; }
 
     public IKeyboardInput KeyboardInput { get; }
 
@@ -114,6 +121,8 @@ public sealed class RoadhogServices : IDisposable
             ["pathLibraryDirectory"] = options.PathLibraryDirectory,
             ["profileLibraryDirectory"] = options.ProfileLibraryDirectory,
             ["kmBoxNetConfigPath"] = options.KmBoxNetConfigPath,
+            ["licenseCredentialPath"] = options.LicenseCredentialPath,
+            ["licenseServerUrl"] = options.LicenseServerUrl,
             ["inputBackend"] = "KmBoxNet",
             ["keyboardInput"] = "KMBox Net",
             ["keyboardEndpoint"] = options.KmBoxNetInput.EndpointText(),
@@ -140,6 +149,24 @@ public sealed class RoadhogServices : IDisposable
         var sharedPathStore = new JsonSharedPathStore(options.PathLibraryDirectory);
         var scriptProfileStore = new JsonScriptProfileStore(options.ProfileLibraryDirectory);
         var accounts = new AccountRuntimeManager(logger);
+        var licenseServerUri = new Uri(options.LicenseServerUrl.TrimEnd('/') + "/", UriKind.Absolute);
+        var licenseApiClient = new CloudflareLicenseApiClient(new HttpClient
+        {
+            BaseAddress = licenseServerUri,
+            Timeout = options.LicenseRequestTimeout
+        });
+        var licenseCoordinator = new LicenseCoordinator(
+            licenseApiClient,
+            new DpapiLicenseCredentialStore(options.LicenseCredentialPath),
+            new WindowsDeviceIdentityProvider(),
+            logger,
+            new LicenseCoordinatorOptions
+            {
+                HeartbeatInterval = options.LicenseHeartbeatInterval,
+                HeartbeatRetryCount = options.LicenseHeartbeatRetryCount,
+                HeartbeatRetryDelay = options.LicenseHeartbeatRetryDelay,
+                ClientVersion = typeof(RoadhogServices).Assembly.GetName().Version?.ToString(3) ?? "unknown"
+            });
         var keyboardInput = CreateKeyboardInput(options);
         var semiAutoController = new SemiAutoCombatController(keyboardInput);
         var stationaryCombatController = new StationaryCombatController(keyboardInput, semiAutoController, sharedPathStore);
@@ -158,7 +185,8 @@ public sealed class RoadhogServices : IDisposable
             hardwareResolver,
             processResolver,
             new DefaultAccountWorkerLoop(keyboardInput, semiAutoController, stationaryCombatController, teamSupportController, teamOutputController),
-            workerOptions);
+            workerOptions,
+            licenseCoordinator);
         var runtime = new RoadhogRuntime(
             gameApi,
             logger,
@@ -182,6 +210,7 @@ public sealed class RoadhogServices : IDisposable
             accountOrchestrator,
             runtime,
             offsets,
+            licenseCoordinator,
             keyboardInput,
             options.KmBoxNetInput.DeviceText(),
             options.KmBoxNetConfigPath,
@@ -196,6 +225,16 @@ public sealed class RoadhogServices : IDisposable
         }
 
         _disposed = true;
+        LicenseCoordinator.StateChanged -= LicenseCoordinator_StateChanged;
+        try
+        {
+            LicenseCoordinator.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("license.dispose_exception", ex);
+        }
+
         try
         {
             if (KeyboardInput is IInputStateReset reset)
@@ -218,6 +257,40 @@ public sealed class RoadhogServices : IDisposable
         if (KeyboardInput is IDisposable disposable)
         {
             disposable.Dispose();
+        }
+    }
+
+    private void LicenseCoordinator_StateChanged(object? sender, LicenseStateChangedEventArgs e)
+    {
+        if (!e.State.RequiresStop || _disposed)
+        {
+            return;
+        }
+
+        _ = StopWorkersForLicenseAsync(e.State.ErrorCode);
+    }
+
+    private async Task StopWorkersForLicenseAsync(string? errorCode)
+    {
+        try
+        {
+            Logger.Warn("license.runtime.stop_all", new Dictionary<string, object?>
+            {
+                ["errorCode"] = errorCode
+            });
+            var results = await AccountOrchestrator.StopAllAsync().ConfigureAwait(false);
+            foreach (var failure in results.Where(pair => !pair.Value.Success))
+            {
+                Logger.Warn("license.runtime.stop_failed", new Dictionary<string, object?>
+                {
+                    ["account"] = failure.Key,
+                    ["error"] = failure.Value.Error
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("license.runtime.stop_exception", ex);
         }
     }
 

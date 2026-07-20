@@ -298,12 +298,14 @@ namespace Roadhog
             //
             // kmboxStatusLabel
             //
+            this.kmboxStatusLabel.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
             this.kmboxStatusLabel.AutoSize = false;
             this.kmboxStatusLabel.Font = new System.Drawing.Font("Microsoft YaHei UI", 8.5F, System.Drawing.FontStyle.Bold);
             this.kmboxStatusLabel.ForeColor = System.Drawing.Color.FromArgb(22, 101, 52);
             this.kmboxStatusLabel.Location = new System.Drawing.Point(488, 55);
             this.kmboxStatusLabel.Name = "kmboxStatusLabel";
-            this.kmboxStatusLabel.Size = new System.Drawing.Size(264, 17);
+            this.kmboxStatusLabel.Size = new System.Drawing.Size(214, 17);
             this.kmboxStatusLabel.TabIndex = 10;
             this.kmboxStatusLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             //
