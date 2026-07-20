@@ -214,6 +214,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat keeps current fight target when lock switches", TestStationaryCombatKeepsCurrentFightTargetWhenLockSwitchesAsync),
     ("stationary combat clears missing current fight target quickly", TestStationaryCombatClearsMissingCurrentFightTargetQuicklyAsync),
     ("stationary combat presses C until locked target targets player", TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsync),
+    ("stationary combat accepts self targeting locked target after opening attack", TestStationaryCombatAcceptsSelfTargetingLockedTargetAfterOpeningAttackAsync),
     ("stationary combat switches away from target claimed by other", TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync),
     ("stationary combat treats self targeting monster as unclaimed", TestStationaryCombatTreatsSelfTargetingMonsterAsUnclaimedAsync),
     ("stationary combat keeps previously engaged target while it self targets", TestStationaryCombatKeepsPreviouslyEngagedTargetWhileSelfTargetingAsync),
@@ -9211,6 +9212,74 @@ static async Task TestStationaryCombatPressesCUntilLockedTargetTargetsPlayerAsyn
 
     AssertEqual(1, keyboard.Keys.Count(key => key == "C"), "C should stop after the locked target targets player");
     AssertFalse(!keyboard.Keys.Contains("D2"), "targeting player should enter skill release");
+}
+
+static async Task TestStationaryCombatAcceptsSelfTargetingLockedTargetAfterOpeningAttackAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 60
+    };
+    settings.SemiAuto.AttackKeyLoopEnabled = true;
+    settings.SemiAuto.AttackKeyLoopIntervalMs = 1;
+
+    const uint targetServerObjectId = 100;
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+        TargetEntityId = 100,
+        TargetOwnServerObjectId = targetServerObjectId,
+        TargetCurrentHp = 1000,
+        TargetMaxHp = 1000,
+        TargetPosition = new Vector3Snapshot(8, 0, 0),
+        TargetServerObjectId = targetServerObjectId,
+        LocalServerObjectId = 1,
+        TargetIsTargetingLocalPlayer = false,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(100, targetServerObjectId, "self-targeting", "monster", new Vector3Snapshot(8, 0, 0), 8, 1000, 1000, targetServerObjectId, false)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0,
+            [7] = 0,
+            [8] = 0,
+            [9] = 0,
+            [10] = 0
+        })
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = targetServerObjectId
+    };
+    state.MarkCandidate(100, targetServerObjectId, DateTimeOffset.Now);
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("C"), "self-targeting locked target should not wait for player targeting via C loop");
+    AssertFalse(!keyboard.Keys.Contains("D2"), "self-targeting locked target should continue skill release after opening attack");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.opening_attack.wait_targeting"), "self-targeting locked target should not log opening attack wait");
+    AssertFalse(!state.Fighting, "self-targeting locked target should remain in fight");
+    AssertEqual((ushort)100, state.CurrentTargetEntityId, "current self-targeting locked target should remain selected");
+    AssertEqual(targetServerObjectId, state.CurrentTargetServerObjectId, "current self-targeting locked target server id should remain selected");
 }
 
 static async Task TestStationaryCombatSwitchesAwayFromTargetClaimedByOtherAsync()

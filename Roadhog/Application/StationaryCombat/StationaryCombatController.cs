@@ -4667,7 +4667,8 @@ public sealed class StationaryCombatController
         string phase)
     {
         if (state.CurrentTargetIsMaintenanceDefense ||
-            IsTargetingLocalSide(target, state))
+            IsTargetingLocalSide(target, state) ||
+            IsTargetingSelf(target))
         {
             semiAutoState.MarkOpeningAttackKeyAttempted(target);
             return null;
@@ -4691,7 +4692,8 @@ public sealed class StationaryCombatController
             ["targetServerObjectId"] = target.ServerObjectId,
             ["targetingServerObjectId"] = target.TargetServerObjectId,
             ["localServerObjectId"] = target.LocalServerObjectId,
-            ["targetingMe"] = IsTargetingLocalSide(target, state)
+            ["targetingMe"] = IsTargetingLocalSide(target, state),
+            ["targetingSelf"] = IsTargetingSelf(target)
         }, TimeSpan.FromMilliseconds(500));
 
         return await _semiAuto
@@ -5347,6 +5349,13 @@ public sealed class StationaryCombatController
         return target.TargetServerObjectId != 0 &&
                target.TargetServerObjectId != target.ServerObjectId &&
                !IsTargetingLocalSide(target, state);
+    }
+
+    private static bool IsTargetingSelf(LockedTargetSnapshot target)
+    {
+        return target.TargetServerObjectId != 0 &&
+               target.ServerObjectId != 0 &&
+               target.TargetServerObjectId == target.ServerObjectId;
     }
 
     private static bool IsTargetingLocalSide(WorldObjectSnapshot target, StationaryCombatState state)
