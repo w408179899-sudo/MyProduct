@@ -36,7 +36,6 @@ namespace Roadhog
         private string _otherDeviceLeaseFingerprint = string.Empty;
         private string _lastDeviceLeaseError = string.Empty;
         private bool _suppressFpgaSelectionChanged;
-        private bool _suppressHardwareInputChanged;
         private bool _licenseInitializationStarted;
         private bool _formClosing;
         private int _accountRows;
@@ -342,18 +341,15 @@ namespace Roadhog
             accountTable.RowStyles.Clear();
             _rowControls.Clear();
             accountTable.RowCount = 1;
-            accountTable.ColumnCount = 10;
+            accountTable.ColumnCount = 7;
             _accountRows = 0;
 
             AddColumns();
             accountTable.RowStyles.Add(new RowStyle(SizeType.Absolute, HeaderRowHeight));
-            AddHeader("账号", 0);
-            AddHeader("角色", 1);
-            AddHeader("硬件特征", 2);
-            AddHeader("状态", 3);
-            AddHeader("杀怪/h", 4);
-            AddHeader("时长", 5);
-            AddHeader("操作", 6, 4);
+            AddHeader("状态", 0);
+            AddHeader("杀怪/h", 1);
+            AddHeader("时长", 2);
+            AddHeader("操作", 3, 4);
 
             foreach (var account in _accounts)
             {
@@ -365,16 +361,13 @@ namespace Roadhog
 
         private void AddColumns()
         {
-            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 11F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 12F));
-            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 17F));
-            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 8F));
-            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 7F));
-            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 11F));
+            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 10F));
+            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 14F));
 
             for (var i = 0; i < 4; i++)
             {
-                accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 8.5F));
+                accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16F));
             }
         }
 
@@ -403,12 +396,7 @@ namespace Roadhog
 
         private static string NormalizeAccountHeaderText(string text, int column)
         {
-            return column switch
-            {
-                0 => "等级/职业",
-                1 => "角色",
-                _ => text
-            };
+            return text;
         }
 
         private void AddAccountRow(AccountRowModel account)
@@ -418,22 +406,16 @@ namespace Roadhog
             accountTable.RowStyles.Add(new RowStyle(SizeType.Absolute, AccountRowHeight));
 
             var alt = row % 2 == 0;
-            var levelClassLabel = AddCell(account.LevelClass, row, 0, alt, ContentAlignment.MiddleCenter);
-            var roleLabel = AddCell(account.Role, row, 1, alt);
-            var hardwareInput = AddHardwareInput(account, row, alt);
-            var statusLabel = AddCell(account.Status, row, 3, alt);
-            var killsPerHourLabel = AddCell(account.KillsPerHour, row, 4, alt, ContentAlignment.MiddleCenter);
-            var durationLabel = AddCell(account.Duration, row, 5, alt, ContentAlignment.MiddleCenter);
+            var statusLabel = AddCell(account.Status, row, 0, alt);
+            var killsPerHourLabel = AddCell(account.KillsPerHour, row, 1, alt, ContentAlignment.MiddleCenter);
+            var durationLabel = AddCell(account.Duration, row, 2, alt, ContentAlignment.MiddleCenter);
 
-            AddActionButton("登录", row, 6, account.Account);
-            AddActionButton("设置", row, 7, account.Account);
-            AddActionButton("启动", row, 8, account.Account);
-            AddActionButton("停止", row, 9, account.Account);
+            AddActionButton("登录", row, 3, account.Account);
+            AddActionButton("设置", row, 4, account.Account);
+            AddActionButton("启动", row, 5, account.Account);
+            AddActionButton("停止", row, 6, account.Account);
 
             _rowControls[account.Account] = new AccountRowControls(
-                levelClassLabel,
-                roleLabel,
-                hardwareInput,
                 statusLabel,
                 killsPerHourLabel,
                 durationLabel);
@@ -459,28 +441,6 @@ namespace Roadhog
 
             accountTable.Controls.Add(label, column, row);
             return label;
-        }
-
-        private RoundedTextBox AddHardwareInput(AccountRowModel account, int row, bool alt)
-        {
-            var input = new RoundedTextBox
-            {
-                BackColor = alt ? _softGreen : Color.White,
-                BorderColor = Color.FromArgb(134, 239, 172),
-                ChromeScale = MainUiScale,
-                CornerRadius = ScaleUiDimension(7),
-                Dock = DockStyle.Fill,
-                Font = CreateScaledFont("Consolas", 9F, FontStyle.Bold),
-                ForeColor = Color.FromArgb(20, 83, 45),
-                Margin = ScaleUiPadding(new Padding(3)),
-                ReadOnly = true,
-                Tag = account.Account,
-                Text = FormatHardwareDisplay(account.HardwareKey)
-            };
-
-            input.TextChanged += AccountHardwareInput_TextChanged;
-            accountTable.Controls.Add(input, 2, row);
-            return input;
         }
 
         private void AddActionButton(string text, int row, int column, string account)
@@ -961,28 +921,6 @@ namespace Roadhog
                 : savedVmmDeviceName!.Trim();
         }
 
-        private void AccountHardwareInput_TextChanged(object? sender, EventArgs e)
-        {
-            if (_suppressHardwareInputChanged)
-            {
-                return;
-            }
-
-            if (sender is not Control { Tag: string account } input)
-            {
-                return;
-            }
-
-            var index = _accounts.FindIndex(item => string.Equals(item.Account, account, StringComparison.OrdinalIgnoreCase));
-            if (index < 0)
-            {
-                return;
-            }
-
-            _accounts[index] = _accounts[index] with { HardwareKey = input.Text.Trim() };
-            UpdateWindowTitle();
-        }
-
         private void LoadKmBoxNetInputs()
         {
             var config = _services.KmBoxNetConfig;
@@ -1332,13 +1270,43 @@ namespace Roadhog
                 return;
             }
 
+            var row = _accounts.FirstOrDefault(item => string.Equals(item.Account, account, StringComparison.OrdinalIgnoreCase));
+            var titleDisplayText = FormatAccountSettingsDisplayText(row, account);
             using var settingsForm = new AccountSettingsForm(
                 account,
                 _services.Runtime,
                 _services.AccountConfigStore,
                 _services.SharedPathStore,
-                _services.ScriptProfileStore);
+                _services.ScriptProfileStore,
+                titleDisplayText);
             settingsForm.ShowDialog(this);
+        }
+
+        private static string FormatAccountSettingsDisplayText(AccountRowModel? row, string account)
+        {
+            var displayText = FormatCharacterDisplayText(row?.Role, row?.LevelClass);
+
+            return string.IsNullOrWhiteSpace(displayText)
+                ? account.Trim()
+                : displayText;
+        }
+
+        private static string FormatCharacterDisplayText(string? characterName, string? levelClass)
+        {
+            var characterText = characterName?.Trim() ?? string.Empty;
+            var levelClassText = levelClass?.Trim() ?? string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(characterText) && !string.IsNullOrWhiteSpace(levelClassText))
+            {
+                return characterText + " " + levelClassText;
+            }
+
+            if (!string.IsNullOrWhiteSpace(characterText))
+            {
+                return characterText;
+            }
+
+            return levelClassText;
         }
 
         private async void StartAccountButton_Click(object? sender, EventArgs e)
@@ -1618,12 +1586,6 @@ namespace Roadhog
                     Role = string.IsNullOrWhiteSpace(player.CharacterName) ? row.Role : player.CharacterName
                 };
 
-                if (_rowControls.TryGetValue(account, out var controls))
-                {
-                    SetTextIfChanged(controls.LevelClassLabel, _accounts[index].LevelClass);
-                    SetTextIfChanged(controls.RoleLabel, _accounts[index].Role);
-                }
-
                 UpdateWindowTitle();
             }
             catch (Exception ex)
@@ -1674,29 +1636,10 @@ namespace Roadhog
                 return;
             }
 
-            SetTextIfChanged(controls.LevelClassLabel, row.LevelClass);
-            SetTextIfChanged(controls.RoleLabel, row.Role);
             SetTextIfChanged(controls.StatusLabel, row.Status);
             SetTextIfChanged(controls.KillsPerHourLabel, row.KillsPerHour);
             SetTextIfChanged(controls.DurationLabel, row.Duration);
 
-            if (updateHardwareKey && !string.IsNullOrWhiteSpace(row.HardwareKey))
-            {
-                SetHardwareTextIfChanged(controls.HardwareInput, row.HardwareKey);
-            }
-        }
-
-        private void SetHardwareTextIfChanged(Control control, string hardwareKey)
-        {
-            _suppressHardwareInputChanged = true;
-            try
-            {
-                SetTextIfChanged(control, FormatHardwareDisplay(hardwareKey));
-            }
-            finally
-            {
-                _suppressHardwareInputChanged = false;
-            }
         }
 
         private static void SetTextIfChanged(Control control, string value)
@@ -1933,12 +1876,14 @@ namespace Roadhog
                     && !string.IsNullOrWhiteSpace(snapshot.CharacterName));
             if (activeSnapshot is not null)
             {
-                return activeSnapshot.CharacterName;
+                var row = _accounts.FirstOrDefault(account =>
+                    string.Equals(account.Account, activeSnapshot.AccountName, StringComparison.OrdinalIgnoreCase));
+                return FormatCharacterDisplayText(activeSnapshot.CharacterName, row?.LevelClass);
             }
 
             return _accounts
-                .Select(account => account.Role)
-                .FirstOrDefault(role => !string.IsNullOrWhiteSpace(role)) ?? string.Empty;
+                .Select(account => FormatCharacterDisplayText(account.Role, account.LevelClass))
+                .FirstOrDefault(text => !string.IsNullOrWhiteSpace(text)) ?? string.Empty;
         }
 
         private static string FormatKillsPerHour(Core.Accounts.AccountRuntimeSnapshot snapshot)
@@ -2032,9 +1977,6 @@ namespace Roadhog
             string Duration);
 
         private sealed record AccountRowControls(
-            Label LevelClassLabel,
-            Label RoleLabel,
-            RoundedTextBox HardwareInput,
             Label StatusLabel,
             Label KillsPerHourLabel,
             Label DurationLabel);

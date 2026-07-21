@@ -15,6 +15,7 @@ namespace Roadhog
         private const int PathRecordTimerIntervalMs = 100;
 
         private readonly string _account;
+        private readonly string _windowTitle;
         private readonly RoadhogRuntime _runtime;
         private readonly IAccountConfigStore _configStore;
         private readonly ISharedPathStore _pathStore;
@@ -163,9 +164,11 @@ namespace Roadhog
             RoadhogRuntime runtime,
             IAccountConfigStore configStore,
             ISharedPathStore pathStore,
-            IScriptProfileStore profileStore)
+            IScriptProfileStore profileStore,
+            string accountDisplayText = "")
         {
             _account = account;
+            _windowTitle = BuildWindowTitle(account, accountDisplayText);
             _runtime = runtime;
             _configStore = configStore;
             _pathStore = pathStore;
@@ -191,7 +194,7 @@ namespace Roadhog
             MinimumSize = new Size(720, 420);
             Name = "AccountSettingsForm";
             StartPosition = FormStartPosition.CenterParent;
-            Text = $"账号设置 - {_account}";
+            Text = _windowTitle;
 
             settingsTabs = new TabControl
             {
@@ -216,6 +219,22 @@ namespace Roadhog
             saveButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             saveButton.BringToFront();
             LoadSavedSettings();
+        }
+
+        private static string BuildWindowTitle(string account, string accountDisplayText)
+        {
+            var accountText = string.IsNullOrWhiteSpace(account)
+                ? "账号"
+                : account.Trim();
+            var displayText = accountDisplayText?.Trim() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(displayText) ||
+                string.Equals(displayText, accountText, StringComparison.OrdinalIgnoreCase))
+            {
+                return "账号设置 - " + accountText;
+            }
+
+            return "账号设置 - " + displayText + " (" + accountText + ")";
         }
 
         private void LoadSavedSettings()
