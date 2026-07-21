@@ -4,9 +4,13 @@ namespace Roadhog
 {
     public partial class Form1 : Form
     {
-        private const int HeaderRowHeight = 30;
-        private const int AccountRowHeight = 34;
-        private const int WindowCornerRadius = 12;
+        private const float MainUiScale = 0.8F;
+        private const int BaseHeaderRowHeight = 30;
+        private const int BaseAccountRowHeight = 34;
+        private const int BaseWindowCornerRadius = 12;
+        private static int HeaderRowHeight => ScaleUiDimension(BaseHeaderRowHeight);
+        private static int AccountRowHeight => ScaleUiDimension(BaseAccountRowHeight);
+        private static int WindowCornerRadius => ScaleUiDimension(BaseWindowCornerRadius);
         private static readonly TimeSpan PlayerInfoRefreshInterval = TimeSpan.FromSeconds(15);
         private static readonly TimeSpan RuntimeWarningDisplayWindow = TimeSpan.FromSeconds(30);
 
@@ -41,6 +45,7 @@ namespace Roadhog
         {
             InitializeComponent();
             InitializeLicenseStatusLabel();
+            ApplyMainUiScale();
             kmboxStatusLabel.AutoEllipsis = true;
             _services.LicenseCoordinator.StateChanged += LicenseCoordinator_StateChanged;
             ApplyApplicationIcon();
@@ -116,6 +121,165 @@ namespace Roadhog
             }
         }
 
+        private void ApplyMainUiScale()
+        {
+            if (Math.Abs(MainUiScale - 1F) < 0.001F)
+            {
+                return;
+            }
+
+            SuspendLayoutTree(this);
+            try
+            {
+                ScaleMainControlTree(this);
+            }
+            finally
+            {
+                ResumeLayoutTree(this);
+                PerformLayout();
+            }
+        }
+
+        private static void SuspendLayoutTree(Control control)
+        {
+            control.SuspendLayout();
+
+            foreach (Control child in control.Controls)
+            {
+                SuspendLayoutTree(child);
+            }
+        }
+
+        private static void ResumeLayoutTree(Control control)
+        {
+            foreach (Control child in control.Controls)
+            {
+                ResumeLayoutTree(child);
+            }
+
+            control.ResumeLayout(false);
+        }
+
+        private static void ScaleMainControlTree(Control control)
+        {
+            ScaleMainControl(control);
+
+            if (control is RoundedTextBox or RoundedComboBox)
+            {
+                return;
+            }
+
+            foreach (Control child in control.Controls)
+            {
+                ScaleMainControlTree(child);
+            }
+        }
+
+        private static void ScaleMainControl(Control control)
+        {
+            control.Font = ScaleUiFont(control.Font);
+            control.Padding = ScaleUiPadding(control.Padding);
+            control.Margin = ScaleUiPadding(control.Margin);
+
+            if (control.MinimumSize != Size.Empty)
+            {
+                control.MinimumSize = ScaleUiSize(control.MinimumSize);
+            }
+
+            if (control.MaximumSize != Size.Empty)
+            {
+                control.MaximumSize = ScaleUiSize(control.MaximumSize);
+            }
+
+            if (control is Form form)
+            {
+                form.ClientSize = ScaleUiSize(form.ClientSize);
+            }
+            else
+            {
+                control.Bounds = ScaleUiRectangle(control.Bounds);
+            }
+
+            switch (control)
+            {
+                case RoundedButton button:
+                    button.CornerRadius = ScaleUiDimension(button.CornerRadius);
+                    button.ShadowDepth = ScaleUiDimension(button.ShadowDepth);
+                    break;
+                case RoundedPanel panel:
+                    panel.CornerRadius = ScaleUiDimension(panel.CornerRadius);
+                    panel.ShadowDepth = ScaleUiDimension(panel.ShadowDepth);
+                    break;
+                case RoundedTextBox textBox:
+                    textBox.CornerRadius = ScaleUiDimension(textBox.CornerRadius);
+                    textBox.ChromeScale = MainUiScale;
+                    break;
+                case RoundedComboBox comboBox:
+                    comboBox.CornerRadius = ScaleUiDimension(comboBox.CornerRadius);
+                    comboBox.ChromeScale = MainUiScale;
+                    break;
+            }
+        }
+
+        private static Font ScaleUiFont(Font font)
+        {
+            return new Font(
+                font.FontFamily,
+                ScaleUiFontSize(font.SizeInPoints),
+                font.Style,
+                font.Unit,
+                font.GdiCharSet,
+                font.GdiVerticalFont);
+        }
+
+        private static Font CreateScaledFont(string familyName, float emSize, FontStyle style)
+        {
+            return new Font(familyName, ScaleUiFontSize(emSize), style);
+        }
+
+        private static float ScaleUiFontSize(float value)
+        {
+            return Math.Max(1F, value * MainUiScale);
+        }
+
+        private static Rectangle ScaleUiRectangle(Rectangle value)
+        {
+            return new Rectangle(
+                ScaleUiCoordinate(value.X),
+                ScaleUiCoordinate(value.Y),
+                ScaleUiDimension(value.Width),
+                ScaleUiDimension(value.Height));
+        }
+
+        private static Size ScaleUiSize(Size value)
+        {
+            return new Size(ScaleUiDimension(value.Width), ScaleUiDimension(value.Height));
+        }
+
+        private static Padding ScaleUiPadding(Padding value)
+        {
+            return new Padding(
+                ScaleUiCoordinate(value.Left),
+                ScaleUiCoordinate(value.Top),
+                ScaleUiCoordinate(value.Right),
+                ScaleUiCoordinate(value.Bottom));
+        }
+
+        private static int ScaleUiCoordinate(int value)
+        {
+            return (int)Math.Round(value * MainUiScale, MidpointRounding.AwayFromZero);
+        }
+
+        private static int ScaleUiDimension(int value)
+        {
+            if (value == 0)
+            {
+                return 0;
+            }
+
+            return Math.Max(1, ScaleUiCoordinate(value));
+        }
+
         private void RebuildAccountsFromDevices()
         {
             _accounts.Clear();
@@ -185,7 +349,7 @@ namespace Roadhog
             accountTable.RowStyles.Add(new RowStyle(SizeType.Absolute, HeaderRowHeight));
             AddHeader("账号", 0);
             AddHeader("角色", 1);
-            AddHeader("硬件特征(空=自动)", 2);
+            AddHeader("硬件特征", 2);
             AddHeader("状态", 3);
             AddHeader("杀怪/h", 4);
             AddHeader("时长", 5);
@@ -203,14 +367,14 @@ namespace Roadhog
         {
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 11F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 12F));
-            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
+            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 17F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 8F));
             accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 7F));
-            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 8F));
+            accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 11F));
 
             for (var i = 0; i < 4; i++)
             {
-                accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 7F));
+                accountTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 8.5F));
             }
         }
 
@@ -221,10 +385,10 @@ namespace Roadhog
             {
                 BackColor = _headerGreen,
                 Dock = DockStyle.Fill,
-                Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
+                Font = CreateScaledFont("Microsoft YaHei UI", 9F, FontStyle.Bold),
                 ForeColor = Color.White,
                 Margin = Padding.Empty,
-                Padding = new Padding(6, 0, 6, 0),
+                Padding = ScaleUiPadding(new Padding(6, 0, 6, 0)),
                 Text = text,
                 TextAlign = ContentAlignment.MiddleCenter
             };
@@ -282,12 +446,13 @@ namespace Roadhog
         {
             var label = new Label
             {
+                AutoEllipsis = true,
                 BackColor = alt ? _softGreen : Color.White,
                 Dock = DockStyle.Fill,
-                Font = new Font("Consolas", 9.5F, FontStyle.Bold),
+                Font = CreateScaledFont("Consolas", 9.5F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(20, 83, 45),
                 Margin = Padding.Empty,
-                Padding = new Padding(6, 0, 6, 0),
+                Padding = ScaleUiPadding(new Padding(6, 0, 6, 0)),
                 Text = text,
                 TextAlign = alignment
             };
@@ -302,11 +467,12 @@ namespace Roadhog
             {
                 BackColor = alt ? _softGreen : Color.White,
                 BorderColor = Color.FromArgb(134, 239, 172),
-                CornerRadius = 7,
+                ChromeScale = MainUiScale,
+                CornerRadius = ScaleUiDimension(7),
                 Dock = DockStyle.Fill,
-                Font = new Font("Consolas", 9F, FontStyle.Bold),
+                Font = CreateScaledFont("Consolas", 9F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(20, 83, 45),
-                Margin = new Padding(3),
+                Margin = ScaleUiPadding(new Padding(3)),
                 ReadOnly = true,
                 Tag = account.Account,
                 Text = FormatHardwareDisplay(account.HardwareKey)
@@ -323,12 +489,12 @@ namespace Roadhog
             {
                 BackColor = _primaryGreen,
                 BorderColor = _darkGreen,
-                CornerRadius = 7,
+                CornerRadius = ScaleUiDimension(7),
                 Dock = DockStyle.Fill,
-                Font = new Font("Microsoft YaHei UI", 8F, FontStyle.Bold),
+                Font = CreateScaledFont("Microsoft YaHei UI", 8F, FontStyle.Bold),
                 ForeColor = Color.White,
-                Margin = new Padding(3),
-                ShadowDepth = 2,
+                Margin = ScaleUiPadding(new Padding(3)),
+                ShadowDepth = ScaleUiDimension(2),
                 Tag = account,
                 Text = text,
                 UseVisualStyleBackColor = false

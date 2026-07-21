@@ -235,6 +235,7 @@ namespace Roadhog
     internal sealed class RoundedTextBox : UserControl
     {
         private readonly TextBox _innerTextBox = new();
+        private float _chromeScale = 1F;
 
         public RoundedTextBox()
         {
@@ -257,6 +258,17 @@ namespace Roadhog
         }
 
         public int CornerRadius { get; set; } = 8;
+
+        public float ChromeScale
+        {
+            get => _chromeScale;
+            set
+            {
+                _chromeScale = Math.Max(0.1F, value);
+                UpdateInnerBounds();
+                Invalidate();
+            }
+        }
 
         public Color BorderColor { get; set; }
 
@@ -325,8 +337,16 @@ namespace Roadhog
             using var parentBrush = new SolidBrush(Parent?.BackColor ?? SystemColors.Control);
             e.Graphics.FillRectangle(parentBrush, ClientRectangle);
 
-            var shadowBounds = new RectangleF(2, 3, Width - 4, Height - 4);
-            var boxBounds = new RectangleF(1, 1, Width - 3, Height - 4);
+            var shadowBounds = new RectangleF(
+                ScaleChromeDimension(2),
+                ScaleChromeDimension(3),
+                Width - ScaleChromeDimension(4),
+                Height - ScaleChromeDimension(4));
+            var boxBounds = new RectangleF(
+                ScaleChromeDimension(1),
+                ScaleChromeDimension(1),
+                Width - ScaleChromeDimension(3),
+                Height - ScaleChromeDimension(4));
 
             using (var shadowPath = UiChrome.RoundedRect(shadowBounds, CornerRadius))
             using (var shadowBrush = new SolidBrush(Color.FromArgb(24, 15, 23, 42)))
@@ -343,15 +363,36 @@ namespace Roadhog
 
         private void UpdateInnerBounds()
         {
+            var horizontalPadding = ScaleChromeDimension(8);
+            var totalHorizontalPadding = ScaleChromeDimension(16);
             _innerTextBox.Bounds = Multiline
-                ? new Rectangle(8, 7, Math.Max(1, Width - 16), Math.Max(1, Height - 14))
-                : new Rectangle(8, Math.Max(4, (Height - _innerTextBox.PreferredHeight) / 2), Math.Max(1, Width - 16), _innerTextBox.PreferredHeight);
+                ? new Rectangle(
+                    horizontalPadding,
+                    ScaleChromeDimension(7),
+                    Math.Max(1, Width - totalHorizontalPadding),
+                    Math.Max(1, Height - ScaleChromeDimension(14)))
+                : new Rectangle(
+                    horizontalPadding,
+                    Math.Max(ScaleChromeDimension(4), (Height - _innerTextBox.PreferredHeight) / 2),
+                    Math.Max(1, Width - totalHorizontalPadding),
+                    _innerTextBox.PreferredHeight);
+        }
+
+        private int ScaleChromeDimension(int value)
+        {
+            if (value == 0)
+            {
+                return 0;
+            }
+
+            return Math.Max(1, (int)Math.Round(value * _chromeScale, MidpointRounding.AwayFromZero));
         }
     }
 
     internal sealed class RoundedComboBox : UserControl
     {
         private readonly ComboBox _comboBox = new();
+        private float _chromeScale = 1F;
 
         public RoundedComboBox()
         {
@@ -379,6 +420,17 @@ namespace Roadhog
         }
 
         public int CornerRadius { get; set; } = 8;
+
+        public float ChromeScale
+        {
+            get => _chromeScale;
+            set
+            {
+                _chromeScale = Math.Max(0.1F, value);
+                UpdateInnerBounds();
+                Invalidate();
+            }
+        }
 
         public Color BorderColor { get; set; }
 
@@ -441,8 +493,16 @@ namespace Roadhog
             using var parentBrush = new SolidBrush(Parent?.BackColor ?? SystemColors.Control);
             e.Graphics.FillRectangle(parentBrush, ClientRectangle);
 
-            var shadowBounds = new RectangleF(2, 3, Width - 4, Height - 4);
-            var boxBounds = new RectangleF(1, 1, Width - 3, Height - 4);
+            var shadowBounds = new RectangleF(
+                ScaleChromeDimension(2),
+                ScaleChromeDimension(3),
+                Width - ScaleChromeDimension(4),
+                Height - ScaleChromeDimension(4));
+            var boxBounds = new RectangleF(
+                ScaleChromeDimension(1),
+                ScaleChromeDimension(1),
+                Width - ScaleChromeDimension(3),
+                Height - ScaleChromeDimension(4));
 
             using (var shadowPath = UiChrome.RoundedRect(shadowBounds, CornerRadius))
             using (var shadowBrush = new SolidBrush(Color.FromArgb(24, 15, 23, 42)))
@@ -459,7 +519,22 @@ namespace Roadhog
 
         private void UpdateInnerBounds()
         {
-            _comboBox.Bounds = new Rectangle(6, Math.Max(3, (Height - _comboBox.PreferredHeight) / 2), Math.Max(1, Width - 12), _comboBox.PreferredHeight);
+            var horizontalPadding = ScaleChromeDimension(6);
+            _comboBox.Bounds = new Rectangle(
+                horizontalPadding,
+                Math.Max(ScaleChromeDimension(3), (Height - _comboBox.PreferredHeight) / 2),
+                Math.Max(1, Width - ScaleChromeDimension(12)),
+                _comboBox.PreferredHeight);
+        }
+
+        private int ScaleChromeDimension(int value)
+        {
+            if (value == 0)
+            {
+                return 0;
+            }
+
+            return Math.Max(1, (int)Math.Round(value * _chromeScale, MidpointRounding.AwayFromZero));
         }
     }
 
