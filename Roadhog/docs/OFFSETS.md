@@ -7,6 +7,7 @@
 - `Tool/Program.cs` 里还有一些探针测试偏移，除非复制进 `AionVmmGameApi`，否则不算 Roadhog 运行时依赖。
 - `RoadhogInputKeyMap` 里的数值是 HID 按键码，不是游戏数据偏移，所以不列入本文档。
 - `config/offsets.example.json` 当前为空；现在 VMM adapter 仍直接使用代码里的常量。
+- `VmmConfig*`、`TargetVmm*`、`VmmReadFlagNoCache` 和重连阈值是 MemProcFS/VMM 读取策略配置，不是游戏数据偏移。
 
 ## Game.dll RVA
 
@@ -14,7 +15,11 @@
 |---|---:|---|
 | `EntitySystemPointerRva` | `0x904690` | EntitySystem 根指针；读取本地玩家、锁定目标、周围怪物、尸体、异常状态都从这里进入。 |
 | `ServerObjectTreeRva` | `0xD21740` | Server object 树根；把 server object id 映射到 entity id，用于目标身份、怪物列表、尸体列表。 |
-| `PrimaryPartyListRva` | `0xD1BAE8` | 主队伍成员链表；用于召唤物归属和队伍召唤物快照。 |
+| `PartyIdRva` | `0xD1BAB8` | 队伍 id / 队伍激活状态候选；队伍快照保留原始值，业务不单独依赖它判断组队。 |
+| `PartyFlagsRva` | `0xD1BABC` | 队伍权限/状态 flags 候选；队伍快照保留原始诊断值。 |
+| `PartyLeaderServerObjectIdRva` | `0xD1BAC0` | 队长 server object id；用于标记队长成员和判断本地角色是否队长。 |
+| `PrimaryPartyListRva` | `0xD1BAE8` | 主队伍成员 `std::list` 哨兵节点指针；用于队伍快照、召唤物归属和队伍召唤物快照。 |
+| `PrimaryPartyCountRva` | `0xD1BAF0` | 主队伍成员记录数量；队伍快照保留原始数量，并和链表读取互相诊断。 |
 | `SecondaryPartyListRva` | `0xD1BB50` | 备用队伍成员链表；和主链表合并、去重。 |
 | `LocalEntityIdRva` | `0xD21798` | 本地玩家 entity id；`+0x2` 是当前目标 entity id，用于玩家状态、锁定目标、距离和排除自己。 |
 | `LocalMaxHpRva` | `0xD267DC` | 本地最大 HP；用于维护、死亡判断、回血阈值。 |
@@ -46,6 +51,7 @@
 | `NodeIsNilOffset` / sentinel 标记 | `+0x19` | 判断红黑树空节点，停止遍历。 |
 | `NodeIdOffset` / 节点 ID | `+0x20` | entity 树查找 key；技能树也复用同类布局。 |
 | `NodeEntityOffset` / 节点实体指针 | `+0x28` | entity 树 value，指向 `CEntity`。 |
+| `ListNodeNextOffset` / 链表后节点 | `+0x00` | 遍历队伍成员 `std::list`；从 head 的 next 开始前进。 |
 | `ListNodePrevOffset` / 链表前节点 | `+0x08` | 从技能 item list header 取最后一个技能 item 节点。 |
 | `ListNodeValueOffset` / 链表 value | `+0x10` | 从链表节点读取 `SkillItem*`。 |
 
@@ -55,6 +61,7 @@
 |---|---:|---|
 | `EntitySystem + EntityTreeOffset` | `+0x58` | entity 树 header；读取本地玩家、当前目标、周围怪、尸体、异常状态都依赖它。 |
 | `CEntity + EntityTypeOffset` | `+0xF2` | entity 类型；Roadhog 当前用值 `3` 过滤 NPC/怪物类实体。 |
+| `EntityTypeNpc` | `3` | NPC/怪物 entity 类型值；周围怪物、尸体和召唤物扫描会用它过滤非 NPC 实体。 |
 | `CEntity + EntityPositionFlagsOffset` | `+0xC0` | 坐标来源标记；如果包含 `0x400`，读取 alternate/local 坐标。 |
 | `EntityUseAlternatePositionFlag` | `0x400` | 选择读取 `CEntity + 0x4F4` 这一组坐标。 |
 | `CEntity + EntityWorldPositionOffset` | `+0x4B4` | 世界坐标 X；玩家、目标、怪物、尸体坐标都使用。 |
@@ -79,6 +86,7 @@
 |---|---:|---|
 | `Actor + ActorEntityOffset` | `+0x08` | 指回 `CEntity`；用于校验 actor 候选是否属于当前实体。 |
 | `Actor + ActorObjectTypeOffset` | `+0x20` | actor 对象类型；用于校验 actor 候选，也会放进怪物/尸体快照。 |
+| `ActorPlayerObjectType` | `1` | 玩家 actor 类型值；读取可见队友 live actor 时用于过滤玩家。 |
 | `Actor + ActorServerObjectIdOffset` | `+0x2C` | actor server object id；用于目标身份和“怪物是否锁定我”的比较。 |
 | `Actor + ActorNpcTemplateIdOffset` | `+0x30` | NPC template id；和 XML 静态数据关联，判断怪物/主动怪/被动怪类型。 |
 | `Actor + ActorStanceFlagsOffset` | `+0x34` | 姿态 flags；当前客户端里低 4 位为 `5` 且 motion mode 为 `1` 时，判断为真实坐地板休息。 |
@@ -87,6 +95,7 @@
 | `Actor + ActorNameOffset` | `+0x42` | UTF-16 显示名；玩家、目标、周围怪物、尸体都读这里。 |
 | `Actor + ActorSummonOwnerServerObjectIdOffset` | `+0xFC` | 召唤物 owner server object id；用于把已加载宝宝/召唤物归属到本地角色或队伍成员。 |
 | `Actor + ActorInteractionStateOffset` | `+0x1CC` | 尸体交互状态；用于拾取诊断和尸体元数据。 |
+| `Actor + ActorClassIdOffset` | `+0x228` | 玩家职业 id；读取可见队友 live actor 时补充职业信息。 |
 | `Actor + ActorMotionModeOffset` | `+0x2D0` | 动作模式；和 stance low nibble 一起判断坐地板维护状态。 |
 | `Actor + ActorTargetServerObjectIdOffset` | `+0x358` | actor 当前目标 server object id；用于判断怪物是否正在锁定本地角色。 |
 | `Actor + ActorAbnormalStatusBeginOffset` | `+0xF18` | 本地异常状态数组 begin 指针。 |
@@ -99,7 +108,7 @@
 
 ## 异常状态 Entry
 
-异常状态从 `Actor + 0xF18` 到 `Actor + 0xF20` 之间读取，单条大小是 `0x12`，Roadhog 最多读取 512 条。
+异常状态从 `Actor + 0xF18` 到 `Actor + 0xF20` 之间读取，单条大小是 `0x12`，Roadhog 最多读取 `MaxActorAbnormalStatusEntries = 512` 条。
 
 | 字段 | 偏移 | 业务用途 |
 |---|---:|---|
@@ -109,6 +118,41 @@
 | Category | `+0x08` | 分类；category `2` 当前按有害状态处理。 |
 | Time/source raw | `+0x0C` | 原始时间/来源字段，保留在快照里。 |
 | Level/stack | `+0x10` | 层数或等级信息，保留在快照里。 |
+
+## 队伍快照和 PartyMemberRecord
+
+队伍快照先读 `PrimaryPartyListRva` 和 `SecondaryPartyListRva` 两条成员链表，按 `ServerObjectId` 去重，再用附近 live actor 补充可见性、实时坐标、当前目标和职业。
+
+实时队员坐标不是 `PartyMemberRecord` 里的独立字段。Roadhog 会遍历 EntitySystem 里的可见玩家 actor，用 `Actor + ActorServerObjectIdOffset` 匹配队员 `ServerObjectId`，匹配后从该 actor 对应的 `CEntity` 读取实时坐标：默认使用 `CEntity + EntityWorldPositionOffset`，如果 `CEntity + EntityPositionFlagsOffset` 包含 `EntityUseAlternatePositionFlag`，则改读 `CEntity + EntityLocalPositionOffset`。`PartyMemberCachedX/Y/ZOffset` 只是队伍缓存里的候选坐标，队友未加载成 live actor 时才作为诊断位置保留。
+
+| 字段 | 偏移 / 值 | 业务用途 |
+|---|---:|---|
+| `PartyMemberPartySlotOffset` | `+0x00` | 原始队伍字段候选；快照保留为 `PartySlot`，不能直接当 UI 槽位或 F2-F6 顺序。 |
+| `PartyMemberServerObjectIdOffset` | `+0x04` | 队员 server object id；队员身份、队长/本地角色匹配、召唤物归属都依赖它。 |
+| `PartyMemberMaxHpOffset` | `+0x08` | 队员最大 HP；用于队伍快照、保护目标选择、队友生死判断。 |
+| `PartyMemberCurrentHpOffset` | `+0x0C` | 队员当前 HP；用于队友血量阈值、死亡判断和队长保护逻辑。 |
+| `PartyMemberMaxMpOffset` | `+0x10` | 队员最大 MP；保留在队伍快照中。 |
+| `PartyMemberCurrentMpOffset` | `+0x14` | 队员当前 MP；保留在队伍快照中。 |
+| `PartyMemberMaxFlightTimeOffset` | `+0x18` | 队员最大飞行时间，毫秒；队伍状态诊断字段。 |
+| `PartyMemberCurrentFlightTimeOffset` | `+0x1C` | 队员剩余飞行时间，毫秒；队伍状态诊断字段。 |
+| `PartyMemberAreaField0Offset` | `+0x20` | 区域/指针类原始字段候选；当前只保留诊断，不作为地图判断。 |
+| `PartyMemberAreaField1Offset` | `+0x24` | 区域/指针类原始字段候选；当前只保留诊断，不作为地图判断。 |
+| `PartyMemberCachedXOffset` | `+0x28` | 队员缓存坐标 X；队友不在 live actor 可见范围时作为诊断位置。 |
+| `PartyMemberCachedYOffset` | `+0x2C` | 队员缓存坐标 Y。 |
+| `PartyMemberCachedZOffset` | `+0x30` | 队员缓存坐标 Z。 |
+| `PartyMemberClassIdOffset` | `+0x34` | 队员职业 id；映射到 `AionClassId` 和职业名。 |
+| `PartyMemberLevelOffset` | `+0x36` | 队员等级。 |
+| `PartyMemberDataFlagsOffset` | `+0x37` | 队员数据 flags；用于诊断和 `HasAbnormalBlock`，不作为异常数组读取硬门槛。 |
+| `PartyMemberFlightAreaFlagOffset` | `+0x38` | 可飞区域/飞行许可候选；保留在快照中。 |
+| `PartyMemberFlightFlagsOffset` | `+0x39` | 飞行状态 flags 候选；保留在快照中。 |
+| `PartyMemberRuntimeStateOffset` | `+0x3A` | 运行时状态字段；含义未完全定型，保留诊断。 |
+| `PartyMemberNameOffset` | `+0x3B` | 队员名，UTF-16，最多读取 26 个字符。 |
+| `PartyMemberControlStatusMaskOffset` | `+0x6F` | 控制/异常状态掩码；队伍快照保留给保护逻辑和诊断消费。 |
+| `PartyMemberHasAbnormalBlockFlag` | `0x08` | `PartyMemberDataFlagsOffset` 中的异常块候选位；只影响快照标记，不阻止读取异常条目。 |
+| `PartyMemberAbnormalCountOffset` | `+0x77` | 队员异常状态原始数量；读取时按 `PartyMemberMaxAbnormalCount` 截断。 |
+| `PartyMemberAbnormalEntriesOffset` | `+0x79` | 队员异常状态数组；条目布局复用 `AbnormalStatusEntrySize = 0x12`。 |
+| `PartyMemberUpdateTimeOffset` | `+0x859` | 队员状态更新时间 tick；保留为诊断字段。 |
+| `PartyMemberMaxAbnormalCount` | `112` | 队员异常状态读取上限，避免异常数量导致越界扫描。 |
 
 ## 已学技能树
 
@@ -142,7 +186,7 @@
 
 ## MSVC 宽字符串对象
 
-Roadhog 从 MSVC 风格的 wide string 对象读取技能名。
+Roadhog 从 MSVC 风格的 wide string 对象读取技能名和背包物品名。
 
 | 字段 | 偏移 | 业务用途 |
 |---|---:|---|
@@ -160,6 +204,11 @@ Roadhog 从 MSVC 风格的 wide string 对象读取技能名。
 | `InventoryItemTreeHeaderOffset` | `+0x778` | 背包物品红黑树 header。 |
 | `InventoryItemTreeCountOffset` | `+0x780` | 背包物品树节点数量。 |
 | `InventoryEquipmentIdsOffset` | `+0x788` | 32 个已装备物品 instance id，用于区分背包物品和已装备物品。 |
+| `InventoryEquipmentIdCount` | `32` | 装备 instance id 数组长度。 |
+| `InventorySlotsPerPage` | `27` | 每页背包格子数；用于 slot 到页码/行列/屏幕坐标换算。 |
+| `InventoryColumnsPerPage` | `9` | 每页列数；用于 slot 到行列换算。 |
+| `InventoryNodeInstanceIdOffset` | `+0x20` | 背包物品树节点上的 instance id key；用于校验节点和物品对象一致。 |
+| `InventoryNodeItemOffset` | `+0x28` | 背包物品树节点上的 `InventoryItem*`。 |
 | `InventoryItemInstanceIdOffset` | `+0x08` | 物品 instance id。 |
 | `InventoryItemTemplateIdOffset` | `+0x0C` | 物品 template id。 |
 | `InventoryItemCountOffset` | `+0x10` | 堆叠数量。 |
@@ -169,8 +218,15 @@ Roadhog 从 MSVC 风格的 wide string 对象读取技能名。
 | `InventoryItemSlotOffset` | `+0x4EE` | 背包格子 slot，用于计算页、行、列和屏幕坐标。 |
 | `ItemStaticIndexRva + 0x04` | `+0x04` | 静态索引数量。 |
 | `ItemStaticIndexRva + 0x10` | `+0x10` | 静态索引 entries 指针。 |
+| `ItemStaticRecordIdOffset` | `+0x000` | 静态物品记录里的 template id；读取品质前用来校验记录是否匹配目标物品。 |
+| `StaticResolverEntrySize` | `0x10` | 静态索引 entry 步长；二分查找 template id 时计算 entry 地址。 |
 | `StaticResolverPackedHandleOffset` | `+0x08` | 索引 entry 中的 packed handle。 |
+| `StaticResolverPackedChunkShift` | `14` | packed handle 的 chunk index 高位移位。 |
+| `StaticResolverPackedOffsetMask` | `0x3FFF` | packed handle 的 record offset 掩码。 |
 | `ItemStaticRecordQualityRankOffset` | `+0x1D9` | 解压后的物品静态记录品质。 |
+| `MaxStaticResolverEntries` | `2_000_000` | 静态索引数量安全上限，防止损坏数据导致超大遍历。 |
+| `MaxStaticChunkCompressedBytes` | `4 * 1024 * 1024` | 单个静态压缩块大小上限。 |
+| `MaxStaticChunkUncompressedBytes` | `16 * 1024 * 1024` | 单个静态解压块大小上限。 |
 
 ## DlgInventory 窗口
 
@@ -179,13 +235,20 @@ Roadhog 从 MSVC 风格的 wide string 对象读取技能名。
 | `DlgInventoryOpenFlagOffset` | `+0x585` | 背包窗口 open/visible 候选标记。 |
 | `DlgInventoryWindowRectOffset` | `+0x58` | 旧版窗口 Rect，四个 `double`。 |
 | `DlgInventoryRootWidgetOffset` | `+0x4D8` | root widget 指针，用于实验版 Rect 定位。 |
-| root widget Rect | 环境变量或 `0x800` 字节扫描 | 可用 `ROADHOG_INVENTORY_ROOT_WIDGET_RECT_OFFSET` 固定；否则按 `8` 字节步长扫描合理 Rect。 |
+| `DlgInventoryVtableBackSlots` | `256` | 从 `DlgInventory` 方法地址向前扫描 vtable 槽位的最大数量。 |
+| `RootWidgetRectScanBytes` | `0x800` | root widget 内扫描 Rect 候选的范围。 |
+| `RootWidgetRectScanStep` | `0x08` | root widget Rect 候选扫描步长。 |
+| `RootWidgetRectOffsetEnvironmentVariable` | `ROADHOG_INVENTORY_ROOT_WIDGET_RECT_OFFSET` | 固定 root widget Rect 偏移的环境变量；未设置时才扫描。 |
+| `InventoryUiMinAllocationSize` | `0x400` | 背包 UI 对象 VAD 扫描的最小 allocation size。 |
+| `InventoryUiMaxAllocationSize` | `0x3000` | 背包 UI 对象 VAD 扫描的最大 allocation size。 |
+| `InventoryUiVadScanBytes` | `1024 * 1024 * 1024` | 背包 UI VAD 扫描范围上限。 |
+| `InventoryUiObjectScanLimit` | `32` | 背包 UI 对象候选扫描数量上限。 |
 
 ## Debug API 地址探针
 
 - “API探针”按钮、结果类型、地址探针接口和 VMM 实现都在 `#if DEBUG` 内，Release 产物不包含这些符号。
 - 每项地址检查同时显示 `Game.dll base`、`RVA`、最终绝对地址；对象成员显示对象地址、成员偏移和最终绝对地址。
-- 除业务 API 外，探针独立验证玩家基础值、普通/特殊相机、队伍链表、技能/背包管理器、背包成员、物品静态索引、静态数据块和两个 `DlgInventory` 方法地址。
+- 除业务 API 外，探针独立验证玩家基础值、普通/特殊相机、队伍 header、队伍链表、首个 `PartyMemberRecord`、队员 live actor 实时坐标链、技能/背包管理器、背包成员、首个背包物品节点、物品静态索引、静态数据块和两个 `DlgInventory` 方法地址。
 
 ## Actor 解析辅助值
 
@@ -208,6 +271,7 @@ Roadhog 从 MSVC 风格的 wide string 对象读取技能名。
 | 真实坐地板休息判断 | `Actor + 0x34`、`Actor + 0x2D0`。 |
 | 镜头朝向、寻路转向、面向目标 | 普通/特殊镜头 RVA、`CEntity + 0x4E8 + 8`、坐标。 |
 | 锁定目标读取 | `LocalEntityIdRva + 2`、entity 树、server object 树、CEntity 类型/坐标、actor 字段。 |
+| 队伍快照、队友 HP/MP、队长/本地成员判断 | 队伍 RVA、成员链表 next/value、`PartyMemberRecord` 字段、live actor 玩家过滤和职业字段。 |
 | 维护期间防御 / targeting me | 怪物 `Actor + 0x358` 和本地角色 `Actor + 0x2C` 比较。 |
 | 周围怪物扫描 | entity system 树、server object 树、CEntity 类型/坐标、actor template/name/HP/target、NPC XML 分类。 |
 | 尸体和拾取扫描 | 周围怪物扫描偏移，再加 `Actor + 0x11E0` 和 `Actor + 0x1CC`。 |

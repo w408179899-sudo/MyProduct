@@ -428,8 +428,14 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 {
                     ProbePointerAddress(process, "Address.EntitySystemPointer", gameBase, EntitySystemPointerRva),
                     ProbePointerAddress(process, "Address.ServerObjectTree", gameBase, ServerObjectTreeRva),
+                    ProbeUInt32Address(process, "Address.PartyId", gameBase, PartyIdRva),
+                    ProbeUInt32Address(process, "Address.PartyFlags", gameBase, PartyFlagsRva),
+                    ProbeUInt32Address(process, "Address.PartyLeaderServerObjectId", gameBase, PartyLeaderServerObjectIdRva),
                     ProbePointerAddress(process, "Address.PrimaryPartyList", gameBase, PrimaryPartyListRva, allowZero: true),
+                    ProbeUInt64Address(process, "Address.PrimaryPartyCount", gameBase, PrimaryPartyCountRva),
                     ProbePointerAddress(process, "Address.SecondaryPartyList", gameBase, SecondaryPartyListRva, allowZero: true),
+                    ProbePartyFirstMemberRecordAddress(process, gameBase),
+                    ProbePartyLiveActorPositionAddress(process, gameBase),
                     ProbeUInt16Address(process, "Address.LocalEntityId", gameBase, LocalEntityIdRva),
                     ProbeUInt16Address(process, "Address.LocalTargetEntityId", gameBase, LocalEntityIdRva + 0x02),
                     ProbeUInt32Address(process, "Address.LocalMaxHp", gameBase, LocalMaxHpRva),
@@ -447,10 +453,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     ProbePointerAddress(process, "Address.SkillInventoryManager", gameBase, SkillManagerGlobalRva),
                     ProbeObjectPointerAddress(process, "Address.LearnedSkillTree", "SkillManager", manager, LearnedSkillTreeOffset, hasManager),
                     ProbeObjectUInt64Address(process, "Address.InventoryMoney", "InventoryManager", manager, InventoryCurrentMoneyOffset, hasManager),
+                    ProbeObjectUInt32Address(process, "Address.InventoryMoneyInstanceId", "InventoryManager", manager, InventoryMoneyInstanceIdOffset, hasManager),
                     ProbeObjectUInt32Address(process, "Address.InventoryCapacity", "InventoryManager", manager, InventoryCapacityOffset, hasManager),
                     ProbeObjectPointerAddress(process, "Address.InventoryItemTreeHeader", "InventoryManager", manager, InventoryItemTreeHeaderOffset, hasManager),
                     ProbeObjectUInt32Address(process, "Address.InventoryItemTreeCount", "InventoryManager", manager, InventoryItemTreeCountOffset, hasManager),
                     ProbeObjectBytesAddress(process, "Address.InventoryEquipmentIds", "InventoryManager", manager, InventoryEquipmentIdsOffset, InventoryEquipmentIdCount * sizeof(uint), hasManager),
+                    ProbeInventoryFirstItemNodeAddress(process, manager, hasManager),
                     ProbeItemStaticIndexAddress(process, gameBase),
                     ProbeStaticResolverChunkAddress(process, gameBase),
                     ProbeCodeAddress(process, "Address.DlgInventoryDialog27Method", gameBase, DlgInventoryDialog27MethodRva),
@@ -477,6 +485,19 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         var address = gameBase + rva;
         if (!TryReadPointer(process, address, out var value))
         {
+            if (allowZero)
+            {
+                if (TryReadUInt64(process, address, out var raw64) && raw64 == 0)
+                {
+                    return AddressProbePass(name, gameBase, rva, "pointer=0x0");
+                }
+
+                if (TryReadUInt32(process, address, out var raw32) && raw32 == 0)
+                {
+                    return AddressProbePass(name, gameBase, rva, "pointer=0x0");
+                }
+            }
+
             return AddressProbeFail(name, gameBase, rva, "pointer read failed");
         }
 
@@ -508,6 +529,17 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return TryReadUInt32(process, gameBase + rva, out var value)
             ? AddressProbePass(name, gameBase, rva, "value=" + value.ToString(CultureInfo.InvariantCulture))
             : AddressProbeFail(name, gameBase, rva, "UInt32 read failed");
+    }
+
+    private static GameApiAddressProbeResult ProbeUInt64Address(
+        VmmProcess process,
+        string name,
+        ulong gameBase,
+        ulong rva)
+    {
+        return TryReadUInt64(process, gameBase + rva, out var value)
+            ? AddressProbePass(name, gameBase, rva, "value=" + value.ToString(CultureInfo.InvariantCulture))
+            : AddressProbeFail(name, gameBase, rva, "UInt64 read failed");
     }
 
     private static GameApiAddressProbeResult ProbeSingleAddress(
@@ -592,6 +624,193 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return TryReadBytes(process, objectAddress + offset, length, out var bytes) && bytes.Length == length
             ? ObjectAddressProbePass(name, objectName, objectAddress, offset, "bytes=" + bytes.Length.ToString(CultureInfo.InvariantCulture))
             : ObjectAddressProbeFail(name, objectName, objectAddress, offset, "byte range read failed");
+    }
+
+    private static GameApiAddressProbeResult ProbePartyFirstMemberRecordAddress(VmmProcess process, ulong gameBase)
+    {
+        const string name = "Address.PartyFirstMemberRecord";
+        TryReadUInt32(process, gameBase + PartyIdRva, out var partyId);
+        TryReadUInt64(process, gameBase + PrimaryPartyCountRva, out var primaryPartyCount);
+        if (partyId == 0 && primaryPartyCount == 0)
+        {
+            return AddressProbePass(
+                name,
+                gameBase,
+                PrimaryPartyListRva,
+                "not in party; no PartyMemberRecord expected");
+        }
+
+        if (!TryReadPartyMemberSnapshots(process, gameBase, out var members, out var error))
+        {
+            return AddressProbeFail(
+                name,
+                gameBase,
+                PrimaryPartyListRva,
+                "party member list read failed: " + error);
+        }
+
+        var member = members.FirstOrDefault(item => item.ServerObjectId != 0) ?? members.FirstOrDefault();
+        if (member is null)
+        {
+            return AddressProbePass(
+                name,
+                gameBase,
+                PrimaryPartyListRva,
+                "party lists are readable but no PartyMemberRecord is loaded" +
+                (string.IsNullOrWhiteSpace(error) ? string.Empty : "; " + error));
+        }
+
+        var detail = "list=" + member.ListName +
+            ", node=0x" + member.NodeAddress.ToString("X", CultureInfo.InvariantCulture) +
+            ", slot=" + member.PartySlot.ToString(CultureInfo.InvariantCulture) +
+            ", serverObjectId=" + member.ServerObjectId.ToString(CultureInfo.InvariantCulture) +
+            ", name=" + member.Name +
+            ", classId=" + member.ClassId.ToString(CultureInfo.InvariantCulture) +
+            ", level=" + member.Level.ToString(CultureInfo.InvariantCulture) +
+            ", hp=" + member.CurrentHp.ToString(CultureInfo.InvariantCulture) +
+            "/" + member.MaxHp.ToString(CultureInfo.InvariantCulture) +
+            ", mp=" + member.CurrentMp.ToString(CultureInfo.InvariantCulture) +
+            "/" + member.MaxMp.ToString(CultureInfo.InvariantCulture) +
+            ", cachedPosition=" + FormatProbeVector(member.CachedPosition) +
+            ", dataFlags=0x" + member.DataFlags.ToString("X2", CultureInfo.InvariantCulture) +
+            ", abnormalRaw=" + member.RawAbnormalCount.ToString(CultureInfo.InvariantCulture) +
+            ", abnormalEntries=" + member.AbnormalStatuses.Count.ToString(CultureInfo.InvariantCulture) +
+            ", updateTime=" + member.UpdateTime.ToString(CultureInfo.InvariantCulture);
+        return ObjectAddressProbePass(name, "PartyMemberRecord", member.MemberAddress, 0, detail);
+    }
+
+    private static GameApiAddressProbeResult ProbePartyLiveActorPositionAddress(VmmProcess process, ulong gameBase)
+    {
+        const string name = "Address.PartyLiveActorPosition";
+        if (!TryReadPartyLiveContext(process, gameBase, out var context, out var error))
+        {
+            return AddressProbeFail(name, gameBase, EntitySystemPointerRva, error);
+        }
+
+        if (TryReadPartyMemberSnapshots(process, gameBase, out var members, out _) && members.Count > 0)
+        {
+            var enriched = ApplyPartyMemberLiveContext(members, 0, context);
+            var liveMember = enriched.FirstOrDefault(member => !member.IsSelf && member.LivePosition is not null) ??
+                enriched.FirstOrDefault(member => member.LivePosition is not null);
+            if (liveMember?.LivePosition is { } livePosition)
+            {
+                var detail = "member=" + liveMember.Name +
+                    ", serverObjectId=" + liveMember.ServerObjectId.ToString(CultureInfo.InvariantCulture) +
+                    ", entityId=" + liveMember.LiveEntityId.ToString(CultureInfo.InvariantCulture) +
+                    ", actor=0x" + liveMember.LiveActorAddress.ToString("X", CultureInfo.InvariantCulture) +
+                    ", position=" + FormatProbeVector(livePosition) +
+                    ", targetServerObjectId=" + liveMember.LiveTargetServerObjectId.ToString(CultureInfo.InvariantCulture) +
+                    ", visibility=" + liveMember.VisibilityState +
+                    ", distance=" + FormatProbeNullableDouble(liveMember.DistanceToLocalPlayer);
+                return ObjectAddressProbePass(name, "CEntity", liveMember.LiveEntityAddress, 0, detail);
+            }
+        }
+
+        if (context.LocalPosition is { } localPosition)
+        {
+            var detail = "no loaded party member live actor matched; local live position chain ok" +
+                ", localServerObjectId=" + context.LocalServerObjectId.ToString(CultureInfo.InvariantCulture) +
+                ", localActor=0x" + context.LocalActorAddress.ToString("X", CultureInfo.InvariantCulture) +
+                ", localPosition=" + FormatProbeVector(localPosition) +
+                ", visiblePlayerActors=" + context.VisiblePlayerActorsByServerObjectId.Count.ToString(CultureInfo.InvariantCulture);
+            return ObjectAddressProbePass(name, "CEntity", context.LocalEntityAddress, 0, detail);
+        }
+
+        return ObjectAddressProbeFail(
+            name,
+            "CEntity",
+            context.LocalEntityAddress,
+            0,
+            "live actor context was read but no reasonable local or party position was available");
+    }
+
+    private static GameApiAddressProbeResult ProbeInventoryFirstItemNodeAddress(
+        VmmProcess process,
+        ulong manager,
+        bool hasManager)
+    {
+        const string name = "Address.InventoryFirstItemNode";
+        if (!hasManager)
+        {
+            return ObjectAddressProbeFail(name, "InventoryManager", manager, InventoryItemTreeHeaderOffset, "root pointer is unavailable");
+        }
+
+        TryReadUInt64(process, manager + InventoryItemTreeCountOffset, out var treeCount);
+        if (treeCount == 0)
+        {
+            return ObjectAddressProbePass(name, "InventoryManager", manager, InventoryItemTreeCountOffset, "inventory item tree is empty");
+        }
+
+        if (!TryReadPointer(process, manager + InventoryItemTreeHeaderOffset, out var header) || header == 0)
+        {
+            return ObjectAddressProbeFail(name, "InventoryManager", manager, InventoryItemTreeHeaderOffset, "tree header pointer read failed");
+        }
+
+        if (!TryReadPointer(process, header + NodeLeftOffset, out var node))
+        {
+            return ObjectAddressProbeFail(name, "InventoryTreeHeader", header, NodeLeftOffset, "begin node pointer read failed");
+        }
+
+        var equipmentInstanceIds = ReadInventoryEquipmentInstanceIds(process, manager);
+        var visited = new HashSet<ulong>();
+        var guardLimit = treeCount is > 0 and < 100000
+            ? checked((int)treeCount + 16)
+            : 100000;
+
+        for (var guard = 0; node != 0 && node != header && guard < guardLimit; guard++)
+        {
+            if (!visited.Add(node) || IsNilNode(process, node, header))
+            {
+                break;
+            }
+
+            if (TryReadUInt32(process, node + InventoryNodeInstanceIdOffset, out var nodeInstanceId) &&
+                TryReadPointer(process, node + InventoryNodeItemOffset, out var itemAddress) &&
+                TryReadInventoryItemFromNode(process, node, equipmentInstanceIds, out var item))
+            {
+                var detail = "treeCount=" + treeCount.ToString(CultureInfo.InvariantCulture) +
+                    ", nodeInstanceId=" + nodeInstanceId.ToString(CultureInfo.InvariantCulture) +
+                    ", item=0x" + itemAddress.ToString("X", CultureInfo.InvariantCulture) +
+                    ", instanceId=" + item.InstanceId.ToString(CultureInfo.InvariantCulture) +
+                    ", templateId=" + item.TemplateId.ToString(CultureInfo.InvariantCulture) +
+                    ", count=" + item.Count.ToString(CultureInfo.InvariantCulture) +
+                    ", slot=" + item.Slot.ToString(CultureInfo.InvariantCulture) +
+                    ", type=" + item.ItemType.ToString(CultureInfo.InvariantCulture) +
+                    ", quality=" + item.QualityRank.ToString(CultureInfo.InvariantCulture) +
+                    ", equipped=" + item.IsInEquipmentArray.ToString() +
+                    ", name=" + item.Name;
+                return ObjectAddressProbePass(name, "InventoryNode", node, 0, detail);
+            }
+
+            if (!TryGetNextTreeNode(process, header, node, out var next) || next == node)
+            {
+                break;
+            }
+
+            node = next;
+        }
+
+        return ObjectAddressProbeFail(
+            name,
+            "InventoryTreeHeader",
+            header,
+            0,
+            "treeCount=" + treeCount.ToString(CultureInfo.InvariantCulture) +
+            " but no readable InventoryItem node was found");
+    }
+
+    private static string FormatProbeVector(Vector3Snapshot position)
+    {
+        return position.X.ToString("0.###", CultureInfo.InvariantCulture) +
+            "," + position.Y.ToString("0.###", CultureInfo.InvariantCulture) +
+            "," + position.Z.ToString("0.###", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatProbeNullableDouble(double? value)
+    {
+        return value.HasValue
+            ? value.Value.ToString("0.###", CultureInfo.InvariantCulture)
+            : "unknown";
     }
 
     private static GameApiAddressProbeResult ProbeItemStaticIndexAddress(VmmProcess process, ulong gameBase)
