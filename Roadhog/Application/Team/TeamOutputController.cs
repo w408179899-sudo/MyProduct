@@ -17,7 +17,6 @@ public sealed class TeamOutputController
     private static readonly TimeSpan AssistTargetConfirmRetryDelay = TimeSpan.FromMilliseconds(80);
     private const int AssistTargetConfirmPolls = 3;
     private const string LeaderAssistKey = "C";
-    private const string AssistTargetKey = "Oem3";
 
     private readonly IKeyboardInput _keyboard;
 
@@ -165,12 +164,13 @@ public sealed class TeamOutputController
             return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
 
+        var assistTargetKey = ResolveAssistTargetKey(output);
         var assistResult = await _keyboard
-            .PressKeyAsync(AssistTargetKey, ResolveKeyHold(context), context.StopToken)
+            .PressKeyAsync(assistTargetKey, ResolveKeyHold(context), context.StopToken)
             .ConfigureAwait(false);
         if (!assistResult.Success)
         {
-            LogInputFailure(context, state, "team_output.assist_target_key.failed", AssistTargetKey, assistResult);
+            LogInputFailure(context, state, "team_output.assist_target_key.failed", assistTargetKey, assistResult);
             return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
 
@@ -181,7 +181,7 @@ public sealed class TeamOutputController
             ["leader"] = leader.Name,
             ["leaderServerObjectId"] = leader.ServerObjectId,
             ["leaderTargetServerObjectId"] = leaderTargetServerObjectId,
-            ["key"] = AssistTargetKey
+            ["key"] = assistTargetKey
         });
 
         var verification = await VerifyLeaderAttackTargetAfterAssistAsync(
@@ -578,6 +578,13 @@ public sealed class TeamOutputController
     {
         var configured = context.Config.ScriptSettings?.SemiAuto?.KeyHoldMs ?? 25;
         return TimeSpan.FromMilliseconds(Math.Clamp(configured, 1, 250));
+    }
+
+    private static string ResolveAssistTargetKey(TeamOutputScriptSettings output)
+    {
+        return string.IsNullOrWhiteSpace(output.AssistTargetKey)
+            ? TeamOutputScriptSettings.DefaultAssistTargetKey
+            : output.AssistTargetKey.Trim();
     }
 
     private static bool ShouldLog(DateTimeOffset lastLogAt)

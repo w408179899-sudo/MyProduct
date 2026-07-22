@@ -123,6 +123,7 @@ namespace Roadhog
         private RoundedCheckBox? teamOutputStopWhenLeaderHasNoTargetCheckBox;
         private RoundedCheckBox? teamOutputStopWhenLeaderDeadCheckBox;
         private RoundedTextBox? teamOutputLeaderDistanceTextBox;
+        private Button? teamOutputAssistTargetKeyButton;
         private RoundedCheckBox? teamSupportEnabledCheckBox;
         private RoundedCheckBox? teamSupportDungeonModeCheckBox;
         private RoundedCheckBox? teamSupportAllowLootCheckBox;
@@ -2191,6 +2192,12 @@ namespace Roadhog
             AddLabel(dpsPanel, "和队长距离", 24, 94, 90, 24, _textGreen, FontStyle.Bold);
             teamOutputLeaderDistanceTextBox = AddTextBox(dpsPanel, "12.0", 116, 92, 72, 28);
             AddLabel(dpsPanel, "m", 194, 94, 24, 24, _textGreen, FontStyle.Bold);
+            AddLabel(dpsPanel, "切目标键", 240, 94, 72, 24, _textGreen, FontStyle.Bold);
+            teamOutputAssistTargetKeyButton = AddTeamKeyButton(
+                dpsPanel,
+                316,
+                92,
+                TeamOutputScriptSettings.DefaultAssistTargetKey);
 
             var supportPanel = CreateTeamRolePanel(page);
             teamSupportPanel = supportPanel;
@@ -2418,6 +2425,11 @@ namespace Roadhog
             SetText(
                 teamOutputLeaderDistanceTextBox,
                 output.LeaderDistanceMeters.ToString("0.###", CultureInfo.InvariantCulture));
+            SetKeyButton(
+                teamOutputAssistTargetKeyButton,
+                string.IsNullOrWhiteSpace(output.AssistTargetKey)
+                    ? TeamOutputScriptSettings.DefaultAssistTargetKey
+                    : output.AssistTargetKey);
 
             var support = team.Support ?? new TeamSupportScriptSettings();
             SetChecked(teamSupportEnabledCheckBox, support.Enabled);
@@ -2466,7 +2478,10 @@ namespace Roadhog
                     StopWhenLeaderHasNoTarget =
                         teamOutputStopWhenLeaderHasNoTargetCheckBox?.Checked ?? true,
                     StopWhenLeaderDead = teamOutputStopWhenLeaderDeadCheckBox?.Checked ?? true,
-                    LeaderDistanceMeters = ReadDouble(teamOutputLeaderDistanceTextBox, 12.0D, 0.0D, 100.0D)
+                    LeaderDistanceMeters = ReadDouble(teamOutputLeaderDistanceTextBox, 12.0D, 0.0D, 100.0D),
+                    AssistTargetKey =
+                        teamOutputAssistTargetKeyButton?.Tag as string ??
+                        TeamOutputScriptSettings.DefaultAssistTargetKey
                 },
                 Support = new TeamSupportScriptSettings
                 {
@@ -6881,6 +6896,39 @@ namespace Roadhog
                     ("0", "D0"),
                     ("-", "OemMinus"),
                     ("=", "OemPlus")
+                },
+                new[]
+                {
+                    ("`", "`"),
+                    ("A", "A"),
+                    ("B", "B"),
+                    ("C", "C"),
+                    ("D", "D"),
+                    ("E", "E"),
+                    ("F", "F"),
+                    ("G", "G"),
+                    ("H", "H"),
+                    ("I", "I"),
+                    ("J", "J"),
+                    ("K", "K"),
+                    ("L", "L"),
+                    ("M", "M")
+                },
+                new[]
+                {
+                    ("N", "N"),
+                    ("O", "O"),
+                    ("P", "P"),
+                    ("Q", "Q"),
+                    ("R", "R"),
+                    ("S", "S"),
+                    ("T", "T"),
+                    ("U", "U"),
+                    ("V", "V"),
+                    ("W", "W"),
+                    ("X", "X"),
+                    ("Y", "Y"),
+                    ("Z", "Z")
                 }
             };
 
@@ -6957,6 +7005,7 @@ namespace Roadhog
                 "OemMinus" => "-",
                 "OemPlus" => "=",
                 "OemComma" => ",",
+                "Oem3" or "Backquote" => "`",
                 "X" => "X",
                 "NumPad1" => "Num1",
                 "NumPad2" => "Num2",

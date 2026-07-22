@@ -105,6 +105,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support accepts leader pet target when class unknown", TestTeamSupportAcceptsLeaderPetTargetWhenClassUnknownAsync),
     ("team support join combat skips party member leader target", TestTeamSupportJoinCombatSkipsPartyMemberLeaderTargetAsync),
     ("team output assists only leader attacked monster", TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync),
+    ("team output uses configured assist target key", TestTeamOutputUsesConfiguredAssistTargetKeyAsync),
     ("team output rejects non monster leader target", TestTeamOutputRejectsNonMonsterLeaderTargetAsync),
     ("team output accepts already locked leader target", TestTeamOutputAcceptsAlreadyLockedLeaderTargetAsync),
     ("team output skips party member leader target", TestTeamOutputSkipsPartyMemberLeaderTargetAsync),
@@ -2226,7 +2227,7 @@ static async Task TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync()
         {
             SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
         }
-        else if (string.Equals(key, "Oem3", StringComparison.Ordinal))
+        else if (string.Equals(key, TeamOutputScriptSettings.DefaultAssistTargetKey, StringComparison.Ordinal))
         {
             SetFakeLockedTarget(
                 gameApi,
@@ -2244,11 +2245,56 @@ static async Task TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync()
         .ConfigureAwait(false);
 
     AssertFalse(result.ShouldSkipNormalWork, "valid leader target should allow normal combat work");
-    AssertSequence(new[] { "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "output assist key sequence");
+    AssertSequence(
+        new[] { "F2", "C", TeamOutputScriptSettings.DefaultAssistTargetKey },
+        keyboard.Keys.ToArray(),
+        "output assist key sequence");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output should hand leader target to normal combat");
     AssertFalse(
         !(gameApi.LastLockedTargetContext?.BypassMemoryCache ?? false),
         "output assist target verification should bypass VMM cache");
+}
+
+static async Task TestTeamOutputUsesConfiguredAssistTargetKeyAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint targetServerObjectId = 5000;
+    const string assistTargetKey = "G";
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        LiveTargetServerObjectId = targetServerObjectId
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+        }
+        else if (string.Equals(key, assistTargetKey, StringComparison.Ordinal))
+        {
+            SetFakeLockedTarget(
+                gameApi,
+                targetServerObjectId,
+                LockedTargetSnapshot.MonsterObjectType,
+                leader.ServerObjectId,
+                100);
+        }
+    };
+
+    var settings = CreateTeamOutputSettings();
+    settings.Team.Output!.AssistTargetKey = assistTargetKey;
+    var combatState = new StationaryCombatState();
+    var controller = new TeamOutputController(keyboard);
+    var result = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "configured assist key should allow normal combat work");
+    AssertSequence(new[] { "F2", "C", assistTargetKey }, keyboard.Keys.ToArray(), "output should use configured assist key");
+    AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output should adopt target selected by configured assist key");
 }
 
 static async Task TestTeamOutputRejectsNonMonsterLeaderTargetAsync()
@@ -2268,7 +2314,7 @@ static async Task TestTeamOutputRejectsNonMonsterLeaderTargetAsync()
         {
             SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
         }
-        else if (string.Equals(key, "Oem3", StringComparison.Ordinal))
+        else if (string.Equals(key, TeamOutputScriptSettings.DefaultAssistTargetKey, StringComparison.Ordinal))
         {
             SetFakeLockedTarget(gameApi, playerTargetServerObjectId, 1, leader.ServerObjectId, 100);
         }
@@ -2280,7 +2326,10 @@ static async Task TestTeamOutputRejectsNonMonsterLeaderTargetAsync()
         .ConfigureAwait(false);
 
     AssertFalse(!result.ShouldSkipNormalWork, "non-monster leader target should block normal combat work");
-    AssertSequence(new[] { "F2", "C", "Oem3", "F2", "C" }, keyboard.Keys.ToArray(), "output should return to leader follow after reject");
+    AssertSequence(
+        new[] { "F2", "C", TeamOutputScriptSettings.DefaultAssistTargetKey, "F2", "C" },
+        keyboard.Keys.ToArray(),
+        "output should return to leader follow after reject");
 }
 
 static async Task TestTeamOutputAcceptsAlreadyLockedLeaderTargetAsync()
@@ -2379,7 +2428,7 @@ static async Task TestTeamOutputAcceptsMonsterTargetingSpiritmasterLeaderPetAsyn
                 0,
                 0);
         }
-        else if (string.Equals(key, "Oem3", StringComparison.Ordinal))
+        else if (string.Equals(key, TeamOutputScriptSettings.DefaultAssistTargetKey, StringComparison.Ordinal))
         {
             SetFakeLockedTarget(
                 gameApi,
@@ -2397,7 +2446,10 @@ static async Task TestTeamOutputAcceptsMonsterTargetingSpiritmasterLeaderPetAsyn
         .ConfigureAwait(false);
 
     AssertFalse(result.ShouldSkipNormalWork, "monster targeting leader pet should allow output combat");
-    AssertSequence(new[] { "F2", "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "spiritmaster leader body should be confirmed before assist");
+    AssertSequence(
+        new[] { "F2", "F2", "C", TeamOutputScriptSettings.DefaultAssistTargetKey },
+        keyboard.Keys.ToArray(),
+        "spiritmaster leader body should be confirmed before assist");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output should adopt monster targeting spiritmaster pet");
 }
 
@@ -2423,7 +2475,7 @@ static async Task TestTeamOutputAcceptsLeaderPetTargetWhenClassUnknownAsync()
         {
             SetFakeLockedTarget(gameApi, leader.ServerObjectId, LockedTargetSnapshot.PlayerObjectType, 0, 100);
         }
-        else if (string.Equals(key, "Oem3", StringComparison.Ordinal))
+        else if (string.Equals(key, TeamOutputScriptSettings.DefaultAssistTargetKey, StringComparison.Ordinal))
         {
             SetFakeLockedTarget(
                 gameApi,
@@ -2441,7 +2493,10 @@ static async Task TestTeamOutputAcceptsLeaderPetTargetWhenClassUnknownAsync()
         .ConfigureAwait(false);
 
     AssertFalse(result.ShouldSkipNormalWork, "leader pet target should allow output combat even when leader class is unknown");
-    AssertSequence(new[] { "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "output should assist leader target");
+    AssertSequence(
+        new[] { "F2", "C", TeamOutputScriptSettings.DefaultAssistTargetKey },
+        keyboard.Keys.ToArray(),
+        "output should assist leader target");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "output should adopt target that is attacking leader pet");
 }
 
@@ -2459,7 +2514,7 @@ static async Task TestTeamOutputAssistsAlreadySelectedLeaderAsync()
     SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
     keyboard.AfterPress = key =>
     {
-        if (string.Equals(key, "Oem3", StringComparison.Ordinal))
+        if (string.Equals(key, TeamOutputScriptSettings.DefaultAssistTargetKey, StringComparison.Ordinal))
         {
             SetFakeLockedTarget(
                 gameApi,
@@ -2477,7 +2532,10 @@ static async Task TestTeamOutputAssistsAlreadySelectedLeaderAsync()
         .ConfigureAwait(false);
 
     AssertFalse(result.ShouldSkipNormalWork, "already selected leader target should allow normal combat work");
-    AssertSequence(new[] { "C", "Oem3" }, keyboard.Keys.ToArray(), "already selected leader should press follow without another F-key before assist");
+    AssertSequence(
+        new[] { "C", TeamOutputScriptSettings.DefaultAssistTargetKey },
+        keyboard.Keys.ToArray(),
+        "already selected leader should press follow without another F-key before assist");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "already selected leader assist should adopt target");
 }
 
@@ -2680,7 +2738,7 @@ static async Task TestTeamOutputFollowsLeaderWhenSelfDefenseDisabledAsync()
         {
             SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
         }
-        else if (string.Equals(key, "Oem3", StringComparison.Ordinal))
+        else if (string.Equals(key, TeamOutputScriptSettings.DefaultAssistTargetKey, StringComparison.Ordinal))
         {
             SetFakeLockedTarget(
                 gameApi,
@@ -2699,7 +2757,10 @@ static async Task TestTeamOutputFollowsLeaderWhenSelfDefenseDisabledAsync()
         .ConfigureAwait(false);
 
     AssertFalse(result.ShouldSkipNormalWork, "disabled self defense should keep normal leader assist logic");
-    AssertSequence(new[] { "F2", "C", "Oem3" }, keyboard.Keys.ToArray(), "output should still assist leader when self defense is disabled");
+    AssertSequence(
+        new[] { "F2", "C", TeamOutputScriptSettings.DefaultAssistTargetKey },
+        keyboard.Keys.ToArray(),
+        "output should still assist leader when self defense is disabled");
 }
 
 static async Task TestTeamLeaderProtectionPrioritizesHealerThreatsAsync()
@@ -3415,6 +3476,11 @@ static Task TestFileLoggerSamplesNoisyVmmReadsAsync()
 
 static Task TestInputKeyMapAsync()
 {
+    for (var offset = 0; offset < 26; offset++)
+    {
+        AssertHidCode(((char)('A' + offset)).ToString(), 0x04 + offset);
+    }
+
     AssertHidCode("C", 0x06);
     AssertHidCode("I", 0x0C);
     AssertHidCode("S", 0x16);
@@ -5272,7 +5338,13 @@ static async Task TestKmBoxNetKeyboardInputAcceptsTeamKeysAsync()
         Mac = "00112233"
     });
 
-    foreach (var key in new[] { "F1", "F2", "F3", "F4", "F5", "F6", "Oem3", "Backquote", "`" })
+    var teamKeys = new List<string> { "F1", "F2", "F3", "F4", "F5", "F6", "Oem3", "Backquote", "`" };
+    for (var offset = 0; offset < 26; offset++)
+    {
+        teamKeys.Add(((char)('A' + offset)).ToString());
+    }
+
+    foreach (var key in teamKeys)
     {
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();

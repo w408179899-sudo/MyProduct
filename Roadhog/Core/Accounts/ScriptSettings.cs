@@ -250,6 +250,8 @@ public sealed class TeamLeaderScriptSettings
 
 public sealed class TeamOutputScriptSettings
 {
+    public const string DefaultAssistTargetKey = "`";
+
     public bool Enabled { get; set; }
 
     public bool DungeonMode { get; set; }
@@ -268,6 +270,8 @@ public sealed class TeamOutputScriptSettings
 
     public double LeaderDistanceMeters { get; set; } = 12.0D;
 
+    public string AssistTargetKey { get; set; } = DefaultAssistTargetKey;
+
     public TeamOutputScriptSettings Clone()
     {
         return new TeamOutputScriptSettings
@@ -280,7 +284,10 @@ public sealed class TeamOutputScriptSettings
             OnlyAttackLeaderMarkedTarget = OnlyAttackLeaderMarkedTarget,
             StopWhenLeaderHasNoTarget = StopWhenLeaderHasNoTarget,
             StopWhenLeaderDead = StopWhenLeaderDead,
-            LeaderDistanceMeters = LeaderDistanceMeters
+            LeaderDistanceMeters = LeaderDistanceMeters,
+            AssistTargetKey = string.IsNullOrWhiteSpace(AssistTargetKey)
+                ? DefaultAssistTargetKey
+                : AssistTargetKey.Trim()
         };
     }
 }
