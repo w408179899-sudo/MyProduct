@@ -110,13 +110,11 @@ namespace Roadhog
         private Panel? teamSupportPanel;
         private RoundedCheckBox? teamLeaderEnabledCheckBox;
         private RoundedCheckBox? teamLeaderDungeonModeCheckBox;
-        private RoundedCheckBox? teamLeaderAllowLootCheckBox;
         private RoundedCheckBox? teamLeaderAllowSelfDefenseCheckBox;
         private RoundedCheckBox? teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox;
         private RoundedTextBox? teamGroupDistanceTextBox;
         private RoundedCheckBox? teamOutputEnabledCheckBox;
         private RoundedCheckBox? teamOutputDungeonModeCheckBox;
-        private RoundedCheckBox? teamOutputAllowLootCheckBox;
         private RoundedCheckBox? teamOutputAllowSelfDefenseCheckBox;
         private RoundedCheckBox? teamOutputFollowLeaderCheckBox;
         private RoundedCheckBox? teamOutputOnlyAttackLeaderMarkedTargetCheckBox;
@@ -126,7 +124,6 @@ namespace Roadhog
         private Button? teamOutputAssistTargetKeyButton;
         private RoundedCheckBox? teamSupportEnabledCheckBox;
         private RoundedCheckBox? teamSupportDungeonModeCheckBox;
-        private RoundedCheckBox? teamSupportAllowLootCheckBox;
         private RoundedCheckBox? teamSupportJoinCombatCheckBox;
         private RoundedCheckBox? teamSupportMentalCleanseCheckBox;
         private RoundedCheckBox? teamSupportPhysicalCleanseCheckBox;
@@ -2174,8 +2171,7 @@ namespace Roadhog
             AddLabel(leaderPanel, "队长开关", 4, 0, 90, 24, _textGreen, FontStyle.Bold);
             teamLeaderEnabledCheckBox = AddCheckBox(leaderPanel, "启用组队", 24, 30, 92, false);
             teamLeaderDungeonModeCheckBox = AddCheckBox(leaderPanel, "刷本模式", 132, 30, 92, false);
-            teamLeaderAllowLootCheckBox = AddCheckBox(leaderPanel, "允许拾取", 240, 30, 92, false);
-            teamLeaderAllowSelfDefenseCheckBox = AddCheckBox(leaderPanel, "允许自卫", 348, 30, 92, true);
+            teamLeaderAllowSelfDefenseCheckBox = AddCheckBox(leaderPanel, "允许自卫", 240, 30, 92, true);
             teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox = AddCheckBox(leaderPanel, "队员掉线停止推进", 24, 62, 170, false);
 
             var dpsPanel = CreateTeamRolePanel(page);
@@ -2183,8 +2179,7 @@ namespace Roadhog
             AddLabel(dpsPanel, "输出队员开关", 4, 0, 110, 24, _textGreen, FontStyle.Bold);
             teamOutputEnabledCheckBox = AddCheckBox(dpsPanel, "启用组队", 24, 30, 92, false);
             teamOutputDungeonModeCheckBox = AddCheckBox(dpsPanel, "刷本模式", 132, 30, 92, false);
-            teamOutputAllowLootCheckBox = AddCheckBox(dpsPanel, "允许拾取", 240, 30, 92, false);
-            teamOutputAllowSelfDefenseCheckBox = AddCheckBox(dpsPanel, "允许自卫", 348, 30, 92, true);
+            teamOutputAllowSelfDefenseCheckBox = AddCheckBox(dpsPanel, "允许自卫", 240, 30, 92, true);
             teamOutputFollowLeaderCheckBox = AddCheckBox(dpsPanel, "跟随队长", 24, 62, 92, true);
             teamOutputOnlyAttackLeaderMarkedTargetCheckBox = AddCheckBox(dpsPanel, "只打队长标记", 132, 62, 130, true);
             teamOutputStopWhenLeaderHasNoTargetCheckBox = AddCheckBox(dpsPanel, "队长无目标停手", 278, 62, 150, true);
@@ -2204,8 +2199,7 @@ namespace Roadhog
             AddLabel(supportPanel, "治疗队员开关", 4, 0, 110, 24, _textGreen, FontStyle.Bold);
             teamSupportEnabledCheckBox = AddCheckBox(supportPanel, "启用组队", 24, 30, 92, false);
             teamSupportDungeonModeCheckBox = AddCheckBox(supportPanel, "刷本模式", 132, 30, 92, false);
-            teamSupportAllowLootCheckBox = AddCheckBox(supportPanel, "允许拾取", 240, 30, 92, false);
-            teamSupportJoinCombatCheckBox = AddCheckBox(supportPanel, "加入打怪", 348, 30, 92, false);
+            teamSupportJoinCombatCheckBox = AddCheckBox(supportPanel, "加入打怪", 240, 30, 92, false);
             teamSupportMentalCleanseCheckBox = AddCheckBox(supportPanel, "精神解除", 24, 62, 92, true);
             teamSupportPhysicalCleanseCheckBox = AddCheckBox(supportPanel, "肉体解除", 132, 62, 92, true);
             teamSupportAllowSelfDefenseCheckBox = AddCheckBox(supportPanel, "允许自卫", 240, 62, 92, false);
@@ -2408,7 +2402,6 @@ namespace Roadhog
             var leader = team.Leader ?? new TeamLeaderScriptSettings();
             SetChecked(teamLeaderEnabledCheckBox, leader.Enabled);
             SetChecked(teamLeaderDungeonModeCheckBox, leader.DungeonMode);
-            SetChecked(teamLeaderAllowLootCheckBox, leader.AllowLoot);
             SetChecked(teamLeaderAllowSelfDefenseCheckBox, leader.AllowSelfDefense);
             SetChecked(
                 teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox,
@@ -2416,7 +2409,6 @@ namespace Roadhog
             var output = team.Output ?? new TeamOutputScriptSettings();
             SetChecked(teamOutputEnabledCheckBox, output.Enabled);
             SetChecked(teamOutputDungeonModeCheckBox, output.DungeonMode);
-            SetChecked(teamOutputAllowLootCheckBox, output.AllowLoot);
             SetChecked(teamOutputAllowSelfDefenseCheckBox, output.AllowSelfDefense);
             SetChecked(teamOutputFollowLeaderCheckBox, output.FollowLeader);
             SetChecked(teamOutputOnlyAttackLeaderMarkedTargetCheckBox, output.OnlyAttackLeaderMarkedTarget);
@@ -2434,7 +2426,6 @@ namespace Roadhog
             var support = team.Support ?? new TeamSupportScriptSettings();
             SetChecked(teamSupportEnabledCheckBox, support.Enabled);
             SetChecked(teamSupportDungeonModeCheckBox, support.DungeonMode);
-            SetChecked(teamSupportAllowLootCheckBox, support.AllowLoot);
             SetChecked(teamSupportJoinCombatCheckBox, support.JoinCombat);
             SetChecked(teamSupportMentalCleanseCheckBox, support.MentalCleanseEnabled);
             SetChecked(teamSupportPhysicalCleanseCheckBox, support.PhysicalCleanseEnabled);
@@ -2461,7 +2452,6 @@ namespace Roadhog
                 {
                     Enabled = teamLeaderEnabledCheckBox?.Checked ?? false,
                     DungeonMode = teamLeaderDungeonModeCheckBox?.Checked ?? false,
-                    AllowLoot = teamLeaderAllowLootCheckBox?.Checked ?? false,
                     AllowSelfDefense = teamLeaderAllowSelfDefenseCheckBox?.Checked ?? true,
                     StopAdvanceWhenMemberDisconnected =
                         teamLeaderStopAdvanceWhenMemberDisconnectedCheckBox?.Checked ?? false
@@ -2470,7 +2460,6 @@ namespace Roadhog
                 {
                     Enabled = teamOutputEnabledCheckBox?.Checked ?? false,
                     DungeonMode = teamOutputDungeonModeCheckBox?.Checked ?? false,
-                    AllowLoot = teamOutputAllowLootCheckBox?.Checked ?? false,
                     AllowSelfDefense = teamOutputAllowSelfDefenseCheckBox?.Checked ?? true,
                     FollowLeader = teamOutputFollowLeaderCheckBox?.Checked ?? true,
                     OnlyAttackLeaderMarkedTarget =
@@ -2487,7 +2476,6 @@ namespace Roadhog
                 {
                     Enabled = teamSupportEnabledCheckBox?.Checked ?? false,
                     DungeonMode = teamSupportDungeonModeCheckBox?.Checked ?? false,
-                    AllowLoot = teamSupportAllowLootCheckBox?.Checked ?? false,
                     JoinCombat = teamSupportJoinCombatCheckBox?.Checked ?? false,
                     MentalCleanseEnabled = teamSupportMentalCleanseCheckBox?.Checked ?? true,
                     PhysicalCleanseEnabled = teamSupportPhysicalCleanseCheckBox?.Checked ?? true,

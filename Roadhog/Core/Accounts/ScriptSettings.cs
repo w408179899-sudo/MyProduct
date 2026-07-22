@@ -229,8 +229,6 @@ public sealed class TeamLeaderScriptSettings
 
     public bool DungeonMode { get; set; }
 
-    public bool AllowLoot { get; set; }
-
     public bool AllowSelfDefense { get; set; } = true;
 
     public bool StopAdvanceWhenMemberDisconnected { get; set; }
@@ -241,7 +239,6 @@ public sealed class TeamLeaderScriptSettings
         {
             Enabled = Enabled,
             DungeonMode = DungeonMode,
-            AllowLoot = AllowLoot,
             AllowSelfDefense = AllowSelfDefense,
             StopAdvanceWhenMemberDisconnected = StopAdvanceWhenMemberDisconnected
         };
@@ -255,8 +252,6 @@ public sealed class TeamOutputScriptSettings
     public bool Enabled { get; set; }
 
     public bool DungeonMode { get; set; }
-
-    public bool AllowLoot { get; set; }
 
     public bool AllowSelfDefense { get; set; } = true;
 
@@ -278,7 +273,6 @@ public sealed class TeamOutputScriptSettings
         {
             Enabled = Enabled,
             DungeonMode = DungeonMode,
-            AllowLoot = AllowLoot,
             AllowSelfDefense = AllowSelfDefense,
             FollowLeader = FollowLeader,
             OnlyAttackLeaderMarkedTarget = OnlyAttackLeaderMarkedTarget,
@@ -297,8 +291,6 @@ public sealed class TeamSupportScriptSettings
     public bool Enabled { get; set; }
 
     public bool DungeonMode { get; set; }
-
-    public bool AllowLoot { get; set; }
 
     public bool JoinCombat { get; set; }
 
@@ -326,7 +318,6 @@ public sealed class TeamSupportScriptSettings
         {
             Enabled = Enabled,
             DungeonMode = DungeonMode,
-            AllowLoot = AllowLoot,
             JoinCombat = JoinCombat,
             MentalCleanseEnabled = MentalCleanseEnabled,
             PhysicalCleanseEnabled = PhysicalCleanseEnabled,
