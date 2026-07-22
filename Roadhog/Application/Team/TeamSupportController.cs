@@ -119,6 +119,16 @@ public sealed class TeamSupportController
 
         if (TeamLeaderRuntimePolicy.HasActiveCombatTarget(combatState))
         {
+            var combatHealAction = SelectHealAction(
+                GetMaintenanceMembers(snapshot, activeGroupDistanceMeters),
+                GetHealRules(support),
+                MaintenanceRuleRunTiming.InCombat);
+            if (combatHealAction is not null)
+            {
+                await ExecuteActionAsync(context, state, combatHealAction).ConfigureAwait(false);
+                return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+            }
+
             LogFollowDecision(
                 context,
                 state,
@@ -271,47 +281,68 @@ public sealed class TeamSupportController
             }
         }
 
-        var healRules = (support.HealSkillRules ?? new List<TeamHealSkillRuleConfig>())
-            .Where(rule => !string.IsNullOrWhiteSpace(rule.Key))
-            .ToArray();
+        var healRules = GetHealRules(support);
         var teamBuffRules = GetTeamBuffRules(context.Config.ScriptSettings?.Maintenance?.StatusMaintenanceRules);
-        if (healRules.Length == 0 && teamBuffRules.Count == 0)
+        if (healRules.Count == 0 && teamBuffRules.Count == 0)
         {
             return null;
         }
 
         var timing = await ResolveCurrentRunTimingAsync(context, snapshot, combatState).ConfigureAwait(false);
-        var allowedRules = healRules
-            .Where(rule => IsRuleAllowed(rule, timing))
-            .ToArray();
-
-        if (allowedRules.Length > 0)
+        var healAction = SelectHealAction(members, healRules, timing);
+        if (healAction is not null)
         {
-            var healCandidate = members
-                .Where(member => member.PartyMember.HasKnownHealth && member.PartyMember.IsAlive)
-                .Select(member => new
-                {
-                    Member = member,
-                    HpPercent = member.PartyMember.HpPercent,
-                    Rule = SelectHealRule(member.PartyMember.HpPercent, allowedRules)
-                })
-                .Where(candidate => candidate.Rule is not null)
-                .OrderBy(candidate => candidate.HpPercent)
-                .ThenBy(candidate => candidate.Member.FunctionKeyNumber)
-                .FirstOrDefault();
-
-            if (healCandidate?.Rule is not null)
-            {
-                return healCandidate.Rule.TargetType == TeamHealSkillTargetType.Group
-                    ? TeamSupportAction.GroupHeal(healCandidate.Rule, healCandidate.Member)
-                    : TeamSupportAction.TargetedHeal(healCandidate.Member, healCandidate.Rule);
-            }
+            return healAction;
         }
 
         var allowedBuffRules = teamBuffRules
             .Where(rule => IsRuleAllowed(rule, timing))
             .ToArray();
         return SelectTeamBuffAction(members, allowedBuffRules, state);
+    }
+
+    private static TeamSupportAction? SelectHealAction(
+        IReadOnlyList<TeamMemberSnapshot> members,
+        IReadOnlyList<TeamHealSkillRuleConfig> healRules,
+        MaintenanceRuleRunTiming timing)
+    {
+        var allowedRules = healRules
+            .Where(rule => IsRuleAllowed(rule, timing))
+            .ToArray();
+
+        if (allowedRules.Length == 0)
+        {
+            return null;
+        }
+
+        var healCandidate = members
+            .Where(member => member.PartyMember.HasKnownHealth && member.PartyMember.IsAlive)
+            .Select(member => new
+            {
+                Member = member,
+                HpPercent = member.PartyMember.HpPercent,
+                Rule = SelectHealRule(member.PartyMember.HpPercent, allowedRules)
+            })
+            .Where(candidate => candidate.Rule is not null)
+            .OrderBy(candidate => candidate.HpPercent)
+            .ThenBy(candidate => candidate.Member.FunctionKeyNumber)
+            .FirstOrDefault();
+
+        if (healCandidate?.Rule is null)
+        {
+            return null;
+        }
+
+        return healCandidate.Rule.TargetType == TeamHealSkillTargetType.Group
+            ? TeamSupportAction.GroupHeal(healCandidate.Rule, healCandidate.Member)
+            : TeamSupportAction.TargetedHeal(healCandidate.Member, healCandidate.Rule);
+    }
+
+    private static IReadOnlyList<TeamHealSkillRuleConfig> GetHealRules(TeamSupportScriptSettings support)
+    {
+        return (support.HealSkillRules ?? new List<TeamHealSkillRuleConfig>())
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.Key))
+            .ToArray();
     }
 
     private async Task<bool> ExecuteActionAsync(

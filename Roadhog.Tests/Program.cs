@@ -82,7 +82,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support retries function key until spiritmaster body selected", TestTeamSupportRetriesFunctionKeyUntilSpiritmasterBodySelectedAsync),
     ("team support uses group cleanse when multiple members need cleanse", TestTeamSupportUsesGroupCleanseWhenMultipleMembersNeedCleanseAsync),
     ("team support uses group heal without target select", TestTeamSupportUsesGroupHealWithoutTargetSelectAsync),
-    ("team support defers heal while fighting", TestTeamSupportDefersHealWhileFightingAsync),
+    ("team support heals while fighting when always", TestTeamSupportHealsWhileFightingWhenAlwaysAsync),
+    ("team support heals while fighting when in combat", TestTeamSupportHealsWhileFightingWhenInCombatAsync),
+    ("team support defers after-combat heal while fighting", TestTeamSupportDefersAfterCombatHealWhileFightingAsync),
     ("team support applies whitelisted maintenance buff", TestTeamSupportAppliesWhitelistedMaintenanceBuffAsync),
     ("team support defers team buff while fighting", TestTeamSupportDefersTeamBuffWhileFightingAsync),
     ("team support postpones after-combat buff while loot active", TestTeamSupportPostponesAfterCombatBuffWhileLootActiveAsync),
@@ -1244,7 +1246,7 @@ static async Task TestTeamSupportUsesGroupHealWithoutTargetSelectAsync()
     AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "group heal should press the configured key without F-key targeting");
 }
 
-static async Task TestTeamSupportDefersHealWhileFightingAsync()
+static async Task TestTeamSupportHealsWhileFightingWhenAlwaysAsync()
 {
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
@@ -1252,14 +1254,20 @@ static async Task TestTeamSupportDefersHealWhileFightingAsync()
     {
         Class = AionClassId.Cleric,
         ClassId = (byte)AionClassId.Cleric,
-        ClassName = "Cleric",
-        CurrentHp = 50,
-        MaxHp = 100
+        ClassName = "Cleric"
     };
     var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
     {
-        CurrentHp = 100,
+        CurrentHp = 50,
         MaxHp = 100
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            gameApi.TargetOwnServerObjectId = leader.ServerObjectId;
+        }
     };
     var combatState = new StationaryCombatState
     {
@@ -1270,19 +1278,113 @@ static async Task TestTeamSupportDefersHealWhileFightingAsync()
     var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
 
     var result = await controller
-        .TickAsync(CreateContext(CreateTeamSupportSettings(), CreateTeamSupportGameApi(self, leader), logger), new TeamSupportState(), combatState)
+        .TickAsync(CreateContext(CreateTeamSupportSettings(), gameApi, logger), new TeamSupportState(), combatState)
         .ConfigureAwait(false);
 
-    AssertFalse(result.ShouldSkipNormalWork, "active combat should keep ordinary combat running before team heal");
-    AssertEqual(0, keyboard.Keys.Count, "active combat should not be interrupted by team heal target selection");
+    AssertFalse(!result.ShouldSkipNormalWork, "always heal should consume the active-combat team support tick");
+    AssertSequence(new[] { "F2", "NumPad1" }, keyboard.Keys.ToArray(), "always heal should select the injured member during combat");
+    AssertFalse(!combatState.Fighting, "team heal should preserve the current combat state for the next tick");
+    AssertEqual((uint)5000, combatState.CurrentTargetServerObjectId, "team heal should preserve the current combat target");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "team_support.action_pressed" &&
+            string.Equals(entry.Fields["action"]?.ToString(), "Heal", StringComparison.Ordinal)),
+        "active-combat team heal should log its action press");
+}
+
+static async Task TestTeamSupportHealsWhileFightingWhenInCombatAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0) with
+    {
+        Class = AionClassId.Cleric,
+        ClassId = (byte)AionClassId.Cleric,
+        ClassName = "Cleric"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 50,
+        MaxHp = 100
+    };
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.HealSkillRules[0].RunTiming = MaintenanceRuleRunTiming.InCombat;
+    settings.Team.Support.HealSkillRules[0].TargetType = TeamHealSkillTargetType.Group;
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000
+    };
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+
+    var result = await controller
+        .TickAsync(CreateContext(settings, CreateTeamSupportGameApi(self, leader), logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "in-combat heal should consume the active-combat team support tick");
+    AssertSequence(new[] { "NumPad1" }, keyboard.Keys.ToArray(), "in-combat group heal should press without changing target");
+}
+
+static async Task TestTeamSupportDefersAfterCombatHealWhileFightingAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0) with
+    {
+        Class = AionClassId.Cleric,
+        ClassId = (byte)AionClassId.Cleric,
+        ClassName = "Cleric"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 50,
+        MaxHp = 100
+    };
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.HealSkillRules[0].RunTiming = MaintenanceRuleRunTiming.AfterCombat;
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F2", StringComparison.Ordinal))
+        {
+            gameApi.TargetOwnServerObjectId = leader.ServerObjectId;
+        }
+    };
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000
+    };
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+
+    var result = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "after-combat heal should let active combat continue");
+    AssertEqual(0, keyboard.Keys.Count, "after-combat heal should not select or heal a member during combat");
     AssertFalse(
         logger.Entries.Any(entry => entry.EventName == "team_support.action_pressed"),
-        "deferred team heal should not log an action press");
+        "deferred after-combat heal should not log an action press");
     AssertFalse(
         !logger.Entries.Any(entry =>
             entry.EventName == "team_support.follow.deferred" &&
             string.Equals(entry.Fields["reason"]?.ToString(), "active_combat_target", StringComparison.Ordinal)),
         "active combat defer reason should be logged");
+
+    combatState.Fighting = false;
+    combatState.CurrentTargetEntityId = 0;
+    combatState.CurrentTargetServerObjectId = 0;
+    keyboard.Keys.Clear();
+
+    var afterCombatResult = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!afterCombatResult.ShouldSkipNormalWork, "after-combat heal should consume the first idle support tick");
+    AssertSequence(new[] { "F2", "NumPad1" }, keyboard.Keys.ToArray(), "after-combat heal should run after combat state clears");
 }
 
 static async Task TestTeamSupportAppliesWhitelistedMaintenanceBuffAsync()
