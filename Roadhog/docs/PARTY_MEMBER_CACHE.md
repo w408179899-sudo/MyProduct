@@ -833,7 +833,7 @@ Actor +0x2C = ServerObjectId
 Actor +0x20 = objectType，应为 1
 Actor +0x2C = ServerObjectId，应等于队员 ServerId
 Actor +0x08 = CEntity*，必须有效
-CEntity +0x4B4/+0x4B8/+0x4BC 坐标必须是正常有限数
+CEntity +0x4E4/+0x4E8/+0x4EC 坐标必须是正常有限数
 ```
 
 结果解释：
@@ -898,9 +898,9 @@ distance
 memberRecord +0x04 = ServerObjectId
   -> ServerObjectId 找到 Actor*
   -> Actor +0x08 = CEntity*
-  -> CEntity +0x4B4 = X
-  -> CEntity +0x4B8 = Y
-  -> CEntity +0x4BC = Z
+  -> CEntity +0x4E4 = X
+  -> CEntity +0x4E8 = Y
+  -> CEntity +0x4EC = Z
 ```
 
 客户端内部函数：
@@ -967,7 +967,7 @@ Actor +0x11A0 最大HP
 Actor +0x11A4 当前HP
 
 Actor +0x08 -> CEntity*
-CEntity +0x4B4/+0x4B8/+0x4BC = 精确坐标
+CEntity +0x4E4/+0x4E8/+0x4EC = 精确坐标
 ```
 
 ## 数据优先级

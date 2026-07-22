@@ -6,10 +6,10 @@ using Vmmsharp;
 
 internal static class TacticsSignLiveProbe
 {
-    private const ulong TacticsSignTableRva = 0xD1BA68;
+    private const ulong TacticsSignTableRva = 0xD668E0;
     private const int TacticsSignCount = 16;
-    private const ulong ServerObjectTreeRva = 0xD21740;
-    private const ulong LocalEntityIdRva = 0xD21798;
+    private const ulong ServerObjectTreeRva = 0xD6CAC0;
+    private const ulong LocalEntityIdRva = 0xD6CB18;
 
     private const ulong NodeLeftOffset = 0x00;
     private const ulong NodeParentOffset = 0x08;
@@ -57,7 +57,7 @@ internal static class TacticsSignLiveProbe
                           " Pid=" + (processId > 0 ? processId.ToString(CultureInfo.InvariantCulture) : "<by-name>") +
                           " Module=" + moduleName +
                           " LeaderMarkIndex=" + leaderMarkIndex.ToString(CultureInfo.InvariantCulture));
-        Console.WriteLine("Reads GameBase+0xD1BA68 as uint32 ServerObjectId[16].");
+        Console.WriteLine("Reads GameBase+0xD668E0 as uint32 ServerObjectId[16].");
 
         try
         {

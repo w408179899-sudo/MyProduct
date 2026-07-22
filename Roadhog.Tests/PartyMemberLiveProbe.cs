@@ -8,15 +8,15 @@ using Vmmsharp;
 
 internal static class PartyMemberLiveProbe
 {
-    private const ulong PartyIdRva = 0xD1BAB8;
-    private const ulong PartyFlagsRva = 0xD1BABC;
-    private const ulong PartyLeaderServerObjectIdRva = 0xD1BAC0;
-    private const ulong PrimaryPartyListRva = 0xD1BAE8;
-    private const ulong PrimaryPartyCountRva = 0xD1BAF0;
-    private const ulong SecondaryPartyListRva = 0xD1BB50;
-    private const ulong EntitySystemPointerRva = 0x904690;
-    private const ulong ServerObjectTreeRva = 0xD21740;
-    private const ulong LocalEntityIdRva = 0xD21798;
+    private const ulong PartyIdRva = 0xD66930;
+    private const ulong PartyFlagsRva = 0xD66934;
+    private const ulong PartyLeaderServerObjectIdRva = 0xD66938;
+    private const ulong PrimaryPartyListRva = 0xD66960;
+    private const ulong PrimaryPartyCountRva = 0xD66968;
+    private const ulong SecondaryPartyListRva = 0xD669C8;
+    private const ulong EntitySystemPointerRva = 0x94C7B0;
+    private const ulong ServerObjectTreeRva = 0xD6CAC0;
+    private const ulong LocalEntityIdRva = 0xD6CB18;
 
     private const ulong NodeLeftOffset = 0x00;
     private const ulong NodeParentOffset = 0x08;
@@ -28,11 +28,15 @@ internal static class PartyMemberLiveProbe
     private const ulong PartyListNodeDataOffset = 0x10;
 
     private const ulong EntityTreeOffset = 0x58;
-    private const ulong EntityPositionFlagsOffset = 0xC0;
+    private const ulong EntityPositionFlagsOffset = 0xF0;
     private const uint EntityUseAlternatePositionFlag = 0x400;
-    private const ulong EntityWorldPositionOffset = 0x4B4;
-    private const ulong EntityLocalPositionOffset = 0x4F4;
+    private const ulong EntityWorldPositionOffset = 0x4E4;
+    private const ulong EntityWorldAnglesOffset = 0x518;
+    private const ulong EntityLocalPositionOffset = 0x524;
+    private const ulong EntityPositionVfuncOffset = 0x08;
+    private const ulong EntityAnglesVfuncOffset = 0x10;
     private const ulong EntityProxyManagerVfuncOffset = 0xB8;
+    private const ulong EntitySystemGetEntityVfuncOffset = 0x30;
 
     private const ulong ServerNodeServerObjectIdOffset = 0x1C;
     private const ulong ServerNodeEntityIdOffset = 0x20;
@@ -179,6 +183,7 @@ internal static class PartyMemberLiveProbe
             if (hasLiveSummary)
             {
                 Console.WriteLine(FormatLiveActorProbeSummary(liveSummary));
+                Console.WriteLine(FormatLocalEntityDiagnostics(process, gameBase, liveSummary.LocalEntity));
             }
             else
             {
@@ -1735,18 +1740,34 @@ internal static class PartyMemberLiveProbe
         y = 0;
         z = 0;
 
-        if (!TryReadUInt32(process, entity + EntityPositionFlagsOffset, out var flags))
+        return TryReadPositionVector(process, entity + EntityWorldPositionOffset, out x, out y, out z) &&
+               IsUsablePosition(x, y, z);
+    }
+
+    private static bool TryReadPositionVector(VmmProcess process, ulong address, out float x, out float y, out float z)
+    {
+        x = 0;
+        y = 0;
+        z = 0;
+
+        return TryReadSingle(process, address, out x) &&
+               TryReadSingle(process, address + 4, out y) &&
+               TryReadSingle(process, address + 8, out z);
+    }
+
+    private static bool IsUsablePosition(float x, float y, float z)
+    {
+        if (!IsReasonablePosition(x, y, z) ||
+            Math.Abs(x) < 0.001F && Math.Abs(y) < 0.001F && Math.Abs(z) < 0.001F)
         {
             return false;
         }
 
-        var positionOffset = (flags & EntityUseAlternatePositionFlag) != 0
-            ? EntityLocalPositionOffset
-            : EntityWorldPositionOffset;
-
-        return TryReadSingle(process, entity + positionOffset, out x) &&
-               TryReadSingle(process, entity + positionOffset + 4, out y) &&
-               TryReadSingle(process, entity + positionOffset + 8, out z);
+        var squaredLength = (x * x) + (y * y) + (z * z);
+        return Math.Abs(squaredLength - 1.0F) > 0.001F ||
+               Math.Abs(x - MathF.Round(x)) > 0.001F ||
+               Math.Abs(y - MathF.Round(y)) > 0.001F ||
+               Math.Abs(z - MathF.Round(z)) > 0.001F;
     }
 
     private static bool TryResolveActorFromEntity(
@@ -2118,6 +2139,105 @@ internal static class PartyMemberLiveProbe
                " LocalActor=" + FormatAddress(summary.LocalActor) +
                " LocalPosition=" + FormatLivePosition(summary.HasLocalPosition, summary.LocalX, summary.LocalY, summary.LocalZ) +
                " VisiblePlayerActors=" + summary.VisiblePlayerActorCount.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatLocalEntityDiagnostics(VmmProcess process, ulong gameBase, ulong entity)
+    {
+        var flags = TryReadUInt32(process, entity + EntityPositionFlagsOffset, out var rawFlags)
+            ? "0x" + rawFlags.ToString("X", CultureInfo.InvariantCulture)
+            : "Unreadable";
+        var world = TryReadPositionVector(
+            process,
+            entity + EntityWorldPositionOffset,
+            out var worldX,
+            out var worldY,
+            out var worldZ)
+            ? FormatVector(worldX, worldY, worldZ)
+            : "Unreadable";
+        var alternate = TryReadPositionVector(
+            process,
+            entity + EntityLocalPositionOffset,
+            out var alternateX,
+            out var alternateY,
+            out var alternateZ)
+            ? FormatVector(alternateX, alternateY, alternateZ)
+            : "Unreadable";
+        var angles = TryReadPositionVector(
+            process,
+            entity + EntityWorldAnglesOffset,
+            out var angleX,
+            out var angleY,
+            out var angleZ)
+            ? FormatVector(angleX, angleY, angleZ)
+            : "Unreadable";
+        var entityVfunc = FormatVfunc(process, entity, EntityPositionVfuncOffset, 160);
+        var anglesVfunc = FormatVfunc(process, entity, EntityAnglesVfuncOffset, 96);
+
+        var entitySystemVfunc = "Unreadable";
+        if (TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        {
+            entitySystemVfunc = FormatVfunc(process, entitySystem, EntitySystemGetEntityVfuncOffset, 160);
+        }
+
+        return "LocalEntityDiagnostics" +
+               " Entity=" + FormatAddress(entity) +
+               " Flags=" + flags +
+               " World=" + world +
+               " Alternate=" + alternate +
+               " Angles=" + angles +
+               " PositionVfunc=" + entityVfunc +
+               " AnglesVfunc=" + anglesVfunc +
+               " GetEntityVfunc=" + entitySystemVfunc +
+               " PlausibleTriples=" + FormatPlausibleFloatTriples(process, entity);
+    }
+
+    private static string FormatVfunc(VmmProcess process, ulong instance, ulong slotOffset, int codeLength)
+    {
+        if (!TryReadPointer(process, instance, out var vtable) ||
+            !TryReadPointer(process, vtable + slotOffset, out var function) ||
+            !TryReadBytes(process, function, codeLength, out var code))
+        {
+            return "Unreadable";
+        }
+
+        return "Vtable=" + FormatAddress(vtable) +
+               ",Function=" + FormatAddress(function) +
+               ",Code=" + Convert.ToHexString(code);
+    }
+
+    private static string FormatPlausibleFloatTriples(VmmProcess process, ulong entity)
+    {
+        const int scanLength = 0x1000;
+        const int maxResults = 24;
+        if (!TryReadBytes(process, entity, scanLength, out var bytes) || bytes.Length < 12)
+        {
+            return "Unreadable";
+        }
+
+        var results = new List<string>();
+        for (var offset = 0; offset <= bytes.Length - 12 && results.Count < maxResults; offset += 4)
+        {
+            var x = BitConverter.ToSingle(bytes, offset);
+            var y = BitConverter.ToSingle(bytes, offset + 4);
+            var z = BitConverter.ToSingle(bytes, offset + 8);
+            if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(z) ||
+                Math.Abs(x) < 10.0F || Math.Abs(y) < 10.0F ||
+                Math.Abs(x) > 100000.0F || Math.Abs(y) > 100000.0F || Math.Abs(z) > 100000.0F)
+            {
+                continue;
+            }
+
+            results.Add("+0x" + offset.ToString("X", CultureInfo.InvariantCulture) + "=" + FormatVector(x, y, z));
+        }
+
+        return results.Count == 0 ? "None" : string.Join("|", results);
+    }
+
+    private static string FormatVector(float x, float y, float z)
+    {
+        return x.ToString("0.###", CultureInfo.InvariantCulture) + "," +
+               y.ToString("0.###", CultureInfo.InvariantCulture) + "," +
+               z.ToString("0.###", CultureInfo.InvariantCulture);
     }
 
     private static string FormatLiveActor(PartyMemberProbeSnapshot snapshot)

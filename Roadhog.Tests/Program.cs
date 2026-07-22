@@ -36,6 +36,12 @@ if (TeamMonitorLiveProbe.ShouldRun(args))
     return;
 }
 
+if (VmmGameApiLiveProbe.ShouldRun(args))
+{
+    Environment.ExitCode = VmmGameApiLiveProbe.RunAsync(args).GetAwaiter().GetResult();
+    return;
+}
+
 if (PartyMemberLiveProbe.ShouldRun(args))
 {
     Environment.ExitCode = PartyMemberLiveProbe.Run(args);
