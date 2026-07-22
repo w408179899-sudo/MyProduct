@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $runtimeFiles = @("Roadhog.exe", "Roadhog.dll")
-$destinationNames = @("1", "2", "3")
+$destinationNames = @("1", "2", "3", "4")
 
 function Test-FileInUse {
     param([Parameter(Mandatory = $true)][string]$Path)
