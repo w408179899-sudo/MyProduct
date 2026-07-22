@@ -72,7 +72,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private const ulong ListNodeValueOffset = 0x10;
 
     private const ulong EntityTreeOffset = 0x58;
-    private const ulong EntityTypeOffset = 0xF2;
+    private const ulong EntityTypeOffset = 0x122;
     private const ulong EntityPositionFlagsOffset = 0xF0;
     private const uint EntityUseAlternatePositionFlag = 0x400;
     private const ulong EntityWorldPositionOffset = 0x4E4;

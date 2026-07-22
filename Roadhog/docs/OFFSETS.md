@@ -61,7 +61,7 @@
 | 字段 | 偏移 / 值 | 业务用途 |
 |---|---:|---|
 | `EntitySystem + EntityTreeOffset` | `+0x58` | entity 树 header；读取本地玩家、当前目标、周围怪、尸体、异常状态都依赖它。 |
-| `CEntity + EntityTypeOffset` | `+0xF2` | entity 类型；Roadhog 当前用值 `3` 过滤 NPC/怪物类实体。 |
+| `CEntity + EntityTypeOffset` | `+0x122` | entity 类型；2026-07-22 实机验证本地玩家为 `1`、普通 NPC/怪物为 `3`。旧 `+0xF2` 已变成其他数据，继续使用会导致世界对象列表恒为空。 |
 | `EntityTypeNpc` | `3` | NPC/怪物 entity 类型值；周围怪物、尸体和召唤物扫描会用它过滤非 NPC 实体。 |
 | `CEntity + EntityPositionFlagsOffset` | `+0xF0` | 坐标来源标记；2026-07-22 实机 `CEntity vtable+0x08/+0x10` getter 会检测这里的 `0x408` 掩码。 |
 | `EntityUseAlternatePositionFlag` | `0x400` | alternate/local 坐标标记；实测该组可能是接近原点的父级局部坐标。 |
