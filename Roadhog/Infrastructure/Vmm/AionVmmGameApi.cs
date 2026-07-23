@@ -181,7 +181,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
 
     private const ulong DlgInventoryDialog27MethodRva = 0x1C66F0;
     private const ulong DlgInventoryDialog28MethodRva = 0x1CBFB0;
-    private const ulong DlgInventoryOpenFlagOffset = 0x585;
+    private const ulong DlgInventoryDialogTableRva = 0xD639A0;
+    private const ulong DlgInventoryDialog27PointerRva = DlgInventoryDialogTableRva + (27UL * 8UL);
+    private const ulong DlgInventoryDialog28PointerRva = DlgInventoryDialogTableRva + (28UL * 8UL);
+    private const ulong DlgInventoryWidgetFlagsOffset = 0x28;
+    private const ulong DlgInventoryVisibleMask = 0x01;
+    private const ulong DlgInventoryPageDirtyFlagBaseOffset = 0x585;
     private const ulong DlgInventoryWindowRectOffset = 0x58;
     private const ulong DlgInventoryRootWidgetOffset = 0x4D8;
     private const int DlgInventoryVtableBackSlots = 256;
@@ -463,6 +468,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     ProbeInventoryFirstItemNodeAddress(process, manager, hasManager),
                     ProbeItemStaticIndexAddress(process, gameBase),
                     ProbeStaticResolverChunkAddress(process, gameBase),
+                    ProbeInventoryDialogPointerAddress(process, "Address.DlgInventoryDialog27Pointer", gameBase, DlgInventoryDialog27PointerRva),
+                    ProbeInventoryDialogPointerAddress(process, "Address.DlgInventoryDialog28Pointer", gameBase, DlgInventoryDialog28PointerRva),
                     ProbeCodeAddress(process, "Address.DlgInventoryDialog27Method", gameBase, DlgInventoryDialog27MethodRva),
                     ProbeCodeAddress(process, "Address.DlgInventoryDialog28Method", gameBase, DlgInventoryDialog28MethodRva)
                 };
@@ -974,6 +981,44 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return valid
             ? AddressProbePass(name, gameBase, rva, detail)
             : AddressProbeFail(name, gameBase, rva, "invalid " + detail);
+    }
+
+    private static GameApiAddressProbeResult ProbeInventoryDialogPointerAddress(
+        VmmProcess process,
+        string name,
+        ulong gameBase,
+        ulong rva)
+    {
+        var address = gameBase + rva;
+        if (!TryReadPointer(process, address, out var dialog))
+        {
+            if ((TryReadUInt64(process, address, out var raw64) && raw64 == 0) ||
+                (TryReadUInt32(process, address, out var raw32) && raw32 == 0))
+            {
+                return AddressProbePass(name, gameBase, rva, "dialog=0x0");
+            }
+
+            return AddressProbeFail(name, gameBase, rva, "dialog pointer read failed");
+        }
+
+        if (!TryReadUInt64(process, dialog + DlgInventoryWidgetFlagsOffset, out var flags))
+        {
+            return AddressProbeFail(
+                name,
+                gameBase,
+                rva,
+                "dialog=0x" + dialog.ToString("X", CultureInfo.InvariantCulture) +
+                "; widget flags read failed at +0x" + DlgInventoryWidgetFlagsOffset.ToString("X", CultureInfo.InvariantCulture));
+        }
+
+        var visible = (flags & DlgInventoryVisibleMask) != 0;
+        return AddressProbePass(
+            name,
+            gameBase,
+            rva,
+            "dialog=0x" + dialog.ToString("X", CultureInfo.InvariantCulture) +
+            "; flags=0x" + flags.ToString("X", CultureInfo.InvariantCulture) +
+            "; visible=" + visible.ToString());
     }
 
     private static GameApiAddressProbeResult ProbeCodeAddress(
@@ -1773,6 +1818,27 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 if (gameBase == 0)
                 {
                     return OperationResult<InventoryWindowSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                var dialogTableCandidates = FindInventoryWindowDialogTableCandidates(process, gameBase);
+                if (dialogTableCandidates.Count > 0)
+                {
+                    if (TryReadPreferredInventoryWindowSnapshot(
+                            process,
+                            dialogTableCandidates,
+                            rectSource,
+                            out var dialogTableSnapshot,
+                            out var dialogTableError,
+                            out var hasVisibleDialog))
+                    {
+                        LogInventoryWindowRead(context, process, dialogTableSnapshot, cacheHit: false);
+                        return OperationResult<InventoryWindowSnapshot>.Ok(dialogTableSnapshot);
+                    }
+
+                    if (hasVisibleDialog)
+                    {
+                        return OperationResult<InventoryWindowSnapshot>.Fail(dialogTableError);
+                    }
                 }
 
                 var cacheKey = BuildInventoryWindowCacheKey(context, process, gameBase);
@@ -6319,6 +6385,101 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return !TryReadByte(process, node + NodeIsNilOffset, out var isNil, bypassMemoryCache) || isNil != 0;
     }
 
+    private static List<InventoryWindowCandidate> FindInventoryWindowDialogTableCandidates(
+        VmmProcess process,
+        ulong gameBase)
+    {
+        var candidates = new List<InventoryWindowCandidate>(2);
+        TryAddInventoryWindowDialogTableCandidate(
+            process,
+            gameBase + DlgInventoryDialog27PointerRva,
+            "DlgInventory.Dialog27Pointer",
+            candidates);
+        TryAddInventoryWindowDialogTableCandidate(
+            process,
+            gameBase + DlgInventoryDialog28PointerRva,
+            "DlgInventory.Dialog28Pointer",
+            candidates);
+        return candidates;
+    }
+
+    private static void TryAddInventoryWindowDialogTableCandidate(
+        VmmProcess process,
+        ulong pointerAddress,
+        string source,
+        List<InventoryWindowCandidate> candidates)
+    {
+        if (!TryReadPointer(process, pointerAddress, out var objectAddress) ||
+            !IsLikelyUserPointer(objectAddress) ||
+            candidates.Any(candidate => candidate.ObjectAddress == objectAddress))
+        {
+            return;
+        }
+
+        TryReadPointer(process, objectAddress, out var vtableAddress);
+        candidates.Add(new InventoryWindowCandidate(objectAddress, vtableAddress, source, 0));
+    }
+
+    private static bool TryReadPreferredInventoryWindowSnapshot(
+        VmmProcess process,
+        IReadOnlyList<InventoryWindowCandidate> candidates,
+        InventoryWindowRectSource rectSource,
+        out InventoryWindowSnapshot snapshot,
+        out string error,
+        out bool hasVisibleDialog)
+    {
+        snapshot = default!;
+        error = string.Empty;
+        hasVisibleDialog = false;
+
+        var states = new List<InventoryWindowCandidateState>(candidates.Count);
+        var errors = new List<string>();
+        foreach (var candidate in candidates)
+        {
+            if (!TryReadInventoryWindowVisibility(process, candidate, out var isVisible, out var widgetFlags, out var visibilityError))
+            {
+                errors.Add(candidate.Source + ": " + visibilityError);
+                continue;
+            }
+
+            hasVisibleDialog |= isVisible;
+            states.Add(new InventoryWindowCandidateState(candidate, isVisible, widgetFlags));
+        }
+
+        if (states.Count == 0)
+        {
+            error = errors.Count == 0
+                ? "DlgInventory dialog table has no readable widget flags."
+                : string.Join("; ", errors);
+            return false;
+        }
+
+        var orderedStates = hasVisibleDialog
+            ? states.Where(state => state.IsVisible)
+            : states;
+        foreach (var state in orderedStates)
+        {
+            if (TryReadInventoryWindowSnapshot(
+                    process,
+                    state.Candidate,
+                    rectSource,
+                    state.IsVisible,
+                    state.WidgetFlags,
+                    out snapshot,
+                    out var readError))
+            {
+                return true;
+            }
+
+            errors.Add(state.Candidate.Source + ": " + readError);
+        }
+
+        error = errors.Count == 0
+            ? "DlgInventory dialog table candidates could not be read."
+            : string.Join("; ", errors);
+        return false;
+    }
+
     private bool TryFindInventoryWindowCandidate(
         VmmProcess process,
         ulong gameBase,
@@ -6431,16 +6592,56 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         out InventoryWindowSnapshot snapshot,
         out string error)
     {
-        snapshot = default!;
-        error = string.Empty;
-
-        if (!TryReadByte(process, candidate.ObjectAddress + DlgInventoryOpenFlagOffset, out var flag0) ||
-            !TryReadByte(process, candidate.ObjectAddress + DlgInventoryOpenFlagOffset + 1, out var flag1) ||
-            !TryReadByte(process, candidate.ObjectAddress + DlgInventoryOpenFlagOffset + 2, out var flag2))
+        if (!TryReadInventoryWindowVisibility(process, candidate, out var isVisible, out var widgetFlags, out error))
         {
-            error = "Failed to read DlgInventory open flags.";
+            snapshot = default!;
             return false;
         }
+
+        return TryReadInventoryWindowSnapshot(
+            process,
+            candidate,
+            rectSource,
+            isVisible,
+            widgetFlags,
+            out snapshot,
+            out error);
+    }
+
+    private static bool TryReadInventoryWindowVisibility(
+        VmmProcess process,
+        InventoryWindowCandidate candidate,
+        out bool isVisible,
+        out ulong widgetFlags,
+        out string error)
+    {
+        isVisible = false;
+        widgetFlags = 0;
+        error = string.Empty;
+
+        if (!TryReadUInt64(process, candidate.ObjectAddress + DlgInventoryWidgetFlagsOffset, out widgetFlags))
+        {
+            error = "Failed to read DlgInventory widget flags at +0x" +
+                DlgInventoryWidgetFlagsOffset.ToString("X", CultureInfo.InvariantCulture) +
+                ".";
+            return false;
+        }
+
+        isVisible = (widgetFlags & DlgInventoryVisibleMask) != 0;
+        return true;
+    }
+
+    private static bool TryReadInventoryWindowSnapshot(
+        VmmProcess process,
+        InventoryWindowCandidate candidate,
+        InventoryWindowRectSource rectSource,
+        bool isVisible,
+        ulong widgetFlags,
+        out InventoryWindowSnapshot snapshot,
+        out string error)
+    {
+        snapshot = default!;
+        error = string.Empty;
 
         var rootWidgetAddress = 0UL;
         var rectAddress = 0UL;
@@ -6460,7 +6661,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         }
 
         snapshot = new InventoryWindowSnapshot(
-            flag0 != 0 && flag1 != 0 && flag2 != 0,
+            isVisible,
             x,
             y,
             width,
@@ -6470,7 +6671,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             DateTimeOffset.Now,
             rectSource,
             rootWidgetAddress,
-            rectAddress);
+            rectAddress,
+            widgetFlags,
+            candidate.Source);
         return true;
     }
 
@@ -6637,6 +6840,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             ["rectSource"] = snapshot.RectSource.ToString(),
             ["rootWidget"] = snapshot.RootWidgetAddress == 0 ? string.Empty : snapshot.RootWidgetAddress.ToString("X"),
             ["rectAddress"] = snapshot.RectAddress == 0 ? string.Empty : snapshot.RectAddress.ToString("X"),
+            ["widgetFlags"] = snapshot.WidgetFlags.ToString("X"),
+            ["dialogSource"] = snapshot.DialogSource,
             ["cacheHit"] = cacheHit
         });
     }
@@ -7358,6 +7563,11 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         ulong VtableAddress,
         string Source,
         uint AllocationSize);
+
+    private readonly record struct InventoryWindowCandidateState(
+        InventoryWindowCandidate Candidate,
+        bool IsVisible,
+        ulong WidgetFlags);
 
     private sealed class LockedTargetInfo
     {

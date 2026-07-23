@@ -11,7 +11,9 @@ public sealed record InventoryWindowSnapshot(
     DateTimeOffset CapturedAt,
     InventoryWindowRectSource RectSource = InventoryWindowRectSource.LegacyDialogRect,
     ulong RootWidgetAddress = 0,
-    ulong RectAddress = 0)
+    ulong RectAddress = 0,
+    ulong WidgetFlags = 0,
+    string DialogSource = "")
 {
     public bool IsAtTopLeft(double tolerance = 1.0)
     {

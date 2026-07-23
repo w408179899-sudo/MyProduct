@@ -41,6 +41,9 @@
 | `StaticResolverChunkListRva` | `0xD4E500` | 静态数据压缩块指针列表；根据 packed handle 读取物品品质。 |
 | `DlgInventoryDialog27MethodRva` | `0x1C66F0` | `DlgInventory` DialogId 27 方法；用于扫描背包窗口 vtable/对象。 |
 | `DlgInventoryDialog28MethodRva` | `0x1CBFB0` | `DlgInventory` DialogId 28 方法；用于扫描背包窗口 vtable/对象。 |
+| `DlgInventoryDialogTableRva` | `0xD639A0` | New UI dialog pointer table base. |
+| `DlgInventoryDialog27PointerRva` | `0xD63A78` | `[GameBase + RVA] -> DlgInventory DialogId 27 object`. |
+| `DlgInventoryDialog28PointerRva` | `0xD63A80` | `[GameBase + RVA] -> DlgInventory DialogId 28 object`. |
 
 ## 通用树和链表结构
 
@@ -233,7 +236,8 @@ Roadhog 从 MSVC 风格的 wide string 对象读取技能名和背包物品名�
 
 | 字段 | 偏移 | 业务用途 |
 |---|---:|---|
-| `DlgInventoryOpenFlagOffset` | `+0x585` | 背包窗口 open/visible 候选标记；新版构造函数仍初始化该字段。 |
+| `DlgInventoryWidgetFlagsOffset` | `+0x28` | UIWidget flags; `flags & 0x01` means visible/open. |
+| `DlgInventoryPageDirtyFlagBaseOffset` | `+0x585 + pageIndex` | Inventory page refresh/dirty flag; not an open/visible flag. |
 | `DlgInventoryWindowRectOffset` | `+0x58` | 窗口 Rect 候选，四个 `double`；仍需通过 root widget / GetRect 路径实测复核。 |
 | `DlgInventoryRootWidgetOffset` | `+0x4D8` | root widget 指针，用于实验版 Rect 定位。 |
 | `DlgInventoryVtableBackSlots` | `256` | 从 `DlgInventory` 方法地址向前扫描 vtable 槽位的最大数量。 |
@@ -280,7 +284,7 @@ Roadhog 从 MSVC 风格的 wide string 对象读取技能名和背包物品名�
 | 已学技能、冷却、连续技/维护技能确认 | Skill manager RVA、已学技能树、list offset、SkillItem offset、MSVC string offset。 |
 | 背包物品、金币、容量、装备状态 | Inventory manager、物品树、金币/容量、装备 instance id 和物品字段。 |
 | 背包物品品质 | 物品静态索引、packed handle、静态压缩块和品质字段。 |
-| 背包窗口位置 | 两个 DlgInventory 方法 RVA、open flag、旧 Rect、root widget 和实验 Rect。 |
+| 背包窗口位置 | DlgInventory dialog pointer table, UIWidget visible flag, fallback method RVA scan, legacy Rect, root widget and experimental Rect. |
 
 ## 当前没有作为 Roadhog VMM 直接偏移实现的内容
 

@@ -52,6 +52,8 @@ public sealed record GameApiAddressProbeResult(
         "Address.InventoryFirstItemNode",
         "Address.ItemStaticIndex",
         "Address.StaticResolverChunk0",
+        "Address.DlgInventoryDialog27Pointer",
+        "Address.DlgInventoryDialog28Pointer",
         "Address.DlgInventoryDialog27Method",
         "Address.DlgInventoryDialog28Method"
     });
