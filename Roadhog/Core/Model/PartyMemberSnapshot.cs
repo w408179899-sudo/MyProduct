@@ -40,7 +40,10 @@ public sealed record PartyMemberSnapshot(
     uint LiveTargetServerObjectId,
     Vector3Snapshot? LivePosition,
     double? DistanceToLocalPlayer,
-    PartyMemberVisibilityState VisibilityState)
+    PartyMemberVisibilityState VisibilityState,
+    bool HasLiveRestState = false,
+    uint LiveStanceFlags = 0,
+    uint LiveMotionMode = 0)
 {
     public bool HasKnownHealth => MaxHp > 0 || CurrentHp > 0;
 
@@ -61,4 +64,8 @@ public sealed record PartyMemberSnapshot(
     public int HarmfulAbnormalCount => AbnormalStatuses.Count(entry => entry.IsHarmfulForRest);
 
     public bool IsScreenVisible => VisibilityState == PartyMemberVisibilityState.ScreenVisible;
+
+    public int LiveStanceLowNibble => unchecked((int)(LiveStanceFlags & 0xFU));
+
+    public bool IsResting => HasLiveRestState && LiveMotionMode == 1U && LiveStanceLowNibble == 5;
 }

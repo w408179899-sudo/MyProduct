@@ -71,6 +71,14 @@ public sealed class TeamSupportController
         var snapshot = snapshotResult.Value;
         var groupDistanceMeters = team.GroupDistanceMeters;
         var leader = snapshot.LeaderMember;
+        if (leader is not null &&
+            await TeamLeaderRestSync
+                .TryHandleAsync(context, _keyboard, state.LeaderRestSync, snapshot, leader, combatState, "team_support")
+                .ConfigureAwait(false))
+        {
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
         var leaderDeadStop =
             support.StopWhenLeaderDead &&
             leader?.PartyMember.IsDead == true;

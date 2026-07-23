@@ -104,6 +104,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support join combat accepts already locked leader target", TestTeamSupportJoinCombatAcceptsAlreadyLockedLeaderTargetAsync),
     ("team support accepts leader pet target when class unknown", TestTeamSupportAcceptsLeaderPetTargetWhenClassUnknownAsync),
     ("team support join combat skips party member leader target", TestTeamSupportJoinCombatSkipsPartyMemberLeaderTargetAsync),
+    ("team support sits when leader rests", TestTeamSupportSitsWhenLeaderRestsAsync),
+    ("team support stands when leader stands", TestTeamSupportStandsWhenLeaderStandsAsync),
+    ("team output sits when leader rests", TestTeamOutputSitsWhenLeaderRestsAsync),
+    ("team output stands when leader stands", TestTeamOutputStandsWhenLeaderStandsAsync),
     ("team output assists only leader attacked monster", TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync),
     ("team output uses configured assist target key", TestTeamOutputUsesConfiguredAssistTargetKeyAsync),
     ("team output rejects non monster leader target", TestTeamOutputRejectsNonMonsterLeaderTargetAsync),
@@ -2208,6 +2212,105 @@ static async Task TestTeamSupportJoinCombatSkipsPartyMemberLeaderTargetAsync()
             entry.EventName == "team_support.leader_target.skipped" &&
             string.Equals(entry.Fields["reason"]?.ToString(), "known_team_side_target", StringComparison.Ordinal)),
         "support should log known team-side target skip");
+}
+
+static async Task TestTeamSupportSitsWhenLeaderRestsAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = WithLiveRestState(CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0), resting: false);
+    var leader = WithLiveRestState(CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0), resting: true);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000,
+        IsMovingForward = true,
+        IsRightMouseDown = true
+    };
+
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var result = await controller
+        .TickAsync(CreateContext(CreateTeamSupportSettings(), gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "support should block normal work while syncing leader rest");
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "support should sit when leader is resting");
+    AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "support should release forward movement before sitting");
+    AssertSequence(new[] { "up:Right" }, keyboard.MouseCommands.ToArray(), "support should release right mouse before sitting");
+    AssertFalse(combatState.IsMovingForward, "support rest sync should clear movement state");
+    AssertFalse(combatState.IsRightMouseDown, "support rest sync should clear right mouse state");
+    AssertFalse(combatState.Fighting, "support rest sync should clear stale combat target");
+}
+
+static async Task TestTeamSupportStandsWhenLeaderStandsAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = WithLiveRestState(CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0), resting: true);
+    var leader = WithLiveRestState(CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0), resting: false);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var result = await controller
+        .TickAsync(CreateContext(CreateTeamSupportSettings(), gameApi, logger), new TeamSupportState())
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "support should block normal work while standing with leader");
+    AssertSequence(new[] { "X" }, keyboard.Keys.ToArray(), "support should stand when leader is standing");
+    AssertEqual(0, keyboard.KeyUps.Count, "standing sync should not release movement keys");
+}
+
+static async Task TestTeamOutputSitsWhenLeaderRestsAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = WithLiveRestState(CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0), resting: false);
+    var leader = WithLiveRestState(CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0), resting: true) with
+    {
+        LiveTargetServerObjectId = 5000
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000,
+        IsMovingForward = true
+    };
+
+    var controller = new TeamOutputController(keyboard);
+    var result = await controller
+        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "output should block normal work while syncing leader rest");
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "output should sit when leader is resting");
+    AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "output should release forward movement before sitting");
+    AssertFalse(combatState.IsMovingForward, "output rest sync should clear movement state");
+    AssertFalse(combatState.Fighting, "output rest sync should clear stale combat target");
+}
+
+static async Task TestTeamOutputStandsWhenLeaderStandsAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = WithLiveRestState(CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0), resting: true);
+    var leader = WithLiveRestState(CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0), resting: false) with
+    {
+        LiveTargetServerObjectId = 5000
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+
+    var controller = new TeamOutputController(keyboard);
+    var result = await controller
+        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState())
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "output should block normal work while standing with leader");
+    AssertSequence(new[] { "X" }, keyboard.Keys.ToArray(), "output should stand when leader is standing");
+    AssertEqual(0, keyboard.KeyUps.Count, "standing sync should not release movement keys");
 }
 
 static async Task TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync()
@@ -15101,6 +15204,16 @@ static PartyMemberSnapshot CreatePartyMemberSnapshot(
         distanceToLocal <= 50.0
             ? PartyMemberVisibilityState.ScreenVisible
             : PartyMemberVisibilityState.LoadedOutOfRange);
+}
+
+static PartyMemberSnapshot WithLiveRestState(PartyMemberSnapshot member, bool resting)
+{
+    return member with
+    {
+        HasLiveRestState = true,
+        LiveStanceFlags = resting ? 5U : 0U,
+        LiveMotionMode = resting ? 1U : 0U
+    };
 }
 
 static SummonedPetRosterSnapshot CreateLocalPetRoster(

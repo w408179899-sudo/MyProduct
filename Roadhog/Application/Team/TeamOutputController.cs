@@ -64,6 +64,13 @@ public sealed class TeamOutputController
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
 
+        if (await TeamLeaderRestSync
+                .TryHandleAsync(context, _keyboard, state.LeaderRestSync, snapshot, leader, combatState, "team_output")
+                .ConfigureAwait(false))
+        {
+            return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
+        }
+
         if (output.AllowSelfDefense &&
             await HasSelfDefenseThreatAsync(context, state, snapshot).ConfigureAwait(false))
         {

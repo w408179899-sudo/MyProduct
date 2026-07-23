@@ -22,6 +22,8 @@ public sealed class TeamSupportState
 
     public bool LeaderGroupActive { get; set; }
 
+    public TeamLeaderRestSyncState LeaderRestSync { get; } = new();
+
     public bool ShouldPressTeamBuff(
         uint memberServerObjectId,
         uint abnormalStatusId,

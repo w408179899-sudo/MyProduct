@@ -4756,6 +4756,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 actor.Actor.Actor,
                 actor.Actor.Name,
                 actor.Actor.TargetServerObjectId,
+                actor.Actor.HasRestState,
+                actor.Actor.StanceFlags,
+                actor.Actor.MotionMode,
                 livePosition);
         }
 
@@ -4794,6 +4797,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             var liveActorName = string.Empty;
             var liveTargetServerObjectId = 0U;
             var livePosition = default(Vector3Snapshot?);
+            var hasLiveRestState = false;
+            var liveStanceFlags = 0U;
+            var liveMotionMode = 0U;
             var distanceToLocal = default(double?);
 
             if (member.ServerObjectId != 0 &&
@@ -4805,6 +4811,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 liveActorAddress = actor.ActorAddress;
                 liveActorName = actor.ActorName;
                 liveTargetServerObjectId = actor.TargetServerObjectId;
+                hasLiveRestState = actor.HasRestState;
+                liveStanceFlags = actor.StanceFlags;
+                liveMotionMode = actor.MotionMode;
 
                 if (actor.Position is { } position)
                 {
@@ -4842,7 +4851,10 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 LiveTargetServerObjectId = liveTargetServerObjectId,
                 LivePosition = livePosition,
                 DistanceToLocalPlayer = distanceToLocal,
-                VisibilityState = visibility
+                VisibilityState = visibility,
+                HasLiveRestState = hasLiveRestState,
+                LiveStanceFlags = liveStanceFlags,
+                LiveMotionMode = liveMotionMode
             });
         }
 
@@ -6242,6 +6254,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         TryReadUInt16(process, actorAddress + ActorLevelOffset, out actor.Level, bypassMemoryCache);
         TryReadByte(process, actorAddress + ActorHpPercentOffset, out actor.HpPercent);
         TryReadUInt32(process, actorAddress + ActorTargetServerObjectIdOffset, out actor.TargetServerObjectId, bypassMemoryCache);
+        var hasStanceFlags = TryReadUInt32(process, actorAddress + ActorStanceFlagsOffset, out actor.StanceFlags, bypassMemoryCache);
+        var hasMotionMode = TryReadUInt32(process, actorAddress + ActorMotionModeOffset, out actor.MotionMode, bypassMemoryCache);
+        actor.HasRestState = hasStanceFlags && hasMotionMode;
         TryReadUInt32(process, actorAddress + ActorMaxHpOffset, out actor.MaxHp, bypassMemoryCache);
         TryReadUInt32(process, actorAddress + ActorCurrentHpOffset, out actor.CurrentHp, bypassMemoryCache);
 
@@ -7595,6 +7610,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         public uint CurrentHp;
         public string Name = string.Empty;
         public string ResolveSource = string.Empty;
+        public bool HasRestState;
+        public uint StanceFlags;
+        public uint MotionMode;
     }
 
     private sealed record VisibleActorInfo(
@@ -7633,6 +7651,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         ulong ActorAddress,
         string ActorName,
         uint TargetServerObjectId,
+        bool HasRestState,
+        uint StanceFlags,
+        uint MotionMode,
         Vector3Snapshot? Position);
 
     private struct InventoryItemInfo
