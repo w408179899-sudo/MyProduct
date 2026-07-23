@@ -11,7 +11,7 @@ namespace Roadhog.Application.BagCleanup;
 public sealed class BagCleanupSeller
 {
     public const int NonEquipmentSellRegistrationItemsPerBatch = 9;
-    public const int EquipmentSellRegistrationItemsPerBatch = 5;
+    public const int EquipmentSellRegistrationItemsPerBatch = 3;
 
     private const string InventoryToggleKey = "I";
     private const double InventoryUiMaxWindowX = 699.2;

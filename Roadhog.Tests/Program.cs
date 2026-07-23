@@ -4722,6 +4722,23 @@ static async Task TestBagCleanupControllerSellsNonEquipmentBeforeEquipmentBatche
             .Concat(equipmentItems)
             .OrderBy(item => item.Slot)
             .ToArray();
+        var expectedNonEquipmentBatchCounts = BuildExpectedBatchCounts(
+            nonEquipmentItems.Length,
+            BagCleanupSeller.NonEquipmentSellRegistrationItemsPerBatch);
+        var expectedEquipmentBatchCounts = BuildExpectedBatchCounts(
+            equipmentItems.Length,
+            BagCleanupSeller.EquipmentSellRegistrationItemsPerBatch);
+        var expectedBatchCounts = expectedNonEquipmentBatchCounts
+            .Concat(expectedEquipmentBatchCounts)
+            .ToArray();
+        var expectedBatchKinds = Enumerable
+            .Repeat("non_equipment", expectedNonEquipmentBatchCounts.Length)
+            .Concat(Enumerable.Repeat("equipment", expectedEquipmentBatchCounts.Length))
+            .ToArray();
+        var expectedBatchMaxCounts = Enumerable
+            .Repeat(BagCleanupSeller.NonEquipmentSellRegistrationItemsPerBatch, expectedNonEquipmentBatchCounts.Length)
+            .Concat(Enumerable.Repeat(BagCleanupSeller.EquipmentSellRegistrationItemsPerBatch, expectedEquipmentBatchCounts.Length))
+            .ToArray();
         var gameApi = new FakeGameApi
         {
             TargetEntityId = 0,
@@ -4844,22 +4861,22 @@ static async Task TestBagCleanupControllerSellsNonEquipmentBeforeEquipmentBatche
         }
 
         AssertEqual(BagCleanupTickStatus.Completed, last?.Status ?? BagCleanupTickStatus.FatalFailure, "mixed cleanup should complete");
-        AssertEqual(4, sellClickCount, "mixed cleanup should sell in four batches");
+        AssertEqual(expectedBatchCounts.Length, sellClickCount, "mixed cleanup should sell expected batches");
         AssertEqual(1190UL, gameApi.InventoryMoney, "mixed cleanup should increase money for every item");
         AssertFalse(gameApi.InventoryItems.Any(), "mixed cleanup should sell every matching item");
         var candidateLogs = logger.Entries
             .Where(entry => entry.EventName == "bag_cleanup.sell.candidates")
             .ToArray();
         AssertSequence(
-            new[] { 9, 3, 5, 2 },
+            expectedBatchCounts,
             candidateLogs.Select(entry => Convert.ToInt32(entry.Fields["batchCount"])).ToArray(),
             "mixed cleanup batch sizes");
         AssertSequence(
-            new[] { "non_equipment", "non_equipment", "equipment", "equipment" },
+            expectedBatchKinds,
             candidateLogs.Select(entry => Convert.ToString(entry.Fields["batchKind"]) ?? string.Empty).ToArray(),
             "mixed cleanup batch kinds");
         AssertSequence(
-            new[] { 9, 9, 5, 5 },
+            expectedBatchMaxCounts,
             candidateLogs.Select(entry => Convert.ToInt32(entry.Fields["maxBatchCount"])).ToArray(),
             "mixed cleanup batch max sizes");
         var registeredNames = logger.Entries
@@ -4883,6 +4900,17 @@ static async Task TestBagCleanupControllerSellsNonEquipmentBeforeEquipmentBatche
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_NPC_SELECT_DELAY_MS", previousNpcSelectDelay);
         Environment.SetEnvironmentVariable("ROADHOG_BAG_CLEANUP_TOWN_RETURN_MIN_DISTANCE", previousTownMinDistance);
     }
+}
+
+static int[] BuildExpectedBatchCounts(int itemCount, int batchSize)
+{
+    var counts = new List<int>();
+    for (var offset = 0; offset < itemCount; offset += batchSize)
+    {
+        counts.Add(Math.Min(batchSize, itemCount - offset));
+    }
+
+    return counts.ToArray();
 }
 
 static async Task TestBagCleanupControllerReturnsWhenNpcNotFoundAsync()
