@@ -33,6 +33,8 @@ public sealed class SemiAutoCombatState
     private uint openingAttackTargetIdentity;
     private uint spiritmasterOpeningAttackTargetIdentity;
     private uint openingSkillTargetIdentity;
+    private uint openingSkillAttemptTargetIdentity;
+    private DateTimeOffset openingSkillAttemptStartedAt = DateTimeOffset.MinValue;
     private ushort observedTargetEntityId;
     private bool observedTargetWasAliveMonster;
     private SpiritmasterAbnormalObservation? pendingSpiritmasterDotObservation;
@@ -96,6 +98,7 @@ public sealed class SemiAutoCombatState
             openingAttackTargetIdentity = 0;
             spiritmasterOpeningAttackTargetIdentity = 0;
             openingSkillTargetIdentity = 0;
+            ClearOpeningSkillAttempt();
             return false;
         }
 
@@ -112,6 +115,7 @@ public sealed class SemiAutoCombatState
             openingAttackTargetIdentity = 0;
             spiritmasterOpeningAttackTargetIdentity = 0;
             openingSkillTargetIdentity = 0;
+            ClearOpeningSkillAttempt();
         }
 
         if (!killed)
@@ -170,11 +174,31 @@ public sealed class SemiAutoCombatState
     public void MarkOpeningSkillHandled(LockedTargetSnapshot target)
     {
         openingSkillTargetIdentity = ResolveOpeningTargetIdentity(target);
+        ClearOpeningSkillAttempt();
     }
 
     public void ResetOpeningSkill()
     {
         openingSkillTargetIdentity = 0;
+        ClearOpeningSkillAttempt();
+    }
+
+    public DateTimeOffset GetOrStartOpeningSkillAttemptStartedAt(LockedTargetSnapshot target, DateTimeOffset now)
+    {
+        var targetIdentity = ResolveOpeningTargetIdentity(target);
+        if (targetIdentity == 0)
+        {
+            return DateTimeOffset.MinValue;
+        }
+
+        if (openingSkillAttemptTargetIdentity != targetIdentity ||
+            openingSkillAttemptStartedAt == DateTimeOffset.MinValue)
+        {
+            openingSkillAttemptTargetIdentity = targetIdentity;
+            openingSkillAttemptStartedAt = now;
+        }
+
+        return openingSkillAttemptStartedAt;
     }
 
     public bool ShouldPressAttackKey(DateTimeOffset now, TimeSpan interval)
@@ -784,6 +808,22 @@ public sealed class SemiAutoCombatState
         lastPressedCooldownRetrySkillName = string.Empty;
         lastPressedCooldownRetrySkillType = string.Empty;
         lastPressedCooldownRetryPhase = string.Empty;
+    }
+
+    public void ClearPressedSkillCooldownConfirmation()
+    {
+        var skillId = lastPressedSkillId;
+        ClearLastPressedSkill();
+        if (skillId is not null && skillId != 0)
+        {
+            uncalibratedUnknownSuppressUntil.Remove(skillId.Value);
+        }
+    }
+
+    private void ClearOpeningSkillAttempt()
+    {
+        openingSkillAttemptTargetIdentity = 0;
+        openingSkillAttemptStartedAt = DateTimeOffset.MinValue;
     }
 
     private void ClearExpiredUncalibratedUnknownSuppressions(DateTimeOffset now)

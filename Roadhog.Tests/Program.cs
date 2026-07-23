@@ -277,6 +277,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("invalidated cooldown calibration rebuilds after pressed skill advances", TestInvalidatedCooldownCalibrationRebuildsAfterPressedSkillAdvancesAsync),
     ("opening attack key switch presses C once", TestOpeningAttackKeySwitchPressesCOnceAsync),
     ("opening skill presses before C once", TestOpeningSkillPressesBeforeCOnceAsync),
+    ("opening skill confirm timeout releases normal skill loop", TestOpeningSkillConfirmTimeoutReleasesNormalSkillLoopAsync),
     ("opening skill uses server object id identity", TestOpeningSkillUsesServerObjectIdIdentityAsync),
     ("stale opening skill cooldown is ready before calibration", TestStaleOpeningSkillCooldownIsReadyBeforeCalibrationAsync),
     ("cooling opening skill skips to C", TestCoolingOpeningSkillSkipsToCAsync),
@@ -13077,7 +13078,7 @@ static async Task TestOpeningSkillPressesBeforeCOnceAsync()
 {
     var settings = CreateScriptSettings();
     settings.SemiAuto.AttackKeyLoopEnabled = true;
-    settings.SemiAuto.ConfirmTimeoutMs = 1000;
+    settings.SemiAuto.ConfirmTimeoutMs = 20;
     var openingSkill = settings.Skills.ExecutionTree.First(node => node.SkillId == 8);
     settings.Skills.OpeningSkill = new OpeningSkillConfig
     {
@@ -13106,7 +13107,7 @@ static async Task TestOpeningSkillPressesBeforeCOnceAsync()
 
     await Task.Delay(60).ConfigureAwait(false);
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    AssertSequence(new[] { "NumPad0", "NumPad0" }, keyboard.Keys.ToArray(), "opening skill should retry until cooldown confirms before C");
+    AssertSequence(new[] { "NumPad0", "NumPad0" }, keyboard.Keys.ToArray(), "opening skill should retry after the normal confirmation window expires");
 
     gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
     {
@@ -13114,6 +13115,61 @@ static async Task TestOpeningSkillPressesBeforeCOnceAsync()
     });
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
     AssertSequence(new[] { "NumPad0", "NumPad0", "C" }, keyboard.Keys.ToArray(), "opening C should run after opening skill cooldown confirms");
+}
+
+static async Task TestOpeningSkillConfirmTimeoutReleasesNormalSkillLoopAsync()
+{
+    const string timeoutEnvVar = "ROADHOG_OPENING_SKILL_CONFIRM_TIMEOUT_MS";
+    var previousTimeout = Environment.GetEnvironmentVariable(timeoutEnvVar);
+    Environment.SetEnvironmentVariable(timeoutEnvVar, "30");
+
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.SemiAuto.AttackKeyLoopEnabled = false;
+        settings.SemiAuto.ConfirmTimeoutMs = 1000;
+        settings.Skills.ExecutionTree = new List<SkillConfigNode>
+        {
+            Node(1702, "Normal Skill", "active")
+        };
+        settings.Skills.OpeningSkill = new OpeningSkillConfig
+        {
+            Enabled = true,
+            SkillId = 1701,
+            SkillName = "Opening Skill",
+            Key = "NumPad0"
+        };
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Skills = new[]
+            {
+                new SkillSnapshot(1701, "Opening Skill", 1, 1, "Opening Skill", 1, false, 1_000, 0),
+                new SkillSnapshot(1702, "Normal Skill", 1, 1, "Normal Skill", 1, false, 1_000, 0)
+            }
+        };
+        var controller = new SemiAutoCombatController(keyboard);
+        var state = new SemiAutoCombatState();
+        CalibrateCooldownClock(state);
+
+        await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+        AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "opening skill should press first");
+
+        keyboard.Keys.Clear();
+        await Task.Delay(60).ConfigureAwait(false);
+        await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+
+        AssertSequence(new[] { "D1" }, keyboard.Keys.ToArray(), "normal skill loop should run after opening confirm timeout");
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "semi_auto.opening_skill.confirm_timeout"),
+            "opening confirm timeout should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable(timeoutEnvVar, previousTimeout);
+    }
 }
 
 static async Task TestOpeningSkillUsesServerObjectIdIdentityAsync()
@@ -13130,13 +13186,14 @@ static async Task TestOpeningSkillUsesServerObjectIdIdentityAsync()
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
+    const uint openingCooldownDuration = 200;
     var gameApi = new FakeGameApi
     {
         TargetEntityId = 100,
         TargetOwnServerObjectId = 5000,
         Skills = new[]
         {
-            new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, 1_000, 0)
+            new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, openingCooldownDuration, 0)
         }
     };
     var controller = new SemiAutoCombatController(keyboard);
@@ -13149,9 +13206,23 @@ static async Task TestOpeningSkillUsesServerObjectIdIdentityAsync()
     keyboard.Keys.Clear();
     gameApi.TargetEntityId = 101;
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
-    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "same server object should not repeat opening skill");
+    AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "same server object should keep retrying until cooldown confirms");
+
+    keyboard.Keys.Clear();
+    var openingCooldownEnd = CooldownEndIn((int)openingCooldownDuration);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, openingCooldownDuration, openingCooldownEnd)
+    };
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "same server object should stop retrying once cooldown confirms");
 
     gameApi.TargetOwnServerObjectId = 6000;
+    await Task.Delay(300).ConfigureAwait(false);
+    gameApi.Skills = new[]
+    {
+        new SkillSnapshot(999, "Opening Skill", 1, 1, "Opening Skill", 1, false, openingCooldownDuration, 0)
+    };
     await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, state).ConfigureAwait(false);
     AssertSequence(new[] { "NumPad0" }, keyboard.Keys.ToArray(), "new server object should allow opening skill again");
 }

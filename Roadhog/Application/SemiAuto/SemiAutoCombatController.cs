@@ -21,9 +21,11 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan SpiritmasterSummonAttemptInterval = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan SpiritmasterSummonVerifyWindow = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SpiritmasterOpeningAttackKeyInterval = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan OpeningSkillConfirmationTimeout = TimeSpan.FromSeconds(6);
     private static readonly string AttackKey = "C";
     private static readonly string RestEnterKey = "OemComma";
     private static readonly string RestExitKey = "X";
+    private const string OpeningSkillConfirmationTimeoutEnvVar = "ROADHOG_OPENING_SKILL_CONFIRM_TIMEOUT_MS";
 
     private readonly IKeyboardInput _keyboard;
 
@@ -2819,6 +2821,23 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
+        var now = DateTimeOffset.Now;
+        var confirmationStartedAt = state.GetOrStartOpeningSkillAttemptStartedAt(target, now);
+        var confirmationTimeout = ResolveOpeningSkillConfirmationTimeout();
+        if (confirmationStartedAt != DateTimeOffset.MinValue &&
+            now - confirmationStartedAt >= confirmationTimeout)
+        {
+            state.MarkOpeningSkillHandled(target);
+            state.ClearPressedSkillCooldownConfirmation();
+            LogOpeningSkillConfirmTimeout(
+                context,
+                target,
+                openingSkill,
+                now - confirmationStartedAt,
+                confirmationTimeout);
+            return false;
+        }
+
         var skillsResult = await ReadOpeningSkillAsync(context, openingSkill).ConfigureAwait(false);
         if (!skillsResult.Success || skillsResult.Value is null)
         {
@@ -2864,7 +2883,12 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        state.MarkOpeningSkillHandled(target);
+        if (skill.CooldownDuration == 0)
+        {
+            state.MarkOpeningSkillHandled(target);
+            return true;
+        }
+
         var confirmationExpiresAt = DateTimeOffset.Now + ResolveCooldownConfirmationWindow(settings, plan.UsesSpiritmasterAutoLogic);
         state.MarkSkillPressed(
             skill,
@@ -2897,6 +2921,27 @@ public sealed class SemiAutoCombatController
             ["cooldownEndTime"] = skill?.CooldownEndTime,
             ["key"] = node.Key,
             ["reason"] = reason
+        });
+    }
+
+    private static void LogOpeningSkillConfirmTimeout(
+        AccountWorkerContext context,
+        LockedTargetSnapshot target,
+        SemiAutoSkillNode node,
+        TimeSpan elapsed,
+        TimeSpan timeout)
+    {
+        context.Logger.Warn("semi_auto.opening_skill.confirm_timeout", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["targetEntityId"] = target.TargetEntityId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["targetName"] = target.Name,
+            ["skill"] = node.Name,
+            ["skillId"] = node.SkillId,
+            ["key"] = node.Key,
+            ["elapsedMs"] = (long)elapsed.TotalMilliseconds,
+            ["timeoutMs"] = (long)timeout.TotalMilliseconds
         });
     }
 
@@ -4043,6 +4088,17 @@ public sealed class SemiAutoCombatController
 
         window = Max(window, Ms(settings.PostPressSuppressMs, 650));
         return Max(window, TimeSpan.FromMilliseconds(1500));
+    }
+
+    private static TimeSpan ResolveOpeningSkillConfirmationTimeout()
+    {
+        var configured = Environment.GetEnvironmentVariable(OpeningSkillConfirmationTimeoutEnvVar);
+        if (int.TryParse(configured, out var configuredMs) && configuredMs > 0)
+        {
+            return TimeSpan.FromMilliseconds(Math.Clamp(configuredMs, 1, 60_000));
+        }
+
+        return OpeningSkillConfirmationTimeout;
     }
 
     private static TimeSpan Max(TimeSpan first, TimeSpan second)
