@@ -334,7 +334,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("dp skill is skipped until dp value support exists", TestDpSkillSkippedAsync),
     ("chain presses next stage without waiting for source cooldown", TestChainPressesNextStageWithoutSourceCooldownAsync),
     ("chain presses configured child without cooldown filter", TestChainPressesConfiguredChildWithoutCooldownFilterAsync),
-    ("chain survives target gap and target switch", TestChainSurvivesTargetGapAsync),
+    ("chain clears across target gap and target switch", TestChainClearsAcrossTargetGapAsync),
     ("chain lock prevents root fallback while child is missing", TestChainLockPreventsRootFallbackWhileChildMissingAsync),
     ("chain keeps root key and does not fall back in same tick when chain breaks", TestChainStrictOrderAsync),
     ("condition skill preempts pending chain and clears it", TestConditionSkillPreemptsPendingChainAsync),
@@ -14888,13 +14888,16 @@ static async Task TestChainPressesConfiguredChildWithoutCooldownFilterAsync()
     AssertEqual(root.Children[0].Name, LastPressedSkill(logger), "chain child ignores ordinary cooldown filter");
 }
 
-static async Task TestChainSurvivesTargetGapAsync()
+static async Task TestChainClearsAcrossTargetGapAsync()
 {
     var settings = CreateScriptSettings();
     var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
     var keyboard = new RecordingKeyboardInput();
     var logger = new InMemoryRoadhogLogger();
-    var gameApi = new FakeGameApi();
+    var gameApi = new FakeGameApi
+    {
+        TargetServerObjectId = 1000
+    };
     var controller = new SemiAutoCombatController(keyboard);
     var state = new SemiAutoCombatState();
     var context = CreateContext(settings, gameApi, logger);
@@ -14918,8 +14921,15 @@ static async Task TestChainSurvivesTargetGapAsync()
     gameApi.TargetCurrentHp = 0;
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
     AssertEqual(0, keyboard.Keys.Count, "dead target should not press");
+    AssertFalse(state.HasChainWork, "dead target should clear pending chain");
+    AssertFalse(
+        !logger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.chain.ended" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "target_not_attackable", StringComparison.Ordinal)),
+        "dead target chain clear should be logged");
 
     gameApi.TargetEntityId = 200;
+    gameApi.TargetServerObjectId = 2000;
     gameApi.TargetCurrentHp = 1000;
     gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
     {
@@ -14934,8 +14944,59 @@ static async Task TestChainSurvivesTargetGapAsync()
         [10] = 0
     });
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
-    AssertSequence(WithPreSkillKey("D6"), keyboard.Keys.ToArray(), "target switch should keep chain next stage without trigger prefix");
-    AssertEqual(plan.Roots.Single(root => root.SkillId == 6).Children[0].Name, LastPressedSkill(logger), "target switch second stage skill");
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D7"), keyboard.Keys.ToArray(), "target switch should return to ordinary root selection");
+    AssertEqual(plan.Roots.Single(root => root.SkillId == 7).Name, LastPressedSkill(logger), "target switch fallback root skill");
+
+    var switchKeyboard = new RecordingKeyboardInput();
+    var switchLogger = new InMemoryRoadhogLogger();
+    var switchGameApi = new FakeGameApi
+    {
+        TargetEntityId = 100,
+        TargetServerObjectId = 1000,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = ActiveCooldownEnd(),
+            [5] = ActiveCooldownEnd(),
+            [6] = 0,
+            [61] = 0,
+            [62] = ActiveCooldownEnd(),
+            [7] = 0,
+            [8] = 0,
+            [9] = ActiveCooldownEnd(),
+            [10] = 0
+        })
+    };
+    var switchController = new SemiAutoCombatController(switchKeyboard);
+    var switchState = new SemiAutoCombatState();
+    var switchContext = CreateContext(settings, switchGameApi, switchLogger);
+
+    await switchController.TickAsync(switchContext, plan, switchState).ConfigureAwait(false);
+    AssertFalse(!switchState.HasChainWork, "source press should leave pending chain before live target switch");
+
+    switchKeyboard.Keys.Clear();
+    switchGameApi.TargetEntityId = 201;
+    switchGameApi.TargetServerObjectId = 2000;
+    switchGameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+    {
+        [1] = ActiveCooldownEnd(),
+        [5] = ActiveCooldownEnd(),
+        [6] = ActiveCooldownEnd(),
+        [61] = 0,
+        [62] = ActiveCooldownEnd(),
+        [7] = 0,
+        [8] = 0,
+        [9] = ActiveCooldownEnd(),
+        [10] = 0
+    });
+    await switchController.TickAsync(switchContext, plan, switchState).ConfigureAwait(false);
+
+    AssertSequence(WithPreSkillAttackKey("D2", "D3", "D4", "D7"), switchKeyboard.Keys.ToArray(), "live target switch should clear pending chain before child press");
+    AssertFalse(switchState.HasChainWork, "live target switch should leave no pending chain after D7");
+    AssertFalse(
+        !switchLogger.Entries.Any(entry =>
+            entry.EventName == "semi_auto.chain.ended" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "target_changed", StringComparison.Ordinal)),
+        "live target switch chain clear should be logged");
 }
 
 static async Task TestChainLockPreventsRootFallbackWhileChildMissingAsync()

@@ -94,7 +94,13 @@ public sealed class SemiAutoCombatController
             return Ms(settings.TargetIdleDelayMs, 200);
         }
 
-        if (state.ObserveTarget(targetResult.Value, out var killedTargetEntityId))
+        var targetKilled = state.ObserveTarget(targetResult.Value, out var killedTargetEntityId, out var liveTargetChanged);
+        if (liveTargetChanged)
+        {
+            ClearPendingChainForTargetTransition(context, state, "target_changed");
+        }
+
+        if (targetKilled)
         {
             var counted = context.RuntimeStates.MarkKill(
                 context.Config.AccountName,
@@ -115,6 +121,7 @@ public sealed class SemiAutoCombatController
 
         if (!targetResult.Value.IsMonsterAlive)
         {
+            ClearPendingChainForTargetTransition(context, state, "target_not_attackable");
             state.ResetOpeningAttackKey();
             state.ResetSpiritmasterOpeningAttackKey();
             state.ResetOpeningSkill();
@@ -3207,6 +3214,25 @@ public sealed class SemiAutoCombatController
             ["cooldownDuration"] = skill?.CooldownDuration,
             ["cooldownEndTime"] = skill?.CooldownEndTime
         });
+    }
+
+    private static void ClearPendingChainForTargetTransition(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        string reason)
+    {
+        if (!state.HasChainWork && !state.HasPressedSkillCooldownRetryKey())
+        {
+            return;
+        }
+
+        if ((state.PendingChainNextNode ?? state.PendingChainSourceNode) is { } node)
+        {
+            LogChainEnded(context, node, reason);
+        }
+
+        state.ClearChain();
+        state.ClearPressedSkillCooldownTracking();
     }
 
     private static void LogConditionSkillPressed(

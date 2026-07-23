@@ -36,6 +36,7 @@ public sealed class SemiAutoCombatState
     private uint openingSkillAttemptTargetIdentity;
     private DateTimeOffset openingSkillAttemptStartedAt = DateTimeOffset.MinValue;
     private ushort observedTargetEntityId;
+    private uint observedTargetIdentity;
     private bool observedTargetWasAliveMonster;
     private SpiritmasterAbnormalObservation? pendingSpiritmasterDotObservation;
 
@@ -88,12 +89,17 @@ public sealed class SemiAutoCombatState
 
     public bool MaintenanceRestingForMp { get; private set; }
 
-    public bool ObserveTarget(LockedTargetSnapshot target, out ushort killedTargetEntityId)
+    public bool ObserveTarget(
+        LockedTargetSnapshot target,
+        out ushort killedTargetEntityId,
+        out bool liveTargetChanged)
     {
         killedTargetEntityId = 0;
+        liveTargetChanged = false;
         if (!target.HasTarget)
         {
             observedTargetEntityId = 0;
+            observedTargetIdentity = 0;
             observedTargetWasAliveMonster = false;
             openingAttackTargetIdentity = 0;
             spiritmasterOpeningAttackTargetIdentity = 0;
@@ -103,12 +109,22 @@ public sealed class SemiAutoCombatState
         }
 
         var targetEntityId = target.TargetEntityId;
+        var targetIdentity = ResolveOpeningTargetIdentity(target);
+        var previousTargetIdentity = observedTargetIdentity != 0
+            ? observedTargetIdentity
+            : observedTargetEntityId;
         var killed = observedTargetEntityId == targetEntityId &&
                      observedTargetWasAliveMonster &&
                      target.IsMonster &&
                      !target.IsAlive;
+        liveTargetChanged = target.IsMonsterAlive &&
+                            observedTargetWasAliveMonster &&
+                            previousTargetIdentity != 0 &&
+                            targetIdentity != 0 &&
+                            previousTargetIdentity != targetIdentity;
 
         observedTargetEntityId = targetEntityId;
+        observedTargetIdentity = targetIdentity;
         observedTargetWasAliveMonster = target.IsMonsterAlive;
         if (!target.IsMonsterAlive)
         {
@@ -818,6 +834,11 @@ public sealed class SemiAutoCombatState
         {
             uncalibratedUnknownSuppressUntil.Remove(skillId.Value);
         }
+    }
+
+    public void ClearPressedSkillCooldownTracking()
+    {
+        ClearLastPressedSkill();
     }
 
     private void ClearOpeningSkillAttempt()
