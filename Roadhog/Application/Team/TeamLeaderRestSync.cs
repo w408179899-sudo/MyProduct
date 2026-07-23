@@ -37,7 +37,18 @@ internal static class TeamLeaderRestSync
         }
 
         var shouldRest = leader.PartyMember.IsResting;
-        if (local.PartyMember.IsResting == shouldRest)
+        if (shouldRest)
+        {
+            await ReleaseActiveInputAsync(context, keyboard, combatState, logPrefix).ConfigureAwait(false);
+            combatState?.ClearTarget();
+
+            if (local.PartyMember.IsResting)
+            {
+                state.RememberObservedLeaderRestState(shouldRest);
+                return true;
+            }
+        }
+        else if (!local.PartyMember.IsResting)
         {
             state.RememberObservedLeaderRestState(shouldRest);
             return false;
@@ -50,12 +61,6 @@ internal static class TeamLeaderRestSync
         }
 
         var key = shouldRest ? RestEnterKey : RestExitKey;
-        if (shouldRest)
-        {
-            await ReleaseActiveInputAsync(context, keyboard, combatState, logPrefix).ConfigureAwait(false);
-            combatState?.ClearTarget();
-        }
-
         var result = await keyboard
             .PressKeyAsync(key, ResolveKeyHold(context), context.StopToken)
             .ConfigureAwait(false);

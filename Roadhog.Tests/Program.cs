@@ -105,8 +105,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support accepts leader pet target when class unknown", TestTeamSupportAcceptsLeaderPetTargetWhenClassUnknownAsync),
     ("team support join combat skips party member leader target", TestTeamSupportJoinCombatSkipsPartyMemberLeaderTargetAsync),
     ("team support sits when leader rests", TestTeamSupportSitsWhenLeaderRestsAsync),
+    ("team support holds while leader rests", TestTeamSupportHoldsWhileLeaderRestsAsync),
     ("team support stands when leader stands", TestTeamSupportStandsWhenLeaderStandsAsync),
     ("team output sits when leader rests", TestTeamOutputSitsWhenLeaderRestsAsync),
+    ("team output holds while leader rests", TestTeamOutputHoldsWhileLeaderRestsAsync),
     ("team output stands when leader stands", TestTeamOutputStandsWhenLeaderStandsAsync),
     ("team output assists only leader attacked monster", TestTeamOutputAssistsOnlyLeaderAttackedMonsterAsync),
     ("team output uses configured assist target key", TestTeamOutputUsesConfiguredAssistTargetKeyAsync),
@@ -2244,6 +2246,32 @@ static async Task TestTeamSupportSitsWhenLeaderRestsAsync()
     AssertFalse(combatState.Fighting, "support rest sync should clear stale combat target");
 }
 
+static async Task TestTeamSupportHoldsWhileLeaderRestsAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = WithLiveRestState(CreatePartyMemberSnapshot(1000, "Healer", true, false, 0.0), resting: true);
+    var leader = WithLiveRestState(CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0), resting: true);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000,
+        IsMovingForward = true
+    };
+
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var result = await controller
+        .TickAsync(CreateContext(CreateTeamSupportSettings(), gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "support should keep blocking normal work while leader remains resting");
+    AssertEqual(0, keyboard.Keys.Count, "support should not press another rest key once already resting with leader");
+    AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "support should release stale movement while holding rest");
+    AssertFalse(combatState.Fighting, "support hold rest should clear stale combat target");
+}
+
 static async Task TestTeamSupportStandsWhenLeaderStandsAsync()
 {
     var keyboard = new RecordingKeyboardInput();
@@ -2290,6 +2318,35 @@ static async Task TestTeamOutputSitsWhenLeaderRestsAsync()
     AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "output should release forward movement before sitting");
     AssertFalse(combatState.IsMovingForward, "output rest sync should clear movement state");
     AssertFalse(combatState.Fighting, "output rest sync should clear stale combat target");
+}
+
+static async Task TestTeamOutputHoldsWhileLeaderRestsAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = WithLiveRestState(CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0), resting: true);
+    var leader = WithLiveRestState(CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0), resting: true) with
+    {
+        LiveTargetServerObjectId = 5000
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    var combatState = new StationaryCombatState
+    {
+        Fighting = true,
+        CurrentTargetEntityId = 100,
+        CurrentTargetServerObjectId = 5000,
+        IsMovingForward = true
+    };
+
+    var controller = new TeamOutputController(keyboard);
+    var result = await controller
+        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(!result.ShouldSkipNormalWork, "output should keep blocking normal work while leader remains resting");
+    AssertEqual(0, keyboard.Keys.Count, "output should not press another rest key once already resting with leader");
+    AssertSequence(new[] { "W" }, keyboard.KeyUps.ToArray(), "output should release stale movement while holding rest");
+    AssertFalse(combatState.Fighting, "output hold rest should clear stale combat target");
 }
 
 static async Task TestTeamOutputStandsWhenLeaderStandsAsync()
