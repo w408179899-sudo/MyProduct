@@ -318,6 +318,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("spiritmaster selector trusts target abnormal snapshot over dot window", TestSpiritmasterSelectorTrustsTargetSnapshotOverDotWindowAsync),
     ("spiritmaster selector skips command without pet", TestSpiritmasterSelectorSkipsCommandWithoutPetAsync),
     ("spiritmaster tick summons missing pet", TestSpiritmasterTickSummonsMissingPetAsync),
+    ("spiritmaster tick summons when pet roster is unconfirmed", TestSpiritmasterTickSummonsWhenPetRosterIsUnconfirmedAsync),
     ("spiritmaster tick prioritizes lowest pet hp rule", TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync),
     ("spiritmaster pet hp local cooldown yields to normal skills", TestSpiritmasterPetHpLocalCooldownYieldsToNormalSkillsAsync),
     ("spiritmaster tick gates pet buff by dp", TestSpiritmasterTickGatesPetBuffByDpAsync),
@@ -12340,6 +12341,54 @@ static async Task TestSpiritmasterTickSummonsMissingPetAsync()
     AssertFalse(elapsed < TimeSpan.FromMilliseconds(1900), "summon speed and summon pet keys should be separated by about two seconds");
 }
 
+static async Task TestSpiritmasterTickSummonsWhenPetRosterIsUnconfirmedAsync()
+{
+    await AssertSpiritmasterSummonsForUnconfirmedRosterAsync(
+            CreateLocalUnconfirmedPetRoster(
+                ownerConfirmed: false,
+                staticSummonPet: false,
+                linkedPetMatches: true),
+            "linked-only roster")
+        .ConfigureAwait(false);
+
+    await AssertSpiritmasterSummonsForUnconfirmedRosterAsync(
+            CreateLocalUnconfirmedPetRoster(
+                ownerConfirmed: true,
+                staticSummonPet: true,
+                linkedPetMatches: false),
+            "owner-only temporary summon roster")
+        .ConfigureAwait(false);
+}
+
+static async Task AssertSpiritmasterSummonsForUnconfirmedRosterAsync(
+    SummonedPetRosterSnapshot roster,
+    string scenario)
+{
+    AssertFalse(
+        SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(roster.LocalPlayerPet),
+        scenario + " should not be treated as confirmed local pet");
+
+    var settings = CreateSpiritmasterScriptSettings();
+    settings.Skills.Spiritmaster.SummonSkills = new List<SpiritmasterSkillKeyRuleConfig>
+    {
+        new() { Key = "NumPad6" }
+    };
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = CreateSpiritmasterPlayer(),
+        SummonedPetRoster = roster,
+        Skills = CreateSpiritmasterSkillSnapshots()
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+
+    await controller.TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState()).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad6" }, keyboard.Keys.ToArray(), scenario + " summon key");
+}
+
 static async Task TestSpiritmasterTickPrioritizesLowestPetHpRuleAsync()
 {
     var settings = CreateSpiritmasterScriptSettings();
@@ -15318,6 +15367,58 @@ static SummonedPetRosterSnapshot CreateLocalPetRoster(
             pet,
             0,
             abnormalStatuses ?? Array.Empty<AbnormalStatusEntrySnapshot>(),
+            OwnerClassId: AionClassId.Spiritmaster,
+            OwnerClassName: AionClassCatalog.GetChineseName(AionClassId.Spiritmaster)),
+        Array.Empty<OwnedSummonedPetSnapshot>(),
+        Array.Empty<uint>());
+}
+
+static SummonedPetRosterSnapshot CreateLocalUnconfirmedPetRoster(
+    bool ownerConfirmed,
+    bool staticSummonPet,
+    bool linkedPetMatches)
+{
+    var now = DateTimeOffset.Now;
+    const uint localServerObjectId = 1000;
+    const uint petServerObjectId = 2000;
+    var linkedPetServerObjectId = linkedPetMatches ? petServerObjectId : 3000U;
+    var pet = new SummonedPetSnapshot(
+        true,
+        2,
+        petServerObjectId,
+        0,
+        SummonedPetSnapshot.ActorObjectType,
+        staticSummonPet ? 1234U : 0U,
+        "Pet",
+        staticSummonPet ? "Pet" : string.Empty,
+        staticSummonPet ? "summon_pet" : string.Empty,
+        staticSummonPet ? "pet" : string.Empty,
+        50,
+        100,
+        100,
+        100,
+        new Vector3Snapshot(1, 0, 0),
+        1,
+        localServerObjectId,
+        now,
+        linkedPetServerObjectId,
+        ownerConfirmed,
+        ownerConfirmed
+            ? "owner+static-summon-pet"
+            : "local-link-only");
+
+    return new SummonedPetRosterSnapshot(
+        localServerObjectId,
+        linkedPetServerObjectId,
+        now,
+        new OwnedSummonedPetSnapshot(
+            SummonedPetOwnerKind.LocalPlayer,
+            localServerObjectId,
+            "Spirit",
+            "Spirit",
+            pet,
+            0,
+            Array.Empty<AbnormalStatusEntrySnapshot>(),
             OwnerClassId: AionClassId.Spiritmaster,
             OwnerClassName: AionClassCatalog.GetChineseName(AionClassId.Spiritmaster)),
         Array.Empty<OwnedSummonedPetSnapshot>(),

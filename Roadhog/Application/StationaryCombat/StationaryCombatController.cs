@@ -6426,9 +6426,9 @@ public sealed class StationaryCombatController
 
         var roster = rosterResult.Value;
         state.LocalCombatSideServerObjectId = roster.LocalServerObjectId;
-        var pet = roster.LocalPlayerPet.Pet;
-        state.LocalCombatSidePetServerObjectId = pet.IsSummoned
-            ? pet.ServerObjectId
+        var localPet = roster.LocalPlayerPet;
+        state.LocalCombatSidePetServerObjectId = SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet)
+            ? localPet.Pet.ServerObjectId
             : 0;
     }
 

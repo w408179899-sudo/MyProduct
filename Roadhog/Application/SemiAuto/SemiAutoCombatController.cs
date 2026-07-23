@@ -424,8 +424,9 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var pet = rosterResult.Value.LocalPlayerPet.Pet;
-        if (pet.IsSummoned && pet.IsAlive)
+        var localPet = rosterResult.Value.LocalPlayerPet;
+        var pet = localPet.Pet;
+        if (SpiritmasterCombatContext.IsConfirmedLocalSummonedPet(localPet))
         {
             if (state.HasPendingSpiritmasterSummonVerification)
             {
@@ -2079,12 +2080,13 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        var pet = spiritContext.LocalPet?.Pet;
-        if (pet is not { IsSummoned: true, IsAlive: true })
+        if (!spiritContext.HasSummonedPet)
         {
             return await TryPressSpiritmasterSummonAsync(context, state, settings, spiritSettings).ConfigureAwait(false);
         }
 
+        var confirmedLocalPet = spiritContext.LocalPet!;
+        var pet = confirmedLocalPet.Pet;
         if (await TryPressSpiritmasterPetHpRuleAsync(
                 context,
                 state,
@@ -2103,7 +2105,7 @@ public sealed class SemiAutoCombatController
                 settings,
                 spiritSettings,
                 skills,
-                spiritContext.LocalPet!,
+                confirmedLocalPet,
                 spiritContext.Player)
             .ConfigureAwait(false);
     }

@@ -5102,8 +5102,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                 var hasStaticDetail = npcStaticDetails.TryGetValue(actor.NpcTemplateId, out var npcStaticDetail);
                 var isSummonPetStatic = hasStaticDetail && IsSummonPetNpcStaticDetail(npcStaticDetail);
 
-                if ((localLinkMatches || ownerConfirmed) &&
-                    (isSummonPetStatic || ownerConfirmed || localLinkMatches))
+                if (localLinkMatches && ownerConfirmed && isSummonPetStatic)
                 {
                     Vector3Snapshot? position = null;
                     double? distance = null;
@@ -5154,30 +5153,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             node = next;
         }
 
-        snapshot = linkedPetServerObjectId == 0
-            ? SummonedPetSnapshot.NotSummoned(localActor.ServerObjectId, capturedAt)
-            : new SummonedPetSnapshot(
-                true,
-                0,
-                linkedPetServerObjectId,
-                0,
-                0,
-                0,
-                string.Empty,
-                string.Empty,
-                string.Empty,
-                string.Empty,
-                0,
-                0,
-                0,
-                0,
-                null,
-                null,
-                localActor.ServerObjectId,
-                capturedAt,
-                linkedPetServerObjectId,
-                false,
-                "local-link-only");
+        snapshot = SummonedPetSnapshot.NotSummoned(localActor.ServerObjectId, capturedAt);
         return true;
     }
 
@@ -5324,7 +5300,12 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             var hasStaticDetail = npcStaticDetails.TryGetValue(visibleActor.Actor.NpcTemplateId, out var npcStaticDetail);
             var isSummonPetStatic = hasStaticDetail && IsSummonPetNpcStaticDetail(npcStaticDetail);
 
-            if (!isSummonPetStatic && !localLinkMatches && visibleActor.Actor.NpcTemplateId == 0)
+            if (!isSummonPetStatic)
+            {
+                continue;
+            }
+
+            if (ownerInfo.OwnerKind == SummonedPetOwnerKind.LocalPlayer && !localLinkMatches)
             {
                 continue;
             }
@@ -5358,51 +5339,16 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             }
         }
 
-        if (localPlayerPet is null)
-        {
-            localPlayerPet = linkedPetServerObjectId == 0
-                ? new OwnedSummonedPetSnapshot(
-                    SummonedPetOwnerKind.LocalPlayer,
-                    localActor.ServerObjectId,
-                    localActor.Name,
-                    string.Empty,
-                    SummonedPetSnapshot.NotSummoned(localActor.ServerObjectId, capturedAt),
-                    0,
-                    Array.Empty<AbnormalStatusEntrySnapshot>(),
-                    OwnerClassId: localOwnerClassId,
-                    OwnerClassName: localOwnerClassName)
-                : new OwnedSummonedPetSnapshot(
-                    SummonedPetOwnerKind.LocalPlayer,
-                    localActor.ServerObjectId,
-                    localActor.Name,
-                    string.Empty,
-                    new SummonedPetSnapshot(
-                        true,
-                        0,
-                        linkedPetServerObjectId,
-                        0,
-                        0,
-                        0,
-                        string.Empty,
-                        string.Empty,
-                        string.Empty,
-                        string.Empty,
-                        0,
-                        0,
-                        0,
-                        0,
-                        null,
-                        null,
-                        localActor.ServerObjectId,
-                        capturedAt,
-                        linkedPetServerObjectId,
-                        false,
-                    "local-link-only"),
-                    0,
-                    Array.Empty<AbnormalStatusEntrySnapshot>(),
-                    OwnerClassId: localOwnerClassId,
-                    OwnerClassName: localOwnerClassName);
-        }
+        localPlayerPet ??= new OwnedSummonedPetSnapshot(
+            SummonedPetOwnerKind.LocalPlayer,
+            localActor.ServerObjectId,
+            localActor.Name,
+            string.Empty,
+            SummonedPetSnapshot.NotSummoned(localActor.ServerObjectId, capturedAt),
+            0,
+            Array.Empty<AbnormalStatusEntrySnapshot>(),
+            OwnerClassId: localOwnerClassId,
+            OwnerClassName: localOwnerClassName);
 
         snapshot = new SummonedPetRosterSnapshot(
             localActor.ServerObjectId,
