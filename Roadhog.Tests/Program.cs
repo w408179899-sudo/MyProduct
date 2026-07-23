@@ -94,6 +94,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support keeps already selected leader", TestTeamSupportKeepsAlreadySelectedLeaderAsync),
     ("team support join combat continues while leader outside group range", TestTeamSupportJoinCombatContinuesWhileLeaderOutsideGroupRangeAsync),
     ("team support stays grouped until leader exit distance", TestTeamSupportStaysGroupedUntilLeaderExitDistanceAsync),
+    ("team support waits for five consecutive leader unavailable ticks", TestTeamSupportWaitsForFiveConsecutiveLeaderUnavailableTicksAsync),
     ("team support join combat defers follow while fighting", TestTeamSupportJoinCombatDefersFollowWhileFightingAsync),
     ("team support join combat selects leader target inside group range", TestTeamSupportJoinCombatSelectsLeaderTargetInsideGroupRangeAsync),
     ("team support self defense accepts leader target attacking local player", TestTeamSupportSelfDefenseAcceptsLeaderTargetAttackingLocalPlayerAsync),
@@ -120,6 +121,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team output assists already selected leader", TestTeamOutputAssistsAlreadySelectedLeaderAsync),
     ("team output falls back outside group range", TestTeamOutputFallsBackOutsideGroupRangeAsync),
     ("team output stays grouped until leader exit distance", TestTeamOutputStaysGroupedUntilLeaderExitDistanceAsync),
+    ("team output waits for five consecutive leader unavailable ticks", TestTeamOutputWaitsForFiveConsecutiveLeaderUnavailableTicksAsync),
     ("team output continues when leader invisible stop disabled", TestTeamOutputContinuesWhenLeaderInvisibleStopDisabledAsync),
     ("team output stops when leader dead", TestTeamOutputStopsWhenLeaderDeadAsync),
     ("team output defers follow while fighting", TestTeamOutputDefersFollowWhileFightingAsync),
@@ -1772,6 +1774,55 @@ static async Task TestTeamSupportStaysGroupedUntilLeaderExitDistanceAsync()
     AssertEqual(0, keyboard.Keys.Count, "leader beyond exit distance should not press follow keys");
 }
 
+static async Task TestTeamSupportWaitsForFiveConsecutiveLeaderUnavailableTicksAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Guardian", false, true, 25.0);
+    var gameApi = CreateTeamSupportGameApi(self);
+    var settings = CreateTeamSupportSettings();
+    settings.Team.GroupDistanceMeters = 20.0D;
+    settings.Team.Support!.JoinCombat = false;
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var state = new TeamSupportState { LeaderGroupActive = true };
+    var context = CreateContext(settings, gameApi, logger);
+
+    gameApi.Party = CreateTeamPartyWithoutLeader(self);
+    for (var i = 1; i <= 4; i++)
+    {
+        var missing = await controller.TickAsync(context, state).ConfigureAwait(false);
+        AssertFalse(!missing.ShouldSkipNormalWork, "support should block normal work before five consecutive leader misses");
+    }
+
+    AssertEqual(4, state.ConsecutiveLeaderUnavailableTicks, "support leader unavailable tick count before recovery");
+    AssertFalse(!state.LeaderGroupActive, "support should keep active group state during transient leader misses");
+
+    gameApi.Party = CreateTeamSupportParty(self, leader);
+    SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+    var recovered = await controller.TickAsync(context, state).ConfigureAwait(false);
+
+    AssertFalse(!recovered.ShouldSkipNormalWork, "support should recover leader follow when the next valid tick arrives");
+    AssertEqual(0, state.ConsecutiveLeaderUnavailableTicks, "support should reset missing count after a valid leader tick");
+    AssertFalse(!state.LeaderGroupActive, "support should use exit distance after transient leader misses");
+    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "support should resume leader follow without pressing another F-key");
+
+    keyboard.Keys.Clear();
+    gameApi.Party = CreateTeamPartyWithoutLeader(self);
+    for (var i = 1; i <= 4; i++)
+    {
+        var missing = await controller.TickAsync(context, state).ConfigureAwait(false);
+        AssertFalse(!missing.ShouldSkipNormalWork, "support should keep blocking normal work for the first four misses");
+    }
+
+    var fifth = await controller.TickAsync(context, state).ConfigureAwait(false);
+
+    AssertFalse(fifth.ShouldSkipNormalWork, "support should release normal work on the fifth consecutive leader miss");
+    AssertEqual(5, state.ConsecutiveLeaderUnavailableTicks, "support missing count at fallback threshold");
+    AssertFalse(state.LeaderGroupActive, "support should clear active group state when leader has been missing for five ticks");
+    AssertEqual(0, keyboard.Keys.Count, "support should not press follow keys while the leader is unavailable");
+}
+
 static async Task TestTeamSupportJoinCombatDefersFollowWhileFightingAsync()
 {
     var keyboard = new RecordingKeyboardInput();
@@ -2758,6 +2809,55 @@ static async Task TestTeamOutputStaysGroupedUntilLeaderExitDistanceAsync()
 
     AssertFalse(third.ShouldSkipNormalWork, "leader beyond exit distance should release output back to ordinary work");
     AssertEqual(0, keyboard.Keys.Count, "leader beyond exit distance should not press follow keys");
+}
+
+static async Task TestTeamOutputWaitsForFiveConsecutiveLeaderUnavailableTicksAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 25.0);
+    var gameApi = CreateTeamSupportGameApi(self);
+    var settings = CreateTeamOutputSettings();
+    settings.Team.GroupDistanceMeters = 20.0D;
+    settings.Team.Output!.StopWhenLeaderHasNoTarget = true;
+    var controller = new TeamOutputController(keyboard);
+    var state = new TeamOutputState { LeaderGroupActive = true };
+    var context = CreateContext(settings, gameApi, logger);
+
+    gameApi.Party = CreateTeamPartyWithoutLeader(self);
+    for (var i = 1; i <= 4; i++)
+    {
+        var missing = await controller.TickAsync(context, state).ConfigureAwait(false);
+        AssertFalse(!missing.ShouldSkipNormalWork, "output should block normal work before five consecutive leader misses");
+    }
+
+    AssertEqual(4, state.ConsecutiveLeaderUnavailableTicks, "output leader unavailable tick count before recovery");
+    AssertFalse(!state.LeaderGroupActive, "output should keep active group state during transient leader misses");
+
+    gameApi.Party = CreateTeamSupportParty(self, leader);
+    SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+    var recovered = await controller.TickAsync(context, state).ConfigureAwait(false);
+
+    AssertFalse(!recovered.ShouldSkipNormalWork, "output should recover leader follow when the next valid tick arrives");
+    AssertEqual(0, state.ConsecutiveLeaderUnavailableTicks, "output should reset missing count after a valid leader tick");
+    AssertFalse(!state.LeaderGroupActive, "output should use exit distance after transient leader misses");
+    AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "output should resume leader follow without pressing another F-key");
+
+    keyboard.Keys.Clear();
+    gameApi.Party = CreateTeamPartyWithoutLeader(self);
+    for (var i = 1; i <= 4; i++)
+    {
+        var missing = await controller.TickAsync(context, state).ConfigureAwait(false);
+        AssertFalse(!missing.ShouldSkipNormalWork, "output should keep blocking normal work for the first four misses");
+    }
+
+    var fifth = await controller.TickAsync(context, state).ConfigureAwait(false);
+
+    AssertFalse(fifth.ShouldSkipNormalWork, "output should release normal work on the fifth consecutive leader miss");
+    AssertEqual(5, state.ConsecutiveLeaderUnavailableTicks, "output missing count at fallback threshold");
+    AssertFalse(state.LeaderGroupActive, "output should clear active group state when leader has been missing for five ticks");
+    AssertEqual(0, keyboard.Keys.Count, "output should not press follow keys while the leader is unavailable");
 }
 
 static async Task TestTeamOutputContinuesWhenLeaderInvisibleStopDisabledAsync()
@@ -16084,6 +16184,25 @@ static PartySnapshot CreateTeamSupportParty(params PartyMemberSnapshot[] members
         members.Length,
         now,
         members);
+}
+
+static PartySnapshot CreateTeamPartyWithoutLeader(PartyMemberSnapshot self)
+{
+    var now = DateTimeOffset.Now;
+    var normalizedSelf = self with { IsLeader = false };
+    return new PartySnapshot(
+        1141852,
+        0x3F,
+        1,
+        0,
+        normalizedSelf.ServerObjectId,
+        normalizedSelf.LiveEntityId,
+        normalizedSelf.Name,
+        normalizedSelf.LivePosition,
+        0,
+        1,
+        now,
+        new[] { normalizedSelf });
 }
 
 static SummonedPetRosterSnapshot CreateTeamSupportRoster(

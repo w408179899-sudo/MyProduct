@@ -52,17 +52,39 @@ public sealed class TeamOutputController
                 });
             }
 
-            return output.StopWhenLeaderHasNoTarget
-                ? TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay)
-                : TeamOutputTickResult.Continue(TeamOutputTickDelay);
+            return RecordLeaderUnavailableTick(state)
+                ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
+                : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
 
         var snapshot = snapshotResult.Value;
         var leader = snapshot.LeaderMember;
         if (leader is null || leader.IsSelf)
         {
-            return TeamOutputTickResult.Continue(TeamOutputTickDelay);
+            return RecordLeaderUnavailableTick(state)
+                ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
+                : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
+
+        if (output.StopWhenLeaderDead && leader.PartyMember.IsDead)
+        {
+            if (RecordLeaderUnavailableTick(state))
+            {
+                return TeamOutputTickResult.Continue(TeamOutputTickDelay);
+            }
+
+            await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
+            return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
+        }
+
+        if (leader.PartyMember.DistanceToLocalPlayer is null)
+        {
+            return RecordLeaderUnavailableTick(state)
+                ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
+                : TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
+        }
+
+        state.ConsecutiveLeaderUnavailableTicks = 0;
 
         if (await TeamLeaderRestSync
                 .TryHandleAsync(context, _keyboard, state.LeaderRestSync, snapshot, leader, combatState, "team_output")
@@ -75,12 +97,6 @@ public sealed class TeamOutputController
             await HasSelfDefenseThreatAsync(context, state, snapshot).ConfigureAwait(false))
         {
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
-        }
-
-        if (output.StopWhenLeaderDead && leader.PartyMember.IsDead)
-        {
-            await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
-            return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
 
         var groupDistanceMeters = team.GroupDistanceMeters;
@@ -551,6 +567,18 @@ public sealed class TeamOutputController
             ["currentTargetEntityId"] = combatState?.CurrentTargetEntityId,
             ["currentTargetServerObjectId"] = combatState?.CurrentTargetServerObjectId
         });
+    }
+
+    private static bool RecordLeaderUnavailableTick(TeamOutputState state)
+    {
+        state.ConsecutiveLeaderUnavailableTicks++;
+        if (state.ConsecutiveLeaderUnavailableTicks < TeamLeaderRuntimePolicy.ConsecutiveLeaderUnavailableTicksBeforeNormalWork)
+        {
+            return false;
+        }
+
+        state.LeaderGroupActive = false;
+        return true;
     }
 
     private static void LogInputFailure(

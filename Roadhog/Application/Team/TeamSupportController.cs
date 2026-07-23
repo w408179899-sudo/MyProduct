@@ -65,26 +65,48 @@ public sealed class TeamSupportController
                 });
             }
 
-            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+            return RecordLeaderUnavailableTick(state)
+                ? TeamSupportTickResult.Continue(TeamSupportTickDelay)
+                : TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
         var snapshot = snapshotResult.Value;
         var groupDistanceMeters = team.GroupDistanceMeters;
         var leader = snapshot.LeaderMember;
-        if (leader is not null &&
-            await TeamLeaderRestSync
-                .TryHandleAsync(context, _keyboard, state.LeaderRestSync, snapshot, leader, combatState, "team_support")
-                .ConfigureAwait(false))
+        if (leader is null || leader.IsSelf)
         {
-            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+            return RecordLeaderUnavailableTick(state)
+                ? TeamSupportTickResult.Continue(TeamSupportTickDelay)
+                : TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
         var leaderDeadStop =
             support.StopWhenLeaderDead &&
-            leader?.PartyMember.IsDead == true;
+            leader.PartyMember.IsDead;
         if (leaderDeadStop)
         {
-            await SelectLeaderAndAssistAsync(context, state, snapshot).ConfigureAwait(false);
+            if (RecordLeaderUnavailableTick(state))
+            {
+                return TeamSupportTickResult.Continue(TeamSupportTickDelay);
+            }
+
+            await SelectLeaderAndAssistAsync(context, state, leader).ConfigureAwait(false);
+            return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        if (leader.PartyMember.DistanceToLocalPlayer is null)
+        {
+            return RecordLeaderUnavailableTick(state)
+                ? TeamSupportTickResult.Continue(TeamSupportTickDelay)
+                : TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
+        }
+
+        state.ConsecutiveLeaderUnavailableTicks = 0;
+
+        if (await TeamLeaderRestSync
+                .TryHandleAsync(context, _keyboard, state.LeaderRestSync, snapshot, leader, combatState, "team_support")
+                .ConfigureAwait(false))
+        {
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
@@ -1056,6 +1078,18 @@ public sealed class TeamSupportController
             ["currentTargetEntityId"] = combatState?.CurrentTargetEntityId,
             ["currentTargetServerObjectId"] = combatState?.CurrentTargetServerObjectId
         });
+    }
+
+    private static bool RecordLeaderUnavailableTick(TeamSupportState state)
+    {
+        state.ConsecutiveLeaderUnavailableTicks++;
+        if (state.ConsecutiveLeaderUnavailableTicks < TeamLeaderRuntimePolicy.ConsecutiveLeaderUnavailableTicksBeforeNormalWork)
+        {
+            return false;
+        }
+
+        state.LeaderGroupActive = false;
+        return true;
     }
 
     private static void LogActionPress(

@@ -6,6 +6,7 @@ namespace Roadhog.Application.Team;
 internal static class TeamLeaderRuntimePolicy
 {
     public const double LeaderGroupExitDistanceMeters = 50.0D;
+    public const int ConsecutiveLeaderUnavailableTicksBeforeNormalWork = 5;
 
     public static bool IsLeaderInGroupRange(
         TeamMemberSnapshot? leader,
