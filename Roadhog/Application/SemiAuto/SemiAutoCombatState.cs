@@ -16,6 +16,7 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<string, DateTimeOffset> maintenanceKeyPressedAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, uint> statusMaintenanceAbnormalIds = new();
     private readonly Dictionary<string, int> statusMaintenanceMissingReadCounts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DateTimeOffset> statusMaintenanceMissingReadStartedAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, uint> spiritmasterDotAbnormalIds = new();
     private readonly Dictionary<uint, uint> spiritmasterPetBuffAbnormalIds = new();
     private readonly Dictionary<uint, DateTimeOffset> spiritmasterPetHpCooldownUntil = new();
@@ -299,14 +300,24 @@ public sealed class SemiAutoCombatState
         }
     }
 
-    public int MarkStatusMaintenanceMissingRead(string ruleKey)
+    public int MarkStatusMaintenanceMissingRead(
+        string ruleKey,
+        DateTimeOffset now,
+        out DateTimeOffset firstMissingAt)
     {
+        firstMissingAt = now;
         if (string.IsNullOrWhiteSpace(ruleKey))
         {
             return 0;
         }
 
         var key = ruleKey.Trim();
+        if (!statusMaintenanceMissingReadStartedAt.TryGetValue(key, out firstMissingAt))
+        {
+            firstMissingAt = now;
+            statusMaintenanceMissingReadStartedAt[key] = firstMissingAt;
+        }
+
         statusMaintenanceMissingReadCounts.TryGetValue(key, out var count);
         count++;
         statusMaintenanceMissingReadCounts[key] = count;
@@ -317,7 +328,9 @@ public sealed class SemiAutoCombatState
     {
         if (!string.IsNullOrWhiteSpace(ruleKey))
         {
-            statusMaintenanceMissingReadCounts.Remove(ruleKey.Trim());
+            var key = ruleKey.Trim();
+            statusMaintenanceMissingReadCounts.Remove(key);
+            statusMaintenanceMissingReadStartedAt.Remove(key);
         }
     }
 

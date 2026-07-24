@@ -25,7 +25,8 @@ public sealed class SemiAutoCombatController
     private static readonly string AttackKey = "C";
     private static readonly string RestEnterKey = "OemComma";
     private static readonly string RestExitKey = "X";
-    private const int ChantStatusMaintenanceMissingReadThreshold = 2;
+    private static readonly TimeSpan ChantStatusMaintenanceMissingReadMinimumDuration = TimeSpan.FromSeconds(2);
+    private const int ChantStatusMaintenanceMissingReadThreshold = 3;
     private const string OpeningSkillConfirmationTimeoutEnvVar = "ROADHOG_OPENING_SKILL_CONFIRM_TIMEOUT_MS";
 
     private readonly IKeyboardInput _keyboard;
@@ -1304,29 +1305,54 @@ public sealed class SemiAutoCombatController
             }
 
             var isChantStatusMaintenance = IsChantStatusMaintenanceRule(rule, maintenanceSkill);
+            var now = DateTimeOffset.Now;
+            var chantMissingReady = false;
+            uint chantExpectedAbnormalId = 0;
+            int chantMissingReadCount = 0;
+            var chantMissingDuration = TimeSpan.Zero;
             if (isChantStatusMaintenance &&
-                ShouldDeferChantStatusMaintenanceMissingRead(
+                TryEvaluateChantStatusMaintenanceMissingRead(
                     rule,
                     skillId,
                     state,
                     abnormalResult.Value.Entries,
-                    out var expectedAbnormalId,
-                    out var missingReadCount))
+                    now,
+                    out chantExpectedAbnormalId,
+                    out chantMissingReadCount,
+                    out chantMissingDuration,
+                    out var shouldDeferChantMissing))
             {
-                LogChantStatusMaintenanceMissingDeferred(
+                if (shouldDeferChantMissing)
+                {
+                    LogChantStatusMaintenanceMissingDeferred(
+                        context,
+                        rule,
+                        resource,
+                        skillId,
+                        chantExpectedAbnormalId,
+                        chantMissingReadCount,
+                        chantMissingDuration);
+                    continue;
+                }
+
+                chantMissingReady = true;
+            }
+
+            if (!state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
+            {
+                continue;
+            }
+
+            if (chantMissingReady)
+            {
+                LogChantStatusMaintenanceMissingReady(
                     context,
                     rule,
                     resource,
                     skillId,
-                    expectedAbnormalId,
-                    missingReadCount);
-                continue;
-            }
-
-            var now = DateTimeOffset.Now;
-            if (!state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
-            {
-                continue;
+                    chantExpectedAbnormalId,
+                    chantMissingReadCount,
+                    chantMissingDuration);
             }
 
             return await ExecuteStatusMaintenanceKeyRuleAsync(
@@ -3592,16 +3618,21 @@ public sealed class SemiAutoCombatController
         return 0;
     }
 
-    private static bool ShouldDeferChantStatusMaintenanceMissingRead(
+    private static bool TryEvaluateChantStatusMaintenanceMissingRead(
         StatusMaintenanceRuleConfig rule,
         uint skillId,
         SemiAutoCombatState state,
         IReadOnlyList<AbnormalStatusEntrySnapshot> entries,
+        DateTimeOffset now,
         out uint expectedAbnormalId,
-        out int missingReadCount)
+        out int missingReadCount,
+        out TimeSpan missingDuration,
+        out bool shouldDefer)
     {
         expectedAbnormalId = 0;
         missingReadCount = 0;
+        missingDuration = TimeSpan.Zero;
+        shouldDefer = false;
         if (!TryResolveExpectedStatusMaintenanceAbnormalId(rule, skillId, state, out expectedAbnormalId))
         {
             return false;
@@ -3615,8 +3646,12 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        missingReadCount = state.MarkStatusMaintenanceMissingRead(stateKey);
-        return missingReadCount < ChantStatusMaintenanceMissingReadThreshold;
+        missingReadCount = state.MarkStatusMaintenanceMissingRead(stateKey, now, out var firstMissingAt);
+        missingDuration = now >= firstMissingAt ? now - firstMissingAt : TimeSpan.Zero;
+        shouldDefer =
+            missingReadCount < ChantStatusMaintenanceMissingReadThreshold ||
+            missingDuration < ChantStatusMaintenanceMissingReadMinimumDuration;
+        return true;
     }
 
     private static bool TryResolveExpectedStatusMaintenanceAbnormalId(
@@ -3902,7 +3937,8 @@ public sealed class SemiAutoCombatController
         string resource,
         uint skillId,
         uint expectedAbnormalId,
-        int missingReadCount)
+        int missingReadCount,
+        TimeSpan missingDuration)
     {
         context.Logger.Info("semi_auto.maintenance.chant_missing_deferred", new Dictionary<string, object?>
         {
@@ -3913,7 +3949,33 @@ public sealed class SemiAutoCombatController
             ["skillName"] = rule.SkillName,
             ["expectedAbnormalStatusId"] = expectedAbnormalId,
             ["missingReadCount"] = missingReadCount,
-            ["requiredMissingReads"] = ChantStatusMaintenanceMissingReadThreshold
+            ["requiredMissingReads"] = ChantStatusMaintenanceMissingReadThreshold,
+            ["missingDurationMs"] = (long)Math.Max(0.0D, missingDuration.TotalMilliseconds),
+            ["requiredMissingDurationMs"] = (long)ChantStatusMaintenanceMissingReadMinimumDuration.TotalMilliseconds
+        });
+    }
+
+    private static void LogChantStatusMaintenanceMissingReady(
+        AccountWorkerContext context,
+        StatusMaintenanceRuleConfig rule,
+        string resource,
+        uint skillId,
+        uint expectedAbnormalId,
+        int missingReadCount,
+        TimeSpan missingDuration)
+    {
+        context.Logger.Info("semi_auto.maintenance.chant_missing_ready", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["skillId"] = skillId,
+            ["skillName"] = rule.SkillName,
+            ["expectedAbnormalStatusId"] = expectedAbnormalId,
+            ["missingReadCount"] = missingReadCount,
+            ["requiredMissingReads"] = ChantStatusMaintenanceMissingReadThreshold,
+            ["missingDurationMs"] = (long)Math.Max(0.0D, missingDuration.TotalMilliseconds),
+            ["requiredMissingDurationMs"] = (long)ChantStatusMaintenanceMissingReadMinimumDuration.TotalMilliseconds
         });
     }
 

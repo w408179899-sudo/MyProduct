@@ -14453,11 +14453,41 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
     var deferredEntry = retryLogger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.chant_missing_deferred");
     AssertFalse(deferredEntry is null, "first missing learned chant status should log deferred maintenance");
     AssertEqual(1, Convert.ToInt32(deferredEntry!.Fields["missingReadCount"]), "first missing learned chant read count");
-    AssertEqual(2, Convert.ToInt32(deferredEntry.Fields["requiredMissingReads"]), "chant missing read threshold");
+    AssertEqual(3, Convert.ToInt32(deferredEntry.Fields["requiredMissingReads"]), "chant missing read threshold");
+    AssertEqual(2000L, Convert.ToInt64(deferredEntry.Fields["requiredMissingDurationMs"]), "chant missing duration threshold");
 
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, retryLogger), retryState, gameApi.Player).ConfigureAwait(false);
 
-    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "second consecutive missing learned chant status should allow maintenance press");
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "second immediate missing learned chant status should defer maintenance press");
+    var secondDeferredEntry = retryLogger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.chant_missing_deferred");
+    AssertFalse(secondDeferredEntry is null, "second missing learned chant status should log deferred maintenance");
+    AssertEqual(2, Convert.ToInt32(secondDeferredEntry!.Fields["missingReadCount"]), "second missing learned chant read count");
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, retryLogger), retryState, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "third immediate missing learned chant status should still wait for duration threshold");
+    var thirdDeferredEntry = retryLogger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.chant_missing_deferred");
+    AssertFalse(thirdDeferredEntry is null, "third missing learned chant status should log deferred maintenance");
+    AssertEqual(3, Convert.ToInt32(thirdDeferredEntry!.Fields["missingReadCount"]), "third missing learned chant read count");
+
+    var readyState = new SemiAutoCombatState();
+    readyState.RememberStatusMaintenanceAbnormalId(8200, 8232);
+    var firstMissingAt = DateTimeOffset.Now - TimeSpan.FromSeconds(3);
+    readyState.MarkStatusMaintenanceMissingRead("skill:8200", firstMissingAt, out _);
+    readyState.MarkStatusMaintenanceMissingRead("skill:8200", firstMissingAt + TimeSpan.FromMilliseconds(500), out _);
+    keyboard.Keys.Clear();
+    gameApi.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1);
+    var readyLogger = new InMemoryRoadhogLogger();
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, readyLogger), readyState, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "sustained missing learned chant status should allow maintenance press");
+    var readyEntry = readyLogger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.chant_missing_ready");
+    AssertFalse(readyEntry is null, "sustained missing learned chant status should log ready maintenance");
+    AssertEqual(3, Convert.ToInt32(readyEntry!.Fields["missingReadCount"]), "sustained missing learned chant read count");
+    AssertFalse(
+        Convert.ToInt64(readyEntry.Fields["missingDurationMs"]) < 2000L,
+        "sustained missing learned chant duration should reach threshold");
 }
 
 static async Task TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync()
