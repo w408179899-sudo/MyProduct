@@ -874,6 +874,11 @@ public sealed class SemiAutoCombatController
             return true;
         }
 
+        if (beforeMaintenanceKeyPress is not null)
+        {
+            await beforeMaintenanceKeyPress().ConfigureAwait(false);
+        }
+
         var result = await _keyboard
             .PressKeyAsync(RestEnterKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
             .ConfigureAwait(false);

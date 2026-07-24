@@ -1341,6 +1341,25 @@ public sealed class StationaryCombatController
             return StationaryCombatBehaviorStatus.Running;
         }
 
+        if (await _semiAuto
+                .TryHandleMaintenanceAsync(
+                    context,
+                    semiAutoState,
+                    player,
+                    beforeMaintenanceKeyPress: async () =>
+                    {
+                        semiAutoState.ResetAttackKeyPressThrottle();
+                        await StopMovementAsync(context, state).ConfigureAwait(false);
+                        StopPathFollowPoller(state);
+                    },
+                    plan: plan,
+                    requireCooldownCalibrationForMaintenance: true)
+                .ConfigureAwait(false))
+        {
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
         if (state.DeathRecovery.RevivePathPoints.Count == 0)
         {
             var loaded = await TryStartDeathRevivePathAsync(
@@ -2659,6 +2678,13 @@ public sealed class StationaryCombatController
         if (target?.Position is null)
         {
             return null;
+        }
+
+        if (semiAutoState.IsMaintenanceResting)
+        {
+            await _semiAuto
+                .CancelMaintenanceRestAsync(context, semiAutoState, recoveryPhase + "_targeting_monster_detected")
+                .ConfigureAwait(false);
         }
 
         semiAutoState.ResetAttackKeyPressThrottle();

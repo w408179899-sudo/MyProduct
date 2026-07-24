@@ -197,6 +197,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery summons spiritmaster pet before revive path", TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeRevivePathAsync),
     ("stationary combat death recovery path defends when targeted", TestStationaryCombatDeathRecoveryPathDefendsWhenTargetedAsync),
     ("stationary combat death recovery path clears nearby aggressive monsters", TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMonstersAsync),
+    ("stationary combat death recovery path rests before continuing low hp", TestStationaryCombatDeathRecoveryPathRestsBeforeContinuingLowHpAsync),
     ("stationary combat death recovery path jumps when stuck", TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync),
     ("stationary combat death recovery leader siphon pauses and resumes revive path", TestStationaryCombatDeathRecoveryLeaderSiphonPausesAndResumesRevivePathAsync),
     ("worker runs team output during revive path leader siphon", TestWorkerRunsTeamOutputDuringRevivePathLeaderSiphonAsync),
@@ -7226,6 +7227,111 @@ static async Task TestStationaryCombatDeathRecoveryPathClearsNearbyAggressiveMon
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", previousClickHold);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_RETRY_MS", previousRetry);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", previousScrollInterval);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestStationaryCombatDeathRecoveryPathRestsBeforeContinuingLowHpAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Maintenance.SitMaintenanceEnabled = true;
+        settings.Maintenance.SitHpBelowPercent = 30;
+        settings.Maintenance.SitHpRecoverToPercent = 75;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 20,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 10
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 80, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var stationaryState = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        stationaryState.EnterDeathRecovery(DateTimeOffset.Now);
+        for (var i = 0; i < 6; i++)
+        {
+            stationaryState.DeathRecovery.Advance(DateTimeOffset.Now);
+        }
+
+        stationaryState.DeathRecovery.RevivePathName = "revive-a";
+        stationaryState.DeathRecovery.RevivePathPoints = new[]
+        {
+            new Vector3Snapshot(0, 0, 0),
+            new Vector3Snapshot(10, 0, 0)
+        };
+        stationaryState.DeathRecovery.RevivePathPointIndex = 1;
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertEqual(StationaryCombatDeathRecoveryStep.FollowRevivePath, stationaryState.DeathRecovery.Step, "test should stay on revive path");
+        AssertFalse(!stationaryState.IsMovingForward, "revive path should start moving before hp drops");
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "revive path should press W before hp drops");
+
+        keyboard.Keys.Clear();
+        keyboard.KeyDowns.Clear();
+        keyboard.KeyUps.Clear();
+        gameApi.Player = gameApi.Player with { CurrentHp = 20 };
+
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "low hp during revive path should sit before continuing");
+        AssertFalse(!keyboard.KeyUps.Contains("W"), "revive path rest should stop movement before sitting");
+        AssertFalse(stationaryState.IsMovingForward, "revive path rest should clear moving state");
+        AssertFalse(!semiAutoState.IsMaintenanceResting, "low hp revive path should track sitting state");
+        AssertEqual(StationaryCombatDeathRecoveryStep.FollowRevivePath, stationaryState.DeathRecovery.Step, "rest should not complete revive path");
+
+        keyboard.Keys.Clear();
+        keyboard.KeyDowns.Clear();
+        keyboard.KeyUps.Clear();
+        gameApi.Player = gameApi.Player with { CurrentHp = 74 };
+
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "revive path should keep resting below recovery percent");
+        AssertFalse(keyboard.KeyDowns.Contains("W"), "revive path should not move while still resting");
+        AssertFalse(!semiAutoState.IsMaintenanceResting, "revive path should keep sitting below recovery percent");
+
+        gameApi.Player = gameApi.Player with { CurrentHp = 75 };
+
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertSequence(new[] { "X" }, keyboard.Keys.ToArray(), "revive path should stand after hp reaches recovery percent");
+        AssertFalse(semiAutoState.IsMaintenanceResting, "revive path should clear rest after recovery");
+
+        keyboard.Keys.Clear();
+        keyboard.KeyDowns.Clear();
+        keyboard.KeyUps.Clear();
+
+        await controller.TickAsync(context, plan, semiAutoState, stationaryState).ConfigureAwait(false);
+
+        AssertFalse(!keyboard.KeyDowns.Contains("W"), "revive path should continue moving after rest exits");
+    }
+    finally
+    {
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
     }
 }
