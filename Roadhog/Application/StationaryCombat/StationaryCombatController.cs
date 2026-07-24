@@ -131,7 +131,8 @@ public sealed class StationaryCombatController
             });
         }
 
-        if (state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery)
+        if (state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery &&
+            (!state.DeathRecovery.RevivePathLeaderSiphonActive || player.IsDead))
         {
             return await TickDeathRecoveryAsync(
                     context,
@@ -486,7 +487,8 @@ public sealed class StationaryCombatController
             });
         }
 
-        if (state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery)
+        if (state.TopLevelState == StationaryCombatTopLevelState.DeathRecovery &&
+            (!state.DeathRecovery.RevivePathLeaderSiphonActive || player.IsDead))
         {
             return await TickPlayerLifeGuardAsync(
                     context,
@@ -1271,6 +1273,34 @@ public sealed class StationaryCombatController
             return StationaryCombatBehaviorStatus.Running;
         }
 
+        var leaderSiphon = await TryUpdateDeathRecoveryRevivePathLeaderSiphonAsync(
+                context,
+                state)
+            .ConfigureAwait(false);
+        if (leaderSiphon.Active)
+        {
+            semiAutoState.ResetAttackKeyPressThrottle();
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        if (leaderSiphon.Released &&
+            !await TryRetargetDeathRevivePathAfterLeaderSiphonAsync(
+                    context,
+                    state,
+                    player.Position.Value,
+                    home,
+                    playerDistanceFromHome)
+                .ConfigureAwait(false))
+        {
+            return StationaryCombatBehaviorStatus.Success;
+        }
+        else if (leaderSiphon.Released)
+        {
+            semiAutoState.ResetAttackKeyPressThrottle();
+        }
+
         if (await _semiAuto
                 .EnsureSpiritmasterPetAsync(
                     context,
@@ -1374,6 +1404,183 @@ public sealed class StationaryCombatController
         StopPathFollowPoller(state);
         return StationaryCombatBehaviorStatus.Success;
     }
+
+    private async Task<RevivePathLeaderSiphonTick> TryUpdateDeathRecoveryRevivePathLeaderSiphonAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state)
+    {
+        var team = context.Config.ScriptSettings?.Team ?? new TeamScriptSettings();
+        if (!ShouldAllowRevivePathLeaderSiphon(team))
+        {
+            return ClearDeathRecoveryRevivePathLeaderSiphon(
+                context,
+                state,
+                "team_role_disabled",
+                null,
+                team.GroupDistanceMeters);
+        }
+
+        var monitor = new TeamMonitor(context.GameApi, context.Logger);
+        var snapshotResult = await monitor
+            .ReadSnapshotAsync(CreateReadContext(context), context.StopToken)
+            .ConfigureAwait(false);
+        if (!snapshotResult.Success || snapshotResult.Value is null)
+        {
+            return ClearDeathRecoveryRevivePathLeaderSiphon(
+                context,
+                state,
+                "snapshot_failed",
+                null,
+                team.GroupDistanceMeters,
+                snapshotResult.Error);
+        }
+
+        var leader = snapshotResult.Value.LeaderMember;
+        if (!TeamLeaderRuntimePolicy.IsLeaderInGroupRange(leader, team.GroupDistanceMeters))
+        {
+            return ClearDeathRecoveryRevivePathLeaderSiphon(
+                context,
+                state,
+                ResolveRevivePathLeaderSiphonInactiveReason(leader),
+                leader,
+                team.GroupDistanceMeters);
+        }
+
+        var activeLeader = leader!;
+        var changed = state.DeathRecovery.ActivateRevivePathLeaderSiphon(
+            activeLeader.ServerObjectId,
+            activeLeader.Name);
+        if (changed)
+        {
+            context.Logger.Info("stationary_combat.death_recovery.leader_siphon.enter", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = state.DeathRecovery.RevivePathName,
+                ["pointIndex"] = state.DeathRecovery.RevivePathPointIndex,
+                ["leader"] = activeLeader.Name,
+                ["leaderServerObjectId"] = activeLeader.ServerObjectId,
+                ["leaderDistanceToLocal"] = activeLeader.PartyMember.DistanceToLocalPlayer,
+                ["groupDistanceMeters"] = team.GroupDistanceMeters
+            });
+        }
+
+        return new RevivePathLeaderSiphonTick(Active: true, Released: false);
+    }
+
+    private RevivePathLeaderSiphonTick ClearDeathRecoveryRevivePathLeaderSiphon(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        string reason,
+        TeamMemberSnapshot? leader,
+        double groupDistanceMeters,
+        string? error = null)
+    {
+        var previousLeaderName = state.DeathRecovery.RevivePathLeaderSiphonName;
+        var previousLeaderServerObjectId = state.DeathRecovery.RevivePathLeaderSiphonServerObjectId;
+        if (!state.DeathRecovery.ClearRevivePathLeaderSiphon())
+        {
+            return new RevivePathLeaderSiphonTick(Active: false, Released: false);
+        }
+
+        context.Logger.Info("stationary_combat.death_recovery.leader_siphon.exit", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["pathName"] = state.DeathRecovery.RevivePathName,
+            ["pointIndex"] = state.DeathRecovery.RevivePathPointIndex,
+            ["leader"] = leader?.Name ?? previousLeaderName,
+            ["leaderServerObjectId"] = leader?.ServerObjectId ?? previousLeaderServerObjectId,
+            ["leaderDistanceToLocal"] = leader?.PartyMember.DistanceToLocalPlayer,
+            ["groupDistanceMeters"] = groupDistanceMeters,
+            ["error"] = error
+        });
+        return new RevivePathLeaderSiphonTick(Active: false, Released: true);
+    }
+
+    private async Task<bool> TryRetargetDeathRevivePathAfterLeaderSiphonAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double playerDistanceFromHome)
+    {
+        state.ClearTarget();
+        if (state.DeathRecovery.RevivePathPoints.Count == 0)
+        {
+            return true;
+        }
+
+        var oldPointIndex = state.DeathRecovery.RevivePathPointIndex;
+        var nearestPointIndex = FindNearestPathPointIndex(
+            playerPosition,
+            state.DeathRecovery.RevivePathPoints,
+            playerDistanceFromHome);
+        if (nearestPointIndex < 0)
+        {
+            await StopMovementAsync(context, state).ConfigureAwait(false);
+            StopPathFollowPoller(state);
+            context.Logger.Info("stationary_combat.death_recovery.leader_siphon.path_complete", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["pathName"] = state.DeathRecovery.RevivePathName,
+                ["homeDistance"] = Math.Round(StationaryCombatTargetSelector.HorizontalDistance(playerPosition, home), 2),
+                ["pathPointCount"] = state.DeathRecovery.RevivePathPoints.Count
+            });
+            return false;
+        }
+
+        var nearestDistance = StationaryCombatTargetSelector.HorizontalDistance(
+            playerPosition,
+            state.DeathRecovery.RevivePathPoints[nearestPointIndex]);
+        state.DeathRecovery.RevivePathPointIndex = nearestPointIndex;
+        state.DeathRecovery.ResetRevivePathStuckTracking();
+        context.Logger.Info("stationary_combat.death_recovery.leader_siphon.path_resumed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["pathName"] = state.DeathRecovery.RevivePathName,
+            ["oldPointIndex"] = oldPointIndex,
+            ["newPointIndex"] = nearestPointIndex,
+            ["newPointNumber"] = nearestPointIndex + 1,
+            ["pointCount"] = state.DeathRecovery.RevivePathPoints.Count,
+            ["distance"] = Math.Round(nearestDistance, 2)
+        });
+        return true;
+    }
+
+    private static bool ShouldAllowRevivePathLeaderSiphon(TeamScriptSettings team)
+    {
+        return team.Role switch
+        {
+            TeamRole.Output => (team.Output?.Enabled ?? false) &&
+                               (team.Output?.FollowLeader ?? true),
+            TeamRole.Support => team.Support?.Enabled ?? false,
+            _ => false
+        };
+    }
+
+    private static string ResolveRevivePathLeaderSiphonInactiveReason(TeamMemberSnapshot? leader)
+    {
+        if (leader is null)
+        {
+            return "leader_missing";
+        }
+
+        if (leader.IsSelf)
+        {
+            return "leader_is_self";
+        }
+
+        if (leader.PartyMember.IsDead)
+        {
+            return "leader_dead";
+        }
+
+        return leader.PartyMember.DistanceToLocalPlayer is null
+            ? "leader_distance_unknown"
+            : "leader_out_of_range";
+    }
+
+    private readonly record struct RevivePathLeaderSiphonTick(bool Active, bool Released);
 
     private async Task TryJumpDeathRevivePathIfStuckAsync(
         AccountWorkerContext context,

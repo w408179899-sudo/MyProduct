@@ -92,6 +92,46 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 if (lifeGuardDelay.HasValue)
                 {
                     delay = lifeGuardDelay.Value;
+                    if (stationaryCombatState.DeathRecovery.RevivePathLeaderSiphonActive)
+                    {
+                        var normalWorkBlocked = true;
+                        var teamResult = await TryTickTeamControllersAsync(
+                                context,
+                                scriptSettings,
+                                teamSupportState,
+                                teamOutputState,
+                                stationaryCombatState)
+                            .ConfigureAwait(false);
+                        if (teamResult.HasValue)
+                        {
+                            delay = teamResult.Value.Delay;
+                            normalWorkBlocked = teamResult.Value.ShouldSkipNormalWork;
+                        }
+
+                        if (!normalWorkBlocked &&
+                            await _semiAuto
+                                .EnsureSpiritmasterPetAsync(
+                                    context,
+                                    semiAutoPlan,
+                                    semiAutoState,
+                                    beforeSummonKeyPress: () => ReleaseActiveInputAsync(context, stationaryCombatState))
+                                .ConfigureAwait(false))
+                        {
+                            delay = context.Options.TickInterval;
+                        }
+                        else if (!normalWorkBlocked)
+                        {
+                            delay = await TickNormalWorkAsync(
+                                    context,
+                                    semiAutoPlan,
+                                    semiAutoState,
+                                    stationaryCombatState,
+                                    mainMode,
+                                    isStationaryCombat,
+                                    isPathCombat)
+                                .ConfigureAwait(false);
+                        }
+                    }
                 }
                 else if (await _semiAuto
                              .EnsureSpiritmasterPetAsync(
@@ -106,62 +146,30 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                 else
                 {
                     var normalWorkBlocked = false;
-                    var teamControllersBlockedByLoot = stationaryCombatState.LootAfterKill.Active;
-                    if (!teamControllersBlockedByLoot &&
-                        _teamSupport is not null &&
-                        IsTeamSupportEnabled(scriptSettings))
+                    var teamResult = await TryTickTeamControllersAsync(
+                            context,
+                            scriptSettings,
+                            teamSupportState,
+                            teamOutputState,
+                            stationaryCombatState)
+                        .ConfigureAwait(false);
+                    if (teamResult.HasValue)
                     {
-                        var supportResult = await _teamSupport
-                            .TickAsync(context, teamSupportState, stationaryCombatState)
-                            .ConfigureAwait(false);
-                        delay = supportResult.Delay;
-                        normalWorkBlocked = supportResult.ShouldSkipNormalWork;
-                    }
-                    else if (!teamControllersBlockedByLoot &&
-                             _teamOutput is not null &&
-                             IsTeamOutputEnabled(scriptSettings))
-                    {
-                        var outputResult = await _teamOutput
-                            .TickAsync(context, teamOutputState, stationaryCombatState)
-                            .ConfigureAwait(false);
-                        delay = outputResult.Delay;
-                        normalWorkBlocked = outputResult.ShouldSkipNormalWork;
+                        delay = teamResult.Value.Delay;
+                        normalWorkBlocked = teamResult.Value.ShouldSkipNormalWork;
                     }
 
-                    if (!normalWorkBlocked && mainMode == AccountMainMode.SemiAuto)
+                    if (!normalWorkBlocked)
                     {
-                        delay = await _semiAuto.TickAsync(context, semiAutoPlan, semiAutoState).ConfigureAwait(false);
-                    }
-                    else if (!normalWorkBlocked && isStationaryCombat)
-                    {
-                        delay = await _stationaryCombat
-                            .TickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)
+                        delay = await TickNormalWorkAsync(
+                                context,
+                                semiAutoPlan,
+                                semiAutoState,
+                                stationaryCombatState,
+                                mainMode,
+                                isStationaryCombat,
+                                isPathCombat)
                             .ConfigureAwait(false);
-                    }
-                    else if (!normalWorkBlocked && isPathCombat)
-                    {
-                        delay = await _stationaryCombat
-                            .TickPathAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)
-                            .ConfigureAwait(false);
-                    }
-                    else if (!normalWorkBlocked && context.Options.PollPlayerSnapshot)
-                    {
-                        var result = await context.GameApi.ReadPlayerAsync(context.StopToken).ConfigureAwait(false);
-                        if (!result.Success)
-                        {
-                            context.RuntimeStates.MarkWarning(
-                                context.Config.AccountName,
-                                Roadhog.Application.RuntimeWarningText.FromPlayerReadFailure(result.Error));
-                            context.Logger.Warn("worker.player_poll.failed", new Dictionary<string, object?>
-                            {
-                                ["account"] = context.Config.AccountName,
-                                ["error"] = result.Error
-                            });
-                        }
-                        else
-                        {
-                            context.RuntimeStates.ClearWarning(context.Config.AccountName);
-                        }
                     }
                 }
 
@@ -186,6 +194,96 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
         return scriptSettings.Team.Role == TeamRole.Output &&
                (scriptSettings.Team.Output?.Enabled ?? false);
     }
+
+    private async Task<TeamWorkerTickResult?> TryTickTeamControllersAsync(
+        AccountWorkerContext context,
+        ScriptSettings scriptSettings,
+        TeamSupportState teamSupportState,
+        TeamOutputState teamOutputState,
+        StationaryCombatState stationaryCombatState)
+    {
+        if (stationaryCombatState.LootAfterKill.Active)
+        {
+            return null;
+        }
+
+        if (_teamSupport is not null &&
+            IsTeamSupportEnabled(scriptSettings))
+        {
+            var supportResult = await _teamSupport
+                .TickAsync(context, teamSupportState, stationaryCombatState)
+                .ConfigureAwait(false);
+            return new TeamWorkerTickResult(
+                supportResult.ShouldSkipNormalWork,
+                supportResult.Delay);
+        }
+
+        if (_teamOutput is not null &&
+            IsTeamOutputEnabled(scriptSettings))
+        {
+            var outputResult = await _teamOutput
+                .TickAsync(context, teamOutputState, stationaryCombatState)
+                .ConfigureAwait(false);
+            return new TeamWorkerTickResult(
+                outputResult.ShouldSkipNormalWork,
+                outputResult.Delay);
+        }
+
+        return null;
+    }
+
+    private async Task<TimeSpan> TickNormalWorkAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan semiAutoPlan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState stationaryCombatState,
+        AccountMainMode mainMode,
+        bool isStationaryCombat,
+        bool isPathCombat)
+    {
+        if (mainMode == AccountMainMode.SemiAuto)
+        {
+            return await _semiAuto.TickAsync(context, semiAutoPlan, semiAutoState).ConfigureAwait(false);
+        }
+
+        if (isStationaryCombat)
+        {
+            return await _stationaryCombat
+                .TickAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)
+                .ConfigureAwait(false);
+        }
+
+        if (isPathCombat)
+        {
+            return await _stationaryCombat
+                .TickPathAsync(context, semiAutoPlan, semiAutoState, stationaryCombatState)
+                .ConfigureAwait(false);
+        }
+
+        if (context.Options.PollPlayerSnapshot)
+        {
+            var result = await context.GameApi.ReadPlayerAsync(context.StopToken).ConfigureAwait(false);
+            if (!result.Success)
+            {
+                context.RuntimeStates.MarkWarning(
+                    context.Config.AccountName,
+                    Roadhog.Application.RuntimeWarningText.FromPlayerReadFailure(result.Error));
+                context.Logger.Warn("worker.player_poll.failed", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["error"] = result.Error
+                });
+            }
+            else
+            {
+                context.RuntimeStates.ClearWarning(context.Config.AccountName);
+            }
+        }
+
+        return context.Options.TickInterval;
+    }
+
+    private readonly record struct TeamWorkerTickResult(bool ShouldSkipNormalWork, TimeSpan Delay);
 
     private async Task ReleaseStartupMovementAsync(AccountWorkerContext context)
     {

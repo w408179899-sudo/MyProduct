@@ -765,6 +765,12 @@ public sealed class StationaryCombatDeathRecoveryState
 
     public int RevivePathJumpCount { get; private set; }
 
+    public bool RevivePathLeaderSiphonActive { get; private set; }
+
+    public uint RevivePathLeaderSiphonServerObjectId { get; private set; }
+
+    public string RevivePathLeaderSiphonName { get; private set; } = string.Empty;
+
     public void Start(DateTimeOffset now)
     {
         Step = StationaryCombatDeathRecoveryStep.StopInput;
@@ -777,6 +783,7 @@ public sealed class StationaryCombatDeathRecoveryState
         RevivePathName = string.Empty;
         RevivePathPointIndex = -1;
         RevivePathPoints = Array.Empty<Vector3Snapshot>();
+        ClearRevivePathLeaderSiphon();
         ResetRevivePathStuckTracking();
     }
 
@@ -825,6 +832,26 @@ public sealed class StationaryCombatDeathRecoveryState
         RevivePathJumpCount = 0;
     }
 
+    public bool ActivateRevivePathLeaderSiphon(uint leaderServerObjectId, string leaderName)
+    {
+        var changed =
+            !RevivePathLeaderSiphonActive ||
+            RevivePathLeaderSiphonServerObjectId != leaderServerObjectId;
+        RevivePathLeaderSiphonActive = true;
+        RevivePathLeaderSiphonServerObjectId = leaderServerObjectId;
+        RevivePathLeaderSiphonName = leaderName ?? string.Empty;
+        return changed;
+    }
+
+    public bool ClearRevivePathLeaderSiphon()
+    {
+        var wasActive = RevivePathLeaderSiphonActive;
+        RevivePathLeaderSiphonActive = false;
+        RevivePathLeaderSiphonServerObjectId = 0;
+        RevivePathLeaderSiphonName = string.Empty;
+        return wasActive;
+    }
+
     public void Reset()
     {
         Step = StationaryCombatDeathRecoveryStep.StopInput;
@@ -837,6 +864,7 @@ public sealed class StationaryCombatDeathRecoveryState
         RevivePathName = string.Empty;
         RevivePathPointIndex = -1;
         RevivePathPoints = Array.Empty<Vector3Snapshot>();
+        ClearRevivePathLeaderSiphon();
         ResetRevivePathStuckTracking();
     }
 }
