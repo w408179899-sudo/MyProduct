@@ -15,6 +15,7 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<uint, DateTimeOffset> uncalibratedUnknownSuppressUntil = new();
     private readonly Dictionary<string, DateTimeOffset> maintenanceKeyPressedAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, uint> statusMaintenanceAbnormalIds = new();
+    private readonly Dictionary<string, int> statusMaintenanceMissingReadCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, uint> spiritmasterDotAbnormalIds = new();
     private readonly Dictionary<uint, uint> spiritmasterPetBuffAbnormalIds = new();
     private readonly Dictionary<uint, DateTimeOffset> spiritmasterPetHpCooldownUntil = new();
@@ -295,6 +296,28 @@ public sealed class SemiAutoCombatState
         if (skillId != 0 && abnormalId != 0)
         {
             statusMaintenanceAbnormalIds[skillId] = abnormalId;
+        }
+    }
+
+    public int MarkStatusMaintenanceMissingRead(string ruleKey)
+    {
+        if (string.IsNullOrWhiteSpace(ruleKey))
+        {
+            return 0;
+        }
+
+        var key = ruleKey.Trim();
+        statusMaintenanceMissingReadCounts.TryGetValue(key, out var count);
+        count++;
+        statusMaintenanceMissingReadCounts[key] = count;
+        return count;
+    }
+
+    public void ClearStatusMaintenanceMissingRead(string ruleKey)
+    {
+        if (!string.IsNullOrWhiteSpace(ruleKey))
+        {
+            statusMaintenanceMissingReadCounts.Remove(ruleKey.Trim());
         }
     }
 

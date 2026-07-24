@@ -25,6 +25,7 @@ public sealed class SemiAutoCombatController
     private static readonly string AttackKey = "C";
     private static readonly string RestEnterKey = "OemComma";
     private static readonly string RestExitKey = "X";
+    private const int ChantStatusMaintenanceMissingReadThreshold = 2;
     private const string OpeningSkillConfirmationTimeoutEnvVar = "ROADHOG_OPENING_SKILL_CONFIRM_TIMEOUT_MS";
 
     private readonly IKeyboardInput _keyboard;
@@ -1249,6 +1250,7 @@ public sealed class SemiAutoCombatController
             var configuredSkillId = rule.SkillId;
             if (IsStatusMaintenanceActive(rule, configuredSkillId, state, abnormalResult.Value.Entries))
             {
+                state.ClearStatusMaintenanceMissingRead(CreateStatusMaintenanceRuleStateKey(rule, configuredSkillId));
                 continue;
             }
 
@@ -1291,15 +1293,35 @@ public sealed class SemiAutoCombatController
             if (skillId != configuredSkillId &&
                 IsStatusMaintenanceActive(rule, skillId, state, abnormalResult.Value.Entries))
             {
+                state.ClearStatusMaintenanceMissingRead(CreateStatusMaintenanceRuleStateKey(rule, skillId));
                 continue;
             }
 
             if (IsStatusMaintenanceActive(rule, skillId, state, abnormalResult.Value.Entries))
             {
+                state.ClearStatusMaintenanceMissingRead(CreateStatusMaintenanceRuleStateKey(rule, skillId));
                 continue;
             }
 
             var isChantStatusMaintenance = IsChantStatusMaintenanceRule(rule, maintenanceSkill);
+            if (isChantStatusMaintenance &&
+                ShouldDeferChantStatusMaintenanceMissingRead(
+                    rule,
+                    skillId,
+                    state,
+                    abnormalResult.Value.Entries,
+                    out var expectedAbnormalId,
+                    out var missingReadCount))
+            {
+                LogChantStatusMaintenanceMissingDeferred(
+                    context,
+                    rule,
+                    resource,
+                    skillId,
+                    expectedAbnormalId,
+                    missingReadCount);
+                continue;
+            }
 
             var now = DateTimeOffset.Now;
             if (!state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
@@ -1597,6 +1619,7 @@ public sealed class SemiAutoCombatController
                         state.RememberStatusMaintenanceAbnormalId(skillId, confirmedAbnormalId);
                     }
 
+                    state.ClearStatusMaintenanceMissingRead(CreateStatusMaintenanceRuleStateKey(rule, skillId));
                     var completedAt = DateTimeOffset.Now;
                     context.Logger.Info("semi_auto.maintenance.status_key_pressed", new Dictionary<string, object?>
                     {
@@ -3569,6 +3592,77 @@ public sealed class SemiAutoCombatController
         return 0;
     }
 
+    private static bool ShouldDeferChantStatusMaintenanceMissingRead(
+        StatusMaintenanceRuleConfig rule,
+        uint skillId,
+        SemiAutoCombatState state,
+        IReadOnlyList<AbnormalStatusEntrySnapshot> entries,
+        out uint expectedAbnormalId,
+        out int missingReadCount)
+    {
+        expectedAbnormalId = 0;
+        missingReadCount = 0;
+        if (!TryResolveExpectedStatusMaintenanceAbnormalId(rule, skillId, state, out expectedAbnormalId))
+        {
+            return false;
+        }
+
+        var stateKey = CreateStatusMaintenanceRuleStateKey(rule, skillId);
+        var expected = expectedAbnormalId;
+        if (entries.Any(entry => entry.AbnormalId == expected))
+        {
+            state.ClearStatusMaintenanceMissingRead(stateKey);
+            return false;
+        }
+
+        missingReadCount = state.MarkStatusMaintenanceMissingRead(stateKey);
+        return missingReadCount < ChantStatusMaintenanceMissingReadThreshold;
+    }
+
+    private static bool TryResolveExpectedStatusMaintenanceAbnormalId(
+        StatusMaintenanceRuleConfig rule,
+        uint skillId,
+        SemiAutoCombatState state,
+        out uint abnormalId)
+    {
+        if (rule.AbnormalStatusId != 0)
+        {
+            abnormalId = rule.AbnormalStatusId;
+            return true;
+        }
+
+        if (skillId != 0 &&
+            state.TryGetStatusMaintenanceAbnormalId(skillId, out abnormalId))
+        {
+            return true;
+        }
+
+        abnormalId = 0;
+        return false;
+    }
+
+    private static string CreateStatusMaintenanceRuleStateKey(
+        StatusMaintenanceRuleConfig rule,
+        uint skillId)
+    {
+        if (skillId != 0)
+        {
+            return "skill:" + skillId;
+        }
+
+        if (rule.AbnormalStatusId != 0)
+        {
+            return "abnormal:" + rule.AbnormalStatusId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(rule.SkillName))
+        {
+            return "name:" + rule.SkillName.Trim();
+        }
+
+        return "key:" + (rule.Key ?? string.Empty).Trim();
+    }
+
     private static void TryUpdateMaintenanceCooldownCalibration(
         AccountWorkerContext context,
         SemiAutoCombatState state,
@@ -3799,6 +3893,27 @@ public sealed class SemiAutoCombatController
             ["skillName"] = rule.SkillName,
             ["abnormalStatusId"] = rule.AbnormalStatusId,
             ["error"] = error
+        });
+    }
+
+    private static void LogChantStatusMaintenanceMissingDeferred(
+        AccountWorkerContext context,
+        StatusMaintenanceRuleConfig rule,
+        string resource,
+        uint skillId,
+        uint expectedAbnormalId,
+        int missingReadCount)
+    {
+        context.Logger.Info("semi_auto.maintenance.chant_missing_deferred", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["resource"] = resource,
+            ["key"] = rule.Key,
+            ["skillId"] = skillId,
+            ["skillName"] = rule.SkillName,
+            ["expectedAbnormalStatusId"] = expectedAbnormalId,
+            ["missingReadCount"] = missingReadCount,
+            ["requiredMissingReads"] = ChantStatusMaintenanceMissingReadThreshold
         });
     }
 

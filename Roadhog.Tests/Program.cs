@@ -14445,9 +14445,19 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
     retryState.RememberStatusMaintenanceAbnormalId(8200, 8232);
     keyboard.Keys.Clear();
     gameApi.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1);
-    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), retryState, gameApi.Player).ConfigureAwait(false);
+    var retryLogger = new InMemoryRoadhogLogger();
 
-    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "missing learned chant status should allow another maintenance press");
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, retryLogger), retryState, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "first missing learned chant status should defer maintenance press");
+    var deferredEntry = retryLogger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.chant_missing_deferred");
+    AssertFalse(deferredEntry is null, "first missing learned chant status should log deferred maintenance");
+    AssertEqual(1, Convert.ToInt32(deferredEntry!.Fields["missingReadCount"]), "first missing learned chant read count");
+    AssertEqual(2, Convert.ToInt32(deferredEntry.Fields["requiredMissingReads"]), "chant missing read threshold");
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, retryLogger), retryState, gameApi.Player).ConfigureAwait(false);
+
+    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "second consecutive missing learned chant status should allow maintenance press");
 }
 
 static async Task TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync()
