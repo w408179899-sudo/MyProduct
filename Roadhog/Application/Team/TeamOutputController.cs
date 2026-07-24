@@ -16,7 +16,9 @@ public sealed class TeamOutputController
     private static readonly TimeSpan AssistTargetInitialConfirmDelay = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan AssistTargetConfirmRetryDelay = TimeSpan.FromMilliseconds(80);
     private const int AssistTargetConfirmPolls = 3;
+    private const int LeaderAssistJumpInterval = 5;
     private const string LeaderAssistKey = "C";
+    private const string LeaderAssistJumpKey = "Space";
 
     private readonly IKeyboardInput _keyboard;
 
@@ -90,12 +92,14 @@ public sealed class TeamOutputController
                 .TryHandleAsync(context, _keyboard, state.LeaderRestSync, snapshot, leader, combatState, "team_output")
                 .ConfigureAwait(false))
         {
+            ResetLeaderAssistJumpCount(state);
             return TeamOutputTickResult.SkipNormalWork(TeamOutputTickDelay);
         }
 
         if (output.AllowSelfDefense &&
             await HasSelfDefenseThreatAsync(context, state, snapshot).ConfigureAwait(false))
         {
+            ResetLeaderAssistJumpCount(state);
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
 
@@ -119,6 +123,7 @@ public sealed class TeamOutputController
                 activeGroupDistanceMeters,
                 state.LeaderGroupActive,
                 combatState);
+            ResetLeaderAssistJumpCount(state);
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
 
@@ -133,6 +138,7 @@ public sealed class TeamOutputController
                 activeGroupDistanceMeters,
                 state.LeaderGroupActive,
                 combatState);
+            ResetLeaderAssistJumpCount(state);
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
         }
 
@@ -172,6 +178,7 @@ public sealed class TeamOutputController
                 leaderTargetServerObjectId,
                 out _))
         {
+            ResetLeaderAssistJumpCount(state);
             return AcceptLeaderAttackTarget(
                 context,
                 leader,
@@ -188,6 +195,7 @@ public sealed class TeamOutputController
         }
 
         var assistTargetKey = ResolveAssistTargetKey(output);
+        ResetLeaderAssistJumpCount(state);
         var assistResult = await _keyboard
             .PressKeyAsync(assistTargetKey, ResolveKeyHold(context), context.StopToken)
             .ConfigureAwait(false);
@@ -326,7 +334,45 @@ public sealed class TeamOutputController
             ["functionKey"] = FormatFunctionKey(leader),
             ["key"] = LeaderAssistKey
         });
+        await PressLeaderJumpIfDueAsync(context, state, leader).ConfigureAwait(false);
         return true;
+    }
+
+    private async Task PressLeaderJumpIfDueAsync(
+        AccountWorkerContext context,
+        TeamOutputState state,
+        TeamMemberSnapshot leader)
+    {
+        state.LeaderAssistPressCountSinceJump++;
+        if (state.LeaderAssistPressCountSinceJump < LeaderAssistJumpInterval)
+        {
+            return;
+        }
+
+        state.LeaderAssistPressCountSinceJump = 0;
+        var result = await _keyboard
+            .PressKeyAsync(LeaderAssistJumpKey, ResolveKeyHold(context), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            LogInputFailure(context, state, "team_output.leader_jump_key.failed", LeaderAssistJumpKey, result);
+            return;
+        }
+
+        state.LastActionAt = DateTimeOffset.Now;
+        context.Logger.Info("team_output.leader_jump.pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["leader"] = leader.Name,
+            ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["key"] = LeaderAssistJumpKey,
+            ["assistPressInterval"] = LeaderAssistJumpInterval
+        });
+    }
+
+    private static void ResetLeaderAssistJumpCount(TeamOutputState state)
+    {
+        state.LeaderAssistPressCountSinceJump = 0;
     }
 
     private async Task<MemberSelectionResult> EnsureMemberBodySelectedAsync(
@@ -353,6 +399,7 @@ public sealed class TeamOutputController
 
         for (var attempt = 1; attempt <= 3; attempt++)
         {
+            ResetLeaderAssistJumpCount(state);
             var pressResult = await _keyboard
                 .PressKeyAsync(functionKey, ResolveKeyHold(context), context.StopToken)
                 .ConfigureAwait(false);

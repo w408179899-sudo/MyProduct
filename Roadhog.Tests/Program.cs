@@ -92,6 +92,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support skips active whitelist maintenance buff", TestTeamSupportSkipsActiveWhitelistMaintenanceBuffAsync),
     ("team support throttles missing whitelist buff retry", TestTeamSupportThrottlesMissingWhitelistBuffRetryAsync),
     ("team support keeps already selected leader", TestTeamSupportKeepsAlreadySelectedLeaderAsync),
+    ("team support leader jump requires consecutive assists", TestTeamSupportLeaderJumpRequiresConsecutiveAssistsAsync),
     ("team support join combat continues while leader outside group range", TestTeamSupportJoinCombatContinuesWhileLeaderOutsideGroupRangeAsync),
     ("team support stays grouped until leader exit distance", TestTeamSupportStaysGroupedUntilLeaderExitDistanceAsync),
     ("team support waits for five consecutive leader unavailable ticks", TestTeamSupportWaitsForFiveConsecutiveLeaderUnavailableTicksAsync),
@@ -119,6 +120,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team output accepts monster targeting spiritmaster leader pet", TestTeamOutputAcceptsMonsterTargetingSpiritmasterLeaderPetAsync),
     ("team output accepts leader pet target when class unknown", TestTeamOutputAcceptsLeaderPetTargetWhenClassUnknownAsync),
     ("team output assists already selected leader", TestTeamOutputAssistsAlreadySelectedLeaderAsync),
+    ("team output jumps every five leader assists", TestTeamOutputJumpsEveryFiveLeaderAssistsAsync),
     ("team output falls back outside group range", TestTeamOutputFallsBackOutsideGroupRangeAsync),
     ("team output stays grouped until leader exit distance", TestTeamOutputStaysGroupedUntilLeaderExitDistanceAsync),
     ("team output waits for five consecutive leader unavailable ticks", TestTeamOutputWaitsForFiveConsecutiveLeaderUnavailableTicksAsync),
@@ -1710,6 +1712,69 @@ static async Task TestTeamSupportKeepsAlreadySelectedLeaderAsync()
     AssertSequence(new[] { "C" }, keyboard.Keys.ToArray(), "already selected leader should press follow without another F-key");
 }
 
+static async Task TestTeamSupportLeaderJumpRequiresConsecutiveAssistsAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0) with
+    {
+        Class = AionClassId.Chanter,
+        ClassId = (byte)AionClassId.Chanter,
+        ClassName = "Chanter"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Guardian", false, true, 10.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    SetFakeLockedTarget(gameApi, leader.ServerObjectId, LockedTargetSnapshot.PlayerObjectType, 0, 100);
+
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var state = new TeamSupportState();
+    var context = CreateContext(CreateTeamSupportSettings(), gameApi, logger);
+
+    for (var i = 1; i <= 4; i++)
+    {
+        var result = await controller.TickAsync(context, state).ConfigureAwait(false);
+        AssertFalse(!result.ShouldSkipNormalWork, "support should keep following leader before jump interval");
+    }
+
+    AssertEqual(4, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "support leader assist count before reset");
+    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "support jump count before reset");
+    AssertEqual(4, state.LeaderAssistPressCountSinceJump, "support state count before reset");
+
+    var injuredLeader = leader with { CurrentHp = 50, MaxHp = 100 };
+    gameApi.Party = CreateTeamSupportParty(self, injuredLeader);
+    var heal = await controller.TickAsync(context, state).ConfigureAwait(false);
+
+    AssertFalse(!heal.ShouldSkipNormalWork, "support heal should block normal work");
+    AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "NumPad1", StringComparison.Ordinal)), "support heal should press the heal key");
+    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "support jump should not fire before reset");
+    AssertEqual(0, state.LeaderAssistPressCountSinceJump, "support heal should reset leader assist count");
+
+    keyboard.Keys.Clear();
+    gameApi.Party = CreateTeamSupportParty(self, leader);
+    SetFakeLockedTarget(gameApi, leader.ServerObjectId, LockedTargetSnapshot.PlayerObjectType, 0, 100);
+
+    for (var i = 1; i <= 4; i++)
+    {
+        var result = await controller.TickAsync(context, state).ConfigureAwait(false);
+        AssertFalse(!result.ShouldSkipNormalWork, "support should restart consecutive leader assists after reset");
+    }
+
+    AssertEqual(4, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "support leader assist count after reset");
+    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "support jump should wait for five fresh assists");
+
+    var fifth = await controller.TickAsync(context, state).ConfigureAwait(false);
+
+    AssertFalse(!fifth.ShouldSkipNormalWork, "support should keep following leader on jump interval");
+    AssertEqual(5, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "support leader assist count at jump");
+    AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "support jump count at interval");
+    AssertEqual("C", keyboard.Keys[4], "fifth support leader assist should press C first");
+    AssertEqual("Space", keyboard.Keys[5], "fifth support leader assist should press Space after C");
+    AssertEqual(0, state.LeaderAssistPressCountSinceJump, "support count should reset after jump");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "team_support.leader_jump.pressed"),
+        "support leader jump should be logged");
+}
+
 static async Task TestTeamSupportJoinCombatContinuesWhileLeaderOutsideGroupRangeAsync()
 {
     var keyboard = new RecordingKeyboardInput();
@@ -2753,6 +2818,50 @@ static async Task TestTeamOutputAssistsAlreadySelectedLeaderAsync()
         keyboard.Keys.ToArray(),
         "already selected leader should press follow without another F-key before assist");
     AssertLeaderTargetAdopted(combatState, targetServerObjectId, "already selected leader assist should adopt target");
+}
+
+static async Task TestTeamOutputJumpsEveryFiveLeaderAssistsAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0);
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0);
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+
+    var controller = new TeamOutputController(keyboard);
+    var state = new TeamOutputState();
+    var context = CreateContext(CreateTeamOutputSettings(), gameApi, logger);
+
+    for (var i = 1; i <= 4; i++)
+    {
+        var result = await controller.TickAsync(context, state).ConfigureAwait(false);
+        AssertFalse(!result.ShouldSkipNormalWork, "output should keep following leader before jump interval");
+    }
+
+    AssertEqual(4, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "leader assist count before jump");
+    AssertEqual(0, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "leader jump count before interval");
+    AssertEqual(4, state.LeaderAssistPressCountSinceJump, "state count before jump");
+
+    var fifth = await controller.TickAsync(context, state).ConfigureAwait(false);
+
+    AssertFalse(!fifth.ShouldSkipNormalWork, "output should keep following leader on jump interval");
+    AssertEqual(5, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "leader assist count at jump");
+    AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "leader jump count at interval");
+    AssertEqual("C", keyboard.Keys[4], "fifth leader assist should press C first");
+    AssertEqual("Space", keyboard.Keys[5], "fifth leader assist should press Space after C");
+    AssertEqual(0, state.LeaderAssistPressCountSinceJump, "state count should reset after jump");
+    AssertFalse(
+        !logger.Entries.Any(entry => entry.EventName == "team_output.leader_jump.pressed"),
+        "leader jump should be logged");
+
+    var afterReset = await controller.TickAsync(context, state).ConfigureAwait(false);
+
+    AssertFalse(!afterReset.ShouldSkipNormalWork, "output should continue following after jump");
+    AssertEqual(6, keyboard.Keys.Count(key => string.Equals(key, "C", StringComparison.Ordinal)), "leader assist count after reset");
+    AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.Ordinal)), "leader jump should not repeat immediately after reset");
+    AssertEqual("C", keyboard.Keys[6], "first assist after reset should only press C");
+    AssertEqual(1, state.LeaderAssistPressCountSinceJump, "state count after reset");
 }
 
 static async Task TestTeamOutputFallsBackOutsideGroupRangeAsync()

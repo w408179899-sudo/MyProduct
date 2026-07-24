@@ -19,7 +19,9 @@ public sealed class TeamSupportController
     private static readonly TimeSpan AssistTargetConfirmRetryDelay = TimeSpan.FromMilliseconds(80);
     private static readonly IReadOnlySet<uint> EmptyProtectedServerObjectIds = new HashSet<uint>();
     private const int AssistTargetConfirmPolls = 3;
+    private const int LeaderAssistJumpInterval = 5;
     private const string LeaderAssistKey = "C";
+    private const string LeaderAssistJumpKey = "Space";
     private const string AssistTargetKey = "Oem3";
     private const string LifeBlessingName = "\u751F\u547D\u7684\u795D\u798F";
     private const string ProtectionBlessingName = "\u4FDD\u62A4\u795D\u798F";
@@ -107,6 +109,7 @@ public sealed class TeamSupportController
                 .TryHandleAsync(context, _keyboard, state.LeaderRestSync, snapshot, leader, combatState, "team_support")
                 .ConfigureAwait(false))
         {
+            ResetLeaderAssistJumpCount(state);
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
@@ -120,6 +123,7 @@ public sealed class TeamSupportController
                 .ConfigureAwait(false);
             if (selfDefenseResult is not null)
             {
+                ResetLeaderAssistJumpCount(state);
                 return selfDefenseResult;
             }
         }
@@ -144,6 +148,7 @@ public sealed class TeamSupportController
                 state.LeaderGroupActive,
                 support.JoinCombat,
                 combatState);
+            ResetLeaderAssistJumpCount(state);
             return TeamSupportTickResult.Continue(TeamSupportTickDelay);
         }
 
@@ -169,6 +174,7 @@ public sealed class TeamSupportController
                 state.LeaderGroupActive,
                 support.JoinCombat,
                 combatState);
+            ResetLeaderAssistJumpCount(state);
             return TeamSupportTickResult.Continue(TeamSupportTickDelay);
         }
 
@@ -402,6 +408,7 @@ public sealed class TeamSupportController
             return false;
         }
 
+        ResetLeaderAssistJumpCount(state);
         var result = await _keyboard
             .PressKeyAsync(key, ResolveKeyHold(context), context.StopToken)
             .ConfigureAwait(false);
@@ -476,7 +483,51 @@ public sealed class TeamSupportController
             ["functionKey"] = FormatFunctionKey(leader),
             ["key"] = LeaderAssistKey
         });
+        await PressLeaderJumpIfDueAsync(context, state, leader).ConfigureAwait(false);
         return true;
+    }
+
+    private async Task PressLeaderJumpIfDueAsync(
+        AccountWorkerContext context,
+        TeamSupportState state,
+        TeamMemberSnapshot leader)
+    {
+        state.LeaderAssistPressCountSinceJump++;
+        if (state.LeaderAssistPressCountSinceJump < LeaderAssistJumpInterval)
+        {
+            return;
+        }
+
+        state.LeaderAssistPressCountSinceJump = 0;
+        var result = await _keyboard
+            .PressKeyAsync(LeaderAssistJumpKey, ResolveKeyHold(context), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            state.LastInputWarningAt = DateTimeOffset.Now;
+            context.Logger.Warn("team_support.leader_jump_key.failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["key"] = LeaderAssistJumpKey,
+                ["error"] = result.Error
+            });
+            return;
+        }
+
+        state.LastActionAt = DateTimeOffset.Now;
+        context.Logger.Info("team_support.leader_jump.pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["leader"] = leader.Name,
+            ["leaderServerObjectId"] = leader.ServerObjectId,
+            ["key"] = LeaderAssistJumpKey,
+            ["assistPressInterval"] = LeaderAssistJumpInterval
+        });
+    }
+
+    private static void ResetLeaderAssistJumpCount(TeamSupportState state)
+    {
+        state.LeaderAssistPressCountSinceJump = 0;
     }
 
     private async Task<TeamSupportTickResult> SelectLeaderTargetForCombatAsync(
@@ -489,6 +540,7 @@ public sealed class TeamSupportController
     {
         if (leader is null || leader.IsSelf)
         {
+            ResetLeaderAssistJumpCount(state);
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
@@ -529,6 +581,7 @@ public sealed class TeamSupportController
                 selfDefenseServerObjectIds,
                 out _))
         {
+            ResetLeaderAssistJumpCount(state);
             return AcceptLeaderAttackTarget(
                 context,
                 leader,
@@ -544,6 +597,7 @@ public sealed class TeamSupportController
             return TeamSupportTickResult.SkipNormalWork(TeamSupportTickDelay);
         }
 
+        ResetLeaderAssistJumpCount(state);
         var assistResult = await _keyboard
             .PressKeyAsync(AssistTargetKey, ResolveKeyHold(context), context.StopToken)
             .ConfigureAwait(false);
@@ -703,6 +757,7 @@ public sealed class TeamSupportController
 
         for (var attempt = 1; attempt <= 3; attempt++)
         {
+            ResetLeaderAssistJumpCount(state);
             var pressResult = await _keyboard
                 .PressKeyAsync(functionKey, ResolveKeyHold(context), context.StopToken)
                 .ConfigureAwait(false);
