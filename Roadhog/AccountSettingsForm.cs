@@ -523,6 +523,7 @@ namespace Roadhog
 
             var document = load.Value;
             document.CleanupNpcName = npcName;
+            CopyBagCleanupClickPointsToPath(document);
             var save = _pathStore.SaveAsync(document).GetAwaiter().GetResult();
             if (save.Success)
             {
@@ -531,6 +532,46 @@ namespace Roadhog
 
             error = save.Error ?? "保存清包路径NPC绑定失败。";
             return false;
+        }
+
+        private void CopyBagCleanupClickPointsToPath(SharedPathDocument document)
+        {
+            var sellItemClickPoint = ReadScreenPoint(bagCleanupSellItemClickPointTextBox, 0, 0);
+            var sellButtonClickPoint = ReadScreenPoint(bagCleanupSellButtonClickPointTextBox, 0, 0);
+            document.BagCleanupSellItemClickX = sellItemClickPoint.X;
+            document.BagCleanupSellItemClickY = sellItemClickPoint.Y;
+            document.BagCleanupSellButtonClickX = sellButtonClickPoint.X;
+            document.BagCleanupSellButtonClickY = sellButtonClickPoint.Y;
+        }
+
+        private void ApplyBagCleanupPathClickPoints(SharedPathDocument document)
+        {
+            if (document.TryGetBagCleanupClickPoints(
+                    out var sellItemClickX,
+                    out var sellItemClickY,
+                    out var sellButtonClickX,
+                    out var sellButtonClickY))
+            {
+                SetBagCleanupClickPointTextBoxes(sellItemClickX, sellItemClickY, sellButtonClickX, sellButtonClickY);
+                return;
+            }
+
+            var settings = BuildEffectiveScriptSettings(LoadAccountConfigOrDefault());
+            SetBagCleanupClickPointTextBoxes(
+                settings.Maintenance.BagCleanupSellItemClickX,
+                settings.Maintenance.BagCleanupSellItemClickY,
+                settings.Maintenance.BagCleanupSellButtonClickX,
+                settings.Maintenance.BagCleanupSellButtonClickY);
+        }
+
+        private void SetBagCleanupClickPointTextBoxes(
+            int sellItemClickX,
+            int sellItemClickY,
+            int sellButtonClickX,
+            int sellButtonClickY)
+        {
+            SetText(bagCleanupSellItemClickPointTextBox, FormatScreenPoint(sellItemClickX, sellItemClickY));
+            SetText(bagCleanupSellButtonClickPointTextBox, FormatScreenPoint(sellButtonClickX, sellButtonClickY));
         }
 
         private ScriptSettings CaptureScriptSettings()
@@ -1341,6 +1382,8 @@ namespace Roadhog
                 editor.CleanupNpcRefreshButton.Click += async (_, _) =>
                     await RefreshCleanupNpcsAsync(editor).ConfigureAwait(true);
                 editor.CleanupNpcCombo = AddCombo(page, 414, 74, 238, 28);
+
+                AddBagCleanupPathClickPointControls(page, 596, 184);
             }
 
             editor.SummaryLabel = AddLabel(page, "点数  0  |  总距  0.0  |  跳过  0", 6, 112, 300, 24, _textGreen, FontStyle.Bold);
@@ -1387,6 +1430,33 @@ namespace Roadhog
 
             RefreshPathEditor(editor);
             return tab;
+        }
+
+        private void AddBagCleanupPathClickPointControls(Control page, int x, int y)
+        {
+            AddLabel(page, "出售道具", x, y + 2, 68, 24, _textGreen, FontStyle.Bold);
+            bagCleanupSellItemClickPointTextBox = AddTextBox(page, "0,0", x + 68, y, 84, 28);
+            var testSellItemPointButton = AddButton(page, "移动测试", x + 158, y, 66, 28);
+            testSellItemPointButton.Click += async (_, _) =>
+                await TestBagCleanupPointMoveAsync(
+                        bagCleanupSellItemClickPointTextBox,
+                        testSellItemPointButton,
+                        0,
+                        0,
+                        "出售道具")
+                    .ConfigureAwait(true);
+
+            AddLabel(page, "出售", x, y + 40, 68, 24, _textGreen, FontStyle.Bold);
+            bagCleanupSellButtonClickPointTextBox = AddTextBox(page, "0,0", x + 68, y + 38, 84, 28);
+            var testSellButtonPointButton = AddButton(page, "移动测试", x + 158, y + 38, 66, 28);
+            testSellButtonPointButton.Click += async (_, _) =>
+                await TestBagCleanupPointMoveAsync(
+                        bagCleanupSellButtonClickPointTextBox,
+                        testSellButtonPointButton,
+                        0,
+                        0,
+                        "出售")
+                    .ConfigureAwait(true);
         }
 
         private void RefreshPathLibrary()
@@ -1513,6 +1583,11 @@ namespace Roadhog
             editor.SkippedCount = 0;
             SetText(editor.PathNameTextBox, result.Value.Name);
             SetCleanupNpcSelection(editor, result.Value.CleanupNpcName);
+            if (editor.Kind == SharedPathKind.Maintenance)
+            {
+                ApplyBagCleanupPathClickPoints(result.Value);
+            }
+
             RefreshPathEditor(editor);
             RefreshPathOverviews();
             SetPathStatus(editor, "已加载路径: " + result.Value.Name, false);
@@ -1531,6 +1606,7 @@ namespace Roadhog
             if (editor.Kind == SharedPathKind.Maintenance)
             {
                 document.CleanupNpcName = GetSelectedCleanupNpcName(editor);
+                CopyBagCleanupClickPointsToPath(document);
             }
 
             var result = await _pathStore.SaveAsync(document).ConfigureAwait(true);
@@ -2081,30 +2157,6 @@ namespace Roadhog
             var testCleanupButton = AddButton(page, "测试清包", 38, 442, 166, 36);
             testCleanupButton.Click += async (_, _) =>
                 await TestBagCleanupFromNpcAsync(testCleanupButton).ConfigureAwait(true);
-
-            AddLabel(page, "出售道具", 18, 548, 68, 24, _textGreen, FontStyle.Bold);
-            bagCleanupSellItemClickPointTextBox = AddTextBox(page, "0,0", 86, 546, 84, 28);
-            var testSellItemPointButton = AddButton(page, "移动测试", 176, 546, 66, 28);
-            testSellItemPointButton.Click += async (_, _) =>
-                await TestBagCleanupPointMoveAsync(
-                        bagCleanupSellItemClickPointTextBox,
-                        testSellItemPointButton,
-                        0,
-                        0,
-                        "出售道具")
-                    .ConfigureAwait(true);
-
-            AddLabel(page, "出售", 244, 548, 40, 24, _textGreen, FontStyle.Bold);
-            bagCleanupSellButtonClickPointTextBox = AddTextBox(page, "0,0", 286, 546, 84, 28);
-            var testSellButtonPointButton = AddButton(page, "移动测试", 376, 546, 66, 28);
-            testSellButtonPointButton.Click += async (_, _) =>
-                await TestBagCleanupPointMoveAsync(
-                        bagCleanupSellButtonClickPointTextBox,
-                        testSellButtonPointButton,
-                        0,
-                        0,
-                        "出售")
-                    .ConfigureAwait(true);
 
             AddLabel(page, "物品坐标", 18, 500, 68, 24, _textGreen, FontStyle.Bold);
             bagCleanupItemCoordinateModeCombo = AddCombo(

@@ -518,11 +518,12 @@ public sealed class BagCleanupController
         BagCleanupState state)
     {
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
+        var point = ResolveBagCleanupSellItemClickPoint(state.CleanupPath, maintenance);
         var result = await _seller
             .ClickScreenPointAsync(
                 context,
-                maintenance.BagCleanupSellItemClickX,
-                maintenance.BagCleanupSellItemClickY,
+                point.X,
+                point.Y,
                 "sell_item_entry")
             .ConfigureAwait(false);
         if (!result.Success)
@@ -680,6 +681,7 @@ public sealed class BagCleanupController
         BagCleanupState state)
     {
         var maintenance = context.Config.ScriptSettings?.Maintenance ?? new MaintenanceScriptSettings();
+        var point = ResolveBagCleanupSellButtonClickPoint(state.CleanupPath, maintenance);
         var moneyBefore = await BagCleanupGameApi.ReadInventoryMoneyAsync(context).ConfigureAwait(false);
         if (!moneyBefore.Success)
         {
@@ -700,8 +702,8 @@ public sealed class BagCleanupController
         var result = await _seller
             .ClickScreenPointAsync(
                 context,
-                maintenance.BagCleanupSellButtonClickX,
-                maintenance.BagCleanupSellButtonClickY,
+                point.X,
+                point.Y,
                 "sell_button")
             .ConfigureAwait(false);
         if (!result.Success)
@@ -857,6 +859,32 @@ public sealed class BagCleanupController
         });
         state.ReturnAfterFailure(reason, error);
         return BagCleanupTickResult.Running(reason + "_returning");
+    }
+
+    private static (int X, int Y) ResolveBagCleanupSellItemClickPoint(
+        SharedPathDocument? cleanupPath,
+        MaintenanceScriptSettings maintenance)
+    {
+        return cleanupPath?.TryGetBagCleanupClickPoints(
+                out var sellItemClickX,
+                out var sellItemClickY,
+                out _,
+                out _) == true
+            ? (sellItemClickX, sellItemClickY)
+            : (maintenance.BagCleanupSellItemClickX, maintenance.BagCleanupSellItemClickY);
+    }
+
+    private static (int X, int Y) ResolveBagCleanupSellButtonClickPoint(
+        SharedPathDocument? cleanupPath,
+        MaintenanceScriptSettings maintenance)
+    {
+        return cleanupPath?.TryGetBagCleanupClickPoints(
+                out _,
+                out _,
+                out var sellButtonClickX,
+                out var sellButtonClickY) == true
+            ? (sellButtonClickX, sellButtonClickY)
+            : (maintenance.BagCleanupSellButtonClickX, maintenance.BagCleanupSellButtonClickY);
     }
 
     private async Task<BagCleanupTickResult> TickReturnByReversePathAsync(

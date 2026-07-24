@@ -451,7 +451,14 @@ static async Task TestSharedPathStoreRoundTripAsync()
         buffer.TryAdd(new Vector3Snapshot(16, 20, 30), DateTimeOffset.Now);
         var name = "测试路径/共享";
 
-        var save = await store.SaveAsync(buffer.ToDocument(name)).ConfigureAwait(false);
+        var document = buffer.ToDocument(name);
+        document.CleanupNpcName = "清包商人";
+        document.BagCleanupSellItemClickX = 111;
+        document.BagCleanupSellItemClickY = 222;
+        document.BagCleanupSellButtonClickX = 333;
+        document.BagCleanupSellButtonClickY = 444;
+
+        var save = await store.SaveAsync(document).ConfigureAwait(false);
         AssertFalse(!save.Success, "path save should succeed");
 
         var summaries = await store.LoadSummariesAsync().ConfigureAwait(false);
@@ -464,6 +471,22 @@ static async Task TestSharedPathStoreRoundTripAsync()
         AssertFalse(!loaded.Success, "saved path should load");
         AssertEqual(2, loaded.Value?.PointCount ?? 0, "loaded point count");
         AssertEqual(6.0D, Math.Round(loaded.Value?.TotalDistance ?? 0, 2), "loaded total distance");
+        AssertEqual("清包商人", loaded.Value?.CleanupNpcName ?? string.Empty, "loaded cleanup npc name");
+        var sellItemClickX = 0;
+        var sellItemClickY = 0;
+        var sellButtonClickX = 0;
+        var sellButtonClickY = 0;
+        var hasClickPoints = loaded.Value is not null &&
+                             loaded.Value.TryGetBagCleanupClickPoints(
+                                 out sellItemClickX,
+                                 out sellItemClickY,
+                                 out sellButtonClickX,
+                                 out sellButtonClickY);
+        AssertFalse(!hasClickPoints, "loaded cleanup path should include bag cleanup click points");
+        AssertEqual(111, sellItemClickX, "loaded sell item click x");
+        AssertEqual(222, sellItemClickY, "loaded sell item click y");
+        AssertEqual(333, sellButtonClickX, "loaded sell button click x");
+        AssertEqual(444, sellButtonClickY, "loaded sell button click y");
 
         var delete = await store.DeleteAsync(name).ConfigureAwait(false);
         AssertFalse(!delete.Success, "path delete should succeed");
@@ -4497,6 +4520,10 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         {
             Name = "cleanup-path",
             CleanupNpcName = cleanupNpcName,
+            BagCleanupSellItemClickX = 210,
+            BagCleanupSellItemClickY = 310,
+            BagCleanupSellButtonClickX = 410,
+            BagCleanupSellButtonClickY = 510,
             Points = new List<SharedPathPoint>
             {
                 new() { X = 1, Y = 0, Z = 0 },
@@ -4532,6 +4559,10 @@ static async Task TestBagCleanupControllerSellsItemsAndReturnsAsync()
         AssertFalse(gameApi.InventoryItems.Any(item => item.InstanceId is 10UL or 11UL), "sold items should be removed before verification");
         AssertEqual(1200UL, gameApi.InventoryMoney, "money should increase after sell");
         AssertFalse(gameApi.InventoryWindow.IsOpen, "cleanup should close inventory before sell click");
+        AssertFalse(!keyboard.MouseCommands.Contains("move:210,310"), "cleanup should use cleanup path sell item entry point");
+        AssertFalse(!keyboard.MouseCommands.Contains("move:410,510"), "cleanup should use cleanup path sell button point");
+        AssertFalse(keyboard.MouseCommands.Contains("move:100,200"), "cleanup should not use legacy account sell item entry point when path points exist");
+        AssertFalse(keyboard.MouseCommands.Contains("move:300,400"), "cleanup should not use legacy account sell button point when path points exist");
         AssertFalse(state.LastCompletedAt == DateTimeOffset.MinValue, "completion should start cleanup cooldown");
         var check = logger.Entries.FirstOrDefault(entry => entry.EventName == "bag_cleanup.check");
         AssertFalse(check is null, "cleanup check should be logged");
