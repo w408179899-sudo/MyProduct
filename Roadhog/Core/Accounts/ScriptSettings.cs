@@ -492,6 +492,7 @@ public static class BagCleanupRuleCatalog
 {
     public const string GreenEquipment = "equipment.green";
     public const string BlueEquipment = "equipment.blue";
+    public const string WhiteEquipment = "equipment.white";
     public const string WhiteManastone = "manastone.white";
     public const string GreenManastone = "manastone.green";
     public const string Stigma = "scroll.stigma";
@@ -510,6 +511,7 @@ public static class BagCleanupRuleCatalog
         {
             Rule(GreenEquipment, "绿色装备", "equipment", "green", "weapon", "armor", "accessory", "shield"),
             Rule(BlueEquipment, "蓝色装备", "equipment", "blue", "weapon", "armor", "accessory", "shield"),
+            Rule(WhiteEquipment, "白色装备", "equipment", "white", "weapon", "armor", "accessory", "shield"),
             Rule(WhiteManastone, "白色魔石", "manastone", "white", "manastone"),
             Rule(GreenManastone, "绿色魔石", "manastone", "green", "manastone"),
             Rule(Stigma, "烙印", "scroll", string.Empty, "stigma"),

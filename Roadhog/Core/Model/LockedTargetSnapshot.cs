@@ -13,7 +13,9 @@ public sealed record LockedTargetSnapshot(
     DateTimeOffset CapturedAt,
     uint TargetServerObjectId = 0,
     bool IsTargetingLocalPlayer = false,
-    uint LocalServerObjectId = 0)
+    uint LocalServerObjectId = 0,
+    uint LootableRaw = 0,
+    uint InteractionState = 0)
 {
     public const uint PlayerObjectType = 1;
     public const uint MonsterObjectType = 2;
@@ -29,6 +31,10 @@ public sealed record LockedTargetSnapshot(
     public bool IsLockedMonster => HasTarget && IsMonster;
 
     public bool IsMonsterAlive => HasTarget && IsMonster && IsAlive;
+
+    public bool HasLoot => LootableRaw != 0;
+
+    public bool IsLootableCorpse => IsLockedMonster && !IsAlive && HasLoot;
 
     public bool TargetServerObjectIdMatchesLocal =>
         LocalServerObjectId != 0 &&

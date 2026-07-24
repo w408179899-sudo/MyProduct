@@ -1132,6 +1132,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                     ["objectType"] = snapshot.ObjectType,
                     ["hp"] = snapshot.CurrentHp,
                     ["maxHp"] = snapshot.MaxHp,
+                    ["lootRaw"] = snapshot.LootableRaw,
+                    ["interactionState"] = snapshot.InteractionState,
                     ["isMonsterAlive"] = snapshot.IsMonsterAlive,
                     ["bypassMemoryCache"] = context.BypassMemoryCache,
                     ["actorAddress"] = target.Actor?.Actor.ToString("X") ?? string.Empty,
@@ -5015,7 +5017,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
             capturedAt,
             targetServerObjectId,
             info.LocalServerObjectId != 0 && targetServerObjectId == info.LocalServerObjectId,
-            info.LocalServerObjectId);
+            info.LocalServerObjectId,
+            info.Actor?.LootableRaw ?? 0,
+            info.Actor?.InteractionState ?? 0);
     }
 
     private static bool TryReadSummonedPet(
@@ -5731,7 +5735,9 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                             localServerObjectId != 0 && actor.TargetServerObjectId == localServerObjectId,
                             npcStaticDetail.AggressiveKnown,
                             npcStaticDetail.AggressiveToPlayer,
-                            npcStaticDetail.AggressiveSource));
+                            npcStaticDetail.AggressiveSource,
+                            actor.LootableRaw,
+                            actor.InteractionState));
                     }
                 }
             }
@@ -5830,11 +5836,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                         IsReasonablePosition(x, y, z) &&
                         TryResolveActorFromEntity(process, entity, serverObjectId, out var actor))
                     {
-                        TryReadUInt32(process, actor.Actor + ActorLootableFlagOffset, out var lootableRaw);
-                        TryReadUInt32(process, actor.Actor + ActorInteractionStateOffset, out var interactionState);
-
                         var deadByHp = actor.MaxHp > 0 && (actor.CurrentHp == 0 || actor.HpPercent == 0);
-                        if (deadByHp || lootableRaw != 0)
+                        if (deadByHp || actor.LootableRaw != 0)
                         {
                             var dx = x - localX;
                             var dy = y - localY;
@@ -5853,8 +5856,8 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
                                 actor.CurrentHp,
                                 actor.MaxHp,
                                 actor.HpPercent,
-                                lootableRaw,
-                                interactionState,
+                                actor.LootableRaw,
+                                actor.InteractionState,
                                 DateTimeOffset.Now));
                         }
                     }
@@ -6200,11 +6203,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         TryReadUInt16(process, actorAddress + ActorLevelOffset, out actor.Level, bypassMemoryCache);
         TryReadByte(process, actorAddress + ActorHpPercentOffset, out actor.HpPercent);
         TryReadUInt32(process, actorAddress + ActorTargetServerObjectIdOffset, out actor.TargetServerObjectId, bypassMemoryCache);
+        TryReadUInt32(process, actorAddress + ActorInteractionStateOffset, out actor.InteractionState, bypassMemoryCache);
         var hasStanceFlags = TryReadUInt32(process, actorAddress + ActorStanceFlagsOffset, out actor.StanceFlags, bypassMemoryCache);
         var hasMotionMode = TryReadUInt32(process, actorAddress + ActorMotionModeOffset, out actor.MotionMode, bypassMemoryCache);
         actor.HasRestState = hasStanceFlags && hasMotionMode;
         TryReadUInt32(process, actorAddress + ActorMaxHpOffset, out actor.MaxHp, bypassMemoryCache);
         TryReadUInt32(process, actorAddress + ActorCurrentHpOffset, out actor.CurrentHp, bypassMemoryCache);
+        TryReadUInt32(process, actorAddress + ActorLootableFlagOffset, out actor.LootableRaw, bypassMemoryCache);
 
         if (TryReadUtf16String(process, actorAddress + ActorNameOffset, 64, out var name, bypassMemoryCache))
         {
@@ -7552,8 +7557,10 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         public ushort Level;
         public byte HpPercent;
         public uint TargetServerObjectId;
+        public uint InteractionState;
         public uint MaxHp;
         public uint CurrentHp;
+        public uint LootableRaw;
         public string Name = string.Empty;
         public string ResolveSource = string.Empty;
         public bool HasRestState;

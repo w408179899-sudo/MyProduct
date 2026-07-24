@@ -14,7 +14,9 @@ public sealed class SemiAutoCombatState
     private readonly Dictionary<uint, uint> knownCooldownEndTimes = new();
     private readonly Dictionary<uint, DateTimeOffset> uncalibratedUnknownSuppressUntil = new();
     private readonly Dictionary<string, DateTimeOffset> maintenanceKeyPressedAt = new(StringComparer.OrdinalIgnoreCase);
+    private DateTimeOffset lastMaintenanceKeyPressedAt = DateTimeOffset.MinValue;
     private readonly Dictionary<uint, uint> statusMaintenanceAbnormalIds = new();
+    private readonly Dictionary<string, DateTimeOffset> statusMaintenanceActiveSeenAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int> statusMaintenanceMissingReadCounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> statusMaintenanceMissingReadStartedAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, uint> spiritmasterDotAbnormalIds = new();
@@ -237,7 +239,23 @@ public sealed class SemiAutoCombatState
 
     public bool ShouldPressMaintenanceKey(string key, DateTimeOffset now, TimeSpan interval)
     {
+        return ShouldPressMaintenanceKey(key, now, interval, TimeSpan.Zero);
+    }
+
+    public bool ShouldPressMaintenanceKey(
+        string key,
+        DateTimeOffset now,
+        TimeSpan interval,
+        TimeSpan globalInterval)
+    {
         if (string.IsNullOrWhiteSpace(key))
+        {
+            return false;
+        }
+
+        if (globalInterval > TimeSpan.Zero &&
+            lastMaintenanceKeyPressedAt != DateTimeOffset.MinValue &&
+            now - lastMaintenanceKeyPressedAt < globalInterval)
         {
             return false;
         }
@@ -251,6 +269,7 @@ public sealed class SemiAutoCombatState
         if (!string.IsNullOrWhiteSpace(key))
         {
             maintenanceKeyPressedAt[key.Trim()] = now;
+            lastMaintenanceKeyPressedAt = now;
         }
     }
 
@@ -300,6 +319,25 @@ public sealed class SemiAutoCombatState
         }
     }
 
+    public void MarkStatusMaintenanceActive(string ruleKey, DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(ruleKey))
+        {
+            return;
+        }
+
+        var key = ruleKey.Trim();
+        statusMaintenanceActiveSeenAt[key] = now;
+        ClearStatusMaintenanceMissingRead(key);
+    }
+
+    public bool TryGetStatusMaintenanceActiveSeenAt(string ruleKey, out DateTimeOffset activeSeenAt)
+    {
+        activeSeenAt = DateTimeOffset.MinValue;
+        return !string.IsNullOrWhiteSpace(ruleKey) &&
+               statusMaintenanceActiveSeenAt.TryGetValue(ruleKey.Trim(), out activeSeenAt);
+    }
+
     public int MarkStatusMaintenanceMissingRead(
         string ruleKey,
         DateTimeOffset now,
@@ -332,6 +370,18 @@ public sealed class SemiAutoCombatState
             statusMaintenanceMissingReadCounts.Remove(key);
             statusMaintenanceMissingReadStartedAt.Remove(key);
         }
+    }
+
+    public void ClearStatusMaintenanceStickyState()
+    {
+        statusMaintenanceActiveSeenAt.Clear();
+    }
+
+    public void ClearStatusMaintenanceTransientState()
+    {
+        ClearStatusMaintenanceStickyState();
+        statusMaintenanceMissingReadCounts.Clear();
+        statusMaintenanceMissingReadStartedAt.Clear();
     }
 
     public bool TryGetSpiritmasterDotAbnormalId(uint skillId, out uint abnormalId)

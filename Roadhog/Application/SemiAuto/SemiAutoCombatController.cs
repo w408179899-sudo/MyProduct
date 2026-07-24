@@ -14,8 +14,9 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan MaintenanceConfirmWindow = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan MaintenanceConfirmPollInterval = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan MaintenanceKeyRetryInterval = TimeSpan.FromSeconds(3);
+    internal static readonly TimeSpan MaintenanceGlobalKeyInterval = TimeSpan.FromMilliseconds(600);
     private static readonly TimeSpan MaintenanceRestExitBeforeKeyDelay = TimeSpan.FromMilliseconds(150);
-    private static readonly TimeSpan PostCombatPotionPressInterval = TimeSpan.FromMilliseconds(800);
+    private static readonly TimeSpan SupportSelfSelectConfirmDelay = TimeSpan.FromMilliseconds(25);
     private static readonly TimeSpan SpiritmasterCooldownConfirmRetryInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan SpiritmasterSummonKeyInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan SpiritmasterSummonAttemptInterval = TimeSpan.FromSeconds(6);
@@ -23,9 +24,10 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan SpiritmasterOpeningAttackKeyInterval = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan OpeningSkillConfirmationTimeout = TimeSpan.FromSeconds(6);
     private static readonly string AttackKey = "C";
+    private static readonly string SupportSelfSelectKey = "F1";
     private static readonly string RestEnterKey = "OemComma";
     private static readonly string RestExitKey = "X";
-    private static readonly TimeSpan ChantStatusMaintenanceMissingReadMinimumDuration = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ChantStatusMaintenanceMissingReadMinimumDuration = TimeSpan.FromSeconds(60);
     private const int ChantStatusMaintenanceMissingReadThreshold = 3;
     private const string OpeningSkillConfirmationTimeoutEnvVar = "ROADHOG_OPENING_SKILL_CONFIRM_TIMEOUT_MS";
 
@@ -555,6 +557,7 @@ public sealed class SemiAutoCombatController
     {
         var settings = context.Config.ScriptSettings?.SemiAuto ?? new SemiAutoScriptSettings();
         var maintenance = context.Config.ScriptSettings?.Maintenance;
+        state.ClearStatusMaintenanceStickyState();
         if (maintenance is null || !player.HasKnownHealth || player.IsDead)
         {
             state.ClearMaintenanceRest();
@@ -764,6 +767,13 @@ public sealed class SemiAutoCombatController
         MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
         bool includeAlwaysRules = true)
     {
+        if (player.HasKnownHealth && player.IsDead)
+        {
+            state.ClearStatusMaintenanceTransientState();
+            state.ClearMaintenanceRest();
+            return false;
+        }
+
         if (!HasMaintenanceWork(maintenance, allowSitMaintenance, runTiming, includeAlwaysRules))
         {
             if (clearSitWhenDisallowed)
@@ -1012,7 +1022,11 @@ public sealed class SemiAutoCombatController
             if (player.HasRestState && !player.IsResting)
             {
                 var now = DateTimeOffset.Now;
-                if (!state.ShouldPressMaintenanceKey(RestEnterKey, now, MaintenanceKeyRetryInterval))
+                if (!state.ShouldPressMaintenanceKey(
+                        RestEnterKey,
+                        now,
+                        MaintenanceKeyRetryInterval,
+                        MaintenanceGlobalKeyInterval))
                 {
                     return true;
                 }
@@ -1107,7 +1121,11 @@ public sealed class SemiAutoCombatController
             if (rule.ActionType == MaintenanceRuleActionType.Potion)
             {
                 if (!string.Equals(resource, "mp", StringComparison.OrdinalIgnoreCase) ||
-                    !state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
+                    !state.ShouldPressMaintenanceKey(
+                        rule.Key,
+                        now,
+                        MaintenanceKeyRetryInterval,
+                        MaintenanceGlobalKeyInterval))
                 {
                     continue;
                 }
@@ -1125,9 +1143,7 @@ public sealed class SemiAutoCombatController
                             percent,
                             threshold,
                             player,
-                            beforeMaintenanceKeyPress,
-                            pressCount: 2,
-                            pressInterval: PostCombatPotionPressInterval)
+                            beforeMaintenanceKeyPress)
                         .ConfigureAwait(false);
                 }
 
@@ -1192,12 +1208,14 @@ public sealed class SemiAutoCombatController
                 }
             }
 
-            if (maintenanceSkill is null)
+            now = DateTimeOffset.Now;
+            if (!state.ShouldPressMaintenanceKey(
+                    rule.Key,
+                    now,
+                    MaintenanceKeyRetryInterval,
+                    MaintenanceGlobalKeyInterval))
             {
-                if (!state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
-                {
-                    continue;
-                }
+                continue;
             }
 
             return await ExecuteMaintenanceKeyRuleAsync(
@@ -1254,9 +1272,19 @@ public sealed class SemiAutoCombatController
         foreach (var rule in configuredRules)
         {
             var configuredSkillId = rule.SkillId;
+            var now = DateTimeOffset.Now;
+            var configuredStateKey = CreateStatusMaintenanceRuleStateKey(rule, configuredSkillId);
             if (IsStatusMaintenanceActive(rule, configuredSkillId, state, abnormalResult.Value.Entries))
             {
-                state.ClearStatusMaintenanceMissingRead(CreateStatusMaintenanceRuleStateKey(rule, configuredSkillId));
+                if (IsChantStatusMaintenanceRule(rule, null))
+                {
+                    state.MarkStatusMaintenanceActive(configuredStateKey, now);
+                }
+                else
+                {
+                    state.ClearStatusMaintenanceMissingRead(configuredStateKey);
+                }
+
                 continue;
             }
 
@@ -1296,25 +1324,43 @@ public sealed class SemiAutoCombatController
             }
 
             var skillId = ResolveStatusMaintenanceSkillId(rule, maintenanceSkill);
+            var isChantStatusMaintenance = IsChantStatusMaintenanceRule(rule, maintenanceSkill);
+            var stateKey = CreateStatusMaintenanceRuleStateKey(rule, skillId);
             if (skillId != configuredSkillId &&
                 IsStatusMaintenanceActive(rule, skillId, state, abnormalResult.Value.Entries))
             {
-                state.ClearStatusMaintenanceMissingRead(CreateStatusMaintenanceRuleStateKey(rule, skillId));
+                if (isChantStatusMaintenance)
+                {
+                    state.MarkStatusMaintenanceActive(stateKey, now);
+                }
+                else
+                {
+                    state.ClearStatusMaintenanceMissingRead(stateKey);
+                }
+
                 continue;
             }
 
             if (IsStatusMaintenanceActive(rule, skillId, state, abnormalResult.Value.Entries))
             {
-                state.ClearStatusMaintenanceMissingRead(CreateStatusMaintenanceRuleStateKey(rule, skillId));
+                if (isChantStatusMaintenance)
+                {
+                    state.MarkStatusMaintenanceActive(stateKey, now);
+                }
+                else
+                {
+                    state.ClearStatusMaintenanceMissingRead(stateKey);
+                }
+
                 continue;
             }
 
-            var isChantStatusMaintenance = IsChantStatusMaintenanceRule(rule, maintenanceSkill);
-            var now = DateTimeOffset.Now;
             var chantMissingReady = false;
             uint chantExpectedAbnormalId = 0;
             int chantMissingReadCount = 0;
             var chantMissingDuration = TimeSpan.Zero;
+            var chantStickyActive = false;
+            var chantLastActiveSeenAt = DateTimeOffset.MinValue;
             if (isChantStatusMaintenance &&
                 TryEvaluateChantStatusMaintenanceMissingRead(
                     rule,
@@ -1325,6 +1371,8 @@ public sealed class SemiAutoCombatController
                     out chantExpectedAbnormalId,
                     out chantMissingReadCount,
                     out chantMissingDuration,
+                    out chantStickyActive,
+                    out chantLastActiveSeenAt,
                     out var shouldDeferChantMissing))
             {
                 if (shouldDeferChantMissing)
@@ -1336,14 +1384,20 @@ public sealed class SemiAutoCombatController
                         skillId,
                         chantExpectedAbnormalId,
                         chantMissingReadCount,
-                        chantMissingDuration);
+                        chantMissingDuration,
+                        chantStickyActive,
+                        chantLastActiveSeenAt);
                     continue;
                 }
 
                 chantMissingReady = true;
             }
 
-            if (!state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
+            if (!state.ShouldPressMaintenanceKey(
+                    rule.Key,
+                    now,
+                    MaintenanceKeyRetryInterval,
+                    MaintenanceGlobalKeyInterval))
             {
                 continue;
             }
@@ -1357,7 +1411,9 @@ public sealed class SemiAutoCombatController
                     skillId,
                     chantExpectedAbnormalId,
                     chantMissingReadCount,
-                    chantMissingDuration);
+                    chantMissingDuration,
+                    chantStickyActive,
+                    chantLastActiveSeenAt);
             }
 
             return await ExecuteStatusMaintenanceKeyRuleAsync(
@@ -1441,13 +1497,14 @@ public sealed class SemiAutoCombatController
                     continue;
                 }
             }
-            else
+            var now = DateTimeOffset.Now;
+            if (!state.ShouldPressMaintenanceKey(
+                    rule.Key,
+                    now,
+                    MaintenanceKeyRetryInterval,
+                    MaintenanceGlobalKeyInterval))
             {
-                var now = DateTimeOffset.Now;
-                if (!state.ShouldPressMaintenanceKey(rule.Key, now, MaintenanceKeyRetryInterval))
-                {
-                    continue;
-                }
+                continue;
             }
 
             return await ExecuteDpMaintenanceKeyRuleAsync(
@@ -1515,6 +1572,7 @@ public sealed class SemiAutoCombatController
                 return false;
             }
 
+            state.MarkMaintenanceKeyAttempted(rule.Key, DateTimeOffset.Now);
             if (baselineCooldowns is not null)
             {
                 var skillsResult = await ReadAllSkillsAsync(context).ConfigureAwait(false);
@@ -1598,6 +1656,17 @@ public sealed class SemiAutoCombatController
             await beforeMaintenanceKeyPress().ConfigureAwait(false);
         }
 
+        if (!await EnsureSupportSelfSelectedBeforeStatusMaintenanceAsync(
+                    context,
+                    state,
+                    settings,
+                    rule,
+                    player)
+                .ConfigureAwait(false))
+        {
+            return false;
+        }
+
         if (!await EnsureStandingBeforeMaintenanceKeyAsync(
                     context,
                     state,
@@ -1650,8 +1719,17 @@ public sealed class SemiAutoCombatController
                         state.RememberStatusMaintenanceAbnormalId(skillId, confirmedAbnormalId);
                     }
 
-                    state.ClearStatusMaintenanceMissingRead(CreateStatusMaintenanceRuleStateKey(rule, skillId));
                     var completedAt = DateTimeOffset.Now;
+                    var stateKey = CreateStatusMaintenanceRuleStateKey(rule, skillId);
+                    if (isChantStatusMaintenance)
+                    {
+                        state.MarkStatusMaintenanceActive(stateKey, completedAt);
+                    }
+                    else
+                    {
+                        state.ClearStatusMaintenanceMissingRead(stateKey);
+                    }
+
                     context.Logger.Info("semi_auto.maintenance.status_key_pressed", new Dictionary<string, object?>
                     {
                         ["account"] = context.Config.AccountName,
@@ -1701,6 +1779,58 @@ public sealed class SemiAutoCombatController
             ["confirmWindowMs"] = (long)MaintenanceConfirmWindow.TotalMilliseconds,
             ["confirmElapsedMs"] = (long)Math.Max(0.0D, (completedAtUnconfirmed - startedAt).TotalMilliseconds)
         });
+        return true;
+    }
+
+    private async Task<bool> EnsureSupportSelfSelectedBeforeStatusMaintenanceAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        StatusMaintenanceRuleConfig rule,
+        PlayerSnapshot player)
+    {
+        if (!ShouldSelectSelfBeforeStatusMaintenance(context))
+        {
+            return true;
+        }
+
+        var current = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
+        if (IsSelectedLocalPlayer(current, player))
+        {
+            LogStatusMaintenanceSelfTargetSelected(context, rule, current.Value!, alreadySelected: true);
+            return true;
+        }
+
+        var pressResult = await _keyboard
+            .PressKeyAsync(SupportSelfSelectKey, Ms(settings.KeyHoldMs, 25), context.StopToken)
+            .ConfigureAwait(false);
+        if (!pressResult.Success)
+        {
+            LogStatusMaintenanceSelfTargetSelectionFailed(
+                context,
+                state,
+                rule,
+                current,
+                "press_failed",
+                pressResult.Error);
+            return false;
+        }
+
+        await Task.Delay(SupportSelfSelectConfirmDelay, context.StopToken).ConfigureAwait(false);
+        var confirmed = await ReadLockedTargetAsync(context, bypassMemoryCache: true).ConfigureAwait(false);
+        if (!IsSelectedLocalPlayer(confirmed, player))
+        {
+            LogStatusMaintenanceSelfTargetSelectionFailed(
+                context,
+                state,
+                rule,
+                confirmed,
+                confirmed.Success ? "target_mismatch" : "read_failed",
+                confirmed.Error);
+            return false;
+        }
+
+        LogStatusMaintenanceSelfTargetSelected(context, rule, confirmed.Value!, alreadySelected: false);
         return true;
     }
 
@@ -1861,6 +1991,7 @@ public sealed class SemiAutoCombatController
                 return false;
             }
 
+            state.MarkMaintenanceKeyAttempted(rule.Key, DateTimeOffset.Now);
             if (baselineCooldowns is not null)
             {
                 var skillsResult = await ReadAllSkillsAsync(context).ConfigureAwait(false);
@@ -3632,11 +3763,15 @@ public sealed class SemiAutoCombatController
         out uint expectedAbnormalId,
         out int missingReadCount,
         out TimeSpan missingDuration,
+        out bool stickyActive,
+        out DateTimeOffset lastActiveSeenAt,
         out bool shouldDefer)
     {
         expectedAbnormalId = 0;
         missingReadCount = 0;
         missingDuration = TimeSpan.Zero;
+        stickyActive = false;
+        lastActiveSeenAt = DateTimeOffset.MinValue;
         shouldDefer = false;
         if (!TryResolveExpectedStatusMaintenanceAbnormalId(rule, skillId, state, out expectedAbnormalId))
         {
@@ -3647,10 +3782,11 @@ public sealed class SemiAutoCombatController
         var expected = expectedAbnormalId;
         if (entries.Any(entry => entry.AbnormalId == expected))
         {
-            state.ClearStatusMaintenanceMissingRead(stateKey);
+            state.MarkStatusMaintenanceActive(stateKey, now);
             return false;
         }
 
+        stickyActive = state.TryGetStatusMaintenanceActiveSeenAt(stateKey, out lastActiveSeenAt);
         missingReadCount = state.MarkStatusMaintenanceMissingRead(stateKey, now, out var firstMissingAt);
         missingDuration = now >= firstMissingAt ? now - firstMissingAt : TimeSpan.Zero;
         shouldDefer =
@@ -3701,6 +3837,89 @@ public sealed class SemiAutoCombatController
         }
 
         return "key:" + (rule.Key ?? string.Empty).Trim();
+    }
+
+    private static bool ShouldSelectSelfBeforeStatusMaintenance(AccountWorkerContext context)
+    {
+        var team = context.Config.ScriptSettings?.Team;
+        return team?.Role == TeamRole.Support &&
+               (team.Support?.Enabled ?? false);
+    }
+
+    private static bool IsSelectedLocalPlayer(
+        OperationResult<LockedTargetSnapshot> result,
+        PlayerSnapshot player)
+    {
+        var target = result.Value;
+        if (!result.Success ||
+            target is null ||
+            target.ObjectType != LockedTargetSnapshot.PlayerObjectType ||
+            target.ServerObjectId == 0)
+        {
+            return false;
+        }
+
+        if (target.LocalServerObjectId != 0)
+        {
+            return target.ServerObjectId == target.LocalServerObjectId;
+        }
+
+        return player.EntityId != 0 &&
+               target.TargetEntityId != 0 &&
+               target.TargetEntityId == player.EntityId;
+    }
+
+    private static void LogStatusMaintenanceSelfTargetSelected(
+        AccountWorkerContext context,
+        StatusMaintenanceRuleConfig rule,
+        LockedTargetSnapshot target,
+        bool alreadySelected)
+    {
+        context.Logger.Info("semi_auto.maintenance.self_target_selected", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = SupportSelfSelectKey,
+            ["statusKey"] = rule.Key,
+            ["skillId"] = rule.SkillId,
+            ["skillName"] = rule.SkillName,
+            ["alreadySelected"] = alreadySelected,
+            ["targetEntityId"] = target.TargetEntityId,
+            ["targetServerObjectId"] = target.ServerObjectId,
+            ["localServerObjectId"] = target.LocalServerObjectId
+        });
+    }
+
+    private static void LogStatusMaintenanceSelfTargetSelectionFailed(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        StatusMaintenanceRuleConfig rule,
+        OperationResult<LockedTargetSnapshot> targetResult,
+        string reason,
+        string? error)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldLog(state.LastMaintenanceWarningAt, now))
+        {
+            return;
+        }
+
+        state.LastMaintenanceWarningAt = now;
+        var target = targetResult.Value;
+        context.Logger.Warn("semi_auto.maintenance.self_target_select.failed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["error"] = error,
+            ["key"] = SupportSelfSelectKey,
+            ["statusKey"] = rule.Key,
+            ["skillId"] = rule.SkillId,
+            ["skillName"] = rule.SkillName,
+            ["targetReadSuccess"] = targetResult.Success,
+            ["targetEntityId"] = target?.TargetEntityId,
+            ["targetServerObjectId"] = target?.ServerObjectId,
+            ["targetObjectType"] = target?.ObjectType,
+            ["localServerObjectId"] = target?.LocalServerObjectId
+        });
     }
 
     private static void TryUpdateMaintenanceCooldownCalibration(
@@ -3943,7 +4162,9 @@ public sealed class SemiAutoCombatController
         uint skillId,
         uint expectedAbnormalId,
         int missingReadCount,
-        TimeSpan missingDuration)
+        TimeSpan missingDuration,
+        bool stickyActive,
+        DateTimeOffset lastActiveSeenAt)
     {
         context.Logger.Info("semi_auto.maintenance.chant_missing_deferred", new Dictionary<string, object?>
         {
@@ -3956,7 +4177,9 @@ public sealed class SemiAutoCombatController
             ["missingReadCount"] = missingReadCount,
             ["requiredMissingReads"] = ChantStatusMaintenanceMissingReadThreshold,
             ["missingDurationMs"] = (long)Math.Max(0.0D, missingDuration.TotalMilliseconds),
-            ["requiredMissingDurationMs"] = (long)ChantStatusMaintenanceMissingReadMinimumDuration.TotalMilliseconds
+            ["requiredMissingDurationMs"] = (long)ChantStatusMaintenanceMissingReadMinimumDuration.TotalMilliseconds,
+            ["stickyActive"] = stickyActive,
+            ["lastActiveSeenAt"] = stickyActive ? lastActiveSeenAt : null
         });
     }
 
@@ -3967,7 +4190,9 @@ public sealed class SemiAutoCombatController
         uint skillId,
         uint expectedAbnormalId,
         int missingReadCount,
-        TimeSpan missingDuration)
+        TimeSpan missingDuration,
+        bool stickyActive,
+        DateTimeOffset lastActiveSeenAt)
     {
         context.Logger.Info("semi_auto.maintenance.chant_missing_ready", new Dictionary<string, object?>
         {
@@ -3980,7 +4205,9 @@ public sealed class SemiAutoCombatController
             ["missingReadCount"] = missingReadCount,
             ["requiredMissingReads"] = ChantStatusMaintenanceMissingReadThreshold,
             ["missingDurationMs"] = (long)Math.Max(0.0D, missingDuration.TotalMilliseconds),
-            ["requiredMissingDurationMs"] = (long)ChantStatusMaintenanceMissingReadMinimumDuration.TotalMilliseconds
+            ["requiredMissingDurationMs"] = (long)ChantStatusMaintenanceMissingReadMinimumDuration.TotalMilliseconds,
+            ["stickyActive"] = stickyActive,
+            ["lastActiveSeenAt"] = stickyActive ? lastActiveSeenAt : null
         });
     }
 
@@ -4193,11 +4420,13 @@ public sealed class SemiAutoCombatController
         return context.GameApi.ReadPlayerAbnormalStatusesAsync(context.StopToken);
     }
 
-    private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(AccountWorkerContext context)
+    private static Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(
+        AccountWorkerContext context,
+        bool bypassMemoryCache = false)
     {
         if (context.GameApi is IRoadhogScopedGameApi scopedApi)
         {
-            return scopedApi.ReadLockedTargetAsync(CreateReadContext(context), context.StopToken);
+            return scopedApi.ReadLockedTargetAsync(CreateReadContext(context, bypassMemoryCache), context.StopToken);
         }
 
         return context.GameApi.ReadLockedTargetAsync(context.StopToken);
@@ -4269,13 +4498,16 @@ public sealed class SemiAutoCombatController
         return context.GameApi.ReadSkillsAsync(context.StopToken);
     }
 
-    private static GameApiReadContext CreateReadContext(AccountWorkerContext context)
+    private static GameApiReadContext CreateReadContext(
+        AccountWorkerContext context,
+        bool bypassMemoryCache = false)
     {
         return new GameApiReadContext(
             context.Config.AccountName,
             context.Config.ProcessId,
             context.Config.TargetProcessName,
-            context.Config.VmmDeviceName);
+            context.Config.VmmDeviceName,
+            bypassMemoryCache);
     }
 
     private static TimeSpan Ms(int configuredMs, int fallbackMs)

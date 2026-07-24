@@ -2044,27 +2044,28 @@ namespace Roadhog
             AddLabel(page, "装备品质", 18, 76, 80, 22, _textGreen, FontStyle.Bold);
             AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenEquipment), leftOptionX, leftComboX, 98);
             AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueEquipment), rightOptionX, rightComboX, 98);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteEquipment), leftOptionX, leftComboX, 122);
 
-            AddLabel(page, "魔石", 18, 128, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteManastone), leftOptionX, leftComboX, 150);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenManastone), rightOptionX, rightComboX, 150);
+            AddLabel(page, "魔石", 18, 152, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteManastone), leftOptionX, leftComboX, 174);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenManastone), rightOptionX, rightComboX, 174);
 
-            AddLabel(page, "书卷", 18, 178, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Stigma), leftOptionX, leftComboX, 200);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.RecipeScroll), rightOptionX, rightComboX, 200);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SkillBook), leftOptionX, leftComboX, 224);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SpellBook), rightOptionX, rightComboX, 224);
+            AddLabel(page, "书卷", 18, 202, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Stigma), leftOptionX, leftComboX, 224);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.RecipeScroll), rightOptionX, rightComboX, 224);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SkillBook), leftOptionX, leftComboX, 248);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.SpellBook), rightOptionX, rightComboX, 248);
 
-            AddLabel(page, "提炼石", 18, 254, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteExtractionStone), leftOptionX, leftComboX, 276);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenExtractionStone), rightOptionX, rightComboX, 276);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueExtractionStone), leftOptionX, leftComboX, 300);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GoldExtractionStone), rightOptionX, rightComboX, 300);
+            AddLabel(page, "提炼石", 18, 278, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.WhiteExtractionStone), leftOptionX, leftComboX, 300);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GreenExtractionStone), rightOptionX, rightComboX, 300);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.BlueExtractionStone), leftOptionX, leftComboX, 324);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.GoldExtractionStone), rightOptionX, rightComboX, 324);
 
-            AddLabel(page, "药品", 18, 330, 80, 22, _textGreen, FontStyle.Bold);
-            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Medicine), leftOptionX, leftComboX, 352);
+            AddLabel(page, "药品", 18, 354, 80, 22, _textGreen, FontStyle.Bold);
+            AddCleanupOption(GetDefaultBagCleanupRule(BagCleanupRuleCatalog.Medicine), leftOptionX, leftComboX, 376);
 
-            var testCleanupButton = AddButton(page, "测试清包", 38, 418, 166, 36);
+            var testCleanupButton = AddButton(page, "测试清包", 38, 442, 166, 36);
             testCleanupButton.Click += async (_, _) =>
                 await TestBagCleanupFromNpcAsync(testCleanupButton).ConfigureAwait(true);
 

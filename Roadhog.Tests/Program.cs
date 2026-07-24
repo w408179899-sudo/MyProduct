@@ -226,6 +226,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat verifies target after each tab press", TestStationaryCombatVerifiesAfterEachTabAsync),
     ("stationary combat nudges then accepts unchanged locked target after tab", TestStationaryCombatNudgesThenAcceptsUnchangedLockedTargetAfterTabAsync),
     ("stationary combat nudges forward when tab locks corpse", TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync),
+    ("stationary combat nudges forward when tab stays on attempted corpse", TestStationaryCombatNudgesForwardWhenTabStaysOnAttemptedCorpseAsync),
+    ("stationary combat nudges forward when tab lock is empty", TestStationaryCombatNudgesForwardWhenTabLockIsEmptyAsync),
     ("stationary combat pending tab verify blocks pre-acquire", TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync),
     ("stationary combat releases path follow movement after target is verified", TestStationaryCombatReleasesMovementAfterAcquireAsync),
     ("stationary combat does not pulse W while approaching same target", TestStationaryCombatDoesNotPulseWWhileApproachingAsync),
@@ -249,6 +251,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat reacquires revive path clear target claimed by other", TestStationaryCombatReacquiresRevivePathClearTargetClaimedByOtherAsync),
     ("stationary combat treats locked zero hp target as combat", TestStationaryCombatTreatsLockedZeroHpTargetAsCombatAsync),
     ("stationary combat loots locked dead target directly", TestStationaryCombatLootsLockedDeadTargetDirectlyAsync),
+    ("stationary combat skips dead target when corpse is not lootable", TestStationaryCombatSkipsDeadTargetWhenCorpseIsNotLootableAsync),
+    ("stationary combat attempts same loot corpse once", TestStationaryCombatAttemptsSameLootCorpseOnceAsync),
     ("stationary combat waits after kill before loot key", TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync),
     ("stationary combat waits near corpse after loot key", TestStationaryCombatWaitsNearCorpseAfterLootKeyAsync),
     ("stationary combat runs after-combat maintenance after loot", TestStationaryCombatRunsAfterCombatMaintenanceAfterLootAsync),
@@ -298,13 +302,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance mp potion matches recovery and secret potion names", TestMaintenanceMpPotionMatchesAdditionalNamesAsync),
     ("maintenance mp potion rejects wrong item type and falls back to skill", TestMaintenanceMpPotionRejectsWrongTypeAndFallsBackAsync),
     ("maintenance mp potion runs before skill and skill retries next tick", TestMaintenanceMpPotionRunsBeforeSkillAsync),
-    ("after-combat mp potion skips inventory and presses twice", TestAfterCombatMpPotionSkipsInventoryAndPressesTwiceAsync),
+    ("maintenance global interval throttles different selected skill", TestMaintenanceGlobalIntervalThrottlesDifferentSelectedSkillAsync),
+    ("after-combat mp potion skips inventory and presses once", TestAfterCombatMpPotionSkipsInventoryAndPressesOnceAsync),
     ("maintenance selected skill confirms by skill id", TestMaintenanceSelectedSkillConfirmsBySkillIdAsync),
     ("maintenance selected cooling skill skips key and continues combat", TestMaintenanceSelectedCoolingSkillSkipsKeyAsync),
     ("dp maintenance skips below required dp", TestDpMaintenanceSkipsBelowRequiredDpAsync),
     ("dp maintenance presses configured key at required dp", TestDpMaintenancePressesConfiguredKeyAtRequiredDpAsync),
     ("dp maintenance selected cooling skill skips key", TestDpMaintenanceSelectedCoolingSkillSkipsKeyAsync),
     ("status maintenance presses missing buff and learns abnormal id", TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsync),
+    ("support status maintenance selects self before buff", TestSupportStatusMaintenanceSelectsSelfBeforeBuffAsync),
     ("status maintenance chant follows active status", TestStatusMaintenanceChantFollowsActiveStatusAsync),
     ("status maintenance skips active category zero buff", TestStatusMaintenanceSkipsActiveCategoryZeroBuffAsync),
     ("status maintenance in-combat rule skips without target", TestStatusMaintenanceInCombatRuleSkipsWithoutTargetAsync),
@@ -5639,6 +5645,7 @@ static Task TestBagCleanupMatcherGroupsEquipmentTypesAsync()
     var rules = BagCleanupRuleCatalog.CreateDefaultRules();
     rules.First(rule => rule.Key == BagCleanupRuleCatalog.GreenEquipment).Enabled = true;
     rules.First(rule => rule.Key == BagCleanupRuleCatalog.BlueEquipment).Enabled = true;
+    rules.First(rule => rule.Key == BagCleanupRuleCatalog.WhiteEquipment).Enabled = true;
     var settings = new MaintenanceScriptSettings
     {
         BagCleanupRules = rules
@@ -5651,15 +5658,18 @@ static Task TestBagCleanupMatcherGroupsEquipmentTypesAsync()
         new InventoryItemSnapshot(121000371, 4, "背叛者之水晶项链", 1, 3, false, 8, 2),
         new InventoryItemSnapshot(111300629, 5, "命运之皮革手套", 1, 4, false, 7, 3),
         new InventoryItemSnapshot(152205278, 6, "图案:匠人之钛质锁链手套", 1, 5, false, 27, 2),
-        new InventoryItemSnapshot(152206023, 7, "图案:黑湖水之项链", 1, 6, false, 27, 3)
+        new InventoryItemSnapshot(152206023, 7, "图案:黑湖水之项链", 1, 6, false, 27, 3),
+        new InventoryItemSnapshot(100000001, 8, "White Sword", 1, 7, false, 1, 1),
+        new InventoryItemSnapshot(110000001, 9, "White Armor", 1, 8, false, 7, 1),
+        new InventoryItemSnapshot(120000001, 10, "White Ring", 1, 9, false, 8, 1)
     };
 
     var selected = BagCleanupItemMatcher.SelectSellRegistrationItems(items, settings);
 
     AssertSequence(
-        new[] { "堕落骑士之战斗锤", "蓝色盾牌", "修罗之长袍上衣", "背叛者之水晶项链", "命运之皮革手套" },
+        new[] { "堕落骑士之战斗锤", "蓝色盾牌", "修罗之长袍上衣", "背叛者之水晶项链", "命运之皮革手套", "White Sword", "White Armor", "White Ring" },
         selected.Select(item => item.Name).ToArray(),
-        "equipment cleanup should include weapon, shield, armor and accessory item types while excluding recipes");
+        "equipment cleanup should include white, green and blue weapon, shield, armor and accessory item types while excluding recipes");
 
     return Task.CompletedTask;
 }
@@ -6069,6 +6079,8 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
         AssertFalse(!text.Contains("\"Key\": \"equipment.green\"", StringComparison.Ordinal), "bag cleanup rule key should be persisted");
         AssertFalse(!text.Contains("\"Category\": \"equipment\"", StringComparison.Ordinal), "bag cleanup category should be persisted");
         AssertFalse(!text.Contains("\"Quality\": \"green\"", StringComparison.Ordinal), "bag cleanup quality should be persisted");
+        AssertFalse(!text.Contains("\"Key\": \"equipment.white\"", StringComparison.Ordinal), "white equipment cleanup rule key should be persisted");
+        AssertFalse(!text.Contains("\"Quality\": \"white\"", StringComparison.Ordinal), "white equipment cleanup quality should be persisted");
         AssertFalse(!text.Contains("\"weapon\"", StringComparison.Ordinal), "bag cleanup item kind should be persisted");
         AssertFalse(!text.Contains("\"accessory\"", StringComparison.Ordinal), "bag cleanup accessory kind should be persisted");
         AssertFalse(!text.Contains("\"Action\": \"Discard\"", StringComparison.Ordinal), "bag cleanup action should be persisted");
@@ -6098,6 +6110,13 @@ static async Task TestAccountConfigPersistsBagCleanupRulesAsync()
         AssertEqual("equipment", greenEquipment.Category, "green equipment category");
         AssertEqual("green", greenEquipment.Quality, "green equipment quality");
         AssertFalse(!greenEquipment.ItemKinds.Contains("accessory"), "green equipment map should include accessories");
+        var whiteEquipment = loadedRules.First(rule => rule.Key == BagCleanupRuleCatalog.WhiteEquipment);
+        AssertFalse(whiteEquipment.Enabled, "white equipment cleanup should default disabled");
+        AssertEqual("equipment", whiteEquipment.Category, "white equipment category");
+        AssertEqual("white", whiteEquipment.Quality, "white equipment quality");
+        AssertFalse(!whiteEquipment.ItemKinds.Contains("weapon"), "white equipment map should include weapons");
+        AssertFalse(!whiteEquipment.ItemKinds.Contains("armor"), "white equipment map should include armor");
+        AssertFalse(!whiteEquipment.ItemKinds.Contains("accessory"), "white equipment map should include accessories");
 
         var medicine = loadedRules.First(rule => rule.Key == BagCleanupRuleCatalog.Medicine);
         AssertFalse(!medicine.Enabled, "medicine cleanup should remain enabled");
@@ -9284,6 +9303,153 @@ static async Task TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync()
     }
 }
 
+static async Task TestStationaryCombatNudgesForwardWhenTabStaysOnAttemptedCorpseAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var logger = new InMemoryRoadhogLogger();
+        var keyboard = new RecordingKeyboardInput();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 200,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 1000,
+            TargetLootableRaw = 1,
+            TargetPosition = new Vector3Snapshot(3, 0, 0),
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+        state.MarkLootCorpseAttempted(200, 200, DateTimeOffset.Now);
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller
+            .TickAsync(context, plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertSequence(new[] { "Tab", "W" }, keyboard.Keys, "attempted corpse should still nudge when it blocks tab lock");
+        AssertFalse(keyboard.Keys.Contains("D2"), "attempted corpse lock must not release skills");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.tab.corpse_nudge_pressed" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "already_attempted", StringComparison.Ordinal)),
+            "attempted corpse nudge should be logged with reason");
+
+        await controller
+            .TickAsync(context, plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase)), "attempted corpse should nudge only once per pending tab verify");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
+static async Task TestStationaryCombatNudgesForwardWhenTabLockIsEmptyAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var logger = new InMemoryRoadhogLogger();
+        var keyboard = new RecordingKeyboardInput();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "target", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller
+            .TickAsync(context, plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertSequence(new[] { "Tab", "W" }, keyboard.Keys, "empty tab lock should nudge forward");
+        AssertFalse(keyboard.Keys.Contains("D2"), "empty lock must not release skills");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.tab.lock_miss_nudge_pressed" &&
+            string.Equals(Convert.ToString(entry.Fields["reason"]), "empty_lock", StringComparison.Ordinal)),
+            "empty lock nudge should be logged");
+
+        await controller
+            .TickAsync(context, plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "W", StringComparison.OrdinalIgnoreCase)), "empty lock should nudge only once per pending tab verify");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
 static async Task TestStationaryCombatPendingTabVerifyBlocksPreAcquireAsync()
 {
     var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
@@ -10951,6 +11117,156 @@ static async Task TestStationaryCombatLootsLockedDeadTargetDirectlyAsync()
     }
 }
 
+static async Task TestStationaryCombatSkipsDeadTargetWhenCorpseIsNotLootableAsync()
+{
+    var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
+    var previousWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS");
+    var previousPressCount = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT");
+    var previousPressInterval = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", null);
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 100,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 4430,
+            TargetLootableRaw = 0,
+            TargetPosition = new Vector3Snapshot(2.5f, 0, 0),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CandidateEntityId = 100
+        };
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertSequence(Array.Empty<string>(), keyboard.Keys, "not-lootable dead target should not press loot");
+        AssertEqual(0, gameApi.LootReadCount, "same locked corpse should not scan corpse list");
+        AssertEqual(StationaryCombatLootAfterKillStep.PostCombatMaintenance, state.LootAfterKill.Step, "not-lootable corpse should skip to maintenance");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.loot.skipped" &&
+                string.Equals(Convert.ToString(entry.Fields["reason"]), "not_lootable", StringComparison.Ordinal)),
+            "not-lootable corpse should log skipped loot");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", previousWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
+    }
+}
+
+static async Task TestStationaryCombatAttemptsSameLootCorpseOnceAsync()
+{
+    var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
+    var previousWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS");
+    var previousPressCount = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT");
+    var previousPressInterval = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", null);
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 60
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 100,
+            TargetOwnServerObjectId = 5000,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 4430,
+            TargetLootableRaw = 1,
+            TargetPosition = new Vector3Snapshot(2.5f, 0, 0),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CurrentTargetServerObjectId = 5000,
+            CandidateEntityId = 100,
+            CandidateServerObjectId = 5000
+        };
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller
+            .TickAsync(context, plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertSequence(new[] { "NumPadDecimal" }, keyboard.Keys, "first lootable corpse attempt should press loot");
+
+        state.Fighting = true;
+        state.CurrentTargetEntityId = 100;
+        state.CurrentTargetServerObjectId = 5000;
+        state.CandidateEntityId = 100;
+        state.CandidateServerObjectId = 5000;
+
+        await controller
+            .TickAsync(context, plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertSequence(new[] { "NumPadDecimal" }, keyboard.Keys, "same corpse should only be attempted once");
+        AssertFalse(
+            !logger.Entries.Any(entry =>
+                entry.EventName == "stationary_combat.loot.skipped" &&
+                string.Equals(Convert.ToString(entry.Fields["reason"]), "already_attempted", StringComparison.Ordinal)),
+            "second same-corpse pass should log already attempted");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", previousWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
+    }
+}
+
 static async Task TestStationaryCombatWaitsAfterKillBeforeLootKeyAsync()
 {
     var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
@@ -11354,7 +11670,7 @@ static async Task TestStationaryCombatRunsAfterCombatMaintenanceRoundAsync()
             .ConfigureAwait(false);
 
         AssertSequence(
-            new[] { "NumPadDecimal", "NumPad6", "NumPadAdd", "NumPadAdd", "NumPad3" },
+            new[] { "NumPadDecimal", "NumPad6", "NumPadAdd", "NumPad3" },
             keyboard.Keys,
             "after-combat maintenance round should continue through status, potion, and skill");
         AssertEqual(
@@ -14301,12 +14617,79 @@ static async Task TestMaintenanceMpPotionRunsBeforeSkillAsync()
     var context = CreateContext(settings, gameApi, new InMemoryRoadhogLogger());
 
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
+    state.MarkMaintenanceKeyAttempted("NumPad2", DateTimeOffset.Now - TimeSpan.FromSeconds(1));
     await controller.TickAsync(context, plan, state).ConfigureAwait(false);
 
     AssertSequence(new[] { "NumPad2", "NumPad3" }, keyboard.Keys.ToArray(), "potion should run first, then skill on next low-mp tick");
 }
 
-static async Task TestAfterCombatMpPotionSkipsInventoryAndPressesTwiceAsync()
+static async Task TestMaintenanceGlobalIntervalThrottlesDifferentSelectedSkillAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad2",
+        SkillId = 2,
+        SkillName = "Status Buff",
+        RunTiming = MaintenanceRuleRunTiming.Always
+    });
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        Key = "NumPad3",
+        SkillId = 3,
+        SkillName = "Mana Skill"
+    });
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 20, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1),
+        Skills = new[]
+        {
+            new SkillSnapshot(2, "Status Buff", 1, 1, "Status Buff", 1, false, 5_000, 0),
+            new SkillSnapshot(3, "Mana Skill", 1, 1, "Mana Skill", 1, false, 5_000, 0)
+        }
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (key == "NumPad2")
+        {
+            gameApi.PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+                1,
+                DateTimeOffset.Now,
+                1,
+                new[] { Abnormal(2, 0) });
+        }
+        else if (key == "NumPad3")
+        {
+            gameApi.Skills = new[]
+            {
+                new SkillSnapshot(2, "Status Buff", 1, 1, "Status Buff", 1, false, 5_000, 0),
+                new SkillSnapshot(3, "Mana Skill", 1, 1, "Mana Skill", 1, false, 5_000, ActiveCooldownEnd())
+            };
+        }
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad2" }, keyboard.Keys.ToArray(), "first maintenance tick should press status key");
+
+    state.MarkMaintenanceKeyAttempted("NumPad2", DateTimeOffset.Now);
+    keyboard.Keys.Clear();
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "different maintenance key should wait for global interval");
+
+    state.MarkMaintenanceKeyAttempted("NumPad2", DateTimeOffset.Now - TimeSpan.FromSeconds(1));
+    await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+    AssertSequence(new[] { "NumPad3" }, keyboard.Keys.ToArray(), "different maintenance key should run after global interval");
+}
+
+static async Task TestAfterCombatMpPotionSkipsInventoryAndPressesOnceAsync()
 {
     var settings = CreateScriptSettings();
     settings.Maintenance.SitMaintenanceEnabled = false;
@@ -14337,13 +14720,13 @@ static async Task TestAfterCombatMpPotionSkipsInventoryAndPressesTwiceAsync()
         .ConfigureAwait(false);
 
     AssertFalse(!handled, "after-combat mp potion should be handled");
-    AssertSequence(new[] { "NumPadAdd", "NumPadAdd" }, keyboard.Keys.ToArray(), "after-combat mp potion should press twice");
+    AssertSequence(new[] { "NumPadAdd" }, keyboard.Keys.ToArray(), "after-combat mp potion should press once");
     AssertFalse(gameApi.LastInventoryContext is not null, "after-combat mp potion should not read inventory");
 
     var entry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.potion_pressed");
     AssertFalse(entry is null, "after-combat mp potion should log one maintenance action");
-    AssertEqual(2, Convert.ToInt32(entry!.Fields["pressCount"]), "after-combat potion press count");
-    AssertEqual(800L, Convert.ToInt64(entry.Fields["pressIntervalMs"]), "after-combat potion press interval");
+    AssertEqual(1, Convert.ToInt32(entry!.Fields["pressCount"]), "after-combat potion press count");
+    AssertEqual(0L, Convert.ToInt64(entry.Fields["pressIntervalMs"]), "after-combat potion press interval");
 }
 
 static async Task TestMaintenanceSelectedSkillConfirmsBySkillIdAsync()
@@ -14597,6 +14980,75 @@ static async Task TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsyn
     AssertEqual(1, keyboard.Keys.Count(key => key == "NumPad2"), "learned active status should block repeat press");
 }
 
+static async Task TestSupportStatusMaintenanceSelectsSelfBeforeBuffAsync()
+{
+    const uint selfServerObjectId = 1879081233;
+    const uint leaderServerObjectId = 1879081195;
+    var settings = CreateScriptSettings();
+    settings.Team.Role = TeamRole.Support;
+    settings.Team.Support.Enabled = true;
+    settings.Maintenance.SitMaintenanceEnabled = false;
+    settings.Maintenance.StatusMaintenanceRules.Add(new StatusMaintenanceRuleConfig
+    {
+        Key = "NumPad3",
+        SkillId = 955,
+        SkillName = "Protection Blessing",
+        RunTiming = MaintenanceRuleRunTiming.Always
+    });
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(65535, 65475, "Support", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now),
+        PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(65535),
+        LocalServerObjectId = selfServerObjectId,
+        TargetEntityId = 65475,
+        TargetOwnServerObjectId = leaderServerObjectId,
+        TargetObjectType = LockedTargetSnapshot.PlayerObjectType,
+        TargetCurrentHp = 100,
+        TargetMaxHp = 100,
+        Skills = new[]
+        {
+            new SkillSnapshot(955, "Protection Blessing", 1, 1, "Protection Blessing", 1, false, 5_000, 0)
+        }
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "F1", StringComparison.Ordinal))
+        {
+            gameApi.TargetEntityId = gameApi.Player.EntityId;
+            gameApi.TargetOwnServerObjectId = selfServerObjectId;
+            gameApi.TargetObjectType = LockedTargetSnapshot.PlayerObjectType;
+        }
+        else if (string.Equals(key, "NumPad3", StringComparison.Ordinal))
+        {
+            gameApi.PlayerAbnormalStatuses = new PlayerAbnormalStatusSnapshot(
+                gameApi.Player.EntityId,
+                DateTimeOffset.Now,
+                1,
+                new[] { Abnormal(955, 0) });
+        }
+    };
+
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+
+    await controller
+        .TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player)
+        .ConfigureAwait(false);
+
+    AssertSequence(new[] { "F1", "NumPad3" }, keyboard.Keys.ToArray(), "support status maintenance should select self before pressing the buff key");
+    AssertFalse(
+        gameApi.LastLockedTargetContext?.BypassMemoryCache != true,
+        "self-target confirmation should bypass memory cache");
+    var selectionEntry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.self_target_selected");
+    AssertFalse(selectionEntry is null, "support self-target selection should be logged");
+    AssertEqual(false, Convert.ToBoolean(selectionEntry!.Fields["alreadySelected"]), "selection log should record F1 selection");
+    AssertFalse(
+        logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.self_target_select.failed"),
+        "successful F1 self-selection should not log failure");
+}
+
 static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
 {
     var settings = CreateScriptSettings();
@@ -14650,14 +15102,24 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
     AssertFalse(pressedEntry is null, "chant status maintenance should log the first key press");
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["oneShot"]), "chant maintenance should keep legacy one-shot log flag");
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["chant"]), "chant maintenance should be logged as chant");
+    AssertFalse(
+        !state.TryGetStatusMaintenanceActiveSeenAt("skill:8200", out _),
+        "confirmed chant maintenance should remember sticky active status");
 
     keyboard.Keys.Clear();
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
 
     AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "active chant status should block repeat press");
+    gameApi.Player = gameApi.Player with { CurrentHp = 0, CapturedAt = DateTimeOffset.Now };
+    await controller.TryRecoverAfterReviveAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
+    AssertFalse(
+        state.TryGetStatusMaintenanceActiveSeenAt("skill:8200", out _),
+        "death/revive recovery should clear sticky chant active status");
+    gameApi.Player = gameApi.Player with { CurrentHp = 100, CapturedAt = DateTimeOffset.Now };
 
     var retryState = new SemiAutoCombatState();
     retryState.RememberStatusMaintenanceAbnormalId(8200, 8232);
+    retryState.MarkStatusMaintenanceActive("skill:8200", DateTimeOffset.Now);
     keyboard.Keys.Clear();
     gameApi.PlayerAbnormalStatuses = PlayerAbnormalStatusSnapshot.Empty(1);
     var retryLogger = new InMemoryRoadhogLogger();
@@ -14669,7 +15131,8 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
     AssertFalse(deferredEntry is null, "first missing learned chant status should log deferred maintenance");
     AssertEqual(1, Convert.ToInt32(deferredEntry!.Fields["missingReadCount"]), "first missing learned chant read count");
     AssertEqual(3, Convert.ToInt32(deferredEntry.Fields["requiredMissingReads"]), "chant missing read threshold");
-    AssertEqual(2000L, Convert.ToInt64(deferredEntry.Fields["requiredMissingDurationMs"]), "chant missing duration threshold");
+    AssertEqual(60000L, Convert.ToInt64(deferredEntry.Fields["requiredMissingDurationMs"]), "chant missing duration threshold");
+    AssertEqual(true, Convert.ToBoolean(deferredEntry.Fields["stickyActive"]), "missing confirmed chant should be treated as sticky active");
 
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, retryLogger), retryState, gameApi.Player).ConfigureAwait(false);
 
@@ -14687,7 +15150,8 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
 
     var readyState = new SemiAutoCombatState();
     readyState.RememberStatusMaintenanceAbnormalId(8200, 8232);
-    var firstMissingAt = DateTimeOffset.Now - TimeSpan.FromSeconds(3);
+    readyState.MarkStatusMaintenanceActive("skill:8200", DateTimeOffset.Now - TimeSpan.FromMinutes(5));
+    var firstMissingAt = DateTimeOffset.Now - TimeSpan.FromSeconds(61);
     readyState.MarkStatusMaintenanceMissingRead("skill:8200", firstMissingAt, out _);
     readyState.MarkStatusMaintenanceMissingRead("skill:8200", firstMissingAt + TimeSpan.FromMilliseconds(500), out _);
     keyboard.Keys.Clear();
@@ -14700,8 +15164,9 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
     var readyEntry = readyLogger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.chant_missing_ready");
     AssertFalse(readyEntry is null, "sustained missing learned chant status should log ready maintenance");
     AssertEqual(3, Convert.ToInt32(readyEntry!.Fields["missingReadCount"]), "sustained missing learned chant read count");
+    AssertEqual(true, Convert.ToBoolean(readyEntry.Fields["stickyActive"]), "sustained missing learned chant should record sticky active");
     AssertFalse(
-        Convert.ToInt64(readyEntry.Fields["missingDurationMs"]) < 2000L,
+        Convert.ToInt64(readyEntry.Fields["missingDurationMs"]) < 60000L,
         "sustained missing learned chant duration should reach threshold");
 }
 
@@ -17433,6 +17898,10 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
 
     public uint TargetMaxHp { get; set; } = 1000;
 
+    public uint TargetLootableRaw { get; set; } = 1;
+
+    public uint TargetInteractionState { get; set; } = 37;
+
     public Vector3Snapshot? TargetPosition { get; set; }
 
     public uint TargetOwnServerObjectId { get; set; }
@@ -17538,6 +18007,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
         }
 
         var objectType = ResolveLockedTargetObjectType();
+        var lootableRaw = ResolveLockedTargetLootableRaw(objectType);
         return Task.FromResult(OperationResult<LockedTargetSnapshot>.Ok(new LockedTargetSnapshot(
             TargetEntityId,
             TargetOwnServerObjectId != 0 ? TargetOwnServerObjectId : TargetEntityId,
@@ -17551,7 +18021,9 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
             DateTimeOffset.Now,
             TargetServerObjectId,
             TargetIsTargetingLocalPlayer,
-            LocalServerObjectId)));
+            LocalServerObjectId,
+            lootableRaw,
+            ResolveLockedTargetInteractionState(lootableRaw))));
     }
 
     public Task<OperationResult<LockedTargetSnapshot>> ReadLockedTargetAsync(
@@ -17566,6 +18038,7 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
         CancellationToken cancellationToken = default)
     {
         var objectType = ResolveLockedTargetObjectType();
+        var lootableRaw = ResolveLockedTargetLootableRaw(objectType);
         var snapshot = LockedTargetAbnormalStatuses ?? new LockedTargetAbnormalStatusSnapshot(
             new LockedTargetSnapshot(
                 TargetEntityId,
@@ -17580,7 +18053,9 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
                 DateTimeOffset.Now,
                 TargetServerObjectId,
                 TargetIsTargetingLocalPlayer,
-                LocalServerObjectId),
+                LocalServerObjectId,
+                lootableRaw,
+                ResolveLockedTargetInteractionState(lootableRaw)),
             0,
             Array.Empty<AbnormalStatusEntrySnapshot>(),
             DateTimeOffset.Now);
@@ -17598,6 +18073,20 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
         }
 
         return LockedTargetSnapshot.PlayerObjectType;
+    }
+
+    private uint ResolveLockedTargetLootableRaw(uint objectType)
+    {
+        return objectType == LockedTargetSnapshot.MonsterObjectType &&
+               TargetMaxHp > 0 &&
+               TargetCurrentHp == 0
+            ? TargetLootableRaw
+            : 0;
+    }
+
+    private uint ResolveLockedTargetInteractionState(uint lootableRaw)
+    {
+        return lootableRaw != 0 ? TargetInteractionState : 0;
     }
 
     public Task<OperationResult<LockedTargetAbnormalStatusSnapshot>> ReadLockedTargetAbnormalStatusesAsync(

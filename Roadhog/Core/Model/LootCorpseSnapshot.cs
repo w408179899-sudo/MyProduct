@@ -21,6 +21,8 @@ public sealed record LootCorpseSnapshot(
 
     public bool IsLootable => LootableRaw != 0;
 
+    public bool HasLoot => IsLootable;
+
     public bool IsCorpse => CurrentHp == 0 || HpPercent == 0 || IsLootable;
 
     public bool IsMonsterCorpse => ObjectType == MonsterObjectType && IsCorpse;

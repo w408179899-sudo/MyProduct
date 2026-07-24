@@ -3097,6 +3097,40 @@ public sealed class StationaryCombatController
         AccountWorkerContext context,
         StationaryCombatState state)
     {
+        var now = DateTimeOffset.Now;
+        var attemptTtl = TimeSpan.FromMilliseconds(ReadLootAttemptCacheTtlMs());
+        if (state.HasAttemptedLootCorpse(
+                state.LootAfterKill.KilledTargetEntityId,
+                state.LootAfterKill.KilledTargetServerObjectId,
+                now,
+                attemptTtl))
+        {
+            LogLootSkipped(
+                context,
+                state,
+                "already_attempted",
+                "attempt_cache",
+                state.LootAfterKill.KilledTargetLootableRaw,
+                state.LootAfterKill.KilledTargetInteractionState);
+            state.LootAfterKill.MoveToPostCombatMaintenance(now);
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
+        var eligibility = await ReadLootAttemptEligibilityAsync(context, state).ConfigureAwait(false);
+        if (!eligibility.HasLoot)
+        {
+            LogLootSkipped(
+                context,
+                state,
+                eligibility.Reason,
+                eligibility.Source,
+                eligibility.LootableRaw,
+                eligibility.InteractionState,
+                eligibility.Error);
+            state.LootAfterKill.MoveToPostCombatMaintenance(DateTimeOffset.Now);
+            return StationaryCombatBehaviorStatus.Running;
+        }
+
         var pressCount = ReadLootPressCount();
         var pressIntervalMs = ReadLootPressIntervalMs();
         for (var pressIndex = 0; pressIndex < pressCount; pressIndex++)
@@ -3124,6 +3158,10 @@ public sealed class StationaryCombatController
             }
         }
 
+        state.MarkLootCorpseAttempted(
+            state.LootAfterKill.KilledTargetEntityId,
+            state.LootAfterKill.KilledTargetServerObjectId,
+            DateTimeOffset.Now);
         state.LootAfterKill.MarkLootKeyPressed();
         context.Logger.Info("stationary_combat.loot.pick_pressed", new Dictionary<string, object?>
         {
@@ -3131,10 +3169,95 @@ public sealed class StationaryCombatController
             ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
             ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
             ["targetName"] = state.LootAfterKill.KilledTargetName,
+            ["lootRaw"] = eligibility.LootableRaw,
+            ["interactionState"] = eligibility.InteractionState,
+            ["lootabilitySource"] = eligibility.Source,
             ["pressCount"] = pressCount,
             ["pressIntervalMs"] = pressIntervalMs
         });
         return StationaryCombatBehaviorStatus.Success;
+    }
+
+    private async Task<LootAttemptEligibility> ReadLootAttemptEligibilityAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state)
+    {
+        var lockedResult = await ReadLockedTargetAsync(context).ConfigureAwait(false);
+        if (lockedResult.Success && lockedResult.Value is { HasTarget: true } locked)
+        {
+            if (IsSameLootTarget(state.LootAfterKill, locked))
+            {
+                return new LootAttemptEligibility(
+                    locked.HasLoot,
+                    "locked_target",
+                    locked.HasLoot ? "lootable" : "not_lootable",
+                    locked.LootableRaw,
+                    locked.InteractionState);
+            }
+        }
+        else if (!lockedResult.Success)
+        {
+            return new LootAttemptEligibility(
+                false,
+                "locked_target",
+                "lootability_read_failed",
+                state.LootAfterKill.KilledTargetLootableRaw,
+                state.LootAfterKill.KilledTargetInteractionState,
+                lockedResult.Error);
+        }
+
+        var corpsesResult = await ReadLootCorpsesAsync(context).ConfigureAwait(false);
+        if (!corpsesResult.Success)
+        {
+            return new LootAttemptEligibility(
+                false,
+                "loot_corpses",
+                "lootability_read_failed",
+                state.LootAfterKill.KilledTargetLootableRaw,
+                state.LootAfterKill.KilledTargetInteractionState,
+                corpsesResult.Error);
+        }
+
+        var corpse = corpsesResult.Value?.FirstOrDefault(corpse => IsSameLootTarget(state.LootAfterKill, corpse));
+        if (corpse is null)
+        {
+            return new LootAttemptEligibility(
+                false,
+                "loot_corpses",
+                "corpse_not_found",
+                state.LootAfterKill.KilledTargetLootableRaw,
+                state.LootAfterKill.KilledTargetInteractionState);
+        }
+
+        return new LootAttemptEligibility(
+            corpse.HasLoot,
+            "loot_corpses",
+            corpse.HasLoot ? "lootable" : "not_lootable",
+            corpse.LootableRaw,
+            corpse.InteractionState);
+    }
+
+    private static void LogLootSkipped(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        string reason,
+        string source,
+        uint lootableRaw,
+        uint interactionState,
+        string? error = null)
+    {
+        context.Logger.Info("stationary_combat.loot.skipped", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = reason,
+            ["source"] = source,
+            ["targetEntityId"] = state.LootAfterKill.KilledTargetEntityId,
+            ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
+            ["targetName"] = state.LootAfterKill.KilledTargetName,
+            ["lootRaw"] = lootableRaw,
+            ["interactionState"] = interactionState,
+            ["error"] = error
+        });
     }
 
     private async Task<StationaryCombatBehaviorStatus> TickLootWaitNearCorpseNodeAsync(
@@ -3374,6 +3497,9 @@ public sealed class StationaryCombatController
                 });
                 break;
             }
+
+            await Task.Delay(SemiAutoCombatController.MaintenanceGlobalKeyInterval, context.StopToken)
+                .ConfigureAwait(false);
 
             var playerResult = await ReadPlayerAsync(context).ConfigureAwait(false);
             if (!playerResult.Success || playerResult.Value is null)
@@ -3782,6 +3908,27 @@ public sealed class StationaryCombatController
         }
 
         return string.Equals(loot.KilledTargetName, locked.Name, StringComparison.Ordinal);
+    }
+
+    private static bool IsSameLootTarget(
+        StationaryCombatLootAfterKillState loot,
+        LootCorpseSnapshot corpse)
+    {
+        if (loot.KilledTargetServerObjectId != 0 &&
+            corpse.ServerObjectId != 0 &&
+            loot.KilledTargetServerObjectId == corpse.ServerObjectId)
+        {
+            return true;
+        }
+
+        if (loot.KilledTargetEntityId != 0 &&
+            corpse.EntityId != 0 &&
+            loot.KilledTargetEntityId == corpse.EntityId)
+        {
+            return true;
+        }
+
+        return string.Equals(loot.KilledTargetName, corpse.Name, StringComparison.Ordinal);
     }
 
     private static bool IsLockedTargetEmpty(OperationResult<LockedTargetSnapshot> lockedResult)
@@ -4379,13 +4526,6 @@ public sealed class StationaryCombatController
         int delayMs)
     {
         LogTabVerify(context, state, target, lockedResult, delayMs);
-        await PressForwardIfTabLockedCorpseAsync(
-                context,
-                state,
-                target,
-                lockedResult,
-                delayMs)
-            .ConfigureAwait(false);
         var acquiredDelay = await TryAcquireLockedTargetAsync(
                 context,
                 plan,
@@ -4403,7 +4543,7 @@ public sealed class StationaryCombatController
             return acquiredDelay.Value;
         }
 
-        return await TryHandleUnchangedWrongLockedTargetAsync(
+        var wrongLockDelay = await TryHandleUnchangedWrongLockedTargetAsync(
                 context,
                 plan,
                 semiAutoState,
@@ -4414,24 +4554,93 @@ public sealed class StationaryCombatController
                 radius,
                 delayMs)
             .ConfigureAwait(false);
+        if (wrongLockDelay is not null)
+        {
+            return wrongLockDelay.Value;
+        }
+
+        await PressForwardIfTabLockMissAsync(
+                context,
+                state,
+                target,
+                lockedResult,
+                delayMs)
+            .ConfigureAwait(false);
+        return null;
     }
 
-    private async Task PressForwardIfTabLockedCorpseAsync(
+    private async Task PressForwardIfTabLockMissAsync(
         AccountWorkerContext context,
         StationaryCombatState state,
         WorldObjectSnapshot target,
         OperationResult<LockedTargetSnapshot> lockedResult,
         int delayMs)
     {
-        if (!lockedResult.Success ||
-            lockedResult.Value is not { IsLockedMonster: true, HasKnownHealth: true, CurrentHp: 0 } lockedTarget ||
-            !state.TryMarkPendingTabCorpseNudged())
+        if (!lockedResult.Success)
         {
             return;
         }
 
+        if (lockedResult.Value is { IsMonsterAlive: true })
+        {
+            return;
+        }
+
+        if (lockedResult.Value is { IsLockedMonster: true, HasKnownHealth: true, CurrentHp: 0 } lockedTarget)
+        {
+            var reason = ResolveTabCorpseNudgeReason(state, lockedTarget);
+            await PressForwardForTabCorpseAsync(context, state, target, lockedTarget, delayMs, reason)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        if (lockedResult.Value is { HasTarget: true })
+        {
+            return;
+        }
+
+        await PressForwardForTabLockMissAsync(
+                context,
+                state,
+                target,
+                delayMs)
+            .ConfigureAwait(false);
+    }
+
+    private static string ResolveTabCorpseNudgeReason(
+        StationaryCombatState state,
+        LockedTargetSnapshot lockedTarget)
+    {
+        if (!lockedTarget.HasLoot)
+        {
+            return "not_lootable";
+        }
+
+        return state.HasAttemptedLootCorpse(
+                lockedTarget.TargetEntityId,
+                lockedTarget.ServerObjectId,
+                DateTimeOffset.Now,
+                TimeSpan.FromMilliseconds(ReadLootAttemptCacheTtlMs()))
+            ? "already_attempted"
+            : "lootable";
+    }
+
+    private async Task PressForwardForTabCorpseAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        LockedTargetSnapshot lockedTarget,
+        int delayMs,
+        string reason)
+    {
+        if (!state.TryMarkPendingTabCorpseNudged())
+        {
+            return;
+        }
+
+        var holdMs = ReadTabCorpseNudgeKeyHoldMs();
         var result = await _input
-            .PressKeyAsync("W", TimeSpan.FromMilliseconds(ReadTabCorpseNudgeKeyHoldMs()), context.StopToken)
+            .PressKeyAsync("W", TimeSpan.FromMilliseconds(holdMs), context.StopToken)
             .ConfigureAwait(false);
         if (!result.Success)
         {
@@ -4443,7 +4652,9 @@ public sealed class StationaryCombatController
                 ["lockedEntityId"] = lockedTarget.TargetEntityId,
                 ["lockedName"] = lockedTarget.Name,
                 ["lockedHp"] = lockedTarget.CurrentHp,
+                ["reason"] = reason,
                 ["delayMs"] = delayMs,
+                ["holdMs"] = holdMs,
                 ["error"] = result.Error
             });
             return;
@@ -4457,7 +4668,63 @@ public sealed class StationaryCombatController
             ["lockedEntityId"] = lockedTarget.TargetEntityId,
             ["lockedName"] = lockedTarget.Name,
             ["lockedHp"] = lockedTarget.CurrentHp,
-            ["delayMs"] = delayMs
+            ["reason"] = reason,
+            ["lootRaw"] = lockedTarget.LootableRaw,
+            ["interactionState"] = lockedTarget.InteractionState,
+            ["delayMs"] = delayMs,
+            ["holdMs"] = holdMs
+        });
+    }
+
+    private async Task PressForwardForTabLockMissAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        int delayMs)
+    {
+        if (!state.TryMarkPendingTabCorpseNudged())
+        {
+            return;
+        }
+
+        var holdMs = ReadTabCorpseNudgeKeyHoldMs();
+        var result = await _input
+            .PressKeyAsync("W", TimeSpan.FromMilliseconds(holdMs), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            context.Logger.Warn("stationary_combat.tab.lock_miss_nudge_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["reason"] = "empty_lock",
+                ["candidateEntityId"] = target.EntityId,
+                ["candidateServerObjectId"] = target.ServerObjectId,
+                ["candidateName"] = target.Name,
+                ["lockedEntityId"] = 0,
+                ["lockedServerObjectId"] = 0,
+                ["lockedName"] = string.Empty,
+                ["lockedHp"] = 0,
+                ["delayMs"] = delayMs,
+                ["holdMs"] = holdMs,
+                ["error"] = result.Error
+            });
+            return;
+        }
+
+        context.Logger.Info("stationary_combat.tab.lock_miss_nudge_pressed", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["reason"] = "empty_lock",
+            ["candidateEntityId"] = target.EntityId,
+            ["candidateServerObjectId"] = target.ServerObjectId,
+            ["candidateName"] = target.Name,
+            ["lockedEntityId"] = 0,
+            ["lockedServerObjectId"] = 0,
+            ["lockedName"] = string.Empty,
+            ["lockedHp"] = 0,
+            ["lockedObjectType"] = 0,
+            ["delayMs"] = delayMs,
+            ["holdMs"] = holdMs
         });
     }
 
@@ -6686,6 +6953,13 @@ public sealed class StationaryCombatController
             : context.GameApi.ReadWorldObjectsAsync(context.StopToken);
     }
 
+    private static Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(AccountWorkerContext context)
+    {
+        return context.GameApi is IRoadhogScopedGameApi scopedApi
+            ? scopedApi.ReadLootCorpsesAsync(CreateReadContext(context), context.StopToken)
+            : context.GameApi.ReadLootCorpsesAsync(context.StopToken);
+    }
+
     private static GameApiReadContext CreateReadContext(
         AccountWorkerContext context,
         bool bypassMemoryCache = false)
@@ -7853,6 +8127,11 @@ public sealed class StationaryCombatController
         return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", 200), 0, 10_000);
     }
 
+    private static int ReadLootAttemptCacheTtlMs()
+    {
+        return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_ATTEMPT_CACHE_TTL_MS", 300_000), 30_000, 600_000);
+    }
+
     private static int ReadLootPressCount()
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_PRESS_COUNT", 1), 1, 5);
@@ -7877,6 +8156,14 @@ public sealed class StationaryCombatController
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_APPROACH_TIMEOUT_MS", 5_000), 0, 5_000);
     }
+
+    private readonly record struct LootAttemptEligibility(
+        bool HasLoot,
+        string Source,
+        string Reason,
+        uint LootableRaw,
+        uint InteractionState,
+        string? Error = null);
 
     private static double NormalizeSignedDegrees(double angle)
     {

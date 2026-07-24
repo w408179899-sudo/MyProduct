@@ -119,6 +119,8 @@ public sealed class StationaryCombatState
 
     public HashSet<uint> IgnoredTargetServerObjectIds { get; } = new();
 
+    private readonly Dictionary<LootCorpseKey, DateTimeOffset> _attemptedLootCorpses = new();
+
     public object? PathFollowPoller { get; set; }
 
     public string StationaryHomePathName { get; private set; } = string.Empty;
@@ -404,6 +406,68 @@ public sealed class StationaryCombatState
         LootAfterKill.Reset();
         BagCleanup.Reset();
         CleanupReturnToCombatActive = false;
+    }
+
+    public bool HasAttemptedLootCorpse(
+        ushort entityId,
+        uint serverObjectId,
+        DateTimeOffset now,
+        TimeSpan ttl)
+    {
+        PruneAttemptedLootCorpses(now, ttl);
+        return TryCreateLootCorpseKey(entityId, serverObjectId, out var key) &&
+               _attemptedLootCorpses.ContainsKey(key);
+    }
+
+    public void MarkLootCorpseAttempted(ushort entityId, uint serverObjectId, DateTimeOffset now)
+    {
+        if (TryCreateLootCorpseKey(entityId, serverObjectId, out var key))
+        {
+            _attemptedLootCorpses[key] = now;
+        }
+    }
+
+    private void PruneAttemptedLootCorpses(DateTimeOffset now, TimeSpan ttl)
+    {
+        if (_attemptedLootCorpses.Count == 0)
+        {
+            return;
+        }
+
+        if (ttl <= TimeSpan.Zero)
+        {
+            _attemptedLootCorpses.Clear();
+            return;
+        }
+
+        foreach (var entry in _attemptedLootCorpses.ToArray())
+        {
+            if (now - entry.Value >= ttl)
+            {
+                _attemptedLootCorpses.Remove(entry.Key);
+            }
+        }
+    }
+
+    private static bool TryCreateLootCorpseKey(
+        ushort entityId,
+        uint serverObjectId,
+        out LootCorpseKey key)
+    {
+        if (serverObjectId != 0)
+        {
+            key = new LootCorpseKey(serverObjectId, 0);
+            return true;
+        }
+
+        if (entityId != 0)
+        {
+            key = new LootCorpseKey(0, entityId);
+            return true;
+        }
+
+        key = default;
+        return false;
     }
 
     public bool IsTargetIgnored(ushort entityId)
@@ -1031,6 +1095,10 @@ public sealed class StationaryCombatLootAfterKillState
 
     public Vector3Snapshot? KilledTargetPosition { get; private set; }
 
+    public uint KilledTargetLootableRaw { get; private set; }
+
+    public uint KilledTargetInteractionState { get; private set; }
+
     public bool LootKeyPressed { get; private set; }
 
     public bool Active => Step != StationaryCombatLootAfterKillStep.Inactive &&
@@ -1045,12 +1113,20 @@ public sealed class StationaryCombatLootAfterKillState
         KilledTargetServerObjectId = killedTarget.ServerObjectId;
         KilledTargetName = killedTarget.Name ?? string.Empty;
         KilledTargetPosition = killedTarget.Position;
+        KilledTargetLootableRaw = killedTarget.LootableRaw;
+        KilledTargetInteractionState = killedTarget.InteractionState;
         LootKeyPressed = false;
     }
 
     public void MarkLootKeyPressed()
     {
         LootKeyPressed = true;
+    }
+
+    public void MoveToPostCombatMaintenance(DateTimeOffset now)
+    {
+        Step = StationaryCombatLootAfterKillStep.PostCombatMaintenance;
+        StepStartedAt = now;
     }
 
     public void Advance(DateTimeOffset now)
@@ -1077,6 +1153,8 @@ public sealed class StationaryCombatLootAfterKillState
         KilledTargetServerObjectId = 0;
         KilledTargetName = string.Empty;
         KilledTargetPosition = null;
+        KilledTargetLootableRaw = 0;
+        KilledTargetInteractionState = 0;
         LootKeyPressed = false;
     }
 }
@@ -1092,6 +1170,8 @@ public enum StationaryCombatLootAfterKillStep
     PostCombatMaintenance,
     Complete
 }
+
+internal readonly record struct LootCorpseKey(uint ServerObjectId, ushort EntityId);
 
 internal enum StationaryCombatBehaviorStatus
 {
