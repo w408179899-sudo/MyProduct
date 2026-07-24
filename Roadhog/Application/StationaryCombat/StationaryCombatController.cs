@@ -4658,6 +4658,22 @@ public sealed class StationaryCombatController
             return acquiredDelay.Value;
         }
 
+        var nearbyAggressiveDelay = await TryAcceptNearbyAggressiveLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedResult,
+                home,
+                radius,
+                delayMs)
+            .ConfigureAwait(false);
+        if (nearbyAggressiveDelay is not null)
+        {
+            return nearbyAggressiveDelay.Value;
+        }
+
         var wrongLockDelay = await TryHandleUnchangedWrongLockedTargetAsync(
                 context,
                 plan,
@@ -4682,6 +4698,113 @@ public sealed class StationaryCombatController
                 delayMs)
             .ConfigureAwait(false);
         return null;
+    }
+
+    private async Task<TimeSpan?> TryAcceptNearbyAggressiveLockedTargetAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        WorldObjectSnapshot target,
+        OperationResult<LockedTargetSnapshot> lockedResult,
+        Vector3Snapshot home,
+        double radius,
+        int delayMs)
+    {
+        if (!lockedResult.Success ||
+            lockedResult.Value is not { IsMonsterAlive: true } lockedTarget ||
+            StationaryCombatState.IsSameTarget(
+                target.EntityId,
+                target.ServerObjectId,
+                lockedTarget.TargetEntityId,
+                lockedTarget.ServerObjectId))
+        {
+            return null;
+        }
+
+        var forceRefresh = delayMs <= ReadTabVerifyPollMs();
+        var objects = await RefreshWorldObjectsAsync(context, state, forceRefresh).ConfigureAwait(false);
+        var lockedWorldTarget = objects.FirstOrDefault(candidate =>
+            StationaryCombatState.IsSameTarget(
+                candidate.EntityId,
+                candidate.ServerObjectId,
+                lockedTarget.TargetEntityId,
+                lockedTarget.ServerObjectId));
+        if (lockedWorldTarget is null)
+        {
+            return null;
+        }
+
+        var refreshedCandidate = objects.FirstOrDefault(candidate =>
+            StationaryCombatState.IsSameTarget(
+                candidate.EntityId,
+                candidate.ServerObjectId,
+                target.EntityId,
+                target.ServerObjectId)) ?? target;
+        var activeMonsterNameFilters = GetActiveMonsterNameFilters(context);
+        if (state.IsTargetIgnored(lockedWorldTarget) ||
+            IsActiveMonsterFiltered(lockedWorldTarget, activeMonsterNameFilters) ||
+            !StationaryCombatTargetSelector.IsSelectableMonster(lockedWorldTarget) ||
+            !IsCandidateStillSelectable(
+                lockedWorldTarget,
+                home,
+                radius,
+                allowClaimedByOther: AllowsClaimedTargets(context),
+                state) ||
+            (!lockedWorldTarget.IsAggressiveToPlayer && !IsTargetingLocalSide(lockedWorldTarget, state)) ||
+            !TryGetDistanceToLocalPlayer(refreshedCandidate, out var candidateDistance) ||
+            !TryGetDistanceToLocalPlayer(lockedWorldTarget, out var lockedDistance) ||
+            lockedDistance >= candidateDistance)
+        {
+            return null;
+        }
+
+        context.Logger.Info("stationary_combat.target.accept_nearby_aggressive_lock", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["candidateEntityId"] = target.EntityId,
+            ["candidateServerObjectId"] = target.ServerObjectId,
+            ["candidateTargetServerObjectId"] = target.ServerObjectId,
+            ["candidateName"] = target.Name,
+            ["candidateDistance"] = Math.Round(candidateDistance, 2),
+            ["lockedEntityId"] = lockedTarget.TargetEntityId,
+            ["lockedServerObjectId"] = lockedTarget.ServerObjectId,
+            ["lockedTargetServerObjectId"] = lockedTarget.ServerObjectId,
+            ["lockedTargetingServerObjectId"] = lockedTarget.TargetServerObjectId,
+            ["lockedName"] = lockedTarget.Name,
+            ["lockedDistance"] = Math.Round(lockedDistance, 2),
+            ["lockedAggressiveKnown"] = lockedWorldTarget.AggressiveKnown,
+            ["lockedAggressiveToPlayer"] = lockedWorldTarget.IsAggressiveToPlayer,
+            ["lockedTargetingMe"] = IsTargetingLocalSide(lockedWorldTarget, state),
+            ["delayMs"] = delayMs
+        });
+
+        return await TryAcquireLockedTargetAsync(
+                context,
+                plan,
+                semiAutoState,
+                state,
+                target,
+                lockedResult,
+                home,
+                radius,
+                allowLockedFallback: true,
+                phase: "after_tab_aggressive")
+            .ConfigureAwait(false);
+    }
+
+    private static bool TryGetDistanceToLocalPlayer(WorldObjectSnapshot target, out double distance)
+    {
+        if (target.DistanceToLocalPlayer is { } value &&
+            !double.IsNaN(value) &&
+            !double.IsInfinity(value))
+        {
+            distance = Math.Max(0.0D, value);
+            return true;
+        }
+
+        distance = 0.0D;
+        return false;
     }
 
     private async Task PressForwardIfTabLockMissAsync(

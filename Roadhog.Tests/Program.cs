@@ -229,6 +229,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat accepts twenty five degree pre-lock face tolerance", TestStationaryCombatAcceptsTwentyFiveDegreePreLockFaceToleranceAsync),
     ("stationary combat tabs until selected target is verified", TestStationaryCombatTabsUntilTargetVerifiedAsync),
     ("stationary combat verifies target after each tab press", TestStationaryCombatVerifiesAfterEachTabAsync),
+    ("stationary combat accepts closer aggressive wrong lock after tab", TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync),
+    ("stationary combat rejects closer passive wrong lock after tab", TestStationaryCombatRejectsCloserPassiveWrongLockAfterTabAsync),
     ("stationary combat nudges then accepts unchanged locked target after tab", TestStationaryCombatNudgesThenAcceptsUnchangedLockedTargetAfterTabAsync),
     ("stationary combat nudges forward when tab locks corpse", TestStationaryCombatNudgesForwardWhenTabLocksCorpseAsync),
     ("stationary combat nudges forward when tab stays on attempted corpse", TestStationaryCombatNudgesForwardWhenTabStaysOnAttemptedCorpseAsync),
@@ -9583,6 +9585,202 @@ static async Task TestStationaryCombatNudgesThenAcceptsUnchangedLockedTargetAfte
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
         Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
         Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_WRONG_LOCK_NUDGE_HOLD_MS", previousWrongLockNudgeHold);
+    }
+}
+
+static async Task TestStationaryCombatAcceptsCloserAggressiveWrongLockAfterTabAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetName = string.Empty,
+            TargetPosition = null,
+            TargetServerObjectId = 0,
+            TargetIsTargetingLocalPlayer = false,
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "candidate", "monster", new Vector3Snapshot(20, 0, 0), 20, 1000, 1000, AggressiveKnown: true, IsAggressiveToPlayer: true)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var keyboard = new RecordingKeyboardInput
+        {
+            AfterPress = key =>
+            {
+                if (!string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                gameApi.TargetEntityId = 200;
+                gameApi.TargetCurrentHp = 1000;
+                gameApi.TargetMaxHp = 1000;
+                gameApi.TargetName = "near-aggressive";
+                gameApi.TargetPosition = new Vector3Snapshot(5, 0, 0);
+                gameApi.TargetServerObjectId = 0;
+                gameApi.TargetIsTargetingLocalPlayer = false;
+                gameApi.WorldObjects = new[]
+                {
+                    new WorldObjectSnapshot(100, 100, "candidate", "monster", new Vector3Snapshot(20, 0, 0), 20, 1000, 1000, AggressiveKnown: true, IsAggressiveToPlayer: true),
+                    new WorldObjectSnapshot(200, 200, "near-aggressive", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000, AggressiveKnown: true, IsAggressiveToPlayer: true)
+                };
+            }
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "acquire tick should press Tab");
+        AssertFalse(keyboard.Keys.Contains("W"), "closer aggressive wrong lock should not nudge forward");
+        AssertFalse(!keyboard.Keys.Contains("D2"), "closer aggressive wrong lock should enter skill release");
+        AssertFalse(!state.Fighting, "closer aggressive wrong lock should enter fight state");
+        AssertEqual((ushort)200, state.CurrentTargetEntityId, "current target should switch to closer aggressive lock");
+        AssertEqual((ushort)200, state.CandidateEntityId, "candidate should switch to closer aggressive lock");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.accept_nearby_aggressive_lock" &&
+            Equals(Convert.ToUInt16(entry.Fields["candidateEntityId"]), (ushort)100) &&
+            Equals(Convert.ToUInt16(entry.Fields["lockedEntityId"]), (ushort)200)),
+            "nearby aggressive lock acceptance should be logged");
+        AssertFalse(!logger.Entries.Any(entry =>
+            entry.EventName == "stationary_combat.target.acquired" &&
+            Equals(Convert.ToUInt16(entry.Fields["targetEntityId"]), (ushort)200) &&
+            string.Equals(Convert.ToString(entry.Fields["phase"]), "after_tab_aggressive", StringComparison.Ordinal)),
+            "accepted nearby aggressive target should be acquired");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
+    }
+}
+
+static async Task TestStationaryCombatRejectsCloserPassiveWrongLockAfterTabAsync()
+{
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousTabDelay = Environment.GetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 90, 10, 90),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetName = string.Empty,
+            TargetPosition = null,
+            TargetServerObjectId = 0,
+            TargetIsTargetingLocalPlayer = false,
+            WorldObjects = new[]
+            {
+                new WorldObjectSnapshot(100, 100, "candidate", "monster", new Vector3Snapshot(20, 0, 0), 20, 1000, 1000, AggressiveKnown: true, IsAggressiveToPlayer: true)
+            },
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+            {
+                [1] = 0,
+                [5] = 0,
+                [6] = 0,
+                [7] = 0,
+                [8] = 0,
+                [9] = 0,
+                [10] = 0
+            })
+        };
+        var keyboard = new RecordingKeyboardInput
+        {
+            AfterPress = key =>
+            {
+                if (!string.Equals(key, "Tab", StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                gameApi.TargetEntityId = 200;
+                gameApi.TargetCurrentHp = 1000;
+                gameApi.TargetMaxHp = 1000;
+                gameApi.TargetName = "near-passive";
+                gameApi.TargetPosition = new Vector3Snapshot(5, 0, 0);
+                gameApi.TargetServerObjectId = 0;
+                gameApi.TargetIsTargetingLocalPlayer = false;
+                gameApi.WorldObjects = new[]
+                {
+                    new WorldObjectSnapshot(100, 100, "candidate", "monster", new Vector3Snapshot(20, 0, 0), 20, 1000, 1000, AggressiveKnown: true, IsAggressiveToPlayer: true),
+                    new WorldObjectSnapshot(200, 200, "near-passive", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000, AggressiveKnown: true, IsAggressiveToPlayer: false)
+                };
+            }
+        };
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var controller = new StationaryCombatController(keyboard, semiAuto);
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!keyboard.Keys.Contains("Tab"), "acquire tick should press Tab");
+        AssertFalse(keyboard.Keys.Contains("D2"), "closer passive wrong lock must not enter skill release");
+        AssertFalse(state.Fighting, "closer passive wrong lock must not enter fight state");
+        AssertEqual((ushort)100, state.CandidateEntityId, "closer passive wrong lock should keep original candidate");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.accept_nearby_aggressive_lock"),
+            "passive wrong lock should not log nearby aggressive acceptance");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.target.switched_to_locked"),
+            "passive wrong lock should not switch to locked target");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_STATIONARY_TAB_VERIFY_DELAY_MS", previousTabDelay);
     }
 }
 
