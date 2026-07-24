@@ -107,6 +107,10 @@ public sealed class DefaultAccountWorkerLoop : IAccountWorkerLoop
                             delay = teamResult.Value.Delay;
                             normalWorkBlocked = teamResult.Value.ShouldSkipNormalWork;
                         }
+                        else if (stationaryCombatState.LootAfterKill.Active)
+                        {
+                            normalWorkBlocked = false;
+                        }
 
                         if (!normalWorkBlocked &&
                             await _semiAuto

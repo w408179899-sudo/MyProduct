@@ -203,6 +203,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat death recovery path jumps when stuck", TestStationaryCombatDeathRecoveryPathJumpsWhenStuckAsync),
     ("stationary combat death recovery leader siphon pauses and resumes revive path", TestStationaryCombatDeathRecoveryLeaderSiphonPausesAndResumesRevivePathAsync),
     ("worker runs team output during revive path leader siphon", TestWorkerRunsTeamOutputDuringRevivePathLeaderSiphonAsync),
+    ("worker continues loot during revive path leader siphon", TestWorkerContinuesLootDuringRevivePathLeaderSiphonAsync),
     ("manual path retries transient player read failures", TestManualPathRetriesTransientPlayerReadFailuresAsync),
     ("manual path fails after player read retry timeout", TestManualPathFailsAfterPlayerReadRetryTimeoutAsync),
     ("path combat worker follows configured combat path", TestPathCombatWorkerFollowsConfiguredCombatPathAsync),
@@ -7780,6 +7781,179 @@ static async Task TestWorkerRunsTeamOutputDuringRevivePathLeaderSiphonAsync()
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_COUNT", previousScrollCount);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", previousScrollInterval);
         Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+    }
+}
+
+static async Task TestWorkerContinuesLootDuringRevivePathLeaderSiphonAsync()
+{
+    var previousClickDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS");
+    var previousStepDelay = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS");
+    var previousClickHold = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS");
+    var previousRetry = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_RETRY_MS");
+    var previousScrollCount = Environment.GetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_COUNT");
+    var previousScrollInterval = Environment.GetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS");
+    var previousBearingMode = Environment.GetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE");
+    var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
+    var previousAfterPickWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS");
+    var previousPressCount = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT");
+    var previousPressInterval = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", "1");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_RETRY_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_COUNT", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", "0");
+    Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", "y-x");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "40");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", "1");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", "0");
+    try
+    {
+        var settings = CreateTeamSupportSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Paths.RevivePathName = "revive-a";
+        settings.Team.GroupDistanceMeters = 12.0D;
+        settings.Team.Support!.JoinCombat = true;
+        settings.Team.Support.LeaderDistanceMeters = 5.0D;
+        settings.Maintenance.SitMaintenanceEnabled = false;
+        settings.Maintenance.HpMaintenanceRules.Clear();
+        settings.Maintenance.MpMaintenanceRules.Clear();
+        settings.Maintenance.StatusMaintenanceRules.Clear();
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 20,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 10
+        };
+        settings.Skills.ExecutionTree = new List<SkillConfigNode>
+        {
+            Node(1, "Strike", "主动技能")
+        };
+
+        const ushort targetEntityId = 300;
+        const uint targetServerObjectId = 3000;
+        var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0D) with
+        {
+            Class = AionClassId.Chanter,
+            ClassId = (byte)AionClassId.Chanter,
+            ClassName = "Chanter"
+        };
+        var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0D) with
+        {
+            LiveTargetServerObjectId = targetServerObjectId
+        };
+        var gameApi = CreateTeamSupportGameApi(self, leader);
+        gameApi.Player = new PlayerSnapshot(
+            1,
+            0,
+            self.Name,
+            0,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            90,
+            10,
+            90);
+        gameApi.WorldObjects = Array.Empty<WorldObjectSnapshot>();
+        gameApi.Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0
+        });
+
+        var pathStore = new InMemorySharedPathStore(
+            CreatePath("revive-a",
+                new Vector3Snapshot(0, 0, 0),
+                new Vector3Snapshot(10, 0, 0),
+                new Vector3Snapshot(20, 0, 0)));
+        var keyboard = new RecordingKeyboardInput();
+        keyboard.AfterMouseUp = button =>
+        {
+            if (button == RoadhogMouseButton.Left)
+            {
+                gameApi.Player = gameApi.Player with
+                {
+                    CurrentHp = 100,
+                    Position = new Vector3Snapshot(0, 0, 0)
+                };
+            }
+        };
+        keyboard.AfterPress = key =>
+        {
+            if (string.Equals(key, "F2", StringComparison.Ordinal))
+            {
+                SetFakeLockedTarget(gameApi, leader.ServerObjectId, 0, 0, 0);
+            }
+            else if (string.Equals(key, "Oem3", StringComparison.Ordinal))
+            {
+                SetFakeLockedTarget(
+                    gameApi,
+                    targetServerObjectId,
+                    LockedTargetSnapshot.MonsterObjectType,
+                    leader.ServerObjectId,
+                    100);
+                gameApi.TargetEntityId = targetEntityId;
+                gameApi.TargetName = "target";
+                gameApi.TargetPosition = new Vector3Snapshot(2, 0, 0);
+            }
+            else if (string.Equals(key, "D1", StringComparison.Ordinal))
+            {
+                gameApi.TargetCurrentHp = 0;
+            }
+        };
+
+        var logger = new InMemoryRoadhogLogger();
+        var semiAuto = new SemiAutoCombatController(keyboard);
+        var stationary = new StationaryCombatController(keyboard, semiAuto, pathStore);
+        var worker = new DefaultAccountWorkerLoop(
+            keyboard,
+            semiAuto,
+            stationary,
+            teamSupport: new TeamSupportController(keyboard));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var context = CreateContext(
+            settings,
+            gameApi,
+            logger,
+            options: new AccountWorkerOptions { TickInterval = TimeSpan.FromMilliseconds(10) },
+            stopToken: cts.Token);
+
+        var runTask = worker.RunAsync(context);
+        await WaitUntilAsync(
+                () => logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.finished"),
+                "loot during revive-path leader siphon")
+            .ConfigureAwait(false);
+        cts.Cancel();
+        await IgnoreCancellationAsync(runTask).ConfigureAwait(false);
+
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "stationary_combat.death_recovery.leader_siphon.enter"),
+            "siphon should be active before combat loot");
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.pick_pressed"),
+            "loot key should be pressed even while revive-path leader siphon is active");
+        AssertFalse(!keyboard.Keys.Contains("NumPadDecimal"), "loot key should be recorded by keyboard input");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_DELAY_MS", previousClickDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_MOUSE_STEP_DELAY_MS", previousStepDelay);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_CLICK_HOLD_MS", previousClickHold);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_RETRY_MS", previousRetry);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_COUNT", previousScrollCount);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_POST_REVIVE_SCROLL_INTERVAL_MS", previousScrollInterval);
+        Environment.SetEnvironmentVariable("AION_FACE_TARGET_BEARING_MODE", previousBearingMode);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", previousAfterPickWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
     }
 }
 
