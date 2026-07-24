@@ -136,8 +136,6 @@ namespace Roadhog
         private Button? teamPhysicalCleanseKeyButton;
         private Button? teamGroupCleanseKeyButton;
         private RadioButton? skillAutoModeRadio;
-        private RadioButton? skillManualModeRadio;
-        private RadioButton? skillSystemModeRadio;
         private Panel? autoSkillPanel;
         private Panel? manualSkillPanel;
         private Panel? systemSkillPanel;
@@ -396,24 +394,12 @@ namespace Roadhog
             currentSpiritmasterSettings = (settings.Skills.Spiritmaster ?? new SpiritmasterSkillSettings()).Clone();
             PopulateSpiritmasterRuleLists(currentSpiritmasterSettings);
 
-            var manualSkillMode = settings.Skills.Mode == SkillConfigurationMode.ManualMapping;
-            var systemSkillMode = settings.Skills.Mode == SkillConfigurationMode.SystemClassification;
             if (skillAutoModeRadio is not null)
             {
-                skillAutoModeRadio.Checked = !manualSkillMode && !systemSkillMode;
+                skillAutoModeRadio.Checked = true;
             }
 
-            if (skillManualModeRadio is not null)
-            {
-                skillManualModeRadio.Checked = manualSkillMode;
-            }
-
-            if (skillSystemModeRadio is not null)
-            {
-                skillSystemModeRadio.Checked = systemSkillMode;
-            }
-
-            ShowSkillMode(settings.Skills.Mode);
+            ShowSkillMode(SkillConfigurationMode.Auto);
 
             if (selectedSkillTree is not null)
             {
@@ -634,14 +620,7 @@ namespace Roadhog
 
         private SkillConfigurationMode CaptureSkillConfigurationMode()
         {
-            if (skillSystemModeRadio?.Checked == true)
-            {
-                return SkillConfigurationMode.SystemClassification;
-            }
-
-            return skillManualModeRadio?.Checked == true
-                ? SkillConfigurationMode.ManualMapping
-                : SkillConfigurationMode.Auto;
+            return SkillConfigurationMode.Auto;
         }
 
         private static void ApplyScriptSettingsToLegacyFields(AccountConfig account, ScriptSettings settings)
@@ -3825,10 +3804,6 @@ namespace Roadhog
             AddLabel(page, "技能配置", 4, 16, 90, 24, _textGreen, FontStyle.Bold);
             var autoMode = AddRadioButton(page, "自动技能", 92, 14, 90, true);
             skillAutoModeRadio = autoMode;
-            var manualMode = AddRadioButton(page, "手动设置", 190, 14, 96, false);
-            skillManualModeRadio = manualMode;
-            var systemMode = AddRadioButton(page, "系统设置", 292, 14, 96, false);
-            skillSystemModeRadio = systemMode;
             openingAttackKeyCheckBox = AddCheckBox(page, "开怪按C", 548, 14, 92, true);
             spiritmasterAutoSkillCheckBox = AddCheckBox(page, "精灵专用", 648, 14, 110, false);
             spiritmasterAutoSkillCheckBox.Click += (_, _) => RefreshSpiritmasterAutoSkillCheckBoxState();
@@ -3931,26 +3906,6 @@ namespace Roadhog
                     if (availableTree is not null && currentManualSkills.Count > 0)
                     {
                         PopulateAvailableSkillTreeFromSkills(availableTree, currentManualSkills);
-                    }
-                }
-            };
-
-            manualMode.CheckedChanged += (_, _) =>
-            {
-                if (manualMode.Checked)
-                {
-                    ShowSkillMode(SkillConfigurationMode.ManualMapping);
-                }
-            };
-
-            systemMode.CheckedChanged += (_, _) =>
-            {
-                if (systemMode.Checked)
-                {
-                    ShowSkillMode(SkillConfigurationMode.SystemClassification);
-                    if (systemTree is not null && currentManualSkills.Count > 0)
-                    {
-                        PopulateSystemSkillTreeFromSkills(systemTree, currentManualSkills);
                     }
                 }
             };
@@ -6015,7 +5970,7 @@ namespace Roadhog
                     PopulateAvailableSkillTreeFromSkills(availableTree, currentManualSkills);
                 }
 
-                if (systemTree is not null && skillSystemModeRadio?.Checked == true)
+                if (systemTree is not null)
                 {
                     PopulateSystemSkillTreeFromSkills(systemTree, currentManualSkills);
                 }
