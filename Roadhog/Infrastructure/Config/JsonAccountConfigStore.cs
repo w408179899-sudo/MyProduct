@@ -25,6 +25,8 @@ public sealed class JsonAccountConfigStore : IAccountConfigStore
             : path;
     }
 
+    public string ConfigPath => _path;
+
     public async Task<OperationResult<IReadOnlyList<AccountConfig>>> LoadAllAsync(CancellationToken cancellationToken = default)
     {
         await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);

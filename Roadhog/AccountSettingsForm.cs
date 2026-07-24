@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Drawing.Drawing2D;
 using Roadhog.Application;
 using Roadhog.Core.Accounts;
@@ -11,8 +12,10 @@ namespace Roadhog
     public sealed class AccountSettingsForm : Form
     {
         private const string ManualSkillMappingRowDragFormat = "Roadhog.ManualSkillMappingRow";
+        private const string BagCleanupExcludedFileName = "bag-cleanup-excluded.txt";
         private const double CleanupNpcSearchRadiusMeters = 10.0D;
         private const int PathRecordTimerIntervalMs = 100;
+        private static readonly Encoding TextFileEncoding = new UTF8Encoding(false);
 
         private readonly string _account;
         private readonly string _windowTitle;
@@ -2127,8 +2130,9 @@ namespace Roadhog
             testSellRegisterButton.Click += async (_, _) =>
                 await TestBagCleanupSellRegisterAsync(testSellRegisterButton).ConfigureAwait(true);
 
-            AddLabel(page, "当前背包", 430, 92, 82, 24, _textGreen, FontStyle.Bold);
+            AddLabel(page, "物品/关键字", 430, 92, 96, 24, _textGreen, FontStyle.Bold);
             bagCleanupInventoryCombo = AddCombo(page, 430, 118, 248, 28);
+            bagCleanupInventoryCombo.DropDownStyle = ComboBoxStyle.DropDown;
             bagCleanupInventoryCombo.Name = "bagCleanupInventoryCombo";
             AddButton(page, "加入不处理", 688, 118, 100, 30, (_, _) => AddSelectedBagCleanupExcludedItem());
 
@@ -2138,6 +2142,7 @@ namespace Roadhog
             bagCleanupExcludedItemListBox = CreateFilterListBox(page, 430, 216, 248, 280);
             AddButton(page, "移除", 688, 216, 80, 30, (_, _) => RemoveSelectedBagCleanupExcludedItem());
             AddButton(page, "清空", 688, 254, 80, 30, (_, _) => ClearBagCleanupExcludedItemList());
+            AddButton(page, "导出", 688, 292, 80, 30, (_, _) => ExportBagCleanupExcludedItemList());
 
             return tab;
         }
@@ -2929,9 +2934,16 @@ namespace Roadhog
                 return bagCleanupInventoryCombo?.Text.Trim() ?? string.Empty;
             }
 
-            return bagCleanupInventoryCombo.Items[bagCleanupInventoryCombo.SelectedIndex] is BagCleanupInventoryComboItem item
-                ? item.Name
-                : bagCleanupInventoryCombo.Text.Trim();
+            var text = bagCleanupInventoryCombo.Text.Trim();
+            if (bagCleanupInventoryCombo.Items[bagCleanupInventoryCombo.SelectedIndex] is BagCleanupInventoryComboItem item)
+            {
+                return string.Equals(text, item.ToString(), StringComparison.Ordinal) ||
+                       string.Equals(text, item.Name, StringComparison.OrdinalIgnoreCase)
+                    ? item.Name
+                    : text;
+            }
+
+            return text;
         }
 
         private void AddSelectedBagCleanupExcludedItem()
@@ -2978,6 +2990,58 @@ namespace Roadhog
         private void ClearBagCleanupExcludedItemList()
         {
             bagCleanupExcludedItemListBox?.Items.Clear();
+        }
+
+        private void ExportBagCleanupExcludedItemList()
+        {
+            var itemNames = CaptureBagCleanupExcludedItemList();
+            if (itemNames.Count == 0)
+            {
+                SetBagCleanupInventoryStatus("没有可导出的不处理关键字", true);
+                return;
+            }
+
+            var path = ResolveBagCleanupExcludedFilePath();
+            try
+            {
+                var directory = Path.GetDirectoryName(path);
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                File.WriteAllLines(path, itemNames, TextFileEncoding);
+                SetBagCleanupInventoryStatus("已导出不处理文件: " + path, false);
+            }
+            catch (Exception ex)
+            {
+                SetBagCleanupInventoryStatus("导出不处理文件失败: " + ex.Message, true);
+                MessageBox.Show(
+                    this,
+                    "导出不处理文件失败：" + Environment.NewLine + ex.Message,
+                    "导出不处理文件",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
+        private string ResolveBagCleanupExcludedFilePath()
+        {
+            return Path.Combine(ResolveConfigDirectory(), BagCleanupExcludedFileName);
+        }
+
+        private string ResolveConfigDirectory()
+        {
+            if (_configStore is global::Roadhog.Infrastructure.Config.JsonAccountConfigStore jsonStore)
+            {
+                var directory = Path.GetDirectoryName(jsonStore.ConfigPath);
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    return directory;
+                }
+            }
+
+            return Path.Combine(AppContext.BaseDirectory, "config");
         }
 
         private void PopulateBagCleanupExcludedItemList(IEnumerable<string>? itemNames)

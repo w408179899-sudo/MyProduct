@@ -10,10 +10,11 @@ public static class BagCleanupItemMatcher
         IEnumerable<InventoryItemSnapshot> items,
         MaintenanceScriptSettings settings)
     {
-        var excludedNames = settings.BagCleanupExcludedItemNames
+        var excludedNameKeywords = settings.BagCleanupExcludedItemNames
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Select(name => name.Trim())
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         var rules = BagCleanupRuleCatalog
             .MergeWithDefaults(settings.BagCleanupRules)
             .Where(rule => rule.Enabled && rule.Action == BagCleanupAction.Sell)
@@ -25,7 +26,7 @@ public static class BagCleanupItemMatcher
         }
 
         return items
-            .Where(item => IsBagItem(item) && !excludedNames.Contains(item.Name.Trim()))
+            .Where(item => IsBagItem(item) && !IsExcludedByNameKeyword(item.Name, excludedNameKeywords))
             .Where(item => rules.Any(rule => MatchesRule(item, rule)))
             .OrderBy(item => item.Slot)
             .ThenBy(item => item.TemplateId)
@@ -43,6 +44,11 @@ public static class BagCleanupItemMatcher
         return !item.IsEquipped &&
                item.Slot >= 0 &&
                !string.IsNullOrWhiteSpace(item.Name);
+    }
+
+    private static bool IsExcludedByNameKeyword(string itemName, IReadOnlyList<string> keywords)
+    {
+        return keywords.Any(keyword => itemName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool MatchesCategory(InventoryItemSnapshot item, BagCleanupRuleConfig rule)

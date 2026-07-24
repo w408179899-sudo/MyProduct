@@ -416,6 +416,11 @@ namespace Roadhog
                 SelectedIndexChanged?.Invoke(this, EventArgs.Empty);
                 Invalidate();
             };
+            _comboBox.TextChanged += (_, _) =>
+            {
+                base.Text = _comboBox.Text;
+                Invalidate();
+            };
             Controls.Add(_comboBox);
         }
 
@@ -437,6 +442,12 @@ namespace Roadhog
         public event EventHandler? SelectedIndexChanged;
 
         public ComboBox.ObjectCollection Items => _comboBox.Items;
+
+        public ComboBoxStyle DropDownStyle
+        {
+            get => _comboBox.DropDownStyle;
+            set => _comboBox.DropDownStyle = value;
+        }
 
         public int SelectedIndex
         {

@@ -165,6 +165,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("bag cleanup controller failure cools down instead of stopping", TestBagCleanupControllerFailureCoolsDownAsync),
     ("bag cleanup matcher groups weapon armor and accessory as equipment", TestBagCleanupMatcherGroupsEquipmentTypesAsync),
     ("bag cleanup matcher maps stigma item type", TestBagCleanupMatcherMapsStigmaItemTypeAsync),
+    ("bag cleanup matcher excludes name keywords", TestBagCleanupMatcherExcludesNameKeywordsAsync),
     ("bag cleanup matcher maps skill book item type", TestBagCleanupMatcherMapsSkillBookItemTypeAsync),
     ("window title formats character identity", TestWindowTitleFormatsCharacterIdentityAsync),
     ("kmbox net keyboard input validates unsupported local inputs", TestKmBoxNetKeyboardInputValidationAsync),
@@ -5701,6 +5702,31 @@ static Task TestBagCleanupMatcherMapsStigmaItemTypeAsync()
         new[] { "痊愈之闪光 I", "痊愈之闪光 I", "生命力吸收 II" },
         selected.Select(item => item.Name).ToArray(),
         "stigma cleanup should map item type 9 even when the item name does not contain stigma");
+
+    return Task.CompletedTask;
+}
+
+static Task TestBagCleanupMatcherExcludesNameKeywordsAsync()
+{
+    var rules = BagCleanupRuleCatalog.CreateDefaultRules();
+    rules.First(rule => rule.Key == BagCleanupRuleCatalog.Stigma).Enabled = true;
+    var settings = new MaintenanceScriptSettings
+    {
+        BagCleanupRules = rules,
+        BagCleanupExcludedItemNames = new List<string> { "闪光" }
+    };
+    var items = new[]
+    {
+        new InventoryItemSnapshot(140000100, 1, "痊愈之闪光 I", 1, 11, false, 9, 2),
+        new InventoryItemSnapshot(140000150, 2, "生命力吸收 II", 1, 12, false, 9, 2)
+    };
+
+    var selected = BagCleanupItemMatcher.SelectSellRegistrationItems(items, settings);
+
+    AssertSequence(
+        new[] { "生命力吸收 II" },
+        selected.Select(item => item.Name).ToArray(),
+        "bag cleanup excluded item names should match by keyword containment");
 
     return Task.CompletedTask;
 }
