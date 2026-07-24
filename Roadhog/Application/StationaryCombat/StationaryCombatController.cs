@@ -282,8 +282,22 @@ public sealed class StationaryCombatController
         if (target?.Position is null)
         {
             semiAutoState.ResetAttackKeyPressThrottle();
-            await StopMovementAsync(context, state).ConfigureAwait(false);
             state.ClearTarget();
+            if (combat.ReturnHomeWhenNoTarget && playerDistanceFromHome > ReturnStopDistance)
+            {
+                LogActionThrottled(context, state, "stationary_combat.no_target.return_home", "home", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["homeDistance"] = Math.Round(playerDistanceFromHome, 2),
+                    ["stopDistance"] = Math.Round(ReturnStopDistance, 2),
+                    ["homeX"] = Math.Round(home.X, 2),
+                    ["homeY"] = Math.Round(home.Y, 2)
+                }, TimeSpan.FromMilliseconds(500));
+                await PathFollowStepAsync(context, state, player, home, ReturnStopDistance).ConfigureAwait(false);
+                return MoveTickDelay;
+            }
+
+            await StopMovementAsync(context, state).ConfigureAwait(false);
             return IdleDelay;
         }
 

@@ -29,6 +29,7 @@
           "enableLoot": true,
           "contestMonster": false,
           "counterEnemyRace": false,
+          "returnHomeWhenNoTarget": true,
           "stationaryCombatRadius": 30,
           "pathCombatRadius": 30,
           "pathFollowReachDistance": 5

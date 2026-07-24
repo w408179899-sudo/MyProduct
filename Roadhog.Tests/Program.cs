@@ -184,6 +184,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account config persists stationary combat position", TestAccountConfigPersistsStationaryCombatPositionAsync),
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
     ("stationary combat derives home from revive path endpoint", TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync),
+    ("stationary combat returns home when no target is available", TestStationaryCombatReturnsHomeWhenNoTargetAvailableAsync),
+    ("stationary combat does not return home when no target switch is disabled", TestStationaryCombatDoesNotReturnHomeWhenNoTargetSwitchDisabledAsync),
     ("stationary combat skips active filtered monsters", TestStationaryCombatSkipsActiveFilteredMonstersAsync),
     ("stationary combat state uses server object id identity", TestStationaryCombatStateUsesServerObjectIdIdentityAsync),
     ("tool bridge inventory parser reads bag items", TestToolBridgeInventoryParserReadsBagItemsAsync),
@@ -272,6 +274,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("available skill tree keeps chain roots in normal category", TestAvailableSkillTreeKeepsChainRootsInNormalCategoryAsync),
     ("manual skill category maps target valid status as condition", TestManualSkillCategoryMapsTargetValidStatusAsConditionAsync),
     ("condition skill preempt switch persists from skill UI", TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync),
+    ("return home when no target switch persists from summary UI", TestReturnHomeWhenNoTargetSwitchPersistsFromSummaryUiAsync),
     ("selected skill refresh removes unavailable current skills", TestSelectedSkillRefreshRemovesUnavailableCurrentSkillsAsync),
     ("skill tree maps at most configured roots across the 24 supported keys", TestConfiguredRootKeyBoundaryAsync),
     ("combat tick presses trigger prefix then first ready root", TestCombatTickPressesPrefixThenReadyRootAsync),
@@ -6148,6 +6151,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
                 {
                     EnableLoot = true,
                     PreferAggressiveMonsters = true,
+                    ReturnHomeWhenNoTarget = false,
                     HasStationaryCombatPosition = true,
                     StationaryCombatX = 1307.758D,
                     StationaryCombatY = 2844.230D,
@@ -6178,6 +6182,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(11.5D, combat.CameraYawPixelsPerDegree, "camera yaw pixels per degree");
         AssertEqual(13.25D, combat.CameraPitchPixelsPerDegree, "camera pitch pixels per degree");
         AssertFalse(!combat.PreferAggressiveMonsters, "prefer aggressive monsters should persist");
+        AssertFalse(combat.ReturnHomeWhenNoTarget, "return home when no target should persist");
 
         var clone = account.ScriptSettings.Combat.Clone();
         AssertFalse(!clone.HasStationaryCombatPosition, "stationary combat position flag should clone");
@@ -6188,6 +6193,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(11.5D, clone.CameraYawPixelsPerDegree, "cloned camera yaw pixels per degree");
         AssertEqual(13.25D, clone.CameraPitchPixelsPerDegree, "cloned camera pitch pixels per degree");
         AssertFalse(!clone.PreferAggressiveMonsters, "prefer aggressive monsters should clone");
+        AssertFalse(clone.ReturnHomeWhenNoTarget, "return home when no target should clone");
     }
     finally
     {
@@ -6277,6 +6283,88 @@ static async Task TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync()
 
     AssertEqual((ushort)200, state.CandidateEntityId, "revive path endpoint should override legacy stationary position");
     AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.position.missing"), "revive path endpoint should satisfy stationary home");
+}
+
+static async Task TestStationaryCombatReturnsHomeWhenNoTargetAvailableAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(6, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+    };
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+        .ConfigureAwait(false);
+
+    AssertFalse(!state.IsMovingForward, "no-target stationary combat should move back toward home");
+    AssertFalse(!keyboard.KeyDowns.Contains("W"), "no-target stationary combat should hold W while returning home");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.no_target.return_home"),
+        "no-target return home action should be logged");
+    AssertEqual((ushort)0, state.CandidateEntityId, "no target should leave no candidate selected");
+}
+
+static async Task TestStationaryCombatDoesNotReturnHomeWhenNoTargetSwitchDisabledAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30,
+        ReturnHomeWhenNoTarget = false
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(6, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+    };
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+        .ConfigureAwait(false);
+
+    AssertFalse(state.IsMovingForward, "disabled no-target return should leave movement stopped");
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "disabled no-target return should not hold W");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.no_target.return_home"),
+        "disabled no-target return should not log return home");
 }
 
 static async Task TestStationaryCombatSkipsActiveFilteredMonstersAsync()
@@ -12782,6 +12870,59 @@ static Task TestConditionSkillPreemptSwitchPersistsFromSkillUiAsync()
             AssertFalse(
                 savedSettings?.SemiAuto.ConditionSkillPreemptsChain != false,
                 "condition preempt switch should persist disabled state");
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+    });
+
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+
+    if (failure is not null)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    return Task.CompletedTask;
+}
+
+static Task TestReturnHomeWhenNoTargetSwitchPersistsFromSummaryUiAsync()
+{
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            var settings = CreateScriptSettings();
+            settings.MainMode = AccountMainMode.CustomCombat;
+            settings.CombatMode = AccountCombatMode.Stationary;
+            settings.Combat.ReturnHomeWhenNoTarget = false;
+            var configStore = new InMemoryAccountConfigStore(new AccountConfig
+            {
+                AccountName = "account1",
+                ScriptSettings = settings
+            });
+
+            using var form = CreateAccountSettingsFormForTestsWithStore(configStore);
+            AssertFalse(
+                GetCheckBoxCheckedForTest(form, "returnHomeWhenNoTargetCheckBox"),
+                "return home when no target switch should load disabled state");
+
+            SetCheckBoxCheckedForTest(form, "returnHomeWhenNoTargetCheckBox", true);
+            var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
+            AssertFalse(!saved, "return home when no target switch save failed: " + error);
+
+            var load = configStore.LoadAllAsync().GetAwaiter().GetResult();
+            AssertFalse(!load.Success, "saved config should load");
+            var savedSettings = load.Value!
+                .Single(account => string.Equals(account.AccountName, "account1", StringComparison.OrdinalIgnoreCase))
+                .ScriptSettings;
+            AssertFalse(
+                savedSettings?.Combat.ReturnHomeWhenNoTarget != true,
+                "return home when no target switch should persist enabled state");
         }
         catch (Exception ex)
         {

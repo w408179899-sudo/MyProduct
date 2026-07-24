@@ -61,6 +61,7 @@ namespace Roadhog
         private RoundedCheckBox? contestMonsterCheckBox;
         private RoundedCheckBox? counterEnemyRaceCheckBox;
         private RoundedCheckBox? preferAggressiveMonsterCheckBox;
+        private RoundedCheckBox? returnHomeWhenNoTargetCheckBox;
         private RoundedComboBox? activeMonsterFilterCombo;
         private ListBox? activeMonsterFilterListBox;
         private Label? activeMonsterFilterStatusLabel;
@@ -344,6 +345,7 @@ namespace Roadhog
             SetChecked(contestMonsterCheckBox, settings.Combat.ContestMonster);
             SetChecked(counterEnemyRaceCheckBox, settings.Combat.CounterEnemyRace);
             SetChecked(preferAggressiveMonsterCheckBox, settings.Combat.PreferAggressiveMonsters);
+            SetChecked(returnHomeWhenNoTargetCheckBox, settings.Combat.ReturnHomeWhenNoTarget);
             PopulateActiveMonsterFilterList(settings.Combat.ActiveMonsterNameFilters);
 
             var paths = settings.Paths ?? new PathScriptSettings();
@@ -548,6 +550,7 @@ namespace Roadhog
                     ContestMonster = contestMonsterCheckBox?.Checked ?? false,
                     CounterEnemyRace = counterEnemyRaceCheckBox?.Checked ?? false,
                     PreferAggressiveMonsters = preferAggressiveMonsterCheckBox?.Checked ?? false,
+                    ReturnHomeWhenNoTarget = returnHomeWhenNoTargetCheckBox?.Checked ?? true,
                     ActiveMonsterNameFilters = CaptureActiveMonsterFilterList(),
                     HasStationaryCombatPosition = false,
                     StationaryCombatX = 0.0D,
@@ -928,7 +931,6 @@ namespace Roadhog
             pathFollowReachDistanceLabel = AddLabel(page, "精度", 482, 108, 38, 22);
             pathFollowReachDistanceTextBox = AddTextBox(page, "5.0", 522, 104, 70, 28);
             pathFollowReachDistanceUnitLabel = AddLabel(page, "m", 598, 108, 20, 22);
-            RefreshCombatModeVisibility();
 
             enableLootCheckBox = AddCheckBox(page, "启用拾取", 4, 142, 88, true);
             contestMonsterCheckBox = AddCheckBox(page, "抢怪", 96, 142, 64, false);
@@ -940,6 +942,9 @@ namespace Roadhog
             apiProbeButton.Click += async (_, _) =>
                 await RunApiProbeAsync(apiProbeButton).ConfigureAwait(true);
 #endif
+
+            returnHomeWhenNoTargetCheckBox = AddCheckBox(page, "\u6ca1\u602a\u56de\u4e2d\u5fc3", 470, 142, 118, true);
+            RefreshCombatModeVisibility();
 
             return tab;
         }
@@ -1003,6 +1008,11 @@ namespace Roadhog
             if (pathFollowReachDistanceUnitLabel is not null)
             {
                 pathFollowReachDistanceUnitLabel.Visible = pathVisible;
+            }
+
+            if (returnHomeWhenNoTargetCheckBox is not null)
+            {
+                returnHomeWhenNoTargetCheckBox.Visible = stationaryVisible;
             }
         }
 
