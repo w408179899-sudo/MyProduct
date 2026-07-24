@@ -67,6 +67,14 @@ public sealed class StationaryCombatState
 
     public int CombatApproachJumpCount { get; private set; }
 
+    public Vector3Snapshot? ReturnHomeLastProgressPosition { get; private set; }
+
+    public DateTimeOffset ReturnHomeLastProgressAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastReturnHomeJumpAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public int ReturnHomeJumpCount { get; private set; }
+
     public ushort CurrentTargetDamageEntityId { get; private set; }
 
     public uint CurrentTargetDamageServerObjectId { get; private set; }
@@ -213,6 +221,7 @@ public sealed class StationaryCombatState
         if (changed)
         {
             ResetCombatApproachStuckTracking();
+            ResetReturnHomeStuckTracking();
             ClearWrongLockNudge();
         }
 
@@ -246,6 +255,26 @@ public sealed class StationaryCombatState
         CombatApproachLastProgressAt = DateTimeOffset.MinValue;
         LastCombatApproachJumpAt = DateTimeOffset.MinValue;
         CombatApproachJumpCount = 0;
+    }
+
+    public void MarkReturnHomeProgress(Vector3Snapshot position, DateTimeOffset now)
+    {
+        ReturnHomeLastProgressPosition = position;
+        ReturnHomeLastProgressAt = now;
+    }
+
+    public void MarkReturnHomeJump(DateTimeOffset now)
+    {
+        LastReturnHomeJumpAt = now;
+        ReturnHomeJumpCount++;
+    }
+
+    public void ResetReturnHomeStuckTracking()
+    {
+        ReturnHomeLastProgressPosition = null;
+        ReturnHomeLastProgressAt = DateTimeOffset.MinValue;
+        LastReturnHomeJumpAt = DateTimeOffset.MinValue;
+        ReturnHomeJumpCount = 0;
     }
 
     public int MarkCameraTurnNoChange()

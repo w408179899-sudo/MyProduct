@@ -229,12 +229,21 @@ public sealed class StationaryCombatController
             if (playerDistanceFromHome <= ReturnStopDistance)
             {
                 state.ReturningHome = false;
+                state.ResetReturnHomeStuckTracking();
                 await StopMovementAsync(context, state).ConfigureAwait(false);
             }
             else
             {
                 semiAutoState.ResetAttackKeyPressThrottle();
                 await PathFollowStepAsync(context, state, player, home, ReturnStopDistance).ConfigureAwait(false);
+                await TryJumpReturnHomeIfStuckAsync(
+                        context,
+                        state,
+                        playerPosition,
+                        home,
+                        playerDistanceFromHome,
+                        "outside_radius")
+                    .ConfigureAwait(false);
                 return MoveTickDelay;
             }
         }
@@ -294,9 +303,18 @@ public sealed class StationaryCombatController
                     ["homeY"] = Math.Round(home.Y, 2)
                 }, TimeSpan.FromMilliseconds(500));
                 await PathFollowStepAsync(context, state, player, home, ReturnStopDistance).ConfigureAwait(false);
+                await TryJumpReturnHomeIfStuckAsync(
+                        context,
+                        state,
+                        playerPosition,
+                        home,
+                        playerDistanceFromHome,
+                        "no_target")
+                    .ConfigureAwait(false);
                 return MoveTickDelay;
             }
 
+            state.ResetReturnHomeStuckTracking();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             return IdleDelay;
         }
@@ -2564,6 +2582,89 @@ public sealed class StationaryCombatController
             ["thresholdMs"] = stuckMs,
             ["progressDistance"] = Math.Round(minProgressDistance, 2),
             ["jumpCount"] = pathCombat.PathJumpCount,
+            ["movingForward"] = state.IsMovingForward
+        });
+    }
+
+    private async Task TryJumpReturnHomeIfStuckAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double distanceToHome,
+        string phase)
+    {
+        if (!state.IsMovingForward)
+        {
+            state.ResetReturnHomeStuckTracking();
+            return;
+        }
+
+        var now = DateTimeOffset.Now;
+        var minProgressDistance = ReadDeathRevivePathStuckDistance();
+        if (state.ReturnHomeLastProgressPosition is null ||
+            state.ReturnHomeLastProgressAt == DateTimeOffset.MinValue)
+        {
+            state.MarkReturnHomeProgress(playerPosition, now);
+            return;
+        }
+
+        var moved = StationaryCombatTargetSelector.HorizontalDistance(
+            state.ReturnHomeLastProgressPosition.Value,
+            playerPosition);
+        if (moved >= minProgressDistance)
+        {
+            state.MarkReturnHomeProgress(playerPosition, now);
+            return;
+        }
+
+        var stuckMs = ReadDeathRevivePathStuckMs();
+        var stuckFor = now - state.ReturnHomeLastProgressAt;
+        if (stuckFor.TotalMilliseconds < stuckMs)
+        {
+            return;
+        }
+
+        if (state.LastReturnHomeJumpAt != DateTimeOffset.MinValue &&
+            (now - state.LastReturnHomeJumpAt).TotalMilliseconds < stuckMs)
+        {
+            return;
+        }
+
+        await EnsureMoveForwardAsync(context, state).ConfigureAwait(false);
+        var jumpHold = TimeSpan.FromMilliseconds(ReadDeathRevivePathJumpHoldMs());
+        var result = await _input.PressKeyAsync("Space", jumpHold, context.StopToken).ConfigureAwait(false);
+        state.MarkReturnHomeJump(now);
+        if (!result.Success)
+        {
+            context.Logger.Warn("stationary_combat.return_home.path_stuck_jump_failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["phase"] = phase,
+                ["homeX"] = Math.Round(home.X, 2),
+                ["homeY"] = Math.Round(home.Y, 2),
+                ["distance"] = Math.Round(distanceToHome, 2),
+                ["moved"] = Math.Round(moved, 2),
+                ["stuckMs"] = (long)Math.Max(0.0D, stuckFor.TotalMilliseconds),
+                ["thresholdMs"] = stuckMs,
+                ["progressDistance"] = Math.Round(minProgressDistance, 2),
+                ["error"] = result.Error
+            });
+            return;
+        }
+
+        context.Logger.Info("stationary_combat.return_home.path_stuck_jump", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["phase"] = phase,
+            ["homeX"] = Math.Round(home.X, 2),
+            ["homeY"] = Math.Round(home.Y, 2),
+            ["distance"] = Math.Round(distanceToHome, 2),
+            ["moved"] = Math.Round(moved, 2),
+            ["stuckMs"] = (long)Math.Max(0.0D, stuckFor.TotalMilliseconds),
+            ["thresholdMs"] = stuckMs,
+            ["progressDistance"] = Math.Round(minProgressDistance, 2),
+            ["jumpCount"] = state.ReturnHomeJumpCount,
             ["movingForward"] = state.IsMovingForward
         });
     }

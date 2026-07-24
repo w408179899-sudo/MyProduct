@@ -185,6 +185,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat target selector keeps monsters inside radius", TestStationaryTargetSelectorAsync),
     ("stationary combat derives home from revive path endpoint", TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync),
     ("stationary combat returns home when no target is available", TestStationaryCombatReturnsHomeWhenNoTargetAvailableAsync),
+    ("stationary combat jumps when stuck returning home with no target", TestStationaryCombatJumpsWhenStuckReturningHomeWithNoTargetAsync),
     ("stationary combat does not return home when no target switch is disabled", TestStationaryCombatDoesNotReturnHomeWhenNoTargetSwitchDisabledAsync),
     ("stationary combat skips active filtered monsters", TestStationaryCombatSkipsActiveFilteredMonstersAsync),
     ("stationary combat state uses server object id identity", TestStationaryCombatStateUsesServerObjectIdIdentityAsync),
@@ -6324,6 +6325,70 @@ static async Task TestStationaryCombatReturnsHomeWhenNoTargetAvailableAsync()
     AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.no_target.return_home"),
         "no-target return home action should be logged");
     AssertEqual((ushort)0, state.CandidateEntityId, "no target should leave no candidate selected");
+}
+
+static async Task TestStationaryCombatJumpsWhenStuckReturningHomeWithNoTargetAsync()
+{
+    var previousStuckMs = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_MS");
+    var previousStuckDistance = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE");
+    var previousJumpHold = Environment.GetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_MS", "20");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE", "0.5");
+    Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS", "1");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(6, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+            TargetEntityId = 0,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 0,
+            TargetPosition = null,
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState();
+        var semiAutoState = new SemiAutoCombatState();
+        var context = CreateContext(settings, gameApi, logger);
+
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.IsMovingForward, "first no-target return tick should hold W");
+        AssertFalse(keyboard.Keys.Contains("Space"), "first no-target return tick should only start stuck tracking");
+
+        await Task.Delay(30).ConfigureAwait(false);
+        await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+        AssertFalse(!state.IsMovingForward, "stuck no-target return jump should keep W held");
+        AssertFalse(keyboard.KeyUps.Contains("W"), "stuck no-target return jump must not release W");
+        AssertEqual(1, keyboard.Keys.Count(key => string.Equals(key, "Space", StringComparison.OrdinalIgnoreCase)),
+            "stuck no-target return should press Space once");
+        AssertFalse(
+            !logger.Entries.Any(entry => entry.EventName == "stationary_combat.return_home.path_stuck_jump"),
+            "stuck no-target return jump should be logged");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_MS", previousStuckMs);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE", previousStuckDistance);
+        Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS", previousJumpHold);
+    }
 }
 
 static async Task TestStationaryCombatDoesNotReturnHomeWhenNoTargetSwitchDisabledAsync()
