@@ -15941,6 +15941,8 @@ static async Task TestStatusMaintenancePressesMissingBuffAndLearnsAbnormalIdAsyn
     var entry = logger.Entries.LastOrDefault(entry => entry.EventName == "semi_auto.maintenance.status_key_pressed");
     AssertFalse(entry is null, "status maintenance should log confirmed status key press");
     AssertEqual(4001u, Convert.ToUInt32(entry!.Fields["abnormalStatusId"]), "learned status abnormal id");
+    AssertEqual(1300L, Convert.ToInt64(entry.Fields["confirmWindowMs"]), "normal status maintenance confirm window");
+    AssertEqual(false, Convert.ToBoolean(entry.Fields["chant"]), "normal status maintenance should not be logged as chant");
 
     await controller.TryHandleMaintenanceAsync(CreateContext(settings, gameApi, logger), state, gameApi.Player).ConfigureAwait(false);
 
@@ -16069,6 +16071,7 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
     AssertFalse(pressedEntry is null, "chant status maintenance should log the first key press");
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["oneShot"]), "chant maintenance should keep legacy one-shot log flag");
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["chant"]), "chant maintenance should be logged as chant");
+    AssertEqual(6000L, Convert.ToInt64(pressedEntry.Fields["confirmWindowMs"]), "chant status maintenance confirm window");
     AssertFalse(
         !state.TryGetStatusMaintenanceActiveSeenAt("skill:8200", out _),
         "confirmed chant maintenance should remember sticky active status");
