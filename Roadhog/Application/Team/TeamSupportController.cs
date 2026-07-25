@@ -87,6 +87,27 @@ public sealed class TeamSupportController
             leader.PartyMember.IsDead;
         if (leaderDeadStop)
         {
+            if (support.AllowSelfDefense)
+            {
+                if (TeamLeaderRuntimePolicy.HasActiveSelfDefenseTarget(combatState))
+                {
+                    ResetLeaderAssistJumpCount(state);
+                    return TeamSupportTickResult.Continue(TeamSupportTickDelay);
+                }
+
+                var selfDefenseResult = await TryHandleSelfDefenseAsync(
+                        context,
+                        state,
+                        snapshot,
+                        combatState)
+                    .ConfigureAwait(false);
+                if (selfDefenseResult is not null)
+                {
+                    ResetLeaderAssistJumpCount(state);
+                    return selfDefenseResult;
+                }
+            }
+
             if (RecordLeaderUnavailableTick(state))
             {
                 return TeamSupportTickResult.Continue(TeamSupportTickDelay);

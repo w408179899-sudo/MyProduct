@@ -70,6 +70,21 @@ public sealed class TeamOutputController
 
         if (output.StopWhenLeaderDead && leader.PartyMember.IsDead)
         {
+            if (output.AllowSelfDefense)
+            {
+                var selfDefenseResult = await TryHandleLeaderDeadSelfDefenseAsync(
+                        context,
+                        state,
+                        snapshot,
+                        combatState)
+                    .ConfigureAwait(false);
+                if (selfDefenseResult is not null)
+                {
+                    ResetLeaderAssistJumpCount(state);
+                    return selfDefenseResult;
+                }
+            }
+
             if (RecordLeaderUnavailableTick(state))
             {
                 return TeamOutputTickResult.Continue(TeamOutputTickDelay);
@@ -97,7 +112,7 @@ public sealed class TeamOutputController
         }
 
         if (output.AllowSelfDefense &&
-            await HasSelfDefenseThreatAsync(context, state, snapshot).ConfigureAwait(false))
+            await TryFindSelfDefenseThreatAsync(context, state, snapshot).ConfigureAwait(false) is not null)
         {
             ResetLeaderAssistJumpCount(state);
             return TeamOutputTickResult.Continue(TeamOutputTickDelay);
@@ -428,7 +443,35 @@ public sealed class TeamOutputController
         return MemberSelectionResult.NotSelected;
     }
 
-    private async Task<bool> HasSelfDefenseThreatAsync(
+    private async Task<TeamOutputTickResult?> TryHandleLeaderDeadSelfDefenseAsync(
+        AccountWorkerContext context,
+        TeamOutputState state,
+        TeamSnapshot snapshot,
+        StationaryCombatState? combatState)
+    {
+        if (TeamLeaderRuntimePolicy.HasActiveSelfDefenseTarget(combatState))
+        {
+            return TeamOutputTickResult.Continue(TeamOutputTickDelay);
+        }
+
+        if (combatState is null ||
+            TeamLeaderRuntimePolicy.HasActiveCombatTarget(combatState))
+        {
+            return null;
+        }
+
+        var threat = await TryFindSelfDefenseThreatAsync(context, state, snapshot).ConfigureAwait(false);
+        if (threat is null)
+        {
+            return null;
+        }
+
+        return TeamCombatTargetAdopter.TryAdoptSelfDefenseTarget(combatState, threat)
+            ? TeamOutputTickResult.Continue(TeamOutputTickDelay)
+            : null;
+    }
+
+    private async Task<WorldObjectSnapshot?> TryFindSelfDefenseThreatAsync(
         AccountWorkerContext context,
         TeamOutputState state,
         TeamSnapshot snapshot)
@@ -436,7 +479,7 @@ public sealed class TeamOutputController
         var protectedServerObjectIds = GetLocalProtectedServerObjectIds(snapshot);
         if (protectedServerObjectIds.Count == 0)
         {
-            return false;
+            return null;
         }
 
         var worldResult = await ReadWorldObjectsAsync(context).ConfigureAwait(false);
@@ -452,7 +495,7 @@ public sealed class TeamOutputController
                 });
             }
 
-            return false;
+            return null;
         }
 
         var threat = worldResult.Value
@@ -462,7 +505,7 @@ public sealed class TeamOutputController
                 protectedServerObjectIds.Contains(target.TargetServerObjectId));
         if (threat is null)
         {
-            return false;
+            return null;
         }
 
         if (ShouldLog(state.LastSelfDefenseLogAt))
@@ -478,7 +521,7 @@ public sealed class TeamOutputController
             });
         }
 
-        return true;
+        return threat;
     }
 
     private static HashSet<uint> GetLocalProtectedServerObjectIds(TeamSnapshot snapshot)

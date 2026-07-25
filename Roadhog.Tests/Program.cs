@@ -101,6 +101,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team support self defense accepts leader target attacking local player", TestTeamSupportSelfDefenseAcceptsLeaderTargetAttackingLocalPlayerAsync),
     ("team support self defense disabled rejects local target", TestTeamSupportSelfDefenseDisabledRejectsLocalTargetAsync),
     ("team support self defense scans local attacker before maintenance", TestTeamSupportSelfDefenseScansLocalAttackerBeforeMaintenanceAsync),
+    ("team support self defense handles dead leader attacker", TestTeamSupportSelfDefenseHandlesDeadLeaderAttackerAsync),
     ("team support self defense disabled keeps maintenance", TestTeamSupportSelfDefenseDisabledKeepsMaintenanceAsync),
     ("team support join combat waits after assist target key", TestTeamSupportJoinCombatWaitsAfterAssistTargetKeyAsync),
     ("team support join combat accepts already locked leader target", TestTeamSupportJoinCombatAcceptsAlreadyLockedLeaderTargetAsync),
@@ -126,6 +127,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("team output waits for five consecutive leader unavailable ticks", TestTeamOutputWaitsForFiveConsecutiveLeaderUnavailableTicksAsync),
     ("team output continues when leader invisible stop disabled", TestTeamOutputContinuesWhenLeaderInvisibleStopDisabledAsync),
     ("team output stops when leader dead", TestTeamOutputStopsWhenLeaderDeadAsync),
+    ("team output self defense handles dead leader attacker", TestTeamOutputSelfDefenseHandlesDeadLeaderAttackerAsync),
     ("team output defers follow while fighting", TestTeamOutputDefersFollowWhileFightingAsync),
     ("team output allows self defense before leader assist", TestTeamOutputAllowsSelfDefenseBeforeLeaderAssistAsync),
     ("team output follows leader when self defense disabled", TestTeamOutputFollowsLeaderWhenSelfDefenseDisabledAsync),
@@ -2148,6 +2150,43 @@ static async Task TestTeamSupportSelfDefenseScansLocalAttackerBeforeMaintenanceA
         "support self defense should log accepted local attacker");
 }
 
+static async Task TestTeamSupportSelfDefenseHandlesDeadLeaderAttackerAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint attackerServerObjectId = 9000;
+    var self = CreatePartyMemberSnapshot(1000, "Chanter", true, false, 0.0) with
+    {
+        Class = AionClassId.Chanter,
+        ClassId = (byte)AionClassId.Chanter,
+        ClassName = "Chanter",
+        CurrentHp = 40,
+        MaxHp = 100
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Guardian", false, true, 4.0) with
+    {
+        CurrentHp = 0,
+        MaxHp = 100
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.WorldObjects = new[]
+    {
+        CreateMonsterWorldObject(100, attackerServerObjectId, self.ServerObjectId, new Vector3Snapshot(2, 0, 0))
+    };
+
+    var settings = CreateTeamSupportSettings();
+    settings.Team.Support!.AllowSelfDefense = true;
+    var combatState = new StationaryCombatState();
+    var controller = new TeamSupportController(keyboard, CreateTeamSupportAbnormalCatalog());
+    var result = await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), new TeamSupportState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "support self defense should continue normal combat while leader is dead");
+    AssertEqual(0, keyboard.Keys.Count, "support self defense should not press leader follow keys while adopting local attacker");
+    AssertLeaderTargetAdopted(combatState, attackerServerObjectId, "support dead-leader self defense should adopt local attacker");
+}
+
 static async Task TestTeamSupportSelfDefenseDisabledKeepsMaintenanceAsync()
 {
     var keyboard = new RecordingKeyboardInput();
@@ -3072,6 +3111,39 @@ static async Task TestTeamOutputStopsWhenLeaderDeadAsync()
 
     AssertFalse(!result.ShouldSkipNormalWork, "dead leader should block normal output work");
     AssertSequence(new[] { "F2", "C" }, keyboard.Keys.ToArray(), "dead leader branch should return to leader follow");
+}
+
+static async Task TestTeamOutputSelfDefenseHandlesDeadLeaderAttackerAsync()
+{
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    const uint attackerServerObjectId = 9000;
+    var self = CreatePartyMemberSnapshot(1000, "Dps", true, false, 0.0) with
+    {
+        Class = AionClassId.Gladiator,
+        ClassId = (byte)AionClassId.Gladiator,
+        ClassName = "Gladiator"
+    };
+    var leader = CreatePartyMemberSnapshot(2000, "Leader", false, true, 4.0) with
+    {
+        CurrentHp = 0,
+        MaxHp = 100
+    };
+    var gameApi = CreateTeamSupportGameApi(self, leader);
+    gameApi.WorldObjects = new[]
+    {
+        CreateMonsterWorldObject(100, attackerServerObjectId, self.ServerObjectId, new Vector3Snapshot(2, 0, 0))
+    };
+
+    var combatState = new StationaryCombatState();
+    var controller = new TeamOutputController(keyboard);
+    var result = await controller
+        .TickAsync(CreateContext(CreateTeamOutputSettings(), gameApi, logger), new TeamOutputState(), combatState)
+        .ConfigureAwait(false);
+
+    AssertFalse(result.ShouldSkipNormalWork, "output self defense should continue normal combat while leader is dead");
+    AssertEqual(0, keyboard.Keys.Count, "output self defense should not press leader follow keys while adopting local attacker");
+    AssertLeaderTargetAdopted(combatState, attackerServerObjectId, "output dead-leader self defense should adopt local attacker");
 }
 
 static async Task TestTeamOutputDefersFollowWhileFightingAsync()

@@ -58,4 +58,14 @@ internal static class TeamLeaderRuntimePolicy
                 combatState.CandidateEntityId != 0 ||
                 combatState.CandidateServerObjectId != 0);
     }
+
+    public static bool HasActiveSelfDefenseTarget(StationaryCombatState? combatState)
+    {
+        return HasActiveCombatTarget(combatState) &&
+               combatState is
+               {
+                   CurrentTargetIsMaintenanceDefense: true,
+                   CurrentTargetBypassesHomeLeash: true
+               };
+    }
 }
