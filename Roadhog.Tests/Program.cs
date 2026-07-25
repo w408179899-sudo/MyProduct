@@ -16071,7 +16071,7 @@ static async Task TestStatusMaintenanceChantFollowsActiveStatusAsync()
     AssertFalse(pressedEntry is null, "chant status maintenance should log the first key press");
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["oneShot"]), "chant maintenance should keep legacy one-shot log flag");
     AssertEqual(true, Convert.ToBoolean(pressedEntry!.Fields["chant"]), "chant maintenance should be logged as chant");
-    AssertEqual(6000L, Convert.ToInt64(pressedEntry.Fields["confirmWindowMs"]), "chant status maintenance confirm window");
+    AssertEqual(1300L, Convert.ToInt64(pressedEntry.Fields["confirmWindowMs"]), "chant status maintenance confirm window");
     AssertFalse(
         !state.TryGetStatusMaintenanceActiveSeenAt("skill:8200", out _),
         "confirmed chant maintenance should remember sticky active status");
