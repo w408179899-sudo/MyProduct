@@ -22,7 +22,7 @@ public sealed class SemiAutoCombatController
     private static readonly TimeSpan SpiritmasterSummonAttemptInterval = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan SpiritmasterSummonVerifyWindow = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SpiritmasterOpeningAttackKeyInterval = TimeSpan.FromMilliseconds(50);
-    private static readonly TimeSpan OpeningSkillConfirmationTimeout = TimeSpan.FromSeconds(6);
+    private static readonly TimeSpan OpeningSkillConfirmationTimeout = TimeSpan.FromMilliseconds(2300);
     private static readonly string AttackKey = "C";
     private static readonly string SupportSelfSelectKey = "F1";
     private static readonly string RestEnterKey = "OemComma";
