@@ -21,6 +21,8 @@ public sealed class StationaryCombatController
     private static readonly TimeSpan DeathRevivePreClickPause = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan TargetTimeout = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan DefaultMissingFightTargetTimeout = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan NoTargetRestKeyRetryInterval = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan PostLootNoTargetActionDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan NoKillTownReturnHoldDuration = TimeSpan.FromMilliseconds(35);
     private static readonly TimeSpan DefaultNoKillTimeout = TimeSpan.FromMinutes(20);
     private static readonly TimeSpan DefaultNoKillTownReturnSettleDelay = TimeSpan.FromSeconds(8);
@@ -47,6 +49,8 @@ public sealed class StationaryCombatController
     private const int CameraTurnRecoveryFailureThreshold = 3;
     private const int CameraTurnRecoveryReleaseMs = 80;
     private const int CameraTurnRecoveryWarmupMs = 80;
+    private const string NoTargetRestEnterKey = "OemComma";
+    private const string NoTargetRestExitKey = "X";
     private const ushort NpcEntityType = 3;
 
     private readonly IKeyboardInput _input;
@@ -169,7 +173,72 @@ public sealed class StationaryCombatController
             return noKillRecoveryDelay.Value;
         }
 
-        if (await _semiAuto
+        WorldObjectSnapshot? noTargetRestWakeTarget = null;
+        if (state.NoTargetRestActive)
+        {
+            noTargetRestWakeTarget = await TickNoTargetRestAtHomeAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    player,
+                    playerPosition,
+                    home,
+                    radius,
+                    combat,
+                    playerDistanceFromHome)
+                .ConfigureAwait(false);
+            if (state.NoTargetRestActive && noTargetRestWakeTarget is null)
+            {
+                return IdleDelay;
+            }
+        }
+        else if (!state.Fighting &&
+                 CanUseNoTargetRestAtHome(combat) &&
+                 playerDistanceFromHome <= ReturnStopDistance &&
+                 !ShouldDelayNoTargetActionAfterLoot(state, DateTimeOffset.Now))
+        {
+            noTargetRestWakeTarget = await SelectMaintenanceDefenseTargetAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    forceRefresh: true)
+                .ConfigureAwait(false);
+            noTargetRestWakeTarget ??= await SelectTargetAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    home,
+                    radius,
+                    combat.ContestMonster)
+                .ConfigureAwait(false);
+            if (noTargetRestWakeTarget?.Position is null &&
+                await TryEnterNoTargetRestAtHomeAsync(context, semiAutoState, state, player, playerDistanceFromHome)
+                    .ConfigureAwait(false))
+            {
+                return IdleDelay;
+            }
+        }
+
+        if (!state.Fighting && noTargetRestWakeTarget is null)
+        {
+            var postLootDelayResult = await TryDelayNoTargetActionAfterLootAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    home,
+                    radius,
+                    combat)
+                .ConfigureAwait(false);
+            if (postLootDelayResult.Delayed)
+            {
+                return IdleDelay;
+            }
+
+            noTargetRestWakeTarget = postLootDelayResult.Target;
+        }
+
+        if (noTargetRestWakeTarget is null &&
+            await _semiAuto
                 .TryHandleMaintenanceAsync(
                     context,
                     semiAutoState,
@@ -248,12 +317,17 @@ public sealed class StationaryCombatController
             }
         }
 
-        var target = await SelectMaintenanceDefenseTargetAsync(
-                context,
-                state,
-                playerPosition,
-                forceRefresh: semiAutoState.IsMaintenanceResting)
-            .ConfigureAwait(false);
+        var target = noTargetRestWakeTarget;
+        if (target is null)
+        {
+            target = await SelectMaintenanceDefenseTargetAsync(
+                    context,
+                    state,
+                    playerPosition,
+                    forceRefresh: semiAutoState.IsMaintenanceResting)
+                .ConfigureAwait(false);
+        }
+
         if (target is not null)
         {
             if (semiAutoState.IsMaintenanceResting)
@@ -265,7 +339,10 @@ public sealed class StationaryCombatController
         }
         else
         {
-            if (await _semiAuto
+            var canEnterNoTargetRestAtHome = CanUseNoTargetRestAtHome(combat) &&
+                                             playerDistanceFromHome <= ReturnStopDistance;
+            if (!canEnterNoTargetRestAtHome &&
+                await _semiAuto
                     .TryHandleMaintenanceAsync(
                         context,
                         semiAutoState,
@@ -294,6 +371,7 @@ public sealed class StationaryCombatController
             state.ClearTarget();
             if (combat.ReturnHomeWhenNoTarget && playerDistanceFromHome > ReturnStopDistance)
             {
+                state.ClearNoTargetRest();
                 LogActionThrottled(context, state, "stationary_combat.no_target.return_home", "home", new Dictionary<string, object?>
                 {
                     ["account"] = context.Config.AccountName,
@@ -314,6 +392,15 @@ public sealed class StationaryCombatController
                 return MoveTickDelay;
             }
 
+            if (CanUseNoTargetRestAtHome(combat) &&
+                playerDistanceFromHome <= ReturnStopDistance &&
+                await TryEnterNoTargetRestAtHomeAsync(context, semiAutoState, state, player, playerDistanceFromHome)
+                    .ConfigureAwait(false))
+            {
+                return IdleDelay;
+            }
+
+            state.ClearNoTargetRest();
             state.ResetReturnHomeStuckTracking();
             await StopMovementAsync(context, state).ConfigureAwait(false);
             return IdleDelay;
@@ -4097,6 +4184,8 @@ public sealed class StationaryCombatController
         string reason,
         bool success)
     {
+        var finishedAt = DateTimeOffset.Now;
+        var lootKeyPressed = state.LootAfterKill.LootKeyPressed;
         context.Logger.Info("stationary_combat.loot.finished", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
@@ -4106,6 +4195,7 @@ public sealed class StationaryCombatController
             ["targetServerObjectId"] = state.LootAfterKill.KilledTargetServerObjectId,
             ["targetName"] = state.LootAfterKill.KilledTargetName
         });
+        state.MarkLootAfterKillFinished(finishedAt, lootKeyPressed);
         state.ClearLootAfterKill();
         state.ClearTarget();
     }
@@ -5634,6 +5724,270 @@ public sealed class StationaryCombatController
 
         home = default;
         return false;
+    }
+
+    private async Task<WorldObjectSnapshot?> TickNoTargetRestAtHomeAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double radius,
+        CombatScriptSettings combat,
+        double playerDistanceFromHome)
+    {
+        if (!CanUseNoTargetRestAtHome(combat))
+        {
+            await CancelNoTargetRestAtHomeAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    player,
+                    "disabled")
+                .ConfigureAwait(false);
+            return null;
+        }
+
+        if (playerDistanceFromHome > ReturnStopDistance)
+        {
+            await CancelNoTargetRestAtHomeAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    player,
+                    "left_home")
+                .ConfigureAwait(false);
+            return null;
+        }
+
+        var target = await SelectMaintenanceDefenseTargetAsync(
+                context,
+                state,
+                playerPosition,
+                forceRefresh: true)
+            .ConfigureAwait(false);
+        target ??= await SelectTargetAsync(
+                context,
+                state,
+                playerPosition,
+                home,
+                radius,
+                combat.ContestMonster)
+            .ConfigureAwait(false);
+
+        if (target?.Position is not null)
+        {
+            await CancelNoTargetRestAtHomeAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    player,
+                    "target_available")
+                .ConfigureAwait(false);
+            return target;
+        }
+
+        await TryEnterNoTargetRestAtHomeAsync(
+                context,
+                semiAutoState,
+                state,
+                player,
+                playerDistanceFromHome)
+            .ConfigureAwait(false);
+        return null;
+    }
+
+    private async Task<bool> TryEnterNoTargetRestAtHomeAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        double playerDistanceFromHome)
+    {
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
+
+        if (player.IsResting)
+        {
+            var wasActive = state.NoTargetRestActive;
+            state.MarkNoTargetRestActive();
+            if (!wasActive)
+            {
+                context.Logger.Info("stationary_combat.no_target.rest_enter", new Dictionary<string, object?>
+                {
+                    ["account"] = context.Config.AccountName,
+                    ["key"] = NoTargetRestEnterKey,
+                    ["alreadyResting"] = true,
+                    ["homeDistance"] = Math.Round(playerDistanceFromHome, 2),
+                    ["hp"] = player.CurrentHp,
+                    ["maxHp"] = player.MaxHp,
+                    ["mp"] = player.CurrentMp,
+                    ["maxMp"] = player.MaxMp,
+                    ["stanceFlags"] = player.StanceFlags,
+                    ["stanceLow"] = player.StanceLowNibble,
+                    ["motionMode"] = player.MotionMode
+                });
+            }
+
+            return true;
+        }
+
+        var now = DateTimeOffset.Now;
+        if (!state.ShouldPressNoTargetRestKey(now, NoTargetRestKeyRetryInterval))
+        {
+            state.MarkNoTargetRestActive();
+            return true;
+        }
+
+        var phase = state.NoTargetRestActive ? "rest_reenter" : "rest_enter";
+        var result = await _input
+            .PressKeyAsync(NoTargetRestEnterKey, ReadKeyHoldDuration(context), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            context.Logger.Warn("stationary_combat.no_target." + phase + ".failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["key"] = NoTargetRestEnterKey,
+                ["error"] = result.Error
+            });
+            return false;
+        }
+
+        state.MarkNoTargetRestKey(now);
+        context.Logger.Info("stationary_combat.no_target." + phase, new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = NoTargetRestEnterKey,
+            ["homeDistance"] = Math.Round(playerDistanceFromHome, 2),
+            ["hp"] = player.CurrentHp,
+            ["maxHp"] = player.MaxHp,
+            ["mp"] = player.CurrentMp,
+            ["maxMp"] = player.MaxMp,
+            ["stanceFlags"] = player.StanceFlags,
+            ["stanceLow"] = player.StanceLowNibble,
+            ["motionMode"] = player.MotionMode
+        });
+        return true;
+    }
+
+    private async Task<bool> CancelNoTargetRestAtHomeAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        string reason)
+    {
+        if (!state.NoTargetRestActive)
+        {
+            return false;
+        }
+
+        semiAutoState.ResetAttackKeyPressThrottle();
+        var result = await _input
+            .PressKeyAsync(NoTargetRestExitKey, ReadKeyHoldDuration(context), context.StopToken)
+            .ConfigureAwait(false);
+        if (!result.Success)
+        {
+            context.Logger.Warn("stationary_combat.no_target.rest_exit.failed", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["key"] = NoTargetRestExitKey,
+                ["reason"] = reason,
+                ["error"] = result.Error
+            });
+            state.ClearNoTargetRest();
+            return false;
+        }
+
+        context.Logger.Info("stationary_combat.no_target.rest_exit", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["key"] = NoTargetRestExitKey,
+            ["reason"] = reason,
+            ["hp"] = player.CurrentHp,
+            ["maxHp"] = player.MaxHp,
+            ["mp"] = player.CurrentMp,
+            ["maxMp"] = player.MaxMp,
+            ["stanceFlags"] = player.StanceFlags,
+            ["stanceLow"] = player.StanceLowNibble,
+            ["motionMode"] = player.MotionMode
+        });
+        state.ClearNoTargetRest();
+        return true;
+    }
+
+    private static bool CanUseNoTargetRestAtHome(CombatScriptSettings combat)
+    {
+        return combat.ReturnHomeWhenNoTarget && combat.SitWhenNoTargetAtHome;
+    }
+
+    private async Task<PostLootNoTargetDelayResult> TryDelayNoTargetActionAfterLootAsync(
+        AccountWorkerContext context,
+        StationaryCombatState state,
+        Vector3Snapshot playerPosition,
+        Vector3Snapshot home,
+        double radius,
+        CombatScriptSettings combat)
+    {
+        var now = DateTimeOffset.Now;
+        if (!ShouldDelayNoTargetActionAfterLoot(state, now))
+        {
+            return new PostLootNoTargetDelayResult(false, null);
+        }
+
+        var target = await SelectMaintenanceDefenseTargetAsync(
+                context,
+                state,
+                playerPosition,
+                forceRefresh: true)
+            .ConfigureAwait(false);
+        target ??= await SelectTargetAsync(
+                context,
+                state,
+                playerPosition,
+                home,
+                radius,
+                combat.ContestMonster)
+            .ConfigureAwait(false);
+        if (target?.Position is not null)
+        {
+            return new PostLootNoTargetDelayResult(false, target);
+        }
+
+        state.ClearNoTargetRest();
+        state.ResetReturnHomeStuckTracking();
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
+
+        var elapsed = now - state.LastLootAfterKillFinishedAt;
+        var elapsedMs = Math.Max(0, (int)Math.Round(elapsed.TotalMilliseconds));
+        var remainingMs = Math.Max(0, (int)Math.Ceiling((PostLootNoTargetActionDelay - elapsed).TotalMilliseconds));
+        LogActionThrottled(context, state, "stationary_combat.no_target.post_loot_delay", "post_loot_delay", new Dictionary<string, object?>
+        {
+            ["account"] = context.Config.AccountName,
+            ["delayMs"] = (int)PostLootNoTargetActionDelay.TotalMilliseconds,
+            ["elapsedMs"] = elapsedMs,
+            ["remainingMs"] = remainingMs
+        }, TimeSpan.FromMilliseconds(200));
+        return new PostLootNoTargetDelayResult(true, null);
+    }
+
+    private static bool ShouldDelayNoTargetActionAfterLoot(StationaryCombatState state, DateTimeOffset now)
+    {
+        var finishedAt = state.LastLootAfterKillFinishedAt;
+        return finishedAt != DateTimeOffset.MinValue &&
+               now >= finishedAt &&
+               now - finishedAt < PostLootNoTargetActionDelay;
+    }
+
+    private static TimeSpan ReadKeyHoldDuration(AccountWorkerContext context)
+    {
+        var configuredMs = context.Config.ScriptSettings?.SemiAuto?.KeyHoldMs ?? 25;
+        var value = configuredMs > 0 ? configuredMs : 25;
+        return TimeSpan.FromMilliseconds(Math.Max(1, value));
     }
 
     private static double ResolvePathCombatRadius(CombatScriptSettings combat)
@@ -8394,6 +8748,8 @@ public sealed class StationaryCombatController
     {
         return ClampInt(ReadRawIntFromEnv("ROADHOG_LOOT_APPROACH_TIMEOUT_MS", 5_000), 0, 5_000);
     }
+
+    private readonly record struct PostLootNoTargetDelayResult(bool Delayed, WorldObjectSnapshot? Target);
 
     private readonly record struct LootAttemptEligibility(
         bool HasLoot,

@@ -187,6 +187,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat derives home from revive path endpoint", TestStationaryCombatDerivesHomeFromRevivePathEndpointAsync),
     ("stationary combat returns home when no target is available", TestStationaryCombatReturnsHomeWhenNoTargetAvailableAsync),
     ("stationary combat jumps when stuck returning home with no target", TestStationaryCombatJumpsWhenStuckReturningHomeWithNoTargetAsync),
+    ("stationary combat sits at home when no target rest is enabled", TestStationaryCombatSitsAtHomeWhenNoTargetRestEnabledAsync),
+    ("stationary combat wakes no target rest when target appears", TestStationaryCombatWakesNoTargetRestWhenTargetAppearsAsync),
+    ("stationary combat does not sit at home when no target rest switch is disabled", TestStationaryCombatDoesNotSitAtHomeWhenNoTargetRestSwitchDisabledAsync),
+    ("stationary combat loots fighting target before no-target rest", TestStationaryCombatLootsFightingTargetBeforeNoTargetRestAsync),
+    ("stationary combat delays no-target return after loot", TestStationaryCombatDelaysNoTargetReturnAfterLootAsync),
+    ("stationary combat selects target during post-loot no-target delay", TestStationaryCombatSelectsTargetDuringPostLootNoTargetDelayAsync),
     ("stationary combat does not return home when no target switch is disabled", TestStationaryCombatDoesNotReturnHomeWhenNoTargetSwitchDisabledAsync),
     ("stationary combat skips active filtered monsters", TestStationaryCombatSkipsActiveFilteredMonstersAsync),
     ("stationary combat state uses server object id identity", TestStationaryCombatStateUsesServerObjectIdIdentityAsync),
@@ -6212,6 +6218,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
                     EnableLoot = true,
                     PreferAggressiveMonsters = true,
                     ReturnHomeWhenNoTarget = false,
+                    SitWhenNoTargetAtHome = true,
                     HasStationaryCombatPosition = true,
                     StationaryCombatX = 1307.758D,
                     StationaryCombatY = 2844.230D,
@@ -6243,6 +6250,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(13.25D, combat.CameraPitchPixelsPerDegree, "camera pitch pixels per degree");
         AssertFalse(!combat.PreferAggressiveMonsters, "prefer aggressive monsters should persist");
         AssertFalse(combat.ReturnHomeWhenNoTarget, "return home when no target should persist");
+        AssertFalse(!combat.SitWhenNoTargetAtHome, "sit when no target at home should persist");
 
         var clone = account.ScriptSettings.Combat.Clone();
         AssertFalse(!clone.HasStationaryCombatPosition, "stationary combat position flag should clone");
@@ -6254,6 +6262,7 @@ static async Task TestAccountConfigPersistsStationaryCombatPositionAsync()
         AssertEqual(13.25D, clone.CameraPitchPixelsPerDegree, "cloned camera pitch pixels per degree");
         AssertFalse(!clone.PreferAggressiveMonsters, "prefer aggressive monsters should clone");
         AssertFalse(clone.ReturnHomeWhenNoTarget, "return home when no target should clone");
+        AssertFalse(!clone.SitWhenNoTargetAtHome, "sit when no target at home should clone");
     }
     finally
     {
@@ -6448,6 +6457,321 @@ static async Task TestStationaryCombatJumpsWhenStuckReturningHomeWithNoTargetAsy
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_STUCK_DISTANCE", previousStuckDistance);
         Environment.SetEnvironmentVariable("ROADHOG_DEATH_REVIVE_PATH_JUMP_HOLD_MS", previousJumpHold);
     }
+}
+
+static async Task TestStationaryCombatSitsAtHomeWhenNoTargetRestEnabledAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30,
+        ReturnHomeWhenNoTarget = true,
+        SitWhenNoTargetAtHome = true
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(1, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+    };
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+        .ConfigureAwait(false);
+
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "no-target rest should press sit key at home");
+    AssertFalse(!state.NoTargetRestActive, "no-target rest state should stay active");
+    AssertFalse(state.IsMovingForward, "no-target rest at home should not keep moving");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.no_target.rest_enter"),
+        "no-target rest enter should be logged");
+}
+
+static async Task TestStationaryCombatWakesNoTargetRestWhenTargetAppearsAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30,
+        ReturnHomeWhenNoTarget = true,
+        SitWhenNoTargetAtHome = true
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        TargetServerObjectId = 0,
+        WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+    };
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    var context = CreateContext(settings, gameApi, logger);
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "first tick should sit while no targets exist");
+    AssertFalse(!state.NoTargetRestActive, "no-target rest should become active");
+    keyboard.Keys.Clear();
+
+    gameApi.Player = gameApi.Player with { StanceFlags = 5, MotionMode = 1 };
+    gameApi.TargetEntityId = 200;
+    gameApi.TargetOwnServerObjectId = 200;
+    gameApi.TargetName = "spawned target";
+    gameApi.TargetCurrentHp = 1000;
+    gameApi.TargetMaxHp = 1000;
+    gameApi.TargetPosition = new Vector3Snapshot(5, 0, 0);
+    gameApi.TargetServerObjectId = 0;
+    gameApi.WorldObjects = new[]
+    {
+        new WorldObjectSnapshot(200, 200, "spawned target", "monster", new Vector3Snapshot(5, 0, 0), 5, 1000, 1000)
+    };
+
+    await controller.TickAsync(context, plan, semiAutoState, state).ConfigureAwait(false);
+
+    AssertEqual("X", keyboard.Keys.FirstOrDefault() ?? string.Empty, "spawned target should wake no-target rest with x first");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "target wake should not re-enter sit");
+    AssertFalse(state.NoTargetRestActive, "target wake should clear no-target rest state");
+    AssertEqual((ushort)200, state.CandidateEntityId, "spawned target should become the combat candidate");
+    AssertFalse(!logger.Entries.Any(entry =>
+        entry.EventName == "stationary_combat.no_target.rest_exit" &&
+        string.Equals(Convert.ToString(entry.Fields["reason"]), "target_available", StringComparison.Ordinal)),
+        "target wake should log no-target rest exit");
+}
+
+static async Task TestStationaryCombatDoesNotSitAtHomeWhenNoTargetRestSwitchDisabledAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30,
+        ReturnHomeWhenNoTarget = true,
+        SitWhenNoTargetAtHome = false
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+    };
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "disabled no-target rest should not press sit key");
+    AssertFalse(state.NoTargetRestActive, "disabled no-target rest should not set state");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName.StartsWith("stationary_combat.no_target.rest_", StringComparison.Ordinal)),
+        "disabled no-target rest should not log rest actions");
+}
+
+static async Task TestStationaryCombatLootsFightingTargetBeforeNoTargetRestAsync()
+{
+    var previousAfterKillWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS");
+    var previousWait = Environment.GetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS");
+    var previousPressCount = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT");
+    var previousPressInterval = Environment.GetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", "0");
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", null);
+    Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", "0");
+    try
+    {
+        var settings = CreateScriptSettings();
+        settings.MainMode = AccountMainMode.CustomCombat;
+        settings.CombatMode = AccountCombatMode.Stationary;
+        settings.Combat = new CombatScriptSettings
+        {
+            EnableLoot = true,
+            HasStationaryCombatPosition = true,
+            StationaryCombatX = 0,
+            StationaryCombatY = 0,
+            StationaryCombatZ = 0,
+            StationaryCombatRadius = 30,
+            ReturnHomeWhenNoTarget = true,
+            SitWhenNoTargetAtHome = true
+        };
+
+        var keyboard = new RecordingKeyboardInput();
+        var logger = new InMemoryRoadhogLogger();
+        var gameApi = new FakeGameApi
+        {
+            Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+            TargetEntityId = 100,
+            TargetOwnServerObjectId = 5000,
+            TargetCurrentHp = 0,
+            TargetMaxHp = 4430,
+            TargetLootableRaw = 1,
+            TargetPosition = new Vector3Snapshot(1, 0, 0),
+            WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+            Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+        };
+        var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+        var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+        var state = new StationaryCombatState
+        {
+            Fighting = true,
+            CurrentTargetEntityId = 100,
+            CurrentTargetServerObjectId = 5000,
+            CandidateEntityId = 100,
+            CandidateServerObjectId = 5000
+        };
+
+        await controller
+            .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+            .ConfigureAwait(false);
+
+        AssertFalse(!keyboard.Keys.Contains("NumPadDecimal"), "dead fighting target should be looted before no-target rest");
+        AssertFalse(keyboard.Keys.Contains("OemComma"), "dead fighting target should not enter no-target rest before loot");
+        AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.no_target.rest_enter"),
+            "no-target rest should not start before fighting target loot");
+        AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.loot.started"),
+            "dead fighting target should start loot");
+    }
+    finally
+    {
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_KILL_WAIT_MS", previousAfterKillWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_AFTER_PICK_WAIT_MS", previousWait);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_COUNT", previousPressCount);
+        Environment.SetEnvironmentVariable("ROADHOG_LOOT_PRESS_INTERVAL_MS", previousPressInterval);
+    }
+}
+
+static async Task TestStationaryCombatDelaysNoTargetReturnAfterLootAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30,
+        ReturnHomeWhenNoTarget = true,
+        SitWhenNoTargetAtHome = true
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(8, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        WorldObjects = Array.Empty<WorldObjectSnapshot>(),
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+    };
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+    state.MarkLootAfterKillFinished(DateTimeOffset.Now, lootKeyPressed: true);
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+        .ConfigureAwait(false);
+
+    AssertFalse(keyboard.KeyDowns.Contains("W"), "post-loot no-target delay should not start return home");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "post-loot no-target delay should not sit");
+    AssertFalse(state.IsMovingForward, "post-loot no-target delay should stay in place");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "stationary_combat.no_target.post_loot_delay"),
+        "post-loot no-target delay should be logged");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.no_target.return_home"),
+        "post-loot no-target delay should not log return home");
+}
+
+static async Task TestStationaryCombatSelectsTargetDuringPostLootNoTargetDelayAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30,
+        ReturnHomeWhenNoTarget = true,
+        SitWhenNoTargetAtHome = true
+    };
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 100, 100, 0, new Vector3Snapshot(1, 0, 0), DateTimeOffset.Now, 270, 10, 270),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetMaxHp = 0,
+        TargetPosition = null,
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(200, 2200, "spawned target", "monster", new Vector3Snapshot(5, 0, 0), 4, 1000, 1000)
+        },
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>())
+    };
+    var controller = new StationaryCombatController(keyboard, new SemiAutoCombatController(keyboard));
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var state = new StationaryCombatState();
+    state.MarkLootAfterKillFinished(DateTimeOffset.Now, lootKeyPressed: true);
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, new SemiAutoCombatState(), state)
+        .ConfigureAwait(false);
+
+    AssertEqual((ushort)200, state.CandidateEntityId, "target appearing during post-loot delay should be selected");
+    AssertFalse(keyboard.Keys.Contains("OemComma"), "target during post-loot delay should not enter no-target rest");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "stationary_combat.no_target.post_loot_delay"),
+        "target during post-loot delay should bypass the no-target delay");
 }
 
 static async Task TestStationaryCombatDoesNotReturnHomeWhenNoTargetSwitchDisabledAsync()
@@ -13220,6 +13544,7 @@ static Task TestReturnHomeWhenNoTargetSwitchPersistsFromSummaryUiAsync()
             settings.MainMode = AccountMainMode.CustomCombat;
             settings.CombatMode = AccountCombatMode.Stationary;
             settings.Combat.ReturnHomeWhenNoTarget = false;
+            settings.Combat.SitWhenNoTargetAtHome = false;
             var configStore = new InMemoryAccountConfigStore(new AccountConfig
             {
                 AccountName = "account1",
@@ -13230,8 +13555,12 @@ static Task TestReturnHomeWhenNoTargetSwitchPersistsFromSummaryUiAsync()
             AssertFalse(
                 GetCheckBoxCheckedForTest(form, "returnHomeWhenNoTargetCheckBox"),
                 "return home when no target switch should load disabled state");
+            AssertFalse(
+                GetCheckBoxCheckedForTest(form, "sitWhenNoTargetAtHomeCheckBox"),
+                "sit when no target at home switch should load disabled state");
 
             SetCheckBoxCheckedForTest(form, "returnHomeWhenNoTargetCheckBox", true);
+            SetCheckBoxCheckedForTest(form, "sitWhenNoTargetAtHomeCheckBox", true);
             var saved = InvokeSaveCurrentSettingsForTest(form, out var error);
             AssertFalse(!saved, "return home when no target switch save failed: " + error);
 
@@ -13243,6 +13572,9 @@ static Task TestReturnHomeWhenNoTargetSwitchPersistsFromSummaryUiAsync()
             AssertFalse(
                 savedSettings?.Combat.ReturnHomeWhenNoTarget != true,
                 "return home when no target switch should persist enabled state");
+            AssertFalse(
+                savedSettings?.Combat.SitWhenNoTargetAtHome != true,
+                "sit when no target at home switch should persist enabled state");
         }
         catch (Exception ex)
         {

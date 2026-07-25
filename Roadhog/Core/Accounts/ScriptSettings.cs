@@ -105,6 +105,8 @@ public sealed class CombatScriptSettings
 
     public bool ReturnHomeWhenNoTarget { get; set; } = true;
 
+    public bool SitWhenNoTargetAtHome { get; set; }
+
     public List<string> ActiveMonsterNameFilters { get; set; } = new();
 
     public bool HasStationaryCombatPosition { get; set; }
@@ -134,6 +136,7 @@ public sealed class CombatScriptSettings
             CounterEnemyRace = CounterEnemyRace,
             PreferAggressiveMonsters = PreferAggressiveMonsters,
             ReturnHomeWhenNoTarget = ReturnHomeWhenNoTarget,
+            SitWhenNoTargetAtHome = SitWhenNoTargetAtHome,
             ActiveMonsterNameFilters = ActiveMonsterNameFilters?.ToList() ?? new List<string>(),
             HasStationaryCombatPosition = HasStationaryCombatPosition,
             StationaryCombatX = StationaryCombatX,

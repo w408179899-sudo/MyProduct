@@ -65,6 +65,7 @@ namespace Roadhog
         private RoundedCheckBox? counterEnemyRaceCheckBox;
         private RoundedCheckBox? preferAggressiveMonsterCheckBox;
         private RoundedCheckBox? returnHomeWhenNoTargetCheckBox;
+        private RoundedCheckBox? sitWhenNoTargetAtHomeCheckBox;
         private RoundedComboBox? activeMonsterFilterCombo;
         private ListBox? activeMonsterFilterListBox;
         private Label? activeMonsterFilterStatusLabel;
@@ -349,6 +350,7 @@ namespace Roadhog
             SetChecked(counterEnemyRaceCheckBox, settings.Combat.CounterEnemyRace);
             SetChecked(preferAggressiveMonsterCheckBox, settings.Combat.PreferAggressiveMonsters);
             SetChecked(returnHomeWhenNoTargetCheckBox, settings.Combat.ReturnHomeWhenNoTarget);
+            SetChecked(sitWhenNoTargetAtHomeCheckBox, settings.Combat.SitWhenNoTargetAtHome);
             PopulateActiveMonsterFilterList(settings.Combat.ActiveMonsterNameFilters);
 
             var paths = settings.Paths ?? new PathScriptSettings();
@@ -595,6 +597,7 @@ namespace Roadhog
                     CounterEnemyRace = counterEnemyRaceCheckBox?.Checked ?? false,
                     PreferAggressiveMonsters = preferAggressiveMonsterCheckBox?.Checked ?? false,
                     ReturnHomeWhenNoTarget = returnHomeWhenNoTargetCheckBox?.Checked ?? true,
+                    SitWhenNoTargetAtHome = sitWhenNoTargetAtHomeCheckBox?.Checked ?? false,
                     ActiveMonsterNameFilters = CaptureActiveMonsterFilterList(),
                     HasStationaryCombatPosition = false,
                     StationaryCombatX = 0.0D,
@@ -988,6 +991,7 @@ namespace Roadhog
 #endif
 
             returnHomeWhenNoTargetCheckBox = AddCheckBox(page, "\u6ca1\u602a\u56de\u4e2d\u5fc3", 470, 142, 118, true);
+            sitWhenNoTargetAtHomeCheckBox = AddCheckBox(page, "\u6ca1\u602a\u5750\u5730\u677f", 594, 142, 118, false);
             RefreshCombatModeVisibility();
 
             return tab;
@@ -1057,6 +1061,11 @@ namespace Roadhog
             if (returnHomeWhenNoTargetCheckBox is not null)
             {
                 returnHomeWhenNoTargetCheckBox.Visible = stationaryVisible;
+            }
+
+            if (sitWhenNoTargetAtHomeCheckBox is not null)
+            {
+                sitWhenNoTargetAtHomeCheckBox.Visible = stationaryVisible;
             }
         }
 

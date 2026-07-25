@@ -75,6 +75,12 @@ public sealed class StationaryCombatState
 
     public int ReturnHomeJumpCount { get; private set; }
 
+    public bool NoTargetRestActive { get; private set; }
+
+    public DateTimeOffset LastNoTargetRestKeyAt { get; private set; } = DateTimeOffset.MinValue;
+
+    public DateTimeOffset LastLootAfterKillFinishedAt { get; private set; } = DateTimeOffset.MinValue;
+
     public ushort CurrentTargetDamageEntityId { get; private set; }
 
     public uint CurrentTargetDamageServerObjectId { get; private set; }
@@ -187,6 +193,7 @@ public sealed class StationaryCombatState
         NoKillRecovery.ResetWatch(now);
         CleanupReturnToCombatActive = false;
         PathCombat.Reset();
+        ClearNoTargetRest();
         ClearStartupRecovery();
         ClearTarget();
         DeathRecovery.Start(now);
@@ -210,6 +217,7 @@ public sealed class StationaryCombatState
 
     public bool MarkCandidate(ushort entityId, uint serverObjectId, DateTimeOffset now)
     {
+        ClearNoTargetRest();
         var changed = !IsSameTarget(CandidateEntityId, CandidateServerObjectId, entityId, serverObjectId);
         CandidateEntityId = entityId;
         CandidateServerObjectId = serverObjectId;
@@ -275,6 +283,29 @@ public sealed class StationaryCombatState
         ReturnHomeLastProgressAt = DateTimeOffset.MinValue;
         LastReturnHomeJumpAt = DateTimeOffset.MinValue;
         ReturnHomeJumpCount = 0;
+    }
+
+    public bool ShouldPressNoTargetRestKey(DateTimeOffset now, TimeSpan interval)
+    {
+        return LastNoTargetRestKeyAt == DateTimeOffset.MinValue ||
+               now - LastNoTargetRestKeyAt >= interval;
+    }
+
+    public void MarkNoTargetRestKey(DateTimeOffset now)
+    {
+        NoTargetRestActive = true;
+        LastNoTargetRestKeyAt = now;
+    }
+
+    public void MarkNoTargetRestActive()
+    {
+        NoTargetRestActive = true;
+    }
+
+    public void ClearNoTargetRest()
+    {
+        NoTargetRestActive = false;
+        LastNoTargetRestKeyAt = DateTimeOffset.MinValue;
     }
 
     public int MarkCameraTurnNoChange()
@@ -427,6 +458,7 @@ public sealed class StationaryCombatState
     {
         LootAfterKill.Start(killedTarget, now);
         ReturningHome = false;
+        ClearNoTargetRest();
         ClearTarget();
     }
 
@@ -435,6 +467,14 @@ public sealed class StationaryCombatState
         LootAfterKill.Reset();
         BagCleanup.Reset();
         CleanupReturnToCombatActive = false;
+    }
+
+    public void MarkLootAfterKillFinished(DateTimeOffset now, bool lootKeyPressed)
+    {
+        if (lootKeyPressed)
+        {
+            LastLootAfterKillFinishedAt = now;
+        }
     }
 
     public bool HasAttemptedLootCorpse(
@@ -553,6 +593,7 @@ public sealed class StationaryCombatState
         StartupRecoveryPoints = Array.Empty<Vector3Snapshot>();
         ResetStartupRecoveryStuckTracking();
         ReturningHome = false;
+        ClearNoTargetRest();
         ClearTarget();
     }
 
@@ -594,6 +635,7 @@ public sealed class StationaryCombatState
         IReadOnlyList<Vector3Snapshot> points,
         int pointIndex)
     {
+        ClearNoTargetRest();
         StartupRecoveryChecked = true;
         StartupRecoveryActive = true;
         StartupRecoveryPathName = pathName;
@@ -635,6 +677,7 @@ public sealed class StationaryCombatState
 
     public void ClearStartupRecovery()
     {
+        ClearNoTargetRest();
         StartupRecoveryChecked = true;
         StartupRecoveryActive = false;
         StartupRecoveryPathName = string.Empty;
