@@ -449,6 +449,12 @@ namespace Roadhog
             set => _comboBox.DropDownStyle = value;
         }
 
+        public int DropDownWidth
+        {
+            get => _comboBox.DropDownWidth;
+            set => _comboBox.DropDownWidth = value;
+        }
+
         public int SelectedIndex
         {
             get => _comboBox.SelectedIndex;

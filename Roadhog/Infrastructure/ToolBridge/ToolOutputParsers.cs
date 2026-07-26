@@ -185,6 +185,49 @@ internal static partial class ToolOutputParsers
         return result;
     }
 
+    public static IReadOnlyList<GatherObjectSnapshot> ParseGatherObjects(IEnumerable<string> lines)
+    {
+        var latestByServerObjectId = new Dictionary<uint, GatherObjectSnapshot>();
+        var capturedAt = DateTimeOffset.Now;
+
+        foreach (var line in lines)
+        {
+            if (!line.StartsWith("#", StringComparison.Ordinal) ||
+                !line.Contains(" Gather=", StringComparison.Ordinal) ||
+                !TryExtractUInt(line, "ServerId", out var serverObjectId) ||
+                serverObjectId == 0 ||
+                !TryExtractUInt(line, "SourceId", out var gatherSourceId))
+            {
+                continue;
+            }
+
+            var distance = TryExtractDouble(line, "Dist");
+            var position = ExtractPosition(line, "Pos");
+            var spawnPosition = ExtractPosition(line, "Spawn");
+            var snapshot = new GatherObjectSnapshot(
+                TryExtractUShort(line, "EntityId"),
+                serverObjectId,
+                gatherSourceId,
+                ExtractQuotedValue(line, "Name") ?? string.Empty,
+                TryExtractUShort(line, "DisplayLevel"),
+                TryExtractByte(line, "StateOrRemain"),
+                TryExtractFloat(line, "Radius"),
+                0,
+                position,
+                spawnPosition,
+                distance,
+                line.Contains("[TARGET]", StringComparison.Ordinal),
+                null,
+                capturedAt);
+            latestByServerObjectId[serverObjectId] = snapshot;
+        }
+
+        return latestByServerObjectId.Values
+            .OrderBy(item => item.DistanceToLocalPlayer ?? double.MaxValue)
+            .ThenBy(item => item.ServerObjectId)
+            .ToArray();
+    }
+
     private static Vector3Snapshot? TryParsePosition(Match match)
     {
         if (!match.Groups["x"].Success || !match.Groups["y"].Success || !match.Groups["z"].Success)
@@ -219,6 +262,74 @@ internal static partial class ToolOutputParsers
 
         var value = match.Groups["value"].Value;
         return string.Equals(value, "n/a", StringComparison.OrdinalIgnoreCase) ? null : EmptyToNull(value);
+    }
+
+    private static bool TryExtractUInt(string line, string fieldName, out uint value)
+    {
+        return uint.TryParse(
+            ExtractTokenValue(line, fieldName),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out value);
+    }
+
+    private static ushort TryExtractUShort(string line, string fieldName)
+    {
+        return ushort.TryParse(
+            ExtractTokenValue(line, fieldName),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var value)
+            ? value
+            : (ushort)0;
+    }
+
+    private static byte TryExtractByte(string line, string fieldName)
+    {
+        return byte.TryParse(
+            ExtractTokenValue(line, fieldName),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var value)
+            ? value
+            : (byte)0;
+    }
+
+    private static float TryExtractFloat(string line, string fieldName)
+    {
+        return float.TryParse(
+            ExtractTokenValue(line, fieldName),
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out var value)
+            ? value
+            : 0;
+    }
+
+    private static double? TryExtractDouble(string line, string fieldName)
+    {
+        return double.TryParse(
+            ExtractTokenValue(line, fieldName),
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out var value)
+            ? value
+            : null;
+    }
+
+    private static Vector3Snapshot? ExtractPosition(string line, string fieldName)
+    {
+        var match = Regex.Match(
+            line,
+            @"\b" + Regex.Escape(fieldName) +
+            @"=X=(?<x>-?\d+(?:\.\d+)?)\s+Y=(?<y>-?\d+(?:\.\d+)?)\s+Z=(?<z>-?\d+(?:\.\d+)?)",
+            RegexOptions.CultureInvariant);
+        return match.Success
+            ? new Vector3Snapshot(
+                ParseFloat(match.Groups["x"].Value),
+                ParseFloat(match.Groups["y"].Value),
+                ParseFloat(match.Groups["z"].Value))
+            : null;
     }
 
     private static string? ExtractListValue(string line, string fieldName)

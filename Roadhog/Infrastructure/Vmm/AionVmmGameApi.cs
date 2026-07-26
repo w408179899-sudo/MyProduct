@@ -9,6 +9,7 @@ using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Model;
+using Roadhog.Infrastructure.Gathering;
 using MemProcVmm = Vmmsharp.Vmm;
 using Vmmsharp;
 
@@ -96,10 +97,15 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private const ulong ActorHpPercentOffset = 0x40;
     private const ulong ActorNameOffset = 0x42;
     private const ulong ActorSummonOwnerServerObjectIdOffset = 0xFC;
+    private const ulong ActorGatherInteractionRadiusOffset = 0x168;
+    private const ulong ActorGatherSpawnPositionOffset = 0x19C;
     private const ulong ActorInteractionStateOffset = 0x1CC;
     private const ulong ActorClassIdOffset = 0x228;
     private const ulong ActorMotionModeOffset = 0x2D0;
     private const ulong ActorTargetServerObjectIdOffset = 0x358;
+    private const ulong ActorGatherSourceIdCandidateOffset = 0x500;
+    private const ulong ActorGatherActionStateOffset = 0xAB0;
+    private const ulong ActorGatherActionIdOffset = 0xAB4;
     private const ulong ActorCurrentSummonedPetServerObjectIdOffset = 0xFA0;
     private const ulong ActorAbnormalStatusBeginOffset = 0xF18;
     private const ulong ActorAbnormalStatusEndOffset = 0xF20;
@@ -107,6 +113,7 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
     private const ulong ActorMaxHpOffset = 0x11A0;
     private const ulong ActorCurrentHpOffset = 0x11A4;
     private const ulong ActorLootableFlagOffset = 0x11E0;
+    private const uint ActorGatherObjectType = 7;
     private const ulong AbnormalStatusEntrySize = 0x12;
     private const int MaxActorAbnormalStatusEntries = 512;
     private const ulong PartyMemberPartySlotOffset = 0x00;
@@ -369,6 +376,19 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         CancellationToken cancellationToken = default)
     {
         return Task.Run(() => ReadWorldObjectsCore(context), cancellationToken);
+    }
+
+    public Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        var context = new GameApiReadContext(string.Empty, 0, string.Empty, string.Empty);
+        return ReadGatherSnapshotAsync(context, cancellationToken);
+    }
+
+    public Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => ReadGatherSnapshotCore(context), cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(CancellationToken cancellationToken = default)
@@ -1688,6 +1708,61 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         {
             _logger.Error("vmm.inventory.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
             return OperationResult<IReadOnlyList<InventoryItemSnapshot>>.Fail(ex.Message);
+        }
+    }
+
+    private OperationResult<GatherSnapshot> ReadGatherSnapshotCore(GameApiReadContext context)
+    {
+        try
+        {
+            var connection = GetOrCreateConnection(context.VmmDeviceName);
+            lock (connection.SyncRoot)
+            {
+                if (!TryResolveProcess(connection.Vmm, context, out var process, out var processError))
+                {
+                    return OperationResult<GatherSnapshot>.Fail(processError);
+                }
+
+                var moduleName = ResolveModuleName();
+                var gameBase = process.GetModuleBase(moduleName);
+                if (gameBase == 0)
+                {
+                    return OperationResult<GatherSnapshot>.Fail("Module not found: " + moduleName);
+                }
+
+                var catalog = GatherSourceCatalog.Default;
+                if (!TryReadGatherSnapshot(
+                        process,
+                        gameBase,
+                        catalog,
+                        out var snapshot,
+                        out var counters,
+                        out var readError))
+                {
+                    return OperationResult<GatherSnapshot>.Fail(readError);
+                }
+
+                _logger.Info("vmm.gather.read", new Dictionary<string, object?>
+                {
+                    ["account"] = context.AccountName,
+                    ["pid"] = SafeGetProcessPid(process),
+                    ["objects"] = snapshot.Objects.Count,
+                    ["nearbyPlayers"] = snapshot.NearbyPlayers.Count,
+                    ["scannedServerObjects"] = counters.ScannedServerObjects,
+                    ["resolvedEntities"] = counters.ResolvedEntities,
+                    ["resolvedActors"] = counters.ResolvedActors,
+                    ["catalogLoaded"] = catalog.Loaded,
+                    ["catalogRows"] = catalog.Count,
+                    ["catalogError"] = catalog.Error
+                });
+
+                return OperationResult<GatherSnapshot>.Ok(snapshot);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error("vmm.gather.exception", ex, new Dictionary<string, object?> { ["account"] = context.AccountName });
+            return OperationResult<GatherSnapshot>.Fail(ex.Message);
         }
     }
 
@@ -6597,6 +6672,215 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         return true;
     }
 
+    private static bool TryReadGatherSnapshot(
+        VmmProcess process,
+        ulong gameBase,
+        GatherSourceCatalog catalog,
+        out GatherSnapshot snapshot,
+        out GatherReadCounters counters,
+        out string error)
+    {
+        var capturedAt = DateTimeOffset.Now;
+        snapshot = GatherSnapshot.Empty(capturedAt);
+        counters = new GatherReadCounters();
+        error = string.Empty;
+
+        if (!TryReadPointer(process, gameBase + EntitySystemPointerRva, out var entitySystem))
+        {
+            error = "failed to read EntitySystem pointer at Game.dll+0x" + EntitySystemPointerRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, entitySystem + EntityTreeOffset, out var entityTreeHeader))
+        {
+            error = "failed to read EntitySystem tree header at EntitySystem+0x" + EntityTreeOffset.ToString("X");
+            return false;
+        }
+
+        if (!TryReadUInt16(process, gameBase + LocalEntityIdRva, out var localEntityId) || localEntityId == 0)
+        {
+            error = "failed to read local entity id at Game.dll+0x" + LocalEntityIdRva.ToString("X");
+            return false;
+        }
+
+        TryReadUInt16(process, gameBase + LocalEntityIdRva + 2, out var targetEntityId);
+
+        if (!TryFindEntityById(process, entityTreeHeader, localEntityId, out var localEntity) ||
+            !TryReadEntityPosition(process, localEntity, out var localX, out var localY, out var localZ))
+        {
+            error = "failed to read local entity position";
+            return false;
+        }
+
+        var localPosition = new Vector3Snapshot(localX, localY, localZ);
+        uint localServerObjectId = 0;
+        if (TryResolveActorFromEntity(process, localEntity, 0, out var localActor))
+        {
+            localServerObjectId = localActor.ServerObjectId;
+        }
+
+        if (!TryReadPointer(process, gameBase + ServerObjectTreeRva, out var serverTreeHeader) || serverTreeHeader == 0)
+        {
+            error = "failed to read ServerObject tree header at Game.dll+0x" + ServerObjectTreeRva.ToString("X");
+            return false;
+        }
+
+        if (!TryReadPointer(process, serverTreeHeader + NodeLeftOffset, out var node))
+        {
+            error = "failed to read ServerObject tree begin node";
+            return false;
+        }
+
+        var objects = new List<GatherObjectSnapshot>();
+        var players = new List<GatherCompetitionPlayerSnapshot>();
+        for (var guard = 0; node != 0 && node != serverTreeHeader && guard < 100000; guard++)
+        {
+            if (IsNilNode(process, node, serverTreeHeader))
+            {
+                break;
+            }
+
+            counters.ScannedServerObjects++;
+            if (TryReadUInt32(process, node + ServerNodeServerObjectIdOffset, out var nodeServerObjectId) &&
+                TryReadUInt16(process, node + ServerNodeEntityIdOffset, out var entityId) &&
+                entityId != 0 &&
+                entityId != localEntityId &&
+                TryFindEntityById(process, entityTreeHeader, entityId, out var entity) &&
+                entity != 0)
+            {
+                counters.ResolvedEntities++;
+                if (TryResolveActorFromEntity(process, entity, nodeServerObjectId, out var actor))
+                {
+                    counters.ResolvedActors++;
+                    var serverObjectId = actor.ServerObjectId != 0
+                        ? actor.ServerObjectId
+                        : nodeServerObjectId;
+                    if (actor.ObjectType == ActorGatherObjectType)
+                    {
+                        var position = TryReadEntityPosition(process, entity, out var x, out var y, out var z) &&
+                                       IsReasonablePosition(x, y, z)
+                            ? new Vector3Snapshot(x, y, z)
+                            : (Vector3Snapshot?)null;
+                        var spawnPosition =
+                            TryReadPositionVector(
+                                process,
+                                actor.Actor + ActorGatherSpawnPositionOffset,
+                                out var spawnX,
+                                out var spawnY,
+                                out var spawnZ) &&
+                            IsReasonablePosition(spawnX, spawnY, spawnZ)
+                                ? new Vector3Snapshot(spawnX, spawnY, spawnZ)
+                                : (Vector3Snapshot?)null;
+                        var distance = CalculateDistance(localPosition, position ?? spawnPosition);
+
+                        TryReadSingle(
+                            process,
+                            actor.Actor + ActorGatherInteractionRadiusOffset,
+                            out var interactionRadius);
+                        if (!float.IsFinite(interactionRadius) || interactionRadius < 0 || interactionRadius > 100)
+                        {
+                            interactionRadius = 0;
+                        }
+
+                        catalog.TryGet(actor.NpcTemplateId, out var source);
+                        var name = string.IsNullOrWhiteSpace(actor.Name)
+                            ? source?.InternalName ?? string.Empty
+                            : actor.Name;
+                        objects.Add(
+                            new GatherObjectSnapshot(
+                                entityId,
+                                serverObjectId,
+                                actor.NpcTemplateId,
+                                name,
+                                actor.Level,
+                                actor.HpPercent,
+                                interactionRadius,
+                                actor.InteractionState,
+                                position,
+                                spawnPosition,
+                                distance,
+                                entityId == targetEntityId,
+                                source,
+                                capturedAt));
+                    }
+                    else if (actor.ObjectType == ActorPlayerObjectType)
+                    {
+                        var position = TryReadEntityPosition(process, entity, out var x, out var y, out var z) &&
+                                       IsReasonablePosition(x, y, z)
+                            ? new Vector3Snapshot(x, y, z)
+                            : (Vector3Snapshot?)null;
+                        TryReadUInt32(
+                            process,
+                            actor.Actor + ActorGatherActionStateOffset,
+                            out var gatherActionStateRaw);
+                        TryReadUInt32(
+                            process,
+                            actor.Actor + ActorGatherActionIdOffset,
+                            out var gatherActionIdRaw);
+                        TryReadUInt32(
+                            process,
+                            actor.Actor + ActorGatherSourceIdCandidateOffset,
+                            out var gatherSourceIdCandidateRaw);
+                        players.Add(
+                            new GatherCompetitionPlayerSnapshot(
+                                entityId,
+                                serverObjectId,
+                                actor.Name,
+                                position,
+                                CalculateDistance(localPosition, position),
+                                gatherActionStateRaw,
+                                gatherActionIdRaw,
+                                gatherSourceIdCandidateRaw,
+                                capturedAt));
+                    }
+                }
+            }
+
+            if (!TryGetNextTreeNode(process, serverTreeHeader, node, out var next) || next == node)
+            {
+                break;
+            }
+
+            node = next;
+        }
+
+        objects.Sort(static (left, right) =>
+        {
+            var distance = (left.DistanceToLocalPlayer ?? double.MaxValue)
+                .CompareTo(right.DistanceToLocalPlayer ?? double.MaxValue);
+            return distance != 0 ? distance : left.ServerObjectId.CompareTo(right.ServerObjectId);
+        });
+        players.Sort(static (left, right) =>
+        {
+            var distance = (left.DistanceToLocalPlayer ?? double.MaxValue)
+                .CompareTo(right.DistanceToLocalPlayer ?? double.MaxValue);
+            return distance != 0 ? distance : left.ServerObjectId.CompareTo(right.ServerObjectId);
+        });
+
+        snapshot = new GatherSnapshot(
+            localEntityId,
+            localServerObjectId,
+            localPosition,
+            objects,
+            players,
+            true,
+            capturedAt);
+        return true;
+    }
+
+    private static double? CalculateDistance(Vector3Snapshot origin, Vector3Snapshot? target)
+    {
+        if (target is not { } position)
+        {
+            return null;
+        }
+
+        var dx = position.X - origin.X;
+        var dy = position.Y - origin.Y;
+        var dz = position.Z - origin.Z;
+        return Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+    }
+
     private static bool TryReadInventoryWindowSnapshot(
         VmmProcess process,
         InventoryWindowCandidate candidate,
@@ -7702,6 +7986,13 @@ public sealed class AionVmmGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyG
         public int ScannedServerObjects;
         public int ResolvedEntities;
         public int NpcLikeEntities;
+    }
+
+    private struct GatherReadCounters
+    {
+        public int ScannedServerObjects;
+        public int ResolvedEntities;
+        public int ResolvedActors;
     }
 
     private struct LearnedSkillInfo

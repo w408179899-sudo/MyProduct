@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $runtimeFiles = @("Roadhog.exe", "Roadhog.dll")
+$runtimeAssets = @("Source\gather_src.xml")
 $destinationNames = @("1", "2", "3", "4")
 
 function Test-FileInUse {
@@ -40,15 +41,15 @@ function Test-FileInUse {
     }
 }
 
-$sourceFiles = foreach ($fileName in $runtimeFiles) {
-    $sourcePath = Join-Path -Path $SourceDirectory -ChildPath $fileName
+$sourceFiles = foreach ($relativePath in ($runtimeFiles + $runtimeAssets)) {
+    $sourcePath = Join-Path -Path $SourceDirectory -ChildPath $relativePath
     if (-not (Test-Path -LiteralPath $sourcePath)) {
         Write-Warning "[Roadhog copy] Source file missing, skip all runtime copies: $sourcePath"
         exit 0
     }
 
     [PSCustomObject]@{
-        Name = $fileName
+        RelativePath = $relativePath
         Path = $sourcePath
     }
 }
@@ -75,7 +76,13 @@ foreach ($destinationName in $destinationNames) {
         }
 
         foreach ($sourceFile in $sourceFiles) {
-            Copy-Item -LiteralPath $sourceFile.Path -Destination $destinationDirectory -Force
+            $destinationPath = Join-Path -Path $destinationDirectory -ChildPath $sourceFile.RelativePath
+            $destinationParent = Split-Path -Parent $destinationPath
+            if (-not (Test-Path -LiteralPath $destinationParent)) {
+                New-Item -Path $destinationParent -ItemType Directory -Force | Out-Null
+            }
+
+            Copy-Item -LiteralPath $sourceFile.Path -Destination $destinationPath -Force
         }
 
         Write-Host "[Roadhog copy] Updated $destinationDirectory"

@@ -20,6 +20,80 @@
 
 默认半径先用 `5m`。如果某条路线点附近存在多个同模板采集物，应为该点单独缩小半径或改用强判定。
 
+## 已实现的只读 API
+
+2026-07-27 已在 Roadhog 中加入独立采集 API：
+
+```csharp
+IRoadhogGameApi.ReadGatherSnapshotAsync(...)
+IRoadhogScopedGameApi.ReadGatherSnapshotAsync(context, ...)
+RoadhogRuntime.RefreshGatherSnapshotAsync(accountName, ...)
+```
+
+`GatherSnapshot` 一次读取返回：
+
+- `Objects`：按角色距离排序的可见采集物。
+- `NearbyPlayers`：可见非本机玩家及竞争判断原始字段。
+- `LocalEntityId`、`LocalServerObjectId`、`LocalPosition`。
+- `CompetitionDataAvailable`：当前实现是否包含玩家竞争数据。
+
+`GatherObjectSnapshot` 包含：
+
+- `ServerObjectId`、`GatherSourceId`、运行时名称。
+- 当前世界坐标、生成坐标、角色距离、交互半径。
+- `RuntimeAvailabilityRaw`、`InteractionState`、是否为当前锁定目标。
+- 从 `gather_src.xml` 关联的 `GatherSourceDefinition`。
+
+`GatherCompetitionPlayerSnapshot` 包含：
+
+- 玩家 `ServerObjectId`、名称、坐标和距离。
+- `Actor+0xAB0`、`Actor+0xAB4`、`Actor+0x500` 三个原始值。
+- `IsGatheringActionCandidate` 和 `MatchesGatherSource(...)` 辅助判断。
+
+`GatherSnapshot.FindLikelyCompetitors(...)` / `IsLikelyOccupied(...)` 实现本文记录的固定路线点实用竞争规则。`ContainsObject(ServerObjectId)` 用于后续判断具体采集物是否已从遍历结果消失。
+
+`GatherSourceCatalog` 读取 `Source/gather_src.xml`，当前目录包含 `451` 条记录，并提供采集类别、采集技能、熟练度、角色等级、理论次数、条件道具、产物等静态信息。构建时该 XML 会复制到 Roadhog 输出目录。
+
+当前尚未接入 UI、按键输入和采集控制器；API 全部是只读行为。
+
+## 路径采集执行需求
+
+采集模式走“路径点 + 可选采集动作”的模型。路径点本身可以只是移动/绕障点；只有在该点配置了采集动作时，才执行对应采集。
+
+建议数据形态：
+
+```text
+SharedPathPoint
+  Index
+  Position: X/Y/Z
+  GatherActions: List<GatherPointAction>
+
+GatherPointAction
+  ExpectedGatherSourceId
+  GatherName
+  GatherKey
+  SearchRadiusMeters
+  OccupiedCheckRadiusMeters
+```
+
+`GatherKey` 随路线点上的具体采集动作保存，不做成一个全局采集键。第一版 UI 按 `GatherSourceId` 管理类别按键：同类采集物共用并同步一个按键，不同类别可以绑定不同按键。底层保留 `List<GatherPointAction>`，后续可以扩展一个点采多个物。
+
+运行时行为：
+
+```text
+1. 到达路径点。
+2. 如果该点没有 GatherActions，则只当普通路径点，继续下一个点。
+3. 如果该点有 GatherAction：
+   - 在该点 SearchRadiusMeters 内找 ExpectedGatherSourceId 相同的采集物。
+   - 要求采集物 Actor+0x1CC == 40，即当前可采。
+   - 用路线点竞争判定确认没有非本机玩家占用。
+   - 通过该动作自己的 GatherKey 触发采集。
+   - 锁定本次刷新出来的具体 Actor+0x2C ServerObjectId。
+   - 不按“采一次”离开；持续等待/必要时重试采集，直到该 ServerObjectId 从采集物遍历结果里消失，再进入下一个点。
+```
+
+如果采集物不存在、状态 blocked、竞争命中、没有配置 `GatherKey`，第一版都应跳过该采集动作并打日志，不做内存写入或协议调用。当前产品化实现先按用户配置按键走输入链；如果实测某些采集需要先锁定目标或额外交互键，再把“锁定/交互键”作为独立配置补进来。
+
 ## 采集物只读遍历链
 
 当前只读遍历链：

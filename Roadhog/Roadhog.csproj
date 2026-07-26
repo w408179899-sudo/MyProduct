@@ -41,6 +41,9 @@
     <Content Include="Source\npc_tribe_relation.xml" Condition="Exists('Source\npc_tribe_relation.xml')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Source\gather_src.xml" Condition="Exists('Source\gather_src.xml')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <PropertyGroup>

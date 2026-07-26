@@ -165,6 +165,8 @@ public sealed class PathScriptSettings
 
     public string MaintenancePathName { get; set; } = string.Empty;
 
+    public string GatherPathName { get; set; } = string.Empty;
+
     public string TownReturnKey { get; set; } = string.Empty;
 
     public double RecordingMinimumDistance { get; set; } = DefaultRecordingMinimumDistance;
@@ -186,6 +188,7 @@ public sealed class PathScriptSettings
             RevivePathName = RevivePathName,
             CombatPathName = CombatPathName,
             MaintenancePathName = MaintenancePathName,
+            GatherPathName = GatherPathName,
             TownReturnKey = TownReturnKey,
             RecordingMinimumDistance = RecordingMinimumDistance,
             DeathReviveClickX = DeathReviveClickX,

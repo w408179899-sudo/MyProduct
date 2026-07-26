@@ -22,6 +22,7 @@ using Roadhog.Infrastructure.Composition;
 using Roadhog.Infrastructure.Diagnostics;
 using Roadhog.Infrastructure.Hardware;
 using Roadhog.Infrastructure.Input;
+using Roadhog.Infrastructure.Gathering;
 using Roadhog.Infrastructure.Paths;
 using Roadhog.Infrastructure.Profiles;
 
@@ -74,6 +75,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("account start lets configured vmm override hardware indexed device", TestAccountStartConfiguredVmmOverridesHardwareIndexedDeviceAsync),
     ("runtime inventory read uses account scoped context", TestRuntimeInventoryReadUsesAccountScopeAsync),
     ("runtime world object read uses account scoped context", TestRuntimeWorldObjectReadUsesAccountScopeAsync),
+    ("runtime gather read uses account scoped context", TestRuntimeGatherReadUsesAccountScopeAsync),
+    ("gather source catalog loads static metadata", TestGatherSourceCatalogLoadsStaticMetadataAsync),
+    ("gather snapshot evaluates practical competition rule", TestGatherSnapshotEvaluatesCompetitionRuleAsync),
     ("runtime summoned pet read uses account scoped context", TestRuntimeSummonedPetReadUsesAccountScopeAsync),
     ("runtime summoned pet roster read uses account scoped context", TestRuntimeSummonedPetRosterReadUsesAccountScopeAsync),
     ("runtime team snapshot uses account scoped context", TestRuntimeTeamSnapshotUsesAccountScopeAsync),
@@ -479,6 +483,14 @@ static async Task TestSharedPathStoreRoundTripAsync()
         document.BagCleanupSellItemClickY = 222;
         document.BagCleanupSellButtonClickX = 333;
         document.BagCleanupSellButtonClickY = 444;
+        document.Points[1].GatherActions.Add(new GatherPointAction
+        {
+            ExpectedGatherSourceId = 400951,
+            GatherName = "采集物示例",
+            GatherKey = "NumPad1",
+            SearchRadiusMeters = 6.0D,
+            OccupiedCheckRadiusMeters = 5.0D
+        });
 
         var save = await store.SaveAsync(document).ConfigureAwait(false);
         AssertFalse(!save.Success, "path save should succeed");
@@ -509,6 +521,12 @@ static async Task TestSharedPathStoreRoundTripAsync()
         AssertEqual(222, sellItemClickY, "loaded sell item click y");
         AssertEqual(333, sellButtonClickX, "loaded sell button click x");
         AssertEqual(444, sellButtonClickY, "loaded sell button click y");
+        var gatherAction = loaded.Value?.Points[1].GatherActions.SingleOrDefault();
+        AssertEqual(400951U, gatherAction?.ExpectedGatherSourceId ?? 0U, "loaded gather source id");
+        AssertEqual("采集物示例", gatherAction?.GatherName ?? string.Empty, "loaded gather name");
+        AssertEqual("NumPad1", gatherAction?.GatherKey ?? string.Empty, "loaded gather key");
+        AssertEqual(6.0D, gatherAction?.SearchRadiusMeters ?? 0.0D, "loaded gather search radius");
+        AssertEqual(5.0D, gatherAction?.OccupiedCheckRadiusMeters ?? 0.0D, "loaded gather occupied radius");
 
         var delete = await store.DeleteAsync(name).ConfigureAwait(false);
         AssertFalse(!delete.Success, "path delete should succeed");
@@ -536,6 +554,7 @@ static async Task TestScriptProfileStoreRoundTripAsync()
         settings.Combat.StationaryCombatX = 12.5D;
         settings.Paths.DeathReviveClickX = 620;
         settings.Paths.DeathReviveClickY = 340;
+        settings.Paths.GatherPathName = "采集测试路线";
 
         var save = await store.SaveAsync(new ScriptProfileDocument
         {
@@ -556,6 +575,7 @@ static async Task TestScriptProfileStoreRoundTripAsync()
         AssertEqual(12.5D, loaded.Value?.Settings.Combat.StationaryCombatX ?? 0.0D, "loaded combat x");
         AssertEqual(620, loaded.Value?.Settings.Paths.DeathReviveClickX ?? 0, "loaded death revive click x");
         AssertEqual(340, loaded.Value?.Settings.Paths.DeathReviveClickY ?? 0, "loaded death revive click y");
+        AssertEqual("采集测试路线", loaded.Value?.Settings.Paths.GatherPathName ?? string.Empty, "loaded gather path name");
 
         var delete = await store.DeleteAsync(name).ConfigureAwait(false);
         AssertFalse(!delete.Success, "profile delete should succeed");
@@ -852,6 +872,135 @@ static async Task TestRuntimeWorldObjectReadUsesAccountScopeAsync()
     AssertEqual(712, gameApi.LastWorldObjectsContext?.ProcessId ?? 0, "scoped process id");
     AssertEqual("Aion.bin", gameApi.LastWorldObjectsContext?.TargetProcessName ?? string.Empty, "scoped process name");
     AssertEqual("fpga", gameApi.LastWorldObjectsContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
+}
+
+static async Task TestRuntimeGatherReadUsesAccountScopeAsync()
+{
+    var logger = new InMemoryRoadhogLogger();
+    var accounts = new AccountRuntimeManager(logger);
+    accounts.MarkStarting(new AccountConfig
+    {
+        AccountName = "account-scope",
+        ProcessId = 712,
+        TargetProcessName = "Aion.bin",
+        VmmDeviceName = "fpga"
+    });
+
+    var capturedAt = DateTimeOffset.Now;
+    var gameApi = new FakeGameApi
+    {
+        Gather = new GatherSnapshot(
+            100,
+            1000,
+            new Vector3Snapshot(1, 2, 3),
+            Array.Empty<GatherObjectSnapshot>(),
+            Array.Empty<GatherCompetitionPlayerSnapshot>(),
+            true,
+            capturedAt)
+    };
+    var runtime = new RoadhogRuntime(gameApi, logger, accounts, null!);
+
+    var result = await runtime.RefreshGatherSnapshotAsync("account-scope").ConfigureAwait(false);
+
+    AssertFalse(!result.Success, "runtime gather read should succeed");
+    AssertEqual(712, gameApi.LastGatherContext?.ProcessId ?? 0, "scoped process id");
+    AssertEqual("Aion.bin", gameApi.LastGatherContext?.TargetProcessName ?? string.Empty, "scoped process name");
+    AssertEqual("fpga", gameApi.LastGatherContext?.VmmDeviceName ?? string.Empty, "scoped vmm device");
+}
+
+static Task TestGatherSourceCatalogLoadsStaticMetadataAsync()
+{
+    var path = Path.Combine(Environment.CurrentDirectory, "Roadhog", "Source", "gather_src.xml");
+    var catalog = GatherSourceCatalog.Load(path);
+
+    AssertFalse(!catalog.Loaded, "gather source catalog should load: " + catalog.Error);
+    AssertEqual(451, catalog.Count, "gather source count");
+    AssertFalse(!catalog.TryGet(400951, out var source), "known shell source should exist");
+    AssertEqual("gb_source_shell_d_10a", source.InternalName, "source internal name");
+    AssertEqual("shell", source.SourceType, "source type");
+    AssertEqual("gathering_b", source.HarvestSkill, "harvest skill");
+    AssertEqual(1, source.RequiredSkillLevel, "required skill level");
+    AssertEqual(3, source.TheoreticalHarvestCount, "theoretical harvest count");
+    AssertEqual(1, source.Materials.Count, "material count");
+    AssertEqual("shell_d_n_c_10a", source.Materials[0].InternalName, "material name");
+    return Task.CompletedTask;
+}
+
+static Task TestGatherSnapshotEvaluatesCompetitionRuleAsync()
+{
+    var capturedAt = DateTimeOffset.Now;
+    var target = new GatherObjectSnapshot(
+        10,
+        10010,
+        400951,
+        "贝壳",
+        1,
+        1,
+        2.0F,
+        40,
+        new Vector3Snapshot(10, 10, 0),
+        new Vector3Snapshot(10, 10, 0),
+        2.0D,
+        false,
+        null,
+        capturedAt);
+    var matchingPlayer = new GatherCompetitionPlayerSnapshot(
+        20,
+        10020,
+        "AYOK",
+        new Vector3Snapshot(12, 10, 0),
+        4.0D,
+        1,
+        1036,
+        400951,
+        capturedAt);
+    var wrongSourcePlayer = matchingPlayer with
+    {
+        EntityId = 21,
+        ServerObjectId = 10021,
+        GatherSourceIdCandidateRaw = 400952
+    };
+    var farPlayer = matchingPlayer with
+    {
+        EntityId = 22,
+        ServerObjectId = 10022,
+        Position = new Vector3Snapshot(20, 10, 0)
+    };
+    var staleSourcePlayer = matchingPlayer with
+    {
+        EntityId = 23,
+        ServerObjectId = 10023,
+        GatherActionStateRaw = 0,
+        GatherActionIdRaw = uint.MaxValue
+    };
+    var unrelatedActionPlayer = matchingPlayer with
+    {
+        EntityId = 24,
+        ServerObjectId = 10024,
+        GatherActionIdRaw = 1031
+    };
+    var snapshot = new GatherSnapshot(
+        1,
+        10001,
+        new Vector3Snapshot(8, 10, 0),
+        new[] { target },
+        new[] { matchingPlayer, wrongSourcePlayer, farPlayer, staleSourcePlayer, unrelatedActionPlayer },
+        true,
+        capturedAt);
+
+    AssertEqual(GatherInteractionAvailability.Allowed, target.InteractionAvailability, "allowed interaction state");
+    AssertFalse(!target.IsGatherableCandidate, "target should be a gatherable candidate");
+    AssertFalse(!snapshot.ContainsObject(target.ServerObjectId), "concrete server object should be present");
+    AssertEqual(1, snapshot.FindLikelyCompetitors(target, 5.0D).Count, "matching nearby competitor count");
+    AssertFalse(!snapshot.IsLikelyOccupied(target, 5.0D), "target should be likely occupied");
+    AssertEqual(
+        GatherInteractionAvailability.Blocked,
+        (target with { InteractionState = 41 }).InteractionAvailability,
+        "blocked interaction state");
+    AssertFalse(
+        (target with { InteractionState = 41 }).IsGatherableCandidate,
+        "blocked target should not be gatherable");
+    return Task.CompletedTask;
 }
 
 static async Task TestRuntimeSummonedPetReadUsesAccountScopeAsync()
@@ -19792,6 +19941,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
 
     public GameApiReadContext? LastWorldObjectsContext { get; private set; }
 
+    public GameApiReadContext? LastGatherContext { get; private set; }
+
     public GameApiReadContext? LastLootCorpsesContext { get; private set; }
 
     public GameApiReadContext? LastInventoryWindowContext { get; private set; }
@@ -19836,6 +19987,8 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
     public LockedTargetAbnormalStatusSnapshot? LockedTargetAbnormalStatuses { get; set; }
 
     public IReadOnlyList<WorldObjectSnapshot> WorldObjects { get; set; } = Array.Empty<WorldObjectSnapshot>();
+
+    public GatherSnapshot Gather { get; set; } = GatherSnapshot.Empty(DateTimeOffset.Now);
 
     public IReadOnlyList<LootCorpseSnapshot> LootCorpses { get; set; } = Array.Empty<LootCorpseSnapshot>();
 
@@ -20084,6 +20237,19 @@ sealed class FakeGameApi : IRoadhogScopedGameApi, IRoadhogScopedPartyGameApi, II
     {
         LastWorldObjectsContext = context;
         return ReadWorldObjectsAsync(cancellationToken);
+    }
+
+    public Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(OperationResult<GatherSnapshot>.Ok(Gather));
+    }
+
+    public Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default)
+    {
+        LastGatherContext = context;
+        return ReadGatherSnapshotAsync(cancellationToken);
     }
 
     public Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(CancellationToken cancellationToken = default)

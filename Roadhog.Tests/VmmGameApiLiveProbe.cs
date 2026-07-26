@@ -55,6 +55,43 @@ internal static class VmmGameApiLiveProbe
             worldObjects.Error,
             "count=" + (worldObjects.Value?.Count ?? 0).ToString(CultureInfo.InvariantCulture));
 
+        var gather = await api.ReadGatherSnapshotAsync(context).ConfigureAwait(false);
+        PrintResult(
+            "Gather",
+            gather.Success,
+            gather.Error,
+            gather.Value is null
+                ? string.Empty
+                : "objects=" + gather.Value.Objects.Count.ToString(CultureInfo.InvariantCulture) +
+                  ", nearbyPlayers=" + gather.Value.NearbyPlayers.Count.ToString(CultureInfo.InvariantCulture) +
+                  ", competitionData=" + (gather.Value.CompetitionDataAvailable ? "yes" : "no"));
+        if (gather.Value is not null)
+        {
+            foreach (var item in gather.Value.Objects.Take(5))
+            {
+                Console.WriteLine(
+                    "  Gather ServerId=" + item.ServerObjectId.ToString(CultureInfo.InvariantCulture) +
+                    " SourceId=" + item.GatherSourceId.ToString(CultureInfo.InvariantCulture) +
+                    " Name=\"" + item.Name + "\"" +
+                    " Distance=" + (item.DistanceToLocalPlayer?.ToString("0.00", CultureInfo.InvariantCulture) ?? "n/a") +
+                    " AvailabilityRaw=" + item.RuntimeAvailabilityRaw.ToString(CultureInfo.InvariantCulture) +
+                    " InteractionState=" + item.InteractionState.ToString(CultureInfo.InvariantCulture) +
+                    " Static=" + (item.Source is null ? "missing" : "ok"));
+            }
+
+            foreach (var nearbyPlayer in gather.Value.NearbyPlayers.Take(5))
+            {
+                Console.WriteLine(
+                    "  Player ServerId=" + nearbyPlayer.ServerObjectId.ToString(CultureInfo.InvariantCulture) +
+                    " Name=\"" + nearbyPlayer.Name + "\"" +
+                    " Distance=" + (nearbyPlayer.DistanceToLocalPlayer?.ToString("0.00", CultureInfo.InvariantCulture) ?? "n/a") +
+                    " GatherStateRaw=" + nearbyPlayer.GatherActionStateRaw.ToString(CultureInfo.InvariantCulture) +
+                    " GatherActionId=" + nearbyPlayer.GatherActionIdRaw.ToString(CultureInfo.InvariantCulture) +
+                    " GatherSourceCandidate=" + nearbyPlayer.GatherSourceIdCandidateRaw.ToString(CultureInfo.InvariantCulture) +
+                    " GatheringCandidate=" + (nearbyPlayer.IsGatheringActionCandidate ? "yes" : "no"));
+            }
+        }
+
         var corpses = await api.ReadLootCorpsesAsync(context).ConfigureAwait(false);
         PrintResult(
             "LootCorpses",
@@ -83,7 +120,7 @@ internal static class VmmGameApiLiveProbe
         }
 #endif
 
-        return player.Success && worldObjects.Success && corpses.Success && addressesPassed ? 0 : 1;
+        return player.Success && worldObjects.Success && gather.Success && corpses.Success && addressesPassed ? 0 : 1;
     }
 
     private static void PrintResult(string name, bool success, string? error, string detail)

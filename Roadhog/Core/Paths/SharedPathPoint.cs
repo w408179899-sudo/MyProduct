@@ -18,6 +18,8 @@ public sealed class SharedPathPoint
 
     public DateTimeOffset RecordedAt { get; set; } = DateTimeOffset.Now;
 
+    public List<GatherPointAction> GatherActions { get; set; } = new();
+
     public SharedPathPoint Clone()
     {
         return new SharedPathPoint
@@ -28,7 +30,10 @@ public sealed class SharedPathPoint
             Z = Z,
             SegmentDistance = SegmentDistance,
             TotalDistance = TotalDistance,
-            RecordedAt = RecordedAt
+            RecordedAt = RecordedAt,
+            GatherActions = GatherActions?
+                .Select(action => action.Clone())
+                .ToList() ?? new List<GatherPointAction>()
         };
     }
 

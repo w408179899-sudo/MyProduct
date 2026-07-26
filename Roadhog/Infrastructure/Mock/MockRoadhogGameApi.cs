@@ -105,6 +105,11 @@ public sealed class MockRoadhogGameApi : IRoadhogGameApi
         return Task.FromResult(OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(Array.Empty<WorldObjectSnapshot>()));
     }
 
+    public Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(OperationResult<GatherSnapshot>.Ok(GatherSnapshot.Empty(DateTimeOffset.Now)));
+    }
+
     public Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(CancellationToken cancellationToken = default)
     {
         return Task.FromResult(OperationResult<IReadOnlyList<LootCorpseSnapshot>>.Ok(Array.Empty<LootCorpseSnapshot>()));

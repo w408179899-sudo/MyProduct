@@ -4,5 +4,6 @@ public enum SharedPathKind
 {
     Revive,
     Combat,
-    Maintenance
+    Maintenance,
+    Gather
 }

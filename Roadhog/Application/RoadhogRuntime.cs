@@ -271,6 +271,33 @@ public sealed class RoadhogRuntime
         return result;
     }
 
+    public async Task<OperationResult<GatherSnapshot>> RefreshGatherSnapshotAsync(
+        string? accountName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ReadGatherSnapshotAsync(accountName, cancellationToken).ConfigureAwait(false);
+        if (result.Success)
+        {
+            _logger.Info("gather.refresh.ok", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["objects"] = result.Value?.Objects.Count ?? 0,
+                ["nearbyPlayers"] = result.Value?.NearbyPlayers.Count ?? 0,
+                ["competitionDataAvailable"] = result.Value?.CompetitionDataAvailable ?? false
+            });
+        }
+        else
+        {
+            _logger.Warn("gather.refresh.failed", new Dictionary<string, object?>
+            {
+                ["account"] = accountName,
+                ["error"] = result.Error
+            });
+        }
+
+        return result;
+    }
+
     public async Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> RefreshInventoryAsync(
         string? accountName = null,
         CancellationToken cancellationToken = default)
@@ -1437,6 +1464,19 @@ public sealed class RoadhogRuntime
         }
 
         return _gameApi.ReadWorldObjectsAsync(cancellationToken);
+    }
+
+    private Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(
+        string? accountName,
+        CancellationToken cancellationToken)
+    {
+        if (_gameApi is IRoadhogScopedGameApi scopedApi &&
+            !string.IsNullOrWhiteSpace(accountName))
+        {
+            return scopedApi.ReadGatherSnapshotAsync(CreateReadContext(accountName), cancellationToken);
+        }
+
+        return _gameApi.ReadGatherSnapshotAsync(cancellationToken);
     }
 
     private Task<OperationResult<IReadOnlyList<InventoryItemSnapshot>>> ReadInventoryAsync(

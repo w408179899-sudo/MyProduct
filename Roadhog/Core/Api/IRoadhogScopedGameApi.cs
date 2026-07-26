@@ -46,6 +46,10 @@ public interface IRoadhogScopedGameApi : IRoadhogGameApi
         GameApiReadContext context,
         CancellationToken cancellationToken = default);
 
+    Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(
+        GameApiReadContext context,
+        CancellationToken cancellationToken = default);
+
     Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(
         GameApiReadContext context,
         CancellationToken cancellationToken = default);

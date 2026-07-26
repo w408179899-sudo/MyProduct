@@ -4,6 +4,7 @@ using Roadhog.Core.Api;
 using Roadhog.Core.Common;
 using Roadhog.Core.Diagnostics;
 using Roadhog.Core.Model;
+using Roadhog.Infrastructure.Gathering;
 
 namespace Roadhog.Infrastructure.ToolBridge;
 
@@ -89,6 +90,33 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
         return output.Success && output.Value is not null
             ? OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Ok(ToolOutputParsers.ParseWorldObjects(output.Value.StandardOutput))
             : OperationResult<IReadOnlyList<WorldObjectSnapshot>>.Fail(output.Error ?? "Tool world-object mode failed.");
+    }
+
+    public async Task<OperationResult<GatherSnapshot>> ReadGatherSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        var output = await RunToolModeAsync(ToolApiMode.Gather, cancellationToken).ConfigureAwait(false);
+        if (!output.Success || output.Value is null)
+        {
+            return OperationResult<GatherSnapshot>.Fail(output.Error ?? "Tool gather mode failed.");
+        }
+
+        var catalog = GatherSourceCatalog.Default;
+        var capturedAt = DateTimeOffset.Now;
+        var objects = ToolOutputParsers.ParseGatherObjects(output.Value.StandardOutput)
+            .Select(item =>
+                catalog.TryGet(item.GatherSourceId, out var source)
+                    ? item with { Source = source }
+                    : item)
+            .ToArray();
+        return OperationResult<GatherSnapshot>.Ok(
+            new GatherSnapshot(
+                0,
+                0,
+                null,
+                objects,
+                Array.Empty<GatherCompetitionPlayerSnapshot>(),
+                false,
+                capturedAt));
     }
 
     public async Task<OperationResult<IReadOnlyList<LootCorpseSnapshot>>> ReadLootCorpsesAsync(CancellationToken cancellationToken = default)
@@ -206,6 +234,11 @@ public sealed class ToolProcessApiClient : IRoadhogGameApi
         {
             startInfo.Environment["AION_LOOT_LIST_SAMPLES"] = "1";
             startInfo.Environment["AION_LOOT_ONLY_LOOTABLE"] = "0";
+        }
+        else if (mode == ToolApiMode.Gather)
+        {
+            startInfo.Environment["AION_GATHER_LIST_RADIUS"] = "120";
+            startInfo.Environment["AION_GATHER_LIST_LIMIT"] = "100";
         }
 
         if (!string.IsNullOrWhiteSpace(_options.MemProcFsHome))

@@ -80,6 +80,7 @@ namespace Roadhog
         private RoundedTextBox? revivePathNameTextBox;
         private RoundedTextBox? combatPathNameTextBox;
         private RoundedTextBox? maintenancePathNameTextBox;
+        private RoundedTextBox? gatherPathNameTextBox;
         private Button? townReturnKeyButton;
         private RoundedTextBox? pathRecordingMinimumDistanceTextBox;
         private RoundedTextBox? deathReviveClickPointTextBox;
@@ -357,6 +358,7 @@ namespace Roadhog
             SetText(revivePathNameTextBox, paths.RevivePathName);
             SetText(combatPathNameTextBox, paths.CombatPathName);
             SetText(maintenancePathNameTextBox, paths.MaintenancePathName);
+            SetText(gatherPathNameTextBox, paths.GatherPathName);
             SetKeyButton(townReturnKeyButton, paths.TownReturnKey);
             SetText(
                 pathRecordingMinimumDistanceTextBox,
@@ -369,6 +371,7 @@ namespace Roadhog
             SelectConfiguredPath(SharedPathKind.Revive, paths.RevivePathName);
             SelectConfiguredPath(SharedPathKind.Combat, paths.CombatPathName);
             SelectConfiguredPath(SharedPathKind.Maintenance, paths.MaintenancePathName);
+            SelectConfiguredPath(SharedPathKind.Gather, paths.GatherPathName);
 
             SetChecked(sitMaintenanceCheckBox, settings.Maintenance.SitMaintenanceEnabled);
             SetText(sitMpBelowTextBox, settings.Maintenance.SitMpBelowPercent.ToString());
@@ -614,6 +617,7 @@ namespace Roadhog
                     RevivePathName = GetText(revivePathNameTextBox, string.Empty),
                     CombatPathName = GetText(combatPathNameTextBox, string.Empty),
                     MaintenancePathName = GetText(maintenancePathNameTextBox, string.Empty),
+                    GatherPathName = GetText(gatherPathNameTextBox, string.Empty),
                     TownReturnKey = townReturnKeyButton?.Tag as string ?? string.Empty,
                     RecordingMinimumDistance = ReadDouble(
                         pathRecordingMinimumDistanceTextBox,
@@ -1295,6 +1299,7 @@ namespace Roadhog
             pathOverviewLabels[SharedPathKind.Revive] = AddLabel(page, "复活路径:  未选（0点）", 24, 34, 320, 22);
             pathOverviewLabels[SharedPathKind.Combat] = AddLabel(page, "打怪路径:  未选（0点）", 24, 60, 260, 22);
             pathOverviewLabels[SharedPathKind.Maintenance] = AddLabel(page, "清包路径:  未选（0点）", 24, 86, 260, 22);
+            pathOverviewLabels[SharedPathKind.Gather] = AddLabel(page, "采集路径:  未选（0点）", 600, 60, 240, 22);
             AddLabel(page, "录制最小距离:", 350, 34, 104, 22, _textGreen, FontStyle.Bold);
             pathRecordingMinimumDistanceTextBox = AddTextBox(
                 page,
@@ -1330,6 +1335,7 @@ namespace Roadhog
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Revive, "复活路径", "死亡复活后返回主路径", true));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Combat, "打怪路径", "打怪巡逻路径", false));
             pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Maintenance, "清包路径", "清包路径", false));
+            pathTabs.TabPages.Add(CreatePathEditorTab(SharedPathKind.Gather, "采集路径", "采集路线点配置", false));
             page.Controls.Add(pathTabs);
 
             return tab;
@@ -1365,6 +1371,10 @@ namespace Roadhog
             {
                 maintenancePathNameTextBox = pathNameTextBox;
             }
+            else if (kind == SharedPathKind.Gather)
+            {
+                gatherPathNameTextBox = pathNameTextBox;
+            }
 
             AddLabel(page, "路径名", 252, 42, 54, 22);
             editor.SavedPathCombo = AddCombo(page, 306, 38, 254, 28);
@@ -1398,33 +1408,66 @@ namespace Roadhog
             editor.SummaryLabel = AddLabel(page, "点数  0  |  总距  0.0  |  跳过  0", 6, 112, 300, 24, _textGreen, FontStyle.Bold);
             editor.StatusLabel = AddLabel(page, "等待读取坐标", 316, 112, 420, 24);
 
-            editor.ManualButton = AddButton(page, "手动录点", 6, 144, 92, 30, (_, _) => AddManualPathPoint(editor));
-            editor.StartButton = AddButton(page, "开始录制", 106, 144, 92, 30, (_, _) => StartPathRecording(editor));
-            editor.StopButton = AddButton(page, "停止录制", 206, 144, 92, 30, (_, _) => StopPathRecording(editor));
-            AddButton(page, "删除末点", 306, 144, 82, 30, (_, _) => RemoveLastPathPoint(editor));
-            AddButton(page, "清空", 396, 144, 62, 30, (_, _) => ClearPathPoints(editor));
-            AddButton(page, "复制路径", 466, 144, 88, 30, (_, _) => CopyPath(editor));
-            editor.ExecutePathButton = AddButton(page, "执行路径", 564, 144, 92, 30);
-            editor.ExecutePathButton.Click += async (_, _) => await ExecutePathAsync(editor).ConfigureAwait(true);
-
-            var pointsBox = new RoundedTextBox
+            editor.ManualButton = AddButton(page, "添加当前位置", 6, 144, 92, 30, (_, _) => AddManualPathPoint(editor));
+            if (kind != SharedPathKind.Gather)
             {
-                BackColor = _inputBackground,
-                BorderColor = Color.FromArgb(134, 239, 172),
-                CornerRadius = 9,
-                Font = new Font("Consolas", 10F, FontStyle.Bold),
-                ForeColor = _textGreen,
-                Location = new Point(6, 184),
-                Multiline = true,
-                ReadOnly = true,
-                ScrollBars = ScrollBars.Vertical,
-                Size = new Size(562, 106),
-                Text = string.Empty
-            };
-            editor.PointsTextBox = pointsBox;
-            page.Controls.Add(pointsBox);
+                editor.StartButton = AddButton(page, "开始录制", 106, 144, 92, 30, (_, _) => StartPathRecording(editor));
+                editor.StopButton = AddButton(page, "停止录制", 206, 144, 92, 30, (_, _) => StopPathRecording(editor));
+            }
 
-            var pathAdvanced = CreateFoldout(page, "高级路径设置", 302, 850, true);
+            var deleteLastPointX = kind == SharedPathKind.Gather ? 106 : 306;
+            var clearPointsX = kind == SharedPathKind.Gather ? 196 : 396;
+            var copyPathX = kind == SharedPathKind.Gather ? 266 : 466;
+            var executePathX = kind == SharedPathKind.Gather ? 362 : 564;
+            AddButton(page, "删除末点", deleteLastPointX, 144, 82, 30, (_, _) => RemoveLastPathPoint(editor));
+            AddButton(page, "清空", clearPointsX, 144, 62, 30, (_, _) => ClearPathPoints(editor));
+            AddButton(page, "复制路径", copyPathX, 144, 88, 30, (_, _) => CopyPath(editor));
+            editor.ExecutePathButton = AddButton(
+                page,
+                kind == SharedPathKind.Gather ? "执行采集" : "执行路径",
+                executePathX,
+                144,
+                92,
+                30);
+            if (kind == SharedPathKind.Gather)
+            {
+                editor.ExecutePathButton.Enabled = false;
+            }
+            else
+            {
+                editor.ExecutePathButton.Click += async (_, _) => await ExecutePathAsync(editor).ConfigureAwait(true);
+            }
+
+            if (kind == SharedPathKind.Gather)
+            {
+                AddGatherPointEditorControls(page, editor);
+            }
+            else
+            {
+                var pointsBox = new RoundedTextBox
+                {
+                    BackColor = _inputBackground,
+                    BorderColor = Color.FromArgb(134, 239, 172),
+                    CornerRadius = 9,
+                    Font = new Font("Consolas", 10F, FontStyle.Bold),
+                    ForeColor = _textGreen,
+                    Location = new Point(6, 184),
+                    Multiline = true,
+                    ReadOnly = true,
+                    ScrollBars = ScrollBars.Vertical,
+                    Size = new Size(562, 106),
+                    Text = string.Empty
+                };
+                editor.PointsTextBox = pointsBox;
+                page.Controls.Add(pointsBox);
+            }
+
+            var pathAdvanced = CreateFoldout(
+                page,
+                "高级路径设置",
+                kind == SharedPathKind.Gather ? 342 : 302,
+                850,
+                true);
             pathAdvanced.Content.Height = 68;
             var loopCheckBox = AddCheckBox(pathAdvanced.Content, "循环路径", 6, 12, 92, true);
             var reverseCheckBox = AddCheckBox(pathAdvanced.Content, "到终点反向", 102, 12, 106, false);
@@ -1439,6 +1482,343 @@ namespace Roadhog
 
             RefreshPathEditor(editor);
             return tab;
+        }
+
+        private void AddGatherPointEditorControls(Control page, PathEditorControls editor)
+        {
+            var pointsList = new ListView
+            {
+                BackColor = _inputBackground,
+                BorderStyle = BorderStyle.FixedSingle,
+                Font = new Font("Microsoft YaHei UI", 8.5F),
+                ForeColor = _textGreen,
+                FullRowSelect = true,
+                HeaderStyle = ColumnHeaderStyle.Nonclickable,
+                HideSelection = false,
+                Location = new Point(6, 184),
+                MultiSelect = false,
+                Size = new Size(500, 158),
+                UseCompatibleStateImageBehavior = false,
+                View = View.Details
+            };
+            pointsList.Columns.Add("#", 42, HorizontalAlignment.Center);
+            pointsList.Columns.Add("坐标", 214, HorizontalAlignment.Left);
+            pointsList.Columns.Add("路径点动作", 226, HorizontalAlignment.Left);
+            pointsList.SelectedIndexChanged += (_, _) => PopulateGatherPointEditor(editor);
+            editor.GatherPointsList = pointsList;
+            page.Controls.Add(pointsList);
+
+            editor.SelectedGatherPointLabel = AddLabel(
+                page,
+                "所选路径点: 未选择",
+                518,
+                184,
+                118,
+                26,
+                _textGreen,
+                FontStyle.Bold);
+            editor.ReadNearestGatherButton = AddButton(page, "读取附近", 644, 184, 126, 26);
+            editor.ReadNearestGatherButton.Enabled = false;
+            editor.ManualGatherEntryButton = AddButton(page, "手动", 778, 184, 60, 26);
+            editor.ManualGatherEntryButton.Click += (_, _) =>
+                SetGatherManualEntryMode(editor, !editor.ManualGatherEntryEnabled);
+
+            AddLabel(page, "附近采集物", 518, 216, 72, 28);
+            editor.GatherCandidateCombo = AddCombo(page, 590, 216, 248, 28);
+            editor.GatherCandidateCombo.DropDownWidth = 380;
+            editor.GatherCandidateCombo.SelectedIndexChanged += (_, _) =>
+                ApplyGatherCandidateSelection(editor);
+
+            AddLabel(page, "SourceId", 518, 248, 58, 28);
+            editor.GatherSourceIdTextBox = AddTextBox(page, string.Empty, 576, 248, 100, 28);
+            editor.GatherSourceIdTextBox.ReadOnly = true;
+            editor.GatherSourceIdTextBox.TabStop = false;
+            editor.GatherSourceTypeLabel = AddLabel(
+                page,
+                "类别 —  |  采集类型 —",
+                684,
+                248,
+                154,
+                28);
+            editor.GatherStaticInfoLabel = AddLabel(
+                page,
+                "熟练度 —  |  角色等级 —  |  理论次数 —  |  条件 —",
+                518,
+                280,
+                320,
+                26);
+
+            AddLabel(page, "按键", 518, 312, 40, 30);
+            editor.GatherKeyButton = AddButton(page, "选择按键", 558, 312, 82, 30);
+            editor.GatherKeyButton.Click += (_, _) =>
+            {
+                var selectedKey = ShowKeyboardPicker(editor.GatherKeyButton.Tag as string);
+                if (!string.IsNullOrWhiteSpace(selectedKey))
+                {
+                    SetKeyButton(editor.GatherKeyButton, selectedKey);
+                }
+            };
+            AddButton(page, "绑定到点", 648, 312, 90, 30, (_, _) => BindGatherAction(editor));
+            AddButton(page, "取消绑定", 746, 312, 92, 30, (_, _) => ClearGatherAction(editor));
+        }
+
+        private void PopulateGatherPointEditor(PathEditorControls editor)
+        {
+            if (editor.RefreshingGatherPoints)
+            {
+                return;
+            }
+
+            var point = GetSelectedGatherPoint(editor);
+            if (point is null)
+            {
+                if (editor.SelectedGatherPointLabel is not null)
+                {
+                    editor.SelectedGatherPointLabel.Text = "所选路径点: 未选择";
+                }
+
+                SetGatherManualEntryMode(editor, false);
+                SetGatherCandidate(editor, null);
+                SetText(editor.GatherSourceIdTextBox, string.Empty);
+                SetKeyButton(editor.GatherKeyButton, null);
+                ResetGatherStaticInfo(editor);
+                return;
+            }
+
+            if (editor.SelectedGatherPointLabel is not null)
+            {
+                editor.SelectedGatherPointLabel.Text =
+                    "所选路径点: #" + point.Index.ToString(CultureInfo.InvariantCulture);
+            }
+
+            var action = point.GatherActions?.FirstOrDefault();
+            SetGatherManualEntryMode(editor, false);
+            SetGatherCandidate(editor, action);
+            SetText(
+                editor.GatherSourceIdTextBox,
+                action is null
+                    ? string.Empty
+                    : action.ExpectedGatherSourceId.ToString(CultureInfo.InvariantCulture));
+            SetKeyButton(editor.GatherKeyButton, action?.GatherKey);
+            ResetGatherStaticInfo(editor);
+        }
+
+        private static void SetGatherCandidate(PathEditorControls editor, GatherPointAction? action)
+        {
+            if (editor.GatherCandidateCombo is not { } combo)
+            {
+                return;
+            }
+
+            combo.SelectedIndex = -1;
+            combo.Items.Clear();
+            combo.Text = string.Empty;
+            if (action is null)
+            {
+                return;
+            }
+
+            combo.Items.Add(
+                new GatherCandidateComboItem(
+                    action.GatherName,
+                    action.ExpectedGatherSourceId,
+                    distanceMeters: null));
+            combo.SelectedIndex = 0;
+        }
+
+        private static void ApplyGatherCandidateSelection(PathEditorControls editor)
+        {
+            if (editor.GatherCandidateCombo?.SelectedItem is not GatherCandidateComboItem candidate)
+            {
+                return;
+            }
+
+            SetText(
+                editor.GatherSourceIdTextBox,
+                candidate.GatherSourceId?.ToString(CultureInfo.InvariantCulture) ?? string.Empty);
+            ResetGatherStaticInfo(editor);
+        }
+
+        private static void ResetGatherStaticInfo(PathEditorControls editor)
+        {
+            if (editor.GatherSourceTypeLabel is not null)
+            {
+                editor.GatherSourceTypeLabel.Text = "类别 —  |  采集类型 —";
+            }
+
+            if (editor.GatherStaticInfoLabel is not null)
+            {
+                editor.GatherStaticInfoLabel.Text =
+                    "熟练度 —  |  角色等级 —  |  理论次数 —  |  条件 —";
+            }
+        }
+
+        private static void SetGatherManualEntryMode(PathEditorControls editor, bool enabled)
+        {
+            var currentName = GetGatherName(editor, string.Empty);
+            var currentSourceId = TryParseGatherSourceId(
+                editor.GatherSourceIdTextBox?.Text,
+                out var parsedSourceId)
+                ? parsedSourceId
+                : (uint?)null;
+
+            editor.ManualGatherEntryEnabled = enabled;
+            if (editor.GatherCandidateCombo is { } combo)
+            {
+                if (enabled)
+                {
+                    combo.DropDownStyle = ComboBoxStyle.DropDown;
+                    combo.SelectedIndex = -1;
+                    combo.Text = currentName;
+                }
+                else
+                {
+                    combo.DropDownStyle = ComboBoxStyle.DropDownList;
+                    if (!string.IsNullOrWhiteSpace(currentName) &&
+                        combo.SelectedItem is not GatherCandidateComboItem)
+                    {
+                        combo.Items.Clear();
+                        combo.Items.Add(
+                            new GatherCandidateComboItem(
+                                currentName,
+                                currentSourceId,
+                                distanceMeters: null));
+                        combo.SelectedIndex = 0;
+                    }
+                }
+            }
+
+            if (editor.GatherSourceIdTextBox is not null)
+            {
+                editor.GatherSourceIdTextBox.ReadOnly = !enabled;
+                editor.GatherSourceIdTextBox.TabStop = enabled;
+            }
+
+            if (editor.ManualGatherEntryButton is not null)
+            {
+                editor.ManualGatherEntryButton.Text = enabled ? "锁定" : "手动";
+            }
+        }
+
+        private static string GetGatherName(PathEditorControls editor, string fallback)
+        {
+            if (!editor.ManualGatherEntryEnabled &&
+                editor.GatherCandidateCombo?.SelectedItem is GatherCandidateComboItem candidate)
+            {
+                return string.IsNullOrWhiteSpace(candidate.GatherName)
+                    ? fallback
+                    : candidate.GatherName;
+            }
+
+            return string.IsNullOrWhiteSpace(editor.GatherCandidateCombo?.Text)
+                ? fallback
+                : editor.GatherCandidateCombo.Text.Trim();
+        }
+
+        private void BindGatherAction(PathEditorControls editor)
+        {
+            var point = GetSelectedGatherPoint(editor);
+            if (point is null)
+            {
+                SetPathStatus(editor, "请先在左侧选择一个路径点", true);
+                return;
+            }
+
+            if (!TryParseGatherSourceId(editor.GatherSourceIdTextBox?.Text, out var gatherSourceId))
+            {
+                SetPathStatus(editor, "GatherSourceId 必须是大于 0 的十进制或十六进制数", true);
+                return;
+            }
+
+            var gatherKey = editor.GatherKeyButton?.Tag as string ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(gatherKey))
+            {
+                SetPathStatus(editor, "请为这个采集物类别选择按键", true);
+                return;
+            }
+
+            var gatherName = GetGatherName(
+                editor,
+                "采集物 " + gatherSourceId.ToString(CultureInfo.InvariantCulture));
+
+            foreach (var pathPoint in editor.Buffer.Points)
+            {
+                foreach (var sameTypeAction in (pathPoint.GatherActions ?? new List<GatherPointAction>())
+                             .Where(action => action.ExpectedGatherSourceId == gatherSourceId))
+                {
+                    sameTypeAction.GatherName = gatherName;
+                    sameTypeAction.GatherKey = gatherKey;
+                }
+            }
+
+            var previousAction = point.GatherActions?.FirstOrDefault();
+            point.GatherActions = new List<GatherPointAction>
+            {
+                new()
+                {
+                    ExpectedGatherSourceId = gatherSourceId,
+                    GatherName = gatherName,
+                    GatherKey = gatherKey,
+                    SearchRadiusMeters = previousAction?.ExpectedGatherSourceId == gatherSourceId
+                        ? previousAction.SearchRadiusMeters
+                        : GatherPointAction.DefaultSearchRadiusMeters,
+                    OccupiedCheckRadiusMeters = previousAction?.ExpectedGatherSourceId == gatherSourceId
+                        ? previousAction.OccupiedCheckRadiusMeters
+                        : GatherPointAction.DefaultOccupiedCheckRadiusMeters
+                }
+            };
+
+            SetGatherManualEntryMode(editor, false);
+            RefreshPathEditor(editor);
+            SetPathStatus(
+                editor,
+                "已绑定 #" + point.Index.ToString(CultureInfo.InvariantCulture) +
+                ": " + gatherName +
+                " / " + FormatSkillKey(gatherKey) +
+                "（同类按键已同步）",
+                false);
+        }
+
+        private void ClearGatherAction(PathEditorControls editor)
+        {
+            var point = GetSelectedGatherPoint(editor);
+            if (point is null)
+            {
+                SetPathStatus(editor, "请先在左侧选择一个路径点", true);
+                return;
+            }
+
+            point.GatherActions = new List<GatherPointAction>();
+            SetGatherManualEntryMode(editor, false);
+            RefreshPathEditor(editor);
+            SetPathStatus(
+                editor,
+                "路径点 #" + point.Index.ToString(CultureInfo.InvariantCulture) + " 已设为普通移动点",
+                false);
+        }
+
+        private static SharedPathPoint? GetSelectedGatherPoint(PathEditorControls editor)
+        {
+            return editor.GatherPointsList?.SelectedItems.Count > 0
+                ? editor.GatherPointsList.SelectedItems[0].Tag as SharedPathPoint
+                : null;
+        }
+
+        private static bool TryParseGatherSourceId(string? text, out uint gatherSourceId)
+        {
+            var value = text?.Trim() ?? string.Empty;
+            if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                return uint.TryParse(
+                           value[2..],
+                           NumberStyles.AllowHexSpecifier,
+                           CultureInfo.InvariantCulture,
+                           out gatherSourceId) &&
+                       gatherSourceId > 0;
+            }
+
+            return uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out gatherSourceId) &&
+                   gatherSourceId > 0;
         }
 
         private void AddBagCleanupPathClickPointControls(Control page, int x, int y)
@@ -1865,6 +2245,11 @@ namespace Roadhog
                 editor.PointsTextBox.Text = editor.Buffer.ToCoordinateText();
             }
 
+            if (editor.GatherPointsList is not null)
+            {
+                RefreshGatherPointList(editor);
+            }
+
             if (editor.SummaryLabel is not null)
             {
                 editor.SummaryLabel.Text =
@@ -1872,6 +2257,70 @@ namespace Roadhog
                     "  |  总距  " + editor.Buffer.TotalDistance.ToString("F1", CultureInfo.InvariantCulture) +
                     "  |  跳过  " + editor.SkippedCount.ToString(CultureInfo.InvariantCulture);
             }
+        }
+
+        private void RefreshGatherPointList(PathEditorControls editor)
+        {
+            if (editor.GatherPointsList is not { } pointsList)
+            {
+                return;
+            }
+
+            var selectedIndex = pointsList.SelectedIndices.Count > 0
+                ? pointsList.SelectedIndices[0]
+                : -1;
+            if (selectedIndex < 0 && editor.Buffer.Count > 0)
+            {
+                selectedIndex = editor.Buffer.Count - 1;
+            }
+            else if (selectedIndex >= editor.Buffer.Count)
+            {
+                selectedIndex = editor.Buffer.Count - 1;
+            }
+
+            editor.RefreshingGatherPoints = true;
+            pointsList.BeginUpdate();
+            try
+            {
+                pointsList.Items.Clear();
+                foreach (var point in editor.Buffer.Points)
+                {
+                    var action = point.GatherActions?.FirstOrDefault();
+                    var actionText = action is null
+                        ? "普通移动点"
+                        : (string.IsNullOrWhiteSpace(action.GatherName)
+                            ? "采集物"
+                            : action.GatherName) +
+                          " / " +
+                          action.ExpectedGatherSourceId.ToString(CultureInfo.InvariantCulture) +
+                          " / " +
+                          FormatSkillKey(action.GatherKey);
+                    var item = new ListViewItem(point.Index.ToString(CultureInfo.InvariantCulture))
+                    {
+                        Tag = point
+                    };
+                    item.SubItems.Add(
+                        point.X.ToString("F2", CultureInfo.InvariantCulture) + ", " +
+                        point.Y.ToString("F2", CultureInfo.InvariantCulture) + ", " +
+                        point.Z.ToString("F2", CultureInfo.InvariantCulture));
+                    item.SubItems.Add(actionText);
+                    pointsList.Items.Add(item);
+                }
+
+                if (selectedIndex >= 0 && selectedIndex < pointsList.Items.Count)
+                {
+                    pointsList.Items[selectedIndex].Selected = true;
+                    pointsList.Items[selectedIndex].Focused = true;
+                    pointsList.EnsureVisible(selectedIndex);
+                }
+            }
+            finally
+            {
+                pointsList.EndUpdate();
+                editor.RefreshingGatherPoints = false;
+            }
+
+            PopulateGatherPointEditor(editor);
         }
 
         private async Task RefreshCleanupNpcsAsync(PathEditorControls editor)
@@ -2005,6 +2454,7 @@ namespace Roadhog
             SetPathOverview(SharedPathKind.Revive, "复活路径", revivePathNameTextBox?.Text);
             SetPathOverview(SharedPathKind.Combat, "打怪路径", combatPathNameTextBox?.Text);
             SetPathOverview(SharedPathKind.Maintenance, "清包路径", maintenancePathNameTextBox?.Text);
+            SetPathOverview(SharedPathKind.Gather, "采集路径", gatherPathNameTextBox?.Text);
         }
 
         private void SetPathOverview(SharedPathKind kind, string label, string? pathName)
@@ -7178,6 +7628,24 @@ namespace Roadhog
 
             public RoundedTextBox? PointsTextBox { get; set; }
 
+            public ListView? GatherPointsList { get; set; }
+
+            public Label? SelectedGatherPointLabel { get; set; }
+
+            public RoundedComboBox? GatherCandidateCombo { get; set; }
+
+            public RoundedTextBox? GatherSourceIdTextBox { get; set; }
+
+            public Label? GatherSourceTypeLabel { get; set; }
+
+            public Label? GatherStaticInfoLabel { get; set; }
+
+            public Button? GatherKeyButton { get; set; }
+
+            public Button? ReadNearestGatherButton { get; set; }
+
+            public Button? ManualGatherEntryButton { get; set; }
+
             public Button? ManualButton { get; set; }
 
             public Button? StartButton { get; set; }
@@ -7195,6 +7663,47 @@ namespace Roadhog
             public PathRecordingBuffer Buffer { get; } = new();
 
             public int SkippedCount { get; set; }
+
+            public bool RefreshingGatherPoints { get; set; }
+
+            public bool ManualGatherEntryEnabled { get; set; }
+        }
+
+        private sealed class GatherCandidateComboItem
+        {
+            public GatherCandidateComboItem(string? gatherName, uint? gatherSourceId, double? distanceMeters)
+            {
+                GatherName = string.IsNullOrWhiteSpace(gatherName)
+                    ? "未命名采集物"
+                    : gatherName.Trim();
+                GatherSourceId = gatherSourceId;
+                DistanceMeters = distanceMeters;
+            }
+
+            public string GatherName { get; }
+
+            public uint? GatherSourceId { get; }
+
+            public double? DistanceMeters { get; }
+
+            public override string ToString()
+            {
+                var text = GatherName;
+                if (GatherSourceId.HasValue)
+                {
+                    text += " | SourceId " +
+                            GatherSourceId.Value.ToString(CultureInfo.InvariantCulture);
+                }
+
+                if (DistanceMeters.HasValue && !double.IsInfinity(DistanceMeters.Value))
+                {
+                    text += " | " +
+                            DistanceMeters.Value.ToString("F1", CultureInfo.InvariantCulture) +
+                            "m";
+                }
+
+                return text;
+            }
         }
 
         private sealed class CleanupNpcComboItem
