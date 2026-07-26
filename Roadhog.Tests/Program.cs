@@ -278,10 +278,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stationary combat finishes current fight before returning home", TestStationaryCombatFinishesFightBeforeReturningHomeAsync),
     ("stationary combat reacquires adopted defense target when locked on party member", TestStationaryCombatReacquiresAdoptedDefenseTargetWhenLockedOnPartyMemberAsync),
     ("stationary combat faces adopted defense target before reacquire tab", TestStationaryCombatFacesAdoptedDefenseTargetBeforeReacquireTabAsync),
-    ("stationary combat interrupts sit when targeted by monster", TestStationaryCombatInterruptsSitWhenTargetedAsync),
+    ("stationary combat interrupts maintenance sit for defense target", TestStationaryCombatInterruptsMaintenanceSitForDefenseTargetAsync),
     ("stationary combat hp rule runs before defense target workflow", TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync),
     ("stationary combat stops movement before hp maintenance", TestStationaryCombatStopsMovementBeforeHpMaintenanceAsync),
     ("stationary combat mp sit maintenance runs without defense target", TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAsync),
+    ("stationary combat mp sit maintenance preempts target and potion", TestStationaryCombatMpSitMaintenancePreemptsTargetAndPotionAsync),
     ("skill tree assigns keys by root order and chain children inherit root key", TestSkillTreeKeyMappingAsync),
     ("available skill tree keeps chain roots in normal category", TestAvailableSkillTreeKeepsChainRootsInNormalCategoryAsync),
     ("manual skill category maps target valid status as condition", TestManualSkillCategoryMapsTargetValidStatusAsConditionAsync),
@@ -321,6 +322,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance mp potion runs before skill and skill retries next tick", TestMaintenanceMpPotionRunsBeforeSkillAsync),
     ("maintenance global interval throttles different selected skill", TestMaintenanceGlobalIntervalThrottlesDifferentSelectedSkillAsync),
     ("after-combat mp potion skips inventory and presses once", TestAfterCombatMpPotionSkipsInventoryAndPressesOnceAsync),
+    ("maintenance sit preempts after-combat mp potion", TestMaintenanceSitPreemptsAfterCombatMpPotionAsync),
+    ("maintenance rest allows mp potion without standing", TestMaintenanceRestAllowsMpPotionWithoutStandingAsync),
+    ("maintenance rest stands before skill and stays locked", TestMaintenanceRestStandsBeforeSkillMaintenanceAsync),
+    ("maintenance rest interrupt failure keeps state", TestMaintenanceRestInterruptFailureKeepsStateAsync),
     ("maintenance selected skill confirms by skill id", TestMaintenanceSelectedSkillConfirmsBySkillIdAsync),
     ("maintenance selected cooling skill skips key and continues combat", TestMaintenanceSelectedCoolingSkillSkipsKeyAsync),
     ("dp maintenance skips below required dp", TestDpMaintenanceSkipsBelowRequiredDpAsync),
@@ -338,6 +343,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("maintenance sit enters with comma and exits with x", TestMaintenanceSitEnterExitAsync),
     ("maintenance sit enters for low mp and exits on recovery", TestMaintenanceSitMpEnterExitAsync),
     ("maintenance sit re-enters when poison interrupts rest", TestMaintenanceSitReentersWhenInterruptedAsync),
+    ("maintenance sit re-enter blocks same tick potion", TestMaintenanceSitReenterBlocksSameTickPotionAsync),
     ("maintenance sit waits for harmful abnormal before comma", TestMaintenanceSitWaitsForHarmfulAbnormalAsync),
     ("semi auto skips sit maintenance", TestSemiAutoSkipsSitMaintenanceAsync),
     ("poll result advances root order", TestPollResultAdvancesRootOrderAsync),
@@ -7636,6 +7642,22 @@ static async Task TestStationaryCombatDeathRecoverySitsBeforeMpMaintenanceRuleAs
     AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "revive recovery should sit before mp maintenance skill");
     AssertFalse(keyboard.Keys.Contains("D0"), "revive recovery must not press mp maintenance before sitting to recovery values");
     AssertFalse(!state.IsMaintenanceResting, "revive recovery should track sitting state");
+
+    keyboard.Keys.Clear();
+    state.MarkMaintenanceKeyAttempted("OemComma", DateTimeOffset.Now - TimeSpan.FromSeconds(1));
+    gameApi.Player = gameApi.Player with { StanceFlags = 5, MotionMode = 1 };
+
+    handled = await controller
+        .TryRecoverAfterReviveAsync(
+            CreateContext(settings, gameApi, logger),
+            state,
+            gameApi.Player,
+            SemiAutoSkillPlan.FromSettings(settings.Skills))
+        .ConfigureAwait(false);
+
+    AssertFalse(!handled, "revive recovery should allow maintenance skill while resting");
+    AssertSequence(new[] { "X", "D0" }, keyboard.Keys.ToArray(), "revive recovery maintenance skill should temporarily stand before key");
+    AssertFalse(!state.IsMaintenanceResting, "revive recovery maintenance skill should keep rest lock below recovery values");
 }
 
 static async Task TestStationaryCombatDeathRecoverySummonsSpiritmasterPetBeforeRevivePathAsync()
@@ -13110,7 +13132,7 @@ static async Task TestStationaryCombatFacesAdoptedDefenseTargetBeforeReacquireTa
     }
 }
 
-static async Task TestStationaryCombatInterruptsSitWhenTargetedAsync()
+static async Task TestStationaryCombatInterruptsMaintenanceSitForDefenseTargetAsync()
 {
     var settings = CreateScriptSettings();
     settings.MainMode = AccountMainMode.CustomCombat;
@@ -13131,7 +13153,19 @@ static async Task TestStationaryCombatInterruptsSitWhenTargetedAsync()
     var logger = new InMemoryRoadhogLogger();
     var gameApi = new FakeGameApi
     {
-        Player = new PlayerSnapshot(1, 100, "Fake", 20, 100, 100, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
+        Player = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            20,
+            100,
+            100,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            StanceFlags: 5,
+            MotionMode: 1),
         TargetEntityId = 0,
         TargetCurrentHp = 0,
         TargetPosition = null,
@@ -13162,15 +13196,16 @@ static async Task TestStationaryCombatInterruptsSitWhenTargetedAsync()
     var stationaryState = new StationaryCombatState();
     var semiAutoState = new SemiAutoCombatState();
     semiAutoState.StartMaintenanceRest(forHp: true, forMp: false);
+    CalibrateCooldownClock(semiAutoState);
 
     await controller
         .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, stationaryState)
         .ConfigureAwait(false);
 
-    AssertFalse(!keyboard.Keys.Contains("X"), "targeting monster should interrupt sit maintenance with x");
-    AssertFalse(keyboard.Keys.Contains("OemComma"), "targeting monster should block re-entering sit maintenance");
-    AssertFalse(semiAutoState.IsMaintenanceResting, "interrupted sit maintenance should clear rest state");
-    AssertEqual((ushort)200, stationaryState.CandidateEntityId, "targeting monster should become the combat candidate");
+    AssertFalse(!keyboard.Keys.Contains("X"), "defense target should interrupt maintenance sit with x");
+    AssertFalse(semiAutoState.IsMaintenanceResting, "defense target should clear maintenance sit");
+    AssertEqual((ushort)200, stationaryState.CandidateEntityId, "defense target should become combat candidate");
+    AssertFalse(!stationaryState.CurrentTargetIsMaintenanceDefense, "defense target should be marked as maintenance defense");
 }
 
 static async Task TestStationaryCombatHpRuleRunsBeforeDefenseTargetWorkflowAsync()
@@ -13367,6 +13402,78 @@ static async Task TestStationaryCombatMpSitMaintenanceRunsWithoutDefenseTargetAs
     AssertFalse(!semiAutoState.MaintenanceRestingForMp, "stationary mp sit should track mp recovery");
     AssertFalse(semiAutoState.MaintenanceRestingForHp, "full hp should not be tracked for mp sit maintenance");
     AssertEqual((ushort)0, stationaryState.CandidateEntityId, "target workflow should stay idle while mp sit maintenance starts");
+}
+
+static async Task TestStationaryCombatMpSitMaintenancePreemptsTargetAndPotionAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.MainMode = AccountMainMode.CustomCombat;
+    settings.CombatMode = AccountCombatMode.Stationary;
+    settings.Combat = new CombatScriptSettings
+    {
+        HasStationaryCombatPosition = true,
+        StationaryCombatX = 0,
+        StationaryCombatY = 0,
+        StationaryCombatZ = 0,
+        StationaryCombatRadius = 30
+    };
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 25;
+    settings.Maintenance.SitMpBelowPercent = 30;
+    settings.Maintenance.SitMpRecoverToPercent = 60;
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        ActionType = MaintenanceRuleActionType.Potion,
+        Key = "NumPadAdd",
+        RunTiming = MaintenanceRuleRunTiming.AfterCombat
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 0, "Fake", 100, 100, 20, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now, 0, 10, 0),
+        TargetEntityId = 0,
+        TargetCurrentHp = 0,
+        TargetPosition = null,
+        Skills = CreateSkillSnapshotsById(new Dictionary<uint, uint>
+        {
+            [1] = 0,
+            [5] = 0,
+            [6] = 0
+        }),
+        WorldObjects = new[]
+        {
+            new WorldObjectSnapshot(
+                200,
+                2000,
+                "target",
+                "monster",
+                new Vector3Snapshot(5, 0, 0),
+                5,
+                1000,
+                1000,
+                TargetServerObjectId: 0,
+                IsTargetingLocalPlayer: false)
+        }
+    };
+    var semiAuto = new SemiAutoCombatController(keyboard);
+    var controller = new StationaryCombatController(keyboard, semiAuto);
+    var plan = SemiAutoSkillPlan.FromSettings(settings.Skills);
+    var stationaryState = new StationaryCombatState();
+    var semiAutoState = new SemiAutoCombatState();
+    CalibrateCooldownClock(semiAutoState);
+
+    await controller
+        .TickAsync(CreateContext(settings, gameApi, logger), plan, semiAutoState, stationaryState)
+        .ConfigureAwait(false);
+
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "low mp should sit before target workflow");
+    AssertFalse(keyboard.Keys.Contains("NumPadAdd"), "after-combat mp potion should not preempt sit maintenance");
+    AssertFalse(!semiAutoState.IsMaintenanceResting, "low mp sit maintenance should stay active");
+    AssertFalse(!semiAutoState.MaintenanceRestingForMp, "stationary mp sit should track mp recovery");
+    AssertEqual((ushort)0, stationaryState.CandidateEntityId, "target workflow should wait while mp sit maintenance starts");
 }
 
 static async Task TestStationaryCombatSkipsSkillMaintenanceBeforeCooldownCalibrationAsync()
@@ -15835,6 +15942,218 @@ static async Task TestAfterCombatMpPotionSkipsInventoryAndPressesOnceAsync()
     AssertEqual(0L, Convert.ToInt64(entry.Fields["pressIntervalMs"]), "after-combat potion press interval");
 }
 
+static async Task TestMaintenanceSitPreemptsAfterCombatMpPotionAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitHpBelowPercent = 25;
+    settings.Maintenance.SitMpBelowPercent = 30;
+    settings.Maintenance.SitMpRecoverToPercent = 60;
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        ActionType = MaintenanceRuleActionType.Potion,
+        Key = "NumPadAdd",
+        RunTiming = MaintenanceRuleRunTiming.AfterCombat
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(1, 100, "Fake", 100, 100, 20, 100, 0, new Vector3Snapshot(0, 0, 0), DateTimeOffset.Now)
+    };
+    var state = new SemiAutoCombatState();
+
+    var handled = await new SemiAutoCombatController(keyboard)
+        .TryHandleMaintenanceAsync(
+            CreateContext(settings, gameApi, logger),
+            state,
+            gameApi.Player,
+            runTiming: MaintenanceRuleRunTiming.AfterCombat)
+        .ConfigureAwait(false);
+
+    AssertFalse(!handled, "low mp sit maintenance should be handled");
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "sit threshold should preempt after-combat mp potion");
+    AssertFalse(!state.IsMaintenanceResting, "sit maintenance should stay active after comma");
+    AssertFalse(!state.MaintenanceRestingForMp, "sit maintenance should track mp recovery");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.potion_pressed"), "mp potion should not preempt sit maintenance");
+}
+
+static async Task TestMaintenanceRestAllowsMpPotionWithoutStandingAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitMpBelowPercent = 30;
+    settings.Maintenance.SitMpRecoverToPercent = 60;
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        ActionType = MaintenanceRuleActionType.Potion,
+        Key = "NumPadAdd",
+        RunTiming = MaintenanceRuleRunTiming.AfterCombat
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            100,
+            100,
+            20,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            StanceFlags: 5,
+            MotionMode: 1)
+    };
+    var state = new SemiAutoCombatState();
+    state.StartMaintenanceRest(forHp: false, forMp: true);
+
+    var handled = await new SemiAutoCombatController(keyboard)
+        .TryHandleMaintenanceAsync(
+            CreateContext(settings, gameApi, logger),
+            state,
+            gameApi.Player,
+            runTiming: MaintenanceRuleRunTiming.AfterCombat)
+        .ConfigureAwait(false);
+
+    AssertFalse(!handled, "maintenance rest mp potion should be handled");
+    AssertSequence(new[] { "NumPadAdd" }, keyboard.Keys.ToArray(), "maintenance rest potion should not stand first");
+    AssertFalse(keyboard.Keys.Contains("X"), "maintenance rest potion should not press rest exit");
+    AssertFalse(!state.IsMaintenanceResting, "potion should keep maintenance rest state active");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.potion_pressed"), "maintenance rest potion should be logged");
+}
+
+static async Task TestMaintenanceRestStandsBeforeSkillMaintenanceAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitMpBelowPercent = 30;
+    settings.Maintenance.SitMpRecoverToPercent = 60;
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        ActionType = MaintenanceRuleActionType.Skill,
+        Key = "NumPad3",
+        SkillId = 3,
+        SkillName = "Mana Skill"
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            100,
+            100,
+            20,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            StanceFlags: 5,
+            MotionMode: 1),
+        Skills = new[]
+        {
+            new SkillSnapshot(3, "Mana Skill", 1, 1, "Mana Skill", 1, false, 5_000, 0)
+        }
+    };
+    keyboard.AfterPress = key =>
+    {
+        if (string.Equals(key, "X", StringComparison.Ordinal))
+        {
+            gameApi.Player = gameApi.Player with { StanceFlags = 0, MotionMode = 0 };
+        }
+        else if (string.Equals(key, "NumPad3", StringComparison.Ordinal))
+        {
+            gameApi.Skills = new[]
+            {
+                new SkillSnapshot(3, "Mana Skill", 1, 1, "Mana Skill", 1, false, 5_000, ActiveCooldownEnd())
+            };
+        }
+    };
+    var state = new SemiAutoCombatState();
+    state.StartMaintenanceRest(forHp: false, forMp: true);
+    CalibrateCooldownClock(state);
+
+    var handled = await new SemiAutoCombatController(keyboard)
+        .TryHandleMaintenanceAsync(
+            CreateContext(settings, gameApi, logger),
+            state,
+            gameApi.Player)
+        .ConfigureAwait(false);
+
+    AssertFalse(!handled, "maintenance rest skill should be handled");
+    AssertSequence(new[] { "X", "NumPad3" }, keyboard.Keys.ToArray(), "maintenance rest skill should stand before key");
+    AssertFalse(!state.IsMaintenanceResting, "skill maintenance should keep maintenance rest state after temporary standing");
+    AssertFalse(!logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.key_pressed"), "maintenance rest skill should log confirmed key");
+
+    keyboard.Keys.Clear();
+    state.MarkMaintenanceKeyAttempted("NumPad3", DateTimeOffset.Now - TimeSpan.FromSeconds(1));
+    gameApi.Player = gameApi.Player with { StanceFlags = 1, MotionMode = 0 };
+
+    handled = await new SemiAutoCombatController(keyboard)
+        .TryHandleMaintenanceAsync(
+            CreateContext(settings, gameApi, logger),
+            state,
+            gameApi.Player)
+        .ConfigureAwait(false);
+
+    AssertFalse(!handled, "maintenance rest should continue after skill while below recovery threshold");
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "maintenance rest should sit again after temporary skill standing");
+    AssertFalse(!state.IsMaintenanceResting, "maintenance rest should stay active after sitting back down");
+}
+
+static async Task TestMaintenanceRestInterruptFailureKeepsStateAsync()
+{
+    var settings = CreateScriptSettings();
+    var keyboard = new RecordingKeyboardInput
+    {
+        PressResult = key => string.Equals(key, "X", StringComparison.Ordinal)
+            ? OperationResult.Fail("simulated x failure")
+            : OperationResult.Ok()
+    };
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            100,
+            100,
+            20,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            StanceFlags: 5,
+            MotionMode: 1)
+    };
+    var state = new SemiAutoCombatState();
+    state.StartMaintenanceRest(forHp: false, forMp: true);
+
+    var canceled = await new SemiAutoCombatController(keyboard)
+        .CancelMaintenanceRestAsync(
+            CreateContext(settings, gameApi, logger),
+            state,
+            "defense_target_detected")
+        .ConfigureAwait(false);
+
+    AssertFalse(canceled, "failed x should not cancel maintenance rest");
+    AssertSequence(new[] { "X" }, keyboard.Keys.ToArray(), "maintenance rest interrupt should try x");
+    AssertFalse(!state.IsMaintenanceResting, "failed x should keep maintenance rest lock");
+}
+
 static async Task TestMaintenanceSelectedSkillConfirmsBySkillIdAsync()
 {
     var settings = CreateScriptSettings();
@@ -16640,6 +16959,56 @@ static async Task TestMaintenanceSitReentersWhenInterruptedAsync()
     gameApi.Player = gameApi.Player with { StanceFlags = 5, MotionMode = 1 };
     await controller.TryHandleMaintenanceAsync(context, restingState, gameApi.Player).ConfigureAwait(false);
     AssertSequence(Array.Empty<string>(), keyboard.Keys.ToArray(), "actual resting state should not press comma again");
+}
+
+static async Task TestMaintenanceSitReenterBlocksSameTickPotionAsync()
+{
+    var settings = CreateScriptSettings();
+    settings.Maintenance.SitMaintenanceEnabled = true;
+    settings.Maintenance.SitMpBelowPercent = 30;
+    settings.Maintenance.SitMpRecoverToPercent = 60;
+    settings.Maintenance.MpMaintenanceRules.Add(new MaintenanceKeyRuleConfig
+    {
+        BelowPercent = 60,
+        ActionType = MaintenanceRuleActionType.Potion,
+        Key = "NumPadAdd",
+        RunTiming = MaintenanceRuleRunTiming.AfterCombat
+    });
+
+    var keyboard = new RecordingKeyboardInput();
+    var logger = new InMemoryRoadhogLogger();
+    var gameApi = new FakeGameApi
+    {
+        Player = new PlayerSnapshot(
+            1,
+            100,
+            "Fake",
+            100,
+            100,
+            20,
+            100,
+            0,
+            new Vector3Snapshot(0, 0, 0),
+            DateTimeOffset.Now,
+            StanceFlags: 1,
+            MotionMode: 0)
+    };
+    var controller = new SemiAutoCombatController(keyboard);
+    var state = new SemiAutoCombatState();
+    state.StartMaintenanceRest(forHp: false, forMp: true);
+
+    var handled = await controller
+        .TryHandleMaintenanceAsync(
+            CreateContext(settings, gameApi, logger),
+            state,
+            gameApi.Player,
+            runTiming: MaintenanceRuleRunTiming.AfterCombat)
+        .ConfigureAwait(false);
+
+    AssertFalse(!handled, "interrupted maintenance rest should be handled");
+    AssertSequence(new[] { "OemComma" }, keyboard.Keys.ToArray(), "re-entering rest should block same tick potion");
+    AssertFalse(!state.IsMaintenanceResting, "maintenance rest should remain active after re-enter");
+    AssertFalse(logger.Entries.Any(entry => entry.EventName == "semi_auto.maintenance.potion_pressed"), "potion should wait until a later tick after re-enter");
 }
 
 static async Task TestMaintenanceSitWaitsForHarmfulAbnormalAsync()
@@ -18634,6 +19003,8 @@ sealed class RecordingKeyboardInput : IKeyboardInput
 
     public Action<string>? AfterPress { get; set; }
 
+    public Func<string, OperationResult>? PressResult { get; set; }
+
     public Action<RoadhogMouseButton>? AfterMouseDown { get; set; }
 
     public Action<RoadhogMouseButton>? AfterMouseUp { get; set; }
@@ -18646,8 +19017,13 @@ sealed class RecordingKeyboardInput : IKeyboardInput
         CancellationToken cancellationToken = default)
     {
         Keys.Add(key);
-        AfterPress?.Invoke(key);
-        return Task.FromResult(OperationResult.Ok());
+        var result = PressResult?.Invoke(key) ?? OperationResult.Ok();
+        if (result.Success)
+        {
+            AfterPress?.Invoke(key);
+        }
+
+        return Task.FromResult(result);
     }
 
     public Task<OperationResult> KeyDownAsync(

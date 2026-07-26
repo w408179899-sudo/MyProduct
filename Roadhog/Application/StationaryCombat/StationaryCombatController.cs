@@ -174,6 +174,7 @@ public sealed class StationaryCombatController
         }
 
         WorldObjectSnapshot? noTargetRestWakeTarget = null;
+        var skipMaintenanceThisTick = false;
         if (state.NoTargetRestActive)
         {
             noTargetRestWakeTarget = await TickNoTargetRestAtHomeAsync(
@@ -192,30 +193,91 @@ public sealed class StationaryCombatController
                 return IdleDelay;
             }
         }
-        else if (!state.Fighting &&
-                 CanUseNoTargetRestAtHome(combat) &&
-                 playerDistanceFromHome <= ReturnStopDistance &&
-                 !ShouldDelayNoTargetActionAfterLoot(state, DateTimeOffset.Now))
+        else
         {
-            noTargetRestWakeTarget = await SelectMaintenanceDefenseTargetAsync(
-                    context,
-                    state,
-                    playerPosition,
-                    forceRefresh: true)
-                .ConfigureAwait(false);
-            noTargetRestWakeTarget ??= await SelectTargetAsync(
-                    context,
-                    state,
-                    playerPosition,
-                    home,
-                    radius,
-                    combat.ContestMonster)
-                .ConfigureAwait(false);
-            if (noTargetRestWakeTarget?.Position is null &&
-                await TryEnterNoTargetRestAtHomeAsync(context, semiAutoState, state, player, playerDistanceFromHome)
-                    .ConfigureAwait(false))
+            if (semiAutoState.IsMaintenanceResting)
             {
+                if (state.Fighting && state.CurrentTargetIsMaintenanceDefense)
+                {
+                    if (!await TryInterruptMaintenanceRestForDefenseAsync(
+                            context,
+                            semiAutoState,
+                            state,
+                            player,
+                            "active_defense_target")
+                        .ConfigureAwait(false))
+                    {
+                        return IdleDelay;
+                    }
+
+                    skipMaintenanceThisTick = true;
+                }
+                else
+                {
+                    noTargetRestWakeTarget = await SelectMaintenanceDefenseTargetAsync(
+                            context,
+                            state,
+                            playerPosition,
+                            forceRefresh: true)
+                        .ConfigureAwait(false);
+                    if (noTargetRestWakeTarget?.Position is not null)
+                    {
+                        if (!await TryInterruptMaintenanceRestForDefenseAsync(
+                                context,
+                                semiAutoState,
+                                state,
+                                player,
+                                "defense_target_detected")
+                            .ConfigureAwait(false))
+                        {
+                            return IdleDelay;
+                        }
+
+                        skipMaintenanceThisTick = true;
+                    }
+                }
+            }
+
+            if (!skipMaintenanceThisTick &&
+                await TryHandleStationaryMaintenanceAsync(
+                    context,
+                    plan,
+                    semiAutoState,
+                    state,
+                    player,
+                    allowSitMaintenance: true,
+                    clearSitWhenDisallowed: false)
+                .ConfigureAwait(false))
+            {
+                await StopMovementAsync(context, state).ConfigureAwait(false);
                 return IdleDelay;
+            }
+
+            if (!state.Fighting &&
+                CanUseNoTargetRestAtHome(combat) &&
+                playerDistanceFromHome <= ReturnStopDistance &&
+                !ShouldDelayNoTargetActionAfterLoot(state, DateTimeOffset.Now))
+            {
+                noTargetRestWakeTarget = await SelectMaintenanceDefenseTargetAsync(
+                        context,
+                        state,
+                        playerPosition,
+                        forceRefresh: true)
+                    .ConfigureAwait(false);
+                noTargetRestWakeTarget ??= await SelectTargetAsync(
+                        context,
+                        state,
+                        playerPosition,
+                        home,
+                        radius,
+                        combat.ContestMonster)
+                    .ConfigureAwait(false);
+                if (noTargetRestWakeTarget?.Position is null &&
+                    await TryEnterNoTargetRestAtHomeAsync(context, semiAutoState, state, player, playerDistanceFromHome)
+                        .ConfigureAwait(false))
+                {
+                    return IdleDelay;
+                }
             }
         }
 
@@ -235,28 +297,6 @@ public sealed class StationaryCombatController
             }
 
             noTargetRestWakeTarget = postLootDelayResult.Target;
-        }
-
-        if (noTargetRestWakeTarget is null &&
-            await _semiAuto
-                .TryHandleMaintenanceAsync(
-                    context,
-                    semiAutoState,
-                    player,
-                    allowSitMaintenance: false,
-                    clearSitWhenDisallowed: false,
-                    beforeMaintenanceKeyPress: async () =>
-                    {
-                        semiAutoState.ResetAttackKeyPressThrottle();
-                        await StopMovementAsync(context, state).ConfigureAwait(false);
-                        StopPathFollowPoller(state);
-                    },
-                    plan: plan,
-                    requireCooldownCalibrationForMaintenance: true)
-                .ConfigureAwait(false))
-        {
-            await StopMovementAsync(context, state).ConfigureAwait(false);
-            return IdleDelay;
         }
 
         if (state.Fighting)
@@ -328,33 +368,8 @@ public sealed class StationaryCombatController
                 .ConfigureAwait(false);
         }
 
-        if (target is not null)
+        if (target is null)
         {
-            if (semiAutoState.IsMaintenanceResting)
-            {
-                await _semiAuto
-                    .CancelMaintenanceRestAsync(context, semiAutoState, "targeting_monster_detected")
-                    .ConfigureAwait(false);
-            }
-        }
-        else
-        {
-            var canEnterNoTargetRestAtHome = CanUseNoTargetRestAtHome(combat) &&
-                                             playerDistanceFromHome <= ReturnStopDistance;
-            if (!canEnterNoTargetRestAtHome &&
-                await _semiAuto
-                    .TryHandleMaintenanceAsync(
-                        context,
-                        semiAutoState,
-                        player,
-                        plan: plan,
-                        requireCooldownCalibrationForMaintenance: true)
-                    .ConfigureAwait(false))
-            {
-                await StopMovementAsync(context, state).ConfigureAwait(false);
-                return IdleDelay;
-            }
-
             target = await SelectTargetAsync(
                     context,
                     state,
@@ -392,8 +407,23 @@ public sealed class StationaryCombatController
                 return MoveTickDelay;
             }
 
-            if (CanUseNoTargetRestAtHome(combat) &&
-                playerDistanceFromHome <= ReturnStopDistance &&
+            var canEnterNoTargetRestAtHome = CanUseNoTargetRestAtHome(combat) &&
+                                             playerDistanceFromHome <= ReturnStopDistance;
+            if (!canEnterNoTargetRestAtHome &&
+                await TryHandleStationaryMaintenanceAsync(
+                        context,
+                        plan,
+                        semiAutoState,
+                        state,
+                        player,
+                        allowSitMaintenance: true)
+                    .ConfigureAwait(false))
+            {
+                await StopMovementAsync(context, state).ConfigureAwait(false);
+                return IdleDelay;
+            }
+
+            if (canEnterNoTargetRestAtHome &&
                 await TryEnterNoTargetRestAtHomeAsync(context, semiAutoState, state, player, playerDistanceFromHome)
                     .ConfigureAwait(false))
             {
@@ -407,7 +437,7 @@ public sealed class StationaryCombatController
         }
 
         var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
-        if (state.IsTeamLeaderProtectionTarget(target))
+        if (IsMaintenanceDefenseTarget(target, state))
         {
             state.CurrentTargetIsMaintenanceDefense = true;
             state.CurrentTargetBypassesHomeLeash = true;
@@ -641,22 +671,7 @@ public sealed class StationaryCombatController
             return noKillRecoveryDelay.Value;
         }
 
-        if (await _semiAuto
-                .TryHandleMaintenanceAsync(
-                    context,
-                    semiAutoState,
-                    player,
-                    allowSitMaintenance: false,
-                    clearSitWhenDisallowed: false,
-                    beforeMaintenanceKeyPress: async () =>
-                    {
-                        semiAutoState.ResetAttackKeyPressThrottle();
-                        await StopMovementAsync(context, state).ConfigureAwait(false);
-                        StopPathFollowPoller(state);
-                    },
-                    plan: plan,
-                    requireCooldownCalibrationForMaintenance: true)
-                .ConfigureAwait(false))
+        if (await TryHandleStationaryMaintenanceAsync(context, plan, semiAutoState, state, player).ConfigureAwait(false))
         {
             await StopMovementAsync(context, state).ConfigureAwait(false);
             return IdleDelay;
@@ -2246,24 +2261,28 @@ public sealed class StationaryCombatController
                 playerPosition,
                 forceRefresh: semiAutoState.IsMaintenanceResting)
             .ConfigureAwait(false);
-        if (target is not null)
+        if (target is not null && semiAutoState.IsMaintenanceResting)
         {
-            if (semiAutoState.IsMaintenanceResting)
+            if (!await TryInterruptMaintenanceRestForDefenseAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    player,
+                    "path_combat_defense_target_detected")
+                .ConfigureAwait(false))
             {
-                await _semiAuto
-                    .CancelMaintenanceRestAsync(context, semiAutoState, "path_combat_targeting_monster_detected")
-                    .ConfigureAwait(false);
+                return IdleDelay;
             }
         }
-        else
+        if (target is null)
         {
-            if (await _semiAuto
-                    .TryHandleMaintenanceAsync(
+            if (await TryHandleStationaryMaintenanceAsync(
                         context,
+                        plan,
                         semiAutoState,
+                        state,
                         player,
-                        plan: plan,
-                        requireCooldownCalibrationForMaintenance: true)
+                        allowSitMaintenance: true)
                     .ConfigureAwait(false))
             {
                 await StopMovementAsync(context, state).ConfigureAwait(false);
@@ -2294,8 +2313,8 @@ public sealed class StationaryCombatController
         var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
         state.PathCombat.MarkCurrentTargetAnchor(playerPosition);
         state.CurrentTargetIsRevivePathClear = false;
-        state.CurrentTargetBypassesHomeLeash = state.IsTeamLeaderProtectionTarget(target);
-        if (state.IsTeamLeaderProtectionTarget(target))
+        state.CurrentTargetBypassesHomeLeash = IsMaintenanceDefenseTarget(target, state);
+        if (IsMaintenanceDefenseTarget(target, state))
         {
             state.CurrentTargetIsMaintenanceDefense = true;
         }
@@ -2884,9 +2903,21 @@ public sealed class StationaryCombatController
 
         if (semiAutoState.IsMaintenanceResting)
         {
-            await _semiAuto
-                .CancelMaintenanceRestAsync(context, semiAutoState, recoveryPhase + "_targeting_monster_detected")
-                .ConfigureAwait(false);
+            if (isRevivePathClearTarget && !IsMaintenanceDefenseTarget(target, state))
+            {
+                return IdleDelay;
+            }
+
+            if (!await TryInterruptMaintenanceRestForDefenseAsync(
+                    context,
+                    semiAutoState,
+                    state,
+                    player,
+                    recoveryPhase + "_defense_target_detected")
+                .ConfigureAwait(false))
+            {
+                return IdleDelay;
+            }
         }
 
         semiAutoState.ResetAttackKeyPressThrottle();
@@ -2895,8 +2926,8 @@ public sealed class StationaryCombatController
 
         var candidateChanged = state.MarkCandidate(target, DateTimeOffset.Now);
         state.CurrentTargetIsRevivePathClear = isRevivePathClearTarget;
-        state.CurrentTargetBypassesHomeLeash = isRevivePathClearTarget || state.IsTeamLeaderProtectionTarget(target);
-        if (state.IsTeamLeaderProtectionTarget(target))
+        state.CurrentTargetBypassesHomeLeash = isRevivePathClearTarget || IsMaintenanceDefenseTarget(target, state);
+        if (IsMaintenanceDefenseTarget(target, state))
         {
             state.CurrentTargetIsMaintenanceDefense = true;
         }
@@ -3638,6 +3669,37 @@ public sealed class StationaryCombatController
         return StationaryCombatBehaviorStatus.Success;
     }
 
+    private async Task<bool> TryHandleStationaryMaintenanceAsync(
+        AccountWorkerContext context,
+        SemiAutoSkillPlan plan,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
+        bool includeAlwaysRules = true,
+        bool allowSitMaintenance = true,
+        bool clearSitWhenDisallowed = false)
+    {
+        return await _semiAuto
+            .TryHandleMaintenanceAsync(
+                context,
+                semiAutoState,
+                player,
+                allowSitMaintenance: allowSitMaintenance,
+                clearSitWhenDisallowed: clearSitWhenDisallowed,
+                beforeMaintenanceKeyPress: async () =>
+                {
+                    semiAutoState.ResetAttackKeyPressThrottle();
+                    await StopMovementAsync(context, state).ConfigureAwait(false);
+                    StopPathFollowPoller(state);
+                },
+                plan: plan,
+                requireCooldownCalibrationForMaintenance: true,
+                runTiming: runTiming,
+                includeAlwaysRules: includeAlwaysRules)
+            .ConfigureAwait(false);
+    }
+
     private async Task<bool> RunPostCombatMaintenanceRoundAsync(
         AccountWorkerContext context,
         SemiAutoSkillPlan plan,
@@ -3654,23 +3716,15 @@ public sealed class StationaryCombatController
         var targetName = killedTarget?.Name ?? state.LootAfterKill.KilledTargetName;
         for (var iteration = 1; iteration <= DefaultPostCombatMaintenanceRoundLimit; iteration++)
         {
-            var handled = await _semiAuto
-                .TryHandleMaintenanceAsync(
+            var handled = await TryHandleStationaryMaintenanceAsync(
                     context,
+                    plan,
                     semiAutoState,
+                    state,
                     currentPlayer,
-                    allowSitMaintenance: false,
-                    clearSitWhenDisallowed: false,
-                    beforeMaintenanceKeyPress: async () =>
-                    {
-                        semiAutoState.ResetAttackKeyPressThrottle();
-                        await StopMovementAsync(context, state).ConfigureAwait(false);
-                        StopPathFollowPoller(state);
-                    },
-                    plan: plan,
-                    requireCooldownCalibrationForMaintenance: true,
-                    runTiming: MaintenanceRuleRunTiming.AfterCombat,
-                    includeAlwaysRules: true)
+                    MaintenanceRuleRunTiming.AfterCombat,
+                    includeAlwaysRules: true,
+                    allowSitMaintenance: true)
                 .ConfigureAwait(false);
             if (!handled)
             {
@@ -3686,6 +3740,11 @@ public sealed class StationaryCombatController
                 ["targetName"] = targetName,
                 ["iteration"] = iteration
             });
+
+            if (semiAutoState.IsMaintenanceResting)
+            {
+                break;
+            }
 
             if (iteration == DefaultPostCombatMaintenanceRoundLimit)
             {
@@ -4088,6 +4147,46 @@ public sealed class StationaryCombatController
             ["targetingServerObjectId"] = target.TargetServerObjectId,
             ["targetingMe"] = IsTargetingLocalSide(target, state)
         });
+        return true;
+    }
+
+    private async Task<bool> TryInterruptMaintenanceRestForDefenseAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState semiAutoState,
+        StationaryCombatState state,
+        PlayerSnapshot player,
+        string reason)
+    {
+        if (!semiAutoState.IsMaintenanceResting)
+        {
+            return true;
+        }
+
+        if (player.HasRestState && !player.IsResting)
+        {
+            semiAutoState.ClearMaintenanceRest();
+            context.Logger.Info("stationary_combat.maintenance_rest.defense_clear_without_x", new Dictionary<string, object?>
+            {
+                ["account"] = context.Config.AccountName,
+                ["reason"] = reason,
+                ["stanceFlags"] = player.StanceFlags,
+                ["stanceLow"] = player.StanceLowNibble,
+                ["motionMode"] = player.MotionMode
+            });
+            return true;
+        }
+
+        var canceled = await _semiAuto
+            .CancelMaintenanceRestAsync(context, semiAutoState, reason)
+            .ConfigureAwait(false);
+        if (!canceled)
+        {
+            return false;
+        }
+
+        semiAutoState.ResetAttackKeyPressThrottle();
+        await StopMovementAsync(context, state).ConfigureAwait(false);
+        StopPathFollowPoller(state);
         return true;
     }
 
@@ -6507,6 +6606,12 @@ public sealed class StationaryCombatController
         }
 
         return IsLocalSideServerObjectId(target.TargetServerObjectId, state);
+    }
+
+    private static bool IsMaintenanceDefenseTarget(WorldObjectSnapshot target, StationaryCombatState state)
+    {
+        return IsTargetingLocalSide(target, state) ||
+               state.IsTeamLeaderProtectionTarget(target);
     }
 
     private static bool IsTargetingLocalSide(LockedTargetSnapshot target, StationaryCombatState state)

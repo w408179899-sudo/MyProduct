@@ -10,6 +10,12 @@ namespace Roadhog.Application.SemiAuto;
 
 public sealed class SemiAutoCombatController
 {
+    private enum SitMaintenanceContinuation
+    {
+        BlockTick,
+        AllowMaintenanceRules
+    }
+
     private static readonly TimeSpan WarningLogInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan MaintenanceConfirmWindow = TimeSpan.FromSeconds(6);
     private static readonly TimeSpan StatusMaintenanceConfirmWindow = TimeSpan.FromMilliseconds(1300);
@@ -574,7 +580,7 @@ public sealed class SemiAutoCombatController
         var mpRecoverToPercent = Math.Clamp(maintenance.SitMpRecoverToPercent, 1, 100);
         if (state.IsMaintenanceResting)
         {
-            return await ContinueSitMaintenanceAsync(
+            var continuation = await ContinueSitMaintenanceAsync(
                     context,
                     state,
                     settings,
@@ -582,6 +588,29 @@ public sealed class SemiAutoCombatController
                     player,
                     hpRecoverToPercent)
                 .ConfigureAwait(false);
+            if (continuation == SitMaintenanceContinuation.BlockTick)
+            {
+                return true;
+            }
+
+            if (await TryPressMaintenanceRulesAsync(
+                    context,
+                    state,
+                    settings,
+                    maintenance,
+                    player,
+                    beforeMaintenanceKeyPress,
+                    plan,
+                    requireCooldownCalibrationForMaintenance,
+                    MaintenanceRuleRunTiming.Always,
+                    includeAlwaysRules: true,
+                    allowPotionWhileResting: true)
+                .ConfigureAwait(false))
+            {
+                return true;
+            }
+
+            return true;
         }
 
         var hpRecovered = IsPercentAtOrAbove(player.CurrentHp, player.MaxHp, hpRecoverToPercent);
@@ -799,9 +828,78 @@ public sealed class SemiAutoCombatController
 
         if (allowSitMaintenance && state.IsMaintenanceResting)
         {
-            return await ContinueSitMaintenanceAsync(context, state, settings, maintenance, player).ConfigureAwait(false);
+            var continuation = await ContinueSitMaintenanceAsync(context, state, settings, maintenance, player).ConfigureAwait(false);
+            if (continuation == SitMaintenanceContinuation.BlockTick)
+            {
+                return true;
+            }
+
+            if (await TryPressMaintenanceRulesAsync(
+                    context,
+                    state,
+                    settings,
+                    maintenance,
+                    player,
+                    beforeMaintenanceKeyPress,
+                    plan,
+                    requireCooldownCalibrationForMaintenance,
+                    runTiming,
+                    includeAlwaysRules,
+                    allowPotionWhileResting: true)
+                .ConfigureAwait(false))
+            {
+                return true;
+            }
+
+            return true;
         }
 
+        if (allowSitMaintenance &&
+            await TryEnterSitMaintenanceAsync(
+                    context,
+                    state,
+                    settings,
+                    maintenance,
+                    player,
+                    beforeMaintenanceKeyPress)
+                .ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        if (await TryPressMaintenanceRulesAsync(
+                context,
+                state,
+                settings,
+                maintenance,
+                player,
+                beforeMaintenanceKeyPress,
+                plan,
+                requireCooldownCalibrationForMaintenance,
+                runTiming,
+                includeAlwaysRules,
+                allowPotionWhileResting: false)
+            .ConfigureAwait(false))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task<bool> TryPressMaintenanceRulesAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        MaintenanceScriptSettings maintenance,
+        PlayerSnapshot player,
+        Func<Task>? beforeMaintenanceKeyPress,
+        SemiAutoSkillPlan? plan,
+        bool requireCooldownCalibrationForMaintenance,
+        MaintenanceRuleRunTiming runTiming,
+        bool includeAlwaysRules,
+        bool allowPotionWhileResting)
+    {
         if (await TryPressStatusMaintenanceRuleAsync(
                 context,
                 state,
@@ -848,13 +946,14 @@ public sealed class SemiAutoCombatController
                 plan,
                 requireCooldownCalibrationForMaintenance,
                 runTiming,
-                includeAlwaysRules)
+                includeAlwaysRules,
+                allowPotionWhileResting)
             .ConfigureAwait(false))
         {
             return true;
         }
 
-        if (await TryPressMaintenanceRuleAsync(
+        return await TryPressMaintenanceRuleAsync(
                 context,
                 state,
                 settings,
@@ -867,13 +966,178 @@ public sealed class SemiAutoCombatController
                 plan,
                 requireCooldownCalibrationForMaintenance,
                 runTiming,
-                includeAlwaysRules)
-            .ConfigureAwait(false))
+                includeAlwaysRules,
+                allowPotionWhileResting)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<bool> TryPressMaintenanceRuleAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        IEnumerable<MaintenanceKeyRuleConfig>? rules,
+        string resource,
+        uint current,
+        uint max,
+        PlayerSnapshot player,
+        Func<Task>? beforeMaintenanceKeyPress = null,
+        SemiAutoSkillPlan? plan = null,
+        bool requireCooldownCalibrationForMaintenance = false,
+        MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
+        bool includeAlwaysRules = true,
+        bool allowPotionWhileResting = false)
+    {
+        if (max == 0)
         {
-            return true;
+            return false;
         }
 
-        if (!allowSitMaintenance || !maintenance.SitMaintenanceEnabled)
+        var percent = Percent(current, max);
+        OperationResult<IReadOnlyList<SkillSnapshot>>? skillsResult = null;
+        OperationResult<IReadOnlyList<InventoryItemSnapshot>>? inventoryResult = null;
+        foreach (var rule in (rules ?? Array.Empty<MaintenanceKeyRuleConfig>())
+                     .Where(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
+                                     IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules))
+                     .OrderBy(rule => GetMaintenanceRuleActionPriority(resource, rule))
+                     .ThenBy(rule => Math.Clamp(rule.BelowPercent, 0, 100)))
+        {
+            var threshold = Math.Clamp(rule.BelowPercent, 0, 100);
+            if (percent > threshold)
+            {
+                continue;
+            }
+
+            var now = DateTimeOffset.Now;
+            if (rule.ActionType == MaintenanceRuleActionType.Potion)
+            {
+                if (!string.Equals(resource, "mp", StringComparison.OrdinalIgnoreCase) ||
+                    !state.ShouldPressMaintenanceKey(
+                        rule.Key,
+                        now,
+                        MaintenanceKeyRetryInterval,
+                        MaintenanceGlobalKeyInterval))
+                {
+                    continue;
+                }
+
+                if (runTiming == MaintenanceRuleRunTiming.AfterCombat)
+                {
+                    return await ExecuteMaintenancePotionRuleAsync(
+                            context,
+                            state,
+                            settings,
+                            rule,
+                            resource,
+                            current,
+                            max,
+                            percent,
+                            threshold,
+                            player,
+                            beforeMaintenanceKeyPress,
+                            allowWhileMaintenanceResting: allowPotionWhileResting)
+                        .ConfigureAwait(false);
+                }
+
+                inventoryResult ??= await ReadInventoryAsync(context).ConfigureAwait(false);
+                if (!inventoryResult.Success || inventoryResult.Value is null)
+                {
+                    LogMaintenancePotionInventoryReadFailed(context, state, rule, inventoryResult.Error);
+                    continue;
+                }
+
+                if (!inventoryResult.Value.Any(IsSpiritMpPotion))
+                {
+                    continue;
+                }
+
+                return await ExecuteMaintenancePotionRuleAsync(
+                        context,
+                        state,
+                        settings,
+                        rule,
+                        resource,
+                        current,
+                        max,
+                        percent,
+                        threshold,
+                        player,
+                        beforeMaintenanceKeyPress,
+                        allowWhileMaintenanceResting: allowPotionWhileResting)
+                    .ConfigureAwait(false);
+            }
+
+            if (requireCooldownCalibrationForMaintenance &&
+                !state.HasCooldownTickCalibration)
+            {
+                continue;
+            }
+
+            var hasExplicitSkill = HasExplicitMaintenanceSkill(rule);
+            SkillSnapshot? maintenanceSkill = null;
+            if (hasExplicitSkill || plan is not null)
+            {
+                skillsResult ??= await ReadAllSkillsAsync(context).ConfigureAwait(false);
+                if (skillsResult.Success && skillsResult.Value is not null)
+                {
+                    maintenanceSkill = ResolveMaintenanceRuleSkill(rule, plan, skillsResult.Value);
+                    if (maintenanceSkill is not null &&
+                        GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
+                    {
+                        LogMaintenanceRuleSkippedCooling(context, state, rule, resource, maintenanceSkill);
+                        continue;
+                    }
+
+                    if (hasExplicitSkill && maintenanceSkill is null)
+                    {
+                        LogMaintenanceRuleSkippedMissing(context, state, rule, resource);
+                        continue;
+                    }
+                }
+                else if (hasExplicitSkill)
+                {
+                    LogMaintenanceRuleSkillReadFailed(context, state, rule, resource, skillsResult.Error);
+                    continue;
+                }
+            }
+
+            now = DateTimeOffset.Now;
+            if (!state.ShouldPressMaintenanceKey(
+                    rule.Key,
+                    now,
+                    MaintenanceKeyRetryInterval,
+                    MaintenanceGlobalKeyInterval))
+            {
+                continue;
+            }
+
+            return await ExecuteMaintenanceKeyRuleAsync(
+                    context,
+                    state,
+                    settings,
+                    rule,
+                    resource,
+                    current,
+                    max,
+                    percent,
+                    threshold,
+                    player,
+                    beforeMaintenanceKeyPress,
+                    maintenanceSkill)
+                .ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
+    private async Task<bool> TryEnterSitMaintenanceAsync(
+        AccountWorkerContext context,
+        SemiAutoCombatState state,
+        SemiAutoScriptSettings settings,
+        MaintenanceScriptSettings maintenance,
+        PlayerSnapshot player,
+        Func<Task>? beforeMaintenanceKeyPress = null)
+    {
+        if (!maintenance.SitMaintenanceEnabled)
         {
             return false;
         }
@@ -996,7 +1260,6 @@ public sealed class SemiAutoCombatController
         if (!result.Success)
         {
             LogMaintenanceKeyFailure(context, state, RestExitKey, "rest_interrupt", result.Error);
-            state.ClearMaintenanceRest();
             return false;
         }
 
@@ -1010,7 +1273,7 @@ public sealed class SemiAutoCombatController
         return true;
     }
 
-    private async Task<bool> ContinueSitMaintenanceAsync(
+    private async Task<SitMaintenanceContinuation> ContinueSitMaintenanceAsync(
         AccountWorkerContext context,
         SemiAutoCombatState state,
         SemiAutoScriptSettings settings,
@@ -1034,7 +1297,7 @@ public sealed class SemiAutoCombatController
                         MaintenanceKeyRetryInterval,
                         MaintenanceGlobalKeyInterval))
                 {
-                    return true;
+                    return SitMaintenanceContinuation.BlockTick;
                 }
 
                 var reenterResult = await _keyboard
@@ -1043,7 +1306,7 @@ public sealed class SemiAutoCombatController
                 if (!reenterResult.Success)
                 {
                     LogMaintenanceKeyFailure(context, state, RestEnterKey, "rest_reenter", reenterResult.Error);
-                    return true;
+                    return SitMaintenanceContinuation.BlockTick;
                 }
 
                 state.MarkMaintenanceKeyAttempted(RestEnterKey, DateTimeOffset.Now);
@@ -1061,9 +1324,10 @@ public sealed class SemiAutoCombatController
                     ["stanceLow"] = player.StanceLowNibble,
                     ["motionMode"] = player.MotionMode
                 });
+                return SitMaintenanceContinuation.BlockTick;
             }
 
-            return true;
+            return SitMaintenanceContinuation.AllowMaintenanceRules;
         }
 
         var result = await _keyboard
@@ -1072,7 +1336,7 @@ public sealed class SemiAutoCombatController
         if (!result.Success)
         {
             LogMaintenanceKeyFailure(context, state, RestExitKey, "rest_exit", result.Error);
-            return true;
+            return SitMaintenanceContinuation.BlockTick;
         }
 
         context.Logger.Info("semi_auto.maintenance.rest_exit", new Dictionary<string, object?>
@@ -1085,162 +1349,7 @@ public sealed class SemiAutoCombatController
             ["maxMp"] = player.MaxMp
         });
         state.ClearMaintenanceRest();
-        return true;
-    }
-
-    private async Task<bool> TryPressMaintenanceRuleAsync(
-        AccountWorkerContext context,
-        SemiAutoCombatState state,
-        SemiAutoScriptSettings settings,
-        IEnumerable<MaintenanceKeyRuleConfig>? rules,
-        string resource,
-        uint current,
-        uint max,
-        PlayerSnapshot player,
-        Func<Task>? beforeMaintenanceKeyPress = null,
-        SemiAutoSkillPlan? plan = null,
-        bool requireCooldownCalibrationForMaintenance = false,
-        MaintenanceRuleRunTiming runTiming = MaintenanceRuleRunTiming.Always,
-        bool includeAlwaysRules = true)
-    {
-        if (max == 0)
-        {
-            return false;
-        }
-
-        var percent = Percent(current, max);
-        OperationResult<IReadOnlyList<SkillSnapshot>>? skillsResult = null;
-        OperationResult<IReadOnlyList<InventoryItemSnapshot>>? inventoryResult = null;
-        foreach (var rule in (rules ?? Array.Empty<MaintenanceKeyRuleConfig>())
-                     .Where(rule => !string.IsNullOrWhiteSpace(rule.Key) &&
-                                     IsMaintenanceRuleAllowed(rule, runTiming, includeAlwaysRules))
-                     .OrderBy(rule => GetMaintenanceRuleActionPriority(resource, rule))
-                     .ThenBy(rule => Math.Clamp(rule.BelowPercent, 0, 100)))
-        {
-            var threshold = Math.Clamp(rule.BelowPercent, 0, 100);
-            if (percent > threshold)
-            {
-                continue;
-            }
-
-            var now = DateTimeOffset.Now;
-            if (rule.ActionType == MaintenanceRuleActionType.Potion)
-            {
-                if (!string.Equals(resource, "mp", StringComparison.OrdinalIgnoreCase) ||
-                    !state.ShouldPressMaintenanceKey(
-                        rule.Key,
-                        now,
-                        MaintenanceKeyRetryInterval,
-                        MaintenanceGlobalKeyInterval))
-                {
-                    continue;
-                }
-
-                if (runTiming == MaintenanceRuleRunTiming.AfterCombat)
-                {
-                    return await ExecuteMaintenancePotionRuleAsync(
-                            context,
-                            state,
-                            settings,
-                            rule,
-                            resource,
-                            current,
-                            max,
-                            percent,
-                            threshold,
-                            player,
-                            beforeMaintenanceKeyPress)
-                        .ConfigureAwait(false);
-                }
-
-                inventoryResult ??= await ReadInventoryAsync(context).ConfigureAwait(false);
-                if (!inventoryResult.Success || inventoryResult.Value is null)
-                {
-                    LogMaintenancePotionInventoryReadFailed(context, state, rule, inventoryResult.Error);
-                    continue;
-                }
-
-                if (!inventoryResult.Value.Any(IsSpiritMpPotion))
-                {
-                    continue;
-                }
-
-                return await ExecuteMaintenancePotionRuleAsync(
-                        context,
-                        state,
-                        settings,
-                        rule,
-                        resource,
-                        current,
-                        max,
-                        percent,
-                        threshold,
-                        player,
-                        beforeMaintenanceKeyPress)
-                    .ConfigureAwait(false);
-            }
-
-            if (requireCooldownCalibrationForMaintenance &&
-                !state.HasCooldownTickCalibration)
-            {
-                continue;
-            }
-
-            var hasExplicitSkill = HasExplicitMaintenanceSkill(rule);
-            SkillSnapshot? maintenanceSkill = null;
-            if (hasExplicitSkill || plan is not null)
-            {
-                skillsResult ??= await ReadAllSkillsAsync(context).ConfigureAwait(false);
-                if (skillsResult.Success && skillsResult.Value is not null)
-                {
-                    maintenanceSkill = ResolveMaintenanceRuleSkill(rule, plan, skillsResult.Value);
-                    if (maintenanceSkill is not null &&
-                        GetMaintenanceCooldownReadiness(maintenanceSkill, state) == SemiAutoSkillCooldownReadiness.CoolingDown)
-                    {
-                        LogMaintenanceRuleSkippedCooling(context, state, rule, resource, maintenanceSkill);
-                        continue;
-                    }
-
-                    if (hasExplicitSkill && maintenanceSkill is null)
-                    {
-                        LogMaintenanceRuleSkippedMissing(context, state, rule, resource);
-                        continue;
-                    }
-                }
-                else if (hasExplicitSkill)
-                {
-                    LogMaintenanceRuleSkillReadFailed(context, state, rule, resource, skillsResult.Error);
-                    continue;
-                }
-            }
-
-            now = DateTimeOffset.Now;
-            if (!state.ShouldPressMaintenanceKey(
-                    rule.Key,
-                    now,
-                    MaintenanceKeyRetryInterval,
-                    MaintenanceGlobalKeyInterval))
-            {
-                continue;
-            }
-
-            return await ExecuteMaintenanceKeyRuleAsync(
-                    context,
-                    state,
-                    settings,
-                    rule,
-                    resource,
-                    current,
-                    max,
-                    percent,
-                    threshold,
-                    player,
-                    beforeMaintenanceKeyPress,
-                    maintenanceSkill)
-                .ConfigureAwait(false);
-        }
-
-        return false;
+        return SitMaintenanceContinuation.BlockTick;
     }
 
     private async Task<bool> TryPressStatusMaintenanceRuleAsync(
@@ -1662,17 +1771,6 @@ public sealed class SemiAutoCombatController
             await beforeMaintenanceKeyPress().ConfigureAwait(false);
         }
 
-        if (!await EnsureSupportSelfSelectedBeforeStatusMaintenanceAsync(
-                    context,
-                    state,
-                    settings,
-                    rule,
-                    player)
-                .ConfigureAwait(false))
-        {
-            return false;
-        }
-
         if (!await EnsureStandingBeforeMaintenanceKeyAsync(
                     context,
                     state,
@@ -1680,6 +1778,17 @@ public sealed class SemiAutoCombatController
                     player,
                     resource,
                     rule.Key)
+                .ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        if (!await EnsureSupportSelfSelectedBeforeStatusMaintenanceAsync(
+                    context,
+                    state,
+                    settings,
+                    rule,
+                    player)
                 .ConfigureAwait(false))
         {
             return false;
@@ -1854,7 +1963,8 @@ public sealed class SemiAutoCombatController
         PlayerSnapshot player,
         Func<Task>? beforeMaintenanceKeyPress,
         int pressCount = 1,
-        TimeSpan? pressInterval = null)
+        TimeSpan? pressInterval = null,
+        bool allowWhileMaintenanceResting = false)
     {
         if (beforeMaintenanceKeyPress is not null)
         {
@@ -1867,7 +1977,8 @@ public sealed class SemiAutoCombatController
                     settings,
                     player,
                     resource,
-                    rule.Key)
+                    rule.Key,
+                    allowWhileMaintenanceResting)
                 .ConfigureAwait(false))
         {
             return false;
@@ -2075,8 +2186,16 @@ public sealed class SemiAutoCombatController
         SemiAutoScriptSettings settings,
         PlayerSnapshot player,
         string resource,
-        string maintenanceKey)
+        string maintenanceKey,
+        bool allowWhileMaintenanceResting = false)
     {
+        if (allowWhileMaintenanceResting &&
+            state.IsMaintenanceResting &&
+            player.IsResting)
+        {
+            return true;
+        }
+
         if (!player.IsResting)
         {
             return true;
@@ -2091,7 +2210,12 @@ public sealed class SemiAutoCombatController
             return false;
         }
 
-        state.ClearMaintenanceRest();
+        var keepMaintenanceRestLock = state.IsMaintenanceResting;
+        if (!keepMaintenanceRestLock)
+        {
+            state.ClearMaintenanceRest();
+        }
+
         context.Logger.Info("semi_auto.maintenance.rest_exit_before_key", new Dictionary<string, object?>
         {
             ["account"] = context.Config.AccountName,
